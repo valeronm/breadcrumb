@@ -553,16 +553,17 @@ private fun TracksTab(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         groups.forEach { (label, dayTracks) ->
-            item(key = "header:$label") { DayHeader(label) }
+            item(key = "header:$label") {
+                DayHeader(label) {
+                    viewModel.shareTracks(dayTracks.map { it.id }) { intent ->
+                        if (intent != null) context.startActivity(intent)
+                    }
+                }
+            }
             items(dayTracks, key = { it.id }) { track ->
                 TrackRow(
                     track = track,
                     onOpen = { onOpen(track.id) },
-                    onShare = {
-                        viewModel.share(track.id) { intent ->
-                            if (intent != null) context.startActivity(intent)
-                        }
-                    },
                     onDeleteRequest = { pendingDelete = track },
                 )
             }
@@ -595,13 +596,21 @@ private fun TracksTab(
 }
 
 @Composable
-private fun DayHeader(label: String) {
-    Text(
-        label,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-    )
+private fun DayHeader(label: String, onShare: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        IconButton(onClick = onShare) {
+            Icon(Icons.Filled.Share, contentDescription = "Share $label tracks")
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -768,7 +777,6 @@ private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 private fun TrackRow(
     track: TrackSummary,
     onOpen: () -> Unit,
-    onShare: () -> Unit,
     onDeleteRequest: () -> Unit,
 ) {
     // Swipe right-to-left to request deletion; we reject the dismiss so the row springs back and
@@ -831,9 +839,6 @@ private fun TrackRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = onShare) {
-                    Icon(Icons.Filled.Share, contentDescription = "Export GPX")
-                }
             }
         }
     }
@@ -856,6 +861,7 @@ private fun TrackMapScreen(
     onBack: () -> Unit,
 ) {
     // null = still loading the track's points from the database.
+    val context = LocalContext.current
     val points by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
         value = viewModel.getPoints(trackId)
     }
@@ -869,6 +875,15 @@ private fun TrackMapScreen(
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = {
+                            viewModel.share(trackId) { intent ->
+                                if (intent != null) context.startActivity(intent)
+                            }
+                        }) {
+                            Icon(Icons.Filled.Share, contentDescription = "Share GPX")
                         }
                     },
                 )

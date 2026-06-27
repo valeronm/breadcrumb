@@ -58,4 +58,32 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             onReady(Intent.createChooser(share, "Share GPX track"))
         }
     }
+
+    /** Exports several tracks and hands back a multi-file share chooser Intent. */
+    fun shareTracks(trackIds: List<Long>, onReady: (Intent?) -> Unit) {
+        viewModelScope.launch {
+            val uris = ArrayList<Uri>()
+            for (id in trackIds) {
+                GpxExporter.export(getApplication(), repository, id)?.let { uris.add(it) }
+            }
+            if (uris.isEmpty()) {
+                onReady(null)
+                return@launch
+            }
+            val intent = if (uris.size == 1) {
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "application/gpx+xml"
+                    putExtra(Intent.EXTRA_STREAM, uris.first())
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            } else {
+                Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "application/gpx+xml"
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+            onReady(Intent.createChooser(intent, "Share GPX tracks"))
+        }
+    }
 }
