@@ -810,6 +810,8 @@ private fun TrackMap(points: List<TrackPoint>) {
             EdgeAwareMapView(ctx).apply {
                 setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
+                // Start zoomed in so the first frame never shows the default world view.
+                controller.setZoom(15.0)
                 onResume()
             }
         },
@@ -823,8 +825,10 @@ private fun TrackMap(points: List<TrackPoint>) {
             map.overlays.add(line)
             map.overlays.add(endpointMarker(map, geoPoints.first(), "Start", R.drawable.ic_marker_start))
             map.overlays.add(endpointMarker(map, geoPoints.last(), "End", R.drawable.ic_marker_end))
-            // Frame the whole track once the view has been laid out.
             val bounds = BoundingBox.fromGeoPointsSafe(geoPoints)
+            // Center synchronously so the first drawn frame is already on the track (no flash),
+            // then refine to fit the whole track once the view has been laid out.
+            map.controller.setCenter(GeoPoint(bounds.centerLatitude, bounds.centerLongitude))
             map.post { map.zoomToBoundingBox(bounds, false, 80) }
             map.invalidate()
         },

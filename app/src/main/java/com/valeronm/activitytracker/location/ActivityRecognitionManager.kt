@@ -18,17 +18,23 @@ class ActivityRecognitionManager(private val context: Context) {
 
     private val client = ActivityRecognition.getClient(context)
 
-    private fun pendingIntent(): PendingIntent {
+    private fun broadcastPendingIntent(action: String, requestCode: Int): PendingIntent {
         val intent = Intent(context, ActivityTransitionReceiver::class.java).apply {
-            action = ActivityTransitionReceiver.ACTION_TRANSITION
+            this.action = action
         }
         var flags = PendingIntent.FLAG_UPDATE_CURRENT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // The system mutates the intent to attach transition results.
+            // The system mutates the intent to attach activity results.
             flags = flags or PendingIntent.FLAG_MUTABLE
         }
-        return PendingIntent.getBroadcast(context, REQUEST_CODE, intent, flags)
+        return PendingIntent.getBroadcast(context, requestCode, intent, flags)
     }
+
+    private fun transitionPendingIntent() =
+        broadcastPendingIntent(ActivityTransitionReceiver.ACTION_TRANSITION, REQUEST_TRANSITION)
+
+    private fun snapshotPendingIntent() =
+        broadcastPendingIntent(ActivityTransitionReceiver.ACTION_SNAPSHOT, REQUEST_SNAPSHOT)
 
     private fun buildRequest(): ActivityTransitionRequest {
         val transitions = ArrayList<ActivityTransition>()
@@ -46,15 +52,30 @@ class ActivityRecognitionManager(private val context: Context) {
     /** Caller must hold ACTIVITY_RECOGNITION; the service checks before invoking. */
     @SuppressLint("MissingPermission")
     fun start() {
-        client.requestActivityTransitionUpdates(buildRequest(), pendingIntent())
+        client.requestActivityTransitionUpdates(buildRequest(), transitionPendingIntent())
     }
 
     @SuppressLint("MissingPermission")
     fun stop() {
-        client.removeActivityTransitionUpdates(pendingIntent())
+        client.removeActivityTransitionUpdates(transitionPendingIntent())
+    }
+
+    /**
+     * Requests a one-shot snapshot of the current activity so recording can start immediately if
+     * the user is already moving when they arm. The receiver removes it after the first result.
+     */
+    @SuppressLint("MissingPermission")
+    fun requestSnapshot() {
+        client.requestActivityUpdates(0L, snapshotPendingIntent())
+    }
+
+    @SuppressLint("MissingPermission")
+    fun removeSnapshot() {
+        client.removeActivityUpdates(snapshotPendingIntent())
     }
 
     private companion object {
-        const val REQUEST_CODE = 4711
+        const val REQUEST_TRANSITION = 4711
+        const val REQUEST_SNAPSHOT = 4712
     }
 }

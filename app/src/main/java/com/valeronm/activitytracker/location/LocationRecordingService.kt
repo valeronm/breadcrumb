@@ -79,19 +79,24 @@ class LocationRecordingService : Service() {
     }
 
     private fun handleStart() {
-        startForegroundWithNotification(ActivityType.UNKNOWN.label, "Starting…")
+        startForegroundWithNotification(ActivityType.STILL.label, "Waiting for movement…")
         TrackingStatus.update { it.copy(tracking = true) }
 
         if (hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
             activityManager.start()
+            // One-shot: if we're already moving right now, start recording without waiting for
+            // the next transition.
+            activityManager.requestSnapshot()
         }
-        // Begin recording immediately; transitions will refine the profile from here.
+        // Start armed but paused — recording begins when a moving activity transition arrives.
+        // (Don't optimistically open a track: while stationary it would just be created and
+        // immediately discarded, flashing the UI.)
         scope.launch {
             mutex.withLock {
-                // Close any track left open by a previous crash/kill before starting a new one.
+                // Close any track left open by a previous crash/kill.
                 repository.finalizeDangling(exceptTrackId = null)
                 currentActivity = ActivityType.STILL
-                applyActivity(ActivityType.UNKNOWN)
+                publishStatus()
             }
         }
     }
