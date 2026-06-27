@@ -8,14 +8,15 @@ for the user-facing overview.
 
 ## Build & run
 
-**Builds require a JDK in the 17–21 range.** A newer JDK (e.g. 24/25) is too new for the pinned
-Gradle 8.9 / AGP 8.7.3 and the build will fail — point `JAVA_HOME` at a JDK 21 if your default is
-newer:
-
 ```bash
-JAVA_HOME=/path/to/jdk-21 ./gradlew :app:assembleDebug   # build APK
-JAVA_HOME=/path/to/jdk-21 ./gradlew :app:installDebug    # build + install
+./gradlew :app:assembleDebug   # build APK
+./gradlew :app:installDebug    # build + install on a connected device/emulator
 ```
+
+The build runs on **JDK 21 automatically**, whatever your system default JDK is: Gradle's daemon JVM
+is pinned to Java 21 via `gradle/gradle-daemon-jvm.properties` (auto-provisioned through the foojay
+resolver if no JDK 21 is installed). No `JAVA_HOME` override is needed, and a too-new system JDK
+won't break the build.
 
 Debug installs as `io.github.valeronm.breadcrumb.debug` (release: `io.github.valeronm.breadcrumb`).
 Launch / verify on a connected device:
