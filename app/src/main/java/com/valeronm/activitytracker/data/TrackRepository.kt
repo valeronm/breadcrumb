@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 /** Thin wrapper around the DAO so callers don't touch Room directly. */
 class TrackRepository(context: Context) {
 
+    private val appContext = context.applicationContext
     private val dao = AppDatabase.get(context).trackDao()
 
     fun observeSummaries(): Flow<List<TrackSummary>> = dao.observeSummaries()
@@ -22,12 +23,22 @@ class TrackRepository(context: Context) {
     suspend fun updateDistance(trackId: Long, distanceMeters: Double) =
         dao.updateDistance(trackId, distanceMeters)
 
+    /** Whether a track meets the user's configured keep thresholds (points / duration / length). */
+    private suspend fun meetsKeepThresholds(track: Track, endedAt: Long): Boolean {
+        if (dao.pointCount(track.id) < Settings.minTrackPoints(appContext)) return false
+        val durationSec = (endedAt - track.startedAt) / 1000
+        if (durationSec < Settings.minTrackDurationSec(appContext)) return false
+        if (track.distanceMeters < Settings.minTrackLengthM(appContext)) return false
+        return true
+    }
+
     /** Closes a track, deleting it instead if it's too short to be meaningful. */
     suspend fun finishTrack(trackId: Long, endedAt: Long) {
-        if (dao.pointCount(trackId) < MIN_TRACK_POINTS) {
-            dao.deleteTrack(trackId)
-        } else {
+        val track = dao.track(trackId) ?: return
+        if (meetsKeepThresholds(track, endedAt)) {
             dao.closeTrack(trackId, endedAt)
+        } else {
+            dao.deleteTrack(trackId)
         }
     }
 
@@ -41,10 +52,11 @@ class TrackRepository(context: Context) {
     suspend fun finalizeDangling(exceptTrackId: Long?) {
         for (track in dao.openTracks()) {
             if (track.id == exceptTrackId) continue
-            if (dao.pointCount(track.id) < MIN_TRACK_POINTS) {
-                dao.deleteTrack(track.id)
+            val endedAt = dao.lastPointTime(track.id) ?: track.startedAt
+            if (meetsKeepThresholds(track, endedAt)) {
+                dao.closeTrack(track.id, endedAt)
             } else {
-                dao.closeTrack(track.id, dao.lastPointTime(track.id) ?: track.startedAt)
+                dao.deleteTrack(track.id)
             }
         }
     }
@@ -54,9 +66,4 @@ class TrackRepository(context: Context) {
     suspend fun allTrackIds(): List<Long> = dao.allTrackIds()
 
     suspend fun pointsFor(trackId: Long): List<TrackPoint> = dao.pointsFor(trackId)
-
-    private companion object {
-        /** Tracks with fewer than this many points are discarded as noise. */
-        const val MIN_TRACK_POINTS = 4
-    }
 }

@@ -19,6 +19,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +60,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -113,6 +116,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 class MainActivity : ComponentActivity() {
@@ -168,7 +172,13 @@ private fun Context.requestIgnoreBatteryOptimization() {
     }
 }
 
-private enum class HomeTab { RECORD, TRACKS, SETTINGS }
+private enum class HomeTab { RECORD, TRACKS }
+
+/** A full-screen page shown over the tabs, animated with predictive back. */
+private sealed interface Overlay {
+    data class TrackDetail(val id: Long) : Overlay
+    data object Settings : Overlay
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -183,7 +193,7 @@ private fun MainScreen() {
     var backgroundOk by remember { mutableStateOf(context.backgroundGranted()) }
     var autoOn by remember { mutableStateOf(AppSettings.isAutoRecord(context)) }
     var batteryOk by remember { mutableStateOf(context.isBatteryOptimizationIgnored()) }
-    var selectedTrackId by remember { mutableStateOf<Long?>(null) }
+    var overlay by remember { mutableStateOf<Overlay?>(null) }
     var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -236,31 +246,31 @@ private fun MainScreen() {
 
     // The detail (map) screen overlays everything. Opening animates it in; the back gesture drives
     // a predictive scale/shift that previews the tabs underneath (Android 14+ predictive back).
-    var renderedTrackId by remember { mutableStateOf<Long?>(null) }
-    val presence = remember { Animatable(0f) }      // 0 = tabs shown, 1 = detail fully shown
+    var renderedOverlay by remember { mutableStateOf<Overlay?>(null) }
+    val presence = remember { Animatable(0f) }      // 0 = tabs shown, 1 = overlay fully shown
     val backProgress = remember { Animatable(0f) }  // predictive back gesture progress, 0..1
     var backEdgeSign by remember { mutableFloatStateOf(1f) }
 
-    LaunchedEffect(selectedTrackId) {
-        val selected = selectedTrackId
-        if (selected != null) {
-            renderedTrackId = selected
+    LaunchedEffect(overlay) {
+        val current = overlay
+        if (current != null) {
+            renderedOverlay = current
             backProgress.snapTo(0f)
             presence.animateTo(1f, tween(300))
-        } else if (renderedTrackId != null) {
+        } else if (renderedOverlay != null) {
             presence.animateTo(0f, tween(300))
-            renderedTrackId = null
+            renderedOverlay = null
             backProgress.snapTo(0f)
         }
     }
 
-    PredictiveBackHandler(enabled = selectedTrackId != null) { events ->
+    PredictiveBackHandler(enabled = overlay != null) { events ->
         try {
             events.collect { event ->
                 backEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
                 backProgress.snapTo(event.progress)
             }
-            selectedTrackId = null // gesture committed -> dismiss
+            overlay = null // gesture committed -> dismiss
         } catch (cancelled: CancellationException) {
             backProgress.animateTo(0f, tween(200)) // gesture cancelled -> spring back
         }
@@ -276,7 +286,6 @@ private fun MainScreen() {
                             when (selectedTab) {
                                 HomeTab.RECORD -> "Breadcrumb"
                                 HomeTab.TRACKS -> "Recorded tracks"
-                                HomeTab.SETTINGS -> "Settings"
                             },
                         )
                     },
@@ -285,6 +294,9 @@ private fun MainScreen() {
                             IconButton(onClick = { exportAllLauncher.launch(null) }) {
                                 Icon(Icons.Filled.Download, contentDescription = "Export all as GPX")
                             }
+                        }
+                        IconButton(onClick = { overlay = Overlay.Settings }) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
                         }
                     },
                 )
@@ -302,12 +314,6 @@ private fun MainScreen() {
                         onClick = { selectedTab = HomeTab.TRACKS },
                         icon = { Icon(Icons.Filled.Map, contentDescription = null) },
                         label = { Text("Tracks") },
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == HomeTab.SETTINGS,
-                        onClick = { selectedTab = HomeTab.SETTINGS },
-                        icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                        label = { Text("Settings") },
                     )
                 }
             },
@@ -348,16 +354,15 @@ private fun MainScreen() {
                     HomeTab.TRACKS -> TracksTab(
                         tracks = tracks,
                         viewModel = viewModel,
-                        onOpen = { selectedTrackId = it },
+                        onOpen = { overlay = Overlay.TrackDetail(it) },
                     )
-
-                    HomeTab.SETTINGS -> SettingsTab()
                 }
             }
         }
 
-        // Detail overlay: animates in on open and scales/shifts with the predictive-back gesture.
-        val rendered = renderedTrackId
+        // Overlay (track detail or settings): animates in on open and scales/shifts with the
+        // predictive-back gesture, previewing the tabs underneath.
+        val rendered = renderedOverlay
         if (rendered != null) {
             Box(
                 modifier = Modifier
@@ -376,12 +381,16 @@ private fun MainScreen() {
                         clip = back > 0f
                     },
             ) {
-                TrackMapScreen(
-                    trackId = rendered,
-                    summary = tracks.find { it.id == rendered },
-                    viewModel = viewModel,
-                    onBack = { selectedTrackId = null },
-                )
+                when (rendered) {
+                    is Overlay.TrackDetail -> TrackMapScreen(
+                        trackId = rendered.id,
+                        summary = tracks.find { it.id == rendered.id },
+                        viewModel = viewModel,
+                        onBack = { overlay = null },
+                    )
+
+                    Overlay.Settings -> SettingsScreen(onBack = { overlay = null })
+                }
             }
         }
     }
@@ -595,18 +604,144 @@ private fun DayHeader(label: String) {
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsTab() {
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Settings", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
+private fun SettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var intervalSec by remember { mutableFloatStateOf(AppSettings.minIntervalSec(context).toFloat()) }
+    var distanceM by remember { mutableFloatStateOf(AppSettings.minDistanceM(context).toFloat()) }
+    var minPoints by remember { mutableFloatStateOf(AppSettings.minTrackPoints(context).toFloat()) }
+    var minDurationSec by remember {
+        mutableFloatStateOf(AppSettings.minTrackDurationSec(context).toFloat())
+    }
+    var minLengthM by remember { mutableFloatStateOf(AppSettings.minTrackLengthM(context).toFloat()) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(inner)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+        ) {
+        SectionHeader("Sampling") {
+            intervalSec = AppSettings.DEFAULT_MIN_INTERVAL_SEC.toFloat()
+            distanceM = AppSettings.DEFAULT_MIN_DISTANCE_M.toFloat()
+            AppSettings.setMinIntervalSec(context, AppSettings.DEFAULT_MIN_INTERVAL_SEC)
+            AppSettings.setMinDistanceM(context, AppSettings.DEFAULT_MIN_DISTANCE_M)
+        }
         Text(
-            "Coming soon — server sync (Dawarich / OwnTracks), Wi-Fi-only uploads, " +
-                "GPS cadence, and more.",
-            style = MaterialTheme.typography.bodyMedium,
+            "How densely points are recorded while moving. Applies to the next track.",
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        SliderSetting("Min time between points", intervalSec, 1f..30f, 1, { "${it.toInt()} s" }) {
+            intervalSec = it
+            AppSettings.setMinIntervalSec(context, it.toInt())
+        }
+        SliderSetting("Min distance between points", distanceM, 1f..50f, 1, { "${it.toInt()} m" }) {
+            distanceM = it
+            AppSettings.setMinDistanceM(context, it.toInt())
+        }
+
+        Spacer(Modifier.height(24.dp))
+        SectionHeader("Keep a track only if") {
+            minPoints = AppSettings.DEFAULT_MIN_POINTS.toFloat()
+            minDurationSec = AppSettings.DEFAULT_MIN_DURATION_SEC.toFloat()
+            minLengthM = AppSettings.DEFAULT_MIN_LENGTH_M.toFloat()
+            AppSettings.setMinTrackPoints(context, AppSettings.DEFAULT_MIN_POINTS)
+            AppSettings.setMinTrackDurationSec(context, AppSettings.DEFAULT_MIN_DURATION_SEC)
+            AppSettings.setMinTrackLengthM(context, AppSettings.DEFAULT_MIN_LENGTH_M)
+        }
+        Text(
+            "Shorter tracks are discarded when recording stops.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SliderSetting("Min points", minPoints, 1f..10f, 1, { "${it.toInt()}" }) {
+            minPoints = it
+            AppSettings.setMinTrackPoints(context, it.toInt())
+        }
+        SliderSetting("Min duration", minDurationSec, 0f..300f, 15, { durationSettingLabel(it.toInt()) }) {
+            minDurationSec = it
+            AppSettings.setMinTrackDurationSec(context, it.toInt())
+        }
+        SliderSetting("Min length", minLengthM, 0f..1000f, 50, { lengthSettingLabel(it.toInt()) }) {
+            minLengthM = it
+            AppSettings.setMinTrackLengthM(context, it.toInt())
+        }
+        }
     }
+}
+
+@Composable
+private fun SectionHeader(title: String, onReset: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        TextButton(onClick = onReset) { Text("Reset") }
+    }
+}
+
+@Composable
+private fun SliderSetting(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    step: Int,
+    valueText: (Float) -> String,
+    onChange: (Float) -> Unit,
+) {
+    Column(Modifier.padding(top = 16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                valueText(value),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = { raw ->
+                // Snap to the nearest step so values land on round numbers.
+                val snapped = ((raw / step).roundToInt() * step).toFloat()
+                    .coerceIn(range.start, range.endInclusive)
+                onChange(snapped)
+            },
+            valueRange = range,
+        )
+    }
+}
+
+private fun durationSettingLabel(sec: Int): String = when {
+    sec <= 0 -> "Off"
+    sec < 60 -> "$sec s"
+    sec % 60 == 0 -> "${sec / 60} min"
+    else -> "${sec / 60}m ${sec % 60}s"
+}
+
+private fun lengthSettingLabel(m: Int): String = when {
+    m <= 0 -> "Off"
+    m < 1000 -> "$m m"
+    else -> "%.1f km".format(m / 1000.0)
 }
 
 private fun groupTracksByDay(tracks: List<TrackSummary>): List<Pair<String, List<TrackSummary>>> {

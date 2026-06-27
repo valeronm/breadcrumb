@@ -138,7 +138,7 @@ class LocationRecordingService : Service() {
         val id = repository.startTrack(activity, now())
         currentTrackId = id
         activeTrackId = id
-        withContext(Dispatchers.Main) { startLocationUpdates(activity) }
+        withContext(Dispatchers.Main) { startLocationUpdates() }
     }
 
     private suspend fun closeCurrentTrack() {
@@ -150,12 +150,14 @@ class LocationRecordingService : Service() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun startLocationUpdates(activity: ActivityType) {
+    private fun startLocationUpdates() {
         if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) return
         stopLocationUpdates()
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, activity.intervalMs)
-            .setMinUpdateDistanceMeters(activity.minDistanceM)
-            .setMinUpdateIntervalMillis(activity.intervalMs / 2)
+        val intervalMs = Settings.minIntervalSec(this) * 1000L
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
+            .setMinUpdateDistanceMeters(Settings.minDistanceM(this).toFloat())
+            // Don't let fixes arrive faster than the user's chosen minimum interval.
+            .setMinUpdateIntervalMillis(intervalMs)
             .setWaitForAccurateLocation(false)
             .build()
         val callback = object : LocationCallback() {
