@@ -88,6 +88,8 @@ class LocationRecordingService : Service() {
         // Begin recording immediately; transitions will refine the profile from here.
         scope.launch {
             mutex.withLock {
+                // Close any track left open by a previous crash/kill before starting a new one.
+                repository.finalizeDangling(exceptTrackId = null)
                 currentActivity = ActivityType.STILL
                 applyActivity(ActivityType.UNKNOWN)
             }
@@ -130,6 +132,7 @@ class LocationRecordingService : Service() {
         lastLocation = null
         val id = repository.startTrack(activity, now())
         currentTrackId = id
+        activeTrackId = id
         withContext(Dispatchers.Main) { startLocationUpdates(activity) }
     }
 
@@ -137,6 +140,7 @@ class LocationRecordingService : Service() {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
         val id = currentTrackId ?: return
         currentTrackId = null
+        activeTrackId = null
         repository.finishTrack(id, now())
     }
 
@@ -253,6 +257,7 @@ class LocationRecordingService : Service() {
     override fun onDestroy() {
         stopLocationUpdates()
         instance = null
+        activeTrackId = null
         scope.cancel()
         super.onDestroy()
     }
@@ -262,6 +267,14 @@ class LocationRecordingService : Service() {
     companion object {
         @Volatile
         var instance: LocationRecordingService? = null
+            private set
+
+        /** True while the service is alive in this process. */
+        val isRunning: Boolean get() = instance != null
+
+        /** Id of the track currently being recorded, or null. Used to skip it during cleanup. */
+        @Volatile
+        var activeTrackId: Long? = null
             private set
 
         const val ACTION_START = "com.valeronm.activitytracker.START"

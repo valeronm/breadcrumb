@@ -29,6 +29,12 @@ interface TrackDao {
     @Query("SELECT * FROM track_points WHERE trackId = :trackId ORDER BY timestamp ASC")
     suspend fun pointsFor(trackId: Long): List<TrackPoint>
 
+    @Query("SELECT * FROM tracks WHERE endedAt IS NULL")
+    suspend fun openTracks(): List<Track>
+
+    @Query("SELECT MAX(timestamp) FROM track_points WHERE trackId = :trackId")
+    suspend fun lastPointTime(trackId: Long): Long?
+
     @Query("SELECT * FROM tracks WHERE id = :trackId")
     suspend fun track(trackId: Long): Track?
 

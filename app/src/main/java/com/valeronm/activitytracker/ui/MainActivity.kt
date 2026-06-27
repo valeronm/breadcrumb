@@ -13,6 +13,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,9 +26,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,14 +39,18 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -50,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -168,6 +177,15 @@ private fun MainScreen() {
         ActivityResultContracts.RequestPermission(),
     ) {
         backgroundOk = context.backgroundGranted()
+    }
+
+    // Reconcile persisted "armed" state with the actual service: if auto-recording is on but
+    // the service isn't running (e.g. after a reinstall or being killed), restart it so the UI
+    // doesn't get stuck on "Starting…".
+    LaunchedEffect(foregroundOk, backgroundOk) {
+        if (autoOn && foregroundOk && backgroundOk && !LocationRecordingService.isRunning) {
+            LocationRecordingService.start(context)
+        }
     }
 
     // When a track is selected, show its map full-screen and intercept the back button.
@@ -301,6 +319,8 @@ private fun TrackList(
     onOpen: (Long) -> Unit,
 ) {
     val context = LocalContext.current
+    var pendingDelete by remember { mutableStateOf<TrackSummary?>(null) }
+
     if (tracks.isEmpty()) {
         Text(
             "No tracks yet. They'll appear here once recording captures some movement.",
@@ -318,9 +338,33 @@ private fun TrackList(
                         if (intent != null) context.startActivity(intent)
                     }
                 },
-                onDelete = { viewModel.delete(track.id) },
+                onDeleteRequest = { pendingDelete = track },
             )
         }
+    }
+
+    pendingDelete?.let { track ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+            title = { Text("Delete this track?") },
+            text = {
+                Text(
+                    "The ${activityLabel(track.activityType)} track from " +
+                        "${dateFormat.format(Date(track.startedAt))} will be permanently " +
+                        "deleted. This can't be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.delete(track.id)
+                    pendingDelete = null
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -331,37 +375,65 @@ private fun TrackRow(
     track: TrackSummary,
     onOpen: () -> Unit,
     onShare: () -> Unit,
-    onDelete: () -> Unit,
+    onDeleteRequest: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "${track.activityType.lowercase(Locale.US).replaceFirstChar { it.uppercase() }}",
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    dateFormat.format(Date(track.startedAt)),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    "%.2f km · %d pts · %s".format(
-                        track.distanceMeters / 1000.0,
-                        track.pointCount,
-                        formatDuration(track.startedAt, track.endedAt),
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
+    // Swipe right-to-left to request deletion; we reject the dismiss so the row springs back and
+    // a confirmation dialog handles the actual delete.
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) onDeleteRequest()
+            false
+        },
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
-            IconButton(onClick = onShare) {
-                Icon(Icons.Filled.Share, contentDescription = "Export GPX")
+        },
+    ) {
+        Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        activityLabel(track.activityType),
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        dateFormat.format(Date(track.startedAt)),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "%.2f km · %d pts · %s".format(
+                            track.distanceMeters / 1000.0,
+                            track.pointCount,
+                            formatDuration(track.startedAt, track.endedAt),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                IconButton(onClick = onShare) {
+                    Icon(Icons.Filled.Share, contentDescription = "Export GPX")
+                }
             }
-            OutlinedButton(onClick = onDelete) { Text("Delete") }
         }
     }
 }

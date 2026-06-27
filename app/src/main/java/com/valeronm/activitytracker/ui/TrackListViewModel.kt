@@ -8,6 +8,7 @@ import com.valeronm.activitytracker.data.TrackRepository
 import com.valeronm.activitytracker.data.db.TrackPoint
 import com.valeronm.activitytracker.data.db.TrackSummary
 import com.valeronm.activitytracker.data.export.GpxExporter
+import com.valeronm.activitytracker.location.LocationRecordingService
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -19,6 +20,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     val tracks: StateFlow<List<TrackSummary>> = repository.observeSummaries()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    init {
+        // Mark any track left in a "recording" state by a crash/kill as completed.
+        viewModelScope.launch {
+            repository.finalizeDangling(exceptTrackId = LocationRecordingService.activeTrackId)
+        }
+    }
 
     fun delete(trackId: Long) {
         viewModelScope.launch { repository.deleteTrack(trackId) }

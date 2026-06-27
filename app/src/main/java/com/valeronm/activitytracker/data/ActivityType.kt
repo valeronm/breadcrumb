@@ -17,8 +17,8 @@ enum class ActivityType(
 ) {
     WALKING("Walking", 6_000, 5f, true),
     RUNNING("Running", 4_000, 5f, true),
-    CYCLING("Cycling", 4_000, 8f, true),
-    DRIVING("Driving", 3_000, 15f, true),
+    CYCLING("Cycling", 4_000, 5f, true),
+    DRIVING("Driving", 3_000, 5f, true),
     STILL("Stationary", 0, 0f, false),
     UNKNOWN("Moving", 6_000, 5f, true);
 

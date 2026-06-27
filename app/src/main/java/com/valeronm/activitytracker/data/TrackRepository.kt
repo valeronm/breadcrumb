@@ -33,6 +33,22 @@ class TrackRepository(context: Context) {
 
     suspend fun deleteTrack(trackId: Long) = dao.deleteTrack(trackId)
 
+    /**
+     * Closes tracks left open by a crash/kill (endedAt == null), using their last recorded point
+     * as the end time, or deleting them if too short. [exceptTrackId] is the track currently being
+     * recorded, which must be left untouched.
+     */
+    suspend fun finalizeDangling(exceptTrackId: Long?) {
+        for (track in dao.openTracks()) {
+            if (track.id == exceptTrackId) continue
+            if (dao.pointCount(track.id) < 2) {
+                dao.deleteTrack(track.id)
+            } else {
+                dao.closeTrack(track.id, dao.lastPointTime(track.id) ?: track.startedAt)
+            }
+        }
+    }
+
     suspend fun track(trackId: Long): Track? = dao.track(trackId)
 
     suspend fun pointsFor(trackId: Long): List<TrackPoint> = dao.pointsFor(trackId)
