@@ -9,10 +9,14 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +63,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -68,8 +73,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -89,6 +95,7 @@ import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
+import kotlinx.coroutines.CancellationException
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
@@ -101,6 +108,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             AppTheme {
                 MainScreen()
@@ -196,22 +204,43 @@ private fun MainScreen() {
         }
     }
 
-    // When a track is selected, show its map full-screen and intercept the back button.
-    val openTrackId = selectedTrackId
-    if (openTrackId != null) {
-        BackHandler { selectedTrackId = null }
-        TrackMapScreen(
-            trackId = openTrackId,
-            summary = tracks.find { it.id == openTrackId },
-            viewModel = viewModel,
-            onBack = { selectedTrackId = null },
-        )
-        return
+    // The detail (map) screen overlays the list. Opening animates it in; the back gesture drives
+    // a predictive scale/shift that previews the list underneath (Android 14+ predictive back).
+    var renderedTrackId by remember { mutableStateOf<Long?>(null) }
+    val presence = remember { Animatable(0f) }      // 0 = list shown, 1 = detail fully shown
+    val backProgress = remember { Animatable(0f) }  // predictive back gesture progress, 0..1
+    var backEdgeSign by remember { mutableFloatStateOf(1f) }
+
+    LaunchedEffect(selectedTrackId) {
+        val selected = selectedTrackId
+        if (selected != null) {
+            renderedTrackId = selected
+            backProgress.snapTo(0f)
+            presence.animateTo(1f, tween(300))
+        } else if (renderedTrackId != null) {
+            presence.animateTo(0f, tween(300))
+            renderedTrackId = null
+            backProgress.snapTo(0f)
+        }
     }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("Activity GPS Tracker") }) },
-    ) { inner ->
+    PredictiveBackHandler(enabled = selectedTrackId != null) { events ->
+        try {
+            events.collect { event ->
+                backEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
+                backProgress.snapTo(event.progress)
+            }
+            selectedTrackId = null // gesture committed -> dismiss
+        } catch (cancelled: CancellationException) {
+            backProgress.animateTo(0f, tween(200)) // gesture cancelled -> spring back
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // The list stays composed underneath so it can be previewed during the back gesture.
+        Scaffold(
+            topBar = { TopAppBar(title = { Text("Activity GPS Tracker") }) },
+        ) { inner ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -258,7 +287,7 @@ private fun MainScreen() {
                         },
                     )
                     if (autoOn && !batteryOk) {
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(8.dp))
                         PermissionCard(
                             title = "Keep recording in the background",
                             body = "Allow this app to ignore battery optimization so Android " +
@@ -278,6 +307,36 @@ private fun MainScreen() {
                 viewModel = viewModel,
                 onOpen = { selectedTrackId = it },
             )
+            }
+        }
+
+        // Detail overlay: animates in on open and scales/shifts with the predictive-back gesture.
+        val rendered = renderedTrackId
+        if (rendered != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val enter = presence.value
+                        val back = backProgress.value
+                        val scale = (0.92f + 0.08f * enter) * (1f - 0.10f * back)
+                        scaleX = scale
+                        scaleY = scale
+                        translationX =
+                            (1f - enter) * size.width * 0.25f + backEdgeSign * back * 24.dp.toPx()
+                        alpha = enter * (1f - 0.2f * back)
+                        transformOrigin = TransformOrigin(if (backEdgeSign > 0f) 1f else 0f, 0.5f)
+                        shape = RoundedCornerShape(back * 48f)
+                        clip = back > 0f
+                    },
+            ) {
+                TrackMapScreen(
+                    trackId = rendered,
+                    summary = tracks.find { it.id == rendered },
+                    viewModel = viewModel,
+                    onBack = { selectedTrackId = null },
+                )
+            }
         }
     }
 }
@@ -305,7 +364,7 @@ private fun AutoRecordControls(
                 Switch(checked = autoOn, onCheckedChange = onToggle)
             }
             if (autoOn) {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     when {
                         !status.tracking -> "Starting…"
@@ -415,7 +474,7 @@ private fun TrackRow(
     ) {
         Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
             Row(
-                modifier = Modifier.padding(12.dp),
+                modifier = Modifier.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
@@ -428,13 +487,12 @@ private fun TrackRow(
                 Column(Modifier.weight(1f)) {
                     Text(
                         activityLabel(track.activityType),
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
                         dateFormat.format(Date(track.startedAt)),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         "%.2f km · %d pts · %s".format(
@@ -442,7 +500,8 @@ private fun TrackRow(
                             track.pointCount,
                             formatDuration(track.startedAt, track.endedAt),
                         ),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 IconButton(onClick = onShare) {
@@ -556,7 +615,7 @@ private fun TrackMap(points: List<TrackPoint>) {
         factory = { ctx ->
             // OSM tile usage policy requires a unique user agent.
             Configuration.getInstance().userAgentValue = ctx.packageName
-            MapView(ctx).apply {
+            EdgeAwareMapView(ctx).apply {
                 setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
                 onResume()
@@ -598,7 +657,7 @@ private fun PermissionCard(title: String, body: String, button: String, onClick:
             Text(title, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             Text(body, style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             Button(onClick = onClick) { Text(button) }
         }
     }
