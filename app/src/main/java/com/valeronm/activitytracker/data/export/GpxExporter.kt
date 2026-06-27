@@ -69,7 +69,7 @@ object GpxExporter {
         val sb = StringBuilder()
         sb.append("""<?xml version="1.0" encoding="UTF-8"?>""").append('\n')
         sb.append(
-            """<gpx version="1.1" creator="ActivityGpsTracker" """ +
+            """<gpx version="1.1" creator="Breadcrumb" """ +
                 """xmlns="http://www.topografix.com/GPX/1/1">""",
         ).append('\n')
         sb.append("  <trk>\n")

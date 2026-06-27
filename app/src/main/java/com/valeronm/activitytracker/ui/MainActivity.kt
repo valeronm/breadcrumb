@@ -274,7 +274,7 @@ private fun MainScreen() {
                     title = {
                         Text(
                             when (selectedTab) {
-                                HomeTab.RECORD -> "Activity GPS Tracker"
+                                HomeTab.RECORD -> "Breadcrumb"
                                 HomeTab.TRACKS -> "Recorded tracks"
                                 HomeTab.SETTINGS -> "Settings"
                             },

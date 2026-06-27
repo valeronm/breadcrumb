@@ -3,8 +3,22 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Location pin centred in the adaptive-icon safe zone -->
+    <!-- Breadcrumb trail: dots leading up to a location pin -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,30 C46.8,30 41,35.8 41,43 C41,52.75 54,68 54,68 C54,68 67,52.75 67,43 C67,35.8 61.2,30 54,30 Z M54,47.5 C51.5,47.5 49.5,45.5 49.5,43 C49.5,40.5 51.5,38.5 54,38.5 C56.5,38.5 58.5,40.5 58.5,43 C58.5,45.5 56.5,47.5 54,47.5 Z" />
+        android:pathData="M34,72.5 a3.5,3.5 0 1,0 0,7 a3.5,3.5 0 1,0 0,-7 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M45,62.8 a4.2,4.2 0 1,0 0,8.4 a4.2,4.2 0 1,0 0,-8.4 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M56,52 a5,5 0 1,0 0,10 a5,5 0 1,0 0,-10 z" />
+    <!-- Location pin -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M68,28 C62,28 57.5,32.5 57.5,38 C57.5,46 68,53 68,53 C68,53 78.5,46 78.5,38 C78.5,32.5 74,28 68,28 Z" />
+    <!-- Pin hole, punched in the background colour -->
+    <path
+        android:fillColor="@color/ic_launcher_background"
+        android:pathData="M68,34.4 a3.6,3.6 0 1,0 0,7.2 a3.6,3.6 0 1,0 0,-7.2 z" />
 </vector>
