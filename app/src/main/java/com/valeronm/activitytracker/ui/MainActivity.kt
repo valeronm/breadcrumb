@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
@@ -27,6 +26,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -42,7 +42,10 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -52,6 +55,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
@@ -102,6 +107,10 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToLong
@@ -147,15 +156,19 @@ private fun Context.requestIgnoreBatteryOptimization() {
     runCatching {
         startActivity(
             Intent(
-                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                 Uri.fromParts("package", packageName, null),
             ),
         )
     }.onFailure {
         // Some OEMs don't expose the direct dialog; fall back to the settings list.
-        runCatching { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+        runCatching {
+            startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
     }
 }
+
+private enum class HomeTab { RECORD, TRACKS, SETTINGS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -171,6 +184,7 @@ private fun MainScreen() {
     var autoOn by remember { mutableStateOf(AppSettings.isAutoRecord(context)) }
     var batteryOk by remember { mutableStateOf(context.isBatteryOptimizationIgnored()) }
     var selectedTrackId by remember { mutableStateOf<Long?>(null) }
+    var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -220,10 +234,10 @@ private fun MainScreen() {
         }
     }
 
-    // The detail (map) screen overlays the list. Opening animates it in; the back gesture drives
-    // a predictive scale/shift that previews the list underneath (Android 14+ predictive back).
+    // The detail (map) screen overlays everything. Opening animates it in; the back gesture drives
+    // a predictive scale/shift that previews the tabs underneath (Android 14+ predictive back).
     var renderedTrackId by remember { mutableStateOf<Long?>(null) }
-    val presence = remember { Animatable(0f) }      // 0 = list shown, 1 = detail fully shown
+    val presence = remember { Animatable(0f) }      // 0 = tabs shown, 1 = detail fully shown
     val backProgress = remember { Animatable(0f) }  // predictive back gesture progress, 0..1
     var backEdgeSign by remember { mutableFloatStateOf(1f) }
 
@@ -253,85 +267,92 @@ private fun MainScreen() {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // The list stays composed underneath so it can be previewed during the back gesture.
+        // The tabbed UI stays composed underneath so it can be previewed during the back gesture.
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Activity GPS Tracker") },
+                    title = {
+                        Text(
+                            when (selectedTab) {
+                                HomeTab.RECORD -> "Activity GPS Tracker"
+                                HomeTab.TRACKS -> "Recorded tracks"
+                                HomeTab.SETTINGS -> "Settings"
+                            },
+                        )
+                    },
                     actions = {
-                        IconButton(onClick = { exportAllLauncher.launch(null) }) {
-                            Icon(Icons.Filled.Download, contentDescription = "Export all as GPX")
+                        if (selectedTab == HomeTab.TRACKS && tracks.isNotEmpty()) {
+                            IconButton(onClick = { exportAllLauncher.launch(null) }) {
+                                Icon(Icons.Filled.Download, contentDescription = "Export all as GPX")
+                            }
                         }
                     },
                 )
             },
+            bottomBar = {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = selectedTab == HomeTab.RECORD,
+                        onClick = { selectedTab = HomeTab.RECORD },
+                        icon = { Icon(Icons.Filled.MyLocation, contentDescription = null) },
+                        label = { Text("Record") },
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == HomeTab.TRACKS,
+                        onClick = { selectedTab = HomeTab.TRACKS },
+                        icon = { Icon(Icons.Filled.Map, contentDescription = null) },
+                        label = { Text("Tracks") },
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == HomeTab.SETTINGS,
+                        onClick = { selectedTab = HomeTab.SETTINGS },
+                        icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                        label = { Text("Settings") },
+                    )
+                }
+            },
         ) { inner ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(inner)
-                .padding(16.dp),
-        ) {
-            when {
-                !foregroundOk -> PermissionCard(
-                    title = "Location & activity access needed",
-                    body = "Grant location and physical-activity access so the app can detect " +
-                        "whether you're walking, driving or cycling and record GPS.",
-                    button = "Grant permissions",
-                    onClick = { requestForeground.launch(foregroundPermissions().toTypedArray()) },
-                )
-
-                !backgroundOk -> PermissionCard(
-                    title = "Allow background location",
-                    body = "Set location access to \"Allow all the time\" so tracks keep recording " +
-                        "when the screen is off or the app is closed.",
-                    button = "Allow in the background",
-                    onClick = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            // Android 11+ only grants this from the app's settings page.
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                    Uri.fromParts("package", context.packageName, null),
-                                ),
-                            )
-                        } else {
-                            requestBackground.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                        }
-                    },
-                )
-
-                else -> {
-                    AutoRecordControls(
+            Box(modifier = Modifier.fillMaxSize().padding(inner)) {
+                when (selectedTab) {
+                    HomeTab.RECORD -> RecordTab(
+                        foregroundOk = foregroundOk,
+                        backgroundOk = backgroundOk,
                         autoOn = autoOn,
+                        batteryOk = batteryOk,
                         status = status,
-                        onToggle = { enabled ->
+                        viewModel = viewModel,
+                        onGrantForeground = {
+                            requestForeground.launch(foregroundPermissions().toTypedArray())
+                        },
+                        onGrantBackground = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                // Android 11+ only grants this from the app's settings page.
+                                context.startActivity(
+                                    Intent(
+                                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.fromParts("package", context.packageName, null),
+                                    ),
+                                )
+                            } else {
+                                requestBackground.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                            }
+                        },
+                        onToggleAuto = { enabled ->
                             autoOn = enabled
                             if (enabled) LocationRecordingService.start(context)
                             else LocationRecordingService.stop(context)
                         },
+                        onRequestBattery = { context.requestIgnoreBatteryOptimization() },
                     )
-                    if (autoOn && !batteryOk) {
-                        Spacer(Modifier.height(8.dp))
-                        PermissionCard(
-                            title = "Keep recording in the background",
-                            body = "Allow this app to ignore battery optimization so Android " +
-                                "doesn't stop tracking after a while in the background.",
-                            button = "Allow unrestricted",
-                            onClick = { context.requestIgnoreBatteryOptimization() },
-                        )
-                    }
-                }
-            }
 
-            Spacer(Modifier.height(16.dp))
-            Text("Recorded tracks", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            TrackList(
-                tracks = tracks,
-                viewModel = viewModel,
-                onOpen = { selectedTrackId = it },
-            )
+                    HomeTab.TRACKS -> TracksTab(
+                        tracks = tracks,
+                        viewModel = viewModel,
+                        onOpen = { selectedTrackId = it },
+                    )
+
+                    HomeTab.SETTINGS -> SettingsTab()
+                }
             }
         }
 
@@ -360,6 +381,95 @@ private fun MainScreen() {
                     summary = tracks.find { it.id == rendered },
                     viewModel = viewModel,
                     onBack = { selectedTrackId = null },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecordTab(
+    foregroundOk: Boolean,
+    backgroundOk: Boolean,
+    autoOn: Boolean,
+    batteryOk: Boolean,
+    status: TrackingStatus.State,
+    viewModel: TrackListViewModel,
+    onGrantForeground: () -> Unit,
+    onGrantBackground: () -> Unit,
+    onToggleAuto: (Boolean) -> Unit,
+    onRequestBattery: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        when {
+            !foregroundOk -> PermissionCard(
+                title = "Location & activity access needed",
+                body = "Grant location and physical-activity access so the app can detect " +
+                    "whether you're walking, driving or cycling and record GPS.",
+                button = "Grant permissions",
+                onClick = onGrantForeground,
+            )
+
+            !backgroundOk -> PermissionCard(
+                title = "Allow background location",
+                body = "Set location access to \"Allow all the time\" so tracks keep recording " +
+                    "when the screen is off or the app is closed.",
+                button = "Allow in the background",
+                onClick = onGrantBackground,
+            )
+
+            else -> {
+                AutoRecordControls(autoOn = autoOn, status = status, onToggle = onToggleAuto)
+                if (autoOn && !batteryOk) {
+                    Spacer(Modifier.height(8.dp))
+                    PermissionCard(
+                        title = "Keep recording in the background",
+                        body = "Allow this app to ignore battery optimization so Android " +
+                            "doesn't stop tracking after a while in the background.",
+                        button = "Allow unrestricted",
+                        onClick = onRequestBattery,
+                    )
+                }
+                if (status.recording && LocationRecordingService.activeTrackId != null) {
+                    Spacer(Modifier.height(16.dp))
+                    CurrentTrackPreview(viewModel = viewModel, status = status)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CurrentTrackPreview(viewModel: TrackListViewModel, status: TrackingStatus.State) {
+    val activeId = LocationRecordingService.activeTrackId ?: return
+    // Reload the in-progress track's points whenever a new one is recorded (points count changes).
+    val points by produceState<List<TrackPoint>>(emptyList(), activeId, status.points) {
+        value = viewModel.getPoints(activeId)
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column {
+            Box(modifier = Modifier.fillMaxWidth().height(220.dp).clipToBounds()) {
+                if (points.size >= 2) {
+                    TrackMap(points = points)
+                } else {
+                    Text(
+                        "Waiting for GPS fix…",
+                        modifier = Modifier.align(Alignment.Center),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    "Current track · ${status.activityLabel}",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "%.2f km · %d points".format(status.distanceMeters / 1000.0, status.points),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -405,7 +515,7 @@ private fun AutoRecordControls(
 }
 
 @Composable
-private fun TrackList(
+private fun TracksTab(
     tracks: List<TrackSummary>,
     viewModel: TrackListViewModel,
     onOpen: (Long) -> Unit,
@@ -414,24 +524,39 @@ private fun TrackList(
     var pendingDelete by remember { mutableStateOf<TrackSummary?>(null) }
 
     if (tracks.isEmpty()) {
-        Text(
-            "No tracks yet. They'll appear here once recording captures some movement.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Box(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "No tracks yet. They'll appear here once recording captures some movement.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         return
     }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(tracks, key = { it.id }) { track ->
-            TrackRow(
-                track = track,
-                onOpen = { onOpen(track.id) },
-                onShare = {
-                    viewModel.share(track.id) { intent ->
-                        if (intent != null) context.startActivity(intent)
-                    }
-                },
-                onDeleteRequest = { pendingDelete = track },
-            )
+
+    val groups = remember(tracks) { groupTracksByDay(tracks) }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        groups.forEach { (label, dayTracks) ->
+            item(key = "header:$label") { DayHeader(label) }
+            items(dayTracks, key = { it.id }) { track ->
+                TrackRow(
+                    track = track,
+                    onOpen = { onOpen(track.id) },
+                    onShare = {
+                        viewModel.share(track.id) { intent ->
+                            if (intent != null) context.startActivity(intent)
+                        }
+                    },
+                    onDeleteRequest = { pendingDelete = track },
+                )
+            }
         }
     }
 
@@ -460,7 +585,49 @@ private fun TrackList(
     }
 }
 
+@Composable
+private fun DayHeader(label: String) {
+    Text(
+        label,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun SettingsTab() {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Settings", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Coming soon — server sync (Dawarich / OwnTracks), Wi-Fi-only uploads, " +
+                "GPS cadence, and more.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun groupTracksByDay(tracks: List<TrackSummary>): List<Pair<String, List<TrackSummary>>> {
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(zone)
+    // groupBy preserves encounter order, and tracks arrive newest-first, so days stay descending.
+    return tracks
+        .groupBy { Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate() }
+        .map { (date, list) -> dayLabel(date, today) to list }
+}
+
+private val dayHeaderFormat = DateTimeFormatter.ofPattern("EEEE, d MMM yyyy", Locale.getDefault())
+
+private fun dayLabel(date: LocalDate, today: LocalDate): String = when (date) {
+    today -> "Today"
+    today.minusDays(1) -> "Yesterday"
+    else -> date.format(dayHeaderFormat)
+}
+
 private val dateFormat = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
+private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
 @Composable
 private fun TrackRow(
@@ -515,7 +682,7 @@ private fun TrackRow(
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        dateFormat.format(Date(track.startedAt)),
+                        timeFormat.format(Date(track.startedAt)),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
