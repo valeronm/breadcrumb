@@ -2,6 +2,7 @@ package com.valeronm.activitytracker.ui
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.valeronm.activitytracker.data.TrackRepository
@@ -33,6 +34,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     suspend fun getPoints(trackId: Long): List<TrackPoint> = repository.pointsFor(trackId)
+
+    /** Exports every track as a .gpx file into the picked folder; reports how many were written. */
+    fun exportAll(treeUri: Uri, onDone: (Int) -> Unit) {
+        viewModelScope.launch {
+            onDone(GpxExporter.exportAllToTree(getApplication(), repository, treeUri))
+        }
+    }
 
     /** Builds a GPX file for the track and hands back a share chooser Intent. */
     fun share(trackId: Long, onReady: (Intent?) -> Unit) {

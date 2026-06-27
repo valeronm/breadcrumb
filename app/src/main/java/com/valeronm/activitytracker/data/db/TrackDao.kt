@@ -38,6 +38,9 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE id = :trackId")
     suspend fun track(trackId: Long): Track?
 
+    @Query("SELECT id FROM tracks ORDER BY startedAt DESC")
+    suspend fun allTrackIds(): List<Long>
+
     @Query(
         """
         SELECT t.id, t.activityType, t.startedAt, t.endedAt, t.distanceMeters,

@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.PredictiveBackHandler
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Share
@@ -194,6 +196,20 @@ private fun MainScreen() {
     ) {
         backgroundOk = context.backgroundGranted()
     }
+    val exportAllLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { treeUri ->
+        if (treeUri != null) {
+            viewModel.exportAll(treeUri) { count ->
+                val message = if (count > 0) {
+                    "Exported $count track${if (count == 1) "" else "s"} as GPX"
+                } else {
+                    "No tracks to export"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // Reconcile persisted "armed" state with the actual service: if auto-recording is on but
     // the service isn't running (e.g. after a reinstall or being killed), restart it so the UI
@@ -239,7 +255,16 @@ private fun MainScreen() {
     Box(modifier = Modifier.fillMaxSize()) {
         // The list stays composed underneath so it can be previewed during the back gesture.
         Scaffold(
-            topBar = { TopAppBar(title = { Text("Activity GPS Tracker") }) },
+            topBar = {
+                TopAppBar(
+                    title = { Text("Activity GPS Tracker") },
+                    actions = {
+                        IconButton(onClick = { exportAllLauncher.launch(null) }) {
+                            Icon(Icons.Filled.Download, contentDescription = "Export all as GPX")
+                        }
+                    },
+                )
+            },
         ) { inner ->
         Column(
             modifier = Modifier

@@ -51,5 +51,7 @@ class TrackRepository(context: Context) {
 
     suspend fun track(trackId: Long): Track? = dao.track(trackId)
 
+    suspend fun allTrackIds(): List<Long> = dao.allTrackIds()
+
     suspend fun pointsFor(trackId: Long): List<TrackPoint> = dao.pointsFor(trackId)
 }
