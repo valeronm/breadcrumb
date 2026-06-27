@@ -10,9 +10,12 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,9 +26,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -53,10 +60,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
 import com.valeronm.activitytracker.data.Settings as AppSettings
+import com.valeronm.activitytracker.data.db.TrackPoint
 import com.valeronm.activitytracker.data.db.TrackSummary
 import com.valeronm.activitytracker.location.LocationRecordingService
 import com.valeronm.activitytracker.location.TrackingStatus
 import com.valeronm.activitytracker.ui.theme.AppTheme
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Polyline
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -125,6 +139,7 @@ private fun MainScreen() {
     var backgroundOk by remember { mutableStateOf(context.backgroundGranted()) }
     var autoOn by remember { mutableStateOf(AppSettings.isAutoRecord(context)) }
     var batteryOk by remember { mutableStateOf(context.isBatteryOptimizationIgnored()) }
+    var selectedTrackId by remember { mutableStateOf<Long?>(null) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -149,6 +164,18 @@ private fun MainScreen() {
         ActivityResultContracts.RequestPermission(),
     ) {
         backgroundOk = context.backgroundGranted()
+    }
+
+    // When a track is selected, show its map full-screen and intercept the back button.
+    val openTrackId = selectedTrackId
+    if (openTrackId != null) {
+        BackHandler { selectedTrackId = null }
+        TrackMapScreen(
+            trackId = openTrackId,
+            viewModel = viewModel,
+            onBack = { selectedTrackId = null },
+        )
+        return
     }
 
     Scaffold(
@@ -215,7 +242,11 @@ private fun MainScreen() {
             Spacer(Modifier.height(16.dp))
             Text("Recorded tracks", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
-            TrackList(tracks = tracks, viewModel = viewModel)
+            TrackList(
+                tracks = tracks,
+                viewModel = viewModel,
+                onOpen = { selectedTrackId = it },
+            )
         }
     }
 }
@@ -259,7 +290,11 @@ private fun AutoRecordControls(
 }
 
 @Composable
-private fun TrackList(tracks: List<TrackSummary>, viewModel: TrackListViewModel) {
+private fun TrackList(
+    tracks: List<TrackSummary>,
+    viewModel: TrackListViewModel,
+    onOpen: (Long) -> Unit,
+) {
     val context = LocalContext.current
     if (tracks.isEmpty()) {
         Text(
@@ -272,6 +307,7 @@ private fun TrackList(tracks: List<TrackSummary>, viewModel: TrackListViewModel)
         items(tracks, key = { it.id }) { track ->
             TrackRow(
                 track = track,
+                onOpen = { onOpen(track.id) },
                 onShare = {
                     viewModel.share(track.id) { intent ->
                         if (intent != null) context.startActivity(intent)
@@ -286,8 +322,13 @@ private fun TrackList(tracks: List<TrackSummary>, viewModel: TrackListViewModel)
 private val dateFormat = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
 
 @Composable
-private fun TrackRow(track: TrackSummary, onShare: () -> Unit, onDelete: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+private fun TrackRow(
+    track: TrackSummary,
+    onOpen: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -326,6 +367,71 @@ private fun formatDuration(startedAt: Long, endedAt: Long?): String {
     val m = seconds / 60
     val s = seconds % 60
     return if (m >= 60) "%dh %02dm".format(m / 60, m % 60) else "%dm %02ds".format(m, s)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TrackMapScreen(trackId: Long, viewModel: TrackListViewModel, onBack: () -> Unit) {
+    // null = still loading the track's points from the database.
+    val points by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
+        value = viewModel.getPoints(trackId)
+    }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Track") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        Box(modifier = Modifier.padding(inner).fillMaxSize()) {
+            val loaded = points
+            when {
+                loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                loaded.size < 2 -> Text(
+                    "Not enough points to draw this track on a map.",
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                else -> TrackMap(points = loaded)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackMap(points: List<TrackPoint>) {
+    val geoPoints = remember(points) { points.map { GeoPoint(it.latitude, it.longitude) } }
+    AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = { ctx ->
+            // OSM tile usage policy requires a unique user agent.
+            Configuration.getInstance().userAgentValue = ctx.packageName
+            MapView(ctx).apply {
+                setTileSource(TileSourceFactory.MAPNIK)
+                setMultiTouchControls(true)
+                onResume()
+            }
+        },
+        update = { map ->
+            map.overlays.clear()
+            val line = Polyline(map).apply {
+                setPoints(geoPoints)
+                outlinePaint.color = android.graphics.Color.parseColor("#1B6B4C")
+                outlinePaint.strokeWidth = 10f
+            }
+            map.overlays.add(line)
+            // Frame the whole track once the view has been laid out.
+            val bounds = BoundingBox.fromGeoPointsSafe(geoPoints)
+            map.post { map.zoomToBoundingBox(bounds, false, 80) }
+            map.invalidate()
+        },
+        onRelease = { it.onDetach() },
+    )
 }
 
 @Composable

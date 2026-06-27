@@ -68,5 +68,8 @@ dependencies {
     // Location + Activity Recognition (Google Play Services)
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
+    // OpenStreetMap map view (no API key required) for displaying recorded tracks
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

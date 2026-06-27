@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.valeronm.activitytracker.data.TrackRepository
+import com.valeronm.activitytracker.data.db.TrackPoint
 import com.valeronm.activitytracker.data.db.TrackSummary
 import com.valeronm.activitytracker.data.export.GpxExporter
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,6 +23,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     fun delete(trackId: Long) {
         viewModelScope.launch { repository.deleteTrack(trackId) }
     }
+
+    suspend fun getPoints(trackId: Long): List<TrackPoint> = repository.pointsFor(trackId)
 
     /** Builds a GPX file for the track and hands back a share chooser Intent. */
     fun share(trackId: Long, onReady: (Intent?) -> Unit) {
