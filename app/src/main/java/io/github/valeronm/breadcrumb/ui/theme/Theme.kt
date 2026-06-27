@@ -1,4 +1,4 @@
-package com.valeronm.activitytracker.ui.theme
+package io.github.valeronm.breadcrumb.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme

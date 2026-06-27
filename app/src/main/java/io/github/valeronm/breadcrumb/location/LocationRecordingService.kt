@@ -1,4 +1,4 @@
-package com.valeronm.activitytracker.location
+package io.github.valeronm.breadcrumb.location
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -22,13 +22,13 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import com.valeronm.activitytracker.App
-import com.valeronm.activitytracker.R
-import com.valeronm.activitytracker.data.ActivityType
-import com.valeronm.activitytracker.data.Settings
-import com.valeronm.activitytracker.data.TrackRepository
-import com.valeronm.activitytracker.data.db.TrackPoint
-import com.valeronm.activitytracker.ui.MainActivity
+import io.github.valeronm.breadcrumb.App
+import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.data.Settings
+import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -284,8 +284,8 @@ class LocationRecordingService : Service() {
         var activeTrackId: Long? = null
             private set
 
-        const val ACTION_START = "com.valeronm.activitytracker.START"
-        const val ACTION_STOP = "com.valeronm.activitytracker.STOP"
+        const val ACTION_START = "io.github.valeronm.breadcrumb.START"
+        const val ACTION_STOP = "io.github.valeronm.breadcrumb.STOP"
         private const val NOTIFICATION_ID = 1001
 
         fun start(context: Context) {

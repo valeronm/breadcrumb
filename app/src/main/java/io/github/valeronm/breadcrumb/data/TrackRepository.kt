@@ -1,10 +1,10 @@
-package com.valeronm.activitytracker.data
+package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
-import com.valeronm.activitytracker.data.db.AppDatabase
-import com.valeronm.activitytracker.data.db.Track
-import com.valeronm.activitytracker.data.db.TrackPoint
-import com.valeronm.activitytracker.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.data.db.Track
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import kotlinx.coroutines.flow.Flow
 
 /** Thin wrapper around the DAO so callers don't touch Room directly. */

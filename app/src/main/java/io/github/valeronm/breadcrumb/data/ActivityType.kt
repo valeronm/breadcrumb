@@ -1,4 +1,4 @@
-package com.valeronm.activitytracker.data
+package io.github.valeronm.breadcrumb.data
 
 import com.google.android.gms.location.DetectedActivity
 

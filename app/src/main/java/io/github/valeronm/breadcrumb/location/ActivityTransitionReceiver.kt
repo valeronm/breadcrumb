@@ -1,11 +1,11 @@
-package com.valeronm.activitytracker.location
+package io.github.valeronm.breadcrumb.location
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.google.android.gms.location.ActivityRecognitionResult
 import com.google.android.gms.location.ActivityTransitionResult
-import com.valeronm.activitytracker.data.ActivityType
+import io.github.valeronm.breadcrumb.data.ActivityType
 
 /**
  * Receives activity updates from Google Play Services and forwards them to the running
@@ -47,8 +47,8 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        const val ACTION_TRANSITION = "com.valeronm.activitytracker.ACTION_TRANSITION"
-        const val ACTION_SNAPSHOT = "com.valeronm.activitytracker.ACTION_SNAPSHOT"
+        const val ACTION_TRANSITION = "io.github.valeronm.breadcrumb.ACTION_TRANSITION"
+        const val ACTION_SNAPSHOT = "io.github.valeronm.breadcrumb.ACTION_SNAPSHOT"
         private const val CONFIDENCE_THRESHOLD = 50
     }
 }

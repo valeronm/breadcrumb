@@ -1,4 +1,4 @@
-package com.valeronm.activitytracker.data.db
+package io.github.valeronm.breadcrumb.data.db
 
 import androidx.room.Entity
 import androidx.room.ForeignKey

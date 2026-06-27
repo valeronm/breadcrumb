@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.valeronm.activitytracker"
+    namespace = "io.github.valeronm.breadcrumb"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.valeronm.activitytracker"
+        applicationId = "io.github.valeronm.breadcrumb"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
@@ -24,6 +24,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+        debug {
+            // Lets a debug build install alongside a release build.
+            applicationIdSuffix = ".debug"
         }
     }
 

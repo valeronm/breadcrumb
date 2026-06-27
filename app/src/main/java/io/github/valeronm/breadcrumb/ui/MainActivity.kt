@@ -1,4 +1,4 @@
-package com.valeronm.activitytracker.ui
+package io.github.valeronm.breadcrumb.ui
 
 import android.Manifest
 import android.content.Context
@@ -94,13 +94,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
-import com.valeronm.activitytracker.R
-import com.valeronm.activitytracker.data.Settings as AppSettings
-import com.valeronm.activitytracker.data.db.TrackPoint
-import com.valeronm.activitytracker.data.db.TrackSummary
-import com.valeronm.activitytracker.location.LocationRecordingService
-import com.valeronm.activitytracker.location.TrackingStatus
-import com.valeronm.activitytracker.ui.theme.AppTheme
+import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.Settings as AppSettings
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.location.LocationRecordingService
+import io.github.valeronm.breadcrumb.location.TrackingStatus
+import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox

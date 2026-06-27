@@ -1,4 +1,4 @@
-package com.valeronm.activitytracker.data
+package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
 

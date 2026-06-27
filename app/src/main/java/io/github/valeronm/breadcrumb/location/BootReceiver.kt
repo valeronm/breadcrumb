@@ -1,9 +1,9 @@
-package com.valeronm.activitytracker.location
+package io.github.valeronm.breadcrumb.location
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.valeronm.activitytracker.data.Settings
+import io.github.valeronm.breadcrumb.data.Settings
 
 /** Re-arms automatic recording after a reboot if the user had it enabled. */
 class BootReceiver : BroadcastReceiver() {

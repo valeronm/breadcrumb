@@ -1,4 +1,4 @@
-package com.valeronm.activitytracker.location
+package io.github.valeronm.breadcrumb.location
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

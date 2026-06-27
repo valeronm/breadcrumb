@@ -1,12 +1,12 @@
-package com.valeronm.activitytracker.data.export
+package io.github.valeronm.breadcrumb.data.export
 
 import android.content.Context
 import android.net.Uri
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
-import com.valeronm.activitytracker.data.TrackRepository
-import com.valeronm.activitytracker.data.db.Track
-import com.valeronm.activitytracker.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.db.Track
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date

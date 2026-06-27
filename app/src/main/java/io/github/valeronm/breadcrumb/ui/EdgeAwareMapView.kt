@@ -1,4 +1,4 @@
-package com.valeronm.activitytracker.ui
+package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import android.os.Build

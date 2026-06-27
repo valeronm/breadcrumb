@@ -1,4 +1,4 @@
-package com.valeronm.activitytracker.data.db
+package io.github.valeronm.breadcrumb.data.db
 
 import androidx.room.Dao
 import androidx.room.Insert

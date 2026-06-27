@@ -1,4 +1,4 @@
-package com.valeronm.activitytracker.location
+package io.github.valeronm.breadcrumb.location
 
 import android.annotation.SuppressLint
 import android.app.PendingIntent
@@ -8,7 +8,7 @@ import android.os.Build
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionRequest
-import com.valeronm.activitytracker.data.ActivityType
+import io.github.valeronm.breadcrumb.data.ActivityType
 
 /**
  * Registers/unregisters Activity Transition updates with Google Play Services. Transitions are

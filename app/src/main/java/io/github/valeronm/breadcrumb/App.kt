@@ -1,4 +1,4 @@
-package com.valeronm.activitytracker
+package io.github.valeronm.breadcrumb
 
 import android.app.Application
 import android.app.NotificationChannel

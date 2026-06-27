@@ -1,15 +1,15 @@
-package com.valeronm.activitytracker.ui
+package io.github.valeronm.breadcrumb.ui
 
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.valeronm.activitytracker.data.TrackRepository
-import com.valeronm.activitytracker.data.db.TrackPoint
-import com.valeronm.activitytracker.data.db.TrackSummary
-import com.valeronm.activitytracker.data.export.GpxExporter
-import com.valeronm.activitytracker.location.LocationRecordingService
+import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.data.export.GpxExporter
+import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
