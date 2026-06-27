@@ -37,6 +37,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -49,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,6 +61,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
+import com.valeronm.activitytracker.R
 import com.valeronm.activitytracker.data.Settings as AppSettings
 import com.valeronm.activitytracker.data.db.TrackPoint
 import com.valeronm.activitytracker.data.db.TrackSummary
@@ -70,6 +73,7 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -172,6 +176,7 @@ private fun MainScreen() {
         BackHandler { selectedTrackId = null }
         TrackMapScreen(
             trackId = openTrackId,
+            summary = tracks.find { it.id == openTrackId },
             viewModel = viewModel,
             onBack = { selectedTrackId = null },
         )
@@ -371,24 +376,42 @@ private fun formatDuration(startedAt: Long, endedAt: Long?): String {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TrackMapScreen(trackId: Long, viewModel: TrackListViewModel, onBack: () -> Unit) {
+private fun TrackMapScreen(
+    trackId: Long,
+    summary: TrackSummary?,
+    viewModel: TrackListViewModel,
+    onBack: () -> Unit,
+) {
     // null = still loading the track's points from the database.
     val points by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
         value = viewModel.getPoints(trackId)
     }
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Track") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            // Header lives in the top-bar chrome so the (interop) map view is inset below it
+            // and can't composite over it.
+            Column {
+                TopAppBar(
+                    title = { Text(summary?.let { activityLabel(it.activityType) } ?: "Track") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                )
+                if (summary != null) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        tonalElevation = 3.dp,
+                        shadowElevation = 3.dp,
+                    ) {
+                        TrackStatsHeader(summary)
                     }
-                },
-            )
+                }
+            }
         },
     ) { inner ->
-        Box(modifier = Modifier.padding(inner).fillMaxSize()) {
+        Box(modifier = Modifier.padding(inner).fillMaxSize().clipToBounds()) {
             val loaded = points
             when {
                 loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -402,6 +425,33 @@ private fun TrackMapScreen(trackId: Long, viewModel: TrackListViewModel, onBack:
         }
     }
 }
+
+@Composable
+private fun TrackStatsHeader(summary: TrackSummary) {
+    val durationS = summary.endedAt?.let { (it - summary.startedAt) / 1000.0 } ?: 0.0
+    val avgKmh = if (durationS > 0) (summary.distanceMeters / durationS) * 3.6 else 0.0
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(dateFormat.format(Date(summary.startedAt)), style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            StatItem("Distance", "%.2f km".format(summary.distanceMeters / 1000.0))
+            StatItem("Duration", formatDuration(summary.startedAt, summary.endedAt))
+            StatItem("Avg speed", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—")
+            StatItem("Points", summary.pointCount.toString())
+        }
+    }
+}
+
+@Composable
+private fun StatItem(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleMedium)
+        Text(label, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+private fun activityLabel(activityType: String): String =
+    activityType.lowercase(Locale.US).replaceFirstChar { it.uppercase() }
 
 @Composable
 private fun TrackMap(points: List<TrackPoint>) {
@@ -421,10 +471,12 @@ private fun TrackMap(points: List<TrackPoint>) {
             map.overlays.clear()
             val line = Polyline(map).apply {
                 setPoints(geoPoints)
-                outlinePaint.color = android.graphics.Color.parseColor("#1B6B4C")
-                outlinePaint.strokeWidth = 10f
+                outlinePaint.color = android.graphics.Color.parseColor("#2962FF")
+                outlinePaint.strokeWidth = 12f
             }
             map.overlays.add(line)
+            map.overlays.add(endpointMarker(map, geoPoints.first(), "Start", R.drawable.ic_marker_start))
+            map.overlays.add(endpointMarker(map, geoPoints.last(), "End", R.drawable.ic_marker_end))
             // Frame the whole track once the view has been laid out.
             val bounds = BoundingBox.fromGeoPointsSafe(geoPoints)
             map.post { map.zoomToBoundingBox(bounds, false, 80) }
@@ -433,6 +485,16 @@ private fun TrackMap(points: List<TrackPoint>) {
         onRelease = { it.onDetach() },
     )
 }
+
+private fun endpointMarker(map: MapView, at: GeoPoint, label: String, iconRes: Int): Marker =
+    Marker(map).apply {
+        position = at
+        title = label
+        icon = ContextCompat.getDrawable(map.context, iconRes)
+        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+        setInfoWindow(null)
+        setOnMarkerClickListener { _, _ -> true }
+    }
 
 @Composable
 private fun PermissionCard(title: String, body: String, button: String, onClick: () -> Unit) {
