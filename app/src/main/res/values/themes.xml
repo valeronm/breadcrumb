@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose draws the real UI; this just sets the window before content appears. -->
+    <style name="Theme.ActivityGpsTracker" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>

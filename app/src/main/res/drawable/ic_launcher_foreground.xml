@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Location pin centred in the adaptive-icon safe zone -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30 C46.8,30 41,35.8 41,43 C41,52.75 54,68 54,68 C54,68 67,52.75 67,43 C67,35.8 61.2,30 54,30 Z M54,47.5 C51.5,47.5 49.5,45.5 49.5,43 C49.5,40.5 51.5,38.5 54,38.5 C56.5,38.5 58.5,40.5 58.5,43 C58.5,45.5 56.5,47.5 54,47.5 Z" />
+</vector>
