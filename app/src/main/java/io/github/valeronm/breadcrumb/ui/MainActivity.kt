@@ -779,14 +779,15 @@ private fun TrackRow(
     onOpen: () -> Unit,
     onDeleteRequest: () -> Unit,
 ) {
-    // Swipe right-to-left to request deletion; we reject the dismiss so the row springs back and
-    // a confirmation dialog handles the actual delete.
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) onDeleteRequest()
-            false
-        },
-    )
+    // Swipe right-to-left to request deletion: when the gesture commits we ask for confirmation
+    // and reset the row back to settled (the actual delete happens via the dialog).
+    val dismissState = rememberSwipeToDismissBoxState()
+    LaunchedEffect(dismissState.targetValue) {
+        if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
+            onDeleteRequest()
+            dismissState.reset()
+        }
+    }
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = false,
