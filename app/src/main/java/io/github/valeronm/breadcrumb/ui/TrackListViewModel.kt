@@ -33,6 +33,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repository.deleteTrack(trackId) }
     }
 
+    /** DEBUG: inserts a synthetic track for exercising the UI without real movement. */
+    fun seedSampleTrack(onDone: () -> Unit) {
+        viewModelScope.launch {
+            repository.seedSampleTrack()
+            onDone()
+        }
+    }
+
     suspend fun getPoints(trackId: Long): List<TrackPoint> = repository.pointsFor(trackId)
 
     /** Exports every track as a .gpx file into the picked folder; reports how many were written. */

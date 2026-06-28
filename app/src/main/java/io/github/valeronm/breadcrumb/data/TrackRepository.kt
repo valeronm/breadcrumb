@@ -1,11 +1,14 @@
 package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
+import android.location.Location
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import kotlinx.coroutines.flow.Flow
+import kotlin.math.sin
+import kotlin.random.Random
 
 /** Thin wrapper around the DAO so callers don't touch Room directly. */
 class TrackRepository(context: Context) {
@@ -66,4 +69,51 @@ class TrackRepository(context: Context) {
     suspend fun allTrackIds(): List<Long> = dao.allTrackIds()
 
     suspend fun pointsFor(trackId: Long): List<TrackPoint> = dao.pointsFor(trackId)
+
+    /**
+     * Inserts a synthetic, already-finished track so the list / map / swipe-to-delete / share flows
+     * can be exercised without real movement. Intended for debug builds only; bypasses the keep
+     * thresholds. The path is a short wander at a randomised location so repeated seeds don't overlap.
+     */
+    suspend fun seedSampleTrack(): Long {
+        val activity = ActivityType.entries.filter { it.recording }.random()
+        val pointCount = 40
+        val stepSec = 15L
+        val now = System.currentTimeMillis()
+        val startedAt = now - (pointCount - 1) * stepSec * 1000
+
+        val baseLat = 37.7749 + Random.nextDouble(-0.05, 0.05)
+        val baseLon = -122.4194 + Random.nextDouble(-0.05, 0.05)
+
+        val trackId = dao.insertTrack(Track(activityType = activity.name, startedAt = startedAt))
+        var prevLat = baseLat
+        var prevLon = baseLon
+        var distance = 0.0
+        val seg = FloatArray(1)
+        for (i in 0 until pointCount) {
+            val lat = baseLat + i * 0.00012 + sin(i / 4.0) * 0.00008
+            val lon = baseLon + i * 0.00018
+            if (i > 0) {
+                Location.distanceBetween(prevLat, prevLon, lat, lon, seg)
+                distance += seg[0]
+            }
+            dao.insertPoint(
+                TrackPoint(
+                    trackId = trackId,
+                    latitude = lat,
+                    longitude = lon,
+                    altitude = 30.0,
+                    accuracy = 5f,
+                    speed = 1.4f,
+                    bearing = 45f,
+                    timestamp = startedAt + i * stepSec * 1000,
+                ),
+            )
+            prevLat = lat
+            prevLon = lon
+        }
+        dao.updateDistance(trackId, distance)
+        dao.closeTrack(trackId, startedAt + (pointCount - 1) * stepSec * 1000)
+        return trackId
+    }
 }

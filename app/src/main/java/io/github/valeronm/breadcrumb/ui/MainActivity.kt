@@ -95,6 +95,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -389,7 +390,7 @@ private fun MainScreen() {
                         onBack = { overlay = null },
                     )
 
-                    Overlay.Settings -> SettingsScreen(onBack = { overlay = null })
+                    Overlay.Settings -> SettingsScreen(viewModel = viewModel, onBack = { overlay = null })
                 }
             }
         }
@@ -615,7 +616,7 @@ private fun DayHeader(label: String, onShare: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsScreen(onBack: () -> Unit) {
+private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     var intervalSec by remember { mutableFloatStateOf(AppSettings.minIntervalSec(context).toFloat()) }
     var distanceM by remember { mutableFloatStateOf(AppSettings.minDistanceM(context).toFloat()) }
@@ -689,6 +690,28 @@ private fun SettingsScreen(onBack: () -> Unit) {
         SliderSetting("Min length", minLengthM, 0f..1000f, 50, { lengthSettingLabel(it.toInt()) }) {
             minLengthM = it
             AppSettings.setMinTrackLengthM(context, it.toInt())
+        }
+
+        if (BuildConfig.DEBUG) {
+            Spacer(Modifier.height(24.dp))
+            Text("Debug", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Insert a synthetic track for testing the list, map, swipe and share.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+            var seeding by remember { mutableStateOf(false) }
+            Button(
+                enabled = !seeding,
+                onClick = {
+                    seeding = true
+                    viewModel.seedSampleTrack {
+                        seeding = false
+                        Toast.makeText(context, "Seeded a sample track", Toast.LENGTH_SHORT).show()
+                    }
+                },
+            ) { Text("Seed sample track") }
         }
         }
     }
