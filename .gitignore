@@ -2,6 +2,7 @@
 .gradle/
 .kotlin/
 /local.properties
+/keystore.properties
 /.idea/
 .DS_Store
 /build/

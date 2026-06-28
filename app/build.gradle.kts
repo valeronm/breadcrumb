@@ -1,9 +1,19 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+}
+
+// Release signing credentials live in keystore.properties (gitignored). Absent on machines that
+// only build debug — release signing is simply skipped there.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -18,6 +28,34 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        // Upload key: signs builds uploaded to Play; Google re-signs them with the app signing key.
+        create("upload") {
+            val pw = keystoreProperties.getProperty("uploadStorePassword")
+            if (pw != null) {
+                storeFile = file(keystoreProperties.getProperty("uploadStoreFile"))
+                storePassword = pw
+                keyAlias = keystoreProperties.getProperty("uploadKeyAlias")
+                // Empty key password means it reuses the store password (PKCS12 / keytool default).
+                keyPassword = keystoreProperties.getProperty("uploadKeyPassword")
+                    ?.takeIf { it.isNotBlank() } ?: pw
+            }
+        }
+        // App signing key: the app's permanent identity, uploaded to Play App Signing and kept
+        // offline. Used locally only to build APKs for distribution outside Play (which install
+        // over Play copies). Invoked via -PsignWithAppSigningKey.
+        create("appSigning") {
+            val pw = keystoreProperties.getProperty("appSigningStorePassword")
+            if (pw != null) {
+                storeFile = file(keystoreProperties.getProperty("appSigningStoreFile"))
+                storePassword = pw
+                keyAlias = keystoreProperties.getProperty("appSigningKeyAlias")
+                keyPassword = keystoreProperties.getProperty("appSigningKeyPassword")
+                    ?.takeIf { it.isNotBlank() } ?: pw
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -25,6 +63,17 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // Sign with the upload key by default (for Play). Pass -PsignWithAppSigningKey to sign
+            // with the app signing key instead, for an APK distributed outside Play. Only applied
+            // when that key's credentials are actually present in keystore.properties.
+            val signing = if (project.hasProperty("signWithAppSigningKey")) {
+                signingConfigs.getByName("appSigning")
+            } else {
+                signingConfigs.getByName("upload")
+            }
+            if (signing.storeFile != null) {
+                signingConfig = signing
+            }
         }
         debug {
             // Lets a debug build install alongside a release build.
