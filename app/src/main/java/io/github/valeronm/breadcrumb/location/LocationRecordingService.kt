@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
 import android.os.Build
@@ -29,6 +28,8 @@ import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.ui.MainActivity
+import io.github.valeronm.breadcrumb.util.formatKm
+import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -82,21 +83,28 @@ class LocationRecordingService : Service() {
         startForegroundWithNotification(ActivityType.STILL.label, "Waiting for movement…")
         TrackingStatus.update { it.copy(tracking = true) }
 
-        if (hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) {
-            activityManager.start()
-            // One-shot: if we're already moving right now, start recording without waiting for
-            // the next transition.
-            activityManager.requestSnapshot()
-        }
         // Start armed but paused — recording begins when a moving activity transition arrives.
         // (Don't optimistically open a track: while stationary it would just be created and
         // immediately discarded, flashing the UI.)
         scope.launch {
             mutex.withLock {
-                // Close any track left open by a previous crash/kill.
-                repository.finalizeDangling(exceptTrackId = null)
+                // Close any track left open by a previous crash/kill, but never the one we're
+                // actively recording (a snapshot may have already opened it).
+                repository.finalizeDangling(exceptTrackId = activeTrackId)
                 currentActivity = ActivityType.STILL
                 publishStatus()
+            }
+            // Arm activity recognition only after the paused state is established. Doing it before
+            // lets the one-shot snapshot's applyActivity() race this block on the mutex; if the
+            // snapshot won, it would open a track that finalizeDangling then deleted and
+            // currentActivity = STILL then reset — wedging the recorder while GPS kept running.
+            withContext(Dispatchers.Main) {
+                if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) {
+                    activityManager.start()
+                    // One-shot: if we're already moving right now, start recording without waiting
+                    // for the next transition.
+                    activityManager.requestSnapshot()
+                }
             }
         }
     }
@@ -151,7 +159,7 @@ class LocationRecordingService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
-        if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) return
+        if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) return
         stopLocationUpdates()
         val intervalMs = Settings.minIntervalSec(this) * 1000L
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
@@ -209,7 +217,7 @@ class LocationRecordingService : Service() {
             )
         }
         val detail = if (activity.recording) {
-            "%.2f km · %d pts".format(distanceMeters / 1000.0, pointCount)
+            "${formatKm(distanceMeters)} · $pointCount pts"
         } else {
             "Paused — waiting for movement"
         }
@@ -232,19 +240,26 @@ class LocationRecordingService : Service() {
         manager?.notify(NOTIFICATION_ID, buildNotification(title, text))
     }
 
-    private fun buildNotification(title: String, text: String): Notification {
-        val openIntent = PendingIntent.getActivity(
+    // The notification's PendingIntents never change, so build them once and reuse across the
+    // per-fix notification rebuilds (each getActivity/getService is a round-trip to the system).
+    private val openIntent: PendingIntent by lazy {
+        PendingIntent.getActivity(
             this,
             0,
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val stopIntent = PendingIntent.getService(
+    }
+    private val stopIntent: PendingIntent by lazy {
+        PendingIntent.getService(
             this,
             1,
             Intent(this, LocationRecordingService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+    }
+
+    private fun buildNotification(title: String, text: String): Notification {
         return NotificationCompat.Builder(this, App.CHANNEL_ID)
             .setContentTitle("Tracking: $title")
             .setContentText(text)
@@ -256,8 +271,6 @@ class LocationRecordingService : Service() {
             .build()
     }
 
-    private fun hasPermission(permission: String): Boolean =
-        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
     private fun now() = System.currentTimeMillis()
 

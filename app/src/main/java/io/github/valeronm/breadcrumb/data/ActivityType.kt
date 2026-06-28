@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.data
 
 import com.google.android.gms.location.DetectedActivity
+import java.util.Locale
 
 /**
  * The motion states we care about. Maps Google's [DetectedActivity] constants onto a small set
@@ -28,6 +29,14 @@ enum class ActivityType(
             DetectedActivity.RUNNING,
             DetectedActivity.STILL,
         )
+
+        /**
+         * Display label for a persisted `activityType` string (an [ActivityType.name]), falling
+         * back to a title-cased form for legacy values that no longer map to a known activity.
+         */
+        fun labelFor(stored: String): String =
+            entries.firstOrNull { it.name == stored }?.label
+                ?: stored.lowercase(Locale.US).replaceFirstChar { it.uppercase() }
 
         fun fromDetectedActivity(type: Int): ActivityType = when (type) {
             DetectedActivity.IN_VEHICLE -> DRIVING

@@ -3,7 +3,6 @@ package io.github.valeronm.breadcrumb.ui
 import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -12,6 +11,7 @@ import android.widget.Toast
 import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.PredictiveBackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -97,12 +97,15 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.BuildConfig
+import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
+import io.github.valeronm.breadcrumb.util.formatKm
+import io.github.valeronm.breadcrumb.util.isGranted
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
@@ -142,9 +145,6 @@ private fun foregroundPermissions(): List<String> = buildList {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(Manifest.permission.ACTIVITY_RECOGNITION)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
 }
-
-private fun Context.isGranted(permission: String): Boolean =
-    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
 private fun Context.foregroundGranted(): Boolean = foregroundPermissions().all { isGranted(it) }
 
@@ -212,17 +212,17 @@ private fun MainScreen() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val requestForeground = androidx.activity.compose.rememberLauncherForActivityResult(
+    val requestForeground = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
         foregroundOk = context.foregroundGranted()
     }
-    val requestBackground = androidx.activity.compose.rememberLauncherForActivityResult(
+    val requestBackground = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
         backgroundOk = context.backgroundGranted()
     }
-    val exportAllLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+    val exportAllLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { treeUri ->
         if (treeUri != null) {
@@ -478,7 +478,7 @@ private fun CurrentTrackPreview(viewModel: TrackListViewModel, status: TrackingS
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "%.2f km · %d points".format(status.distanceMeters / 1000.0, status.points),
+                    "${formatKm(status.distanceMeters)} · ${status.points} points",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -514,8 +514,8 @@ private fun AutoRecordControls(
                 Text(
                     when {
                         !status.tracking -> "Starting…"
-                        status.recording -> "Recording ${status.activityLabel}: %.2f km · %d points"
-                            .format(status.distanceMeters / 1000.0, status.points)
+                        status.recording ->
+                            "Recording ${status.activityLabel}: ${formatKm(status.distanceMeters)} · ${status.points} points"
                         else -> "Paused — waiting for movement"
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -579,7 +579,7 @@ private fun TracksTab(
             title = { Text("Delete this track?") },
             text = {
                 Text(
-                    "The ${activityLabel(track.activityType)} track from " +
+                    "The ${ActivityType.labelFor(track.activityType)} track from " +
                         "${dateFormat.format(Date(track.startedAt))} will be permanently " +
                         "deleted. This can't be undone.",
                 )
@@ -848,7 +848,7 @@ private fun TrackRow(
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        activityLabel(track.activityType),
+                        ActivityType.labelFor(track.activityType),
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
@@ -857,11 +857,8 @@ private fun TrackRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        "%.2f km · %d pts · %s".format(
-                            track.distanceMeters / 1000.0,
-                            track.pointCount,
+                        "${formatKm(track.distanceMeters)} · ${track.pointCount} pts · " +
                             formatDuration(track.startedAt, track.endedAt),
-                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -898,7 +895,7 @@ private fun TrackMapScreen(
             // and can't composite over it.
             Column {
                 TopAppBar(
-                    title = { Text(summary?.let { activityLabel(it.activityType) } ?: "Track") },
+                    title = { Text(summary?.let { ActivityType.labelFor(it.activityType) } ?: "Track") },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -906,7 +903,7 @@ private fun TrackMapScreen(
                     },
                     actions = {
                         IconButton(onClick = {
-                            viewModel.share(trackId) { intent ->
+                            viewModel.shareTracks(listOf(trackId)) { intent ->
                                 if (intent != null) context.startActivity(intent)
                             }
                         }) {
@@ -949,7 +946,7 @@ private fun TrackStatsHeader(summary: TrackSummary) {
         Text(dateFormat.format(Date(summary.startedAt)), style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            StatItem("Distance", "%.2f km".format(summary.distanceMeters / 1000.0))
+            StatItem("Distance", formatKm(summary.distanceMeters))
             StatItem("Duration", formatDuration(summary.startedAt, summary.endedAt))
             StatItem("Avg speed", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—")
             StatItem("Points", summary.pointCount.toString())
@@ -964,9 +961,6 @@ private fun StatItem(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.labelSmall)
     }
 }
-
-private fun activityLabel(activityType: String): String =
-    activityType.lowercase(Locale.US).replaceFirstChar { it.uppercase() }
 
 private fun activityIcon(activityType: String): ImageVector = when (activityType.uppercase(Locale.US)) {
     "WALKING" -> Icons.AutoMirrored.Filled.DirectionsWalk
@@ -1004,9 +998,19 @@ private fun TrackMap(points: List<TrackPoint>) {
             map.overlays.add(endpointMarker(map, geoPoints.last(), "End", R.drawable.ic_marker_end))
             val bounds = BoundingBox.fromGeoPointsSafe(geoPoints)
             // Center synchronously so the first drawn frame is already on the track (no flash),
-            // then refine to fit the whole track once the view has been laid out.
+            // then refine to fit the whole track.
             map.controller.setCenter(GeoPoint(bounds.centerLatitude, bounds.centerLongitude))
-            map.post { map.zoomToBoundingBox(bounds, false, 80) }
+            // zoomToBoundingBox must run only once the MapView has real dimensions: called while the
+            // view is still 0×0 its projection is degenerate and Projection.getCloserPixel spins
+            // forever wrapping the longitude, pegging the main thread into an ANR. post{} doesn't
+            // wait for layout (it just queues a message) — addOnFirstLayoutListener does. A single
+            // point has no span to fit, so just pick a sensible zoom for it.
+            val frame = {
+                if (geoPoints.size > 1) map.zoomToBoundingBox(bounds, false, 80)
+                else map.controller.setZoom(16.0)
+            }
+            if (map.width > 0 && map.height > 0) frame()
+            else map.addOnFirstLayoutListener { _, _, _, _, _ -> frame() }
             map.invalidate()
         },
         onRelease = { it.onDetach() },

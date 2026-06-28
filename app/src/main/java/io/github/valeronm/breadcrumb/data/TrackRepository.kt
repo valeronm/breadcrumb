@@ -38,13 +38,17 @@ class TrackRepository(context: Context) {
     }
 
     /** Closes a track, deleting it instead if it's too short to be meaningful. */
+    private suspend fun closeOrDelete(track: Track, endedAt: Long) {
+        if (meetsKeepThresholds(track, endedAt)) {
+            dao.closeTrack(track.id, endedAt)
+        } else {
+            dao.deleteTrack(track.id)
+        }
+    }
+
     suspend fun finishTrack(trackId: Long, endedAt: Long) {
         val track = dao.track(trackId) ?: return
-        if (meetsKeepThresholds(track, endedAt)) {
-            dao.closeTrack(trackId, endedAt)
-        } else {
-            dao.deleteTrack(trackId)
-        }
+        closeOrDelete(track, endedAt)
     }
 
     suspend fun deleteTrack(trackId: Long) = dao.deleteTrack(trackId)
@@ -58,11 +62,7 @@ class TrackRepository(context: Context) {
         for (track in dao.openTracks()) {
             if (track.id == exceptTrackId) continue
             val endedAt = dao.lastPointTime(track.id) ?: track.startedAt
-            if (meetsKeepThresholds(track, endedAt)) {
-                dao.closeTrack(track.id, endedAt)
-            } else {
-                dao.deleteTrack(track.id)
-            }
+            closeOrDelete(track, endedAt)
         }
     }
 

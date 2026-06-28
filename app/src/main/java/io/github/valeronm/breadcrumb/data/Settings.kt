@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
+import androidx.core.content.edit
 
 /** Tiny SharedPreferences-backed store for the app's persisted settings. */
 object Settings {
@@ -26,7 +27,7 @@ object Settings {
         prefs(context).getBoolean(KEY_AUTO_RECORD, false)
 
     fun setAutoRecord(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_AUTO_RECORD, enabled).apply()
+        prefs(context).edit { putBoolean(KEY_AUTO_RECORD, enabled) }
     }
 
     // --- Sampling (between points) ------------------------------------------
@@ -36,7 +37,7 @@ object Settings {
         prefs(context).getInt(KEY_SAMPLING_MIN_INTERVAL_SEC, DEFAULT_SAMPLING_MIN_INTERVAL_SEC)
 
     fun setMinIntervalSec(context: Context, value: Int) {
-        prefs(context).edit().putInt(KEY_SAMPLING_MIN_INTERVAL_SEC, value).apply()
+        prefs(context).edit { putInt(KEY_SAMPLING_MIN_INTERVAL_SEC, value) }
     }
 
     /** Minimum displacement between recorded points, in metres. */
@@ -44,7 +45,7 @@ object Settings {
         prefs(context).getInt(KEY_SAMPLING_MIN_DISTANCE_M, DEFAULT_SAMPLING_MIN_DISTANCE_M)
 
     fun setMinDistanceM(context: Context, value: Int) {
-        prefs(context).edit().putInt(KEY_SAMPLING_MIN_DISTANCE_M, value).apply()
+        prefs(context).edit { putInt(KEY_SAMPLING_MIN_DISTANCE_M, value) }
     }
 
     // --- Keep-a-track thresholds --------------------------------------------
@@ -54,7 +55,7 @@ object Settings {
         prefs(context).getInt(KEY_TRACK_MIN_DURATION_SEC, DEFAULT_TRACK_MIN_DURATION_SEC)
 
     fun setMinTrackDurationSec(context: Context, value: Int) {
-        prefs(context).edit().putInt(KEY_TRACK_MIN_DURATION_SEC, value).apply()
+        prefs(context).edit { putInt(KEY_TRACK_MIN_DURATION_SEC, value) }
     }
 
     /** Tracks shorter than this distance (metres) are discarded. 0 = no limit. */
@@ -62,6 +63,6 @@ object Settings {
         prefs(context).getInt(KEY_TRACK_MIN_LENGTH_M, DEFAULT_TRACK_MIN_LENGTH_M)
 
     fun setMinTrackLengthM(context: Context, value: Int) {
-        prefs(context).edit().putInt(KEY_TRACK_MIN_LENGTH_M, value).apply()
+        prefs(context).edit { putInt(KEY_TRACK_MIN_LENGTH_M, value) }
     }
 }

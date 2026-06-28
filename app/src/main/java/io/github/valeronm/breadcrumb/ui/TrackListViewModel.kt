@@ -50,24 +50,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Builds a GPX file for the track and hands back a share chooser Intent. */
-    fun share(trackId: Long, onReady: (Intent?) -> Unit) {
-        viewModelScope.launch {
-            val uri = GpxExporter.export(getApplication(), repository, trackId)
-            if (uri == null) {
-                onReady(null)
-                return@launch
-            }
-            val share = Intent(Intent.ACTION_SEND).apply {
-                type = "application/gpx+xml"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            onReady(Intent.createChooser(share, "Share GPX track"))
-        }
-    }
-
-    /** Exports several tracks and hands back a multi-file share chooser Intent. */
+    /** Exports the given tracks and hands back a share chooser Intent (single- or multi-file). */
     fun shareTracks(trackIds: List<Long>, onReady: (Intent?) -> Unit) {
         viewModelScope.launch {
             val uris = ArrayList<Uri>()
@@ -78,20 +61,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 onReady(null)
                 return@launch
             }
-            val intent = if (uris.size == 1) {
-                Intent(Intent.ACTION_SEND).apply {
-                    type = "application/gpx+xml"
-                    putExtra(Intent.EXTRA_STREAM, uris.first())
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-            } else {
-                Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                    type = "application/gpx+xml"
-                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
+            val single = uris.size == 1
+            val intent = Intent(if (single) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
+                type = GpxExporter.MIME_TYPE
+                if (single) putExtra(Intent.EXTRA_STREAM, uris.first())
+                else putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            onReady(Intent.createChooser(intent, "Share GPX tracks"))
+            onReady(Intent.createChooser(intent, if (single) "Share GPX track" else "Share GPX tracks"))
         }
     }
 }
