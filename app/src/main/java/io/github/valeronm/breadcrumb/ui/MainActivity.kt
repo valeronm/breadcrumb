@@ -79,6 +79,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -620,7 +621,6 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     var intervalSec by remember { mutableFloatStateOf(AppSettings.minIntervalSec(context).toFloat()) }
     var distanceM by remember { mutableFloatStateOf(AppSettings.minDistanceM(context).toFloat()) }
-    var minPoints by remember { mutableFloatStateOf(AppSettings.minTrackPoints(context).toFloat()) }
     var minDurationSec by remember {
         mutableFloatStateOf(AppSettings.minTrackDurationSec(context).toFloat())
     }
@@ -646,10 +646,10 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
                 .padding(16.dp),
         ) {
         SectionHeader("Sampling") {
-            intervalSec = AppSettings.DEFAULT_MIN_INTERVAL_SEC.toFloat()
-            distanceM = AppSettings.DEFAULT_MIN_DISTANCE_M.toFloat()
-            AppSettings.setMinIntervalSec(context, AppSettings.DEFAULT_MIN_INTERVAL_SEC)
-            AppSettings.setMinDistanceM(context, AppSettings.DEFAULT_MIN_DISTANCE_M)
+            intervalSec = AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC.toFloat()
+            distanceM = AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M.toFloat()
+            AppSettings.setMinIntervalSec(context, AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC)
+            AppSettings.setMinDistanceM(context, AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M)
         }
         Text(
             "How densely points are recorded while moving. Applies to the next track.",
@@ -667,22 +667,16 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
 
         Spacer(Modifier.height(24.dp))
         SectionHeader("Keep a track only if") {
-            minPoints = AppSettings.DEFAULT_MIN_POINTS.toFloat()
-            minDurationSec = AppSettings.DEFAULT_MIN_DURATION_SEC.toFloat()
-            minLengthM = AppSettings.DEFAULT_MIN_LENGTH_M.toFloat()
-            AppSettings.setMinTrackPoints(context, AppSettings.DEFAULT_MIN_POINTS)
-            AppSettings.setMinTrackDurationSec(context, AppSettings.DEFAULT_MIN_DURATION_SEC)
-            AppSettings.setMinTrackLengthM(context, AppSettings.DEFAULT_MIN_LENGTH_M)
+            minDurationSec = AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC.toFloat()
+            minLengthM = AppSettings.DEFAULT_TRACK_MIN_LENGTH_M.toFloat()
+            AppSettings.setMinTrackDurationSec(context, AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC)
+            AppSettings.setMinTrackLengthM(context, AppSettings.DEFAULT_TRACK_MIN_LENGTH_M)
         }
         Text(
             "Shorter tracks are discarded when recording stops.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        SliderSetting("Min points", minPoints, 1f..10f, 1, { "${it.toInt()}" }) {
-            minPoints = it
-            AppSettings.setMinTrackPoints(context, it.toInt())
-        }
         SliderSetting("Min duration", minDurationSec, 0f..300f, 15, { durationSettingLabel(it.toInt()) }) {
             minDurationSec = it
             AppSettings.setMinTrackDurationSec(context, it.toInt())
@@ -713,6 +707,15 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
                 },
             ) { Text("Seed sample track") }
         }
+
+        Spacer(Modifier.height(32.dp))
+        Text(
+            "Breadcrumb ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         }
     }
 }

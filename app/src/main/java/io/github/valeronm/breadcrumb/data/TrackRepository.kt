@@ -26,9 +26,11 @@ class TrackRepository(context: Context) {
     suspend fun updateDistance(trackId: Long, distanceMeters: Double) =
         dao.updateDistance(trackId, distanceMeters)
 
-    /** Whether a track meets the user's configured keep thresholds (points / duration / length). */
+    /** Whether a track meets the user's configured keep thresholds (duration / length). */
     private suspend fun meetsKeepThresholds(track: Track, endedAt: Long): Boolean {
-        if (dao.pointCount(track.id) < Settings.minTrackPoints(appContext)) return false
+        // Hard floor: a track needs at least two points to be a line with any length.
+        // This is a sanity check, not a user setting — empty/single-point tracks are never useful.
+        if (dao.pointCount(track.id) < 2) return false
         val durationSec = (endedAt - track.startedAt) / 1000
         if (durationSec < Settings.minTrackDurationSec(appContext)) return false
         if (track.distanceMeters < Settings.minTrackLengthM(appContext)) return false

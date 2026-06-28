@@ -55,7 +55,7 @@ The pieces below only make sense together — read them as a unit.
 and the UI collects — this is how live recording state reaches Compose without binding to the service.
 
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
-time/distance between points) and keep-track thresholds (min points/duration/length). Sampling is read
+time/distance between points) and keep-track thresholds (min duration/length). Sampling is read
 by the service when each track's GPS request starts; thresholds are read by the repository when a track
 finishes. `ActivityType` therefore only carries a label + a `recording` boolean — sampling cadence is
 **not** per-activity anymore.
