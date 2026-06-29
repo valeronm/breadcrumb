@@ -47,6 +47,23 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE endedAt IS NULL")
     suspend fun openTracks(): List<Track>
 
+    /** All tracks oldest-first, for the chronological stitch/merge pass. */
+    @Query("SELECT * FROM tracks ORDER BY startedAt ASC, id ASC")
+    suspend fun tracksByStart(): List<Track>
+
+    @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC LIMIT 1")
+    suspend fun firstGoodPoint(trackId: Long): TrackPoint?
+
+    @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp DESC, id DESC LIMIT 1")
+    suspend fun lastGoodPoint(trackId: Long): TrackPoint?
+
+    /** Move every point of [fromTrackId] onto [toTrackId] (used when merging stitchable tracks). */
+    @Query("UPDATE track_points SET trackId = :toTrackId WHERE trackId = :fromTrackId")
+    suspend fun reparentPoints(fromTrackId: Long, toTrackId: Long)
+
+    @Query("UPDATE track_points SET segmentStart = 1 WHERE id = :pointId")
+    suspend fun markSegmentStart(pointId: Long)
+
     @Query("SELECT MAX(timestamp) FROM track_points WHERE trackId = :trackId")
     suspend fun lastPointTime(trackId: Long): Long?
 

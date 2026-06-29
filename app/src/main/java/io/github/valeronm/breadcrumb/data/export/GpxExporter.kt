@@ -81,7 +81,13 @@ object GpxExporter {
             appendLine("    <name>${track.activityType} ${iso.format(Date(track.startedAt))}</name>")
             appendLine("    <type>${track.activityType}</type>")
             appendLine("    <trkseg>")
-            for (p in points) {
+            for ((i, p) in points.withIndex()) {
+                // A segment start (the fix after an auto-pause resumed) opens a fresh <trkseg> so the
+                // paused gap isn't drawn as a connecting line by GPX consumers.
+                if (i > 0 && p.segmentStart) {
+                    appendLine("    </trkseg>")
+                    appendLine("    <trkseg>")
+                }
                 appendLine("""      <trkpt lat="${p.latitude}" lon="${p.longitude}">""")
                 p.altitude?.let { appendLine("        <ele>$it</ele>") }
                 appendLine("        <time>${iso.format(Date(p.timestamp))}</time>")

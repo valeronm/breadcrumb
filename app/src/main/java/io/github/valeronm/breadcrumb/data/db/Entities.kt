@@ -47,6 +47,12 @@ data class TrackPoint(
      * rendered track line, and exports.
      */
     val ignored: Boolean = false,
+    /**
+     * True for the first point of a new segment within a track — i.e. the fix right after recording
+     * resumed from an auto-pause. Marks a GPX `<trkseg>` boundary; the gap before it isn't counted
+     * in distance (the segments are logically disconnected).
+     */
+    val segmentStart: Boolean = false,
 )
 
 /** Lightweight summary row for the track list (no point geometry loaded). */

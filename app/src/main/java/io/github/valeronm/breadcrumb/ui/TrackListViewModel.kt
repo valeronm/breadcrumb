@@ -32,6 +32,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 repository.reprocessAllTracks()
                 Settings.setBadFixBackfillDone(getApplication())
             }
+            // One-time merge of tracks fragmented before auto-pause/stitch existed (DB v3).
+            if (!Settings.isStitchMergeBackfillDone(getApplication())) {
+                repository.mergeStitchableTracks(
+                    Settings.resumeWindowSec(getApplication()),
+                    Settings.resumeDistanceM(getApplication()),
+                )
+                Settings.setStitchMergeBackfillDone(getApplication())
+            }
         }
     }
 

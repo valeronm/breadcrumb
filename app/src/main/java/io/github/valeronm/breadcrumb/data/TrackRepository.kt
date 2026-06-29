@@ -91,10 +91,13 @@ class TrackRepository(context: Context) {
             var distance = 0.0
             val badIds = ArrayList<Long>()
             for (point in points) {
-                if (TrackQuality.isBadFix(lastGood, point, activity)) {
+                // A segment boundary disconnects from the previous segment: don't jump-check or
+                // count distance across the gap.
+                val baseline = if (point.segmentStart) null else lastGood
+                if (TrackQuality.isBadFix(baseline, point, activity)) {
                     badIds.add(point.id)
                 } else {
-                    lastGood?.let { distance += TrackQuality.distanceMeters(it, point) }
+                    if (baseline != null) distance += TrackQuality.distanceMeters(baseline, point)
                     lastGood = point
                 }
             }
@@ -102,6 +105,45 @@ class TrackRepository(context: Context) {
             if (badIds.isNotEmpty()) dao.markIgnored(badIds)
             dao.updateDistance(trackId, distance)
         }
+    }
+
+    /**
+     * Retroactively applies the auto-pause/stitch rule to existing tracks: walks them oldest-first
+     * and merges each track into the previous one when it's the same activity, resumes within
+     * [windowSec], and starts within [distanceM] of where the previous left off. The merged-in
+     * track's points are re-parented onto the survivor and its first point is flagged a segment
+     * start, so the original fragment boundaries are preserved as GPX `<trkseg>` breaks. Distances
+     * are recomputed afterwards. One-time; runs after the bad-fix backfill.
+     */
+    suspend fun mergeStitchableTracks(windowSec: Int, distanceM: Int) {
+        if (windowSec <= 0) return
+        var baseId: Long? = null
+        var baseActivity: String? = null
+        var baseLastGood: TrackPoint? = null
+        for (track in dao.tracksByStart()) {
+            val first = dao.firstGoodPoint(track.id)
+            val last = dao.lastGoodPoint(track.id)
+            if (first == null || last == null) {
+                baseId = null; baseActivity = null; baseLastGood = null
+                continue
+            }
+            val anchor = baseLastGood
+            if (baseId != null && anchor != null && track.activityType == baseActivity) {
+                val gapSec = (first.timestamp - anchor.timestamp) / 1000.0
+                val gapDist = TrackQuality.distanceMeters(anchor, first)
+                if (gapSec in 0.0..windowSec.toDouble() && gapDist <= distanceM) {
+                    dao.markSegmentStart(first.id)
+                    dao.reparentPoints(track.id, baseId)
+                    dao.deleteTrack(track.id)
+                    dao.closeTrack(baseId, track.endedAt ?: last.timestamp)
+                    baseLastGood = last
+                    continue
+                }
+            }
+            baseId = track.id; baseActivity = track.activityType; baseLastGood = last
+        }
+        // Recompute distances (segment-aware) now that points have been re-parented.
+        reprocessAllTracks()
     }
 
     /**

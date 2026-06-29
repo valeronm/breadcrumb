@@ -35,6 +35,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -61,6 +62,16 @@ class LocationRecordingService : Service() {
     // Last point accepted as a good fix — the baseline for distance and the bad-fix jump check.
     private var lastGoodPoint: TrackPoint? = null
     private var locationCallback: LocationCallback? = null
+
+    // --- Auto-pause / stitch state (all touched only under [mutex]) ---
+    // While paused, [currentTrackId] stays open (GPS off) so a brief stop can be stitched back into
+    // the same track when the same activity resumes within the configured window.
+    @Volatile private var pausedSince: Long? = null
+    private var pausedActivity: ActivityType? = null
+    private var pauseAnchor: TrackPoint? = null      // last good point at pause, for the resume-distance check
+    private var pauseToken = 0                        // generation guard for the delayed finalize
+    private var verifyResumeDistance = false          // check the first fix after a resume isn't too far
+    private var pendingSegmentStart = false           // mark the first good fix after a resume as a new segment
 
     override fun onCreate() {
         super.onCreate()
@@ -133,18 +144,73 @@ class LocationRecordingService : Service() {
 
     private suspend fun applyActivity(activity: ActivityType) {
         if (activity == currentActivity) return
-        closeCurrentTrack()
+        val previous = currentActivity
         currentActivity = activity
-        if (activity.recording) {
+
+        if (!activity.recording) {
+            // STILL (or any non-recording state): pause the open track rather than closing it, so a
+            // brief stop can be stitched back into the same track when movement resumes. With the
+            // window disabled (0), keep the old behaviour and close immediately.
+            if (currentTrackId != null && pausedSince == null) {
+                if (Settings.resumeWindowSec(this) > 0) pauseTrack(previous) else closeCurrentTrack()
+            }
+            publishStatus()
+            return
+        }
+
+        // A moving activity. Resume the paused track if it's the same activity within the window;
+        // otherwise finalize whatever's open and start a new track.
+        if (canResume(activity)) {
+            resumeTrack()
+        } else {
+            closeCurrentTrack()
             openTrack(activity)
         }
         publishStatus()
+    }
+
+    private fun canResume(activity: ActivityType): Boolean {
+        val since = pausedSince ?: return false
+        if (currentTrackId == null || pausedActivity != activity) return false
+        val windowMs = Settings.resumeWindowSec(this) * 1000L
+        return windowMs > 0 && now() - since <= windowMs
+    }
+
+    /** Stop GPS but keep the track open; finalize it later if movement doesn't resume in time. */
+    private suspend fun pauseTrack(trackActivity: ActivityType) {
+        withContext(Dispatchers.Main) { stopLocationUpdates() }
+        pausedSince = now()
+        pausedActivity = trackActivity
+        pauseAnchor = lastGoodPoint
+        val token = ++pauseToken
+        val windowMs = Settings.resumeWindowSec(this) * 1000L
+        scope.launch {
+            delay(windowMs)
+            mutex.withLock {
+                // Still the same pause, still un-resumed → the stop outlasted the window; finalize.
+                if (pausedSince != null && pauseToken == token) {
+                    closeCurrentTrack()
+                    publishStatus()
+                }
+            }
+        }
+    }
+
+    /** Continue the paused track: GPS back on, accumulators kept; the first fix verifies distance. */
+    private suspend fun resumeTrack() {
+        pausedSince = null
+        pausedActivity = null
+        verifyResumeDistance = true
+        pendingSegmentStart = true
+        withContext(Dispatchers.Main) { startLocationUpdates() }
     }
 
     private suspend fun openTrack(activity: ActivityType) {
         distanceMeters = 0.0
         pointCount = 0
         lastGoodPoint = null
+        verifyResumeDistance = false
+        pendingSegmentStart = false
         val id = repository.startTrack(activity, now())
         currentTrackId = id
         activeTrackId = id
@@ -154,9 +220,16 @@ class LocationRecordingService : Service() {
     private suspend fun closeCurrentTrack() {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
         val id = currentTrackId ?: return
+        // A paused track ended when its last fix arrived, not now — don't count the idle gap.
+        val endedAt = if (pausedSince != null) lastGoodPoint?.timestamp ?: now() else now()
         currentTrackId = null
         activeTrackId = null
-        repository.finishTrack(id, now())
+        pausedSince = null
+        pausedActivity = null
+        pauseAnchor = null
+        verifyResumeDistance = false
+        pendingSegmentStart = false
+        repository.finishTrack(id, endedAt)
     }
 
     @SuppressLint("MissingPermission")
@@ -182,9 +255,31 @@ class LocationRecordingService : Service() {
         locationCallback = null
     }
 
+    // Fixes are ingested under [mutex] so they serialize with activity changes (which retarget the
+    // current track) instead of racing them.
     private fun handleLocations(locations: List<Location>) {
-        val trackId = currentTrackId ?: return
+        if (locations.isEmpty()) return
+        scope.launch { mutex.withLock { ingestLocations(locations) } }
+    }
+
+    private suspend fun ingestLocations(locations: List<Location>) {
         for (loc in locations) {
+            // First fix after a stitched resume: if it's far from where the track paused, the "pause"
+            // actually covered real travel (a mislabelled-STILL drive); split into a fresh track.
+            if (verifyResumeDistance) {
+                verifyResumeDistance = false
+                val anchor = pauseAnchor
+                pauseAnchor = null
+                if (anchor != null) {
+                    val gap = FloatArray(1)
+                    Location.distanceBetween(anchor.latitude, anchor.longitude, loc.latitude, loc.longitude, gap)
+                    if (gap[0] > Settings.resumeDistanceM(this)) {
+                        closeCurrentTrack()
+                        openTrack(currentActivity)
+                    }
+                }
+            }
+            val trackId = currentTrackId ?: return
             val candidate = TrackPoint(
                 trackId = trackId,
                 latitude = loc.latitude,
@@ -195,19 +290,21 @@ class LocationRecordingService : Service() {
                 bearing = if (loc.hasBearing()) loc.bearing else null,
                 timestamp = if (loc.time > 0) loc.time else now(),
             )
+            // The first good fix after a resume begins a new segment: disconnect it from the previous
+            // segment so the paused gap isn't jump-checked or counted in distance.
+            val segStart = pendingSegmentStart
+            val baseline = if (segStart) null else lastGoodPoint
             // Bad fixes are still stored, just excluded from distance and the good-point baseline.
-            val bad = TrackQuality.isBadFix(lastGoodPoint, candidate, currentActivity)
-            val point = candidate.copy(ignored = bad)
+            val bad = TrackQuality.isBadFix(baseline, candidate, currentActivity)
+            val point = candidate.copy(ignored = bad, segmentStart = segStart && !bad)
             if (!bad) {
-                lastGoodPoint?.let { distanceMeters += TrackQuality.distanceMeters(it, point) }
+                if (baseline != null) distanceMeters += TrackQuality.distanceMeters(baseline, point)
                 lastGoodPoint = point
                 pointCount++
+                if (segStart) pendingSegmentStart = false
             }
-            val distanceSnapshot = distanceMeters
-            scope.launch {
-                repository.addPoint(point)
-                repository.updateDistance(trackId, distanceSnapshot)
-            }
+            repository.addPoint(point)
+            repository.updateDistance(trackId, distanceMeters)
         }
         publishStatus()
     }
