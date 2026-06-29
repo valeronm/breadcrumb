@@ -5,9 +5,11 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import io.github.valeronm.breadcrumb.util.DebugLog
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionRequest
+import com.google.android.gms.location.DetectedActivity
 import io.github.valeronm.breadcrumb.data.ActivityType
 
 /**
@@ -45,6 +47,16 @@ class ActivityRecognitionManager(private val context: Context) {
                     .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_ENTER)
                     .build(),
             )
+            // Also watch EXIT of a moving activity — it's an early "stopped" signal, often slightly
+            // ahead of ENTER STILL. STILL has no useful EXIT (it doesn't say what you started).
+            if (activity != DetectedActivity.STILL) {
+                transitions.add(
+                    ActivityTransition.Builder()
+                        .setActivityType(activity)
+                        .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_EXIT)
+                        .build(),
+                )
+            }
         }
         return ActivityTransitionRequest(transitions)
     }
@@ -53,10 +65,13 @@ class ActivityRecognitionManager(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun start() {
         client.requestActivityTransitionUpdates(buildRequest(), transitionPendingIntent())
+            .addOnSuccessListener { DebugLog.i(TAG, "transition updates registered") }
+            .addOnFailureListener { DebugLog.e(TAG, "transition updates registration FAILED: ${it.message}") }
     }
 
     @SuppressLint("MissingPermission")
     fun stop() {
+        DebugLog.i(TAG, "removing transition updates")
         client.removeActivityTransitionUpdates(transitionPendingIntent())
     }
 
@@ -67,6 +82,8 @@ class ActivityRecognitionManager(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun requestSnapshot() {
         client.requestActivityUpdates(0L, snapshotPendingIntent())
+            .addOnSuccessListener { DebugLog.i(TAG, "snapshot requested") }
+            .addOnFailureListener { DebugLog.e(TAG, "snapshot request FAILED: ${it.message}") }
     }
 
     @SuppressLint("MissingPermission")
@@ -77,5 +94,6 @@ class ActivityRecognitionManager(private val context: Context) {
     private companion object {
         const val REQUEST_TRANSITION = 4711
         const val REQUEST_SNAPSHOT = 4712
+        const val TAG = "Breadcrumb"
     }
 }

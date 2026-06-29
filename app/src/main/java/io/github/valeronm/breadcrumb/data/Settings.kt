@@ -15,6 +15,7 @@ object Settings {
     private const val KEY_TRACK_MIN_LENGTH_M = "track_min_length_m"
     private const val KEY_STITCH_RESUME_WINDOW_SEC = "stitch_resume_window_sec"
     private const val KEY_STITCH_RESUME_DISTANCE_M = "stitch_resume_distance_m"
+    private const val KEY_ACCURACY_GATE_M = "accuracy_gate_m"
     private const val KEY_BAD_FIX_BACKFILL_DONE = "bad_fix_backfill_done"
     private const val KEY_STITCH_MERGE_BACKFILL_DONE = "stitch_merge_backfill_done"
 
@@ -27,6 +28,9 @@ object Settings {
     // activity returns within this time gap (and starting within this distance of where it paused).
     const val DEFAULT_STITCH_RESUME_WINDOW_SEC = 180 // 0 = always start a new track
     const val DEFAULT_STITCH_RESUME_DISTANCE_M = 100
+
+    // Fixes whose reported accuracy radius is at least this (metres) are flagged noisy and excluded.
+    const val DEFAULT_ACCURACY_GATE_M = 50
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -91,6 +95,14 @@ object Settings {
 
     fun setResumeDistanceM(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_STITCH_RESUME_DISTANCE_M, value) }
+    }
+
+    /** Accuracy radius (metres) at/above which a fix is flagged noisy and excluded from new tracks. */
+    fun accuracyGateM(context: Context): Int =
+        prefs(context).getInt(KEY_ACCURACY_GATE_M, DEFAULT_ACCURACY_GATE_M)
+
+    fun setAccuracyGateM(context: Context, value: Int) {
+        prefs(context).edit { putInt(KEY_ACCURACY_GATE_M, value) }
     }
 
     // --- One-time migrations -------------------------------------------------

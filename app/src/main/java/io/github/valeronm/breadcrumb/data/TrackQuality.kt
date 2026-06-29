@@ -14,9 +14,6 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  */
 object TrackQuality {
 
-    /** Fixes whose reported accuracy radius is at least this (metres) are too coarse to trust. */
-    const val MAX_ACCURACY_M = 50f
-
     /** A position delta below this (metres) over a zero/negative time gap isn't a real jump. */
     private const val MIN_JUMP_M = 10.0
 
@@ -36,13 +33,14 @@ object TrackQuality {
 
     /**
      * Whether [point] is a bad fix relative to the last accepted ("good") point. A fix is bad if its
-     * accuracy radius is too coarse, or if reaching it from [lastGood] would require an implausible
-     * speed for [activity] (a GPS teleport — these can have good reported accuracy, so the speed
-     * check is independent of the accuracy gate). [lastGood] is null for the first point of a track.
+     * accuracy radius is at least [maxAccuracyM], or if reaching it from [lastGood] would require an
+     * implausible speed for [activity] (a GPS teleport — these can have good reported accuracy, so
+     * the speed check is independent of the accuracy gate). [lastGood] is null for the first point
+     * of a track (or a segment).
      */
-    fun isBadFix(lastGood: TrackPoint?, point: TrackPoint, activity: ActivityType): Boolean {
+    fun isBadFix(lastGood: TrackPoint?, point: TrackPoint, activity: ActivityType, maxAccuracyM: Float): Boolean {
         val accuracy = point.accuracy
-        if (accuracy != null && accuracy >= MAX_ACCURACY_M) return true
+        if (accuracy != null && accuracy >= maxAccuracyM) return true
         if (lastGood == null) return false
         val distance = distanceMeters(lastGood, point)
         val dtSec = (point.timestamp - lastGood.timestamp) / 1000.0

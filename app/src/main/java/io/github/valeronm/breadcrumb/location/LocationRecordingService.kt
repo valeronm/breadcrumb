@@ -12,6 +12,7 @@ import android.location.Location
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import io.github.valeronm.breadcrumb.util.DebugLog
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -93,6 +94,7 @@ class LocationRecordingService : Service() {
     }
 
     private fun handleStart() {
+        DebugLog.i(TAG, "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)})")
         startForegroundWithNotification(ActivityType.STILL.label, "Waiting for movement…")
         TrackingStatus.update { it.copy(tracking = true) }
 
@@ -123,6 +125,7 @@ class LocationRecordingService : Service() {
     }
 
     private fun handleStop() {
+        DebugLog.i(TAG, "handleStop: disarming")
         activityManager.stop()
         scope.launch {
             mutex.withLock {
@@ -139,20 +142,33 @@ class LocationRecordingService : Service() {
 
     /** Called by [ActivityTransitionReceiver] when Play Services reports a new activity. */
     fun onActivityChanged(activity: ActivityType) {
+        DebugLog.i(TAG, "onActivityChanged($activity) received")
         scope.launch { mutex.withLock { applyActivity(activity) } }
     }
 
     private suspend fun applyActivity(activity: ActivityType) {
-        if (activity == currentActivity) return
+        if (activity == currentActivity) {
+            DebugLog.i(TAG, "applyActivity: $activity unchanged (track=$currentTrackId paused=${pausedSince != null})")
+            return
+        }
         val previous = currentActivity
         currentActivity = activity
+        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${pausedSince != null})")
 
         if (!activity.recording) {
             // STILL (or any non-recording state): pause the open track rather than closing it, so a
             // brief stop can be stitched back into the same track when movement resumes. With the
             // window disabled (0), keep the old behaviour and close immediately.
             if (currentTrackId != null && pausedSince == null) {
-                if (Settings.resumeWindowSec(this) > 0) pauseTrack(previous) else closeCurrentTrack()
+                if (Settings.resumeWindowSec(this) > 0) {
+                    DebugLog.i(TAG, "  -> pausing track $currentTrackId")
+                    pauseTrack(previous)
+                } else {
+                    DebugLog.i(TAG, "  -> closing track $currentTrackId (resume window off)")
+                    closeCurrentTrack()
+                }
+            } else {
+                DebugLog.i(TAG, "  -> no open track to pause")
             }
             publishStatus()
             return
@@ -161,8 +177,10 @@ class LocationRecordingService : Service() {
         // A moving activity. Resume the paused track if it's the same activity within the window;
         // otherwise finalize whatever's open and start a new track.
         if (canResume(activity)) {
+            DebugLog.i(TAG, "  -> resuming paused track $currentTrackId")
             resumeTrack()
         } else {
+            DebugLog.i(TAG, "  -> starting new $activity track")
             closeCurrentTrack()
             openTrack(activity)
         }
@@ -263,6 +281,7 @@ class LocationRecordingService : Service() {
     }
 
     private suspend fun ingestLocations(locations: List<Location>) {
+        val maxAccuracyM = Settings.accuracyGateM(this).toFloat()
         for (loc in locations) {
             // First fix after a stitched resume: if it's far from where the track paused, the "pause"
             // actually covered real travel (a mislabelled-STILL drive); split into a fresh track.
@@ -295,7 +314,7 @@ class LocationRecordingService : Service() {
             val segStart = pendingSegmentStart
             val baseline = if (segStart) null else lastGoodPoint
             // Bad fixes are still stored, just excluded from distance and the good-point baseline.
-            val bad = TrackQuality.isBadFix(baseline, candidate, currentActivity)
+            val bad = TrackQuality.isBadFix(baseline, candidate, currentActivity, maxAccuracyM)
             val point = candidate.copy(ignored = bad, segmentStart = segStart && !bad)
             if (!bad) {
                 if (baseline != null) distanceMeters += TrackQuality.distanceMeters(baseline, point)
@@ -404,6 +423,7 @@ class LocationRecordingService : Service() {
         const val ACTION_START = "io.github.valeronm.breadcrumb.START"
         const val ACTION_STOP = "io.github.valeronm.breadcrumb.STOP"
         private const val NOTIFICATION_ID = 1001
+        private const val TAG = "Breadcrumb"
 
         fun start(context: Context) {
             Settings.setAutoRecord(context, true)

@@ -82,6 +82,7 @@ class TrackRepository(context: Context) {
      * introduced (see [io.github.valeronm.breadcrumb.data.db.AppDatabase] migration 1→2).
      */
     suspend fun reprocessAllTracks() {
+        val maxAccuracyM = Settings.accuracyGateM(appContext).toFloat()
         for (trackId in dao.allTrackIds()) {
             val track = dao.track(trackId) ?: continue
             val activity = runCatching { ActivityType.valueOf(track.activityType) }
@@ -94,7 +95,7 @@ class TrackRepository(context: Context) {
                 // A segment boundary disconnects from the previous segment: don't jump-check or
                 // count distance across the gap.
                 val baseline = if (point.segmentStart) null else lastGood
-                if (TrackQuality.isBadFix(baseline, point, activity)) {
+                if (TrackQuality.isBadFix(baseline, point, activity, maxAccuracyM)) {
                     badIds.add(point.id)
                 } else {
                     if (baseline != null) distance += TrackQuality.distanceMeters(baseline, point)

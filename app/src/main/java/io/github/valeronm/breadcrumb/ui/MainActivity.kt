@@ -41,6 +41,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -81,6 +82,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
@@ -107,6 +109,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
+import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.formatKm
 import io.github.valeronm.breadcrumb.util.isGranted
 import org.osmdroid.config.Configuration
@@ -186,6 +189,7 @@ private enum class HomeTab { RECORD, TRACKS }
 private sealed interface Overlay {
     data class TrackDetail(val id: Long) : Overlay
     data object Settings : Overlay
+    data object Logs : Overlay
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -303,6 +307,11 @@ private fun MainScreen() {
                                 Icon(Icons.Filled.Download, contentDescription = "Export all as GPX")
                             }
                         }
+                        if (BuildConfig.DEBUG && selectedTab == HomeTab.RECORD) {
+                            IconButton(onClick = { overlay = Overlay.Logs }) {
+                                Icon(Icons.Filled.BugReport, contentDescription = "Logs")
+                            }
+                        }
                         IconButton(onClick = { overlay = Overlay.Settings }) {
                             Icon(Icons.Filled.Settings, contentDescription = "Settings")
                         }
@@ -398,6 +407,8 @@ private fun MainScreen() {
                     )
 
                     Overlay.Settings -> SettingsScreen(viewModel = viewModel, onBack = { overlay = null })
+
+                    Overlay.Logs -> LogsScreen(onBack = { overlay = null })
                 }
             }
         }
@@ -634,6 +645,9 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
         mutableFloatStateOf(AppSettings.minTrackDurationSec(context).toFloat())
     }
     var minLengthM by remember { mutableFloatStateOf(AppSettings.minTrackLengthM(context).toFloat()) }
+    var resumeWindowSec by remember { mutableFloatStateOf(AppSettings.resumeWindowSec(context).toFloat()) }
+    var resumeDistanceM by remember { mutableFloatStateOf(AppSettings.resumeDistanceM(context).toFloat()) }
+    var accuracyGateM by remember { mutableFloatStateOf(AppSettings.accuracyGateM(context).toFloat()) }
 
     Scaffold(
         topBar = {
@@ -654,7 +668,11 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-        SectionHeader("Sampling") {
+        SectionHeader(
+            "Sampling",
+            canReset = intervalSec.toInt() != AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC ||
+                distanceM.toInt() != AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
+        ) {
             intervalSec = AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC.toFloat()
             distanceM = AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M.toFloat()
             AppSettings.setMinIntervalSec(context, AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC)
@@ -675,7 +693,11 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(24.dp))
-        SectionHeader("Keep a track only if") {
+        SectionHeader(
+            "Keep a track only if",
+            canReset = minDurationSec.toInt() != AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC ||
+                minLengthM.toInt() != AppSettings.DEFAULT_TRACK_MIN_LENGTH_M,
+        ) {
             minDurationSec = AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC.toFloat()
             minLengthM = AppSettings.DEFAULT_TRACK_MIN_LENGTH_M.toFloat()
             AppSettings.setMinTrackDurationSec(context, AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC)
@@ -686,13 +708,61 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        SliderSetting("Min duration", minDurationSec, 0f..300f, 15, { durationSettingLabel(it.toInt()) }) {
+        SliderSetting("Min duration", minDurationSec, 0f..300f, 30, { durationSettingLabel(it.toInt()) }) {
             minDurationSec = it
             AppSettings.setMinTrackDurationSec(context, it.toInt())
         }
-        SliderSetting("Min length", minLengthM, 0f..1000f, 50, { lengthSettingLabel(it.toInt()) }) {
+        SliderSetting("Min length", minLengthM, 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
             minLengthM = it
             AppSettings.setMinTrackLengthM(context, it.toInt())
+        }
+
+        Spacer(Modifier.height(24.dp))
+        SectionHeader(
+            "Auto-pause",
+            canReset = resumeWindowSec.toInt() != AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC ||
+                resumeDistanceM.toInt() != AppSettings.DEFAULT_STITCH_RESUME_DISTANCE_M,
+        ) {
+            resumeWindowSec = AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC.toFloat()
+            resumeDistanceM = AppSettings.DEFAULT_STITCH_RESUME_DISTANCE_M.toFloat()
+            AppSettings.setResumeWindowSec(context, AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC)
+            AppSettings.setResumeDistanceM(context, AppSettings.DEFAULT_STITCH_RESUME_DISTANCE_M)
+        }
+        Text(
+            "A brief stop keeps the same track; recording resumes into it when you start moving again " +
+                "within this window and distance. Off = always start a new track.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SliderSetting("Resume window", resumeWindowSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
+            resumeWindowSec = it
+            AppSettings.setResumeWindowSec(context, it.toInt())
+        }
+        SliderSetting(
+            "Resume distance", resumeDistanceM, 20f..300f, 10, { "${it.toInt()} m" },
+            enabled = resumeWindowSec > 0,
+        ) {
+            resumeDistanceM = it
+            AppSettings.setResumeDistanceM(context, it.toInt())
+        }
+
+        Spacer(Modifier.height(24.dp))
+        SectionHeader(
+            "Accuracy filter",
+            canReset = accuracyGateM.toInt() != AppSettings.DEFAULT_ACCURACY_GATE_M,
+        ) {
+            accuracyGateM = AppSettings.DEFAULT_ACCURACY_GATE_M.toFloat()
+            AppSettings.setAccuracyGateM(context, AppSettings.DEFAULT_ACCURACY_GATE_M)
+        }
+        Text(
+            "Fixes less accurate than this are flagged noisy and excluded from distance, the line and " +
+                "exports. Applies to newly recorded tracks.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SliderSetting("Max accuracy radius", accuracyGateM, 10f..150f, 10, { "${it.toInt()} m" }) {
+            accuracyGateM = it
+            AppSettings.setAccuracyGateM(context, it.toInt())
         }
 
         if (BuildConfig.DEBUG) {
@@ -729,15 +799,76 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
     }
 }
 
+private val logTimeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SectionHeader(title: String, onReset: () -> Unit) {
+private fun LogsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val entries by DebugLog.entries.collectAsState()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Logs (${entries.size})") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = {
+                        val share = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, DebugLog.dump())
+                        }
+                        context.startActivity(Intent.createChooser(share, "Share logs"))
+                    }) { Icon(Icons.Filled.Share, contentDescription = "Share logs") }
+                    IconButton(onClick = { DebugLog.clear() }) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Clear logs")
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        if (entries.isEmpty()) {
+            Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "No logs yet — arm recording and move around.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            // Newest first so the latest events are visible without scrolling.
+            LazyColumn(modifier = Modifier.padding(inner).fillMaxSize().padding(horizontal = 12.dp)) {
+                items(entries.asReversed()) { e ->
+                    val color = when (e.level) {
+                        'E' -> MaterialTheme.colorScheme.error
+                        'W' -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
+                    Text(
+                        "${logTimeFormat.format(Date(e.timeMillis))}  ${e.message}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = color,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, canReset: Boolean, onReset: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, style = MaterialTheme.typography.titleMedium)
-        TextButton(onClick = onReset) { Text("Reset") }
+        // Only offer Reset when something in the group differs from its default.
+        TextButton(onClick = onReset, enabled = canReset) { Text("Reset") }
     }
 }
 
@@ -748,9 +879,11 @@ private fun SliderSetting(
     range: ClosedFloatingPointRange<Float>,
     step: Int,
     valueText: (Float) -> String,
+    enabled: Boolean = true,
     onChange: (Float) -> Unit,
 ) {
-    Column(Modifier.padding(top = 16.dp)) {
+    // Dim the whole row when disabled (the Slider greys itself, the labels need help).
+    Column(Modifier.padding(top = 16.dp).alpha(if (enabled) 1f else 0.38f)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -764,6 +897,7 @@ private fun SliderSetting(
         }
         Slider(
             value = value,
+            enabled = enabled,
             onValueChange = { raw ->
                 // Snap to the nearest step so values land on round numbers.
                 val snapped = ((raw / step).roundToInt() * step).toFloat()
