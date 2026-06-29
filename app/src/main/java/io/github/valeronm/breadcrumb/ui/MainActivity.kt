@@ -83,6 +83,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -98,6 +100,7 @@ import androidx.compose.runtime.DisposableEffect
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -114,6 +117,9 @@ import kotlinx.coroutines.CancellationException
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+import org.osmdroid.views.overlay.advancedpolyline.ColorMappingVariationHue
+import org.osmdroid.views.overlay.advancedpolyline.PolychromaticPaintList
+import android.graphics.Paint
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -457,11 +463,14 @@ private fun CurrentTrackPreview(viewModel: TrackListViewModel, status: TrackingS
     val points by produceState<List<TrackPoint>>(emptyList(), activeId, status.points) {
         value = viewModel.getPoints(activeId)
     }
+    val activity = remember(status.activityLabel) {
+        ActivityType.entries.firstOrNull { it.label == status.activityLabel }
+    }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column {
             Box(modifier = Modifier.fillMaxWidth().height(220.dp).clipToBounds()) {
                 if (points.size >= 2) {
-                    TrackMap(points = points)
+                    TrackMap(points = points, activity = activity)
                 } else {
                     Text(
                         "Waiting for GPS fix…",
@@ -899,6 +908,9 @@ private fun TrackMapScreen(
     val noisyPoints by produceState<List<TrackPoint>>(initialValue = emptyList(), trackId) {
         value = viewModel.getIgnoredPoints(trackId)
     }
+    val activity = remember(summary) {
+        summary?.let { runCatching { ActivityType.valueOf(it.activityType) }.getOrNull() }
+    }
     Scaffold(
         topBar = {
             // Header lives in the top-bar chrome so the (interop) map view is inset below it
@@ -942,7 +954,7 @@ private fun TrackMapScreen(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                else -> TrackMap(points = loaded, noisyPoints = noisyPoints)
+                else -> TrackMap(points = loaded, noisyPoints = noisyPoints, activity = activity, showLegend = true)
             }
         }
     }
@@ -988,57 +1000,161 @@ private fun activityIcon(activityType: String): ImageVector = when (activityType
     else -> Icons.Filled.Place
 }
 
+// Static, per-activity speed→colour scale so tracks are visually comparable across the whole list:
+// red (slow) → green (a good cruising pace) → blue (fast). Hue runs 0°(red)→240°(blue), so with an
+// evenly-spaced min/mid/max the midpoint speed lands exactly on green.
+private const val HUE_RED = 0f
+private const val HUE_GREEN = 120f
+private const val HUE_BLUE = 240f
+private const val SPEED_SATURATION = 0.9f
+private const val SPEED_LUMINANCE = 0.5f
+
+/** Speed thresholds (km/h) anchoring the red / green / blue points of the colour ramp per activity. */
+private data class SpeedScale(val minKmh: Float, val midKmh: Float, val maxKmh: Float)
+
+private fun speedScaleFor(activity: ActivityType): SpeedScale = when (activity) {
+    ActivityType.DRIVING, ActivityType.UNKNOWN -> SpeedScale(30f, 90f, 150f)
+    ActivityType.CYCLING -> SpeedScale(10f, 22f, 34f)
+    ActivityType.RUNNING -> SpeedScale(6f, 11f, 16f)
+    ActivityType.WALKING, ActivityType.STILL -> SpeedScale(2f, 5f, 8f)
+}
+
 @Composable
-private fun TrackMap(points: List<TrackPoint>, noisyPoints: List<TrackPoint> = emptyList()) {
+private fun TrackMap(
+    points: List<TrackPoint>,
+    noisyPoints: List<TrackPoint> = emptyList(),
+    activity: ActivityType? = null,
+    showLegend: Boolean = false,
+) {
     val geoPoints = remember(points) { points.map { GeoPoint(it.latitude, it.longitude) } }
     val noisyGeoPoints = remember(noisyPoints) { noisyPoints.map { GeoPoint(it.latitude, it.longitude) } }
-    AndroidView(
-        modifier = Modifier.fillMaxSize(),
-        factory = { ctx ->
-            // OSM tile usage policy requires a unique user agent.
-            Configuration.getInstance().userAgentValue = ctx.packageName
-            EdgeAwareMapView(ctx).apply {
-                setTileSource(TileSourceFactory.MAPNIK)
-                setMultiTouchControls(true)
-                // Start zoomed in so the first frame never shows the default world view.
-                controller.setZoom(15.0)
-                onResume()
+    val scale = remember(activity) { activity?.let { speedScaleFor(it) } }
+    val speedsKmh = remember(points) { pointSpeedsKmh(points) }
+    Box(Modifier.fillMaxSize()) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                // OSM tile usage policy requires a unique user agent.
+                Configuration.getInstance().userAgentValue = ctx.packageName
+                EdgeAwareMapView(ctx).apply {
+                    setTileSource(TileSourceFactory.MAPNIK)
+                    setMultiTouchControls(true)
+                    // Start zoomed in so the first frame never shows the default world view.
+                    controller.setZoom(15.0)
+                    onResume()
+                }
+            },
+            update = { map ->
+                map.overlays.clear()
+                val line = Polyline(map).apply { setPoints(geoPoints) }
+                if (scale != null) {
+                    // Colour each point by its speed via osmdroid's advanced-polyline paint list,
+                    // clamping into the static scale so speeds beyond it saturate at red/blue.
+                    val paint = Paint().apply {
+                        strokeWidth = 12f
+                        style = Paint.Style.STROKE
+                        strokeCap = Paint.Cap.ROUND
+                        strokeJoin = Paint.Join.ROUND
+                        isAntiAlias = true
+                    }
+                    val mapping = ColorMappingVariationHue(
+                        scale.minKmh, scale.maxKmh,
+                        HUE_RED, HUE_BLUE, SPEED_SATURATION, SPEED_LUMINANCE,
+                    )
+                    speedsKmh.forEach { mapping.add(it.coerceIn(scale.minKmh, scale.maxKmh)) }
+                    // Keep the default outline from drawing a second (black) line under the gradient.
+                    line.outlinePaint.color = android.graphics.Color.TRANSPARENT
+                    line.getOutlinePaintLists().add(PolychromaticPaintList(paint, mapping, true))
+                } else {
+                    line.outlinePaint.color = android.graphics.Color.parseColor("#2962FF")
+                    line.outlinePaint.strokeWidth = 12f
+                }
+                map.overlays.add(line)
+                // Mark excluded "bad fix" points so the gaps in the line have an explanation. They're
+                // not in the framing bounds below, so a far outlier won't shrink the actual route.
+                for (noisy in noisyGeoPoints) {
+                    map.overlays.add(endpointMarker(map, noisy, "Noisy fix", R.drawable.ic_marker_noisy))
+                }
+                map.overlays.add(endpointMarker(map, geoPoints.first(), "Start", R.drawable.ic_marker_start))
+                map.overlays.add(endpointMarker(map, geoPoints.last(), "End", R.drawable.ic_marker_end))
+                val bounds = BoundingBox.fromGeoPointsSafe(geoPoints)
+                // Center synchronously so the first drawn frame is already on the track (no flash),
+                // then refine to fit the whole track.
+                map.controller.setCenter(GeoPoint(bounds.centerLatitude, bounds.centerLongitude))
+                // zoomToBoundingBox must run only once the MapView has real dimensions: called while
+                // the view is still 0×0 its projection is degenerate and Projection.getCloserPixel
+                // spins forever wrapping the longitude, pegging the main thread into an ANR. post{}
+                // doesn't wait for layout (it just queues a message) — addOnFirstLayoutListener does.
+                // A single point has no span to fit, so just pick a sensible zoom for it.
+                val frame = {
+                    if (geoPoints.size > 1) map.zoomToBoundingBox(bounds, false, 80)
+                    else map.controller.setZoom(16.0)
+                }
+                if (map.width > 0 && map.height > 0) frame()
+                else map.addOnFirstLayoutListener { _, _, _, _, _ -> frame() }
+                map.invalidate()
+            },
+            onRelease = { it.onDetach() },
+        )
+        if (showLegend && scale != null) {
+            SpeedLegend(scale, Modifier.align(Alignment.BottomStart).padding(12.dp))
+        }
+    }
+}
+
+/** Per-point speed in km/h: the GPS-reported speed where present, else derived from the previous point. */
+private fun pointSpeedsKmh(points: List<TrackPoint>): FloatArray {
+    val out = FloatArray(points.size)
+    var prev: TrackPoint? = null
+    for (i in points.indices) {
+        val p = points[i]
+        val reported = p.speed
+        out[i] = when {
+            reported != null && reported >= 0f -> reported * 3.6f
+            prev != null -> {
+                val dtSec = (p.timestamp - prev!!.timestamp) / 1000.0
+                if (dtSec > 0) (TrackQuality.distanceMeters(prev!!, p) / dtSec * 3.6).toFloat() else 0f
             }
-        },
-        update = { map ->
-            map.overlays.clear()
-            val line = Polyline(map).apply {
-                setPoints(geoPoints)
-                outlinePaint.color = android.graphics.Color.parseColor("#2962FF")
-                outlinePaint.strokeWidth = 12f
+            else -> 0f
+        }
+        prev = p
+    }
+    return out
+}
+
+@Composable
+private fun SpeedLegend(scale: SpeedScale, modifier: Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+        tonalElevation = 3.dp,
+        shadowElevation = 3.dp,
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Box(
+                Modifier
+                    .width(132.dp)
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color.hsl(HUE_RED, SPEED_SATURATION, SPEED_LUMINANCE),
+                                Color.hsl(HUE_GREEN, SPEED_SATURATION, SPEED_LUMINANCE),
+                                Color.hsl(HUE_BLUE, SPEED_SATURATION, SPEED_LUMINANCE),
+                            ),
+                        ),
+                    ),
+            )
+            Spacer(Modifier.height(2.dp))
+            Row(Modifier.width(132.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("%.0f".format(scale.minKmh), style = MaterialTheme.typography.labelSmall)
+                Text("%.0f".format(scale.midKmh), style = MaterialTheme.typography.labelSmall)
+                Text("%.0f km/h".format(scale.maxKmh), style = MaterialTheme.typography.labelSmall)
             }
-            map.overlays.add(line)
-            // Mark excluded "bad fix" points so the gaps in the line have an explanation. They're
-            // not in the framing bounds below, so a far outlier won't shrink the actual route.
-            for (noisy in noisyGeoPoints) {
-                map.overlays.add(endpointMarker(map, noisy, "Noisy fix", R.drawable.ic_marker_noisy))
-            }
-            map.overlays.add(endpointMarker(map, geoPoints.first(), "Start", R.drawable.ic_marker_start))
-            map.overlays.add(endpointMarker(map, geoPoints.last(), "End", R.drawable.ic_marker_end))
-            val bounds = BoundingBox.fromGeoPointsSafe(geoPoints)
-            // Center synchronously so the first drawn frame is already on the track (no flash),
-            // then refine to fit the whole track.
-            map.controller.setCenter(GeoPoint(bounds.centerLatitude, bounds.centerLongitude))
-            // zoomToBoundingBox must run only once the MapView has real dimensions: called while the
-            // view is still 0×0 its projection is degenerate and Projection.getCloserPixel spins
-            // forever wrapping the longitude, pegging the main thread into an ANR. post{} doesn't
-            // wait for layout (it just queues a message) — addOnFirstLayoutListener does. A single
-            // point has no span to fit, so just pick a sensible zoom for it.
-            val frame = {
-                if (geoPoints.size > 1) map.zoomToBoundingBox(bounds, false, 80)
-                else map.controller.setZoom(16.0)
-            }
-            if (map.width > 0 && map.height > 0) frame()
-            else map.addOnFirstLayoutListener { _, _, _, _, _ -> frame() }
-            map.invalidate()
-        },
-        onRelease = { it.onDetach() },
-    )
+        }
+    }
 }
 
 private fun endpointMarker(map: MapView, at: GeoPoint, label: String, iconRes: Int): Marker =
