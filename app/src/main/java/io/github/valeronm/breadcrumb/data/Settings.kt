@@ -16,6 +16,7 @@ object Settings {
     private const val KEY_STITCH_RESUME_WINDOW_SEC = "stitch_resume_window_sec"
     private const val KEY_STITCH_RESUME_DISTANCE_M = "stitch_resume_distance_m"
     private const val KEY_ACCURACY_GATE_M = "accuracy_gate_m"
+    private const val KEY_ACTIVITY_POLL_ENABLED = "activity_poll_enabled"
     private const val KEY_BAD_FIX_BACKFILL_DONE = "bad_fix_backfill_done"
     private const val KEY_STITCH_MERGE_BACKFILL_DONE = "stitch_merge_backfill_done"
 
@@ -31,6 +32,8 @@ object Settings {
 
     // Fixes whose reported accuracy radius is at least this (metres) are flagged noisy and excluded.
     const val DEFAULT_ACCURACY_GATE_M = 50
+
+    const val DEFAULT_ACTIVITY_POLL_ENABLED = true
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -103,6 +106,14 @@ object Settings {
 
     fun setAccuracyGateM(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_ACCURACY_GATE_M, value) }
+    }
+
+    /** Whether the recorder re-polls the activity snapshot while armed (off = A/B battery without it). */
+    fun activityPollEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ACTIVITY_POLL_ENABLED, DEFAULT_ACTIVITY_POLL_ENABLED)
+
+    fun setActivityPollEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_ACTIVITY_POLL_ENABLED, enabled) }
     }
 
     // --- One-time migrations -------------------------------------------------

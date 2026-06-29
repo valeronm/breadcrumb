@@ -785,6 +785,32 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
                     }
                 },
             ) { Text("Seed sample track") }
+
+            Spacer(Modifier.height(16.dp))
+            var pollEnabled by remember { mutableStateOf(AppSettings.activityPollEnabled(context)) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Activity poll (30 s)", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Re-reads activity while armed so start/stop isn't stuck on lazy transitions. " +
+                            "Turn off to A/B battery without it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Switch(
+                    checked = pollEnabled,
+                    onCheckedChange = {
+                        pollEnabled = it
+                        AppSettings.setActivityPollEnabled(context, it)
+                    },
+                )
+            }
         }
 
         Spacer(Modifier.height(32.dp))

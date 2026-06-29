@@ -82,7 +82,6 @@ class ActivityRecognitionManager(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun requestSnapshot() {
         client.requestActivityUpdates(0L, snapshotPendingIntent())
-            .addOnSuccessListener { DebugLog.i(TAG, "snapshot requested") }
             .addOnFailureListener { DebugLog.e(TAG, "snapshot request FAILED: ${it.message}") }
     }
 

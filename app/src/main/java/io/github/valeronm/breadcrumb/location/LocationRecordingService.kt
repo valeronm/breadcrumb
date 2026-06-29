@@ -35,8 +35,10 @@ import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -73,6 +75,7 @@ class LocationRecordingService : Service() {
     private var pauseToken = 0                        // generation guard for the delayed finalize
     private var verifyResumeDistance = false          // check the first fix after a resume isn't too far
     private var pendingSegmentStart = false           // mark the first good fix after a resume as a new segment
+    private var pollJob: Job? = null                  // periodic activity re-read while armed
 
     override fun onCreate() {
         super.onCreate()
@@ -122,10 +125,34 @@ class LocationRecordingService : Service() {
                 }
             }
         }
+        startActivityPoll()
+    }
+
+    /**
+     * Re-reads the current activity on a timer while armed. Transitions are lazy: they're filtered,
+     * can lag minutes, suspend during long stillness, and replay stale events on registration. The
+     * snapshot (current-state read) is the reliable signal — polling it catches starts/stops the
+     * transition stream misses (and re-tries after a cold-engine UNKNOWN). The receiver applies the
+     * result in both directions.
+     */
+    private fun startActivityPoll() {
+        pollJob?.cancel()
+        pollJob = scope.launch {
+            while (isActive) {
+                delay(ACTIVITY_POLL_INTERVAL_MS)
+                // Re-read the toggle each cycle so it can be flipped (for battery A/B) without re-arming.
+                if (Settings.activityPollEnabled(this@LocationRecordingService) &&
+                    isGranted(Manifest.permission.ACTIVITY_RECOGNITION)
+                ) {
+                    withContext(Dispatchers.Main) { activityManager.requestSnapshot() }
+                }
+            }
+        }
     }
 
     private fun handleStop() {
         DebugLog.i(TAG, "handleStop: disarming")
+        pollJob?.cancel()
         activityManager.stop()
         scope.launch {
             mutex.withLock {
@@ -142,15 +169,11 @@ class LocationRecordingService : Service() {
 
     /** Called by [ActivityTransitionReceiver] when Play Services reports a new activity. */
     fun onActivityChanged(activity: ActivityType) {
-        DebugLog.i(TAG, "onActivityChanged($activity) received")
         scope.launch { mutex.withLock { applyActivity(activity) } }
     }
 
     private suspend fun applyActivity(activity: ActivityType) {
-        if (activity == currentActivity) {
-            DebugLog.i(TAG, "applyActivity: $activity unchanged (track=$currentTrackId paused=${pausedSince != null})")
-            return
-        }
+        if (activity == currentActivity) return
         val previous = currentActivity
         currentActivity = activity
         DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${pausedSince != null})")
@@ -424,6 +447,13 @@ class LocationRecordingService : Service() {
         const val ACTION_STOP = "io.github.valeronm.breadcrumb.STOP"
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "Breadcrumb"
+
+        /**
+         * How often to re-poll the current activity while armed, and — since a poll gives a fresh
+         * reading at least this often — the age beyond which a (usually replayed) transition is
+         * considered stale and ignored by [ActivityTransitionReceiver].
+         */
+        const val ACTIVITY_POLL_INTERVAL_MS = 30_000L
 
         fun start(context: Context) {
             Settings.setAutoRecord(context, true)

@@ -43,6 +43,14 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                 // moving activity is an early "stopped" hint (often just before ENTER STILL), so map
                 // it to STILL/pause. EXIT of anything else doesn't tell us the new state — ignore it.
                 val latest = result.transitionEvents.lastOrNull() ?: return
+                // A transition older than the poll cadence is usually a stale registration replay
+                // (it can even be wrong by now). The snapshot poll gives a fresher reading at least
+                // this often, so ignore stale transitions and let the poll be authoritative.
+                val ageMs = (nowNanos - latest.elapsedRealTimeNanos) / 1_000_000
+                if (ageMs > LocationRecordingService.ACTIVITY_POLL_INTERVAL_MS) {
+                    DebugLog.i(TAG, "  stale (${"%.1f".format(Locale.US, ageMs / 1000.0)}s) — ignoring; snapshot poll is authoritative")
+                    return
+                }
                 val detected = ActivityType.fromDetectedActivity(latest.activityType)
                 val isExit = latest.transitionType == ActivityTransition.ACTIVITY_TRANSITION_EXIT
                 val activity = when {
@@ -64,19 +72,24 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
 
                 val probable = result.mostProbableActivity
                 val activity = ActivityType.fromDetectedActivity(probable.type)
-                // Log the full ranked guess so we can see confidence near the start/stop boundary.
-                val ranked = result.probableActivities.joinToString {
-                    "${detectedName(it.type)}:${it.confidence}"
-                }
+                // Bidirectional: a confident reading drives the state either way (moving -> record,
+                // STILL -> pause). Ignore UNKNOWN / low confidence (e.g. a cold engine right after a
+                // long stillness reports UNKNOWN with a flat distribution).
                 val acts = probable.confidence >= CONFIDENCE_THRESHOLD &&
-                    activity.recording &&
                     activity != ActivityType.UNKNOWN
-                DebugLog.i(
-                    TAG,
-                    "snapshot mostProbable=${detectedName(probable.type)}(${probable.confidence}) " +
-                        "-> $activity acts=$acts serviceAlive=$serviceAlive [$ranked]",
-                )
-                // Only kick off recording if we're confidently already in a moving activity.
+                // The 30s poll repeats the same reading endlessly while idle/recording; only log when
+                // it changes (start/stop/anomaly) so the log stays signal, not noise.
+                if (activity != lastSnapshotActivity) {
+                    val ranked = result.probableActivities.joinToString {
+                        "${detectedName(it.type)}:${it.confidence}"
+                    }
+                    DebugLog.i(
+                        TAG,
+                        "snapshot mostProbable=${detectedName(probable.type)}(${probable.confidence}) " +
+                            "-> $activity acts=$acts serviceAlive=$serviceAlive [$ranked]",
+                    )
+                    lastSnapshotActivity = activity
+                }
                 if (acts) {
                     LocationRecordingService.instance?.onActivityChanged(activity)
                 }
@@ -109,5 +122,9 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
         const val ACTION_SNAPSHOT = "io.github.valeronm.breadcrumb.ACTION_SNAPSHOT"
         private const val CONFIDENCE_THRESHOLD = 50
         private const val TAG = "Breadcrumb"
+
+        // Last snapshot reading we logged, to suppress identical repeats from the periodic poll.
+        @Volatile
+        private var lastSnapshotActivity: ActivityType? = null
     }
 }
