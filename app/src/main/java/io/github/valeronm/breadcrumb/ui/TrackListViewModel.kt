@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -23,9 +24,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
-        // Mark any track left in a "recording" state by a crash/kill as completed.
         viewModelScope.launch {
+            // Mark any track left in a "recording" state by a crash/kill as completed.
             repository.finalizeDangling(exceptTrackId = LocationRecordingService.activeTrackId)
+            // One-time backfill of the bad-fix flag over tracks recorded before DB v2.
+            if (!Settings.isBadFixBackfillDone(getApplication())) {
+                repository.reprocessAllTracks()
+                Settings.setBadFixBackfillDone(getApplication())
+            }
         }
     }
 
@@ -42,6 +48,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     suspend fun getPoints(trackId: Long): List<TrackPoint> = repository.pointsFor(trackId)
+
+    /** The ignored "bad fix" points, shown as markers on the track map. */
+    suspend fun getIgnoredPoints(trackId: Long): List<TrackPoint> = repository.ignoredPointsFor(trackId)
 
     /** Exports every track as a .gpx file into the picked folder; reports how many were written. */
     fun exportAll(treeUri: Uri, onDone: (Int) -> Unit) {

@@ -23,11 +23,26 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE id = :trackId")
     suspend fun deleteTrack(trackId: Long)
 
-    @Query("SELECT COUNT(*) FROM track_points WHERE trackId = :trackId")
+    @Query("SELECT COUNT(*) FROM track_points WHERE trackId = :trackId AND ignored = 0")
     suspend fun pointCount(trackId: Long): Int
 
-    @Query("SELECT * FROM track_points WHERE trackId = :trackId ORDER BY timestamp ASC")
+    /** Usable (non-ignored) points, for rendering and export. */
+    @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")
     suspend fun pointsFor(trackId: Long): List<TrackPoint>
+
+    /** Only the ignored "bad fix" points, for marking them on the map. */
+    @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 1 ORDER BY timestamp ASC, id ASC")
+    suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint>
+
+    /** Every point including ignored ones, for reprocessing. */
+    @Query("SELECT * FROM track_points WHERE trackId = :trackId ORDER BY timestamp ASC, id ASC")
+    suspend fun rawPointsFor(trackId: Long): List<TrackPoint>
+
+    @Query("UPDATE track_points SET ignored = 0 WHERE trackId = :trackId")
+    suspend fun clearIgnored(trackId: Long)
+
+    @Query("UPDATE track_points SET ignored = 1 WHERE id IN (:pointIds)")
+    suspend fun markIgnored(pointIds: List<Long>)
 
     @Query("SELECT * FROM tracks WHERE endedAt IS NULL")
     suspend fun openTracks(): List<Track>
@@ -44,7 +59,8 @@ interface TrackDao {
     @Query(
         """
         SELECT t.id, t.activityType, t.startedAt, t.endedAt, t.distanceMeters,
-               (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id) AS pointCount
+               (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0) AS pointCount,
+               (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 1) AS ignoredCount
         FROM tracks t
         ORDER BY t.startedAt DESC
         """

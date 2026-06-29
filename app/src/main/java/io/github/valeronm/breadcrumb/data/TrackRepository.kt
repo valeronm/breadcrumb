@@ -72,6 +72,38 @@ class TrackRepository(context: Context) {
 
     suspend fun pointsFor(trackId: Long): List<TrackPoint> = dao.pointsFor(trackId)
 
+    /** The ignored "bad fix" points, for marking them on the map. */
+    suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint> = dao.ignoredPointsFor(trackId)
+
+    /**
+     * Re-evaluates every stored track against [TrackQuality], flagging bad fixes and recomputing
+     * each track's distance from the remaining good points. Idempotent: it resets flags first, so
+     * re-running yields the same result. Used as a one-time backfill when the bad-fix flag is
+     * introduced (see [io.github.valeronm.breadcrumb.data.db.AppDatabase] migration 1→2).
+     */
+    suspend fun reprocessAllTracks() {
+        for (trackId in dao.allTrackIds()) {
+            val track = dao.track(trackId) ?: continue
+            val activity = runCatching { ActivityType.valueOf(track.activityType) }
+                .getOrDefault(ActivityType.UNKNOWN)
+            val points = dao.rawPointsFor(trackId)
+            var lastGood: TrackPoint? = null
+            var distance = 0.0
+            val badIds = ArrayList<Long>()
+            for (point in points) {
+                if (TrackQuality.isBadFix(lastGood, point, activity)) {
+                    badIds.add(point.id)
+                } else {
+                    lastGood?.let { distance += TrackQuality.distanceMeters(it, point) }
+                    lastGood = point
+                }
+            }
+            dao.clearIgnored(trackId)
+            if (badIds.isNotEmpty()) dao.markIgnored(badIds)
+            dao.updateDistance(trackId, distance)
+        }
+    }
+
     /**
      * Inserts a synthetic, already-finished track so the list / map / swipe-to-delete / share flows
      * can be exercised without real movement. Intended for debug builds only; bypasses the keep

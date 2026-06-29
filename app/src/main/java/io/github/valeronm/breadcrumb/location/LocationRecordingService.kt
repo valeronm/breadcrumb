@@ -25,6 +25,7 @@ import io.github.valeronm.breadcrumb.App
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.Settings
+import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.ui.MainActivity
@@ -57,7 +58,8 @@ class LocationRecordingService : Service() {
     @Volatile private var currentTrackId: Long? = null
     @Volatile private var distanceMeters = 0.0
     @Volatile private var pointCount = 0
-    private var lastLocation: Location? = null
+    // Last point accepted as a good fix — the baseline for distance and the bad-fix jump check.
+    private var lastGoodPoint: TrackPoint? = null
     private var locationCallback: LocationCallback? = null
 
     override fun onCreate() {
@@ -142,7 +144,7 @@ class LocationRecordingService : Service() {
     private suspend fun openTrack(activity: ActivityType) {
         distanceMeters = 0.0
         pointCount = 0
-        lastLocation = null
+        lastGoodPoint = null
         val id = repository.startTrack(activity, now())
         currentTrackId = id
         activeTrackId = id
@@ -183,10 +185,7 @@ class LocationRecordingService : Service() {
     private fun handleLocations(locations: List<Location>) {
         val trackId = currentTrackId ?: return
         for (loc in locations) {
-            lastLocation?.let { distanceMeters += it.distanceTo(loc) }
-            lastLocation = loc
-            pointCount++
-            val point = TrackPoint(
+            val candidate = TrackPoint(
                 trackId = trackId,
                 latitude = loc.latitude,
                 longitude = loc.longitude,
@@ -196,6 +195,14 @@ class LocationRecordingService : Service() {
                 bearing = if (loc.hasBearing()) loc.bearing else null,
                 timestamp = if (loc.time > 0) loc.time else now(),
             )
+            // Bad fixes are still stored, just excluded from distance and the good-point baseline.
+            val bad = TrackQuality.isBadFix(lastGoodPoint, candidate, currentActivity)
+            val point = candidate.copy(ignored = bad)
+            if (!bad) {
+                lastGoodPoint?.let { distanceMeters += TrackQuality.distanceMeters(it, point) }
+                lastGoodPoint = point
+                pointCount++
+            }
             val distanceSnapshot = distanceMeters
             scope.launch {
                 repository.addPoint(point)

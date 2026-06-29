@@ -13,6 +13,7 @@ object Settings {
     private const val KEY_SAMPLING_MIN_DISTANCE_M = "sampling_min_distance_m"
     private const val KEY_TRACK_MIN_DURATION_SEC = "track_min_duration_sec"
     private const val KEY_TRACK_MIN_LENGTH_M = "track_min_length_m"
+    private const val KEY_BAD_FIX_BACKFILL_DONE = "bad_fix_backfill_done"
 
     const val DEFAULT_SAMPLING_MIN_INTERVAL_SEC = 5
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
@@ -64,5 +65,15 @@ object Settings {
 
     fun setMinTrackLengthM(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_TRACK_MIN_LENGTH_M, value) }
+    }
+
+    // --- One-time migrations -------------------------------------------------
+
+    /** Whether existing tracks have been reprocessed to backfill the bad-fix flag (DB v2). */
+    fun isBadFixBackfillDone(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_BAD_FIX_BACKFILL_DONE, false)
+
+    fun setBadFixBackfillDone(context: Context) {
+        prefs(context).edit { putBoolean(KEY_BAD_FIX_BACKFILL_DONE, true) }
     }
 }

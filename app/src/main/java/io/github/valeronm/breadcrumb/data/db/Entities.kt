@@ -41,6 +41,12 @@ data class TrackPoint(
     val speed: Float?,
     val bearing: Float?,
     val timestamp: Long,
+    /**
+     * True for a fix judged unreliable by [io.github.valeronm.breadcrumb.data.TrackQuality]
+     * (too-coarse accuracy or an implausible jump). Stored but excluded from distance, the
+     * rendered track line, and exports.
+     */
+    val ignored: Boolean = false,
 )
 
 /** Lightweight summary row for the track list (no point geometry loaded). */
@@ -50,5 +56,8 @@ data class TrackSummary(
     val startedAt: Long,
     val endedAt: Long?,
     val distanceMeters: Double,
+    /** Number of usable (non-ignored) points. */
     val pointCount: Int,
+    /** Number of ignored "bad fix" points — a signal that the track is questionable. */
+    val ignoredCount: Int,
 )

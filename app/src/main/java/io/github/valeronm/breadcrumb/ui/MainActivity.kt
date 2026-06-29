@@ -862,6 +862,13 @@ private fun TrackRow(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (track.ignoredCount > 0) {
+                        Text(
+                            "⚠ ${track.ignoredCount} noisy ${if (track.ignoredCount == 1) "fix" else "fixes"} excluded",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         }
@@ -888,6 +895,9 @@ private fun TrackMapScreen(
     val context = LocalContext.current
     val points by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
         value = viewModel.getPoints(trackId)
+    }
+    val noisyPoints by produceState<List<TrackPoint>>(initialValue = emptyList(), trackId) {
+        value = viewModel.getIgnoredPoints(trackId)
     }
     Scaffold(
         topBar = {
@@ -932,7 +942,7 @@ private fun TrackMapScreen(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                else -> TrackMap(points = loaded)
+                else -> TrackMap(points = loaded, noisyPoints = noisyPoints)
             }
         }
     }
@@ -950,6 +960,14 @@ private fun TrackStatsHeader(summary: TrackSummary) {
             StatItem("Duration", formatDuration(summary.startedAt, summary.endedAt))
             StatItem("Avg speed", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—")
             StatItem("Points", summary.pointCount.toString())
+        }
+        if (summary.ignoredCount > 0) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "⚠ ${summary.ignoredCount} noisy ${if (summary.ignoredCount == 1) "fix" else "fixes"} excluded from this track",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }
@@ -971,8 +989,9 @@ private fun activityIcon(activityType: String): ImageVector = when (activityType
 }
 
 @Composable
-private fun TrackMap(points: List<TrackPoint>) {
+private fun TrackMap(points: List<TrackPoint>, noisyPoints: List<TrackPoint> = emptyList()) {
     val geoPoints = remember(points) { points.map { GeoPoint(it.latitude, it.longitude) } }
+    val noisyGeoPoints = remember(noisyPoints) { noisyPoints.map { GeoPoint(it.latitude, it.longitude) } }
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { ctx ->
@@ -994,6 +1013,11 @@ private fun TrackMap(points: List<TrackPoint>) {
                 outlinePaint.strokeWidth = 12f
             }
             map.overlays.add(line)
+            // Mark excluded "bad fix" points so the gaps in the line have an explanation. They're
+            // not in the framing bounds below, so a far outlier won't shrink the actual route.
+            for (noisy in noisyGeoPoints) {
+                map.overlays.add(endpointMarker(map, noisy, "Noisy fix", R.drawable.ic_marker_noisy))
+            }
             map.overlays.add(endpointMarker(map, geoPoints.first(), "Start", R.drawable.ic_marker_start))
             map.overlays.add(endpointMarker(map, geoPoints.last(), "End", R.drawable.ic_marker_end))
             val bounds = BoundingBox.fromGeoPointsSafe(geoPoints)
