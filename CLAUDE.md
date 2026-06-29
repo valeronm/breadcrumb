@@ -83,3 +83,10 @@ touches in the system back-gesture edge strips so edge-swipe-back wins over map 
   notification/manifest pieces derive from it, so don't hardcode the package elsewhere.
 - All data is local; the only network use is OSM map tiles. There is no server sync (a possible future
   feature — the Settings page is where server URL/key fields would go).
+- **Never call osmdroid `MapView.zoomToBoundingBox` before the view has real dimensions.** On a
+  still-`0×0` `MapView` the projection is degenerate and `Projection.getCloserPixel` spins forever
+  wrapping the longitude, pegging the main thread into an ANR (it surfaces in dropbox as a broadcast
+  timeout, not a clear map error). `map.post { … }` does **not** fix this — it only queues a message,
+  it doesn't wait for layout. Gate the framing on `map.width/height > 0`, else defer via
+  `addOnFirstLayoutListener`; for a single-point track (no span) use a fixed `setZoom` instead. See
+  `TrackMap` in `MainActivity`.
