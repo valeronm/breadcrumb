@@ -58,7 +58,10 @@ class LocationRecordingService : Service() {
     private lateinit var fused: FusedLocationProviderClient
     private lateinit var activityManager: ActivityRecognitionManager
 
-    @Volatile private var currentActivity = ActivityType.STILL
+    // The logical recording state (current activity, confirmation streak, open/paused status) lives in
+    // the state machine; this service owns only the resources below. All access is under [mutex].
+    private val stateMachine = RecordingStateMachine()
+
     @Volatile private var currentTrackId: Long? = null
     @Volatile private var distanceMeters = 0.0
     @Volatile private var pointCount = 0
@@ -66,21 +69,14 @@ class LocationRecordingService : Service() {
     private var lastGoodPoint: TrackPoint? = null
     private var locationCallback: LocationCallback? = null
 
-    // --- Auto-pause / stitch state (all touched only under [mutex]) ---
+    // --- Auto-pause / stitch resources (all touched only under [mutex]) ---
     // While paused, [currentTrackId] stays open (GPS off) so a brief stop can be stitched back into
     // the same track when the same activity resumes within the configured window.
-    @Volatile private var pausedSince: Long? = null
-    private var pausedActivity: ActivityType? = null
     private var pauseAnchor: TrackPoint? = null      // last good point at pause, for the resume-distance check
     private var pauseToken = 0                        // generation guard for the delayed finalize
     private var verifyResumeDistance = false          // check the first fix after a resume isn't too far
     private var pendingSegmentStart = false           // mark the first good fix after a resume as a new segment
     private var pollJob: Job? = null                  // periodic activity re-read while armed
-
-    // Start debounce: a new track only opens after the same moving activity is seen this many times
-    // in a row, so a lone blip that reverts to STILL next poll doesn't spin up GPS for nothing.
-    private var pendingStartActivity: ActivityType? = null
-    private var pendingStartCount = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -114,14 +110,13 @@ class LocationRecordingService : Service() {
                 // Close any track left open by a previous crash/kill, but never the one we're
                 // actively recording (a snapshot may have already opened it).
                 repository.finalizeDangling(exceptTrackId = activeTrackId)
-                currentActivity = ActivityType.STILL
-                clearPendingStart()
+                stateMachine.onArmed()
                 publishStatus()
             }
             // Arm activity recognition only after the paused state is established. Doing it before
             // lets the one-shot snapshot's applyActivity() race this block on the mutex; if the
-            // snapshot won, it would open a track that finalizeDangling then deleted and
-            // currentActivity = STILL then reset — wedging the recorder while GPS kept running.
+            // snapshot won, it would open a track that finalizeDangling then deleted and onArmed()
+            // then reset to STILL — wedging the recorder while GPS kept running.
             withContext(Dispatchers.Main) {
                 if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) {
                     activityManager.start()
@@ -163,8 +158,7 @@ class LocationRecordingService : Service() {
         scope.launch {
             mutex.withLock {
                 closeCurrentTrack()
-                currentActivity = ActivityType.STILL
-                clearPendingStart()
+                stateMachine.onArmed()
             }
             withContext(Dispatchers.Main) {
                 TrackingStatus.reset()
@@ -180,98 +174,65 @@ class LocationRecordingService : Service() {
     }
 
     private suspend fun applyActivity(activity: ActivityType) {
-        if (!activity.recording) {
-            // STILL (or any non-recording state). A stop also cancels an as-yet-unconfirmed start.
-            val hadPending = pendingStartActivity != null
-            clearPendingStart()
-            if (activity == currentActivity) {
-                if (hadPending) DebugLog.i(TAG, "pending start cancelled by $activity")
-                return
-            }
-            val previous = currentActivity
-            currentActivity = activity
-            DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${pausedSince != null})")
-            // Pause the open track rather than closing it, so a brief stop can be stitched back into
-            // the same track when movement resumes. With the window disabled (0), close immediately.
-            if (currentTrackId != null && pausedSince == null) {
-                if (Settings.resumeWindowSec(this) > 0) {
-                    DebugLog.i(TAG, "  -> pausing track $currentTrackId")
-                    pauseTrack(previous)
-                } else {
-                    DebugLog.i(TAG, "  -> closing track $currentTrackId (resume window off)")
-                    closeCurrentTrack()
-                }
-            } else {
+        // Decide via the state machine, then apply the side effect + logging here.
+        val previous = stateMachine.currentActivity
+        val action = stateMachine.onActivity(
+            activity,
+            now(),
+            RecordingStateMachine.Config(
+                resumeWindowMs = Settings.resumeWindowSec(this) * 1000L,
+                pollEnabled = Settings.activityPollEnabled(this),
+                startConfirmations = Settings.startConfirmations(this),
+            ),
+        )
+
+        when (action) {
+            RecordingAction.Noop -> Unit
+            RecordingAction.CancelledPending ->
+                DebugLog.i(TAG, "pending start cancelled by $activity")
+            is RecordingAction.AwaitingConfirmation ->
+                DebugLog.i(TAG, "pending start ${action.activity} (${action.count}/${action.needed}) — awaiting confirmation")
+            RecordingAction.StopNoTrack -> {
+                logTransition(previous, activity)
                 DebugLog.i(TAG, "  -> no open track to pause")
+                publishStatus()
             }
-            publishStatus()
-            return
-        }
-
-        // A moving activity. Resume the paused track if it's the same activity within the window —
-        // not gated, the paused track already represents recent real movement.
-        if (canResume(activity)) {
-            clearPendingStart()
-            val previous = currentActivity
-            currentActivity = activity
-            DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${pausedSince != null})")
-            DebugLog.i(TAG, "  -> resuming paused track $currentTrackId")
-            resumeTrack()
-            publishStatus()
-            return
-        }
-
-        // Already actively recording this same activity — nothing to commit.
-        if (activity == currentActivity && currentTrackId != null && pausedSince == null) {
-            clearPendingStart()
-            return
-        }
-
-        // Anything else opens a new track, which turns GPS on — so don't act on a single reading.
-        // A lone high-confidence blip (the user shifts the phone or takes a few steps) reverts to
-        // STILL on the next ~30 s poll; require the same moving activity to persist across
-        // [startConfirmations] readings first. Until confirmed, [currentActivity] is left unchanged
-        // so the next reading re-enters here (and a STILL above cancels the pending start).
-        //
-        // The confirming reading can only come from the poll: transitions fire a single ENTER per
-        // movement onset, so with the poll off a streak could never complete and recording would
-        // never start. Fall back to an instant start when polling is disabled.
-        val needed = if (Settings.activityPollEnabled(this)) Settings.startConfirmations(this) else 1
-        if (needed > 1) {
-            pendingStartCount = if (pendingStartActivity == activity) pendingStartCount + 1 else 1
-            pendingStartActivity = activity
-            if (pendingStartCount < needed) {
-                DebugLog.i(TAG, "pending start $activity ($pendingStartCount/$needed) — awaiting confirmation")
-                return
+            is RecordingAction.Pause -> {
+                logTransition(previous, activity)
+                DebugLog.i(TAG, "  -> pausing track $currentTrackId")
+                pauseTrack(action.pausedActivity)
+                publishStatus()
+            }
+            RecordingAction.Close -> {
+                logTransition(previous, activity)
+                DebugLog.i(TAG, "  -> closing track $currentTrackId (resume window off)")
+                closeCurrentTrack()
+                publishStatus()
+            }
+            RecordingAction.Resume -> {
+                logTransition(previous, activity)
+                DebugLog.i(TAG, "  -> resuming paused track $currentTrackId")
+                resumeTrack()
+                publishStatus()
+            }
+            is RecordingAction.StartNew -> {
+                logTransition(previous, activity)
+                DebugLog.i(TAG, "  -> starting new ${action.activity} track")
+                closeCurrentTrack()
+                openTrack(action.activity)
+                publishStatus()
             }
         }
-        clearPendingStart()
-        val previous = currentActivity
-        currentActivity = activity
-        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${pausedSince != null})")
-        DebugLog.i(TAG, "  -> starting new $activity track")
-        closeCurrentTrack()
-        openTrack(activity)
-        publishStatus()
     }
 
-    private fun clearPendingStart() {
-        pendingStartActivity = null
-        pendingStartCount = 0
-    }
-
-    private fun canResume(activity: ActivityType): Boolean {
-        val since = pausedSince ?: return false
-        if (currentTrackId == null || pausedActivity != activity) return false
-        val windowMs = Settings.resumeWindowSec(this) * 1000L
-        return windowMs > 0 && now() - since <= windowMs
+    private fun logTransition(previous: ActivityType, activity: ActivityType) {
+        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${stateMachine.isPaused})")
     }
 
     /** Stop GPS but keep the track open; finalize it later if movement doesn't resume in time. */
     private suspend fun pauseTrack(trackActivity: ActivityType) {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
-        pausedSince = now()
-        pausedActivity = trackActivity
+        stateMachine.onPaused(trackActivity, now())
         pauseAnchor = lastGoodPoint
         val token = ++pauseToken
         val windowMs = Settings.resumeWindowSec(this) * 1000L
@@ -279,7 +240,7 @@ class LocationRecordingService : Service() {
             delay(windowMs)
             mutex.withLock {
                 // Still the same pause, still un-resumed → the stop outlasted the window; finalize.
-                if (pausedSince != null && pauseToken == token) {
+                if (stateMachine.isPaused && pauseToken == token) {
                     closeCurrentTrack()
                     publishStatus()
                 }
@@ -289,8 +250,7 @@ class LocationRecordingService : Service() {
 
     /** Continue the paused track: GPS back on, accumulators kept; the first fix verifies distance. */
     private suspend fun resumeTrack() {
-        pausedSince = null
-        pausedActivity = null
+        stateMachine.onResumed()
         verifyResumeDistance = true
         pendingSegmentStart = true
         withContext(Dispatchers.Main) { startLocationUpdates() }
@@ -305,6 +265,7 @@ class LocationRecordingService : Service() {
         val id = repository.startTrack(activity, now())
         currentTrackId = id
         activeTrackId = id
+        stateMachine.onRecordingStarted()
         withContext(Dispatchers.Main) { startLocationUpdates() }
     }
 
@@ -312,11 +273,10 @@ class LocationRecordingService : Service() {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
         val id = currentTrackId ?: return
         // A paused track ended when its last fix arrived, not now — don't count the idle gap.
-        val endedAt = if (pausedSince != null) lastGoodPoint?.timestamp ?: now() else now()
+        val endedAt = if (stateMachine.isPaused) lastGoodPoint?.timestamp ?: now() else now()
         currentTrackId = null
         activeTrackId = null
-        pausedSince = null
-        pausedActivity = null
+        stateMachine.onClosed()
         pauseAnchor = null
         verifyResumeDistance = false
         pendingSegmentStart = false
@@ -367,7 +327,7 @@ class LocationRecordingService : Service() {
                     Location.distanceBetween(anchor.latitude, anchor.longitude, loc.latitude, loc.longitude, gap)
                     if (gap[0] > Settings.resumeDistanceM(this)) {
                         closeCurrentTrack()
-                        openTrack(currentActivity)
+                        openTrack(stateMachine.currentActivity)
                     }
                 }
             }
@@ -387,7 +347,7 @@ class LocationRecordingService : Service() {
             val segStart = pendingSegmentStart
             val baseline = if (segStart) null else lastGoodPoint
             // Bad fixes are still stored, just excluded from distance and the good-point baseline.
-            val bad = TrackQuality.isBadFix(baseline, candidate, currentActivity, maxAccuracyM)
+            val bad = TrackQuality.isBadFix(baseline, candidate, stateMachine.currentActivity, maxAccuracyM)
             val point = candidate.copy(ignored = bad, segmentStart = segStart && !bad)
             if (!bad) {
                 if (baseline != null) distanceMeters += TrackQuality.distanceMeters(baseline, point)
@@ -402,7 +362,7 @@ class LocationRecordingService : Service() {
     }
 
     private fun publishStatus() {
-        val activity = currentActivity
+        val activity = stateMachine.currentActivity
         TrackingStatus.update {
             it.copy(
                 tracking = true,
