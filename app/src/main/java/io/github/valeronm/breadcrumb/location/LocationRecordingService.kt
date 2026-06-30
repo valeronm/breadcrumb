@@ -58,9 +58,11 @@ class LocationRecordingService : Service() {
     private lateinit var fused: FusedLocationProviderClient
     private lateinit var activityManager: ActivityRecognitionManager
 
-    // The logical recording state (current activity, confirmation streak, open/paused status) lives in
-    // the state machine; this service owns only the resources below. All access is under [mutex].
-    private val stateMachine = RecordingStateMachine()
+    // Two small state machines own the logic; this service owns only the resources below, and wires
+    // them together. The gate debounces raw readings into a trusted activity; the controller turns
+    // that into track lifecycle actions. All access is under [mutex].
+    private val gate = ActivityGate()
+    private val controller = TrackController()
 
     @Volatile private var currentTrackId: Long? = null
     @Volatile private var distanceMeters = 0.0
@@ -110,7 +112,7 @@ class LocationRecordingService : Service() {
                 // Close any track left open by a previous crash/kill, but never the one we're
                 // actively recording (a snapshot may have already opened it).
                 repository.finalizeDangling(exceptTrackId = activeTrackId)
-                stateMachine.onArmed()
+                gate.onArmed()
                 publishStatus()
             }
             // Arm activity recognition only after the paused state is established. Doing it before
@@ -158,7 +160,7 @@ class LocationRecordingService : Service() {
         scope.launch {
             mutex.withLock {
                 closeCurrentTrack()
-                stateMachine.onArmed()
+                gate.onArmed()
             }
             withContext(Dispatchers.Main) {
                 TrackingStatus.reset()
@@ -173,74 +175,66 @@ class LocationRecordingService : Service() {
         scope.launch { mutex.withLock { applyActivity(activity) } }
     }
 
-    private suspend fun applyActivity(activity: ActivityType) {
-        // Decide via the state machine, then apply the side effect + logging here.
-        val previous = stateMachine.currentActivity
-        val action = stateMachine.onActivity(
-            activity,
+    private suspend fun applyActivity(raw: ActivityType) {
+        // 1) Debounce the raw reading into a trusted activity signal.
+        val previous = gate.confirmed
+        val confirmed = gate.onReading(
+            raw,
             now(),
-            RecordingStateMachine.Config(
-                resumeWindowMs = Settings.resumeWindowSec(this) * 1000L,
-                pollEnabled = Settings.activityPollEnabled(this),
+            ActivityGate.Config(
                 startConfirmations = Settings.startConfirmations(this),
+                graceWindowMs = Settings.resumeWindowSec(this) * 1000L,
+                pollEnabled = Settings.activityPollEnabled(this),
             ),
         )
-
-        when (action) {
-            RecordingAction.Noop -> Unit
-            RecordingAction.CancelledPending ->
-                DebugLog.i(TAG, "pending start cancelled by $activity")
-            is RecordingAction.AwaitingConfirmation ->
-                DebugLog.i(TAG, "pending start ${action.activity} (${action.count}/${action.needed}) — awaiting confirmation")
-            RecordingAction.StopNoTrack -> {
-                logTransition(previous, activity)
-                DebugLog.i(TAG, "  -> no open track to pause")
-                publishStatus()
+        when (confirmed) {
+            Confirmed.NoChange -> return
+            Confirmed.Cancelled -> { DebugLog.i(TAG, "pending start cancelled by $raw"); return }
+            is Confirmed.Awaiting -> {
+                DebugLog.i(TAG, "pending start ${confirmed.activity} (${confirmed.count}/${confirmed.needed}) — awaiting confirmation")
+                return
             }
+            else -> Unit // Stopped / Started / Continuing — a real change
+        }
+
+        // 2) Turn the trusted change into a track action and apply it.
+        logTransition(previous, gate.confirmed)
+        when (val action = controller.onConfirmed(confirmed)) {
+            RecordingAction.Noop -> Unit
             is RecordingAction.Pause -> {
-                logTransition(previous, activity)
                 DebugLog.i(TAG, "  -> pausing track $currentTrackId")
                 pauseTrack(action.pausedActivity)
-                publishStatus()
-            }
-            RecordingAction.Close -> {
-                logTransition(previous, activity)
-                DebugLog.i(TAG, "  -> closing track $currentTrackId (resume window off)")
-                closeCurrentTrack()
-                publishStatus()
             }
             RecordingAction.Resume -> {
-                logTransition(previous, activity)
                 DebugLog.i(TAG, "  -> resuming paused track $currentTrackId")
-                resumeTrack()
-                publishStatus()
+                resumeTrack(gate.confirmed)
             }
             is RecordingAction.StartNew -> {
-                logTransition(previous, activity)
                 DebugLog.i(TAG, "  -> starting new ${action.activity} track")
                 closeCurrentTrack()
                 openTrack(action.activity)
-                publishStatus()
             }
         }
+        publishStatus()
     }
 
     private fun logTransition(previous: ActivityType, activity: ActivityType) {
-        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${stateMachine.isPaused})")
+        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${controller.isPaused})")
     }
 
     /** Stop GPS but keep the track open; finalize it later if movement doesn't resume in time. */
     private suspend fun pauseTrack(trackActivity: ActivityType) {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
-        stateMachine.onPaused(trackActivity, now())
+        controller.onPaused(trackActivity)
         pauseAnchor = lastGoodPoint
         val token = ++pauseToken
         val windowMs = Settings.resumeWindowSec(this) * 1000L
         scope.launch {
             delay(windowMs)
             mutex.withLock {
-                // Still the same pause, still un-resumed → the stop outlasted the window; finalize.
-                if (stateMachine.isPaused && pauseToken == token) {
+                // Still the same pause, still un-resumed → finalize. (The resume decision itself is the
+                // gate's job now; this is just resource cleanup for a stop nothing came back from.)
+                if (controller.isPaused && pauseToken == token) {
                     closeCurrentTrack()
                     publishStatus()
                 }
@@ -249,8 +243,8 @@ class LocationRecordingService : Service() {
     }
 
     /** Continue the paused track: GPS back on, accumulators kept; the first fix verifies distance. */
-    private suspend fun resumeTrack() {
-        stateMachine.onResumed()
+    private suspend fun resumeTrack(activity: ActivityType) {
+        controller.onResumed(activity)
         verifyResumeDistance = true
         pendingSegmentStart = true
         withContext(Dispatchers.Main) { startLocationUpdates() }
@@ -265,7 +259,7 @@ class LocationRecordingService : Service() {
         val id = repository.startTrack(activity, now())
         currentTrackId = id
         activeTrackId = id
-        stateMachine.onRecordingStarted()
+        controller.onRecordingStarted(activity)
         withContext(Dispatchers.Main) { startLocationUpdates() }
     }
 
@@ -273,10 +267,10 @@ class LocationRecordingService : Service() {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
         val id = currentTrackId ?: return
         // A paused track ended when its last fix arrived, not now — don't count the idle gap.
-        val endedAt = if (stateMachine.isPaused) lastGoodPoint?.timestamp ?: now() else now()
+        val endedAt = if (controller.isPaused) lastGoodPoint?.timestamp ?: now() else now()
         currentTrackId = null
         activeTrackId = null
-        stateMachine.onClosed()
+        controller.onClosed()
         pauseAnchor = null
         verifyResumeDistance = false
         pendingSegmentStart = false
@@ -327,7 +321,7 @@ class LocationRecordingService : Service() {
                     Location.distanceBetween(anchor.latitude, anchor.longitude, loc.latitude, loc.longitude, gap)
                     if (gap[0] > Settings.resumeDistanceM(this)) {
                         closeCurrentTrack()
-                        openTrack(stateMachine.currentActivity)
+                        openTrack(gate.confirmed)
                     }
                 }
             }
@@ -347,7 +341,7 @@ class LocationRecordingService : Service() {
             val segStart = pendingSegmentStart
             val baseline = if (segStart) null else lastGoodPoint
             // Bad fixes are still stored, just excluded from distance and the good-point baseline.
-            val bad = TrackQuality.isBadFix(baseline, candidate, stateMachine.currentActivity, maxAccuracyM)
+            val bad = TrackQuality.isBadFix(baseline, candidate, gate.confirmed, maxAccuracyM)
             val point = candidate.copy(ignored = bad, segmentStart = segStart && !bad)
             if (!bad) {
                 if (baseline != null) distanceMeters += TrackQuality.distanceMeters(baseline, point)
@@ -362,7 +356,7 @@ class LocationRecordingService : Service() {
     }
 
     private fun publishStatus() {
-        val activity = stateMachine.currentActivity
+        val activity = gate.confirmed
         TrackingStatus.update {
             it.copy(
                 tracking = true,
