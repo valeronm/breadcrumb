@@ -648,6 +648,14 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
     var resumeWindowSec by remember { mutableFloatStateOf(AppSettings.resumeWindowSec(context).toFloat()) }
     var resumeDistanceM by remember { mutableFloatStateOf(AppSettings.resumeDistanceM(context).toFloat()) }
     var accuracyGateM by remember { mutableFloatStateOf(AppSettings.accuracyGateM(context).toFloat()) }
+    var startConfirmations by remember {
+        mutableFloatStateOf(AppSettings.startConfirmations(context).toFloat())
+    }
+    // Confirmation needs the periodic poll for its 2nd+ reading; off, a start happens instantly.
+    var pollEnabled by remember { mutableStateOf(AppSettings.activityPollEnabled(context)) }
+    var pollIntervalSec by remember {
+        mutableFloatStateOf(AppSettings.activityPollIntervalSec(context).toFloat())
+    }
 
     Scaffold(
         topBar = {
@@ -729,8 +737,8 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
             AppSettings.setResumeDistanceM(context, AppSettings.DEFAULT_STITCH_RESUME_DISTANCE_M)
         }
         Text(
-            "A brief stop keeps the same track; recording resumes into it when you start moving again " +
-                "within this window and distance. Off = always start a new track.",
+            "A brief stop keeps the same track; it resumes when you move again within this window " +
+                "and distance. Off = always a new track.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -755,14 +763,74 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
             AppSettings.setAccuracyGateM(context, AppSettings.DEFAULT_ACCURACY_GATE_M)
         }
         Text(
-            "Fixes less accurate than this are flagged noisy and excluded from distance, the line and " +
-                "exports. Applies to newly recorded tracks.",
+            "Fixes less accurate than this are flagged noisy and left out of the track. Applies to " +
+                "newly recorded tracks.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         SliderSetting("Max accuracy radius", accuracyGateM, 10f..150f, 10, { "${it.toInt()} m" }) {
             accuracyGateM = it
             AppSettings.setAccuracyGateM(context, it.toInt())
+        }
+
+        Spacer(Modifier.height(24.dp))
+        // Activity polling and its start sensitivity are one feature: the poll re-reads activity on
+        // a timer, and confirmations tune how many of those readings start a track. The slider is
+        // inert without the poll, so they share a section and a single Reset.
+        SectionHeader(
+            "Activity polling",
+            canReset = pollEnabled != AppSettings.DEFAULT_ACTIVITY_POLL_ENABLED ||
+                pollIntervalSec.toInt() != AppSettings.DEFAULT_ACTIVITY_POLL_INTERVAL_SEC ||
+                startConfirmations.toInt() != AppSettings.DEFAULT_START_CONFIRMATIONS,
+        ) {
+            pollEnabled = AppSettings.DEFAULT_ACTIVITY_POLL_ENABLED
+            pollIntervalSec = AppSettings.DEFAULT_ACTIVITY_POLL_INTERVAL_SEC.toFloat()
+            startConfirmations = AppSettings.DEFAULT_START_CONFIRMATIONS.toFloat()
+            AppSettings.setActivityPollEnabled(context, AppSettings.DEFAULT_ACTIVITY_POLL_ENABLED)
+            AppSettings.setActivityPollIntervalSec(context, AppSettings.DEFAULT_ACTIVITY_POLL_INTERVAL_SEC)
+            AppSettings.setStartConfirmations(context, AppSettings.DEFAULT_START_CONFIRMATIONS)
+        }
+        Text(
+            "Re-reads your activity while armed so recording starts and stops promptly.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Poll activity", style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.width(12.dp))
+            Switch(
+                checked = pollEnabled,
+                onCheckedChange = {
+                    pollEnabled = it
+                    AppSettings.setActivityPollEnabled(context, it)
+                },
+            )
+        }
+        SliderSetting(
+            "Poll interval", pollIntervalSec, 30f..180f, 30, { durationSettingLabel(it.toInt()) },
+            enabled = pollEnabled,
+        ) {
+            pollIntervalSec = it
+            AppSettings.setActivityPollIntervalSec(context, it.toInt())
+        }
+        Text(
+            "How many readings in a row must agree you're moving before a new track starts. Higher " +
+                "rejects false starts but delays it.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        SliderSetting(
+            "Confirmations to start", startConfirmations, 1f..4f, 1, { confirmationsLabel(it.toInt()) },
+            // A confirming reading can only come from the poll; without it a track starts instantly.
+            enabled = pollEnabled,
+        ) {
+            startConfirmations = it
+            AppSettings.setStartConfirmations(context, it.toInt())
         }
 
         if (BuildConfig.DEBUG) {
@@ -785,32 +853,6 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
                     }
                 },
             ) { Text("Seed sample track") }
-
-            Spacer(Modifier.height(16.dp))
-            var pollEnabled by remember { mutableStateOf(AppSettings.activityPollEnabled(context)) }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Activity poll (30 s)", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "Re-reads activity while armed so start/stop isn't stuck on lazy transitions. " +
-                            "Turn off to A/B battery without it.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Switch(
-                    checked = pollEnabled,
-                    onCheckedChange = {
-                        pollEnabled = it
-                        AppSettings.setActivityPollEnabled(context, it)
-                    },
-                )
-            }
         }
 
         Spacer(Modifier.height(32.dp))
@@ -947,6 +989,8 @@ private fun lengthSettingLabel(m: Int): String = when {
     m < 1000 -> "$m m"
     else -> "%.1f km".format(m / 1000.0)
 }
+
+private fun confirmationsLabel(n: Int): String = if (n <= 1) "Instant" else "$n readings"
 
 private fun groupTracksByDay(tracks: List<TrackSummary>): List<Pair<String, List<TrackSummary>>> {
     val zone = ZoneId.systemDefault()

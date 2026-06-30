@@ -10,6 +10,7 @@ import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
 import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.data.Settings
 import java.util.Locale
 
 /**
@@ -45,9 +46,13 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                 val latest = result.transitionEvents.lastOrNull() ?: return
                 // A transition older than the poll cadence is usually a stale registration replay
                 // (it can even be wrong by now). The snapshot poll gives a fresher reading at least
-                // this often, so ignore stale transitions and let the poll be authoritative.
+                // this often, so ignore stale transitions and let the poll be authoritative. With the
+                // poll disabled there's no fresher reading to fall back on, so honour the transition
+                // regardless of age — dropping it would lose the start/stop with nothing to recover it.
                 val ageMs = (nowNanos - latest.elapsedRealTimeNanos) / 1_000_000
-                if (ageMs > LocationRecordingService.ACTIVITY_POLL_INTERVAL_MS) {
+                if (Settings.activityPollEnabled(context) &&
+                    ageMs > Settings.activityPollIntervalSec(context) * 1000L
+                ) {
                     DebugLog.i(TAG, "  stale (${"%.1f".format(Locale.US, ageMs / 1000.0)}s) — ignoring; snapshot poll is authoritative")
                     return
                 }

@@ -77,6 +77,11 @@ class LocationRecordingService : Service() {
     private var pendingSegmentStart = false           // mark the first good fix after a resume as a new segment
     private var pollJob: Job? = null                  // periodic activity re-read while armed
 
+    // Start debounce: a new track only opens after the same moving activity is seen this many times
+    // in a row, so a lone blip that reverts to STILL next poll doesn't spin up GPS for nothing.
+    private var pendingStartActivity: ActivityType? = null
+    private var pendingStartCount = 0
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -110,6 +115,7 @@ class LocationRecordingService : Service() {
                 // actively recording (a snapshot may have already opened it).
                 repository.finalizeDangling(exceptTrackId = activeTrackId)
                 currentActivity = ActivityType.STILL
+                clearPendingStart()
                 publishStatus()
             }
             // Arm activity recognition only after the paused state is established. Doing it before
@@ -139,8 +145,8 @@ class LocationRecordingService : Service() {
         pollJob?.cancel()
         pollJob = scope.launch {
             while (isActive) {
-                delay(ACTIVITY_POLL_INTERVAL_MS)
-                // Re-read the toggle each cycle so it can be flipped (for battery A/B) without re-arming.
+                // Re-read interval and toggle each cycle so changes take effect without re-arming.
+                delay(Settings.activityPollIntervalSec(this@LocationRecordingService) * 1000L)
                 if (Settings.activityPollEnabled(this@LocationRecordingService) &&
                     isGranted(Manifest.permission.ACTIVITY_RECOGNITION)
                 ) {
@@ -158,6 +164,7 @@ class LocationRecordingService : Service() {
             mutex.withLock {
                 closeCurrentTrack()
                 currentActivity = ActivityType.STILL
+                clearPendingStart()
             }
             withContext(Dispatchers.Main) {
                 TrackingStatus.reset()
@@ -173,15 +180,19 @@ class LocationRecordingService : Service() {
     }
 
     private suspend fun applyActivity(activity: ActivityType) {
-        if (activity == currentActivity) return
-        val previous = currentActivity
-        currentActivity = activity
-        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${pausedSince != null})")
-
         if (!activity.recording) {
-            // STILL (or any non-recording state): pause the open track rather than closing it, so a
-            // brief stop can be stitched back into the same track when movement resumes. With the
-            // window disabled (0), keep the old behaviour and close immediately.
+            // STILL (or any non-recording state). A stop also cancels an as-yet-unconfirmed start.
+            val hadPending = pendingStartActivity != null
+            clearPendingStart()
+            if (activity == currentActivity) {
+                if (hadPending) DebugLog.i(TAG, "pending start cancelled by $activity")
+                return
+            }
+            val previous = currentActivity
+            currentActivity = activity
+            DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${pausedSince != null})")
+            // Pause the open track rather than closing it, so a brief stop can be stitched back into
+            // the same track when movement resumes. With the window disabled (0), close immediately.
             if (currentTrackId != null && pausedSince == null) {
                 if (Settings.resumeWindowSec(this) > 0) {
                     DebugLog.i(TAG, "  -> pausing track $currentTrackId")
@@ -197,17 +208,56 @@ class LocationRecordingService : Service() {
             return
         }
 
-        // A moving activity. Resume the paused track if it's the same activity within the window;
-        // otherwise finalize whatever's open and start a new track.
+        // A moving activity. Resume the paused track if it's the same activity within the window —
+        // not gated, the paused track already represents recent real movement.
         if (canResume(activity)) {
+            clearPendingStart()
+            val previous = currentActivity
+            currentActivity = activity
+            DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${pausedSince != null})")
             DebugLog.i(TAG, "  -> resuming paused track $currentTrackId")
             resumeTrack()
-        } else {
-            DebugLog.i(TAG, "  -> starting new $activity track")
-            closeCurrentTrack()
-            openTrack(activity)
+            publishStatus()
+            return
         }
+
+        // Already actively recording this same activity — nothing to commit.
+        if (activity == currentActivity && currentTrackId != null && pausedSince == null) {
+            clearPendingStart()
+            return
+        }
+
+        // Anything else opens a new track, which turns GPS on — so don't act on a single reading.
+        // A lone high-confidence blip (the user shifts the phone or takes a few steps) reverts to
+        // STILL on the next ~30 s poll; require the same moving activity to persist across
+        // [startConfirmations] readings first. Until confirmed, [currentActivity] is left unchanged
+        // so the next reading re-enters here (and a STILL above cancels the pending start).
+        //
+        // The confirming reading can only come from the poll: transitions fire a single ENTER per
+        // movement onset, so with the poll off a streak could never complete and recording would
+        // never start. Fall back to an instant start when polling is disabled.
+        val needed = if (Settings.activityPollEnabled(this)) Settings.startConfirmations(this) else 1
+        if (needed > 1) {
+            pendingStartCount = if (pendingStartActivity == activity) pendingStartCount + 1 else 1
+            pendingStartActivity = activity
+            if (pendingStartCount < needed) {
+                DebugLog.i(TAG, "pending start $activity ($pendingStartCount/$needed) — awaiting confirmation")
+                return
+            }
+        }
+        clearPendingStart()
+        val previous = currentActivity
+        currentActivity = activity
+        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${pausedSince != null})")
+        DebugLog.i(TAG, "  -> starting new $activity track")
+        closeCurrentTrack()
+        openTrack(activity)
         publishStatus()
+    }
+
+    private fun clearPendingStart() {
+        pendingStartActivity = null
+        pendingStartCount = 0
     }
 
     private fun canResume(activity: ActivityType): Boolean {
@@ -447,13 +497,6 @@ class LocationRecordingService : Service() {
         const val ACTION_STOP = "io.github.valeronm.breadcrumb.STOP"
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "Breadcrumb"
-
-        /**
-         * How often to re-poll the current activity while armed, and — since a poll gives a fresh
-         * reading at least this often — the age beyond which a (usually replayed) transition is
-         * considered stale and ignored by [ActivityTransitionReceiver].
-         */
-        const val ACTIVITY_POLL_INTERVAL_MS = 30_000L
 
         fun start(context: Context) {
             Settings.setAutoRecord(context, true)
