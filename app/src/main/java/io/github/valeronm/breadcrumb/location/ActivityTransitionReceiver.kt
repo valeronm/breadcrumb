@@ -11,6 +11,7 @@ import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
 import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.Settings
+import io.github.valeronm.breadcrumb.domain.ActivityInterpreter
 import java.util.Locale
 
 /**
@@ -40,34 +41,30 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                             "(${"%.1f".format(Locale.US, agoS)}s ago)",
                     )
                 }
-                // The last event is the current state. ENTER sets the activity directly; EXIT of a
-                // moving activity is an early "stopped" hint (often just before ENTER STILL), so map
-                // it to STILL/pause. EXIT of anything else doesn't tell us the new state — ignore it.
+                // The last event is the current state; interpret it (see [ActivityInterpreter]).
                 val latest = result.transitionEvents.lastOrNull() ?: return
-                // A transition older than the poll cadence is usually a stale registration replay
-                // (it can even be wrong by now). The snapshot poll gives a fresher reading at least
-                // this often, so ignore stale transitions and let the poll be authoritative. With the
-                // poll disabled there's no fresher reading to fall back on, so honour the transition
-                // regardless of age — dropping it would lose the start/stop with nothing to recover it.
                 val ageMs = (nowNanos - latest.elapsedRealTimeNanos) / 1_000_000
-                if (Settings.activityPollEnabled(context) &&
-                    ageMs > Settings.activityPollIntervalSec(context) * 1000L
-                ) {
-                    DebugLog.i(TAG, "  stale (${"%.1f".format(Locale.US, ageMs / 1000.0)}s) — ignoring; snapshot poll is authoritative")
-                    return
-                }
                 val detected = ActivityType.fromDetectedActivity(latest.activityType)
                 val isExit = latest.transitionType == ActivityTransition.ACTIVITY_TRANSITION_EXIT
-                val activity = when {
-                    !isExit -> detected
-                    detected.recording -> ActivityType.STILL
-                    else -> return
+                val decision = ActivityInterpreter.interpretTransition(
+                    detected, isExit, ageMs,
+                    ActivityInterpreter.TransitionConfig(
+                        pollEnabled = Settings.activityPollEnabled(context),
+                        pollIntervalMs = Settings.activityPollIntervalSec(context) * 1000L,
+                    ),
+                )
+                when (decision) {
+                    is ActivityInterpreter.TransitionDecision.Stale ->
+                        DebugLog.i(TAG, "  stale (${"%.1f".format(Locale.US, ageMs / 1000.0)}s) — ignoring; snapshot poll is authoritative")
+                    ActivityInterpreter.TransitionDecision.Ignore -> Unit
+                    is ActivityInterpreter.TransitionDecision.Forward -> {
+                        if (decision.exitMapped) DebugLog.i(TAG, "  EXIT $detected -> treating as STILL")
+                        if (!serviceAlive) {
+                            DebugLog.w(TAG, "transition ${decision.activity} DROPPED — service instance is null")
+                        }
+                        LocationRecordingService.instance?.onActivityChanged(decision.activity)
+                    }
                 }
-                if (isExit) DebugLog.i(TAG, "  EXIT $detected -> treating as STILL")
-                if (!serviceAlive) {
-                    DebugLog.w(TAG, "transition $activity DROPPED — service instance is null")
-                }
-                LocationRecordingService.instance?.onActivityChanged(activity)
             }
 
             ActivityRecognitionResult.hasResult(intent) -> {
@@ -77,11 +74,7 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
 
                 val probable = result.mostProbableActivity
                 val activity = ActivityType.fromDetectedActivity(probable.type)
-                // Bidirectional: a confident reading drives the state either way (moving -> record,
-                // STILL -> pause). Ignore UNKNOWN / low confidence (e.g. a cold engine right after a
-                // long stillness reports UNKNOWN with a flat distribution).
-                val acts = probable.confidence >= CONFIDENCE_THRESHOLD &&
-                    activity != ActivityType.UNKNOWN
+                val forward = ActivityInterpreter.interpretSnapshot(activity, probable.confidence, CONFIDENCE_THRESHOLD)
                 // The 30s poll repeats the same reading endlessly while idle/recording; only log when
                 // it changes (start/stop/anomaly) so the log stays signal, not noise.
                 if (activity != lastSnapshotActivity) {
@@ -91,12 +84,12 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                     DebugLog.i(
                         TAG,
                         "snapshot mostProbable=${detectedName(probable.type)}(${probable.confidence}) " +
-                            "-> $activity acts=$acts serviceAlive=$serviceAlive [$ranked]",
+                            "-> $activity acts=${forward != null} serviceAlive=$serviceAlive [$ranked]",
                     )
                     lastSnapshotActivity = activity
                 }
-                if (acts) {
-                    LocationRecordingService.instance?.onActivityChanged(activity)
+                if (forward != null) {
+                    LocationRecordingService.instance?.onActivityChanged(forward)
                 }
             }
 

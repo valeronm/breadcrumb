@@ -29,6 +29,10 @@ import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.ActivityGate
+import io.github.valeronm.breadcrumb.domain.Confirmed
+import io.github.valeronm.breadcrumb.domain.RecordingAction
+import io.github.valeronm.breadcrumb.domain.TrackController
 import io.github.valeronm.breadcrumb.ui.MainActivity
 import io.github.valeronm.breadcrumb.util.formatKm
 import io.github.valeronm.breadcrumb.util.isGranted

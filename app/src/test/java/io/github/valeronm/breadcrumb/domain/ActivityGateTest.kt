@@ -1,4 +1,4 @@
-package io.github.valeronm.breadcrumb.location
+package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.ActivityType
 import org.junit.Assert.assertEquals
