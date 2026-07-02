@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.data
 
-import android.location.Location
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
 /**
@@ -25,28 +24,31 @@ object TrackQuality {
         ActivityType.DRIVING, ActivityType.UNKNOWN -> 220.0
     }
 
-    fun distanceMeters(a: TrackPoint, b: TrackPoint): Double {
-        val result = FloatArray(1)
-        Location.distanceBetween(a.latitude, a.longitude, b.latitude, b.longitude, result)
-        return result[0].toDouble()
-    }
+    fun distanceMeters(a: TrackPoint, b: TrackPoint, distance: DistanceFn = AndroidDistance): Double =
+        distance.metres(a.latitude, a.longitude, b.latitude, b.longitude)
 
     /**
      * Whether [point] is a bad fix relative to the last accepted ("good") point. A fix is bad if its
      * accuracy radius is at least [maxAccuracyM], or if reaching it from [lastGood] would require an
      * implausible speed for [activity] (a GPS teleport — these can have good reported accuracy, so
      * the speed check is independent of the accuracy gate). [lastGood] is null for the first point
-     * of a track (or a segment).
+     * of a track (or a segment). [distance] is injectable so the speed logic is host-testable.
      */
-    fun isBadFix(lastGood: TrackPoint?, point: TrackPoint, activity: ActivityType, maxAccuracyM: Float): Boolean {
+    fun isBadFix(
+        lastGood: TrackPoint?,
+        point: TrackPoint,
+        activity: ActivityType,
+        maxAccuracyM: Float,
+        distance: DistanceFn = AndroidDistance,
+    ): Boolean {
         val accuracy = point.accuracy
         if (accuracy != null && accuracy >= maxAccuracyM) return true
         if (lastGood == null) return false
-        val distance = distanceMeters(lastGood, point)
+        val gapMeters = distanceMeters(lastGood, point, distance)
         val dtSec = (point.timestamp - lastGood.timestamp) / 1000.0
         val speedKmh = when {
-            dtSec > 0 -> distance / dtSec * 3.6
-            distance > MIN_JUMP_M -> Double.MAX_VALUE
+            dtSec > 0 -> gapMeters / dtSec * 3.6
+            gapMeters > MIN_JUMP_M -> Double.MAX_VALUE
             else -> 0.0
         }
         return speedKmh > maxSpeedKmh(activity)
