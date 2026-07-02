@@ -78,9 +78,7 @@ class LocationRecordingService : Service() {
     // --- Auto-pause / stitch resources (all touched only under [mutex]) ---
     // While paused, [currentTrackId] stays open (GPS off) so a brief stop can be stitched back into
     // the same track when the same activity resumes within the configured window.
-    private var pauseAnchor: TrackPoint? = null      // last good point at pause, for the resume-distance check
     private var pauseToken = 0                        // generation guard for the delayed finalize
-    private var verifyResumeDistance = false          // check the first fix after a resume isn't too far
     private var pendingSegmentStart = false           // mark the first good fix after a resume as a new segment
     private var pollJob: Job? = null                  // periodic activity re-read while armed
 
@@ -230,7 +228,6 @@ class LocationRecordingService : Service() {
     private suspend fun pauseTrack(trackActivity: ActivityType) {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
         controller.onPaused(trackActivity)
-        pauseAnchor = lastGoodPoint
         val token = ++pauseToken
         val windowMs = Settings.resumeWindowSec(this) * 1000L
         scope.launch {
@@ -246,10 +243,9 @@ class LocationRecordingService : Service() {
         }
     }
 
-    /** Continue the paused track: GPS back on, accumulators kept; the first fix verifies distance. */
+    /** Continue the paused track: GPS back on, accumulators kept; the first fix begins a new segment. */
     private suspend fun resumeTrack(activity: ActivityType) {
         controller.onResumed(activity)
-        verifyResumeDistance = true
         pendingSegmentStart = true
         withContext(Dispatchers.Main) { startLocationUpdates() }
     }
@@ -258,7 +254,6 @@ class LocationRecordingService : Service() {
         distanceMeters = 0.0
         pointCount = 0
         lastGoodPoint = null
-        verifyResumeDistance = false
         pendingSegmentStart = false
         val id = repository.startTrack(activity, now())
         currentTrackId = id
@@ -275,8 +270,6 @@ class LocationRecordingService : Service() {
         currentTrackId = null
         activeTrackId = null
         controller.onClosed()
-        pauseAnchor = null
-        verifyResumeDistance = false
         pendingSegmentStart = false
         repository.finishTrack(id, endedAt)
     }
@@ -314,21 +307,6 @@ class LocationRecordingService : Service() {
     private suspend fun ingestLocations(locations: List<Location>) {
         val maxAccuracyM = Settings.accuracyGateM(this).toFloat()
         for (loc in locations) {
-            // First fix after a stitched resume: if it's far from where the track paused, the "pause"
-            // actually covered real travel (a mislabelled-STILL drive); split into a fresh track.
-            if (verifyResumeDistance) {
-                verifyResumeDistance = false
-                val anchor = pauseAnchor
-                pauseAnchor = null
-                if (anchor != null) {
-                    val gap = FloatArray(1)
-                    Location.distanceBetween(anchor.latitude, anchor.longitude, loc.latitude, loc.longitude, gap)
-                    if (gap[0] > Settings.resumeDistanceM(this)) {
-                        closeCurrentTrack()
-                        openTrack(gate.confirmed)
-                    }
-                }
-            }
             val trackId = currentTrackId ?: return
             val candidate = TrackPoint(
                 trackId = trackId,

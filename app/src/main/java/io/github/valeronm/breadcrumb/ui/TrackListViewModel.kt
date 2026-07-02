@@ -34,10 +34,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             }
             // One-time merge of tracks fragmented before auto-pause/stitch existed (DB v3).
             if (!Settings.isStitchMergeBackfillDone(getApplication())) {
-                repository.mergeStitchableTracks(
-                    Settings.resumeWindowSec(getApplication()),
-                    Settings.resumeDistanceM(getApplication()),
-                )
+                repository.mergeStitchableTracks(Settings.resumeWindowSec(getApplication()))
                 Settings.setStitchMergeBackfillDone(getApplication())
             }
         }

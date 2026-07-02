@@ -111,13 +111,17 @@ class TrackRepository(context: Context) {
     /**
      * Retroactively applies the auto-pause/stitch rule to existing tracks: walks them oldest-first
      * and merges each track into the previous one when it's the same activity, resumes within
-     * [windowSec], and starts within [distanceM] of where the previous left off. The merged-in
+     * [windowSec], and starts within [maxGapM] of where the previous left off. The merged-in
      * track's points are re-parented onto the survivor and its first point is flagged a segment
      * start, so the original fragment boundaries are preserved as GPX `<trkseg>` breaks. Distances
      * are recomputed afterwards. One-time; runs after the bad-fix backfill.
      */
-    suspend fun mergeStitchableTracks(windowSec: Int, distanceM: Int) {
+    suspend fun mergeStitchableTracks(windowSec: Int) {
         if (windowSec <= 0) return
+        // Two fragments merge only if the next starts within this gap of where the previous ended.
+        // Unlike the live recorder, both endpoints are real recorded fixes here, so distance is a
+        // reliable signal — this is a one-time historical merge, not the (removed) live resume gate.
+        val maxGapM = 100
         var baseId: Long? = null
         var baseActivity: String? = null
         var baseLastGood: TrackPoint? = null
@@ -132,7 +136,7 @@ class TrackRepository(context: Context) {
             if (baseId != null && anchor != null && track.activityType == baseActivity) {
                 val gapSec = (first.timestamp - anchor.timestamp) / 1000.0
                 val gapDist = TrackQuality.distanceMeters(anchor, first)
-                if (gapSec in 0.0..windowSec.toDouble() && gapDist <= distanceM) {
+                if (gapSec in 0.0..windowSec.toDouble() && gapDist <= maxGapM) {
                     dao.markSegmentStart(first.id)
                     dao.reparentPoints(track.id, baseId)
                     dao.deleteTrack(track.id)

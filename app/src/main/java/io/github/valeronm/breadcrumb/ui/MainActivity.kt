@@ -646,7 +646,6 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
     }
     var minLengthM by remember { mutableFloatStateOf(AppSettings.minTrackLengthM(context).toFloat()) }
     var resumeWindowSec by remember { mutableFloatStateOf(AppSettings.resumeWindowSec(context).toFloat()) }
-    var resumeDistanceM by remember { mutableFloatStateOf(AppSettings.resumeDistanceM(context).toFloat()) }
     var accuracyGateM by remember { mutableFloatStateOf(AppSettings.accuracyGateM(context).toFloat()) }
     var startConfirmations by remember {
         mutableFloatStateOf(AppSettings.startConfirmations(context).toFloat())
@@ -728,30 +727,20 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
         Spacer(Modifier.height(24.dp))
         SectionHeader(
             "Auto-pause",
-            canReset = resumeWindowSec.toInt() != AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC ||
-                resumeDistanceM.toInt() != AppSettings.DEFAULT_STITCH_RESUME_DISTANCE_M,
+            canReset = resumeWindowSec.toInt() != AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
         ) {
             resumeWindowSec = AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC.toFloat()
-            resumeDistanceM = AppSettings.DEFAULT_STITCH_RESUME_DISTANCE_M.toFloat()
             AppSettings.setResumeWindowSec(context, AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC)
-            AppSettings.setResumeDistanceM(context, AppSettings.DEFAULT_STITCH_RESUME_DISTANCE_M)
         }
         Text(
-            "A brief stop keeps the same track; it resumes when you move again within this window " +
-                "and distance. Off = always a new track.",
+            "A brief stop keeps the same track; it resumes as a new segment when you move again " +
+                "within this window. Off = always a new track.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         SliderSetting("Resume window", resumeWindowSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
             resumeWindowSec = it
             AppSettings.setResumeWindowSec(context, it.toInt())
-        }
-        SliderSetting(
-            "Resume distance", resumeDistanceM, 20f..300f, 10, { "${it.toInt()} m" },
-            enabled = resumeWindowSec > 0,
-        ) {
-            resumeDistanceM = it
-            AppSettings.setResumeDistanceM(context, it.toInt())
         }
 
         Spacer(Modifier.height(24.dp))

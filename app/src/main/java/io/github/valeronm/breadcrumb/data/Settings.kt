@@ -14,7 +14,6 @@ object Settings {
     private const val KEY_TRACK_MIN_DURATION_SEC = "track_min_duration_sec"
     private const val KEY_TRACK_MIN_LENGTH_M = "track_min_length_m"
     private const val KEY_STITCH_RESUME_WINDOW_SEC = "stitch_resume_window_sec"
-    private const val KEY_STITCH_RESUME_DISTANCE_M = "stitch_resume_distance_m"
     private const val KEY_ACCURACY_GATE_M = "accuracy_gate_m"
     private const val KEY_START_CONFIRMATIONS = "start_confirmations"
     private const val KEY_ACTIVITY_POLL_ENABLED = "activity_poll_enabled"
@@ -28,9 +27,8 @@ object Settings {
     const val DEFAULT_TRACK_MIN_LENGTH_M = 50 // 0 = off
 
     // Auto-pause/stitch: a brief stop keeps the track open and resumes into it when the same
-    // activity returns within this time gap (and starting within this distance of where it paused).
+    // activity returns within this time gap (the resumed run is a new GPX segment).
     const val DEFAULT_STITCH_RESUME_WINDOW_SEC = 180 // 0 = always start a new track
-    const val DEFAULT_STITCH_RESUME_DISTANCE_M = 100
 
     // Fixes whose reported accuracy radius is at least this (metres) are flagged noisy and excluded.
     const val DEFAULT_ACCURACY_GATE_M = 50
@@ -102,14 +100,6 @@ object Settings {
 
     fun setResumeWindowSec(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_STITCH_RESUME_WINDOW_SEC, value) }
-    }
-
-    /** Max distance (metres) from where a track paused that still counts as resuming the same one. */
-    fun resumeDistanceM(context: Context): Int =
-        prefs(context).getInt(KEY_STITCH_RESUME_DISTANCE_M, DEFAULT_STITCH_RESUME_DISTANCE_M)
-
-    fun setResumeDistanceM(context: Context, value: Int) {
-        prefs(context).edit { putInt(KEY_STITCH_RESUME_DISTANCE_M, value) }
     }
 
     /** Accuracy radius (metres) at/above which a fix is flagged noisy and excluded from new tracks. */
