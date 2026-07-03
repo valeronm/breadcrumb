@@ -13,6 +13,7 @@ object Settings {
     private const val KEY_SAMPLING_MIN_DISTANCE_M = "sampling_min_distance_m"
     private const val KEY_TRACK_MIN_DURATION_SEC = "track_min_duration_sec"
     private const val KEY_TRACK_MIN_LENGTH_M = "track_min_length_m"
+    private const val KEY_TRACK_MIN_EXTENT_M = "track_min_extent_m"
     private const val KEY_STITCH_RESUME_WINDOW_SEC = "stitch_resume_window_sec"
     private const val KEY_ACCURACY_GATE_M = "accuracy_gate_m"
     private const val KEY_START_CONFIRMATIONS = "start_confirmations"
@@ -25,6 +26,11 @@ object Settings {
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
     const val DEFAULT_TRACK_MIN_DURATION_SEC = 30 // 0 = off
     const val DEFAULT_TRACK_MIN_LENGTH_M = 50 // 0 = off
+
+    // Minimum spatial extent (bounding-box diagonal) for a track to be kept. Unlike length, which
+    // accumulates GPS jitter while stationary, extent measures how far the track actually spread —
+    // so a "walk" that never left a small blob (AR mislabelled standing still) is discarded. 0 = off.
+    const val DEFAULT_TRACK_MIN_EXTENT_M = 50
 
     // Auto-pause/stitch: a brief stop keeps the track open and resumes into it when the same
     // activity returns within this time gap (the resumed run is a new GPX segment).
@@ -90,6 +96,14 @@ object Settings {
 
     fun setMinTrackLengthM(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_TRACK_MIN_LENGTH_M, value) }
+    }
+
+    /** Tracks whose bounding-box diagonal is under this (metres) are discarded. 0 = no limit. */
+    fun minTrackExtentM(context: Context): Int =
+        prefs(context).getInt(KEY_TRACK_MIN_EXTENT_M, DEFAULT_TRACK_MIN_EXTENT_M)
+
+    fun setMinTrackExtentM(context: Context, value: Int) {
+        prefs(context).edit { putInt(KEY_TRACK_MIN_EXTENT_M, value) }
     }
 
     // --- Auto-pause / stitch -------------------------------------------------

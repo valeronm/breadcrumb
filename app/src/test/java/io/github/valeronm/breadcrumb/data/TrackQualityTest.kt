@@ -95,4 +95,24 @@ class TrackQualityTest {
     @Test fun `distanceMeters returns the supplied function's value`() {
         assertEquals(42.0, TrackQuality.distanceMeters(point(0), point(1_000), gap(42.0)), 0.0)
     }
+
+    // --- boundingExtentMeters (the min-extent keep signal) --------------
+
+    @Test fun `extent measures the diagonal of the lat-lon bounding box`() {
+        // Capture what corners the distance fn is handed; that corner selection is the logic here.
+        var corners: List<Double>? = null
+        val d = DistanceFn { aLat, aLon, bLat, bLon -> corners = listOf(aLat, aLon, bLat, bLon); 250.0 }
+        val pts = listOf(
+            point(0, lat = 1.0, lon = 2.0),
+            point(1, lat = 5.0, lon = -3.0),
+            point(2, lat = 3.0, lon = 4.0),
+        )
+        assertEquals(250.0, TrackQuality.boundingExtentMeters(pts, d), 0.0)
+        assertEquals(listOf(1.0, -3.0, 5.0, 4.0), corners) // (minLat,minLon) -> (maxLat,maxLon)
+    }
+
+    @Test fun `extent of fewer than two points is zero`() {
+        assertEquals(0.0, TrackQuality.boundingExtentMeters(emptyList(), gap(999.0)), 0.0)
+        assertEquals(0.0, TrackQuality.boundingExtentMeters(listOf(point(0)), gap(999.0)), 0.0)
+    }
 }

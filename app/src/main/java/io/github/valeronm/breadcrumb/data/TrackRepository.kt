@@ -26,14 +26,19 @@ class TrackRepository(context: Context) {
     suspend fun updateDistance(trackId: Long, distanceMeters: Double) =
         dao.updateDistance(trackId, distanceMeters)
 
-    /** Whether a track meets the user's configured keep thresholds (duration / length). */
+    /** Whether a track meets the user's configured keep thresholds (duration / length / extent). */
     private suspend fun meetsKeepThresholds(track: Track, endedAt: Long): Boolean {
         // Hard floor: a track needs at least two points to be a line with any length.
         // This is a sanity check, not a user setting — empty/single-point tracks are never useful.
-        if (dao.pointCount(track.id) < 2) return false
+        val points = dao.pointsFor(track.id)
+        if (points.size < 2) return false
         val durationSec = (endedAt - track.startedAt) / 1000
         if (durationSec < Settings.minTrackDurationSec(appContext)) return false
         if (track.distanceMeters < Settings.minTrackLengthM(appContext)) return false
+        // Extent guards against a stationary "walk": accumulated length can pass on jitter alone,
+        // but a track that never left a small box didn't actually go anywhere.
+        val minExtent = Settings.minTrackExtentM(appContext)
+        if (minExtent > 0 && TrackQuality.boundingExtentMeters(points) < minExtent) return false
         return true
     }
 

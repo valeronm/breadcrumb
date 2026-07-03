@@ -645,6 +645,7 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
         mutableFloatStateOf(AppSettings.minTrackDurationSec(context).toFloat())
     }
     var minLengthM by remember { mutableFloatStateOf(AppSettings.minTrackLengthM(context).toFloat()) }
+    var minExtentM by remember { mutableFloatStateOf(AppSettings.minTrackExtentM(context).toFloat()) }
     var resumeWindowSec by remember { mutableFloatStateOf(AppSettings.resumeWindowSec(context).toFloat()) }
     var accuracyGateM by remember { mutableFloatStateOf(AppSettings.accuracyGateM(context).toFloat()) }
     var startConfirmations by remember {
@@ -703,15 +704,19 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
         SectionHeader(
             "Keep a track only if",
             canReset = minDurationSec.toInt() != AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC ||
-                minLengthM.toInt() != AppSettings.DEFAULT_TRACK_MIN_LENGTH_M,
+                minLengthM.toInt() != AppSettings.DEFAULT_TRACK_MIN_LENGTH_M ||
+                minExtentM.toInt() != AppSettings.DEFAULT_TRACK_MIN_EXTENT_M,
         ) {
             minDurationSec = AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC.toFloat()
             minLengthM = AppSettings.DEFAULT_TRACK_MIN_LENGTH_M.toFloat()
+            minExtentM = AppSettings.DEFAULT_TRACK_MIN_EXTENT_M.toFloat()
             AppSettings.setMinTrackDurationSec(context, AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC)
             AppSettings.setMinTrackLengthM(context, AppSettings.DEFAULT_TRACK_MIN_LENGTH_M)
+            AppSettings.setMinTrackExtentM(context, AppSettings.DEFAULT_TRACK_MIN_EXTENT_M)
         }
         Text(
-            "Shorter tracks are discarded when recording stops.",
+            "Shorter tracks are discarded when recording stops. Extent is how far the track " +
+                "spread — it rejects a stationary walk that only wandered on GPS noise.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -722,6 +727,10 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
         SliderSetting("Min length", minLengthM, 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
             minLengthM = it
             AppSettings.setMinTrackLengthM(context, it.toInt())
+        }
+        SliderSetting("Min extent", minExtentM, 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
+            minExtentM = it
+            AppSettings.setMinTrackExtentM(context, it.toInt())
         }
 
         Spacer(Modifier.height(24.dp))

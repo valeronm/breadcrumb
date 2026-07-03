@@ -28,6 +28,24 @@ object TrackQuality {
         distance.metres(a.latitude, a.longitude, b.latitude, b.longitude)
 
     /**
+     * How far a track spread through space: the diagonal of its lat/lon bounding box, in metres.
+     * Distinguishes a real trip from a stationary blob — unlike accumulated length, GPS jitter can't
+     * inflate it, since standing still keeps every fix inside a small box. 0 for fewer than 2 points.
+     */
+    fun boundingExtentMeters(points: List<TrackPoint>, distance: DistanceFn = AndroidDistance): Double {
+        if (points.size < 2) return 0.0
+        var minLat = points[0].latitude; var maxLat = minLat
+        var minLon = points[0].longitude; var maxLon = minLon
+        for (p in points) {
+            if (p.latitude < minLat) minLat = p.latitude
+            if (p.latitude > maxLat) maxLat = p.latitude
+            if (p.longitude < minLon) minLon = p.longitude
+            if (p.longitude > maxLon) maxLon = p.longitude
+        }
+        return distance.metres(minLat, minLon, maxLat, maxLon)
+    }
+
+    /**
      * Whether [point] is a bad fix relative to the last accepted ("good") point. A fix is bad if its
      * accuracy radius is at least [maxAccuracyM], or if reaching it from [lastGood] would require an
      * implausible speed for [activity] (a GPS teleport — these can have good reported accuracy, so
