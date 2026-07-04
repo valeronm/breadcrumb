@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -27,16 +26,6 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             // Mark any track left in a "recording" state by a crash/kill as completed.
             repository.finalizeDangling(exceptTrackId = LocationRecordingService.activeTrackId)
-            // One-time backfill of the bad-fix flag over tracks recorded before DB v2.
-            if (!Settings.isBadFixBackfillDone(getApplication())) {
-                repository.reprocessAllTracks()
-                Settings.setBadFixBackfillDone(getApplication())
-            }
-            // One-time merge of tracks fragmented before auto-pause/stitch existed (DB v3).
-            if (!Settings.isStitchMergeBackfillDone(getApplication())) {
-                repository.mergeStitchableTracks(Settings.resumeWindowSec(getApplication()))
-                Settings.setStitchMergeBackfillDone(getApplication())
-            }
         }
     }
 

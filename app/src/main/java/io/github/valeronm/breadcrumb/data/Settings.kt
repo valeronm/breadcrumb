@@ -19,8 +19,6 @@ object Settings {
     private const val KEY_START_CONFIRMATIONS = "start_confirmations"
     private const val KEY_ACTIVITY_POLL_ENABLED = "activity_poll_enabled"
     private const val KEY_ACTIVITY_POLL_INTERVAL_SEC = "activity_poll_interval_sec"
-    private const val KEY_BAD_FIX_BACKFILL_DONE = "bad_fix_backfill_done"
-    private const val KEY_STITCH_MERGE_BACKFILL_DONE = "stitch_merge_backfill_done"
 
     const val DEFAULT_SAMPLING_MIN_INTERVAL_SEC = 5
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
@@ -146,23 +144,5 @@ object Settings {
 
     fun setActivityPollIntervalSec(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_ACTIVITY_POLL_INTERVAL_SEC, value) }
-    }
-
-    // --- One-time migrations -------------------------------------------------
-
-    /** Whether existing tracks have been reprocessed to backfill the bad-fix flag (DB v2). */
-    fun isBadFixBackfillDone(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_BAD_FIX_BACKFILL_DONE, false)
-
-    fun setBadFixBackfillDone(context: Context) {
-        prefs(context).edit { putBoolean(KEY_BAD_FIX_BACKFILL_DONE, true) }
-    }
-
-    /** Whether existing fragmented tracks have been merged per the stitch rule (DB v3). */
-    fun isStitchMergeBackfillDone(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_STITCH_MERGE_BACKFILL_DONE, false)
-
-    fun setStitchMergeBackfillDone(context: Context) {
-        prefs(context).edit { putBoolean(KEY_STITCH_MERGE_BACKFILL_DONE, true) }
     }
 }

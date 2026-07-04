@@ -69,7 +69,7 @@ object GpxExporter {
         return "${track.activityType.lowercase(Locale.US)}-$stamp.gpx"
     }
 
-    private fun buildGpx(track: Track, points: List<TrackPoint>): String {
+    internal fun buildGpx(track: Track, points: List<TrackPoint>): String {
         val iso = isoFormatter()
         return buildString {
             appendLine("""<?xml version="1.0" encoding="UTF-8"?>""")

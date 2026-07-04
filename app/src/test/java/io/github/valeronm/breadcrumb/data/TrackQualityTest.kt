@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -24,13 +25,14 @@ class TrackQualityTest {
         accuracy: Float? = 5f,
         lat: Double = 0.0,
         lon: Double = 0.0,
+        speed: Float? = null,
     ) = TrackPoint(
         trackId = 1,
         latitude = lat,
         longitude = lon,
         altitude = null,
         accuracy = accuracy,
-        speed = null,
+        speed = speed,
         bearing = null,
         timestamp = timestamp,
     )
@@ -114,5 +116,41 @@ class TrackQualityTest {
     @Test fun `extent of fewer than two points is zero`() {
         assertEquals(0.0, TrackQuality.boundingExtentMeters(emptyList(), gap(999.0)), 0.0)
         assertEquals(0.0, TrackQuality.boundingExtentMeters(listOf(point(0)), gap(999.0)), 0.0)
+    }
+
+    // --- pointSpeedsKmh (map speed colouring) ---------------------------
+    // Derived-speed cases inject a fixed gap() so the derivation runs on the host without the
+    // Android Location distance (there's no unitTests.returnDefaultValues, so the default would throw).
+
+    @Test fun `a reported speed is converted m per s to km per h`() {
+        // 2 m/s -> 7.2 km/h. First point uses its reported speed; no distance involved.
+        assertArrayEquals(floatArrayOf(7.2f), TrackQuality.pointSpeedsKmh(listOf(point(0, speed = 2f))), 1e-3f)
+    }
+
+    @Test fun `a reported speed wins over the derivable one`() {
+        // Second point reports 3 m/s (10.8 km/h); the gap is never consulted for it.
+        val pts = listOf(point(0, speed = 1f), point(5_000, speed = 3f))
+        assertArrayEquals(floatArrayOf(3.6f, 10.8f), TrackQuality.pointSpeedsKmh(pts, gap(999.0)), 1e-3f)
+    }
+
+    @Test fun `a missing or negative reported speed falls back to the derived one`() {
+        // 10 m over 5 s = 2 m/s = 7.2 km/h, from the injected gap.
+        val absent = listOf(point(0), point(5_000))
+        assertArrayEquals(floatArrayOf(0f, 7.2f), TrackQuality.pointSpeedsKmh(absent, gap(10.0)), 1e-3f)
+        val negative = listOf(point(0), point(5_000, speed = -1f))
+        assertArrayEquals(floatArrayOf(0f, 7.2f), TrackQuality.pointSpeedsKmh(negative, gap(10.0)), 1e-3f)
+    }
+
+    @Test fun `a non-positive time gap yields zero for the derived point`() {
+        val pts = listOf(point(1_000), point(1_000))
+        assertArrayEquals(floatArrayOf(0f, 0f), TrackQuality.pointSpeedsKmh(pts, gap(50.0)), 1e-3f)
+    }
+
+    @Test fun `the first point with no reported speed is zero`() {
+        assertArrayEquals(floatArrayOf(0f), TrackQuality.pointSpeedsKmh(listOf(point(0)), gap(50.0)), 1e-3f)
+    }
+
+    @Test fun `an empty track yields an empty array`() {
+        assertArrayEquals(floatArrayOf(), TrackQuality.pointSpeedsKmh(emptyList(), gap(1.0)), 1e-3f)
     }
 }

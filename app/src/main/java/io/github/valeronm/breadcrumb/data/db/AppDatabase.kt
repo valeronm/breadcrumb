@@ -19,9 +19,8 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var instance: AppDatabase? = null
 
-        // v2 adds the `ignored` bad-fix flag. The column defaults to 0; existing points are then
-        // reprocessed in Kotlin (TrackRepository.reprocessAllTracks) to backfill the real flags and
-        // recompute distances, since the rule needs per-track haversine the migration SQL can't do.
+        // v2 adds the `ignored` bad-fix flag. The column defaults to 0 and is set live as points are
+        // recorded (the recorder runs the bad-fix rule on each fix); pre-v2 points stay unflagged.
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE track_points ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0")
@@ -29,8 +28,8 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         // v3 adds the `segmentStart` flag marking auto-pause/resume boundaries (GPX <trkseg>). The
-        // column defaults to 0; existing fragmented tracks are then merged in Kotlin
-        // (TrackRepository.mergeStitchableTracks), which sets the flags on the merge points.
+        // column defaults to 0 and is set live as points are recorded (the recorder flags the first
+        // fix after a resume); pre-v3 tracks simply have no segment breaks.
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE track_points ADD COLUMN segmentStart INTEGER NOT NULL DEFAULT 0")

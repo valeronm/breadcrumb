@@ -3,13 +3,14 @@ package io.github.valeronm.breadcrumb.data
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
 /**
- * Decides which recorded fixes are unreliable ("bad fixes") so they can be flagged and excluded
- * from distance, the rendered track line, and exports. The fixes are still stored — the count of
- * ignored points is itself a useful signal that a track is questionable.
+ * Pure track geometry and fix-quality math over recorded [TrackPoint]s — distance, bounding extent,
+ * per-point speed, and the "bad fix" rule — all host-testable via an injectable [DistanceFn].
  *
- * This is the single source of truth for the rule, shared by live recording
- * ([io.github.valeronm.breadcrumb.location.LocationRecordingService]) and the one-time backfill
- * over existing tracks ([TrackRepository.reprocessAllTracks]).
+ * The bad-fix rule ([isBadFix]) decides which fixes are unreliable so they can be flagged and
+ * excluded from distance, the rendered track line, and exports; the fixes are still stored, since
+ * the count of ignored points is itself a signal that a track is questionable. It's the single
+ * source of truth for that rule, applied by live recording
+ * ([io.github.valeronm.breadcrumb.location.LocationRecordingService]) as each fix is ingested.
  */
 object TrackQuality {
 
@@ -43,6 +44,30 @@ object TrackQuality {
             if (p.longitude > maxLon) maxLon = p.longitude
         }
         return distance.metres(minLat, minLon, maxLat, maxLon)
+    }
+
+    /**
+     * Per-point speed in km/h: the GPS-reported speed where present (non-null and non-negative),
+     * else derived from the previous point over [distance], else 0. [distance] is injectable so the
+     * derivation is host-testable. Used to colour the rendered track by speed.
+     */
+    fun pointSpeedsKmh(points: List<TrackPoint>, distance: DistanceFn = AndroidDistance): FloatArray {
+        val out = FloatArray(points.size)
+        var prev: TrackPoint? = null
+        for (i in points.indices) {
+            val p = points[i]
+            val reported = p.speed
+            out[i] = when {
+                reported != null && reported >= 0f -> reported * 3.6f
+                prev != null -> {
+                    val dtSec = (p.timestamp - prev.timestamp) / 1000.0
+                    if (dtSec > 0) (distanceMeters(prev, p, distance) / dtSec * 3.6).toFloat() else 0f
+                }
+                else -> 0f
+            }
+            prev = p
+        }
+        return out
     }
 
     /**

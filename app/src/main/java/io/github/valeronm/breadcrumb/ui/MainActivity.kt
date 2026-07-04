@@ -1231,7 +1231,7 @@ private fun TrackMap(
     val geoPoints = remember(points) { points.map { GeoPoint(it.latitude, it.longitude) } }
     val noisyGeoPoints = remember(noisyPoints) { noisyPoints.map { GeoPoint(it.latitude, it.longitude) } }
     val scale = remember(activity) { activity?.let { speedScaleFor(it) } }
-    val speedsKmh = remember(points) { pointSpeedsKmh(points) }
+    val speedsKmh = remember(points) { TrackQuality.pointSpeedsKmh(points) }
     Box(Modifier.fillMaxSize()) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -1302,26 +1302,6 @@ private fun TrackMap(
             SpeedLegend(scale, Modifier.align(Alignment.BottomStart).padding(12.dp))
         }
     }
-}
-
-/** Per-point speed in km/h: the GPS-reported speed where present, else derived from the previous point. */
-private fun pointSpeedsKmh(points: List<TrackPoint>): FloatArray {
-    val out = FloatArray(points.size)
-    var prev: TrackPoint? = null
-    for (i in points.indices) {
-        val p = points[i]
-        val reported = p.speed
-        out[i] = when {
-            reported != null && reported >= 0f -> reported * 3.6f
-            prev != null -> {
-                val dtSec = (p.timestamp - prev!!.timestamp) / 1000.0
-                if (dtSec > 0) (TrackQuality.distanceMeters(prev!!, p) / dtSec * 3.6).toFloat() else 0f
-            }
-            else -> 0f
-        }
-        prev = p
-    }
-    return out
 }
 
 @Composable

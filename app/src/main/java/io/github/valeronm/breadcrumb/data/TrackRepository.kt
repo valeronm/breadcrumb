@@ -6,6 +6,7 @@ import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.KeepRule
 import kotlinx.coroutines.flow.Flow
 import kotlin.math.sin
 import kotlin.random.Random
@@ -26,20 +27,25 @@ class TrackRepository(context: Context) {
     suspend fun updateDistance(trackId: Long, distanceMeters: Double) =
         dao.updateDistance(trackId, distanceMeters)
 
-    /** Whether a track meets the user's configured keep thresholds (duration / length / extent). */
+    /**
+     * Whether a track meets the user's configured keep thresholds (duration / length / extent).
+     * The rule itself lives in [KeepRule]; this loads the points/settings it needs. The extent is
+     * passed lazily so its bounding-box pass runs only when the extent gate is enabled.
+     */
     private suspend fun meetsKeepThresholds(track: Track, endedAt: Long): Boolean {
-        // Hard floor: a track needs at least two points to be a line with any length.
-        // This is a sanity check, not a user setting — empty/single-point tracks are never useful.
         val points = dao.pointsFor(track.id)
-        if (points.size < 2) return false
         val durationSec = (endedAt - track.startedAt) / 1000
-        if (durationSec < Settings.minTrackDurationSec(appContext)) return false
-        if (track.distanceMeters < Settings.minTrackLengthM(appContext)) return false
-        // Extent guards against a stationary "walk": accumulated length can pass on jitter alone,
-        // but a track that never left a small box didn't actually go anywhere.
-        val minExtent = Settings.minTrackExtentM(appContext)
-        if (minExtent > 0 && TrackQuality.boundingExtentMeters(points) < minExtent) return false
-        return true
+        return KeepRule.shouldKeep(
+            pointCount = points.size,
+            durationSec = durationSec,
+            distanceMeters = track.distanceMeters,
+            thresholds = KeepRule.Thresholds(
+                minDurationSec = Settings.minTrackDurationSec(appContext),
+                minLengthM = Settings.minTrackLengthM(appContext),
+                minExtentM = Settings.minTrackExtentM(appContext),
+            ),
+            extent = { TrackQuality.boundingExtentMeters(points) },
+        )
     }
 
     /** Closes a track, deleting it instead if it's too short to be meaningful. */
@@ -79,82 +85,6 @@ class TrackRepository(context: Context) {
 
     /** The ignored "bad fix" points, for marking them on the map. */
     suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint> = dao.ignoredPointsFor(trackId)
-
-    /**
-     * Re-evaluates every stored track against [TrackQuality], flagging bad fixes and recomputing
-     * each track's distance from the remaining good points. Idempotent: it resets flags first, so
-     * re-running yields the same result. Used as a one-time backfill when the bad-fix flag is
-     * introduced (see [io.github.valeronm.breadcrumb.data.db.AppDatabase] migration 1→2).
-     */
-    suspend fun reprocessAllTracks() {
-        val maxAccuracyM = Settings.accuracyGateM(appContext).toFloat()
-        for (trackId in dao.allTrackIds()) {
-            val track = dao.track(trackId) ?: continue
-            val activity = runCatching { ActivityType.valueOf(track.activityType) }
-                .getOrDefault(ActivityType.UNKNOWN)
-            val points = dao.rawPointsFor(trackId)
-            var lastGood: TrackPoint? = null
-            var distance = 0.0
-            val badIds = ArrayList<Long>()
-            for (point in points) {
-                // A segment boundary disconnects from the previous segment: don't jump-check or
-                // count distance across the gap.
-                val baseline = if (point.segmentStart) null else lastGood
-                if (TrackQuality.isBadFix(baseline, point, activity, maxAccuracyM)) {
-                    badIds.add(point.id)
-                } else {
-                    if (baseline != null) distance += TrackQuality.distanceMeters(baseline, point)
-                    lastGood = point
-                }
-            }
-            dao.clearIgnored(trackId)
-            if (badIds.isNotEmpty()) dao.markIgnored(badIds)
-            dao.updateDistance(trackId, distance)
-        }
-    }
-
-    /**
-     * Retroactively applies the auto-pause/stitch rule to existing tracks: walks them oldest-first
-     * and merges each track into the previous one when it's the same activity, resumes within
-     * [windowSec], and starts within [maxGapM] of where the previous left off. The merged-in
-     * track's points are re-parented onto the survivor and its first point is flagged a segment
-     * start, so the original fragment boundaries are preserved as GPX `<trkseg>` breaks. Distances
-     * are recomputed afterwards. One-time; runs after the bad-fix backfill.
-     */
-    suspend fun mergeStitchableTracks(windowSec: Int) {
-        if (windowSec <= 0) return
-        // Two fragments merge only if the next starts within this gap of where the previous ended.
-        // Unlike the live recorder, both endpoints are real recorded fixes here, so distance is a
-        // reliable signal — this is a one-time historical merge, not the (removed) live resume gate.
-        val maxGapM = 100
-        var baseId: Long? = null
-        var baseActivity: String? = null
-        var baseLastGood: TrackPoint? = null
-        for (track in dao.tracksByStart()) {
-            val first = dao.firstGoodPoint(track.id)
-            val last = dao.lastGoodPoint(track.id)
-            if (first == null || last == null) {
-                baseId = null; baseActivity = null; baseLastGood = null
-                continue
-            }
-            val anchor = baseLastGood
-            if (baseId != null && anchor != null && track.activityType == baseActivity) {
-                val gapSec = (first.timestamp - anchor.timestamp) / 1000.0
-                val gapDist = TrackQuality.distanceMeters(anchor, first)
-                if (gapSec in 0.0..windowSec.toDouble() && gapDist <= maxGapM) {
-                    dao.markSegmentStart(first.id)
-                    dao.reparentPoints(track.id, baseId)
-                    dao.deleteTrack(track.id)
-                    dao.closeTrack(baseId, track.endedAt ?: last.timestamp)
-                    baseLastGood = last
-                    continue
-                }
-            }
-            baseId = track.id; baseActivity = track.activityType; baseLastGood = last
-        }
-        // Recompute distances (segment-aware) now that points have been re-parented.
-        reprocessAllTracks()
-    }
 
     /**
      * Inserts a synthetic, already-finished track so the list / map / swipe-to-delete / share flows
