@@ -30,12 +30,15 @@ enum class ActivityType(
             DetectedActivity.STILL,
         )
 
+        /** The [ActivityType] for a persisted `activityType` string (an [ActivityType.name]), or null. */
+        fun ofName(stored: String): ActivityType? = entries.firstOrNull { it.name == stored }
+
         /**
          * Display label for a persisted `activityType` string (an [ActivityType.name]), falling
          * back to a title-cased form for legacy values that no longer map to a known activity.
          */
         fun labelFor(stored: String): String =
-            entries.firstOrNull { it.name == stored }?.label
+            ofName(stored)?.label
                 ?: stored.lowercase(Locale.US).replaceFirstChar { it.uppercase() }
 
         fun fromDetectedActivity(type: Int): ActivityType = when (type) {

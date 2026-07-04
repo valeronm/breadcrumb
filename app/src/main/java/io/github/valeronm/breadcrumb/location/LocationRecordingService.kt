@@ -332,8 +332,10 @@ class LocationRecordingService : Service() {
                 if (segStart) pendingSegmentStart = false
             }
             repository.addPoint(point)
-            repository.updateDistance(trackId, distanceMeters)
         }
+        // One distance write per batch — only the final value persists, and a LocationResult can
+        // deliver several buffered fixes at once.
+        currentTrackId?.let { repository.updateDistance(it, distanceMeters) }
         publishStatus()
     }
 

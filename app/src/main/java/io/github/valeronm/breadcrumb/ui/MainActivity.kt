@@ -865,8 +865,6 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
     }
 }
 
-private val logTimeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LogsScreen(onBack: () -> Unit) {
@@ -914,7 +912,7 @@ private fun LogsScreen(onBack: () -> Unit) {
                         else -> MaterialTheme.colorScheme.onSurface
                     }
                     Text(
-                        "${logTimeFormat.format(Date(e.timeMillis))}  ${e.message}",
+                        "${DebugLog.formatTime(e.timeMillis)}  ${e.message}",
                         style = MaterialTheme.typography.bodySmall,
                         color = color,
                         modifier = Modifier.padding(vertical = 2.dp),
@@ -1051,7 +1049,7 @@ private fun TrackRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = activityIcon(track.activityType),
+                    imageVector = activityIcon(ActivityType.ofName(track.activityType)),
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(24.dp),
@@ -1075,7 +1073,7 @@ private fun TrackRow(
                     )
                     if (track.ignoredCount > 0) {
                         Text(
-                            "⚠ ${track.ignoredCount} noisy ${if (track.ignoredCount == 1) "fix" else "fixes"} excluded",
+                            noisyFixesLabel(track.ignoredCount),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
@@ -1111,7 +1109,7 @@ private fun TrackMapScreen(
         value = viewModel.getIgnoredPoints(trackId)
     }
     val activity = remember(summary) {
-        summary?.let { runCatching { ActivityType.valueOf(it.activityType) }.getOrNull() }
+        summary?.let { ActivityType.ofName(it.activityType) }
     }
     Scaffold(
         topBar = {
@@ -1178,7 +1176,7 @@ private fun TrackStatsHeader(summary: TrackSummary) {
         if (summary.ignoredCount > 0) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "⚠ ${summary.ignoredCount} noisy ${if (summary.ignoredCount == 1) "fix" else "fixes"} excluded from this track",
+                noisyFixesLabel(summary.ignoredCount, " from this track"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -1194,11 +1192,14 @@ private fun StatItem(label: String, value: String) {
     }
 }
 
-private fun activityIcon(activityType: String): ImageVector = when (activityType.uppercase(Locale.US)) {
-    "WALKING" -> Icons.AutoMirrored.Filled.DirectionsWalk
-    "RUNNING" -> Icons.AutoMirrored.Filled.DirectionsRun
-    "CYCLING" -> Icons.AutoMirrored.Filled.DirectionsBike
-    "DRIVING" -> Icons.Filled.DirectionsCar
+private fun noisyFixesLabel(count: Int, suffix: String = ""): String =
+    "⚠ $count noisy ${if (count == 1) "fix" else "fixes"} excluded$suffix"
+
+private fun activityIcon(activity: ActivityType?): ImageVector = when (activity) {
+    ActivityType.WALKING -> Icons.AutoMirrored.Filled.DirectionsWalk
+    ActivityType.RUNNING -> Icons.AutoMirrored.Filled.DirectionsRun
+    ActivityType.CYCLING -> Icons.AutoMirrored.Filled.DirectionsBike
+    ActivityType.DRIVING -> Icons.Filled.DirectionsCar
     else -> Icons.Filled.Place
 }
 

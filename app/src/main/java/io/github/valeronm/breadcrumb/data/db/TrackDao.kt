@@ -23,9 +23,6 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE id = :trackId")
     suspend fun deleteTrack(trackId: Long)
 
-    @Query("SELECT COUNT(*) FROM track_points WHERE trackId = :trackId AND ignored = 0")
-    suspend fun pointCount(trackId: Long): Int
-
     /** Usable (non-ignored) points, for rendering and export. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")
     suspend fun pointsFor(trackId: Long): List<TrackPoint>

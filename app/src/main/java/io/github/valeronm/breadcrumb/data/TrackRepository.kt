@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
-import android.location.Location
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -105,14 +104,10 @@ class TrackRepository(context: Context) {
         var prevLat = baseLat
         var prevLon = baseLon
         var distance = 0.0
-        val seg = FloatArray(1)
         for (i in 0 until pointCount) {
             val lat = baseLat + i * 0.00012 + sin(i / 4.0) * 0.00008
             val lon = baseLon + i * 0.00018
-            if (i > 0) {
-                Location.distanceBetween(prevLat, prevLon, lat, lon, seg)
-                distance += seg[0]
-            }
+            if (i > 0) distance += AndroidDistance.metres(prevLat, prevLon, lat, lon)
             dao.insertPoint(
                 TrackPoint(
                     trackId = trackId,

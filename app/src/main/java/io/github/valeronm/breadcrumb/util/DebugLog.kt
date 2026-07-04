@@ -46,9 +46,13 @@ object DebugLog {
         _entries.value = emptyList()
     }
 
+    /** Formats an entry timestamp for display. Synchronized because [SimpleDateFormat] isn't reentrant. */
+    @Synchronized
+    fun formatTime(millis: Long): String = timeFormat.format(Date(millis))
+
     /** Whole buffer as plain text (with timestamps), for the Logs page's Share action. */
     @Synchronized
     fun dump(): String = buffer.joinToString("\n") {
-        "${timeFormat.format(Date(it.timeMillis))} ${it.level} ${it.message}"
+        "${formatTime(it.timeMillis)} ${it.level} ${it.message}"
     }
 }
