@@ -9,13 +9,17 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.location.Location
+import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import io.github.valeronm.breadcrumb.util.DebugLog
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import androidx.core.location.GnssStatusCompat
+import androidx.core.location.LocationManagerCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -61,6 +65,7 @@ class LocationRecordingService : Service() {
     private lateinit var repository: TrackRepository
     private lateinit var fused: FusedLocationProviderClient
     private lateinit var activityManager: ActivityRecognitionManager
+    private var locationManager: LocationManager? = null
 
     // Two small state machines own the logic; this service owns only the resources below, and wires
     // them together. The gate debounces raw readings into a trusted activity; the controller turns
@@ -75,6 +80,15 @@ class LocationRecordingService : Service() {
     private var lastGoodPoint: TrackPoint? = null
     private var locationCallback: LocationCallback? = null
 
+    // GNSS cross-check: elapsedRealtime (ms) of the last real satellite fix seen while GPS is on.
+    // 0 until the receiver first locks this session; used to reject fused fixes that have no recent
+    // satellite backing (network/dead-reckoning fabrications — see [isGnssBacked]).
+    @Volatile private var lastGnssFixElapsedMs = 0L
+    private var gnssCallback: GnssStatusCompat.Callback? = null
+    // Latest GnssStatus-derived quality, snapshotted for the next fix's metadata (null until seen).
+    @Volatile private var lastGnssSatsInFix: Int? = null
+    @Volatile private var lastGnssCn0Top4: Float? = null
+
     // --- Auto-pause / stitch resources (all touched only under [mutex]) ---
     // While paused, [currentTrackId] stays open (GPS off) so a brief stop can be stitched back into
     // the same track when the same activity resumes within the configured window.
@@ -88,6 +102,7 @@ class LocationRecordingService : Service() {
         repository = TrackRepository(this)
         fused = LocationServices.getFusedLocationProviderClient(this)
         activityManager = ActivityRecognitionManager(this)
+        locationManager = getSystemService(LocationManager::class.java)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -290,11 +305,69 @@ class LocationRecordingService : Service() {
         }
         locationCallback = callback
         fused.requestLocationUpdates(request, callback, Looper.getMainLooper())
+        registerGnssStatus()
     }
 
     private fun stopLocationUpdates() {
         locationCallback?.let { fused.removeLocationUpdates(it) }
         locationCallback = null
+        unregisterGnssStatus()
+    }
+
+    /**
+     * Track real satellite fixes in parallel with the fused location stream, for two uses: the
+     * [isGnssBacked] cross-check (fused synthesises a position from Wi-Fi/cell/sensors when GNSS is
+     * unavailable — e.g. a tunnel — and reports optimistic accuracy that slips through the accuracy
+     * gate), and per-point quality metadata (satellites-in-fix, C/N0). Registered whenever GPS is on,
+     * independent of the cross-check toggle, which only controls whether fixes are *rejected*.
+     */
+    @SuppressLint("MissingPermission")
+    private fun registerGnssStatus() {
+        if (gnssCallback != null) return
+        if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) return
+        val lm = locationManager ?: return
+        val callback = object : GnssStatusCompat.Callback() {
+            override fun onSatelliteStatusChanged(status: GnssStatusCompat) {
+                var used = 0
+                val cn0s = ArrayList<Float>()
+                for (i in 0 until status.satelliteCount) {
+                    if (status.usedInFix(i)) {
+                        used++
+                        val cn0 = status.getCn0DbHz(i)
+                        if (cn0 > 0f) cn0s.add(cn0)
+                    }
+                }
+                lastGnssSatsInFix = used
+                lastGnssCn0Top4 = if (cn0s.isEmpty()) null
+                    else cn0s.sortedDescending().take(4).average().toFloat()
+                if (used >= GNSS_MIN_SATELLITES_IN_FIX) lastGnssFixElapsedMs = SystemClock.elapsedRealtime()
+            }
+        }
+        gnssCallback = callback
+        LocationManagerCompat.registerGnssStatusCallback(lm, ContextCompat.getMainExecutor(this), callback)
+    }
+
+    private fun unregisterGnssStatus() {
+        val cb = gnssCallback ?: return
+        locationManager?.let { LocationManagerCompat.unregisterGnssStatusCallback(it, cb) }
+        gnssCallback = null
+        // Don't carry stale satellite metadata into the next track's first fixes.
+        lastGnssSatsInFix = null
+        lastGnssCn0Top4 = null
+    }
+
+    /**
+     * Whether [loc] is backed by a recent real satellite fix. Fails open until the receiver first
+     * locks this session (so a device/spot where GNSS never contributes still records rather than
+     * emptying the track); once it has locked, a fix whose elapsed timestamp is more than
+     * [GNSS_FIX_MAX_AGE_MS] past the last satellite fix is treated as a network/dead-reckoning
+     * fabrication.
+     */
+    private fun isGnssBacked(loc: Location): Boolean {
+        val lastGnss = lastGnssFixElapsedMs
+        if (lastGnss == 0L) return true
+        val fixElapsedMs = loc.elapsedRealtimeNanos / 1_000_000L
+        return fixElapsedMs - lastGnss <= GNSS_FIX_MAX_AGE_MS
     }
 
     // Fixes are ingested under [mutex] so they serialize with activity changes (which retarget the
@@ -306,6 +379,7 @@ class LocationRecordingService : Service() {
 
     private suspend fun ingestLocations(locations: List<Location>) {
         val maxAccuracyM = Settings.accuracyGateM(this).toFloat()
+        val requireGnss = Settings.requireGnssFix(this)
         for (loc in locations) {
             val trackId = currentTrackId ?: return
             val candidate = TrackPoint(
@@ -317,13 +391,22 @@ class LocationRecordingService : Service() {
                 speed = if (loc.hasSpeed()) loc.speed else null,
                 bearing = if (loc.hasBearing()) loc.bearing else null,
                 timestamp = if (loc.time > 0) loc.time else now(),
+                verticalAccuracy = if (loc.hasVerticalAccuracy()) loc.verticalAccuracyMeters else null,
+                speedAccuracy = if (loc.hasSpeedAccuracy()) loc.speedAccuracyMetersPerSecond else null,
+                bearingAccuracy = if (loc.hasBearingAccuracy()) loc.bearingAccuracyDegrees else null,
+                satellitesInFix = lastGnssSatsInFix,
+                cn0 = lastGnssCn0Top4,
+                provider = loc.provider,
             )
             // The first good fix after a resume begins a new segment: disconnect it from the previous
             // segment so the paused gap isn't jump-checked or counted in distance.
             val segStart = pendingSegmentStart
             val baseline = if (segStart) null else lastGoodPoint
             // Bad fixes are still stored, just excluded from distance and the good-point baseline.
-            val bad = TrackQuality.isBadFix(baseline, candidate, gate.confirmed, maxAccuracyM)
+            // A fix with no recent satellite backing (fused fabrication) is treated the same way.
+            val noGnss = requireGnss && !isGnssBacked(loc)
+            val bad = noGnss || TrackQuality.isBadFix(baseline, candidate, gate.confirmed, maxAccuracyM)
+            if (noGnss) DebugLog.i(TAG, "fix dropped — no recent GNSS backing (acc=${candidate.accuracy})")
             val point = candidate.copy(ignored = bad, segmentStart = segStart && !bad)
             if (!bad) {
                 if (baseline != null) distanceMeters += TrackQuality.distanceMeters(baseline, point)
@@ -435,6 +518,13 @@ class LocationRecordingService : Service() {
         const val ACTION_STOP = "io.github.valeronm.breadcrumb.STOP"
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "Breadcrumb"
+
+        // A fused fix counts as GNSS-backed when a satellite fix using at least this many satellites
+        // occurred within [GNSS_FIX_MAX_AGE_MS] of it. Four is the minimum for a genuine 3D fix;
+        // below that the position isn't independently satellite-determined. Tunables for field-testing
+        // the cross-check against the tunnel/underpass fabrication case.
+        private const val GNSS_MIN_SATELLITES_IN_FIX = 4
+        private const val GNSS_FIX_MAX_AGE_MS = 5_000L
 
         fun start(context: Context) {
             Settings.setAutoRecord(context, true)

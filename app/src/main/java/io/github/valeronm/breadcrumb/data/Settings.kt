@@ -16,6 +16,7 @@ object Settings {
     private const val KEY_TRACK_MIN_EXTENT_M = "track_min_extent_m"
     private const val KEY_STITCH_RESUME_WINDOW_SEC = "stitch_resume_window_sec"
     private const val KEY_ACCURACY_GATE_M = "accuracy_gate_m"
+    private const val KEY_REQUIRE_GNSS_FIX = "require_gnss_fix"
     private const val KEY_START_CONFIRMATIONS = "start_confirmations"
     private const val KEY_ACTIVITY_POLL_ENABLED = "activity_poll_enabled"
     private const val KEY_ACTIVITY_POLL_INTERVAL_SEC = "activity_poll_interval_sec"
@@ -36,6 +37,11 @@ object Settings {
 
     // Fixes whose reported accuracy radius is at least this (metres) are flagged noisy and excluded.
     const val DEFAULT_ACCURACY_GATE_M = 50
+
+    // Reject fused fixes with no recent satellite backing (network/dead-reckoning fabrications, e.g.
+    // in a tunnel). These can report good accuracy, so the accuracy gate alone misses them; this
+    // cross-checks against real GNSS satellite status. See LocationRecordingService.
+    const val DEFAULT_REQUIRE_GNSS_FIX = true
 
     // How many consecutive moving readings of the same activity are needed before a *new* track is
     // opened (and GPS spun up). Filters lone high-confidence blips that revert to STILL on the next
@@ -120,6 +126,14 @@ object Settings {
 
     fun setAccuracyGateM(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_ACCURACY_GATE_M, value) }
+    }
+
+    /** Whether to drop fused fixes lacking recent satellite backing (network/dead-reckoning only). */
+    fun requireGnssFix(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_REQUIRE_GNSS_FIX, DEFAULT_REQUIRE_GNSS_FIX)
+
+    fun setRequireGnssFix(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_REQUIRE_GNSS_FIX, enabled) }
     }
 
     /** Consecutive moving readings required before opening a new track. 1 = start instantly. */

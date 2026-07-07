@@ -19,6 +19,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -65,6 +67,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -87,6 +90,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -120,7 +124,7 @@ import kotlinx.coroutines.CancellationException
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
-import org.osmdroid.views.overlay.advancedpolyline.ColorMappingVariationHue
+import org.osmdroid.views.overlay.advancedpolyline.ColorMapping
 import org.osmdroid.views.overlay.advancedpolyline.PolychromaticPaintList
 import android.graphics.Paint
 import java.text.SimpleDateFormat
@@ -648,6 +652,7 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
     var minExtentM by remember { mutableFloatStateOf(AppSettings.minTrackExtentM(context).toFloat()) }
     var resumeWindowSec by remember { mutableFloatStateOf(AppSettings.resumeWindowSec(context).toFloat()) }
     var accuracyGateM by remember { mutableFloatStateOf(AppSettings.accuracyGateM(context).toFloat()) }
+    var requireGnssFix by remember { mutableStateOf(AppSettings.requireGnssFix(context)) }
     var startConfirmations by remember {
         mutableFloatStateOf(AppSettings.startConfirmations(context).toFloat())
     }
@@ -755,10 +760,13 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
         Spacer(Modifier.height(24.dp))
         SectionHeader(
             "Accuracy filter",
-            canReset = accuracyGateM.toInt() != AppSettings.DEFAULT_ACCURACY_GATE_M,
+            canReset = accuracyGateM.toInt() != AppSettings.DEFAULT_ACCURACY_GATE_M ||
+                requireGnssFix != AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
         ) {
             accuracyGateM = AppSettings.DEFAULT_ACCURACY_GATE_M.toFloat()
+            requireGnssFix = AppSettings.DEFAULT_REQUIRE_GNSS_FIX
             AppSettings.setAccuracyGateM(context, AppSettings.DEFAULT_ACCURACY_GATE_M)
+            AppSettings.setRequireGnssFix(context, AppSettings.DEFAULT_REQUIRE_GNSS_FIX)
         }
         Text(
             "Fixes less accurate than this are flagged noisy and left out of the track. Applies to " +
@@ -769,6 +777,28 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
         SliderSetting("Max accuracy radius", accuracyGateM, 10f..150f, 10, { "${it.toInt()} m" }) {
             accuracyGateM = it
             AppSettings.setAccuracyGateM(context, it.toInt())
+        }
+        Text(
+            "Also drop fixes with no live satellite lock — the position the phone reports from Wi-Fi/" +
+                "cell in a tunnel, which can look accurate but wander. Applies to newly recorded tracks.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Require satellite fix", style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.width(12.dp))
+            Switch(
+                checked = requireGnssFix,
+                onCheckedChange = {
+                    requireGnssFix = it
+                    AppSettings.setRequireGnssFix(context, it)
+                },
+            )
         }
 
         Spacer(Modifier.height(24.dp))
@@ -1111,6 +1141,7 @@ private fun TrackMapScreen(
     val activity = remember(summary) {
         summary?.let { ActivityType.ofName(it.activityType) }
     }
+    var colorMode by remember { mutableStateOf(ColorMode.SPEED) }
     Scaffold(
         topBar = {
             // Header lives in the top-bar chrome so the (interop) map view is inset below it
@@ -1142,6 +1173,7 @@ private fun TrackMapScreen(
                         TrackStatsHeader(summary)
                     }
                 }
+                ColorModeSelector(colorMode) { colorMode = it }
             }
         },
     ) { inner ->
@@ -1154,7 +1186,13 @@ private fun TrackMapScreen(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                else -> TrackMap(points = loaded, noisyPoints = noisyPoints, activity = activity, showLegend = true)
+                else -> TrackMap(
+                    points = loaded,
+                    noisyPoints = noisyPoints,
+                    activity = activity,
+                    colorMode = colorMode,
+                    showLegend = true,
+                )
             }
         }
     }
@@ -1222,17 +1260,122 @@ private fun speedScaleFor(activity: ActivityType): SpeedScale = when (activity) 
     ActivityType.WALKING, ActivityType.STILL -> SpeedScale(2f, 5f, 8f)
 }
 
+// --- Track line colouring by metric ------------------------------------------------------------
+
+/** Which per-point metric the track line is coloured by. */
+enum class ColorMode(val label: String) {
+    SPEED("Speed"),
+    ELEVATION("Elevation"),
+    ACCURACY("Accuracy"),
+    SATELLITES("Satellites"),
+    CN0("Signal"),
+    PROVIDER("Source"),
+}
+
+private const val HUE_AMBER = 40f
+private val NO_DATA_COLOR = Color.hsl(0f, 0f, 0.6f) // grey for points the metric has no value for
+private val NO_DATA_ARGB = NO_DATA_COLOR.toArgb()
+
+/** Legend content for the current colour mode. */
+private sealed interface Legend {
+    /** Continuous red→green→blue ramp with anchor labels. */
+    data class Ramp(val left: String, val mid: String, val right: String) : Legend
+    /** Discrete swatches (e.g. per location provider). */
+    data class Categories(val entries: List<Pair<String, Color>>) : Legend
+    /** No point in the track carries this metric. */
+    data class None(val message: String) : Legend
+}
+
+private class TrackColoring(val colors: IntArray, val gradient: Boolean, val legend: Legend)
+
+/** Feeds pre-computed per-point ARGB colours to osmdroid's [PolychromaticPaintList]. */
+private class IndexColorMapping(private val colors: IntArray) : ColorMapping {
+    override fun getColorForIndex(pIndex: Int): Int = when {
+        colors.isEmpty() -> NO_DATA_ARGB
+        pIndex < colors.size -> colors[pIndex]
+        else -> colors.last()
+    }
+}
+
+/** ARGB on the red(0°)→green(120°)→blue(240°) ramp for [value] between the [redAt] and [blueAt] anchors. */
+private fun rampColor(value: Float?, redAt: Float, blueAt: Float): Int {
+    if (value == null) return NO_DATA_ARGB
+    val t = ((value - redAt) / (blueAt - redAt)).coerceIn(0f, 1f)
+    val hue = HUE_RED + t * (HUE_BLUE - HUE_RED)
+    return Color.hsl(hue, SPEED_SATURATION, SPEED_LUMINANCE).toArgb()
+}
+
+private fun rampColoring(
+    values: List<Float?>, redAt: Float, blueAt: Float, unit: String, emptyMsg: String,
+): TrackColoring {
+    if (values.all { it == null }) {
+        return TrackColoring(IntArray(values.size) { NO_DATA_ARGB }, true, Legend.None(emptyMsg))
+    }
+    val colors = IntArray(values.size) { rampColor(values[it], redAt, blueAt) }
+    fun num(v: Float) = "%.0f".format(v)
+    // Unit only on the rightmost label, else three "… unit" labels overflow the fixed-width legend.
+    val right = num(blueAt).let { if (unit.isEmpty()) it else "$it $unit" }
+    return TrackColoring(colors, true, Legend.Ramp(num(redAt), num((redAt + blueAt) / 2f), right))
+}
+
+private fun providerArgb(provider: String?): Int = when (provider) {
+    "gps" -> Color.hsl(HUE_GREEN, SPEED_SATURATION, SPEED_LUMINANCE)
+    "fused" -> Color.hsl(HUE_AMBER, SPEED_SATURATION, SPEED_LUMINANCE)
+    "network" -> Color.hsl(HUE_RED, SPEED_SATURATION, SPEED_LUMINANCE)
+    else -> NO_DATA_COLOR
+}.toArgb()
+
+/**
+ * Per-point colours + legend for [mode]. Ramps go red→green→blue between two anchor values; where an
+ * anchor is "worse" it's placed at red (e.g. accuracy: 50 m = red, 0 m = blue). Points missing the
+ * metric are grey. [provider] is categorical, not a ramp.
+ */
+private fun trackColoring(
+    points: List<TrackPoint>, speedsKmh: FloatArray, mode: ColorMode, activity: ActivityType?,
+): TrackColoring = when (mode) {
+    ColorMode.SPEED -> {
+        val s = speedScaleFor(activity ?: ActivityType.UNKNOWN)
+        rampColoring(List(points.size) { speedsKmh[it] }, s.minKmh, s.maxKmh, "km/h", "No speed data")
+    }
+    ColorMode.ELEVATION -> {
+        val alts = points.map { it.altitude?.toFloat() }
+        val present = alts.filterNotNull()
+        if (present.isEmpty()) {
+            TrackColoring(IntArray(points.size) { NO_DATA_ARGB }, true, Legend.None("No elevation data"))
+        } else {
+            val lo = present.min()
+            val hi = present.max()
+            val span = if (hi - lo < 1f) 1f else hi - lo // avoid a zero-width ramp on a flat track
+            rampColoring(alts, lo, lo + span, "m", "No elevation data")
+        }
+    }
+    // Lower accuracy radius is better, so 0 m sits at the blue (good) end.
+    ColorMode.ACCURACY -> rampColoring(points.map { it.accuracy }, 50f, 0f, "m", "No accuracy data")
+    ColorMode.SATELLITES ->
+        rampColoring(points.map { it.satellitesInFix?.toFloat() }, 0f, 12f, "sat", "No satellite data")
+    ColorMode.CN0 -> rampColoring(points.map { it.cn0 }, 15f, 45f, "dB", "No signal data")
+    ColorMode.PROVIDER -> {
+        val colors = IntArray(points.size) { providerArgb(points[it].provider) }
+        val used = points.mapNotNull { it.provider }.distinct().sorted()
+        if (used.isEmpty()) TrackColoring(colors, false, Legend.None("No source data"))
+        else TrackColoring(colors, false, Legend.Categories(used.map { it to Color(providerArgb(it)) }))
+    }
+}
+
 @Composable
 private fun TrackMap(
     points: List<TrackPoint>,
     noisyPoints: List<TrackPoint> = emptyList(),
     activity: ActivityType? = null,
+    colorMode: ColorMode = ColorMode.SPEED,
     showLegend: Boolean = false,
 ) {
     val geoPoints = remember(points) { points.map { GeoPoint(it.latitude, it.longitude) } }
     val noisyGeoPoints = remember(noisyPoints) { noisyPoints.map { GeoPoint(it.latitude, it.longitude) } }
-    val scale = remember(activity) { activity?.let { speedScaleFor(it) } }
     val speedsKmh = remember(points) { TrackQuality.pointSpeedsKmh(points) }
+    val coloring = remember(points, colorMode, activity, speedsKmh) {
+        trackColoring(points, speedsKmh, colorMode, activity)
+    }
     Box(Modifier.fillMaxSize()) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -1250,28 +1393,21 @@ private fun TrackMap(
             update = { map ->
                 map.overlays.clear()
                 val line = Polyline(map).apply { setPoints(geoPoints) }
-                if (scale != null) {
-                    // Colour each point by its speed via osmdroid's advanced-polyline paint list,
-                    // clamping into the static scale so speeds beyond it saturate at red/blue.
-                    val paint = Paint().apply {
-                        strokeWidth = 12f
-                        style = Paint.Style.STROKE
-                        strokeCap = Paint.Cap.ROUND
-                        strokeJoin = Paint.Join.ROUND
-                        isAntiAlias = true
-                    }
-                    val mapping = ColorMappingVariationHue(
-                        scale.minKmh, scale.maxKmh,
-                        HUE_RED, HUE_BLUE, SPEED_SATURATION, SPEED_LUMINANCE,
-                    )
-                    speedsKmh.forEach { mapping.add(it.coerceIn(scale.minKmh, scale.maxKmh)) }
-                    // Keep the default outline from drawing a second (black) line under the gradient.
-                    line.outlinePaint.color = android.graphics.Color.TRANSPARENT
-                    line.getOutlinePaintLists().add(PolychromaticPaintList(paint, mapping, true))
-                } else {
-                    line.outlinePaint.color = android.graphics.Color.parseColor("#2962FF")
-                    line.outlinePaint.strokeWidth = 12f
+                // Suppress osmdroid's default (empty) polyline info window shown on tap.
+                line.setInfoWindow(null)
+                // Colour each point by the selected metric via osmdroid's advanced-polyline paint list.
+                val paint = Paint().apply {
+                    strokeWidth = 12f
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    strokeJoin = Paint.Join.ROUND
+                    isAntiAlias = true
                 }
+                // Keep the default outline from drawing a second (black) line under the gradient.
+                line.outlinePaint.color = android.graphics.Color.TRANSPARENT
+                line.getOutlinePaintLists().add(
+                    PolychromaticPaintList(paint, IndexColorMapping(coloring.colors), coloring.gradient),
+                )
                 map.overlays.add(line)
                 // Mark excluded "bad fix" points so the gaps in the line have an explanation. They're
                 // not in the framing bounds below, so a far outlier won't shrink the actual route.
@@ -1299,14 +1435,79 @@ private fun TrackMap(
             },
             onRelease = { it.onDetach() },
         )
-        if (showLegend && scale != null) {
-            SpeedLegend(scale, Modifier.align(Alignment.BottomStart).padding(12.dp))
+        if (showLegend) {
+            TrackLegend(coloring.legend, Modifier.align(Alignment.BottomStart).padding(12.dp))
+        }
+    }
+}
+
+/** Horizontally-scrollable chips to pick how the track line is coloured. */
+@Composable
+private fun ColorModeSelector(selected: ColorMode, onSelect: (ColorMode) -> Unit) {
+    Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 3.dp, shadowElevation = 3.dp) {
+        Row(
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            for (mode in ColorMode.entries) {
+                FilterChip(
+                    selected = mode == selected,
+                    onClick = { onSelect(mode) },
+                    label = { Text(mode.label) },
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun SpeedLegend(scale: SpeedScale, modifier: Modifier) {
+private fun TrackLegend(legend: Legend, modifier: Modifier) {
+    when (legend) {
+        is Legend.None ->
+            LegendSurface(modifier) {
+                Text(legend.message, style = MaterialTheme.typography.labelSmall)
+            }
+        is Legend.Ramp ->
+            LegendSurface(modifier) {
+                Box(
+                    Modifier
+                        .width(132.dp)
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color.hsl(HUE_RED, SPEED_SATURATION, SPEED_LUMINANCE),
+                                    Color.hsl(HUE_GREEN, SPEED_SATURATION, SPEED_LUMINANCE),
+                                    Color.hsl(HUE_BLUE, SPEED_SATURATION, SPEED_LUMINANCE),
+                                ),
+                            ),
+                        ),
+                )
+                Spacer(Modifier.height(2.dp))
+                Row(Modifier.width(132.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(legend.left, style = MaterialTheme.typography.labelSmall)
+                    Text(legend.mid, style = MaterialTheme.typography.labelSmall)
+                    Text(legend.right, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        is Legend.Categories ->
+            LegendSurface(modifier) {
+                for ((label, color) in legend.entries) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(color))
+                        Spacer(Modifier.width(6.dp))
+                        Text(label, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+    }
+}
+
+@Composable
+private fun LegendSurface(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
@@ -1314,29 +1515,11 @@ private fun SpeedLegend(scale: SpeedScale, modifier: Modifier) {
         tonalElevation = 3.dp,
         shadowElevation = 3.dp,
     ) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-            Box(
-                Modifier
-                    .width(132.dp)
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                Color.hsl(HUE_RED, SPEED_SATURATION, SPEED_LUMINANCE),
-                                Color.hsl(HUE_GREEN, SPEED_SATURATION, SPEED_LUMINANCE),
-                                Color.hsl(HUE_BLUE, SPEED_SATURATION, SPEED_LUMINANCE),
-                            ),
-                        ),
-                    ),
-            )
-            Spacer(Modifier.height(2.dp))
-            Row(Modifier.width(132.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("%.0f".format(scale.minKmh), style = MaterialTheme.typography.labelSmall)
-                Text("%.0f".format(scale.midKmh), style = MaterialTheme.typography.labelSmall)
-                Text("%.0f km/h".format(scale.maxKmh), style = MaterialTheme.typography.labelSmall)
-            }
-        }
+        Column(
+            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            content = content,
+        )
     }
 }
 

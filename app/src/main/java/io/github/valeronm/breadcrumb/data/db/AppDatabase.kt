@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [Track::class, TrackPoint::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -36,13 +36,26 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v4 adds per-point fix-quality metadata (accuracy siblings + GNSS satellite/signal info).
+        // All nullable — the recorder fills them live as points are recorded; pre-v4 points stay null.
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE track_points ADD COLUMN verticalAccuracy REAL")
+                db.execSQL("ALTER TABLE track_points ADD COLUMN speedAccuracy REAL")
+                db.execSQL("ALTER TABLE track_points ADD COLUMN bearingAccuracy REAL")
+                db.execSQL("ALTER TABLE track_points ADD COLUMN satellitesInFix INTEGER")
+                db.execSQL("ALTER TABLE track_points ADD COLUMN cn0 REAL")
+                db.execSQL("ALTER TABLE track_points ADD COLUMN provider TEXT")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "tracks.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
             }
     }
 }

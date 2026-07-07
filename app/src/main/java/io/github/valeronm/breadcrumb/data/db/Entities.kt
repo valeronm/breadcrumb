@@ -41,6 +41,17 @@ data class TrackPoint(
     val speed: Float?,
     val bearing: Float?,
     val timestamp: Long,
+    // --- Fix-quality metadata (nullable: null when the source didn't report it) ----------------
+    /** Estimated vertical / speed / bearing accuracy, the confidence siblings of [accuracy]. */
+    val verticalAccuracy: Float? = null,
+    val speedAccuracy: Float? = null,
+    val bearingAccuracy: Float? = null,
+    /** Satellites used in the fix at capture time, from GnssStatus (null = no GNSS status seen). */
+    val satellitesInFix: Int? = null,
+    /** Average C/N0 (dB-Hz) of the 4 strongest satellites used in the fix — signal strength. */
+    val cn0: Float? = null,
+    /** Location provider that produced the fix ("gps", "fused", "network", …). */
+    val provider: String? = null,
     /**
      * True for a fix judged unreliable by [io.github.valeronm.breadcrumb.data.TrackQuality]
      * (too-coarse accuracy or an implausible jump). Stored but excluded from distance, the
