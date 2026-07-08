@@ -69,8 +69,11 @@ both on normal finish and via `finalizeDangling`, which also cleans up tracks le
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Tracks) Scaffold with a
 full-screen **overlay** on top (sealed `Overlay` = `TrackDetail` | `Settings`),
 both animated by one shared `PredictiveBackHandler` (Android predictive back — scale/shift previewing
-the tabs underneath). Maps use osmdroid via `EdgeAwareMapView`, a `MapView` subclass that ignores
-touches in the system back-gesture edge strips so edge-swipe-back wins over map panning.
+the tabs underneath). The track map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps dark
+vector basemap**: the track is a `line-gradient` coloured per point by the selected metric, start/end
+and noisy-fix markers sit on a symbol layer, and switching the colour metric recolours in place
+without moving the camera. It's edge-aware (declines gestures in the back-gesture edge strips so
+edge-swipe-back wins) and lifecycle-bound to the composition.
 
 ## Conventions & constraints
 
@@ -81,12 +84,17 @@ touches in the system back-gesture edge strips so edge-swipe-back wins over map 
   grantable from the app's system settings page (the permission UI deep-links there).
 - `applicationId` is permanent once published; the `${applicationId}.fileprovider` authority and
   notification/manifest pieces derive from it, so don't hardcode the package elsewhere.
-- All data is local; the only network use is OSM map tiles. There is no server sync (a possible future
-  feature — the Settings page is where server URL/key fields would go).
-- **Never call osmdroid `MapView.zoomToBoundingBox` before the view has real dimensions.** On a
-  still-`0×0` `MapView` the projection is degenerate and `Projection.getCloserPixel` spins forever
-  wrapping the longitude, pegging the main thread into an ANR (it surfaces in dropbox as a broadcast
-  timeout, not a clear map error). `map.post { … }` does **not** fix this — it only queues a message,
-  it doesn't wait for layout. Gate the framing on `map.width/height > 0`, else defer via
-  `addOnFirstLayoutListener`; for a single-point track (no span) use a fixed `setZoom` instead. See
-  `TrackMap` in `MainActivity`.
+- All data is local; the only network use is map data — Protomaps vector tiles (hosted API) plus the
+  glyphs/sprite from `protomaps.github.io`. There is no server sync (a possible future feature — the
+  Settings page is where server URL/key fields would go).
+- **The Protomaps hosted-API key is not committed.** It lives in `local.properties` as
+  `protomapsApiKey=…` (gitignored), surfaced as `BuildConfig.PROTOMAPS_API_KEY`, and injected into the
+  bundled style at load time (`{PROTOMAPS_KEY}` placeholder in `assets/protomaps-dark.json`). A fresh
+  checkout needs that line added or the basemap won't load.
+- **The dark basemap style is a bundled asset** (`assets/protomaps-dark.json`) — the official
+  `protomaps-themes-base` dark flavour with its source repointed at the hosted API. To refresh it,
+  re-fetch the flavour JSON and re-point the `protomaps` source, keeping the `{PROTOMAPS_KEY}` placeholder.
+- **Frame the map with `moveCamera`, not `easeCamera`** — the track view should open already fitted,
+  with no zoom-in animation. Framing runs once per track (guarded by a `BooleanArray`) so switching the
+  colour metric recolours without re-centring; the source geometry is refreshed on point-list growth
+  for the live preview. See `MapLibreTrackMap`.

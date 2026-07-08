@@ -98,7 +98,6 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -118,17 +117,7 @@ import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.formatKm
 import io.github.valeronm.breadcrumb.util.isGranted
-import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.BoundingBox
-import org.osmdroid.util.GeoPoint
 import kotlinx.coroutines.CancellationException
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Polyline
-import org.osmdroid.views.overlay.advancedpolyline.ColorMapping
-import org.osmdroid.views.overlay.advancedpolyline.PolychromaticPaintList
-import android.graphics.Paint
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -487,7 +476,7 @@ private fun CurrentTrackPreview(viewModel: TrackListViewModel, status: TrackingS
         Column {
             Box(modifier = Modifier.fillMaxWidth().height(220.dp).clipToBounds()) {
                 if (points.size >= 2) {
-                    TrackMap(points = points, activity = activity)
+                    MapLibreTrackMap(points = points, activity = activity)
                 } else {
                     Text(
                         "Waiting for GPS fix…",
@@ -1195,12 +1184,13 @@ private fun TrackMapScreen(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                else -> TrackMap(
+                else -> MapLibreTrackMap(
                     points = loaded,
                     noisyPoints = noisyPoints,
                     activity = activity,
                     colorMode = colorMode,
                     showLegend = true,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }
@@ -1303,7 +1293,7 @@ private val NO_DATA_COLOR = Color.hsl(0f, 0f, 0.6f) // grey for points the metri
 private val NO_DATA_ARGB = NO_DATA_COLOR.toArgb()
 
 /** Legend content for the current colour mode. */
-private sealed interface Legend {
+internal sealed interface Legend {
     /** Continuous red→green→blue ramp with anchor labels. */
     data class Ramp(val left: String, val mid: String, val right: String) : Legend
     /** Discrete swatches (e.g. per location provider). */
@@ -1312,16 +1302,7 @@ private sealed interface Legend {
     data class None(val message: String) : Legend
 }
 
-private class TrackColoring(val colors: IntArray, val gradient: Boolean, val legend: Legend)
-
-/** Feeds pre-computed per-point ARGB colours to osmdroid's [PolychromaticPaintList]. */
-private class IndexColorMapping(private val colors: IntArray) : ColorMapping {
-    override fun getColorForIndex(pIndex: Int): Int = when {
-        colors.isEmpty() -> NO_DATA_ARGB
-        pIndex < colors.size -> colors[pIndex]
-        else -> colors.last()
-    }
-}
+internal class TrackColoring(val colors: IntArray, val legend: Legend)
 
 /** ARGB on the red(0°)→green(120°)→blue(240°) ramp for [value] between the [redAt] and [blueAt] anchors. */
 private fun rampColor(value: Float?, redAt: Float, blueAt: Float): Int {
@@ -1335,13 +1316,13 @@ private fun rampColoring(
     values: List<Float?>, redAt: Float, blueAt: Float, unit: String, emptyMsg: String,
 ): TrackColoring {
     if (values.all { it == null }) {
-        return TrackColoring(IntArray(values.size) { NO_DATA_ARGB }, true, Legend.None(emptyMsg))
+        return TrackColoring(IntArray(values.size) { NO_DATA_ARGB }, Legend.None(emptyMsg))
     }
     val colors = IntArray(values.size) { rampColor(values[it], redAt, blueAt) }
     fun num(v: Float) = "%.0f".format(v)
     // Unit only on the rightmost label, else three "… unit" labels overflow the fixed-width legend.
     val right = num(blueAt).let { if (unit.isEmpty()) it else "$it $unit" }
-    return TrackColoring(colors, true, Legend.Ramp(num(redAt), num((redAt + blueAt) / 2f), right))
+    return TrackColoring(colors, Legend.Ramp(num(redAt), num((redAt + blueAt) / 2f), right))
 }
 
 private fun providerArgb(provider: String?): Int = when (provider) {
@@ -1356,7 +1337,7 @@ private fun providerArgb(provider: String?): Int = when (provider) {
  * anchor is "worse" it's placed at red (e.g. accuracy: 50 m = red, 0 m = blue). Points missing the
  * metric are grey. [provider] is categorical, not a ramp.
  */
-private fun trackColoring(
+internal fun trackColoring(
     points: List<TrackPoint>, speedsKmh: FloatArray, mode: ColorMode, activity: ActivityType?,
 ): TrackColoring = when (mode) {
     ColorMode.SPEED -> {
@@ -1367,7 +1348,7 @@ private fun trackColoring(
         val alts = points.map { it.altitude?.toFloat() }
         val present = alts.filterNotNull()
         if (present.isEmpty()) {
-            TrackColoring(IntArray(points.size) { NO_DATA_ARGB }, true, Legend.None("No elevation data"))
+            TrackColoring(IntArray(points.size) { NO_DATA_ARGB }, Legend.None("No elevation data"))
         } else {
             val lo = present.min()
             val hi = present.max()
@@ -1383,96 +1364,8 @@ private fun trackColoring(
     ColorMode.PROVIDER -> {
         val colors = IntArray(points.size) { providerArgb(points[it].provider) }
         val used = points.mapNotNull { it.provider }.distinct().sorted()
-        if (used.isEmpty()) TrackColoring(colors, false, Legend.None("No source data"))
-        else TrackColoring(colors, false, Legend.Categories(used.map { it to Color(providerArgb(it)) }))
-    }
-}
-
-@Composable
-private fun TrackMap(
-    points: List<TrackPoint>,
-    noisyPoints: List<TrackPoint> = emptyList(),
-    activity: ActivityType? = null,
-    colorMode: ColorMode = ColorMode.SPEED,
-    showLegend: Boolean = false,
-) {
-    val geoPoints = remember(points) { points.map { GeoPoint(it.latitude, it.longitude) } }
-    val noisyGeoPoints = remember(noisyPoints) { noisyPoints.map { GeoPoint(it.latitude, it.longitude) } }
-    val speedsKmh = remember(points) { TrackQuality.pointSpeedsKmh(points) }
-    val coloring = remember(points, colorMode, activity, speedsKmh) {
-        trackColoring(points, speedsKmh, colorMode, activity)
-    }
-    // Frame the map once per track. Re-runs of `update` (e.g. switching colour mode) redraw the line
-    // but must not re-centre/zoom, which would throw away the user's pan. A BooleanArray (not a
-    // MutableState) so flipping it inside `update` doesn't itself schedule a recomposition.
-    val framed = remember(points) { booleanArrayOf(false) }
-    Box(Modifier.fillMaxSize()) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                // OSM tile usage policy requires a unique user agent.
-                Configuration.getInstance().userAgentValue = ctx.packageName
-                EdgeAwareMapView(ctx).apply {
-                    setTileSource(TileSourceFactory.MAPNIK)
-                    setMultiTouchControls(true)
-                    // Start zoomed in so the first frame never shows the default world view.
-                    controller.setZoom(15.0)
-                    onResume()
-                }
-            },
-            update = { map ->
-                map.overlays.clear()
-                val line = Polyline(map).apply { setPoints(geoPoints) }
-                // Suppress osmdroid's default (empty) polyline info window shown on tap.
-                line.setInfoWindow(null)
-                // Colour each point by the selected metric via osmdroid's advanced-polyline paint list.
-                val paint = Paint().apply {
-                    strokeWidth = 12f
-                    style = Paint.Style.STROKE
-                    strokeCap = Paint.Cap.ROUND
-                    strokeJoin = Paint.Join.ROUND
-                    isAntiAlias = true
-                }
-                // Keep the default outline from drawing a second (black) line under the gradient.
-                line.outlinePaint.color = android.graphics.Color.TRANSPARENT
-                line.getOutlinePaintLists().add(
-                    PolychromaticPaintList(paint, IndexColorMapping(coloring.colors), coloring.gradient),
-                )
-                map.overlays.add(line)
-                // Mark excluded "bad fix" points so the gaps in the line have an explanation. They're
-                // not in the framing bounds below, so a far outlier won't shrink the actual route.
-                for (noisy in noisyGeoPoints) {
-                    map.overlays.add(endpointMarker(map, noisy, "Noisy fix", R.drawable.ic_marker_noisy))
-                }
-                map.overlays.add(endpointMarker(map, geoPoints.first(), "Start", R.drawable.ic_marker_start))
-                map.overlays.add(endpointMarker(map, geoPoints.last(), "End", R.drawable.ic_marker_end))
-                // Frame only on the first draw for this track; later redraws (colour-mode switches)
-                // keep the user's current pan/zoom.
-                if (!framed[0]) {
-                    val bounds = BoundingBox.fromGeoPointsSafe(geoPoints)
-                    // Center synchronously so the first drawn frame is already on the track (no flash),
-                    // then refine to fit the whole track.
-                    map.controller.setCenter(GeoPoint(bounds.centerLatitude, bounds.centerLongitude))
-                    // zoomToBoundingBox must run only once the MapView has real dimensions: called while
-                    // the view is still 0×0 its projection is degenerate and Projection.getCloserPixel
-                    // spins forever wrapping the longitude, pegging the main thread into an ANR. post{}
-                    // doesn't wait for layout (it just queues a message) — addOnFirstLayoutListener does.
-                    // A single point has no span to fit, so just pick a sensible zoom for it.
-                    val frame = {
-                        if (geoPoints.size > 1) map.zoomToBoundingBox(bounds, false, 80)
-                        else map.controller.setZoom(16.0)
-                        framed[0] = true
-                    }
-                    if (map.width > 0 && map.height > 0) frame()
-                    else map.addOnFirstLayoutListener { _, _, _, _, _ -> frame() }
-                }
-                map.invalidate()
-            },
-            onRelease = { it.onDetach() },
-        )
-        if (showLegend) {
-            TrackLegend(coloring.legend, Modifier.align(Alignment.BottomStart).padding(12.dp))
-        }
+        if (used.isEmpty()) TrackColoring(colors, Legend.None("No source data"))
+        else TrackColoring(colors, Legend.Categories(used.map { it to Color(providerArgb(it)) }))
     }
 }
 
@@ -1498,7 +1391,7 @@ private fun ColorModeSelector(selected: ColorMode, onSelect: (ColorMode) -> Unit
 }
 
 @Composable
-private fun TrackLegend(legend: Legend, modifier: Modifier) {
+internal fun TrackLegend(legend: Legend, modifier: Modifier) {
     when (legend) {
         is Legend.None ->
             LegendSurface(modifier) {
@@ -1557,16 +1450,6 @@ private fun LegendSurface(modifier: Modifier, content: @Composable ColumnScope.(
         )
     }
 }
-
-private fun endpointMarker(map: MapView, at: GeoPoint, label: String, iconRes: Int): Marker =
-    Marker(map).apply {
-        position = at
-        title = label
-        icon = ContextCompat.getDrawable(map.context, iconRes)
-        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-        setInfoWindow(null)
-        setOnMarkerClickListener { _, _ -> true }
-    }
 
 @Composable
 private fun PermissionCard(title: String, body: String, button: String, onClick: () -> Unit) {

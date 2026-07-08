@@ -26,6 +26,13 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
+
+        // SPIKE: Protomaps hosted-API key, read from local.properties (gitignored) so it isn't committed.
+        val localProps = Properties().apply {
+            val f = rootProject.file("local.properties")
+            if (f.exists()) f.inputStream().use { load(it) }
+        }
+        buildConfigField("String", "PROTOMAPS_API_KEY", "\"${localProps.getProperty("protomapsApiKey", "")}\"")
     }
 
     signingConfigs {
@@ -129,8 +136,8 @@ dependencies {
     // Location + Activity Recognition (Google Play Services)
     implementation("com.google.android.gms:play-services-location:21.4.0")
 
-    // OpenStreetMap map view (no API key required) for displaying recorded tracks
-    implementation("org.osmdroid:osmdroid-android:6.1.20")
+    // MapLibre GL Native renders the recorded tracks on a Protomaps dark vector basemap.
+    implementation("org.maplibre.gl:android-sdk:11.8.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
