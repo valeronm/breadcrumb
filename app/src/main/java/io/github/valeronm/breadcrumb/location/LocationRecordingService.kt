@@ -38,7 +38,6 @@ import io.github.valeronm.breadcrumb.domain.Confirmed
 import io.github.valeronm.breadcrumb.domain.RecordingAction
 import io.github.valeronm.breadcrumb.domain.TrackController
 import io.github.valeronm.breadcrumb.ui.MainActivity
-import io.github.valeronm.breadcrumb.util.formatKm
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -433,15 +432,16 @@ class LocationRecordingService : Service() {
                 points = if (activity.recording) pointCount else 0,
             )
         }
-        val detail = if (activity.recording) {
-            formatKm(distanceMeters)
-        } else {
-            "Paused — waiting for movement"
-        }
+        // State only — no live distance. The notification re-posts only on activity/pause
+        // transitions (a per-fix post costs a wakelock + IPC every second while recording).
+        val detail = if (activity.recording) "Recording" else "Paused — waiting for movement"
         updateNotification(activity.label, detail)
     }
 
     // --- Notifications -------------------------------------------------------
+
+    // Last content posted, so repeat publishStatus() calls with an unchanged state don't re-post.
+    private var lastNotified: Pair<String, String>? = null
 
     private fun startForegroundWithNotification(title: String, text: String) {
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -449,16 +449,19 @@ class LocationRecordingService : Service() {
         } else {
             0
         }
+        lastNotified = title to text
         ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(title, text), type)
     }
 
     private fun updateNotification(title: String, text: String) {
+        if (lastNotified == title to text) return
+        lastNotified = title to text
         val manager = ContextCompat.getSystemService(this, android.app.NotificationManager::class.java)
         manager?.notify(NOTIFICATION_ID, buildNotification(title, text))
     }
 
-    // The notification's PendingIntents never change, so build them once and reuse across the
-    // per-fix notification rebuilds (each getActivity/getService is a round-trip to the system).
+    // The notification's PendingIntents never change, so build them once and reuse across
+    // notification rebuilds (each getActivity/getService is a round-trip to the system).
     private val openIntent: PendingIntent by lazy {
         PendingIntent.getActivity(
             this,
