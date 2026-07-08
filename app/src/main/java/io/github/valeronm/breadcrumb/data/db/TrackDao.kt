@@ -56,6 +56,7 @@ interface TrackDao {
                (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0) AS pointCount,
                (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 1) AS ignoredCount
         FROM tracks t
+        WHERE t.endedAt IS NOT NULL
         ORDER BY t.startedAt DESC
         """
     )
