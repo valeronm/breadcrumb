@@ -6,9 +6,12 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.KeepRule
+import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
 import kotlin.math.sin
 import kotlin.random.Random
+
+private const val TAG = "Breadcrumb"
 
 /** Thin wrapper around the DAO so callers don't touch Room directly. */
 class TrackRepository(context: Context) {
@@ -34,17 +37,27 @@ class TrackRepository(context: Context) {
     private suspend fun meetsKeepThresholds(track: Track, endedAt: Long): Boolean {
         val points = dao.pointsFor(track.id)
         val durationSec = (endedAt - track.startedAt) / 1000
-        return KeepRule.shouldKeep(
+        val thresholds = KeepRule.Thresholds(
+            minDurationSec = Settings.minTrackDurationSec(appContext),
+            minLengthM = Settings.minTrackLengthM(appContext),
+            minExtentM = Settings.minTrackExtentM(appContext),
+        )
+        val keep = KeepRule.shouldKeep(
             pointCount = points.size,
             durationSec = durationSec,
             distanceMeters = track.distanceMeters,
-            thresholds = KeepRule.Thresholds(
-                minDurationSec = Settings.minTrackDurationSec(appContext),
-                minLengthM = Settings.minTrackLengthM(appContext),
-                minExtentM = Settings.minTrackExtentM(appContext),
-            ),
+            thresholds = thresholds,
             extent = { TrackQuality.boundingExtentMeters(points) },
         )
+        DebugLog.i(
+            TAG,
+            "track ${track.id} (${track.activityType}): ${points.size} pts, " +
+                "${track.distanceMeters.toInt()} m, ${durationSec}s vs min " +
+                "${thresholds.minLengthM} m / ${thresholds.minDurationSec}s" +
+                (if (thresholds.minExtentM > 0) " / extent ${thresholds.minExtentM} m" else "") +
+                " -> ${if (keep) "keep" else "delete"}",
+        )
+        return keep
     }
 
     /** Closes a track, deleting it instead if it's too short to be meaningful. */

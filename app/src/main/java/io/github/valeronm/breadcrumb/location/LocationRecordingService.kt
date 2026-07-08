@@ -244,6 +244,7 @@ class LocationRecordingService : Service() {
                 // Still the same pause, still un-resumed → finalize. (The resume decision itself is the
                 // gate's job now; this is just resource cleanup for a stop nothing came back from.)
                 if (controller.isPaused && pauseToken == token) {
+                    DebugLog.i(TAG, "pause expired — finalizing track $currentTrackId")
                     closeCurrentTrack()
                     publishStatus()
                 }

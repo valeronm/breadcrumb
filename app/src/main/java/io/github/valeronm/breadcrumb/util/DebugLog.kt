@@ -1,8 +1,9 @@
 package io.github.valeronm.breadcrumb.util
 
 import android.util.Log
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -19,8 +20,14 @@ object DebugLog {
 
     private const val MAX_ENTRIES = 1000
     private val buffer = ArrayDeque<Entry>()
-    private val _entries = MutableStateFlow<List<Entry>>(emptyList())
-    val entries: StateFlow<List<Entry>> = _entries
+
+    // Bumped on every add/clear; the buffer is only copied into a list inside the collector's map,
+    // so the (up to 1000-entry) snapshot cost is paid per UI collection, not per logged line.
+    private val version = MutableStateFlow(0)
+    val entries: Flow<List<Entry>> = version.map { snapshot() }
+
+    @Synchronized
+    private fun snapshot(): List<Entry> = buffer.toList()
 
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
@@ -33,7 +40,7 @@ object DebugLog {
         }
         buffer.addLast(Entry(System.currentTimeMillis(), level, message))
         while (buffer.size > MAX_ENTRIES) buffer.removeFirst()
-        _entries.value = buffer.toList()
+        version.value++
     }
 
     fun i(tag: String, message: String) = add('I', tag, message)
@@ -43,7 +50,7 @@ object DebugLog {
     @Synchronized
     fun clear() {
         buffer.clear()
-        _entries.value = emptyList()
+        version.value++
     }
 
     /** Formats an entry timestamp for display. Synchronized because [SimpleDateFormat] isn't reentrant. */

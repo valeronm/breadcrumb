@@ -891,7 +891,7 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
 @Composable
 private fun LogsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val entries by DebugLog.entries.collectAsState()
+    val entries by DebugLog.entries.collectAsState(initial = emptyList())
     Scaffold(
         topBar = {
             TopAppBar(
