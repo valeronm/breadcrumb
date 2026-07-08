@@ -67,6 +67,9 @@ fun MapLibreTrackMap(
     colorMode: ColorMode = ColorMode.SPEED,
     showLegend: Boolean = false,
     selectedPoint: TrackPoint? = null,
+    // Live preview: the last point is the current position — a droplet rotated to the movement
+    // bearing instead of the finished-track end dot.
+    directionalEnd: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val coloring = remember(points, colorMode, activity) {
@@ -93,7 +96,7 @@ fun MapLibreTrackMap(
                         mapRef[0] = map
                         map.setStyle(Style.Builder().fromJson(loadProtomapsDarkStyle(view.context))) { style ->
                             addTrackLine(style, points, paint)
-                            addMarkers(view.context, style, points, noisyPoints)
+                            addMarkers(view.context, style, points, noisyPoints, directionalEnd)
                             addSelectionLayer(view.context, style, selectedPoint)
                             frameTo(map, points)
                             framed[0] = true
@@ -110,7 +113,7 @@ fun MapLibreTrackMap(
                             applied[0] = points
                             applied[1] = noisyPoints
                             style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points))
-                            style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints))
+                            style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints, directionalEnd))
                         }
                         if (applied[2] !== paint) {
                             applied[2] = paint
@@ -201,6 +204,7 @@ private const val MARKER_SOURCE = "marker-src"
 private const val MARKER_LAYER = "marker-layer"
 private const val IMG_START = "marker-start"
 private const val IMG_END = "marker-end"
+private const val IMG_POINTER = "marker-pointer"
 private const val IMG_NOISY = "marker-noisy"
 private const val IMG_NOISY_JUMP = "marker-noisy-jump"
 private const val IMG_NOISY_GNSS = "marker-noisy-gnss"
@@ -239,39 +243,72 @@ private fun noisyIcon(p: TrackPoint): String = when (IgnoreReason.fromCode(p.ign
     IgnoreReason.ACCURACY, null -> IMG_NOISY
 }
 
-private fun markerCollection(points: List<TrackPoint>, noisyPoints: List<TrackPoint>): FeatureCollection {
+private fun markerCollection(
+    points: List<TrackPoint>,
+    noisyPoints: List<TrackPoint>,
+    directionalEnd: Boolean,
+): FeatureCollection {
     val features = ArrayList<Feature>()
     noisyPoints.forEach { features.add(markerFeature(it, noisyIcon(it))) }
     points.firstOrNull()?.let { features.add(markerFeature(it, IMG_START)) }
-    points.lastOrNull()?.let { features.add(markerFeature(it, IMG_END)) }
+    points.lastOrNull()?.let { last ->
+        // GPS only reports a bearing while moving, so at a standstill the newest fixes carry none —
+        // fall back to the last *known* heading so the pointer doesn't flicker into a dot at stops.
+        val bearing = if (directionalEnd) points.lastOrNull { it.bearing != null }?.bearing else null
+        if (bearing != null) {
+            features.add(markerFeature(last, IMG_POINTER, bearing))
+        } else {
+            features.add(markerFeature(last, IMG_END))
+        }
+    }
     return FeatureCollection.fromFeatures(features)
 }
 
 private fun addMarkers(
-    ctx: Context, style: Style, points: List<TrackPoint>, noisyPoints: List<TrackPoint>,
+    ctx: Context,
+    style: Style,
+    points: List<TrackPoint>,
+    noisyPoints: List<TrackPoint>,
+    directionalEnd: Boolean,
 ) {
     style.addImage(IMG_START, drawableBitmap(ctx, R.drawable.ic_marker_start))
     style.addImage(IMG_END, drawableBitmap(ctx, R.drawable.ic_marker_end))
+    style.addImage(IMG_POINTER, drawableBitmap(ctx, R.drawable.ic_marker_pointer))
     style.addImage(IMG_NOISY, drawableBitmap(ctx, R.drawable.ic_marker_noisy))
     style.addImage(IMG_NOISY_JUMP, drawableBitmap(ctx, R.drawable.ic_marker_noisy_jump))
     style.addImage(IMG_NOISY_GNSS, drawableBitmap(ctx, R.drawable.ic_marker_noisy_gnss))
-    style.addSource(GeoJsonSource(MARKER_SOURCE, markerCollection(points, noisyPoints)))
+    style.addSource(GeoJsonSource(MARKER_SOURCE, markerCollection(points, noisyPoints, directionalEnd)))
     style.addLayer(
         SymbolLayer(MARKER_LAYER, MARKER_SOURCE).withProperties(
             PropertyFactory.iconImage(Expression.get("icon")),
             PropertyFactory.iconAllowOverlap(true),
             PropertyFactory.iconIgnorePlacement(true),
             PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+            // Rotate with the map so the droplet keeps pointing along the ground-track bearing.
+            PropertyFactory.iconRotate(Expression.get("bearing")),
+            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
         ),
     )
 }
 
-/** The graph-scrubber selection: its own source/layer so updates don't rebuild the marker set. */
+/**
+ * The graph-scrubber selection: its own source/layer so updates don't rebuild the marker set.
+ * A droplet pointing along the fix's bearing where one was recorded, else the plain dot.
+ */
 private fun selectionCollection(p: TrackPoint?): FeatureCollection =
-    FeatureCollection.fromFeatures(listOfNotNull(p?.let { markerFeature(it, IMG_SELECTED) }))
+    FeatureCollection.fromFeatures(
+        listOfNotNull(
+            p?.let {
+                val bearing = it.bearing
+                if (bearing != null) markerFeature(it, IMG_POINTER, bearing)
+                else markerFeature(it, IMG_SELECTED)
+            },
+        ),
+    )
 
 private fun addSelectionLayer(ctx: Context, style: Style, selected: TrackPoint?) {
     style.addImage(IMG_SELECTED, drawableBitmap(ctx, R.drawable.ic_marker_selected))
+    style.addImage(IMG_POINTER, drawableBitmap(ctx, R.drawable.ic_marker_pointer))
     style.addSource(GeoJsonSource(SELECT_SOURCE, selectionCollection(selected)))
     style.addLayer(
         SymbolLayer(SELECT_LAYER, SELECT_SOURCE).withProperties(
@@ -279,14 +316,19 @@ private fun addSelectionLayer(ctx: Context, style: Style, selected: TrackPoint?)
             PropertyFactory.iconAllowOverlap(true),
             PropertyFactory.iconIgnorePlacement(true),
             PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+            PropertyFactory.iconRotate(Expression.get("bearing")),
+            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
         ),
     )
 }
 
-private fun markerFeature(p: TrackPoint, icon: String): Feature =
+private fun markerFeature(p: TrackPoint, icon: String, bearing: Float = 0f): Feature =
     Feature.fromGeometry(
         Point.fromLngLat(p.longitude, p.latitude),
-        JsonObject().apply { addProperty("icon", icon) },
+        JsonObject().apply {
+            addProperty("icon", icon)
+            addProperty("bearing", bearing)
+        },
     )
 
 private fun frameTo(map: MapLibreMap, points: List<TrackPoint>) {
