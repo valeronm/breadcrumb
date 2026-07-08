@@ -14,6 +14,9 @@ object TrackingStatus {
         val points: Int = 0,
         /** Wall-clock start of the current track, null when not recording. */
         val startedAtMillis: Long? = null,
+        /** Latest good fix's speed (m/s) and altitude (m), null when unknown or not recording. */
+        val speedMps: Float? = null,
+        val altitudeM: Double? = null,
     )
 
     private val _state = MutableStateFlow(State())

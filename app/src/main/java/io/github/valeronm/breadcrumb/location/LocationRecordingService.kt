@@ -463,6 +463,8 @@ class LocationRecordingService : Service() {
                 distanceMeters = if (activity.recording) distanceMeters else 0.0,
                 points = if (activity.recording) pointCount else 0,
                 startedAtMillis = if (activity.recording && trackStartedAt > 0) trackStartedAt else null,
+                speedMps = if (activity.recording) lastGoodPoint?.speed else null,
+                altitudeM = if (activity.recording) lastGoodPoint?.altitude else null,
             )
         }
         // State only — no live distance. The notification re-posts only on activity/pause
