@@ -1,8 +1,12 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
+import android.view.WindowManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +24,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
@@ -43,6 +48,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -50,6 +56,8 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -76,6 +84,7 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -209,6 +218,20 @@ private fun MainScreen() {
     val viewModel: TrackListViewModel = viewModel()
     val tracks by viewModel.tracks.collectAsState()
     val status by TrackingStatus.state.collectAsState()
+
+    // Keep-screen-on while charging: live charger state + persisted preference; the window flag
+    // holds the screen only while this activity is in the foreground (no wakelock, no permission).
+    val charging = rememberChargingState()
+    var keepScreenOn by remember { mutableStateOf(AppSettings.keepScreenOnCharging(context)) }
+    val window = (context as? ComponentActivity)?.window
+    LaunchedEffect(charging, keepScreenOn, window) {
+        if (window == null) return@LaunchedEffect
+        if (charging && keepScreenOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     // Permission state, refreshed whenever the activity resumes (e.g. back from Settings).
     var foregroundOk by remember { mutableStateOf(context.foregroundGranted()) }
@@ -352,6 +375,12 @@ private fun MainScreen() {
                         backgroundOk = backgroundOk,
                         autoOn = autoOn,
                         batteryOk = batteryOk,
+                        charging = charging,
+                        keepScreenOn = keepScreenOn,
+                        onToggleKeepScreenOn = { enabled ->
+                            keepScreenOn = enabled
+                            AppSettings.setKeepScreenOnCharging(context, enabled)
+                        },
                         status = status,
                         viewModel = viewModel,
                         onGrantForeground = {
@@ -425,12 +454,35 @@ private fun MainScreen() {
     }
 }
 
+/** Live charger state from the sticky ACTION_BATTERY_CHANGED broadcast (reacts to plug/unplug). */
+@Composable
+private fun rememberChargingState(): Boolean {
+    val context = LocalContext.current
+    var charging by remember { mutableStateOf(false) }
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                // Plugged, not "actively charging": adaptive charging / a full battery report
+                // STATUS_NOT_CHARGING while on the charger, and that's still the car-mount case.
+                charging = (intent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0
+            }
+        }
+        // Sticky broadcast: registration delivers the current state immediately.
+        context.registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+    return charging
+}
+
 @Composable
 private fun RecordTab(
     foregroundOk: Boolean,
     backgroundOk: Boolean,
     autoOn: Boolean,
     batteryOk: Boolean,
+    charging: Boolean,
+    keepScreenOn: Boolean,
+    onToggleKeepScreenOn: (Boolean) -> Unit,
     status: TrackingStatus.State,
     viewModel: TrackListViewModel,
     onGrantForeground: () -> Unit,
@@ -476,6 +528,12 @@ private fun RecordTab(
                         RecorderStateCard(status)
                     }
                 }
+                Spacer(Modifier.height(16.dp))
+                KeepScreenOnRow(
+                    charging = charging,
+                    enabled = keepScreenOn,
+                    onToggle = onToggleKeepScreenOn,
+                )
             }
         }
     }
@@ -551,6 +609,61 @@ private fun RecorderStateCard(status: TrackingStatus.State) {
     }
 }
 
+/** Settings-style switch with a check/cross icon in the thumb mirroring its state. */
+@Composable
+private fun IconSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+) {
+    Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        enabled = enabled,
+        thumbContent = {
+            Icon(
+                if (checked) Icons.Filled.Check else Icons.Filled.Close,
+                contentDescription = null,
+                modifier = Modifier.size(SwitchDefaults.IconSize),
+            )
+        },
+    )
+}
+
+/**
+ * Keep-screen-on toggle; only actionable on the charger (car-mount use), greyed out on battery.
+ * Deliberately card-less and small — a utility, not a peer of the main recording control.
+ */
+@Composable
+private fun KeepScreenOnRow(
+    charging: Boolean,
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Keep screen on",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                if (charging) "While the app is open, on the charger." else "Available while charging.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconSwitch(
+            checked = enabled && charging,
+            onCheckedChange = onToggle,
+            enabled = charging,
+        )
+    }
+}
+
 @Composable
 private fun AutoRecordControls(
     autoOn: Boolean,
@@ -565,11 +678,12 @@ private fun AutoRecordControls(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Switch(checked = autoOn, onCheckedChange = onToggle)
+            IconSwitch(checked = autoOn, onCheckedChange = onToggle)
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TracksTab(
     tracks: List<TrackSummary>,
@@ -597,19 +711,21 @@ private fun TracksTab(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        // Rows within a day sit tight so the group reads as one visual block.
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         groups.forEach { (label, dayTracks) ->
-            item(key = "header:$label") {
-                DayHeader(label) {
+            stickyHeader(key = "header:$label") {
+                DayHeader(label, dayTracks) {
                     viewModel.shareTracks(dayTracks.map { it.id }) { intent ->
                         if (intent != null) context.startActivity(intent)
                     }
                 }
             }
-            items(dayTracks, key = { it.id }) { track ->
+            itemsIndexed(dayTracks, key = { _, track -> track.id }) { index, track ->
                 TrackRow(
                     track = track,
+                    shape = groupedRowShape(index, dayTracks.size),
                     onOpen = { onOpen(track.id) },
                     onDeleteRequest = { pendingDelete = track },
                 )
@@ -642,20 +758,77 @@ private fun TracksTab(
     }
 }
 
+/**
+ * Corner shape for a row in a day group: large outer corners on the group's first/last edge,
+ * small inner corners between neighbours — the rows read as one grouped block.
+ */
+private fun groupedRowShape(index: Int, count: Int): RoundedCornerShape {
+    val outer = 12.dp
+    val inner = 4.dp
+    val top = if (index == 0) outer else inner
+    val bottom = if (index == count - 1) outer else inner
+    return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
+}
+
+private class DayActivityTotal(val activity: ActivityType?, val meters: Double, val durationMs: Long)
+
+private fun dayActivityTotals(tracks: List<TrackSummary>): List<DayActivityTotal> =
+    tracks.groupBy { ActivityType.ofName(it.activityType) }
+        .map { (activity, list) ->
+            DayActivityTotal(
+                activity = activity,
+                meters = list.sumOf { it.distanceMeters },
+                durationMs = list.sumOf { (it.endedAt ?: it.startedAt) - it.startedAt },
+            )
+        }
+        .sortedByDescending { it.meters }
+
 @Composable
-private fun DayHeader(label: String, onShare: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () -> Unit) {
+    val totals = remember(dayTracks) { dayActivityTotals(dayTracks) }
+    Column(
+        // Opaque background: the header is sticky, rows scroll underneath it.
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(top = 14.dp),
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        IconButton(onClick = onShare) {
-            Icon(Icons.Filled.Share, contentDescription = "Share $label tracks")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            IconButton(onClick = onShare) {
+                Icon(Icons.Filled.Share, contentDescription = "Share $label tracks")
+            }
+        }
+        // Day totals per recorded activity, in the row style: tinted glyph + distance · duration.
+        Row(
+            modifier = Modifier.padding(bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            for (total in totals) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        activityIcon(total.activity),
+                        contentDescription = total.activity?.label,
+                        tint = activityColor(total.activity),
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "${formatKm(total.meters)} · ${formatDurationMs(total.durationMs)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
@@ -1062,6 +1235,7 @@ private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 @Composable
 private fun TrackRow(
     track: TrackSummary,
+    shape: RoundedCornerShape,
     onOpen: () -> Unit,
     onDeleteRequest: () -> Unit,
 ) {
@@ -1081,7 +1255,7 @@ private fun TrackRow(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(shape)
                     .background(MaterialTheme.colorScheme.errorContainer)
                     .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.CenterEnd,
@@ -1094,7 +1268,7 @@ private fun TrackRow(
             }
         },
     ) {
-        Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen), shape = shape) {
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1146,7 +1320,11 @@ private fun TrackRow(
 
 private fun formatDuration(startedAt: Long, endedAt: Long?): String {
     val end = endedAt ?: return "recording"
-    val minutes = ((end - startedAt) / 60000.0).roundToLong()
+    return formatDurationMs(end - startedAt)
+}
+
+private fun formatDurationMs(durationMs: Long): String {
+    val minutes = (durationMs / 60000.0).roundToLong()
     return if (minutes >= 60) "%dh %02dm".format(minutes / 60, minutes % 60) else "%dm".format(minutes)
 }
 

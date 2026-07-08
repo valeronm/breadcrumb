@@ -21,6 +21,7 @@ object Settings {
     private const val KEY_ACTIVITY_POLL_ENABLED = "activity_poll_enabled"
     private const val KEY_ACTIVITY_POLL_INTERVAL_SEC = "activity_poll_interval_sec"
     private const val KEY_IGNORE_REASON_BACKFILL_DONE = "ignore_reason_backfill_done"
+    private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
 
     const val DEFAULT_SAMPLING_MIN_INTERVAL_SEC = 5
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
@@ -58,6 +59,14 @@ object Settings {
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    /** Keep the screen on while the app is open and the phone is charging (car-mount use). */
+    fun keepScreenOnCharging(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_KEEP_SCREEN_ON_CHARGING, false)
+
+    fun setKeepScreenOnCharging(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_KEEP_SCREEN_ON_CHARGING, enabled) }
+    }
 
     /** Whether the user has armed automatic, activity-driven recording. */
     fun isAutoRecord(context: Context): Boolean =
