@@ -24,6 +24,7 @@ import androidx.core.location.LocationRequestCompat
 import io.github.valeronm.breadcrumb.App
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackRepository
@@ -407,12 +408,22 @@ class LocationRecordingService : Service() {
             // segment so the paused gap isn't jump-checked or counted in distance.
             val segStart = pendingSegmentStart
             val baseline = if (segStart) null else lastGoodPoint
-            // Bad fixes are still stored, just excluded from distance and the good-point baseline.
-            // A fix with no recent satellite backing is treated the same way.
-            val noGnss = requireGnss && !isGnssBacked(loc)
-            val bad = noGnss || TrackQuality.isBadFix(baseline, candidate, gate.confirmed, maxAccuracyM)
-            if (noGnss) DebugLog.i(TAG, "fix dropped — no recent GNSS backing (acc=${candidate.accuracy})")
-            val point = candidate.copy(ignored = bad, segmentStart = segStart && !bad)
+            // Bad fixes are still stored (with the reason), just excluded from distance and the
+            // good-point baseline. A fix with no recent satellite backing is treated the same way.
+            val reason = if (requireGnss && !isGnssBacked(loc)) {
+                IgnoreReason.NO_GNSS
+            } else {
+                TrackQuality.badFixReason(baseline, candidate, gate.confirmed, maxAccuracyM)
+            }
+            if (reason == IgnoreReason.NO_GNSS) {
+                DebugLog.i(TAG, "fix dropped — no recent GNSS backing (acc=${candidate.accuracy})")
+            }
+            val bad = reason != null
+            val point = candidate.copy(
+                ignored = bad,
+                ignoreReason = reason?.code,
+                segmentStart = segStart && !bad,
+            )
             if (!bad) {
                 if (baseline != null) distanceMeters += TrackQuality.distanceMeters(baseline, point)
                 lastGoodPoint = point

@@ -86,6 +86,36 @@ class TrackRepository(context: Context) {
     suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint> = dao.ignoredPointsFor(trackId)
 
     /**
+     * One-time backfill of [IgnoreReason] for ignored points recorded before DB v5 (which stored
+     * only the flag). Replays [TrackQuality.badFixReason] over each track with the same baseline
+     * walk the recorder used — the stored flags decide which points were good — and attributes
+     * whatever the accuracy/jump rules don't explain to the GNSS cross-check, the recorder's only
+     * other rejection path. Idempotent: it only touches ignored points whose reason is still null.
+     */
+    suspend fun backfillIgnoreReasons() {
+        val maxAccuracyM = Settings.accuracyGateM(appContext).toFloat()
+        for (trackId in dao.allTrackIds()) {
+            val track = dao.track(trackId) ?: continue
+            val activity = runCatching { ActivityType.valueOf(track.activityType) }
+                .getOrDefault(ActivityType.UNKNOWN)
+            var lastGood: TrackPoint? = null
+            val idsByReason = HashMap<IgnoreReason, MutableList<Long>>()
+            for (point in dao.allPointsFor(trackId)) {
+                val baseline = if (point.segmentStart) null else lastGood
+                if (!point.ignored) {
+                    lastGood = point
+                    continue
+                }
+                if (point.ignoreReason != null) continue
+                val reason = TrackQuality.badFixReason(baseline, point, activity, maxAccuracyM)
+                    ?: IgnoreReason.NO_GNSS
+                idsByReason.getOrPut(reason) { ArrayList() }.add(point.id)
+            }
+            for ((reason, ids) in idsByReason) dao.setIgnoreReason(ids, reason.code)
+        }
+    }
+
+    /**
      * Inserts a synthetic, already-finished track so the list / map / swipe-to-delete / share flows
      * can be exercised without real movement. Intended for debug builds only; bypasses the keep
      * thresholds. The path is a short wander at a randomised location so repeated seeds don't overlap.

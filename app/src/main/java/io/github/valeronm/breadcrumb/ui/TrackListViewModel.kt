@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -26,6 +27,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             // Mark any track left in a "recording" state by a crash/kill as completed.
             repository.finalizeDangling(exceptTrackId = LocationRecordingService.activeTrackId)
+            // One-time backfill of the ignore reason over points recorded before DB v5.
+            if (!Settings.isIgnoreReasonBackfillDone(getApplication())) {
+                repository.backfillIgnoreReasons()
+                Settings.setIgnoreReasonBackfillDone(getApplication())
+            }
         }
     }
 

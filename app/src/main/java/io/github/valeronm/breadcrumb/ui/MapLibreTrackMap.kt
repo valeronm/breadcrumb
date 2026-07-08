@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import com.google.gson.JsonObject
@@ -185,6 +186,8 @@ private const val MARKER_LAYER = "marker-layer"
 private const val IMG_START = "marker-start"
 private const val IMG_END = "marker-end"
 private const val IMG_NOISY = "marker-noisy"
+private const val IMG_NOISY_JUMP = "marker-noisy-jump"
+private const val IMG_NOISY_GNSS = "marker-noisy-gnss"
 private const val DEFAULT_LINE = 0xFF5B9BF0.toInt()
 
 private fun trackLineFeature(points: List<TrackPoint>): Feature =
@@ -209,9 +212,17 @@ private fun applyPaint(layer: LineLayer, paint: TrackPaint) {
     }
 }
 
+// Noisy markers are colour-coded by why the fix was rejected; points recorded before reasons
+// were tracked (null) fall back to the generic accuracy colour.
+private fun noisyIcon(p: TrackPoint): String = when (IgnoreReason.fromCode(p.ignoreReason)) {
+    IgnoreReason.JUMP -> IMG_NOISY_JUMP
+    IgnoreReason.NO_GNSS -> IMG_NOISY_GNSS
+    IgnoreReason.ACCURACY, null -> IMG_NOISY
+}
+
 private fun markerCollection(points: List<TrackPoint>, noisyPoints: List<TrackPoint>): FeatureCollection {
     val features = ArrayList<Feature>()
-    noisyPoints.forEach { features.add(markerFeature(it, IMG_NOISY)) }
+    noisyPoints.forEach { features.add(markerFeature(it, noisyIcon(it))) }
     points.firstOrNull()?.let { features.add(markerFeature(it, IMG_START)) }
     points.lastOrNull()?.let { features.add(markerFeature(it, IMG_END)) }
     return FeatureCollection.fromFeatures(features)
@@ -223,6 +234,8 @@ private fun addMarkers(
     style.addImage(IMG_START, drawableBitmap(ctx, R.drawable.ic_marker_start))
     style.addImage(IMG_END, drawableBitmap(ctx, R.drawable.ic_marker_end))
     style.addImage(IMG_NOISY, drawableBitmap(ctx, R.drawable.ic_marker_noisy))
+    style.addImage(IMG_NOISY_JUMP, drawableBitmap(ctx, R.drawable.ic_marker_noisy_jump))
+    style.addImage(IMG_NOISY_GNSS, drawableBitmap(ctx, R.drawable.ic_marker_noisy_gnss))
     style.addSource(GeoJsonSource(MARKER_SOURCE, markerCollection(points, noisyPoints)))
     style.addLayer(
         SymbolLayer(MARKER_LAYER, MARKER_SOURCE).withProperties(

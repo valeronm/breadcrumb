@@ -107,6 +107,7 @@ import androidx.compose.runtime.DisposableEffect
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -1140,6 +1141,8 @@ private fun TrackMapScreen(
         summary?.let { ActivityType.ofName(it.activityType) }
     }
     var colorMode by remember { mutableStateOf(ColorMode.SPEED) }
+    // Noisy (ignored) fixes are hidden by default; the warning toggle shows them with a legend.
+    var showNoisy by remember(trackId) { mutableStateOf(false) }
     Scaffold(
         topBar = {
             // Header lives in the top-bar chrome so the (interop) map view is inset below it
@@ -1153,6 +1156,20 @@ private fun TrackMapScreen(
                         }
                     },
                     actions = {
+                        if (noisyPoints.isNotEmpty()) {
+                            IconButton(onClick = { showNoisy = !showNoisy }) {
+                                Icon(
+                                    Icons.Filled.Warning,
+                                    contentDescription =
+                                        if (showNoisy) "Hide noisy fixes" else "Show noisy fixes",
+                                    tint = if (showNoisy) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
+                            }
+                        }
                         IconButton(onClick = {
                             viewModel.shareTracks(listOf(trackId)) { intent ->
                                 if (intent != null) context.startActivity(intent)
@@ -1186,12 +1203,40 @@ private fun TrackMapScreen(
                 )
                 else -> MapLibreTrackMap(
                     points = loaded,
-                    noisyPoints = noisyPoints,
+                    noisyPoints = if (showNoisy) noisyPoints else emptyList(),
                     activity = activity,
                     colorMode = colorMode,
                     showLegend = true,
                     modifier = Modifier.fillMaxSize(),
                 )
+            }
+            if (showNoisy && loaded != null && loaded.size >= 2) {
+                // Top-right, clear of the colour-metric legend (bottom-right) and attribution.
+                NoisyLegend(noisyPoints, Modifier.align(Alignment.TopEnd).padding(12.dp))
+            }
+        }
+    }
+}
+
+// Chip colours match the marker drawables (ic_marker_noisy / _jump / _gnss).
+private fun noisyLegendEntry(reason: IgnoreReason?): Pair<String, Color> = when (reason) {
+    IgnoreReason.JUMP -> "Speed jump" to Color(0xFFE53935)
+    IgnoreReason.NO_GNSS -> "No satellite fix" to Color(0xFFAB47BC)
+    IgnoreReason.ACCURACY, null -> "Low accuracy" to Color(0xFFFF8F00)
+}
+
+/** Legend for the noisy-fix markers: one row per rejection reason present in [noisyPoints]. */
+@Composable
+private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
+    val entries = remember(noisyPoints) {
+        noisyPoints.map { noisyLegendEntry(IgnoreReason.fromCode(it.ignoreReason)) }.distinct()
+    }
+    LegendSurface(modifier) {
+        for ((label, color) in entries) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(color))
+                Spacer(Modifier.width(6.dp))
+                Text(label, style = MaterialTheme.typography.labelSmall)
             }
         }
     }

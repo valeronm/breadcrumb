@@ -12,6 +12,23 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * source of truth for that rule, applied by live recording
  * ([io.github.valeronm.breadcrumb.location.LocationRecordingService]) as each fix is ingested.
  */
+/**
+ * Why a fix was flagged [TrackPoint.ignored]. [code] is the stable string stored in the DB
+ * (and null for points recorded before reasons were tracked).
+ */
+enum class IgnoreReason(val code: String) {
+    /** Accuracy radius at or beyond the configured gate. */
+    ACCURACY("accuracy"),
+    /** Reaching the fix from the last good point would need an implausible speed (GPS teleport). */
+    JUMP("jump"),
+    /** No recent satellite fix backing it (provider fabrication — tunnel dead-reckoning etc.). */
+    NO_GNSS("no_gnss");
+
+    companion object {
+        fun fromCode(code: String?): IgnoreReason? = entries.firstOrNull { it.code == code }
+    }
+}
+
 object TrackQuality {
 
     /** A position delta below this (metres) over a zero/negative time gap isn't a real jump. */
@@ -83,10 +100,19 @@ object TrackQuality {
         activity: ActivityType,
         maxAccuracyM: Float,
         distance: DistanceFn = AndroidDistance,
-    ): Boolean {
+    ): Boolean = badFixReason(lastGood, point, activity, maxAccuracyM, distance) != null
+
+    /** Like [isBadFix], but says *why* — [IgnoreReason.ACCURACY] or [IgnoreReason.JUMP] — or null. */
+    fun badFixReason(
+        lastGood: TrackPoint?,
+        point: TrackPoint,
+        activity: ActivityType,
+        maxAccuracyM: Float,
+        distance: DistanceFn = AndroidDistance,
+    ): IgnoreReason? {
         val accuracy = point.accuracy
-        if (accuracy != null && accuracy >= maxAccuracyM) return true
-        if (lastGood == null) return false
+        if (accuracy != null && accuracy >= maxAccuracyM) return IgnoreReason.ACCURACY
+        if (lastGood == null) return null
         val gapMeters = distanceMeters(lastGood, point, distance)
         val dtSec = (point.timestamp - lastGood.timestamp) / 1000.0
         val speedKmh = when {
@@ -94,6 +120,6 @@ object TrackQuality {
             gapMeters > MIN_JUMP_M -> Double.MAX_VALUE
             else -> 0.0
         }
-        return speedKmh > maxSpeedKmh(activity)
+        return if (speedKmh > maxSpeedKmh(activity)) IgnoreReason.JUMP else null
     }
 }

@@ -31,6 +31,13 @@ interface TrackDao {
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 1 ORDER BY timestamp ASC, id ASC")
     suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint>
 
+    /** Every point, good and ignored, for reprocessing passes. */
+    @Query("SELECT * FROM track_points WHERE trackId = :trackId ORDER BY timestamp ASC, id ASC")
+    suspend fun allPointsFor(trackId: Long): List<TrackPoint>
+
+    @Query("UPDATE track_points SET ignoreReason = :reason WHERE id IN (:ids)")
+    suspend fun setIgnoreReason(ids: List<Long>, reason: String)
+
     @Query("SELECT * FROM tracks WHERE endedAt IS NULL")
     suspend fun openTracks(): List<Track>
 

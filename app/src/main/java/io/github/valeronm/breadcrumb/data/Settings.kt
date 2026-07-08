@@ -20,6 +20,7 @@ object Settings {
     private const val KEY_START_CONFIRMATIONS = "start_confirmations"
     private const val KEY_ACTIVITY_POLL_ENABLED = "activity_poll_enabled"
     private const val KEY_ACTIVITY_POLL_INTERVAL_SEC = "activity_poll_interval_sec"
+    private const val KEY_IGNORE_REASON_BACKFILL_DONE = "ignore_reason_backfill_done"
 
     const val DEFAULT_SAMPLING_MIN_INTERVAL_SEC = 5
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
@@ -158,5 +159,15 @@ object Settings {
 
     fun setActivityPollIntervalSec(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_ACTIVITY_POLL_INTERVAL_SEC, value) }
+    }
+
+    // --- One-time migrations -------------------------------------------------
+
+    /** Whether ignored points recorded before DB v5 have had their [IgnoreReason] backfilled. */
+    fun isIgnoreReasonBackfillDone(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_IGNORE_REASON_BACKFILL_DONE, false)
+
+    fun setIgnoreReasonBackfillDone(context: Context) {
+        prefs(context).edit { putBoolean(KEY_IGNORE_REASON_BACKFILL_DONE, true) }
     }
 }

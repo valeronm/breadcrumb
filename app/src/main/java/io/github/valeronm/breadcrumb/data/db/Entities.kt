@@ -59,6 +59,11 @@ data class TrackPoint(
      */
     val ignored: Boolean = false,
     /**
+     * Why the fix was ignored — an [io.github.valeronm.breadcrumb.data.IgnoreReason.code] string,
+     * null for good points and for ignored points recorded before reasons were tracked.
+     */
+    val ignoreReason: String? = null,
+    /**
      * True for the first point of a new segment within a track — i.e. the fix right after recording
      * resumed from an auto-pause. Marks a GPX `<trkseg>` boundary; the gap before it isn't counted
      * in distance (the segments are logically disconnected).
