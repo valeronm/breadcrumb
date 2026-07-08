@@ -434,7 +434,7 @@ class LocationRecordingService : Service() {
             )
         }
         val detail = if (activity.recording) {
-            "${formatKm(distanceMeters)} · $pointCount pts"
+            formatKm(distanceMeters)
         } else {
             "Paused — waiting for movement"
         }

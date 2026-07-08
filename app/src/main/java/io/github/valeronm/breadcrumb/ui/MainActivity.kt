@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -52,6 +53,7 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -502,7 +504,7 @@ private fun CurrentTrackPreview(viewModel: TrackListViewModel, status: TrackingS
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "${formatKm(status.distanceMeters)} · ${status.points} points",
+                    formatKm(status.distanceMeters),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -539,7 +541,7 @@ private fun AutoRecordControls(
                     when {
                         !status.tracking -> "Starting…"
                         status.recording ->
-                            "Recording ${status.activityLabel}: ${formatKm(status.distanceMeters)} · ${status.points} points"
+                            "Recording ${status.activityLabel}: ${formatKm(status.distanceMeters)}"
                         else -> "Paused — waiting for movement"
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -1075,39 +1077,48 @@ private fun TrackRow(
     ) {
         Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
             Row(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = activityIcon(ActivityType.ofName(track.activityType)),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp),
-                )
+                val activity = ActivityType.ofName(track.activityType)
+                val activityTint = activityColor(activity)
+                // Activity token: the glyph in the activity colour on a soft tonal disc of the same
+                // colour (M3 "tonal" style) — a clear category cue that stays quiet.
+                Box(
+                    modifier = Modifier.size(36.dp).clip(CircleShape)
+                        .background(activityTint.copy(alpha = 0.22f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = activityIcon(activity),
+                        contentDescription = ActivityType.labelFor(track.activityType),
+                        tint = activityTint,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
+                    val start = timeFormat.format(Date(track.startedAt))
+                    val timeLine = track.endedAt?.let { "$start – ${timeFormat.format(Date(it))}" } ?: start
                     Text(
-                        ActivityType.labelFor(track.activityType),
+                        timeLine,
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        timeFormat.format(Date(track.startedAt)),
+                        "${formatKm(track.distanceMeters)} · ${formatDuration(track.startedAt, track.endedAt)}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
-                        "${formatKm(track.distanceMeters)} · ${track.pointCount} pts · " +
-                            formatDuration(track.startedAt, track.endedAt),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                }
+                if (track.ignoredCount > 0) {
+                    // Noisy fixes are a caution, not an error — a small amber corner marker. The label
+                    // is kept for screen readers.
+                    Icon(
+                        Icons.Filled.Warning,
+                        contentDescription = noisyFixesLabel(track.ignoredCount),
+                        tint = WarningAmber.copy(alpha = 0.6f),
+                        modifier = Modifier.align(Alignment.Top).size(16.dp),
                     )
-                    if (track.ignoredCount > 0) {
-                        Text(
-                            noisyFixesLabel(track.ignoredCount),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
                 }
             }
         }
@@ -1116,10 +1127,8 @@ private fun TrackRow(
 
 private fun formatDuration(startedAt: Long, endedAt: Long?): String {
     val end = endedAt ?: return "recording"
-    val seconds = ((end - startedAt) / 1000.0).roundToLong()
-    val m = seconds / 60
-    val s = seconds % 60
-    return if (m >= 60) "%dh %02dm".format(m / 60, m % 60) else "%dm %02ds".format(m, s)
+    val minutes = ((end - startedAt) / 60000.0).roundToLong()
+    return if (minutes >= 60) "%dh %02dm".format(minutes / 60, minutes % 60) else "%dm".format(minutes)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1209,7 +1218,6 @@ private fun TrackStatsHeader(summary: TrackSummary) {
             StatItem("Distance", formatKm(summary.distanceMeters))
             StatItem("Duration", formatDuration(summary.startedAt, summary.endedAt))
             StatItem("Avg speed", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—")
-            StatItem("Points", summary.pointCount.toString())
         }
         if (summary.ignoredCount > 0) {
             Spacer(Modifier.height(8.dp))
@@ -1239,6 +1247,23 @@ private fun activityIcon(activity: ActivityType?): ImageVector = when (activity)
     ActivityType.CYCLING -> Icons.AutoMirrored.Filled.DirectionsBike
     ActivityType.DRIVING -> Icons.Filled.DirectionsCar
     else -> Icons.Filled.Place
+}
+
+// A qualitative (categorical) palette for activity type. M3 has no categorical roles, so this is a
+// derived set: one fixed saturation + lightness, only the hue rotates, so every category carries
+// equal visual weight. It's a calmer sibling of the map's speed ramp (lower saturation) so the list
+// stays quiet. Green is nudged toward teal to avoid colliding with the app's green theme accent.
+// STILL/UNKNOWN fall back to the neutral scheme colour.
+private const val ACTIVITY_SAT = 0.5f
+private const val ACTIVITY_LUM = 0.62f
+
+@Composable
+private fun activityColor(activity: ActivityType?): Color = when (activity) {
+    ActivityType.DRIVING -> Color.hsl(210f, ACTIVITY_SAT, ACTIVITY_LUM) // blue
+    ActivityType.CYCLING -> Color.hsl(165f, ACTIVITY_SAT, ACTIVITY_LUM) // teal-green
+    ActivityType.RUNNING -> Color.hsl(30f, ACTIVITY_SAT, ACTIVITY_LUM)  // orange
+    ActivityType.WALKING -> Color.hsl(275f, ACTIVITY_SAT, ACTIVITY_LUM) // violet
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 // Static, per-activity speed→colour scale so tracks are visually comparable across the whole list:
@@ -1272,6 +1297,7 @@ enum class ColorMode(val label: String) {
     PROVIDER("Source"),
 }
 
+private val WarningAmber = Color(0xFFFFB300) // caution marker (e.g. noisy-fix count) — not an error
 private const val HUE_AMBER = 40f
 private val NO_DATA_COLOR = Color.hsl(0f, 0f, 0.6f) // grey for points the metric has no value for
 private val NO_DATA_ARGB = NO_DATA_COLOR.toArgb()
@@ -1376,6 +1402,10 @@ private fun TrackMap(
     val coloring = remember(points, colorMode, activity, speedsKmh) {
         trackColoring(points, speedsKmh, colorMode, activity)
     }
+    // Frame the map once per track. Re-runs of `update` (e.g. switching colour mode) redraw the line
+    // but must not re-centre/zoom, which would throw away the user's pan. A BooleanArray (not a
+    // MutableState) so flipping it inside `update` doesn't itself schedule a recomposition.
+    val framed = remember(points) { booleanArrayOf(false) }
     Box(Modifier.fillMaxSize()) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -1416,21 +1446,26 @@ private fun TrackMap(
                 }
                 map.overlays.add(endpointMarker(map, geoPoints.first(), "Start", R.drawable.ic_marker_start))
                 map.overlays.add(endpointMarker(map, geoPoints.last(), "End", R.drawable.ic_marker_end))
-                val bounds = BoundingBox.fromGeoPointsSafe(geoPoints)
-                // Center synchronously so the first drawn frame is already on the track (no flash),
-                // then refine to fit the whole track.
-                map.controller.setCenter(GeoPoint(bounds.centerLatitude, bounds.centerLongitude))
-                // zoomToBoundingBox must run only once the MapView has real dimensions: called while
-                // the view is still 0×0 its projection is degenerate and Projection.getCloserPixel
-                // spins forever wrapping the longitude, pegging the main thread into an ANR. post{}
-                // doesn't wait for layout (it just queues a message) — addOnFirstLayoutListener does.
-                // A single point has no span to fit, so just pick a sensible zoom for it.
-                val frame = {
-                    if (geoPoints.size > 1) map.zoomToBoundingBox(bounds, false, 80)
-                    else map.controller.setZoom(16.0)
+                // Frame only on the first draw for this track; later redraws (colour-mode switches)
+                // keep the user's current pan/zoom.
+                if (!framed[0]) {
+                    val bounds = BoundingBox.fromGeoPointsSafe(geoPoints)
+                    // Center synchronously so the first drawn frame is already on the track (no flash),
+                    // then refine to fit the whole track.
+                    map.controller.setCenter(GeoPoint(bounds.centerLatitude, bounds.centerLongitude))
+                    // zoomToBoundingBox must run only once the MapView has real dimensions: called while
+                    // the view is still 0×0 its projection is degenerate and Projection.getCloserPixel
+                    // spins forever wrapping the longitude, pegging the main thread into an ANR. post{}
+                    // doesn't wait for layout (it just queues a message) — addOnFirstLayoutListener does.
+                    // A single point has no span to fit, so just pick a sensible zoom for it.
+                    val frame = {
+                        if (geoPoints.size > 1) map.zoomToBoundingBox(bounds, false, 80)
+                        else map.controller.setZoom(16.0)
+                        framed[0] = true
+                    }
+                    if (map.width > 0 && map.height > 0) frame()
+                    else map.addOnFirstLayoutListener { _, _, _, _, _ -> frame() }
                 }
-                if (map.width > 0 && map.height > 0) frame()
-                else map.addOnFirstLayoutListener { _, _, _, _, _ -> frame() }
                 map.invalidate()
             },
             onRelease = { it.onDetach() },
