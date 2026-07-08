@@ -12,6 +12,8 @@ object TrackingStatus {
         val recording: Boolean = false,
         val distanceMeters: Double = 0.0,
         val points: Int = 0,
+        /** Wall-clock start of the current track, null when not recording. */
+        val startedAtMillis: Long? = null,
     )
 
     private val _state = MutableStateFlow(State())

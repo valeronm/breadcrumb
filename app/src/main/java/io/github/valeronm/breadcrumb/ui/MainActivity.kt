@@ -443,7 +443,7 @@ private fun RecordTab(
             )
 
             else -> {
-                AutoRecordControls(autoOn = autoOn, status = status, onToggle = onToggleAuto)
+                AutoRecordControls(autoOn = autoOn, onToggle = onToggleAuto)
                 if (autoOn && !batteryOk) {
                     Spacer(Modifier.height(8.dp))
                     PermissionCard(
@@ -454,9 +454,13 @@ private fun RecordTab(
                         onClick = onRequestBattery,
                     )
                 }
-                if (status.recording && LocationRecordingService.activeTrackId != null) {
+                if (autoOn) {
                     Spacer(Modifier.height(16.dp))
-                    CurrentTrackPreview(viewModel = viewModel, status = status)
+                    if (status.recording && LocationRecordingService.activeTrackId != null) {
+                        CurrentTrackPreview(viewModel = viewModel, status = status)
+                    } else {
+                        RecorderStateCard(status)
+                    }
                 }
             }
         }
@@ -492,13 +496,43 @@ private fun CurrentTrackPreview(viewModel: TrackListViewModel, status: TrackingS
                     "Current track · ${status.activityLabel}",
                     style = MaterialTheme.typography.titleMedium,
                 )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    formatKm(status.distanceMeters),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Spacer(Modifier.height(8.dp))
+                // Live trip stats; the status flow updates per fix, which keeps these ticking.
+                val startedAt = status.startedAtMillis
+                val durationS = startedAt?.let { (System.currentTimeMillis() - it) / 1000.0 } ?: 0.0
+                val avgKmh = if (durationS > 0) (status.distanceMeters / durationS) * 3.6 else 0.0
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    StatItem("Distance", formatKm(status.distanceMeters))
+                    StatItem(
+                        "Duration",
+                        startedAt?.let { formatDuration(it, System.currentTimeMillis()) } ?: "—",
+                    )
+                    StatItem("Avg speed", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—")
+                }
             }
+        }
+    }
+}
+
+/** Armed-but-not-recording state, shown where the track preview goes once recording starts. */
+@Composable
+private fun RecorderStateCard(status: TrackingStatus.State) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                if (status.tracking) "Paused" else "Starting…",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (status.tracking) {
+                    "Waiting for movement — recording starts on its own."
+                } else {
+                    "The recording service is starting up."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -506,37 +540,18 @@ private fun CurrentTrackPreview(viewModel: TrackListViewModel, status: TrackingS
 @Composable
 private fun AutoRecordControls(
     autoOn: Boolean,
-    status: TrackingStatus.State,
     onToggle: (Boolean) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Auto recording", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        if (autoOn) {
-                            "Armed — records automatically based on your activity."
-                        } else {
-                            "Off — turn on once and tracks record themselves."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Switch(checked = autoOn, onCheckedChange = onToggle)
-            }
-            if (autoOn) {
-                Spacer(Modifier.height(8.dp))
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Auto recording", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    when {
-                        !status.tracking -> "Starting…"
-                        status.recording ->
-                            "Recording ${status.activityLabel}: ${formatKm(status.distanceMeters)}"
-                        else -> "Paused — waiting for movement"
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
+                    if (autoOn) "Records as you move." else "Turn on to record automatically.",
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
+            Switch(checked = autoOn, onCheckedChange = onToggle)
         }
     }
 }
