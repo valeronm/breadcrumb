@@ -57,7 +57,8 @@ import kotlin.math.sqrt
  * [colorMode] via a MapLibre `line-gradient` built from [TrackColoring]'s per-point colours; start/end
  * and noisy-fix markers sit on a symbol layer, and the camera fits the track once on open. Switching
  * the colour mode updates the gradient in place without moving the camera; the source is refreshed
- * when the point list grows (the live "current track" preview).
+ * when the point list grows (the live "current track" preview), which re-frames only when the
+ * current position nears the viewport edge — user pan/zoom survives otherwise.
  */
 @Composable
 fun MapLibreTrackMap(
@@ -79,8 +80,9 @@ fun MapLibreTrackMap(
     val mapView = rememberMapLibreMapView()
     val mapRef = remember(mapView) { arrayOfNulls<MapLibreMap>(1) }
     val inited = remember(mapView) { booleanArrayOf(false) }
-    // Frame once per track; later paint updates (colour-mode switches) must not move the camera.
-    val framed = remember(points) { booleanArrayOf(false) }
+    // Frame once per map; later updates (colour switches, live point growth) must not move the
+    // camera — the live preview re-frames only when the current position nears the viewport edge.
+    val framed = remember(mapView) { booleanArrayOf(false) }
     // What each source/layer was last fed, so unrelated recompositions (e.g. the graph scrubber
     // moving the selection) don't re-serialize the full track geometry into the native map.
     val applied = remember(mapView) { arrayOfNulls<Any?>(4) } // points, noisy, paint, selection
@@ -114,6 +116,22 @@ fun MapLibreTrackMap(
                             applied[1] = noisyPoints
                             style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points))
                             style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints, directionalEnd))
+                            // Live preview: hold the camera (so a pan/zoom survives and the map
+                            // isn't re-rendered every fix); re-fit only when the current position
+                            // drifts out of the middle 80% of the viewport.
+                            if (framed[0] && directionalEnd) {
+                                points.lastOrNull()?.let { last ->
+                                    if (!map.projection.visibleRegion.latLngBounds
+                                            .containsWithMargin(last.latitude, last.longitude)
+                                    ) {
+                                        // Headroom so the position lands inside the 80% zone, not
+                                        // straight back on its edge (which would re-frame again on
+                                        // the next fix while moving outward). 1.2 keeps each zoom
+                                        // step small; the fit padding provides the rest of the slack.
+                                        frameTo(map, points, headroom = 1.2)
+                                    }
+                                }
+                            }
                         }
                         if (applied[2] !== paint) {
                             applied[2] = paint
@@ -331,13 +349,39 @@ private fun markerFeature(p: TrackPoint, icon: String, bearing: Float = 0f): Fea
         },
     )
 
-private fun frameTo(map: MapLibreMap, points: List<TrackPoint>) {
+/** Whether ([lat], [lon]) sits within the central [fraction] of these bounds. */
+private fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction: Double = 0.8): Boolean {
+    val centerLat = (latitudeNorth + latitudeSouth) / 2
+    val centerLon = (longitudeEast + longitudeWest) / 2
+    val halfLat = (latitudeNorth - latitudeSouth) / 2 * fraction
+    val halfLon = (longitudeEast - longitudeWest) / 2 * fraction
+    return lat in (centerLat - halfLat)..(centerLat + halfLat) &&
+        lon in (centerLon - halfLon)..(centerLon + halfLon)
+}
+
+/**
+ * [headroom] > 1 zooms out beyond the exact fit (half-spans scaled around the centre). The live
+ * re-fit needs it: a tight fit puts the current position right back at the viewport edge, so the
+ * very next fix would trigger another re-frame.
+ */
+private fun frameTo(map: MapLibreMap, points: List<TrackPoint>, headroom: Double = 1.0) {
     when {
         // moveCamera (not easeCamera): the map should open already framed, with no zoom animation.
         points.size >= 2 -> {
             val b = LatLngBounds.Builder()
             points.forEach { b.include(LatLng(it.latitude, it.longitude)) }
-            map.moveCamera(CameraUpdateFactory.newLatLngBounds(b.build(), 96))
+            var bounds = b.build()
+            if (headroom > 1.0) {
+                val centerLat = (bounds.latitudeNorth + bounds.latitudeSouth) / 2
+                val centerLon = (bounds.longitudeEast + bounds.longitudeWest) / 2
+                val halfLat = (bounds.latitudeNorth - bounds.latitudeSouth) / 2 * headroom
+                val halfLon = (bounds.longitudeEast - bounds.longitudeWest) / 2 * headroom
+                bounds = LatLngBounds.from(
+                    centerLat + halfLat, centerLon + halfLon,
+                    centerLat - halfLat, centerLon - halfLon,
+                )
+            }
+            map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 96))
         }
         points.size == 1 -> map.cameraPosition = CameraPosition.Builder()
             .target(LatLng(points[0].latitude, points[0].longitude)).zoom(15.0).build()

@@ -95,6 +95,7 @@ edge-swipe-back wins) and lifecycle-bound to the composition.
   `protomaps-themes-base` dark flavour with its source repointed at the hosted API. To refresh it,
   re-fetch the flavour JSON and re-point the `protomaps` source, keeping the `{PROTOMAPS_KEY}` placeholder.
 - **Frame the map with `moveCamera`, not `easeCamera`** — the track view should open already fitted,
-  with no zoom-in animation. Framing runs once per track (guarded by a `BooleanArray`) so switching the
-  colour metric recolours without re-centring; the source geometry is refreshed on point-list growth
-  for the live preview. See `MapLibreTrackMap`.
+  with no zoom-in animation. Framing runs once per map instance (guarded by a `BooleanArray`) so
+  switching the colour metric recolours without re-centring; the live preview refreshes the source
+  geometry on point-list growth but re-frames only when the current position leaves the central 80%
+  of the viewport, so a user pan/zoom survives. See `MapLibreTrackMap`.
