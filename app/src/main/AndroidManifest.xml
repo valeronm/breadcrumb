@@ -66,13 +66,14 @@
             android:name=".location.ActivityTransitionReceiver"
             android:exported="false" />
 
-        <!-- Re-arms automatic recording after a reboot -->
+        <!-- Re-arms automatic recording after a reboot or app update -->
         <receiver
             android:name=".location.BootReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
