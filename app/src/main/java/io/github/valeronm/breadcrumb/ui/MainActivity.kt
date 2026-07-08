@@ -28,6 +28,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -411,6 +412,10 @@ private fun MainScreen() {
                         tracks = tracks,
                         viewModel = viewModel,
                         onOpen = { overlay = Overlay.TrackDetail(it) },
+                        onReplay = { track ->
+                            TrackReplayer.start(context, track.id)
+                            selectedTab = HomeTab.RECORD
+                        },
                     )
                 }
             }
@@ -520,13 +525,38 @@ private fun RecordTab(
                         onClick = onRequestBattery,
                     )
                 }
-                if (autoOn) {
-                    Spacer(Modifier.height(16.dp))
-                    if (status.recording && LocationRecordingService.activeTrackId != null) {
-                        CurrentTrackPreview(viewModel = viewModel, status = status)
-                    } else {
-                        RecorderStateCard(status)
+                // The middle stretches so the keep-screen-on row is anchored at the bottom; while
+                // recording (or replaying, debug), the track preview card fills all of it.
+                val replay = if (BuildConfig.DEBUG) {
+                    TrackReplayer.state.collectAsState().value
+                } else {
+                    null
+                }
+                when {
+                    replay != null -> {
+                        Spacer(Modifier.height(16.dp))
+                        ReplayBanner(replay) { TrackReplayer.stop() }
+                        Spacer(Modifier.height(8.dp))
+                        CurrentTrackPreview(
+                            status = replay.status,
+                            points = replay.points,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                        )
                     }
+                    autoOn && status.recording && LocationRecordingService.activeTrackId != null -> {
+                        Spacer(Modifier.height(16.dp))
+                        LiveTrackPreview(
+                            viewModel = viewModel,
+                            status = status,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                        )
+                    }
+                    autoOn -> {
+                        Spacer(Modifier.height(16.dp))
+                        RecorderStateCard(status)
+                        Spacer(Modifier.weight(1f))
+                    }
+                    else -> Spacer(Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(16.dp))
                 KeepScreenOnRow(
@@ -539,21 +569,54 @@ private fun RecordTab(
     }
 }
 
+/** DEBUG: banner shown above the preview while a stored track is being replayed through it. */
 @Composable
-private fun CurrentTrackPreview(viewModel: TrackListViewModel, status: TrackingStatus.State) {
+private fun ReplayBanner(replay: TrackReplayer.Replay, onStop: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Replaying ${replay.trackLabel} at ${replay.speedX}×",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onStop) { Text("Stop") }
+    }
+}
+
+/** Loads the recorder's in-progress track and renders it via [CurrentTrackPreview]. */
+@Composable
+private fun LiveTrackPreview(
+    viewModel: TrackListViewModel,
+    status: TrackingStatus.State,
+    modifier: Modifier = Modifier,
+) {
     val activeId = LocationRecordingService.activeTrackId ?: return
     // Reload the in-progress track's points whenever a new one is recorded (points count changes).
     val points by produceState<List<TrackPoint>>(emptyList(), activeId, status.points) {
         value = viewModel.getPoints(activeId)
     }
+    CurrentTrackPreview(status = status, points = points, modifier = modifier)
+}
+
+/** The live "current track" card: map preview + ticking stats. Pure — fed by recorder or replay. */
+@Composable
+private fun CurrentTrackPreview(
+    status: TrackingStatus.State,
+    points: List<TrackPoint>,
+    modifier: Modifier = Modifier,
+) {
     val activity = remember(status.activityLabel) {
         ActivityType.entries.firstOrNull { it.label == status.activityLabel }
     }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = modifier) {
         Column {
-            Box(modifier = Modifier.fillMaxWidth().height(220.dp).clipToBounds()) {
+            // The map takes whatever height the card is given beyond the stats block.
+            Box(modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds()) {
                 if (points.size >= 2) {
-                    MapLibreTrackMap(points = points, activity = activity)
+                    MapLibreTrackMap(points = points, activity = activity, directionalEnd = true)
                 } else {
                     Text(
                         "Waiting for GPS fix…",
@@ -579,7 +642,9 @@ private fun CurrentTrackPreview(viewModel: TrackListViewModel, status: TrackingS
                         "Duration",
                         startedAt?.let { formatDuration(it, System.currentTimeMillis()) } ?: "—",
                     )
-                    StatItem("Avg speed", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—")
+                    StatItem("Speed", status.speedMps?.let { "%.0f km/h".format(it * 3.6f) } ?: "—")
+                    StatItem("Avg", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—")
+                    StatItem("Elevation", status.altitudeM?.let { "%.0f m".format(it) } ?: "—")
                 }
             }
         }
@@ -689,6 +754,7 @@ private fun TracksTab(
     tracks: List<TrackSummary>,
     viewModel: TrackListViewModel,
     onOpen: (Long) -> Unit,
+    onReplay: (TrackSummary) -> Unit,
 ) {
     val context = LocalContext.current
     var pendingDelete by remember { mutableStateOf<TrackSummary?>(null) }
@@ -728,6 +794,12 @@ private fun TracksTab(
                     shape = groupedRowShape(index, dayTracks.size),
                     onOpen = { onOpen(track.id) },
                     onDeleteRequest = { pendingDelete = track },
+                    // DEBUG: long-press replays the track through the Record tab's live view.
+                    onReplay = if (BuildConfig.DEBUG) {
+                        { onReplay(track) }
+                    } else {
+                        null
+                    },
                 )
             }
         }
@@ -1232,22 +1304,29 @@ private fun dayLabel(date: LocalDate, today: LocalDate): String = when (date) {
 private val dateFormat = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
 private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TrackRow(
     track: TrackSummary,
     shape: RoundedCornerShape,
     onOpen: () -> Unit,
     onDeleteRequest: () -> Unit,
+    onReplay: (() -> Unit)? = null,
 ) {
-    // Swipe right-to-left to request deletion: when the gesture commits we ask for confirmation
-    // and reset the row back to settled (the actual delete happens via the dialog).
-    val dismissState = rememberSwipeToDismissBoxState()
-    LaunchedEffect(dismissState.targetValue) {
-        if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
-            onDeleteRequest()
-            dismissState.reset()
-        }
-    }
+    // Swipe right-to-left to request deletion: veto the dismissal itself (so the row springs back
+    // on its own) and ask for confirmation — the actual delete happens via the dialog. Resetting
+    // from a targetValue observer instead loses to an in-progress drag and leaves the row stuck
+    // showing the red background after Cancel.
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) {
+                onDeleteRequest()
+                false
+            } else {
+                true
+            }
+        },
+    )
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = false,
@@ -1268,7 +1347,12 @@ private fun TrackRow(
             }
         },
     ) {
-        Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen), shape = shape) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(onClick = onOpen, onLongClick = onReplay),
+            shape = shape,
+        ) {
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
