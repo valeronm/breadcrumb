@@ -81,6 +81,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -96,8 +97,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -1261,6 +1266,7 @@ private fun TrackMapScreen(
 }
 
 /** Per-point series for the metric graph: values (null = gap), map-matching colours, and a unit. */
+@Immutable
 internal class MetricGraphData(
     val points: List<TrackPoint>,
     val values: List<Float?>,
@@ -1296,6 +1302,48 @@ internal fun metricGraphData(
 }
 
 private val graphTimeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+/**
+ * The metric polyline alone, rasterized once per (graph, size) into a bitmap and blitted per frame.
+ * Recording/issuing thousands of drawLine ops every frame is what made scrubbing long tracks lag
+ * (the cursor overlay invalidates each frame); a cached bitmap makes the plot a single drawImage.
+ * Takes only the (immutable) series and scale, never the selection, so Compose also skips it.
+ */
+@Composable
+private fun MetricPlot(
+    graph: MetricGraphData,
+    minV: Float,
+    span: Float,
+    t0: Long,
+    tSpan: Float,
+    modifier: Modifier,
+) {
+    val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
+    val padPx = with(LocalDensity.current) { 8.dp.toPx() }
+    Spacer(
+        modifier.drawWithCache {
+            val bitmap = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
+            CanvasDrawScope().draw(this, layoutDirection, ComposeCanvas(bitmap), size) {
+                val h = size.height - 2 * padPx
+                var prev: Offset? = null
+                for (i in graph.points.indices) {
+                    val v = graph.values[i]
+                    if (v == null) {
+                        prev = null
+                        continue
+                    }
+                    if (graph.points[i].segmentStart) prev = null
+                    val x = (graph.points[i].timestamp - t0) / tSpan * size.width
+                    val y = padPx + h - ((v - minV) / span) * h
+                    val current = Offset(x, y)
+                    prev?.let { drawLine(Color(graph.colors[i]), it, current, strokeWidth = strokePx) }
+                    prev = current
+                }
+            }
+            onDrawBehind { drawImage(bitmap) }
+        },
+    )
+}
 
 /**
  * The selected colour metric over the track's time span, stroked point-to-point in the same colours
@@ -1343,20 +1391,28 @@ private fun MetricGraph(
             val cursorColor = MaterialTheme.colorScheme.onSurface
             val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
             val view = LocalView.current
-            // Tick when the scrubber lands on a different point, throttled so a fast drag across
-            // ~1 Hz data feels like a picker, not a buzz.
+            // Tick only when the scrubber actually lands on a different point, throttled so a fast
+            // drag across ~1 Hz data feels like a picker, not a buzz. The last index lives in a
+            // holder rather than comparing against the composed selectedIndex: the gesture lambdas
+            // run inside pointerInput(graph), whose closure captures one composition and goes stale.
+            val lastReported = remember(graph) { arrayOf<Int?>(null) }
             val lastTick = remember(graph) { longArrayOf(0L) }
             fun select(index: Int?) {
-                if (index != selectedIndex && index != null) {
+                if (index != null && index != lastReported[0]) {
                     val now = SystemClock.uptimeMillis()
                     if (now - lastTick[0] >= 30) {
                         lastTick[0] = now
                         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     }
                 }
+                lastReported[0] = index
                 onSelect(index)
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
+                // Static plot in its own skippable composable: scrubbing recomposes MetricGraph per
+                // touch event, and redrawing the full multi-thousand-segment polyline each time is
+                // what made long tracks feel laggy. Only the cursor overlay below redraws.
+                MetricPlot(graph, minV, span, t0, tSpan, Modifier.fillMaxSize())
                 Canvas(
                     Modifier
                         .fillMaxSize()
@@ -1373,31 +1429,18 @@ private fun MetricGraph(
                         },
                 ) {
                     val h = size.height - 2 * padPx
-                    fun xOf(i: Int) = (graph.points[i].timestamp - t0) / tSpan * size.width
-                    fun yOf(v: Float) = padPx + h - ((v - minV) / span) * h
-                    var prev: Offset? = null
-                    for (i in graph.points.indices) {
-                        val v = graph.values[i]
-                        if (v == null) {
-                            prev = null
-                            continue
-                        }
-                        if (graph.points[i].segmentStart) prev = null
-                        val current = Offset(xOf(i), yOf(v))
-                        prev?.let { drawLine(Color(graph.colors[i]), it, current, strokeWidth = strokePx) }
-                        prev = current
-                    }
                     val sel = selectedIndex?.takeIf { it in graph.points.indices }
                     val selValue = sel?.let { graph.values[it] }
                     if (sel != null && selValue != null) {
-                        val x = xOf(sel)
+                        val x = (graph.points[sel].timestamp - t0) / tSpan * size.width
+                        val y = padPx + h - ((selValue - minV) / span) * h
                         drawLine(
                             cursorColor.copy(alpha = 0.6f),
                             Offset(x, 0f),
                             Offset(x, size.height),
                             strokeWidth = strokePx / 2,
                         )
-                        drawCircle(cursorColor, radius = strokePx * 2, center = Offset(x, yOf(selValue)))
+                        drawCircle(cursorColor, radius = strokePx * 2, center = Offset(x, y))
                     }
                 }
                 Text(

@@ -78,6 +78,9 @@ fun MapLibreTrackMap(
     val inited = remember(mapView) { booleanArrayOf(false) }
     // Frame once per track; later paint updates (colour-mode switches) must not move the camera.
     val framed = remember(points) { booleanArrayOf(false) }
+    // What each source/layer was last fed, so unrelated recompositions (e.g. the graph scrubber
+    // moving the selection) don't re-serialize the full track geometry into the native map.
+    val applied = remember(mapView) { arrayOfNulls<Any?>(4) } // points, noisy, paint, selection
 
     Box(modifier) {
         AndroidView(
@@ -103,10 +106,20 @@ fun MapLibreTrackMap(
                     val map = mapRef[0]
                     val style = map?.style
                     if (style != null) {
-                        style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points))
-                        style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints))
-                        style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(selectedPoint))
-                        style.getLayerAs<LineLayer>(TRACK_LAYER)?.let { applyPaint(it, paint) }
+                        if (applied[0] !== points || applied[1] !== noisyPoints) {
+                            applied[0] = points
+                            applied[1] = noisyPoints
+                            style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points))
+                            style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints))
+                        }
+                        if (applied[2] !== paint) {
+                            applied[2] = paint
+                            style.getLayerAs<LineLayer>(TRACK_LAYER)?.let { applyPaint(it, paint) }
+                        }
+                        if (applied[3] !== selectedPoint) {
+                            applied[3] = selectedPoint
+                            style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(selectedPoint))
+                        }
                         if (!framed[0]) {
                             frameTo(map, points)
                             framed[0] = true
