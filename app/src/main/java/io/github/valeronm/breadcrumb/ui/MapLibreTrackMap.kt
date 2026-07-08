@@ -66,6 +66,7 @@ fun MapLibreTrackMap(
     activity: ActivityType? = null,
     colorMode: ColorMode = ColorMode.SPEED,
     showLegend: Boolean = false,
+    selectedPoint: TrackPoint? = null,
     modifier: Modifier = Modifier,
 ) {
     val coloring = remember(points, colorMode, activity) {
@@ -90,6 +91,7 @@ fun MapLibreTrackMap(
                         map.setStyle(Style.Builder().fromJson(loadProtomapsDarkStyle(view.context))) { style ->
                             addTrackLine(style, points, paint)
                             addMarkers(view.context, style, points, noisyPoints)
+                            addSelectionLayer(view.context, style, selectedPoint)
                             frameTo(map, points)
                             framed[0] = true
                         }
@@ -103,6 +105,7 @@ fun MapLibreTrackMap(
                     if (style != null) {
                         style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points))
                         style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints))
+                        style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(selectedPoint))
                         style.getLayerAs<LineLayer>(TRACK_LAYER)?.let { applyPaint(it, paint) }
                         if (!framed[0]) {
                             frameTo(map, points)
@@ -188,6 +191,9 @@ private const val IMG_END = "marker-end"
 private const val IMG_NOISY = "marker-noisy"
 private const val IMG_NOISY_JUMP = "marker-noisy-jump"
 private const val IMG_NOISY_GNSS = "marker-noisy-gnss"
+private const val SELECT_SOURCE = "select-src"
+private const val SELECT_LAYER = "select-layer"
+private const val IMG_SELECTED = "marker-selected"
 private const val DEFAULT_LINE = 0xFF5B9BF0.toInt()
 
 private fun trackLineFeature(points: List<TrackPoint>): Feature =
@@ -239,6 +245,23 @@ private fun addMarkers(
     style.addSource(GeoJsonSource(MARKER_SOURCE, markerCollection(points, noisyPoints)))
     style.addLayer(
         SymbolLayer(MARKER_LAYER, MARKER_SOURCE).withProperties(
+            PropertyFactory.iconImage(Expression.get("icon")),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true),
+            PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+        ),
+    )
+}
+
+/** The graph-scrubber selection: its own source/layer so updates don't rebuild the marker set. */
+private fun selectionCollection(p: TrackPoint?): FeatureCollection =
+    FeatureCollection.fromFeatures(listOfNotNull(p?.let { markerFeature(it, IMG_SELECTED) }))
+
+private fun addSelectionLayer(ctx: Context, style: Style, selected: TrackPoint?) {
+    style.addImage(IMG_SELECTED, drawableBitmap(ctx, R.drawable.ic_marker_selected))
+    style.addSource(GeoJsonSource(SELECT_SOURCE, selectionCollection(selected)))
+    style.addLayer(
+        SymbolLayer(SELECT_LAYER, SELECT_SOURCE).withProperties(
             PropertyFactory.iconImage(Expression.get("icon")),
             PropertyFactory.iconAllowOverlap(true),
             PropertyFactory.iconIgnorePlacement(true),

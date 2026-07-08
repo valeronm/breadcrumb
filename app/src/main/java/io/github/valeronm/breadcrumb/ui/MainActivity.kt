@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.os.SystemClock
+import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
@@ -17,9 +19,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -91,9 +96,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -1158,6 +1167,8 @@ private fun TrackMapScreen(
     var colorMode by remember { mutableStateOf(ColorMode.SPEED) }
     // Noisy (ignored) fixes are hidden by default; the warning toggle shows them with a legend.
     var showNoisy by remember(trackId) { mutableStateOf(false) }
+    // Point picked on the metric graph, highlighted on the map. Index into the good-points list.
+    var selectedIndex by remember(trackId) { mutableStateOf<Int?>(null) }
     Scaffold(
         topBar = {
             // Header lives in the top-bar chrome so the (interop) map view is inset below it
@@ -1216,18 +1227,219 @@ private fun TrackMapScreen(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                else -> MapLibreTrackMap(
-                    points = loaded,
-                    noisyPoints = if (showNoisy) noisyPoints else emptyList(),
-                    activity = activity,
-                    colorMode = colorMode,
-                    showLegend = true,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                else -> Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                        MapLibreTrackMap(
+                            points = loaded,
+                            noisyPoints = if (showNoisy) noisyPoints else emptyList(),
+                            activity = activity,
+                            colorMode = colorMode,
+                            showLegend = true,
+                            selectedPoint = selectedIndex?.let { loaded.getOrNull(it) },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        if (showNoisy) {
+                            // Top-right, clear of the colour-metric legend (bottom-right).
+                            NoisyLegend(noisyPoints, Modifier.align(Alignment.TopEnd).padding(12.dp))
+                        }
+                    }
+                    val graph = remember(loaded, colorMode, activity) {
+                        metricGraphData(loaded, colorMode, activity)
+                    }
+                    if (graph != null) {
+                        MetricGraph(
+                            graph = graph,
+                            selectedIndex = selectedIndex,
+                            onSelect = { selectedIndex = it },
+                            modifier = Modifier.fillMaxWidth().height(130.dp),
+                        )
+                    }
+                }
             }
-            if (showNoisy && loaded != null && loaded.size >= 2) {
-                // Top-right, clear of the colour-metric legend (bottom-right) and attribution.
-                NoisyLegend(noisyPoints, Modifier.align(Alignment.TopEnd).padding(12.dp))
+        }
+    }
+}
+
+/** Per-point series for the metric graph: values (null = gap), map-matching colours, and a unit. */
+internal class MetricGraphData(
+    val points: List<TrackPoint>,
+    val values: List<Float?>,
+    val colors: IntArray,
+    val unit: String,
+)
+
+/** Null when [mode] has no numeric series (categorical Source) or no point carries the metric. */
+internal fun metricGraphData(
+    points: List<TrackPoint>,
+    mode: ColorMode,
+    activity: ActivityType?,
+): MetricGraphData? {
+    val speeds by lazy { TrackQuality.pointSpeedsKmh(points) }
+    val values: List<Float?> = when (mode) {
+        ColorMode.SPEED -> List(points.size) { speeds[it] }
+        ColorMode.ELEVATION -> points.map { it.altitude?.toFloat() }
+        ColorMode.ACCURACY -> points.map { it.accuracy }
+        ColorMode.SATELLITES -> points.map { it.satellitesInFix?.toFloat() }
+        ColorMode.CN0 -> points.map { it.cn0 }
+        ColorMode.PROVIDER -> return null
+    }
+    if (values.all { it == null }) return null
+    val unit = when (mode) {
+        ColorMode.SPEED -> "km/h"
+        ColorMode.ELEVATION, ColorMode.ACCURACY -> "m"
+        ColorMode.SATELLITES -> "sat"
+        ColorMode.CN0 -> "dB"
+        ColorMode.PROVIDER -> ""
+    }
+    val colors = trackColoring(points, TrackQuality.pointSpeedsKmh(points), mode, activity).colors
+    return MetricGraphData(points, values, colors, unit)
+}
+
+private val graphTimeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+/**
+ * The selected colour metric over the track's time span, stroked point-to-point in the same colours
+ * as the map's track line, with a time axis. Missing values and segment starts break the line.
+ * Tapping or dragging picks the nearest point ([onSelect]); the selection is drawn as a cursor with
+ * a value/time readout, and the caller highlights the same point on the map.
+ */
+@Composable
+private fun MetricGraph(
+    graph: MetricGraphData,
+    selectedIndex: Int?,
+    onSelect: (Int?) -> Unit,
+    modifier: Modifier,
+) {
+    val present = graph.values.filterNotNull()
+    val minV = present.min()
+    val maxV = present.max()
+    val span = (maxV - minV).let { if (it < 1e-3f) 1f else it }
+    val t0 = graph.points.first().timestamp
+    val tSpan = (graph.points.last().timestamp - t0).coerceAtLeast(1L).toFloat()
+
+    // x (0..width) -> index of the nearest point that actually has a value.
+    fun indexAt(x: Float, width: Float): Int? {
+        if (width <= 0f) return null
+        // Keep the epoch-millis math in Long: t0 (~1.8e12) + Float promotes to Float, whose
+        // precision at that magnitude quantizes the target to ~131 s steps.
+        val target = t0 + ((x / width).coerceIn(0f, 1f) * tSpan).toLong()
+        var best: Int? = null
+        var bestDist = Long.MAX_VALUE
+        for (i in graph.points.indices) {
+            if (graph.values[i] == null) continue
+            val d = kotlin.math.abs(graph.points[i].timestamp - target)
+            if (d < bestDist) {
+                bestDist = d
+                best = i
+            }
+        }
+        return best
+    }
+
+    Surface(modifier = modifier, tonalElevation = 3.dp, shadowElevation = 3.dp) {
+        Column(Modifier.fillMaxSize()) {
+            val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
+            val padPx = with(LocalDensity.current) { 8.dp.toPx() }
+            val cursorColor = MaterialTheme.colorScheme.onSurface
+            val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+            val view = LocalView.current
+            // Tick when the scrubber lands on a different point, throttled so a fast drag across
+            // ~1 Hz data feels like a picker, not a buzz.
+            val lastTick = remember(graph) { longArrayOf(0L) }
+            fun select(index: Int?) {
+                if (index != selectedIndex && index != null) {
+                    val now = SystemClock.uptimeMillis()
+                    if (now - lastTick[0] >= 30) {
+                        lastTick[0] = now
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
+                }
+                onSelect(index)
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                Canvas(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(graph) {
+                            detectTapGestures { offset ->
+                                select(indexAt(offset.x, size.width.toFloat()))
+                            }
+                        }
+                        .pointerInput(graph) {
+                            detectHorizontalDragGestures { change, _ ->
+                                change.consume()
+                                select(indexAt(change.position.x, size.width.toFloat()))
+                            }
+                        },
+                ) {
+                    val h = size.height - 2 * padPx
+                    fun xOf(i: Int) = (graph.points[i].timestamp - t0) / tSpan * size.width
+                    fun yOf(v: Float) = padPx + h - ((v - minV) / span) * h
+                    var prev: Offset? = null
+                    for (i in graph.points.indices) {
+                        val v = graph.values[i]
+                        if (v == null) {
+                            prev = null
+                            continue
+                        }
+                        if (graph.points[i].segmentStart) prev = null
+                        val current = Offset(xOf(i), yOf(v))
+                        prev?.let { drawLine(Color(graph.colors[i]), it, current, strokeWidth = strokePx) }
+                        prev = current
+                    }
+                    val sel = selectedIndex?.takeIf { it in graph.points.indices }
+                    val selValue = sel?.let { graph.values[it] }
+                    if (sel != null && selValue != null) {
+                        val x = xOf(sel)
+                        drawLine(
+                            cursorColor.copy(alpha = 0.6f),
+                            Offset(x, 0f),
+                            Offset(x, size.height),
+                            strokeWidth = strokePx / 2,
+                        )
+                        drawCircle(cursorColor, radius = strokePx * 2, center = Offset(x, yOf(selValue)))
+                    }
+                }
+                Text(
+                    "%.0f %s".format(maxV, graph.unit),
+                    modifier = Modifier.align(Alignment.TopStart).padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = labelColor,
+                )
+                Text(
+                    "%.0f %s".format(minV, graph.unit),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = labelColor,
+                )
+                val sel = selectedIndex?.takeIf { it in graph.points.indices }
+                val selValue = sel?.let { graph.values[it] }
+                if (sel != null && selValue != null) {
+                    Text(
+                        "%.0f %s · %s".format(
+                            selValue, graph.unit,
+                            graphTimeFormat.format(Date(graph.points[sel].timestamp)),
+                        ),
+                        modifier = Modifier.align(Alignment.TopEnd).padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(graphTimeFormat.format(Date(t0)), style = MaterialTheme.typography.labelSmall, color = labelColor)
+                Text(
+                    graphTimeFormat.format(Date(t0 + (tSpan / 2).toLong())),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = labelColor,
+                )
+                Text(
+                    graphTimeFormat.format(Date(t0 + tSpan.toLong())),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = labelColor,
+                )
             }
         }
     }
