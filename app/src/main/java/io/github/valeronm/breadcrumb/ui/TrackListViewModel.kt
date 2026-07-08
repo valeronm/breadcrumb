@@ -10,7 +10,6 @@ import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.GpxExporter
-import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -25,9 +24,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            // Mark any track left in a "recording" state by a crash/kill as completed.
-            repository.finalizeDangling(exceptTrackId = LocationRecordingService.activeTrackId)
-            // One-time backfill of the ignore reason over points recorded before DB v5.
+            // Crash-cleanup of dangling tracks happens in the service's arm path; here only the
+            // one-time backfill of the ignore reason over points recorded before DB v5.
             if (!Settings.isIgnoreReasonBackfillDone(getApplication())) {
                 repository.backfillIgnoreReasons()
                 Settings.setIgnoreReasonBackfillDone(getApplication())

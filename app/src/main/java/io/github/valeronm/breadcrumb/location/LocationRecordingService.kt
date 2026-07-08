@@ -67,9 +67,13 @@ class LocationRecordingService : Service() {
     private val gate = ActivityGate()
     private val controller = TrackController()
 
+    // Set while the service is armed; duplicate ACTION_STARTs while armed are no-ops.
+    @Volatile private var armed = false
+
     @Volatile private var currentTrackId: Long? = null
     @Volatile private var distanceMeters = 0.0
     @Volatile private var pointCount = 0
+    @Volatile private var trackStartedAt = 0L
     // Last point accepted as a good fix — the baseline for distance and the bad-fix jump check.
     private var lastGoodPoint: TrackPoint? = null
     private var locationListener: LocationListenerCompat? = null
@@ -110,6 +114,13 @@ class LocationRecordingService : Service() {
     }
 
     private fun handleStart() {
+        // Arming is requested from several places that can race (package-replaced receiver, the
+        // activity's reconciliation, sticky restart) — collapse duplicates instead of re-arming.
+        if (armed) {
+            DebugLog.i(TAG, "handleStart: already armed — ignoring duplicate start")
+            return
+        }
+        armed = true
         DebugLog.i(TAG, "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)})")
         startForegroundWithNotification(ActivityType.STILL.label, "Waiting for movement…")
         TrackingStatus.update { it.copy(tracking = true) }
@@ -164,6 +175,7 @@ class LocationRecordingService : Service() {
     }
 
     private fun handleStop() {
+        armed = false
         DebugLog.i(TAG, "handleStop: disarming")
         pollJob?.cancel()
         activityManager.stop()
@@ -264,7 +276,9 @@ class LocationRecordingService : Service() {
         pointCount = 0
         lastGoodPoint = null
         pendingSegmentStart = false
-        val id = repository.startTrack(activity, now())
+        val startedAt = now()
+        trackStartedAt = startedAt
+        val id = repository.startTrack(activity, startedAt)
         currentTrackId = id
         activeTrackId = id
         controller.onRecordingStarted(activity)
@@ -448,6 +462,7 @@ class LocationRecordingService : Service() {
                 recording = activity.recording,
                 distanceMeters = if (activity.recording) distanceMeters else 0.0,
                 points = if (activity.recording) pointCount else 0,
+                startedAtMillis = if (activity.recording && trackStartedAt > 0) trackStartedAt else null,
             )
         }
         // State only — no live distance. The notification re-posts only on activity/pause
