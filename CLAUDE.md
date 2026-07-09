@@ -26,8 +26,12 @@ adb shell am start -n io.github.valeronm.breadcrumb.debug/io.github.valeronm.bre
 adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png   # screenshot to inspect UI
 ```
 
-There is **no test suite** — don't fabricate test commands. Verification is done by building and
-driving the app on a device/emulator (activity recognition needs real movement or an emulator route).
+Unit tests live in `app/src/test` and cover the pure domain/data logic (ActivityGate,
+TrackController, ActivityInterpreter, KeepRule, TrackQuality, GpxExporter) — run them with
+`./gradlew :app:testDebugUnitTest`, and note that `assembleDebug` does **not** compile them, so
+run the tests after touching anything they cover. There are no instrumented/UI tests; behaviour
+above the domain layer is verified by building and driving the app on a device/emulator (activity
+recognition needs real movement or an emulator route).
 
 The Gradle and AGP versions are pinned and coupled — if you upgrade one, move the other to a
 compatible pair, not one alone.

@@ -48,8 +48,6 @@ class TrackControllerTest {
     @Test fun `non-changes are noops`() {
         val c = recording(WALKING)
         assertEquals(RecordingAction.Noop, c.onConfirmed(Confirmed.NoChange))
-        assertEquals(RecordingAction.Noop, c.onConfirmed(Confirmed.Cancelled))
-        assertEquals(RecordingAction.Noop, c.onConfirmed(Confirmed.Awaiting(WALKING, 1, 2)))
     }
 
     // --- Phase bookkeeping ----------------------------------------------

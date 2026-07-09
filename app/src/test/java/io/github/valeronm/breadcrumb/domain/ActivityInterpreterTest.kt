@@ -11,53 +11,26 @@ class ActivityInterpreterTest {
     private val STILL = ActivityType.STILL
     private val WALKING = ActivityType.WALKING
 
-    private fun cfg(pollEnabled: Boolean = true, pollIntervalMs: Long = 30_000) =
-        ActivityInterpreter.TransitionConfig(pollEnabled, pollIntervalMs)
-
     // --- Transitions ------------------------------------------------------
 
-    @Test fun `a fresh ENTER forwards the activity`() {
+    @Test fun `an ENTER forwards the activity`() {
         assertEquals(
             ActivityInterpreter.TransitionDecision.Forward(WALKING),
-            ActivityInterpreter.interpretTransition(WALKING, isExit = false, ageMs = 2_000, config = cfg()),
+            ActivityInterpreter.interpretTransition(WALKING, isExit = false),
         )
     }
 
     @Test fun `EXIT of a moving activity maps to STILL`() {
         assertEquals(
             ActivityInterpreter.TransitionDecision.Forward(STILL, exitMapped = true),
-            ActivityInterpreter.interpretTransition(WALKING, isExit = true, ageMs = 2_000, config = cfg()),
+            ActivityInterpreter.interpretTransition(WALKING, isExit = true),
         )
     }
 
     @Test fun `EXIT of a non-moving activity is ignored`() {
         assertEquals(
             ActivityInterpreter.TransitionDecision.Ignore,
-            ActivityInterpreter.interpretTransition(STILL, isExit = true, ageMs = 2_000, config = cfg()),
-        )
-    }
-
-    @Test fun `a stale transition is dropped while the poll is on`() {
-        assertEquals(
-            ActivityInterpreter.TransitionDecision.Stale(45_000),
-            ActivityInterpreter.interpretTransition(WALKING, isExit = false, ageMs = 45_000, config = cfg()),
-        )
-    }
-
-    @Test fun `with the poll off a stale transition is honoured at any age`() {
-        assertEquals(
-            ActivityInterpreter.TransitionDecision.Forward(WALKING),
-            ActivityInterpreter.interpretTransition(
-                WALKING, isExit = false, ageMs = 5_000_000, config = cfg(pollEnabled = false),
-            ),
-        )
-    }
-
-    @Test fun `age exactly at the cutoff is not stale`() {
-        // Uses strictly-greater-than, so age == interval still forwards.
-        assertEquals(
-            ActivityInterpreter.TransitionDecision.Forward(WALKING),
-            ActivityInterpreter.interpretTransition(WALKING, isExit = false, ageMs = 30_000, config = cfg()),
+            ActivityInterpreter.interpretTransition(STILL, isExit = true),
         )
     }
 
