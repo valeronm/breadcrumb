@@ -1400,16 +1400,6 @@ private fun TrackRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (track.ignoredCount > 0) {
-                    // Noisy fixes are a caution, not an error — a small amber corner marker. The label
-                    // is kept for screen readers.
-                    Icon(
-                        Icons.Filled.Warning,
-                        contentDescription = noisyFixesLabel(track.ignoredCount),
-                        tint = WarningAmber.copy(alpha = 0.6f),
-                        modifier = Modifier.align(Alignment.Top).size(16.dp),
-                    )
-                }
             }
         }
     }
@@ -1582,7 +1572,6 @@ internal fun metricGraphData(
         ColorMode.ACCURACY -> points.map { it.accuracy }
         ColorMode.SATELLITES -> points.map { it.satellitesInFix?.toFloat() }
         ColorMode.CN0 -> points.map { it.cn0 }
-        ColorMode.PROVIDER -> return null
     }
     if (values.all { it == null }) return null
     val unit = when (mode) {
@@ -1590,7 +1579,6 @@ internal fun metricGraphData(
         ColorMode.ELEVATION, ColorMode.ACCURACY -> "m"
         ColorMode.SATELLITES -> "sat"
         ColorMode.CN0 -> "dB"
-        ColorMode.PROVIDER -> ""
     }
     val colors = trackColoring(points, TrackQuality.pointSpeedsKmh(points), mode, activity).colors
     return MetricGraphData(points, values, colors, unit)
@@ -1811,21 +1799,10 @@ private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
 private fun TrackStatsHeader(summary: TrackSummary) {
     val durationS = summary.endedAt?.let { (it - summary.startedAt) / 1000.0 } ?: 0.0
     val avgKmh = if (durationS > 0) (summary.distanceMeters / durationS) * 3.6 else 0.0
-    Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-        Row(Modifier.fillMaxWidth()) {
-            HeaderStat("Distance", formatKm(summary.distanceMeters), Modifier.weight(1f))
-            HeaderStat("Duration", formatDuration(summary.startedAt, summary.endedAt), Modifier.weight(1f))
-            HeaderStat("Avg speed", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—", Modifier.weight(1f))
-        }
-        if (summary.ignoredCount > 0) {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                noisyFixesLabel(summary.ignoredCount, " from this track"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
-        }
+    Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+        HeaderStat("Distance", formatKm(summary.distanceMeters), Modifier.weight(1f))
+        HeaderStat("Duration", formatDuration(summary.startedAt, summary.endedAt), Modifier.weight(1f))
+        HeaderStat("Avg speed", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—", Modifier.weight(1f))
     }
 }
 
@@ -1844,9 +1821,6 @@ private fun StatItem(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.labelSmall)
     }
 }
-
-private fun noisyFixesLabel(count: Int, suffix: String = ""): String =
-    "⚠ $count noisy ${if (count == 1) "fix" else "fixes"} excluded$suffix"
 
 private fun activityIcon(activity: ActivityType?): ImageVector = when (activity) {
     ActivityType.WALKING -> Icons.AutoMirrored.Filled.DirectionsWalk
@@ -1901,11 +1875,8 @@ enum class ColorMode(val label: String) {
     ACCURACY("Accuracy"),
     SATELLITES("Satellites"),
     CN0("Signal"),
-    PROVIDER("Source"),
 }
 
-private val WarningAmber = Color(0xFFFFB300) // caution marker (e.g. noisy-fix count) — not an error
-private const val HUE_AMBER = 40f
 private val NO_DATA_COLOR = Color.hsl(0f, 0f, 0.6f) // grey for points the metric has no value for
 private val NO_DATA_ARGB = NO_DATA_COLOR.toArgb()
 
@@ -1913,8 +1884,6 @@ private val NO_DATA_ARGB = NO_DATA_COLOR.toArgb()
 internal sealed interface Legend {
     /** Continuous red→green→blue ramp with anchor labels. */
     data class Ramp(val left: String, val mid: String, val right: String) : Legend
-    /** Discrete swatches (e.g. per location provider). */
-    data class Categories(val entries: List<Pair<String, Color>>) : Legend
     /** No point in the track carries this metric. */
     data class None(val message: String) : Legend
 }
@@ -1942,17 +1911,10 @@ private fun rampColoring(
     return TrackColoring(colors, Legend.Ramp(num(redAt), num((redAt + blueAt) / 2f), right))
 }
 
-private fun providerArgb(provider: String?): Int = when (provider) {
-    "gps" -> Color.hsl(HUE_GREEN, SPEED_SATURATION, SPEED_LUMINANCE)
-    "fused" -> Color.hsl(HUE_AMBER, SPEED_SATURATION, SPEED_LUMINANCE)
-    "network" -> Color.hsl(HUE_RED, SPEED_SATURATION, SPEED_LUMINANCE)
-    else -> NO_DATA_COLOR
-}.toArgb()
-
 /**
  * Per-point colours + legend for [mode]. Ramps go red→green→blue between two anchor values; where an
  * anchor is "worse" it's placed at red (e.g. accuracy: 50 m = red, 0 m = blue). Points missing the
- * metric are grey. [provider] is categorical, not a ramp.
+ * metric are grey.
  */
 internal fun trackColoring(
     points: List<TrackPoint>, speedsKmh: FloatArray, mode: ColorMode, activity: ActivityType?,
@@ -1978,12 +1940,6 @@ internal fun trackColoring(
     ColorMode.SATELLITES ->
         rampColoring(points.map { it.satellitesInFix?.toFloat() }, 0f, 12f, "sat", "No satellite data")
     ColorMode.CN0 -> rampColoring(points.map { it.cn0 }, 15f, 45f, "dB", "No signal data")
-    ColorMode.PROVIDER -> {
-        val colors = IntArray(points.size) { providerArgb(points[it].provider) }
-        val used = points.mapNotNull { it.provider }.distinct().sorted()
-        if (used.isEmpty()) TrackColoring(colors, Legend.None("No source data"))
-        else TrackColoring(colors, Legend.Categories(used.map { it to Color(providerArgb(it)) }))
-    }
 }
 
 /** Horizontally-scrollable chips to pick how the track line is coloured. */
@@ -2035,16 +1991,6 @@ internal fun TrackLegend(legend: Legend, modifier: Modifier) {
                     Text(legend.left, style = MaterialTheme.typography.labelSmall)
                     Text(legend.mid, style = MaterialTheme.typography.labelSmall)
                     Text(legend.right, style = MaterialTheme.typography.labelSmall)
-                }
-            }
-        is Legend.Categories ->
-            LegendSurface(modifier) {
-                for ((label, color) in legend.entries) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(color))
-                        Spacer(Modifier.width(6.dp))
-                        Text(label, style = MaterialTheme.typography.labelSmall)
-                    }
                 }
             }
     }
