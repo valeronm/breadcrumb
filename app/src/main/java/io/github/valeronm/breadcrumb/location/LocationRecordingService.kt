@@ -8,6 +8,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.hardware.Sensor
+import android.hardware.SensorManager
+import android.hardware.TriggerEvent
+import android.hardware.TriggerEventListener
 import android.location.Location
 import android.location.LocationManager
 import android.os.Build
@@ -76,7 +80,23 @@ class LocationRecordingService : Service() {
     @Volatile private var trackStartedAt = 0L
     // Last point accepted as a good fix — the baseline for distance and the bad-fix jump check.
     private var lastGoodPoint: TrackPoint? = null
-    private var locationListener: LocationListenerCompat? = null
+    @Volatile private var locationListener: LocationListenerCompat? = null
+
+    // --- No-fix give-up guard ---
+    // If GPS runs for the configured time without a single accepted fix (indoors on an activity-
+    // recognition false positive, or parked in a garage), turn it off and wait for a cheap signal —
+    // a significant-motion trigger, another app's GPS fix (passive provider), or an activity
+    // transition — before probing again. Consecutive failed probes back off so pacing around
+    // indoors doesn't degenerate into GPS-always-on.
+    @Volatile private var probeStartedElapsed = 0L    // elapsedRealtime when this GPS request began
+    @Volatile private var lastAcceptedElapsed = 0L    // elapsedRealtime of the last accepted fix, 0 if none yet
+    private var noFixSuspended = false                // track active but GPS off, awaiting a resume signal
+    private var failedProbes = 0                      // consecutive probes with zero accepted fixes
+    private var nextProbeAllowedElapsed = 0L          // backoff gate for motion-triggered probes
+    private var sensorManager: SensorManager? = null
+    private var motionSensor: Sensor? = null
+    private var motionListener: TriggerEventListener? = null
+    private var passiveListener: LocationListenerCompat? = null
 
     // GNSS cross-check: elapsedRealtime (ms) of the last real satellite fix seen while GPS is on.
     // 0 until the receiver first locks this session; used to reject fixes that have no recent
@@ -100,6 +120,8 @@ class LocationRecordingService : Service() {
         repository = TrackRepository(this)
         activityManager = ActivityRecognitionManager(this)
         locationManager = getSystemService(LocationManager::class.java)
+        sensorManager = getSystemService(SensorManager::class.java)
+        motionSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -237,6 +259,12 @@ class LocationRecordingService : Service() {
                 openTrack(action.activity)
             }
         }
+        // A confirmed moving reading while the no-fix guard has GPS off is a resume signal too
+        // (Resume/StartNew restart GPS themselves; this covers confirmations that map to Noop).
+        if (noFixSuspended && gate.confirmed.recording && locationListener == null) {
+            DebugLog.i(TAG, "no-fix guard: probing again (activity ${gate.confirmed})")
+            withContext(Dispatchers.Main) { startLocationUpdates() }
+        }
         publishStatus()
     }
 
@@ -247,6 +275,7 @@ class LocationRecordingService : Service() {
     /** Stop GPS but keep the track open; finalize it later if movement doesn't resume in time. */
     private suspend fun pauseTrack(trackActivity: ActivityType) {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
+        noFixSuspended = false
         controller.onPaused(trackActivity)
         val token = ++pauseToken
         val windowMs = Settings.resumeWindowSec(this) * 1000L
@@ -276,6 +305,7 @@ class LocationRecordingService : Service() {
         pointCount = 0
         lastGoodPoint = null
         pendingSegmentStart = false
+        failedProbes = 0
         val startedAt = now()
         trackStartedAt = startedAt
         val id = repository.startTrack(activity, startedAt)
@@ -294,6 +324,8 @@ class LocationRecordingService : Service() {
         activeTrackId = null
         controller.onClosed()
         pendingSegmentStart = false
+        noFixSuspended = false
+        failedProbes = 0
         repository.finishTrack(id, endedAt)
     }
 
@@ -317,6 +349,9 @@ class LocationRecordingService : Service() {
             override fun onLocationChanged(locations: List<Location>) = handleLocations(locations)
         }
         locationListener = listener
+        probeStartedElapsed = SystemClock.elapsedRealtime()
+        lastAcceptedElapsed = 0L
+        noFixSuspended = false
         LocationManagerCompat.requestLocationUpdates(
             lm,
             LocationManager.GPS_PROVIDER,
@@ -333,6 +368,117 @@ class LocationRecordingService : Service() {
         }
         locationListener = null
         unregisterGnssStatus()
+        disarmResumeSignals()
+    }
+
+    // --- No-fix give-up guard -------------------------------------------------
+
+    /**
+     * Called from the GnssStatus callback (which ticks ~1/s whenever the GNSS engine is searching,
+     * so the check needs no timer and can't be Doze-deferred while GPS is off). If the configured
+     * window has passed with zero accepted fixes, hand GPS off to the cheap resume signals.
+     */
+    private fun maybeGiveUpOnNoFix() {
+        val giveUpMs = Settings.gpsGiveUpSec(this) * 1000L
+        if (giveUpMs <= 0 || locationListener == null) return
+        if (SystemClock.elapsedRealtime() - maxOf(probeStartedElapsed, lastAcceptedElapsed) < giveUpMs) return
+        scope.launch {
+            mutex.withLock {
+                if (locationListener == null || currentTrackId == null || controller.isPaused) return@withLock
+                if (SystemClock.elapsedRealtime() - maxOf(probeStartedElapsed, lastAcceptedElapsed) < giveUpMs) return@withLock
+                suspendForNoFix(giveUpMs)
+            }
+        }
+    }
+
+    private suspend fun suspendForNoFix(giveUpMs: Long) {
+        failedProbes++
+        val backoffMs = (NO_FIX_RETRY_BASE_MS shl (failedProbes - 1).coerceAtMost(2))
+            .coerceAtMost(NO_FIX_RETRY_CAP_MS)
+        nextProbeAllowedElapsed = SystemClock.elapsedRealtime() + backoffMs
+        DebugLog.i(
+            TAG,
+            "no-fix guard: no accepted fix in ${giveUpMs / 1000}s — GPS off" +
+                " (probe #$failedProbes, motion retry gated ${backoffMs / 1000}s)",
+        )
+        withContext(Dispatchers.Main) {
+            stopLocationUpdates()
+            armResumeSignals()
+        }
+        noFixSuspended = true
+        publishStatus()
+    }
+
+    /** A cheap signal says conditions may have changed — turn GPS back on and try again. */
+    private fun onNoFixResumeSignal(reason: String, respectBackoff: Boolean) {
+        scope.launch {
+            mutex.withLock {
+                if (!noFixSuspended) return@withLock
+                if (respectBackoff && SystemClock.elapsedRealtime() < nextProbeAllowedElapsed) {
+                    // Too soon after the last failed probe; keep listening for motion instead.
+                    withContext(Dispatchers.Main) { armSignificantMotion() }
+                    return@withLock
+                }
+                DebugLog.i(TAG, "no-fix guard: probing again ($reason)")
+                withContext(Dispatchers.Main) { startLocationUpdates() }
+                publishStatus()
+            }
+        }
+    }
+
+    private fun armResumeSignals() {
+        armSignificantMotion()
+        armPassiveListener()
+    }
+
+    private fun disarmResumeSignals() {
+        motionListener?.let { listener ->
+            motionListener = null
+            motionSensor?.let { sensor -> sensorManager?.cancelTriggerSensor(listener, sensor) }
+        }
+        passiveListener?.let { listener ->
+            locationManager?.let { LocationManagerCompat.removeUpdates(it, listener) }
+        }
+        passiveListener = null
+    }
+
+    /** One-shot hardware trigger that fires on walking/driving-scale motion, then disarms itself. */
+    private fun armSignificantMotion() {
+        if (motionListener != null) return
+        val sm = sensorManager ?: return
+        val sensor = motionSensor ?: return
+        val listener = object : TriggerEventListener() {
+            override fun onTrigger(event: TriggerEvent?) {
+                motionListener = null // one-shot: already disarmed by the sensor framework
+                onNoFixResumeSignal("significant motion", respectBackoff = true)
+            }
+        }
+        if (sm.requestTriggerSensor(listener, sensor)) motionListener = listener
+    }
+
+    /** Free ride on other apps' fixes: a GPS fix delivered to anyone proves the sky is visible. */
+    @SuppressLint("MissingPermission")
+    private fun armPassiveListener() {
+        if (passiveListener != null) return
+        if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) return
+        val lm = locationManager ?: return
+        val listener = object : LocationListenerCompat {
+            override fun onLocationChanged(location: Location) {
+                if (location.provider == LocationManager.GPS_PROVIDER) {
+                    onNoFixResumeSignal("passive GPS fix", respectBackoff = false)
+                }
+            }
+        }
+        passiveListener = listener
+        LocationManagerCompat.requestLocationUpdates(
+            lm,
+            LocationManager.PASSIVE_PROVIDER,
+            LocationRequestCompat.Builder(PASSIVE_INTERVAL_MS)
+                .setQuality(LocationRequestCompat.QUALITY_LOW_POWER)
+                .build(),
+            ContextCompat.getMainExecutor(this),
+            listener,
+        )
     }
 
     /**
@@ -362,6 +508,7 @@ class LocationRecordingService : Service() {
                 lastGnssCn0Top4 = if (cn0s.isEmpty()) null
                     else cn0s.sortedDescending().take(4).average().toFloat()
                 if (used >= GNSS_MIN_SATELLITES_IN_FIX) lastGnssFixElapsedMs = SystemClock.elapsedRealtime()
+                maybeGiveUpOnNoFix()
             }
         }
         gnssCallback = callback
@@ -444,6 +591,8 @@ class LocationRecordingService : Service() {
                 lastGoodPoint = point
                 pointCount++
                 if (segStart) pendingSegmentStart = false
+                lastAcceptedElapsed = SystemClock.elapsedRealtime()
+                failedProbes = 0
             }
             repository.addPoint(point)
         }
@@ -469,7 +618,11 @@ class LocationRecordingService : Service() {
         }
         // State only — no live distance. The notification re-posts only on activity/pause
         // transitions (a per-fix post costs a wakelock + IPC every second while recording).
-        val detail = if (activity.recording) "Recording" else "Paused — waiting for movement"
+        val detail = when {
+            activity.recording && noFixSuspended -> "Recording — no GPS signal, waiting"
+            activity.recording -> "Recording"
+            else -> "Paused — waiting for movement"
+        }
         updateNotification(activity.label, detail)
     }
 
@@ -563,6 +716,12 @@ class LocationRecordingService : Service() {
         // the cross-check against the tunnel/underpass fabrication case.
         private const val GNSS_MIN_SATELLITES_IN_FIX = 4
         private const val GNSS_FIX_MAX_AGE_MS = 5_000L
+
+        // No-fix guard backoff: after a failed probe, motion-triggered retries are gated for
+        // base × 2^(failures-1), capped. Transitions and passive fixes bypass the gate.
+        private const val NO_FIX_RETRY_BASE_MS = 120_000L
+        private const val NO_FIX_RETRY_CAP_MS = 480_000L
+        private const val PASSIVE_INTERVAL_MS = 30_000L
 
         fun start(context: Context) {
             Settings.setAutoRecord(context, true)

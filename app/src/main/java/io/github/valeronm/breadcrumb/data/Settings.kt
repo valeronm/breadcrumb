@@ -17,6 +17,7 @@ object Settings {
     private const val KEY_STITCH_RESUME_WINDOW_SEC = "stitch_resume_window_sec"
     private const val KEY_ACCURACY_GATE_M = "accuracy_gate_m"
     private const val KEY_REQUIRE_GNSS_FIX = "require_gnss_fix"
+    private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
     private const val KEY_START_CONFIRMATIONS = "start_confirmations"
     private const val KEY_ACTIVITY_POLL_ENABLED = "activity_poll_enabled"
     private const val KEY_ACTIVITY_POLL_INTERVAL_SEC = "activity_poll_interval_sec"
@@ -44,6 +45,12 @@ object Settings {
     // in a tunnel). These can report good accuracy, so the accuracy gate alone misses them; this
     // cross-checks against real GNSS satellite status. See LocationRecordingService.
     const val DEFAULT_REQUIRE_GNSS_FIX = true
+
+    // No-fix give-up guard: if GPS runs this long without a single accepted fix (indoors on an
+    // activity-recognition false positive, or parked underground), it's turned off until a
+    // significant-motion trigger, a passive GPS fix, or an activity transition suggests trying
+    // again. See LocationRecordingService. 0 = never give up.
+    const val DEFAULT_GPS_GIVE_UP_SEC = 240
 
     // How many consecutive moving readings of the same activity are needed before a *new* track is
     // opened (and GPS spun up). Filters lone high-confidence blips that revert to STILL on the next
@@ -144,6 +151,14 @@ object Settings {
 
     fun setRequireGnssFix(context: Context, enabled: Boolean) {
         prefs(context).edit { putBoolean(KEY_REQUIRE_GNSS_FIX, enabled) }
+    }
+
+    /** Max GPS-on time (seconds) with zero accepted fixes before giving up. 0 = never. */
+    fun gpsGiveUpSec(context: Context): Int =
+        prefs(context).getInt(KEY_GPS_GIVE_UP_SEC, DEFAULT_GPS_GIVE_UP_SEC)
+
+    fun setGpsGiveUpSec(context: Context, value: Int) {
+        prefs(context).edit { putInt(KEY_GPS_GIVE_UP_SEC, value) }
     }
 
     /** Consecutive moving readings required before opening a new track. 1 = start instantly. */

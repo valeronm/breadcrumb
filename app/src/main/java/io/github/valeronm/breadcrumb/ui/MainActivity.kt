@@ -919,6 +919,7 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
     var resumeWindowSec by remember { mutableFloatStateOf(AppSettings.resumeWindowSec(context).toFloat()) }
     var accuracyGateM by remember { mutableFloatStateOf(AppSettings.accuracyGateM(context).toFloat()) }
     var requireGnssFix by remember { mutableStateOf(AppSettings.requireGnssFix(context)) }
+    var gpsGiveUpSec by remember { mutableFloatStateOf(AppSettings.gpsGiveUpSec(context).toFloat()) }
     var startConfirmations by remember {
         mutableFloatStateOf(AppSettings.startConfirmations(context).toFloat())
     }
@@ -1027,12 +1028,15 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
         SectionHeader(
             "Accuracy filter",
             canReset = accuracyGateM.toInt() != AppSettings.DEFAULT_ACCURACY_GATE_M ||
-                requireGnssFix != AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
+                requireGnssFix != AppSettings.DEFAULT_REQUIRE_GNSS_FIX ||
+                gpsGiveUpSec.toInt() != AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
         ) {
             accuracyGateM = AppSettings.DEFAULT_ACCURACY_GATE_M.toFloat()
             requireGnssFix = AppSettings.DEFAULT_REQUIRE_GNSS_FIX
+            gpsGiveUpSec = AppSettings.DEFAULT_GPS_GIVE_UP_SEC.toFloat()
             AppSettings.setAccuracyGateM(context, AppSettings.DEFAULT_ACCURACY_GATE_M)
             AppSettings.setRequireGnssFix(context, AppSettings.DEFAULT_REQUIRE_GNSS_FIX)
+            AppSettings.setGpsGiveUpSec(context, AppSettings.DEFAULT_GPS_GIVE_UP_SEC)
         }
         Text(
             "Fixes less accurate than this are flagged noisy and left out of the track. Applies to " +
@@ -1065,6 +1069,17 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
                     AppSettings.setRequireGnssFix(context, it)
                 },
             )
+        }
+        Text(
+            "If GPS runs this long without a usable fix (indoors on a false start), switch it off " +
+                "and retry on motion or when another app gets a fix. Off = keep searching forever.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        SliderSetting("GPS give-up", gpsGiveUpSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
+            gpsGiveUpSec = it
+            AppSettings.setGpsGiveUpSec(context, it.toInt())
         }
 
         Spacer(Modifier.height(24.dp))
