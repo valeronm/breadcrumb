@@ -1451,51 +1451,49 @@ private fun TrackMapScreen(
     var selectedIndex by remember(trackId) { mutableStateOf<Int?>(null) }
     Scaffold(
         topBar = {
-            // Header lives in the top-bar chrome so the (interop) map view is inset below it
-            // and can't composite over it.
-            Column {
-                TopAppBar(
-                    title = { Text(summary?.let { ActivityType.labelFor(it.activityType) } ?: "Track") },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(summary?.let { ActivityType.labelFor(it.activityType) } ?: "Track")
+                        if (summary != null) {
+                            Text(
+                                dateFormat.format(Date(summary.startedAt)) +
+                                    (summary.endedAt?.let { " – ${timeFormat.format(Date(it))}" } ?: ""),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
-                    },
-                    actions = {
-                        if (noisyPoints.isNotEmpty()) {
-                            IconButton(onClick = { showNoisy = !showNoisy }) {
-                                Icon(
-                                    Icons.Filled.Warning,
-                                    contentDescription =
-                                        if (showNoisy) "Hide noisy fixes" else "Show noisy fixes",
-                                    tint = if (showNoisy) {
-                                        MaterialTheme.colorScheme.error
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                )
-                            }
-                        }
-                        IconButton(onClick = {
-                            viewModel.shareTracks(listOf(trackId)) { intent ->
-                                if (intent != null) context.startActivity(intent)
-                            }
-                        }) {
-                            Icon(Icons.Filled.Share, contentDescription = "Share GPX")
-                        }
-                    },
-                )
-                if (summary != null) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        tonalElevation = 3.dp,
-                        shadowElevation = 3.dp,
-                    ) {
-                        TrackStatsHeader(summary)
                     }
-                }
-                ColorModeSelector(colorMode) { colorMode = it }
-            }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (noisyPoints.isNotEmpty()) {
+                        IconButton(onClick = { showNoisy = !showNoisy }) {
+                            Icon(
+                                Icons.Filled.Warning,
+                                contentDescription =
+                                    if (showNoisy) "Hide noisy fixes" else "Show noisy fixes",
+                                tint = if (showNoisy) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
+                    IconButton(onClick = {
+                        viewModel.shareTracks(listOf(trackId)) { intent ->
+                            if (intent != null) context.startActivity(intent)
+                        }
+                    }) {
+                        Icon(Icons.Filled.Share, contentDescription = "Share GPX")
+                    }
+                },
+            )
         },
     ) { inner ->
         Box(modifier = Modifier.padding(inner).fillMaxSize().clipToBounds()) {
@@ -1507,32 +1505,54 @@ private fun TrackMapScreen(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                else -> Column(Modifier.fillMaxSize()) {
-                    Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-                        MapLibreTrackMap(
-                            points = loaded,
-                            noisyPoints = if (showNoisy) noisyPoints else emptyList(),
-                            activity = activity,
-                            colorMode = colorMode,
-                            showLegend = true,
-                            selectedPoint = selectedIndex?.let { loaded.getOrNull(it) },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        if (showNoisy) {
-                            // Top-right, clear of the colour-metric legend (bottom-right).
-                            NoisyLegend(noisyPoints, Modifier.align(Alignment.TopEnd).padding(12.dp))
-                        }
+                else -> Column(
+                    Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (summary != null) {
+                        Card(Modifier.fillMaxWidth()) { TrackStatsHeader(summary) }
                     }
                     val graph = remember(loaded, colorMode, activity) {
                         metricGraphData(loaded, colorMode, activity)
                     }
-                    if (graph != null) {
-                        MetricGraph(
-                            graph = graph,
-                            selectedIndex = selectedIndex,
-                            onSelect = { selectedIndex = it },
-                            modifier = Modifier.fillMaxWidth().height(130.dp),
-                        )
+                    // Metric chips, map, and scrubber read as one group: small gaps, small
+                    // corners between neighbours.
+                    Column(
+                        Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        val blocks = if (graph != null) 3 else 2
+                        Card(Modifier.fillMaxWidth(), shape = groupedRowShape(0, blocks)) {
+                            ColorModeSelector(colorMode) { colorMode = it }
+                        }
+                        // The map card takes the stretch.
+                        Card(Modifier.weight(1f).fillMaxWidth(), shape = groupedRowShape(1, blocks)) {
+                            Box(Modifier.fillMaxSize().clipToBounds()) {
+                                MapLibreTrackMap(
+                                    points = loaded,
+                                    noisyPoints = if (showNoisy) noisyPoints else emptyList(),
+                                    activity = activity,
+                                    colorMode = colorMode,
+                                    showLegend = true,
+                                    selectedPoint = selectedIndex?.let { loaded.getOrNull(it) },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                                if (showNoisy) {
+                                    // Top-right, clear of the colour-metric legend (bottom-right).
+                                    NoisyLegend(noisyPoints, Modifier.align(Alignment.TopEnd).padding(12.dp))
+                                }
+                            }
+                        }
+                        if (graph != null) {
+                            Card(Modifier.fillMaxWidth(), shape = groupedRowShape(2, 3)) {
+                                MetricGraph(
+                                    graph = graph,
+                                    selectedIndex = selectedIndex,
+                                    onSelect = { selectedIndex = it },
+                                    modifier = Modifier.fillMaxWidth().height(130.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1791,22 +1811,29 @@ private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
 private fun TrackStatsHeader(summary: TrackSummary) {
     val durationS = summary.endedAt?.let { (it - summary.startedAt) / 1000.0 } ?: 0.0
     val avgKmh = if (durationS > 0) (summary.distanceMeters / durationS) * 3.6 else 0.0
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(dateFormat.format(Date(summary.startedAt)), style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            StatItem("Distance", formatKm(summary.distanceMeters))
-            StatItem("Duration", formatDuration(summary.startedAt, summary.endedAt))
-            StatItem("Avg speed", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—")
+    Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+        Row(Modifier.fillMaxWidth()) {
+            HeaderStat("Distance", formatKm(summary.distanceMeters), Modifier.weight(1f))
+            HeaderStat("Duration", formatDuration(summary.startedAt, summary.endedAt), Modifier.weight(1f))
+            HeaderStat("Avg speed", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—", Modifier.weight(1f))
         }
         if (summary.ignoredCount > 0) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
             Text(
                 noisyFixesLabel(summary.ignoredCount, " from this track"),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         }
+    }
+}
+
+@Composable
+private fun HeaderStat(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleLarge)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1962,20 +1989,19 @@ internal fun trackColoring(
 /** Horizontally-scrollable chips to pick how the track line is coloured. */
 @Composable
 private fun ColorModeSelector(selected: ColorMode, onSelect: (ColorMode) -> Unit) {
-    Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 3.dp, shadowElevation = 3.dp) {
-        Row(
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            for (mode in ColorMode.entries) {
-                FilterChip(
-                    selected = mode == selected,
-                    onClick = { onSelect(mode) },
-                    label = { Text(mode.label) },
-                )
-            }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        for (mode in ColorMode.entries) {
+            FilterChip(
+                selected = mode == selected,
+                onClick = { onSelect(mode) },
+                label = { Text(mode.label) },
+            )
         }
     }
 }

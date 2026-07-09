@@ -76,8 +76,9 @@ both animated by one shared `PredictiveBackHandler` (Android predictive back —
 the tabs underneath). The track map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps dark
 vector basemap**: the track is a `line-gradient` coloured per point by the selected metric, start/end
 and noisy-fix markers sit on a symbol layer, and switching the colour metric recolours in place
-without moving the camera. It's edge-aware (declines gestures in the back-gesture edge strips so
-edge-swipe-back wins) and lifecycle-bound to the composition.
+without moving the camera. The map renders in texture mode (a SurfaceView would ignore Compose
+clipping and bleed over rounded card corners), sits inside padded cards (so it never reaches the
+back-gesture edge strips), and is lifecycle-bound to the composition.
 
 ## Conventions & constraints
 

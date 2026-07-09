@@ -3,9 +3,6 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.os.Build
-import android.view.MotionEvent
-import android.view.WindowInsets
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,6 +31,7 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
@@ -158,11 +156,16 @@ fun MapLibreTrackMap(
 
 /** A MapLibre [MapView] whose lifecycle follows the composition's [LifecycleOwner]. */
 @Composable
-private fun rememberMapLibreMapView(): EdgeAwareMapLibreMapView {
+private fun rememberMapLibreMapView(): MapView {
     val ctx = LocalContext.current
     val mapView = remember {
         MapLibre.getInstance(ctx)
-        EdgeAwareMapLibreMapView(ctx).apply {
+        // Texture mode instead of the default SurfaceView: a SurfaceView composites in its own
+        // layer and ignores Compose clipping, so it would bleed over rounded card corners. The
+        // cards' side padding also keeps the map out of the back-gesture edge strips, so no
+        // edge-swipe handling is needed on the view itself.
+        val options = MapLibreMapOptions.createFromAttributes(ctx).textureMode(true)
+        MapView(ctx, options).apply {
             onCreate(null)
             onStart()
             onResume()
@@ -187,33 +190,6 @@ private fun rememberMapLibreMapView(): EdgeAwareMapLibreMapView {
         }
     }
     return mapView
-}
-
-/**
- * A MapLibre [MapView] that declines touch gestures beginning within the system back-gesture edge
- * strips, so an edge-swipe triggers predictive back instead of panning the map.
- */
-private class EdgeAwareMapLibreMapView(context: Context) : MapView(context) {
-    private var ignoreGesture = false
-
-    private fun edgeInsetPx(): Int {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            rootWindowInsets?.getInsets(WindowInsets.Type.systemGestures())?.let {
-                val inset = maxOf(it.left, it.right)
-                if (inset > 0) return inset
-            }
-        }
-        return (24 * resources.displayMetrics.density).toInt()
-    }
-
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-            val edge = edgeInsetPx()
-            ignoreGesture = event.x <= edge || event.x >= width - edge
-        }
-        if (ignoreGesture) return false
-        return super.dispatchTouchEvent(event)
-    }
 }
 
 private const val TRACK_SOURCE = "track-src"
