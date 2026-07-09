@@ -729,20 +729,36 @@ private fun KeepScreenOnRow(
     }
 }
 
+/** Master on/off pill for the whole recorder, styled like Android settings' main toggle. */
 @Composable
 private fun AutoRecordControls(
     autoOn: Boolean,
     onToggle: (Boolean) -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Auto recording", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    if (autoOn) "Records as you move." else "Turn on to record automatically.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+    Surface(
+        onClick = { onToggle(!autoOn) },
+        shape = CircleShape,
+        color = if (autoOn) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        contentColor = if (autoOn) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Auto recording",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
             IconSwitch(checked = autoOn, onCheckedChange = onToggle)
         }
     }
@@ -955,14 +971,21 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        SliderSetting("Min time between points", intervalSec, 1f..30f, 1, { "${it.toInt()} s" }) {
-            intervalSec = it
-            AppSettings.setMinIntervalSec(context, it.toInt())
-        }
-        SliderSetting("Min distance between points", distanceM, 1f..50f, 1, { "${it.toInt()} m" }) {
-            distanceM = it
-            AppSettings.setMinDistanceM(context, it.toInt())
-        }
+        Spacer(Modifier.height(8.dp))
+        GroupedRows(
+            {
+                SliderSetting("Min time between points", intervalSec, 1f..30f, 1, { "${it.toInt()} s" }) {
+                    intervalSec = it
+                    AppSettings.setMinIntervalSec(context, it.toInt())
+                }
+            },
+            {
+                SliderSetting("Min distance between points", distanceM, 1f..50f, 1, { "${it.toInt()} m" }) {
+                    distanceM = it
+                    AppSettings.setMinDistanceM(context, it.toInt())
+                }
+            },
+        )
 
         Spacer(Modifier.height(24.dp))
         SectionHeader(
@@ -984,18 +1007,27 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        SliderSetting("Min duration", minDurationSec, 0f..300f, 30, { durationSettingLabel(it.toInt()) }) {
-            minDurationSec = it
-            AppSettings.setMinTrackDurationSec(context, it.toInt())
-        }
-        SliderSetting("Min length", minLengthM, 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
-            minLengthM = it
-            AppSettings.setMinTrackLengthM(context, it.toInt())
-        }
-        SliderSetting("Min extent", minExtentM, 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
-            minExtentM = it
-            AppSettings.setMinTrackExtentM(context, it.toInt())
-        }
+        Spacer(Modifier.height(8.dp))
+        GroupedRows(
+            {
+                SliderSetting("Min duration", minDurationSec, 0f..300f, 30, { durationSettingLabel(it.toInt()) }) {
+                    minDurationSec = it
+                    AppSettings.setMinTrackDurationSec(context, it.toInt())
+                }
+            },
+            {
+                SliderSetting("Min length", minLengthM, 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
+                    minLengthM = it
+                    AppSettings.setMinTrackLengthM(context, it.toInt())
+                }
+            },
+            {
+                SliderSetting("Min extent", minExtentM, 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
+                    minExtentM = it
+                    AppSettings.setMinTrackExtentM(context, it.toInt())
+                }
+            },
+        )
 
         Spacer(Modifier.height(24.dp))
         SectionHeader(
@@ -1011,10 +1043,15 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        SliderSetting("Resume window", resumeWindowSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
-            resumeWindowSec = it
-            AppSettings.setResumeWindowSec(context, it.toInt())
-        }
+        Spacer(Modifier.height(8.dp))
+        GroupedRows(
+            {
+                SliderSetting("Resume window", resumeWindowSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
+                    resumeWindowSec = it
+                    AppSettings.setResumeWindowSec(context, it.toInt())
+                }
+            },
+        )
 
         Spacer(Modifier.height(24.dp))
         SectionHeader(
@@ -1036,65 +1073,80 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        SliderSetting("Max accuracy radius", accuracyGateM, 10f..150f, 10, { "${it.toInt()} m" }) {
-            accuracyGateM = it
-            AppSettings.setAccuracyGateM(context, it.toInt())
-        }
-        Text(
-            "Also drop fixes with no live satellite lock — the position the phone reports from Wi-Fi/" +
-                "cell in a tunnel, which can look accurate but wander. Applies to newly recorded tracks.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 12.dp),
+        Spacer(Modifier.height(8.dp))
+        GroupedRows(
+            {
+                SliderSetting("Max accuracy radius", accuracyGateM, 10f..150f, 10, { "${it.toInt()} m" }) {
+                    accuracyGateM = it
+                    AppSettings.setAccuracyGateM(context, it.toInt())
+                }
+            },
+            {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Require satellite fix", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Also drop fixes with no live satellite lock — the position the phone " +
+                                "reports from Wi-Fi/cell in a tunnel, which can look accurate but wander.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    IconSwitch(
+                        checked = requireGnssFix,
+                        onCheckedChange = {
+                            requireGnssFix = it
+                            AppSettings.setRequireGnssFix(context, it)
+                        },
+                    )
+                }
+            },
+            {
+                Text(
+                    "If GPS runs this long without a usable fix (indoors on a false start), switch " +
+                        "it off and retry on motion or when another app gets a fix. Off = keep " +
+                        "searching forever.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                SliderSetting("GPS give-up", gpsGiveUpSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
+                    gpsGiveUpSec = it
+                    AppSettings.setGpsGiveUpSec(context, it.toInt())
+                }
+            },
         )
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Require satellite fix", style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.width(12.dp))
-            Switch(
-                checked = requireGnssFix,
-                onCheckedChange = {
-                    requireGnssFix = it
-                    AppSettings.setRequireGnssFix(context, it)
-                },
-            )
-        }
-        Text(
-            "If GPS runs this long without a usable fix (indoors on a false start), switch it off " +
-                "and retry on motion or when another app gets a fix. Off = keep searching forever.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 12.dp),
-        )
-        SliderSetting("GPS give-up", gpsGiveUpSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
-            gpsGiveUpSec = it
-            AppSettings.setGpsGiveUpSec(context, it.toInt())
-        }
 
 
         if (BuildConfig.DEBUG) {
             Spacer(Modifier.height(24.dp))
             Text("Debug", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Insert a synthetic track for testing the list, map, swipe and share.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Spacer(Modifier.height(8.dp))
-            var seeding by remember { mutableStateOf(false) }
-            Button(
-                enabled = !seeding,
-                onClick = {
-                    seeding = true
-                    viewModel.seedSampleTrack {
-                        seeding = false
-                        Toast.makeText(context, "Seeded a sample track", Toast.LENGTH_SHORT).show()
-                    }
+            GroupedRows(
+                {
+                    Text(
+                        "Insert a synthetic track for testing the list, map, swipe and share.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    var seeding by remember { mutableStateOf(false) }
+                    Button(
+                        enabled = !seeding,
+                        onClick = {
+                            seeding = true
+                            viewModel.seedSampleTrack {
+                                seeding = false
+                                Toast.makeText(context, "Seeded a sample track", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    ) { Text("Seed sample track") }
                 },
-            ) { Text("Seed sample track") }
+            )
         }
 
         Spacer(Modifier.height(32.dp))
@@ -1167,6 +1219,21 @@ private fun LogsScreen(onBack: () -> Unit) {
     }
 }
 
+/**
+ * Android-settings-style group: each row is its own card, large corners on the group's outer
+ * edges and small ones between neighbours (same look as the track list's day groups).
+ */
+@Composable
+private fun GroupedRows(vararg rows: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        rows.forEachIndexed { index, row ->
+            Card(modifier = Modifier.fillMaxWidth(), shape = groupedRowShape(index, rows.size)) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) { row() }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SectionHeader(title: String, canReset: Boolean, onReset: () -> Unit) {
     Row(
@@ -1191,7 +1258,7 @@ private fun SliderSetting(
     onChange: (Float) -> Unit,
 ) {
     // Dim the whole row when disabled (the Slider greys itself, the labels need help).
-    Column(Modifier.padding(top = 16.dp).alpha(if (enabled) 1f else 0.38f)) {
+    Column(Modifier.alpha(if (enabled) 1f else 0.38f)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
