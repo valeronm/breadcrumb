@@ -53,6 +53,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
@@ -208,7 +209,6 @@ private enum class HomeTab { RECORD, TRACKS }
 private sealed interface Overlay {
     data class TrackDetail(val id: Long) : Overlay
     data object Settings : Overlay
-    data object Logs : Overlay
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -296,6 +296,14 @@ private fun MainScreen() {
     val backProgress = remember { Animatable(0f) }  // predictive back gesture progress, 0..1
     var backEdgeSign by remember { mutableFloatStateOf(1f) }
 
+    // Logs is a second overlay layer stacked above Settings, with the same animations — so the
+    // predictive-back preview under it shows Settings (where back actually lands), not the tabs.
+    var showLogs by remember { mutableStateOf(false) }
+    var renderedLogs by remember { mutableStateOf(false) }
+    val logsPresence = remember { Animatable(0f) }
+    val logsBackProgress = remember { Animatable(0f) }
+    var logsBackEdgeSign by remember { mutableFloatStateOf(1f) }
+
     LaunchedEffect(overlay) {
         val current = overlay
         if (current != null) {
@@ -309,17 +317,39 @@ private fun MainScreen() {
         }
     }
 
-    PredictiveBackHandler(enabled = overlay != null) { events ->
+    LaunchedEffect(showLogs) {
+        if (showLogs) {
+            renderedLogs = true
+            logsBackProgress.snapTo(0f)
+            logsPresence.animateTo(1f, tween(300))
+        } else if (renderedLogs) {
+            logsPresence.animateTo(0f, tween(300))
+            renderedLogs = false
+            logsBackProgress.snapTo(0f)
+        }
+    }
+
+    PredictiveBackHandler(enabled = overlay != null && !showLogs) { events ->
         try {
             events.collect { event ->
                 backEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
                 backProgress.snapTo(event.progress)
             }
-            // Gesture committed -> dismiss. Logs steps back to Settings (its only entry point);
-            // everything else closes to the tabs.
-            overlay = if (overlay == Overlay.Logs) Overlay.Settings else null
+            overlay = null // gesture committed -> dismiss
         } catch (cancelled: CancellationException) {
             backProgress.animateTo(0f, tween(200)) // gesture cancelled -> spring back
+        }
+    }
+
+    PredictiveBackHandler(enabled = showLogs) { events ->
+        try {
+            events.collect { event ->
+                logsBackEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
+                logsBackProgress.snapTo(event.progress)
+            }
+            showLogs = false // gesture committed -> back to Settings
+        } catch (cancelled: CancellationException) {
+            logsBackProgress.animateTo(0f, tween(200))
         }
     }
 
@@ -424,19 +454,7 @@ private fun MainScreen() {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        val enter = presence.value
-                        val back = backProgress.value
-                        val scale = (0.92f + 0.08f * enter) * (1f - 0.10f * back)
-                        scaleX = scale
-                        scaleY = scale
-                        translationX =
-                            (1f - enter) * size.width * 0.25f + backEdgeSign * back * 24.dp.toPx()
-                        alpha = enter * (1f - 0.2f * back)
-                        transformOrigin = TransformOrigin(if (backEdgeSign > 0f) 1f else 0f, 0.5f)
-                        shape = RoundedCornerShape(back * 48f)
-                        clip = back > 0f
-                    },
+                    .overlayTransform(presence.value, backProgress.value, backEdgeSign),
             ) {
                 when (rendered) {
                     is Overlay.TrackDetail -> TrackMapScreen(
@@ -449,16 +467,38 @@ private fun MainScreen() {
                     Overlay.Settings -> SettingsScreen(
                         viewModel = viewModel,
                         onBack = { overlay = null },
-                        onShowLogs = { overlay = Overlay.Logs },
+                        onShowLogs = { showLogs = true },
                     )
-
-                    // Logs is only reachable from Settings, so back returns there, not to the tabs.
-                    Overlay.Logs -> LogsScreen(onBack = { overlay = Overlay.Settings })
                 }
+            }
+        }
+
+        // Logs: a second overlay layer above Settings, same open/close and predictive-back
+        // treatment — the gesture previews Settings underneath, which is where back lands.
+        if (renderedLogs) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .overlayTransform(logsPresence.value, logsBackProgress.value, logsBackEdgeSign),
+            ) {
+                LogsScreen(onBack = { showLogs = false })
             }
         }
     }
 }
+
+/** The overlay open/close + predictive-back transform: slide/scale in, recede toward the edge. */
+private fun Modifier.overlayTransform(enter: Float, back: Float, edgeSign: Float): Modifier =
+    graphicsLayer {
+        val scale = (0.92f + 0.08f * enter) * (1f - 0.10f * back)
+        scaleX = scale
+        scaleY = scale
+        translationX = (1f - enter) * size.width * 0.25f + edgeSign * back * 24.dp.toPx()
+        alpha = enter * (1f - 0.2f * back)
+        transformOrigin = TransformOrigin(if (edgeSign > 0f) 1f else 0f, 0.5f)
+        shape = RoundedCornerShape(back * 48f)
+        clip = back > 0f
+    }
 
 /** Live charger state from the sticky ACTION_BATTERY_CHANGED broadcast (reacts to plug/unplug). */
 @Composable
@@ -1046,7 +1086,7 @@ private fun SettingsScreen(
                 .padding(16.dp),
         ) {
         SectionHeader(
-            "Sampling",
+            "Recording detail",
             canReset = intervalSec.toInt() != AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC ||
                 distanceM.toInt() != AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
         ) {
@@ -1056,20 +1096,20 @@ private fun SettingsScreen(
             AppSettings.setMinDistanceM(context, AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M)
         }
         Text(
-            "How densely points are recorded while moving. Applies to the next track.",
+            "How densely points are recorded while moving.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))
         GroupedRows(
             {
-                SliderSetting("Min time between points", intervalSec, 1f..30f, 1, { "${it.toInt()} s" }) {
+                SliderSetting("Time between points", intervalSec, 1f..30f, 1, { "${it.toInt()} s" }) {
                     intervalSec = it
                     AppSettings.setMinIntervalSec(context, it.toInt())
                 }
             },
             {
-                SliderSetting("Min distance between points", distanceM, 1f..50f, 1, { "${it.toInt()} m" }) {
+                SliderSetting("Distance between points", distanceM, 1f..50f, 1, { "${it.toInt()} m" }) {
                     distanceM = it
                     AppSettings.setMinDistanceM(context, it.toInt())
                 }
@@ -1078,7 +1118,110 @@ private fun SettingsScreen(
 
         Spacer(Modifier.height(24.dp))
         SectionHeader(
-            "Keep a track only if",
+            "Point quality",
+            canReset = accuracyGateM.toInt() != AppSettings.DEFAULT_ACCURACY_GATE_M ||
+                requireGnssFix != AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
+        ) {
+            accuracyGateM = AppSettings.DEFAULT_ACCURACY_GATE_M.toFloat()
+            requireGnssFix = AppSettings.DEFAULT_REQUIRE_GNSS_FIX
+            AppSettings.setAccuracyGateM(context, AppSettings.DEFAULT_ACCURACY_GATE_M)
+            AppSettings.setRequireGnssFix(context, AppSettings.DEFAULT_REQUIRE_GNSS_FIX)
+        }
+        Text(
+            "Which recorded points count as good.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        GroupedRows(
+            {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Require satellite fix", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Drops guessed positions, like in a tunnel.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    IconSwitch(
+                        checked = requireGnssFix,
+                        onCheckedChange = {
+                            requireGnssFix = it
+                            AppSettings.setRequireGnssFix(context, it)
+                        },
+                    )
+                }
+            },
+            {
+                Text(
+                    "Points less accurate than this are marked noisy and excluded.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                SliderSetting("Max accuracy radius", accuracyGateM, 10f..150f, 10, { "${it.toInt()} m" }) {
+                    accuracyGateM = it
+                    AppSettings.setAccuracyGateM(context, it.toInt())
+                }
+            },
+        )
+
+        Spacer(Modifier.height(24.dp))
+        SectionHeader(
+            "Auto-pause",
+            canReset = resumeWindowSec.toInt() != AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
+        ) {
+            resumeWindowSec = AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC.toFloat()
+            AppSettings.setResumeWindowSec(context, AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC)
+        }
+        Text(
+            "A stop shorter than this keeps the track open — moving again continues the same " +
+                "track. When set to Off, every stop ends the track.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        GroupedRows(
+            {
+                SliderSetting("Resume window", resumeWindowSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
+                    resumeWindowSec = it
+                    AppSettings.setResumeWindowSec(context, it.toInt())
+                }
+            },
+        )
+
+        Spacer(Modifier.height(24.dp))
+        SectionHeader(
+            "GPS search",
+            canReset = gpsGiveUpSec.toInt() != AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
+        ) {
+            gpsGiveUpSec = AppSettings.DEFAULT_GPS_GIVE_UP_SEC.toFloat()
+            AppSettings.setGpsGiveUpSec(context, AppSettings.DEFAULT_GPS_GIVE_UP_SEC)
+        }
+        Text(
+            "If no good position arrives for this long, GPS pauses and retries when you move " +
+                "or another app gets a location. When set to Off, GPS never stops searching.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        GroupedRows(
+            {
+                SliderSetting("Give up after", gpsGiveUpSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
+                    gpsGiveUpSec = it
+                    AppSettings.setGpsGiveUpSec(context, it.toInt())
+                }
+            },
+        )
+
+        Spacer(Modifier.height(24.dp))
+        SectionHeader(
+            "Discard short tracks",
             canReset = minDurationSec.toInt() != AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC ||
                 minLengthM.toInt() != AppSettings.DEFAULT_TRACK_MIN_LENGTH_M ||
                 minExtentM.toInt() != AppSettings.DEFAULT_TRACK_MIN_EXTENT_M,
@@ -1091,8 +1234,7 @@ private fun SettingsScreen(
             AppSettings.setMinTrackExtentM(context, AppSettings.DEFAULT_TRACK_MIN_EXTENT_M)
         }
         Text(
-            "Shorter tracks are discarded when recording stops. Extent is how far the track " +
-                "spread — it rejects a stationary walk that only wandered on GPS noise.",
+            "Tracks under these limits are deleted when they finish.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1111,101 +1253,16 @@ private fun SettingsScreen(
                 }
             },
             {
-                SliderSetting("Min extent", minExtentM, 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
-                    minExtentM = it
-                    AppSettings.setMinTrackExtentM(context, it.toInt())
-                }
-            },
-        )
-
-        Spacer(Modifier.height(24.dp))
-        SectionHeader(
-            "Auto-pause",
-            canReset = resumeWindowSec.toInt() != AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
-        ) {
-            resumeWindowSec = AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC.toFloat()
-            AppSettings.setResumeWindowSec(context, AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC)
-        }
-        Text(
-            "A brief stop keeps the same track; it resumes as a new segment when you move again " +
-                "within this window. Off = always a new track.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
-        GroupedRows(
-            {
-                SliderSetting("Resume window", resumeWindowSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
-                    resumeWindowSec = it
-                    AppSettings.setResumeWindowSec(context, it.toInt())
-                }
-            },
-        )
-
-        Spacer(Modifier.height(24.dp))
-        SectionHeader(
-            "Accuracy filter",
-            canReset = accuracyGateM.toInt() != AppSettings.DEFAULT_ACCURACY_GATE_M ||
-                requireGnssFix != AppSettings.DEFAULT_REQUIRE_GNSS_FIX ||
-                gpsGiveUpSec.toInt() != AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
-        ) {
-            accuracyGateM = AppSettings.DEFAULT_ACCURACY_GATE_M.toFloat()
-            requireGnssFix = AppSettings.DEFAULT_REQUIRE_GNSS_FIX
-            gpsGiveUpSec = AppSettings.DEFAULT_GPS_GIVE_UP_SEC.toFloat()
-            AppSettings.setAccuracyGateM(context, AppSettings.DEFAULT_ACCURACY_GATE_M)
-            AppSettings.setRequireGnssFix(context, AppSettings.DEFAULT_REQUIRE_GNSS_FIX)
-            AppSettings.setGpsGiveUpSec(context, AppSettings.DEFAULT_GPS_GIVE_UP_SEC)
-        }
-        Text(
-            "Fixes less accurate than this are flagged noisy and left out of the track. Applies to " +
-                "newly recorded tracks.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
-        GroupedRows(
-            {
-                SliderSetting("Max accuracy radius", accuracyGateM, 10f..150f, 10, { "${it.toInt()} m" }) {
-                    accuracyGateM = it
-                    AppSettings.setAccuracyGateM(context, it.toInt())
-                }
-            },
-            {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Require satellite fix", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Also drop fixes with no live satellite lock — the position the phone " +
-                                "reports from Wi-Fi/cell in a tunnel, which can look accurate but wander.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    IconSwitch(
-                        checked = requireGnssFix,
-                        onCheckedChange = {
-                            requireGnssFix = it
-                            AppSettings.setRequireGnssFix(context, it)
-                        },
-                    )
-                }
-            },
-            {
                 Text(
-                    "If GPS runs this long without a usable fix (indoors on a false start), switch " +
-                        "it off and retry on motion or when another app gets a fix. Off = keep " +
-                        "searching forever.",
+                    "How far the track spread from where it started — filters out " +
+                        "standing-still noise.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-                SliderSetting("GPS give-up", gpsGiveUpSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
-                    gpsGiveUpSec = it
-                    AppSettings.setGpsGiveUpSec(context, it.toInt())
+                SliderSetting("Min extent", minExtentM, 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
+                    minExtentM = it
+                    AppSettings.setMinTrackExtentM(context, it.toInt())
                 }
             },
         )
@@ -1217,13 +1274,25 @@ private fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             GroupedRows(
                 {
-                    Text(
-                        "Recent recorder and activity-recognition events, for field debugging.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = onShowLogs) { Text("View logs") }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onShowLogs)
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Logs",
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
                 },
                 {
                     Text(
