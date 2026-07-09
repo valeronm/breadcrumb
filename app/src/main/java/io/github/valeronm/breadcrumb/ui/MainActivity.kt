@@ -56,7 +56,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
-import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -316,7 +315,9 @@ private fun MainScreen() {
                 backEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
                 backProgress.snapTo(event.progress)
             }
-            overlay = null // gesture committed -> dismiss
+            // Gesture committed -> dismiss. Logs steps back to Settings (its only entry point);
+            // everything else closes to the tabs.
+            overlay = if (overlay == Overlay.Logs) Overlay.Settings else null
         } catch (cancelled: CancellationException) {
             backProgress.animateTo(0f, tween(200)) // gesture cancelled -> spring back
         }
@@ -339,11 +340,6 @@ private fun MainScreen() {
                         if (selectedTab == HomeTab.TRACKS && tracks.isNotEmpty()) {
                             IconButton(onClick = { exportAllLauncher.launch(null) }) {
                                 Icon(Icons.Filled.Download, contentDescription = "Export all as GPX")
-                            }
-                        }
-                        if (BuildConfig.DEBUG && selectedTab == HomeTab.RECORD) {
-                            IconButton(onClick = { overlay = Overlay.Logs }) {
-                                Icon(Icons.Filled.BugReport, contentDescription = "Logs")
                             }
                         }
                         IconButton(onClick = { overlay = Overlay.Settings }) {
@@ -450,9 +446,14 @@ private fun MainScreen() {
                         onBack = { overlay = null },
                     )
 
-                    Overlay.Settings -> SettingsScreen(viewModel = viewModel, onBack = { overlay = null })
+                    Overlay.Settings -> SettingsScreen(
+                        viewModel = viewModel,
+                        onBack = { overlay = null },
+                        onShowLogs = { overlay = Overlay.Logs },
+                    )
 
-                    Overlay.Logs -> LogsScreen(onBack = { overlay = null })
+                    // Logs is only reachable from Settings, so back returns there, not to the tabs.
+                    Overlay.Logs -> LogsScreen(onBack = { overlay = Overlay.Settings })
                 }
             }
         }
@@ -554,15 +555,94 @@ private fun RecordTab(
                     autoOn -> {
                         Spacer(Modifier.height(16.dp))
                         RecorderStateCard(status)
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.height(12.dp))
+                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                            RecordedStats(viewModel)
+                        }
                     }
-                    else -> Spacer(Modifier.weight(1f))
+                    else -> {
+                        Spacer(Modifier.height(16.dp))
+                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                            RecordedStats(viewModel)
+                        }
+                    }
                 }
                 Spacer(Modifier.height(16.dp))
                 KeepScreenOnRow(
                     charging = charging,
                     enabled = keepScreenOn,
                     onToggle = onToggleKeepScreenOn,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Recorded totals per activity for today / this month / this year — fills the Record tab while
+ * nothing is recording, in the same grouped-block style as the settings page.
+ */
+@Composable
+private fun RecordedStats(viewModel: TrackListViewModel) {
+    val tracks by viewModel.tracks.collectAsState()
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(zone)
+    val byDate = remember(tracks) {
+        tracks.map { it to Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate() }
+    }
+    val periods = listOf(
+        "Today" to byDate.filter { it.second == today },
+        "This month" to byDate.filter { it.second.year == today.year && it.second.month == today.month },
+        "This year" to byDate.filter { it.second.year == today.year },
+    )
+    GroupedRows(
+        *periods.map { (title, entries) ->
+            @Composable { PeriodStats(title, entries.map { it.first }) }
+        }.toTypedArray(),
+    )
+}
+
+@Composable
+private fun PeriodStats(title: String, tracks: List<TrackSummary>) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+    if (tracks.isEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "No tracks yet.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    } else {
+        val totals = remember(tracks) { dayActivityTotals(tracks) }
+        for (total in totals) {
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val tint = activityColor(total.activity)
+                Box(
+                    modifier = Modifier.size(28.dp).clip(CircleShape)
+                        .background(tint.copy(alpha = 0.22f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = activityIcon(total.activity),
+                        contentDescription = total.activity?.label,
+                        tint = tint,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    total.activity?.label ?: "Other",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${formatKm(total.meters)} · ${formatDurationMs(total.durationMs)}",
+                    style = MaterialTheme.typography.titleSmall,
                 )
             }
         }
@@ -892,7 +972,12 @@ private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () 
                 color = MaterialTheme.colorScheme.primary,
             )
             IconButton(onClick = onShare) {
-                Icon(Icons.Filled.Share, contentDescription = "Share $label tracks")
+                Icon(
+                    Icons.Filled.Share,
+                    contentDescription = "Share $label tracks",
+                    // Match the top bar's action-icon tint — plain onSurface reads too bright here.
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         // Day totals per recorded activity, in the row style: tinted glyph + distance · duration.
@@ -923,7 +1008,11 @@ private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
+private fun SettingsScreen(
+    viewModel: TrackListViewModel,
+    onBack: () -> Unit,
+    onShowLogs: () -> Unit,
+) {
     val context = LocalContext.current
     var intervalSec by remember { mutableFloatStateOf(AppSettings.minIntervalSec(context).toFloat()) }
     var distanceM by remember { mutableFloatStateOf(AppSettings.minDistanceM(context).toFloat()) }
@@ -1127,6 +1216,15 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
             Text("Debug", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             GroupedRows(
+                {
+                    Text(
+                        "Recent recorder and activity-recognition events, for field debugging.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = onShowLogs) { Text("View logs") }
+                },
                 {
                     Text(
                         "Insert a synthetic track for testing the list, map, swipe and share.",
