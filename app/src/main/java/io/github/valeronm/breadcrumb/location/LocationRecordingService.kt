@@ -35,6 +35,7 @@ import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.Confirmed
+import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.RecordingAction
 import io.github.valeronm.breadcrumb.domain.TrackController
 import io.github.valeronm.breadcrumb.ui.MainActivity
@@ -81,16 +82,11 @@ class LocationRecordingService : Service() {
     @Volatile private var locationListener: LocationListenerCompat? = null
 
     // --- No-fix give-up guard ---
-    // If GPS runs for the configured time without a single accepted fix (indoors on an activity-
-    // recognition false positive, or parked in a garage), turn it off and wait for a cheap signal —
-    // a significant-motion trigger, another app's GPS fix (passive provider), or an activity
-    // transition — before probing again. Consecutive failed probes back off so pacing around
-    // indoors doesn't degenerate into GPS-always-on.
-    @Volatile private var probeStartedElapsed = 0L    // elapsedRealtime when this GPS request began
-    @Volatile private var lastAcceptedElapsed = 0L    // elapsedRealtime of the last accepted fix, 0 if none yet
-    private var noFixSuspended = false                // track active but GPS off, awaiting a resume signal
-    private var failedProbes = 0                      // consecutive probes with zero accepted fixes
-    private var nextProbeAllowedElapsed = 0L          // backoff gate for motion-triggered probes
+    // The decisions (when to give up, backoff gating, what a resume signal means) live in the pure
+    // [NoFixGuard]; this service owns only the side effects — GPS on/off, the significant-motion
+    // sensor, and the passive listener. Guard state is touched under [mutex] except the benign
+    // racy pre-check in [maybeGiveUpOnNoFix].
+    private val noFixGuard = NoFixGuard()
     private var sensorManager: SensorManager? = null
     private var motionSensor: Sensor? = null
     private var motionListener: TriggerEventListener? = null
@@ -218,7 +214,7 @@ class LocationRecordingService : Service() {
         }
         // A confirmed moving reading while the no-fix guard has GPS off is a resume signal too
         // (Resume/StartNew restart GPS themselves; this covers confirmations that map to Noop).
-        if (noFixSuspended && gate.confirmed.recording && locationListener == null) {
+        if (noFixGuard.suspended && gate.confirmed.recording && locationListener == null) {
             DebugLog.i(TAG, "no-fix guard: probing again (activity ${gate.confirmed})")
             withContext(Dispatchers.Main) { startLocationUpdates() }
         }
@@ -232,7 +228,7 @@ class LocationRecordingService : Service() {
     /** Stop GPS but keep the track open; finalize it later if movement doesn't resume in time. */
     private suspend fun pauseTrack(trackActivity: ActivityType) {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
-        noFixSuspended = false
+        noFixGuard.onStopped()
         controller.onPaused(trackActivity)
         val token = ++pauseToken
         val windowMs = Settings.resumeWindowSec(this) * 1000L
@@ -262,7 +258,7 @@ class LocationRecordingService : Service() {
         pointCount = 0
         lastGoodPoint = null
         pendingSegmentStart = false
-        failedProbes = 0
+        noFixGuard.onTrackOpened()
         val startedAt = now()
         trackStartedAt = startedAt
         val id = repository.startTrack(activity, startedAt)
@@ -281,8 +277,7 @@ class LocationRecordingService : Service() {
         activeTrackId = null
         controller.onClosed()
         pendingSegmentStart = false
-        noFixSuspended = false
-        failedProbes = 0
+        noFixGuard.onStopped()
         repository.finishTrack(id, endedAt)
     }
 
@@ -306,9 +301,7 @@ class LocationRecordingService : Service() {
             override fun onLocationChanged(locations: List<Location>) = handleLocations(locations)
         }
         locationListener = listener
-        probeStartedElapsed = SystemClock.elapsedRealtime()
-        lastAcceptedElapsed = 0L
-        noFixSuspended = false
+        noFixGuard.onProbeStarted(SystemClock.elapsedRealtime())
         LocationManagerCompat.requestLocationUpdates(
             lm,
             LocationManager.GPS_PROVIDER,
@@ -337,41 +330,32 @@ class LocationRecordingService : Service() {
      */
     private fun maybeGiveUpOnNoFix() {
         val giveUpMs = Settings.gpsGiveUpSec(this) * 1000L
-        if (giveUpMs <= 0 || locationListener == null) return
-        if (SystemClock.elapsedRealtime() - maxOf(probeStartedElapsed, lastAcceptedElapsed) < giveUpMs) return
+        if (locationListener == null || !noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return
         scope.launch {
             mutex.withLock {
                 if (locationListener == null || currentTrackId == null || controller.isPaused) return@withLock
-                if (SystemClock.elapsedRealtime() - maxOf(probeStartedElapsed, lastAcceptedElapsed) < giveUpMs) return@withLock
-                suspendForNoFix(giveUpMs)
+                if (!noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return@withLock
+                val backoffMs = noFixGuard.onGaveUp(SystemClock.elapsedRealtime())
+                DebugLog.i(
+                    TAG,
+                    "no-fix guard: no accepted fix in ${giveUpMs / 1000}s — GPS off" +
+                        " (motion retry gated ${backoffMs / 1000}s)",
+                )
+                withContext(Dispatchers.Main) {
+                    stopLocationUpdates()
+                    armResumeSignals()
+                }
+                publishStatus()
             }
         }
-    }
-
-    private suspend fun suspendForNoFix(giveUpMs: Long) {
-        failedProbes++
-        val backoffMs = (NO_FIX_RETRY_BASE_MS shl (failedProbes - 1).coerceAtMost(2))
-            .coerceAtMost(NO_FIX_RETRY_CAP_MS)
-        nextProbeAllowedElapsed = SystemClock.elapsedRealtime() + backoffMs
-        DebugLog.i(
-            TAG,
-            "no-fix guard: no accepted fix in ${giveUpMs / 1000}s — GPS off" +
-                " (probe #$failedProbes, motion retry gated ${backoffMs / 1000}s)",
-        )
-        withContext(Dispatchers.Main) {
-            stopLocationUpdates()
-            armResumeSignals()
-        }
-        noFixSuspended = true
-        publishStatus()
     }
 
     /** A cheap signal says conditions may have changed — turn GPS back on and try again. */
     private fun onNoFixResumeSignal(reason: String, respectBackoff: Boolean) {
         scope.launch {
             mutex.withLock {
-                if (!noFixSuspended) return@withLock
-                if (respectBackoff && SystemClock.elapsedRealtime() < nextProbeAllowedElapsed) {
+                if (!noFixGuard.suspended) return@withLock
+                if (!noFixGuard.shouldProbe(SystemClock.elapsedRealtime(), respectBackoff)) {
                     // Too soon after the last failed probe; keep listening for motion instead.
                     withContext(Dispatchers.Main) { armSignificantMotion() }
                     return@withLock
@@ -548,8 +532,7 @@ class LocationRecordingService : Service() {
                 lastGoodPoint = point
                 pointCount++
                 if (segStart) pendingSegmentStart = false
-                lastAcceptedElapsed = SystemClock.elapsedRealtime()
-                failedProbes = 0
+                noFixGuard.onFixAccepted(SystemClock.elapsedRealtime())
             }
             repository.addPoint(point)
         }
@@ -576,7 +559,7 @@ class LocationRecordingService : Service() {
         // State only — no live distance. The notification re-posts only on activity/pause
         // transitions (a per-fix post costs a wakelock + IPC every second while recording).
         val detail = when {
-            activity.recording && noFixSuspended -> "Recording — no GPS signal, waiting"
+            activity.recording && noFixGuard.suspended -> "Recording — no GPS signal, waiting"
             activity.recording -> "Recording"
             else -> "Paused — waiting for movement"
         }
@@ -673,11 +656,6 @@ class LocationRecordingService : Service() {
         // the cross-check against the tunnel/underpass fabrication case.
         private const val GNSS_MIN_SATELLITES_IN_FIX = 4
         private const val GNSS_FIX_MAX_AGE_MS = 5_000L
-
-        // No-fix guard backoff: after a failed probe, motion-triggered retries are gated for
-        // base × 2^(failures-1), capped. Transitions and passive fixes bypass the gate.
-        private const val NO_FIX_RETRY_BASE_MS = 120_000L
-        private const val NO_FIX_RETRY_CAP_MS = 480_000L
         private const val PASSIVE_INTERVAL_MS = 30_000L
 
         fun start(context: Context) {
