@@ -18,9 +18,6 @@ object Settings {
     private const val KEY_ACCURACY_GATE_M = "accuracy_gate_m"
     private const val KEY_REQUIRE_GNSS_FIX = "require_gnss_fix"
     private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
-    private const val KEY_START_CONFIRMATIONS = "start_confirmations"
-    private const val KEY_ACTIVITY_POLL_ENABLED = "activity_poll_enabled"
-    private const val KEY_ACTIVITY_POLL_INTERVAL_SEC = "activity_poll_interval_sec"
     private const val KEY_IGNORE_REASON_BACKFILL_DONE = "ignore_reason_backfill_done"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
 
@@ -51,18 +48,6 @@ object Settings {
     // significant-motion trigger, a passive GPS fix, or an activity transition suggests trying
     // again. See LocationRecordingService. 0 = never give up.
     const val DEFAULT_GPS_GIVE_UP_SEC = 240
-
-    // How many consecutive moving readings of the same activity are needed before a *new* track is
-    // opened (and GPS spun up). Filters lone high-confidence blips that revert to STILL on the next
-    // poll. 1 = start instantly on the first reading (old behaviour). Resuming a paused track is
-    // never gated.
-    const val DEFAULT_START_CONFIRMATIONS = 2
-
-    const val DEFAULT_ACTIVITY_POLL_ENABLED = false
-
-    // How often the poll re-reads activity while armed. Also the age past which a (usually replayed)
-    // transition is treated as stale — a poll refreshes the reading at least this often.
-    const val DEFAULT_ACTIVITY_POLL_INTERVAL_SEC = 30
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -159,30 +144,6 @@ object Settings {
 
     fun setGpsGiveUpSec(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_GPS_GIVE_UP_SEC, value) }
-    }
-
-    /** Consecutive moving readings required before opening a new track. 1 = start instantly. */
-    fun startConfirmations(context: Context): Int =
-        prefs(context).getInt(KEY_START_CONFIRMATIONS, DEFAULT_START_CONFIRMATIONS)
-
-    fun setStartConfirmations(context: Context, value: Int) {
-        prefs(context).edit { putInt(KEY_START_CONFIRMATIONS, value) }
-    }
-
-    /** Whether the recorder re-polls the activity snapshot while armed (off = transitions only). */
-    fun activityPollEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_ACTIVITY_POLL_ENABLED, DEFAULT_ACTIVITY_POLL_ENABLED)
-
-    fun setActivityPollEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit { putBoolean(KEY_ACTIVITY_POLL_ENABLED, enabled) }
-    }
-
-    /** How often (seconds) the poll re-reads activity, and the stale-transition age cutoff. */
-    fun activityPollIntervalSec(context: Context): Int =
-        prefs(context).getInt(KEY_ACTIVITY_POLL_INTERVAL_SEC, DEFAULT_ACTIVITY_POLL_INTERVAL_SEC)
-
-    fun setActivityPollIntervalSec(context: Context, value: Int) {
-        prefs(context).edit { putInt(KEY_ACTIVITY_POLL_INTERVAL_SEC, value) }
     }
 
     // --- One-time migrations -------------------------------------------------

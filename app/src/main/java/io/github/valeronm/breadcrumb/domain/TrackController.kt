@@ -28,7 +28,7 @@ class TrackController {
 
     fun onConfirmed(confirmed: Confirmed): RecordingAction = when (confirmed) {
         // Non-changes are handled by the service before it ever reaches here; map to Noop for totality.
-        Confirmed.NoChange, Confirmed.Cancelled, is Confirmed.Awaiting -> RecordingAction.Noop
+        Confirmed.NoChange -> RecordingAction.Noop
 
         Confirmed.Stopped -> when (val p = phase) {
             is Phase.Recording -> RecordingAction.Pause(p.activity)

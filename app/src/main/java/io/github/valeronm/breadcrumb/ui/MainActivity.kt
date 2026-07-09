@@ -920,14 +920,6 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
     var accuracyGateM by remember { mutableFloatStateOf(AppSettings.accuracyGateM(context).toFloat()) }
     var requireGnssFix by remember { mutableStateOf(AppSettings.requireGnssFix(context)) }
     var gpsGiveUpSec by remember { mutableFloatStateOf(AppSettings.gpsGiveUpSec(context).toFloat()) }
-    var startConfirmations by remember {
-        mutableFloatStateOf(AppSettings.startConfirmations(context).toFloat())
-    }
-    // Confirmation needs the periodic poll for its 2nd+ reading; off, a start happens instantly.
-    var pollEnabled by remember { mutableStateOf(AppSettings.activityPollEnabled(context)) }
-    var pollIntervalSec by remember {
-        mutableFloatStateOf(AppSettings.activityPollIntervalSec(context).toFloat())
-    }
 
     Scaffold(
         topBar = {
@@ -1082,65 +1074,6 @@ private fun SettingsScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
             AppSettings.setGpsGiveUpSec(context, it.toInt())
         }
 
-        Spacer(Modifier.height(24.dp))
-        // Activity polling and its start sensitivity are one feature: the poll re-reads activity on
-        // a timer, and confirmations tune how many of those readings start a track. The slider is
-        // inert without the poll, so they share a section and a single Reset.
-        SectionHeader(
-            "Activity polling",
-            canReset = pollEnabled != AppSettings.DEFAULT_ACTIVITY_POLL_ENABLED ||
-                pollIntervalSec.toInt() != AppSettings.DEFAULT_ACTIVITY_POLL_INTERVAL_SEC ||
-                startConfirmations.toInt() != AppSettings.DEFAULT_START_CONFIRMATIONS,
-        ) {
-            pollEnabled = AppSettings.DEFAULT_ACTIVITY_POLL_ENABLED
-            pollIntervalSec = AppSettings.DEFAULT_ACTIVITY_POLL_INTERVAL_SEC.toFloat()
-            startConfirmations = AppSettings.DEFAULT_START_CONFIRMATIONS.toFloat()
-            AppSettings.setActivityPollEnabled(context, AppSettings.DEFAULT_ACTIVITY_POLL_ENABLED)
-            AppSettings.setActivityPollIntervalSec(context, AppSettings.DEFAULT_ACTIVITY_POLL_INTERVAL_SEC)
-            AppSettings.setStartConfirmations(context, AppSettings.DEFAULT_START_CONFIRMATIONS)
-        }
-        Text(
-            "Re-reads your activity while armed so recording starts and stops promptly.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Poll activity", style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.width(12.dp))
-            Switch(
-                checked = pollEnabled,
-                onCheckedChange = {
-                    pollEnabled = it
-                    AppSettings.setActivityPollEnabled(context, it)
-                },
-            )
-        }
-        SliderSetting(
-            "Poll interval", pollIntervalSec, 30f..180f, 30, { durationSettingLabel(it.toInt()) },
-            enabled = pollEnabled,
-        ) {
-            pollIntervalSec = it
-            AppSettings.setActivityPollIntervalSec(context, it.toInt())
-        }
-        Text(
-            "How many readings in a row must agree you're moving before a new track starts. Higher " +
-                "rejects false starts but delays it.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 12.dp),
-        )
-        SliderSetting(
-            "Confirmations to start", startConfirmations, 1f..4f, 1, { confirmationsLabel(it.toInt()) },
-            // A confirming reading can only come from the poll; without it a track starts instantly.
-            enabled = pollEnabled,
-        ) {
-            startConfirmations = it
-            AppSettings.setStartConfirmations(context, it.toInt())
-        }
 
         if (BuildConfig.DEBUG) {
             Spacer(Modifier.height(24.dp))
@@ -1296,8 +1229,6 @@ private fun lengthSettingLabel(m: Int): String = when {
     m < 1000 -> "$m m"
     else -> "%.1f km".format(m / 1000.0)
 }
-
-private fun confirmationsLabel(n: Int): String = if (n <= 1) "Instant" else "$n readings"
 
 private fun groupTracksByDay(tracks: List<TrackSummary>): List<Pair<String, List<TrackSummary>>> {
     val zone = ZoneId.systemDefault()

@@ -42,10 +42,8 @@ import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -112,7 +110,6 @@ class LocationRecordingService : Service() {
     // the same track when the same activity resumes within the configured window.
     private var pauseToken = 0                        // generation guard for the delayed finalize
     private var pendingSegmentStart = false           // mark the first good fix after a resume as a new segment
-    private var pollJob: Job? = null                  // periodic activity re-read while armed
 
     override fun onCreate() {
         super.onCreate()
@@ -171,35 +168,11 @@ class LocationRecordingService : Service() {
                 }
             }
         }
-        startActivityPoll()
-    }
-
-    /**
-     * Re-reads the current activity on a timer while armed. Transitions are lazy: they're filtered,
-     * can lag minutes, suspend during long stillness, and replay stale events on registration. The
-     * snapshot (current-state read) is the reliable signal — polling it catches starts/stops the
-     * transition stream misses (and re-tries after a cold-engine UNKNOWN). The receiver applies the
-     * result in both directions.
-     */
-    private fun startActivityPoll() {
-        pollJob?.cancel()
-        pollJob = scope.launch {
-            while (isActive) {
-                // Re-read interval and toggle each cycle so changes take effect without re-arming.
-                delay(Settings.activityPollIntervalSec(this@LocationRecordingService) * 1000L)
-                if (Settings.activityPollEnabled(this@LocationRecordingService) &&
-                    isGranted(Manifest.permission.ACTIVITY_RECOGNITION)
-                ) {
-                    withContext(Dispatchers.Main) { activityManager.requestSnapshot() }
-                }
-            }
-        }
     }
 
     private fun handleStop() {
         armed = false
         DebugLog.i(TAG, "handleStop: disarming")
-        pollJob?.cancel()
         activityManager.stop()
         scope.launch {
             mutex.withLock {
@@ -222,24 +195,8 @@ class LocationRecordingService : Service() {
     private suspend fun applyActivity(raw: ActivityType) {
         // 1) Debounce the raw reading into a trusted activity signal.
         val previous = gate.confirmed
-        val confirmed = gate.onReading(
-            raw,
-            now(),
-            ActivityGate.Config(
-                startConfirmations = Settings.startConfirmations(this),
-                graceWindowMs = Settings.resumeWindowSec(this) * 1000L,
-                pollEnabled = Settings.activityPollEnabled(this),
-            ),
-        )
-        when (confirmed) {
-            Confirmed.NoChange -> return
-            Confirmed.Cancelled -> { DebugLog.i(TAG, "pending start cancelled by $raw"); return }
-            is Confirmed.Awaiting -> {
-                DebugLog.i(TAG, "pending start ${confirmed.activity} (${confirmed.count}/${confirmed.needed}) — awaiting confirmation")
-                return
-            }
-            else -> Unit // Stopped / Started / Continuing — a real change
-        }
+        val confirmed = gate.onReading(raw, now(), Settings.resumeWindowSec(this) * 1000L)
+        if (confirmed == Confirmed.NoChange) return
 
         // 2) Turn the trusted change into a track action and apply it.
         logTransition(previous, gate.confirmed)

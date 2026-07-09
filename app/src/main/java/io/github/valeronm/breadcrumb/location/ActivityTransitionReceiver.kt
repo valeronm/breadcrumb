@@ -10,7 +10,6 @@ import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
 import io.github.valeronm.breadcrumb.data.ActivityType
-import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.domain.ActivityInterpreter
 import java.util.Locale
 
@@ -43,19 +42,9 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                 }
                 // The last event is the current state; interpret it (see [ActivityInterpreter]).
                 val latest = result.transitionEvents.lastOrNull() ?: return
-                val ageMs = (nowNanos - latest.elapsedRealTimeNanos) / 1_000_000
                 val detected = ActivityType.fromDetectedActivity(latest.activityType)
                 val isExit = latest.transitionType == ActivityTransition.ACTIVITY_TRANSITION_EXIT
-                val decision = ActivityInterpreter.interpretTransition(
-                    detected, isExit, ageMs,
-                    ActivityInterpreter.TransitionConfig(
-                        pollEnabled = Settings.activityPollEnabled(context),
-                        pollIntervalMs = Settings.activityPollIntervalSec(context) * 1000L,
-                    ),
-                )
-                when (decision) {
-                    is ActivityInterpreter.TransitionDecision.Stale ->
-                        DebugLog.i(TAG, "  stale (${"%.1f".format(Locale.US, ageMs / 1000.0)}s) — ignoring; snapshot poll is authoritative")
+                when (val decision = ActivityInterpreter.interpretTransition(detected, isExit)) {
                     ActivityInterpreter.TransitionDecision.Ignore -> Unit
                     is ActivityInterpreter.TransitionDecision.Forward -> {
                         if (decision.exitMapped) DebugLog.i(TAG, "  EXIT $detected -> treating as STILL")
@@ -75,8 +64,7 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                 val probable = result.mostProbableActivity
                 val activity = ActivityType.fromDetectedActivity(probable.type)
                 val forward = ActivityInterpreter.interpretSnapshot(activity, probable.confidence, CONFIDENCE_THRESHOLD)
-                // The 30s poll repeats the same reading endlessly while idle/recording; only log when
-                // it changes (start/stop/anomaly) so the log stays signal, not noise.
+                // Re-arms repeat the same reading; only log when it changes so the log stays signal.
                 if (activity != lastSnapshotActivity) {
                     val ranked = result.probableActivities.joinToString {
                         "${detectedName(it.type)}:${it.confidence}"
@@ -121,7 +109,7 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
         private const val CONFIDENCE_THRESHOLD = 50
         private const val TAG = "Breadcrumb"
 
-        // Last snapshot reading we logged, to suppress identical repeats from the periodic poll.
+        // Last snapshot reading we logged, to suppress identical repeats across re-arms.
         @Volatile
         private var lastSnapshotActivity: ActivityType? = null
     }
