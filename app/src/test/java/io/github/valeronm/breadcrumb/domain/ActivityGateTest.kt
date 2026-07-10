@@ -23,9 +23,9 @@ class ActivityGateTest {
         assertEquals(WALKING, g.confirmed)
     }
 
-    @Test fun `stopping is trusted immediately`() {
+    @Test fun `stopping is trusted immediately and reports the resume deadline`() {
         val g = started(WALKING)
-        assertEquals(Confirmed.Stopped, g.onReading(STILL, 100, GRACE_MS))
+        assertEquals(Confirmed.Stopped(100 + GRACE_MS), g.onReading(STILL, 100, GRACE_MS))
         assertEquals(STILL, g.confirmed)
     }
 
@@ -73,6 +73,49 @@ class ActivityGateTest {
         g.onReading(RUNNING, 120_000, GRACE_MS)           // fresh start clears it
         g.onReading(STILL, 130_000, GRACE_MS)             // now RUNNING is the recent activity
         assertEquals(Confirmed.Started(WALKING), g.onReading(WALKING, 140_000, GRACE_MS))
+    }
+
+    // --- onTick (the pause wake's expiry question) -------------------------
+
+    @Test fun `a tick before the deadline changes nothing`() {
+        val g = started(WALKING)
+        g.onReading(STILL, 60_000, GRACE_MS)              // grace until 240s
+        assertEquals(Confirmed.NoChange, g.onTick(120_000))
+        // The window is still live — a return after the early tick still continues.
+        assertEquals(Confirmed.Continuing(WALKING), g.onReading(WALKING, 130_000, GRACE_MS))
+    }
+
+    @Test fun `a tick at the deadline expires the window`() {
+        val g = started(WALKING)
+        g.onReading(STILL, 60_000, GRACE_MS)              // grace until 240s
+        assertEquals(Confirmed.Expired, g.onTick(240_000))
+        // Expired means a later return is a fresh start.
+        assertEquals(Confirmed.Started(WALKING), g.onReading(WALKING, 250_000, GRACE_MS))
+    }
+
+    @Test fun `expiry fires once — a duplicate wake is no change`() {
+        val g = started(WALKING)
+        g.onReading(STILL, 60_000, GRACE_MS)
+        g.onTick(240_000)
+        assertEquals(Confirmed.NoChange, g.onTick(300_000))
+    }
+
+    @Test fun `a tick with nothing stopped is no change`() {
+        assertEquals(Confirmed.NoChange, ActivityGate().onTick(240_000))
+        assertEquals(Confirmed.NoChange, started(WALKING).onTick(240_000))
+    }
+
+    @Test fun `a tick after a resume is no change`() {
+        val g = started(WALKING)
+        g.onReading(STILL, 60_000, GRACE_MS)
+        g.onReading(WALKING, 120_000, GRACE_MS)           // resumed — old deadline is moot
+        assertEquals(Confirmed.NoChange, g.onTick(240_000))
+    }
+
+    @Test fun `a zero grace window expires on the immediate tick`() {
+        val g = started(WALKING)
+        g.onReading(STILL, 60_000, 0)                     // deadline = now
+        assertEquals(Confirmed.Expired, g.onTick(60_000))
     }
 
     @Test fun `arming resets the confirmed activity and grace state`() {

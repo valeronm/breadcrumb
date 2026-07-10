@@ -11,7 +11,8 @@ import io.github.valeronm.breadcrumb.data.ActivityType
  *
  * [LocationRecordingService] applies the returned [RecordingAction] and reports the resulting phase
  * back via [onRecordingStarted] / [onPaused] / [onResumed] / [onClosed] (including for closes driven
- * by the finalize timer or the resume-distance split, not just by [onConfirmed]).
+ * by the pause wake's [Confirmed.Expired] or the resume-distance split, not just by activity
+ * readings).
  */
 class TrackController {
 
@@ -30,9 +31,14 @@ class TrackController {
         // Non-changes are handled by the service before it ever reaches here; map to Noop for totality.
         Confirmed.NoChange -> RecordingAction.Noop
 
-        Confirmed.Stopped -> when (val p = phase) {
-            is Phase.Recording -> RecordingAction.Pause(p.activity)
+        is Confirmed.Stopped -> when (val p = phase) {
+            is Phase.Recording -> RecordingAction.Pause(p.activity, confirmed.resumeDeadlineMs)
             else -> RecordingAction.Noop // nothing open to pause
+        }
+
+        Confirmed.Expired -> when (phase) {
+            is Phase.Paused -> RecordingAction.Finalize
+            else -> RecordingAction.Noop // resumed or already closed before the wake arrived
         }
 
         is Confirmed.Continuing -> when (phase) {
@@ -65,11 +71,17 @@ class TrackController {
 sealed interface RecordingAction {
     data object Noop : RecordingAction
 
-    /** Pause the open track, recording [pausedActivity] as the activity to resume into. */
-    data class Pause(val pausedActivity: ActivityType) : RecordingAction
+    /**
+     * Pause the open track, recording [pausedActivity] as the activity to resume into. The service
+     * schedules a logic-free wake at [resumeDeadlineMs] that just ticks the gate.
+     */
+    data class Pause(val pausedActivity: ActivityType, val resumeDeadlineMs: Long) : RecordingAction
 
     /** Resume the paused track. */
     data object Resume : RecordingAction
+
+    /** The grace window expired with the track still paused — close it. */
+    data object Finalize : RecordingAction
 
     /** Finalize whatever is open and start a new track for [activity]. */
     data class StartNew(val activity: ActivityType) : RecordingAction

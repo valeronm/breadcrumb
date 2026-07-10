@@ -28,19 +28,24 @@ class ActivityGate {
         // A stop is trusted immediately; remember what we left so a prompt return can resume.
         if (!raw.recording) {
             if (raw == confirmed) return Confirmed.NoChange
-            if (confirmed.recording && graceWindowMs > 0) {
+            // Only a *moving* activity is worth remembering for a grace-window resume. With STILL
+            // as the only non-recording type, confirmed.recording is always true here — the check
+            // guards the invariant if a second non-recording type is ever added.
+            if (confirmed.recording) {
                 recentActivity = confirmed
                 recentUntilMs = nowMs + graceWindowMs
             }
             confirmed = raw
-            return Confirmed.Stopped
+            return Confirmed.Stopped(nowMs + graceWindowMs)
         }
 
         // Already on this activity — nothing changes.
         if (raw == confirmed) return Confirmed.NoChange
 
         // A prompt return to the activity we just left → a resume rather than a fresh start.
-        if (raw == recentActivity && nowMs <= recentUntilMs) {
+        // Strictly before the deadline: at the deadline the window has expired (a zero window
+        // never resumes).
+        if (raw == recentActivity && nowMs < recentUntilMs) {
             clearRecent()
             confirmed = raw
             return Confirmed.Continuing(raw)
@@ -49,6 +54,17 @@ class ActivityGate {
         clearRecent()
         confirmed = raw
         return Confirmed.Started(raw)
+    }
+
+    /**
+     * Clock tick at (or after) a [Confirmed.Stopped] deadline: reports whether the grace window
+     * has now expired. The caller's timer is logic-free — a stale wake after a resume, a fresh
+     * start, or a newer pause (with its own later deadline) is just [Confirmed.NoChange].
+     */
+    fun onTick(nowMs: Long): Confirmed {
+        if (recentActivity == null || nowMs < recentUntilMs) return Confirmed.NoChange
+        clearRecent()
+        return Confirmed.Expired
     }
 
     /** On (re)arm: forget any grace state and reset the confirmed activity to STILL. */
@@ -68,8 +84,14 @@ sealed interface Confirmed {
     /** The trusted activity is unchanged. */
     data object NoChange : Confirmed
 
-    /** The user stopped — the trusted activity is now STILL. */
-    data object Stopped : Confirmed
+    /**
+     * The user stopped — the trusted activity is now STILL. A return before [resumeDeadlineMs]
+     * (wall clock) reads as [Continuing]; the service should [ActivityGate.onTick] at the deadline.
+     */
+    data class Stopped(val resumeDeadlineMs: Long) : Confirmed
+
+    /** The grace window after a stop passed with no return — a paused track should finalize. */
+    data object Expired : Confirmed
 
     /** A fresh moving activity started. */
     data class Started(val activity: ActivityType) : Confirmed

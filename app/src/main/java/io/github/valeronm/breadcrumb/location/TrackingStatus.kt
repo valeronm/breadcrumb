@@ -17,6 +17,8 @@ object TrackingStatus {
         /** Latest good fix's speed (m/s) and altitude (m), null when unknown or not recording. */
         val speedMps: Float? = null,
         val altitudeM: Double? = null,
+        /** True while the no-fix guard has GPS off, waiting for a resume signal. */
+        val gpsSuspended: Boolean = false,
     )
 
     private val _state = MutableStateFlow(State())

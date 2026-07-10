@@ -104,7 +104,6 @@ class LocationRecordingService : Service() {
     // --- Auto-pause / stitch resources (all touched only under [mutex]) ---
     // While paused, [currentTrackId] stays open (GPS off) so a brief stop can be stitched back into
     // the same track when the same activity resumes within the configured window.
-    private var pauseToken = 0                        // generation guard for the delayed finalize
     private var pendingSegmentStart = false           // mark the first good fix after a resume as a new segment
 
     override fun onCreate() {
@@ -200,7 +199,12 @@ class LocationRecordingService : Service() {
             RecordingAction.Noop -> Unit
             is RecordingAction.Pause -> {
                 DebugLog.i(TAG, "  -> pausing track $currentTrackId")
-                pauseTrack(action.pausedActivity)
+                pauseTrack(action.pausedActivity, action.resumeDeadlineMs)
+            }
+            RecordingAction.Finalize -> {
+                // Unreachable from a reading (expiry only comes from the pause wake); for totality.
+                DebugLog.i(TAG, "  -> finalizing track $currentTrackId")
+                closeCurrentTrack()
             }
             RecordingAction.Resume -> {
                 DebugLog.i(TAG, "  -> resuming paused track $currentTrackId")
@@ -225,19 +229,17 @@ class LocationRecordingService : Service() {
         DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${controller.isPaused})")
     }
 
-    /** Stop GPS but keep the track open; finalize it later if movement doesn't resume in time. */
-    private suspend fun pauseTrack(trackActivity: ActivityType) {
+    /** Stop GPS but keep the track open; a wake at [resumeDeadlineMs] finalizes it if unresumed. */
+    private suspend fun pauseTrack(trackActivity: ActivityType, resumeDeadlineMs: Long) {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
         noFixGuard.onStopped()
         controller.onPaused(trackActivity)
-        val token = ++pauseToken
-        val windowMs = Settings.resumeWindowSec(this) * 1000L
         scope.launch {
-            delay(windowMs)
+            delay(resumeDeadlineMs - now())
+            // Logic-free wake: the gate decides whether this deadline still means anything — a
+            // stale wake after a resume, fresh start, or newer pause just maps to Noop.
             mutex.withLock {
-                // Still the same pause, still un-resumed → finalize. (The resume decision itself is the
-                // gate's job now; this is just resource cleanup for a stop nothing came back from.)
-                if (controller.isPaused && pauseToken == token) {
+                if (controller.onConfirmed(gate.onTick(now())) == RecordingAction.Finalize) {
                     DebugLog.i(TAG, "pause expired — finalizing track $currentTrackId")
                     closeCurrentTrack()
                     publishStatus()
@@ -554,6 +556,7 @@ class LocationRecordingService : Service() {
                 startedAtMillis = if (activity.recording && trackStartedAt > 0) trackStartedAt else null,
                 speedMps = if (activity.recording) lastGoodPoint?.speed else null,
                 altitudeM = if (activity.recording) lastGoodPoint?.altitude else null,
+                gpsSuspended = activity.recording && noFixGuard.suspended,
             )
         }
         // State only — no live distance. The notification re-posts only on activity/pause

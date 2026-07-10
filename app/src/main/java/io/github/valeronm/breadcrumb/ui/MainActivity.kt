@@ -136,6 +136,8 @@ import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.RecordCardState
+import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
@@ -573,6 +575,14 @@ private fun RecordTab(
                 } else {
                     null
                 }
+                val cardState = recordCardState(
+                    armed = autoOn,
+                    tracking = status.tracking,
+                    recording = status.recording,
+                    gpsSuspended = status.gpsSuspended,
+                    points = status.points,
+                    hasOpenTrack = LocationRecordingService.activeTrackId != null,
+                )
                 when {
                     replay != null -> {
                         Spacer(Modifier.height(16.dp))
@@ -584,7 +594,7 @@ private fun RecordTab(
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                         )
                     }
-                    autoOn && status.recording && LocationRecordingService.activeTrackId != null -> {
+                    cardState == RecordCardState.LIVE_MAP -> {
                         Spacer(Modifier.height(16.dp))
                         LiveTrackPreview(
                             viewModel = viewModel,
@@ -592,16 +602,16 @@ private fun RecordTab(
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                         )
                     }
-                    autoOn -> {
+                    cardState == RecordCardState.STATS_ONLY -> {
                         Spacer(Modifier.height(16.dp))
-                        RecorderStateCard(status)
-                        Spacer(Modifier.height(12.dp))
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                             RecordedStats(viewModel)
                         }
                     }
                     else -> {
                         Spacer(Modifier.height(16.dp))
+                        RecorderStateCard(cardState, status.activityLabel)
+                        Spacer(Modifier.height(12.dp))
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                             RecordedStats(viewModel)
                         }
@@ -771,22 +781,27 @@ private fun CurrentTrackPreview(
     }
 }
 
-/** Armed-but-not-recording state, shown where the track preview goes once recording starts. */
+/** Recorder state while there's no track to draw: starting, waiting for movement or for GPS. */
 @Composable
-private fun RecorderStateCard(status: TrackingStatus.State) {
+private fun RecorderStateCard(state: RecordCardState, activityLabel: String) {
+    val (title, body) = when (state) {
+        RecordCardState.NO_GPS_SIGNAL ->
+            "No GPS signal" to
+                "Recording $activityLabel — GPS is resting until movement or a signal."
+        RecordCardState.WAITING_FOR_GPS ->
+            "Waiting for GPS…" to
+                "Recording $activityLabel — the track appears once a fix arrives."
+        RecordCardState.WAITING_FOR_MOVEMENT ->
+            "Paused" to "Waiting for movement — recording starts on its own."
+        else ->
+            "Starting…" to "The recording service is starting up."
+    }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
-            Text(
-                if (status.tracking) "Paused" else "Starting…",
-                style = MaterialTheme.typography.titleMedium,
-            )
+            Text(title, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                if (status.tracking) {
-                    "Waiting for movement — recording starts on its own."
-                } else {
-                    "The recording service is starting up."
-                },
+                body,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

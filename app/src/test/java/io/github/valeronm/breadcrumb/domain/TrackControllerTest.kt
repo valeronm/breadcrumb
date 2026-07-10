@@ -28,12 +28,25 @@ class TrackControllerTest {
         assertEquals(RecordingAction.StartNew(DRIVING), recording(WALKING).onConfirmed(Confirmed.Started(DRIVING)))
     }
 
-    @Test fun `stopped while recording pauses`() {
-        assertEquals(RecordingAction.Pause(WALKING), recording(WALKING).onConfirmed(Confirmed.Stopped))
+    @Test fun `stopped while recording pauses, carrying the resume deadline`() {
+        assertEquals(
+            RecordingAction.Pause(WALKING, 240_000L),
+            recording(WALKING).onConfirmed(Confirmed.Stopped(240_000L)),
+        )
     }
 
     @Test fun `stopped while idle does nothing`() {
-        assertEquals(RecordingAction.Noop, TrackController().onConfirmed(Confirmed.Stopped))
+        assertEquals(RecordingAction.Noop, TrackController().onConfirmed(Confirmed.Stopped(240_000L)))
+    }
+
+    @Test fun `expiry while paused finalizes`() {
+        assertEquals(RecordingAction.Finalize, paused(WALKING).onConfirmed(Confirmed.Expired))
+    }
+
+    @Test fun `a stale expiry wake is a noop`() {
+        // The wake landed after a resume (Recording) or after the track closed (Idle).
+        assertEquals(RecordingAction.Noop, recording(WALKING).onConfirmed(Confirmed.Expired))
+        assertEquals(RecordingAction.Noop, TrackController().onConfirmed(Confirmed.Expired))
     }
 
     @Test fun `continuing a paused track resumes it`() {
