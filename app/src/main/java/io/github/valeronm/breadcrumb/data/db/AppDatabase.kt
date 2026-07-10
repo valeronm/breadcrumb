@@ -8,13 +8,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Track::class, TrackPoint::class, LivenessEvent::class],
-    version = 6,
+    entities = [Track::class, TrackPoint::class, LivenessEvent::class, Place::class],
+    version = 7,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
     abstract fun livenessDao(): LivenessDao
+    abstract fun placeDao(): PlaceDao
 
     companion object {
         @Volatile
@@ -80,14 +81,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v7 adds the places table — user-assigned labels for recurring stay locations.
+        // Everything else about places (clustering, visit counts) stays derived on read.
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS places (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "label TEXT NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, " +
+                        "createdAt INTEGER NOT NULL)",
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "tracks.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
-                    .build().also { instance = it }
+                ).addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+                    MIGRATION_6_7,
+                ).build().also { instance = it }
             }
     }
 }

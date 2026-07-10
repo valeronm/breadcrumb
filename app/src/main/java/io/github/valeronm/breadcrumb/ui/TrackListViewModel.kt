@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.LivenessRepository
+import io.github.valeronm.breadcrumb.data.PlaceRepository
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.LivenessEvent
@@ -14,6 +15,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.GpxExporter
+import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.location.TrackingStatus
@@ -30,17 +32,20 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repository = TrackRepository(app)
     private val livenessRepository = LivenessRepository(app)
+    private val placeRepository = PlaceRepository(app)
 
     val tracks: StateFlow<List<TrackSummary>> = repository.observeSummaries()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Tracks interleaved with derived stays and data gaps, newest first, sliced per local day. */
+    // This is combine's last typed overload (5 flows) — a sixth flow needs the vararg form.
     val timeline: StateFlow<List<TimelineItem>> = combine(
         repository.observeSummaries(),
         repository.observeEndpoints(),
         livenessRepository.observeEvents(),
+        placeRepository.observePlaces(),
         TrackingStatus.state,
-    ) { summaries, endpoints, events, status ->
+    ) { summaries, endpoints, events, places, status ->
         val now = System.currentTimeMillis()
         val intervals = StayDeriver.derive(
             tracks = endpoints.map { it.toTrackEnd() },
@@ -49,12 +54,34 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             activeRecording = status.recording,
             distance = AndroidDistance,
         )
+        // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
+        // as 3 visits. afterTrackId keys survive the slicing copies.
+        val resolutions = PlaceResolver.resolve(
+            intervals.filterIsInstance<StayDeriver.Stay>(), places, distance = AndroidDistance,
+        )
         StayDeriver.interleave(
             summaries,
             StayDeriver.slicePerDay(intervals, ZoneId.systemDefault(), now),
-        )
+        ).map { item ->
+            if (item is TimelineItem.StayItem) item.copy(place = resolutions[item.stay.afterTrackId])
+            else item
+        }
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Save from the naming dialog: blank clears an existing label; otherwise create or rename. */
+    fun savePlace(place: PlaceResolver.ResolvedStay, label: String) {
+        viewModelScope.launch {
+            val trimmed = label.trim()
+            when {
+                trimmed.isEmpty() && place.placeId != null -> placeRepository.delete(place.placeId)
+                place.placeId != null -> placeRepository.rename(place.placeId, trimmed)
+                trimmed.isNotEmpty() -> placeRepository.create(
+                    trimmed, place.centroid.lat, place.centroid.lon, System.currentTimeMillis(),
+                )
+            }
+        }
+    }
 
     init {
         viewModelScope.launch {

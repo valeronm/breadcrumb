@@ -259,7 +259,11 @@ sealed interface TimelineItem {
         override val startedAt get() = summary.startedAt
     }
 
-    data class StayItem(val stay: StayDeriver.Stay) : TimelineItem {
+    data class StayItem(
+        val stay: StayDeriver.Stay,
+        /** Place resolution, attached after derivation; null only if resolution wasn't run. */
+        val place: PlaceResolver.ResolvedStay? = null,
+    ) : TimelineItem {
         override val startedAt get() = stay.start
     }
 

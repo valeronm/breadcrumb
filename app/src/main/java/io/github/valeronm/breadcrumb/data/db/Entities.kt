@@ -96,6 +96,20 @@ data class LivenessEvent(
     }
 }
 
+/**
+ * A user-named place. Created/renamed/deleted from the stay-naming dialog; stays, clusters and
+ * visit counts stay derived on read — labels are the only persisted layer of the places feature.
+ */
+@Entity(tableName = "places")
+data class Place(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val label: String,
+    /** Cluster centroid at naming time. Never updated on rename — a stable pin. */
+    val lat: Double,
+    val lon: Double,
+    val createdAt: Long,
+)
+
 /** A finished track projected to what stay derivation needs: interval + endpoint coordinates. */
 data class TrackEndpoints(
     val id: Long,

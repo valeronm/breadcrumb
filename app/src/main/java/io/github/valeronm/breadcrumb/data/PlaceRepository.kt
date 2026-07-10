@@ -1,0 +1,25 @@
+package io.github.valeronm.breadcrumb.data
+
+import android.content.Context
+import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.data.db.Place
+import kotlinx.coroutines.flow.Flow
+
+/**
+ * User-assigned place labels — the only persisted layer of the places feature. Stays, clusters
+ * and visit counts derive on read; a Place row pins a label to a cluster centroid at naming time
+ * (the pin is never moved on rename — matching goes through the cluster anchor, see PlaceResolver).
+ */
+class PlaceRepository(context: Context) {
+
+    private val dao = AppDatabase.get(context).placeDao()
+
+    fun observePlaces(): Flow<List<Place>> = dao.observeAll()
+
+    suspend fun create(label: String, lat: Double, lon: Double, now: Long): Long =
+        dao.insert(Place(label = label, lat = lat, lon = lon, createdAt = now))
+
+    suspend fun rename(id: Long, label: String) = dao.rename(id, label)
+
+    suspend fun delete(id: Long) = dao.delete(id)
+}

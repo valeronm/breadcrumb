@@ -71,6 +71,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -914,6 +915,7 @@ private fun TracksTab(
 ) {
     val context = LocalContext.current
     var pendingDelete by remember { mutableStateOf<TrackSummary?>(null) }
+    var pendingName by remember { mutableStateOf<TimelineItem.StayItem?>(null) }
 
     if (items.none { it is TimelineItem.TrackItem }) {
         Box(
@@ -960,11 +962,56 @@ private fun TracksTab(
                             null
                         },
                     )
-                    is TimelineItem.StayItem -> StayRow(item.stay, shape)
+                    is TimelineItem.StayItem -> StayRow(item, shape) { pendingName = item }
                     is TimelineItem.GapItem -> GapRow(item.gap, shape)
                 }
             }
         }
+    }
+
+    pendingName?.let { item ->
+        val place = item.place
+        if (place == null) {
+            pendingName = null
+            return@let
+        }
+        var text by remember(item) { mutableStateOf(place.label ?: "") }
+        val removing = text.isBlank() && place.label != null
+        AlertDialog(
+            onDismissRequest = { pendingName = null },
+            icon = { Icon(Icons.Filled.Place, contentDescription = null) },
+            title = { Text(if (place.label == null) "Name this place" else "Rename place") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        singleLine = true,
+                        label = { Text("Place name") },
+                    )
+                    if (place.label != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Clear the name to remove the label.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.savePlace(place, text)
+                        pendingName = null
+                    },
+                    enabled = text.isNotBlank() || place.label != null,
+                ) { Text(if (removing) "Remove" else "Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingName = null }) { Text("Cancel") }
+            },
+        )
     }
 
     pendingDelete?.let { track ->
@@ -1608,16 +1655,26 @@ private fun TrackRow(
     }
 }
 
-/** A derived stationary period between two tracks. Inferred stays render muted with a "~". */
+// Unnamed clusters visited at least this often surface their count as a naming invitation.
+private const val VISIT_COUNT_BADGE_MIN = 3
+
+/**
+ * A derived stationary period between two tracks. Inferred stays render muted with a "~"; a
+ * resolved place shows its label, an unnamed recurring cluster shows its visit count. Tap → name.
+ */
 @Composable
-private fun StayRow(stay: StayDeriver.Stay, shape: RoundedCornerShape) {
+private fun StayRow(item: TimelineItem.StayItem, shape: RoundedCornerShape, onClick: () -> Unit) {
+    val stay = item.stay
+    val place = item.place
     val inferred = stay.provenance == StayDeriver.Provenance.INFERRED
-    Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
+    val named = place?.label != null
+    Card(modifier = Modifier.fillMaxWidth(), shape = shape, onClick = onClick) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val tint = MaterialTheme.colorScheme.onSurfaceVariant
+            val tint = if (named) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant
             Box(
                 modifier = Modifier.size(36.dp).clip(CircleShape)
                     .background(tint.copy(alpha = if (inferred) 0.10f else 0.16f)),
@@ -1647,8 +1704,15 @@ private fun StayRow(stay: StayDeriver.Stay, shape: RoundedCornerShape) {
                     else MaterialTheme.colorScheme.onSurface,
                 )
                 val duration = formatDurationMs((stay.end ?: System.currentTimeMillis()) - stay.start)
+                val what = place?.label ?: "Stayed"
+                val visits = place?.visitCount?.takeIf { !named && it >= VISIT_COUNT_BADGE_MIN }
                 Text(
-                    if (inferred) "Stayed ~$duration" else "Stayed · $duration",
+                    buildString {
+                        append(what)
+                        append(if (inferred) " ~" else " · ")
+                        append(duration)
+                        if (visits != null) append(" · visited $visits×")
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
