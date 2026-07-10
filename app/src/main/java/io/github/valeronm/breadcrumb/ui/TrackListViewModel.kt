@@ -59,7 +59,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         // as 3 visits. afterTrackId keys survive the slicing copies.
         val resolutions = PlaceResolver.resolve(
             derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
-            derivation.clusters, places, distance = AndroidDistance,
+            derivation.clusters, places,
         )
         StayDeriver.interleave(
             summaries,
@@ -89,7 +89,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         )
         PlaceResolver.summarize(
             derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
-            derivation.clusters, places, now, distance = AndroidDistance,
+            derivation.clusters, places, now,
         )
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

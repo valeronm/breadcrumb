@@ -179,6 +179,16 @@ class StayDeriverTest {
         assertTrue(flatDistance.metres(anchor.lat, anchor.lon, home.lat, home.lon) <= 150.0)
     }
 
+    @Test fun `a pinned venue's stay indexes into the pin's seeded cluster`() {
+        val derivation = StayDeriver.derive(
+            homePair(from = at(300.0)), listOf(Armed(0)), NOW, false,
+            StayDeriver.Params(), flatDistance,
+            placePins = listOf(at(150.0)),
+        )
+        val stay = derivation.intervals.filterIsInstance<Stay>().first { it.end == 240 * MIN }
+        assertEquals(0, derivation.clusters[stay.clusterId].seedIndex)
+    }
+
     @Test fun `a missing endpoint is an unknown-endpoint gap`() {
         val intervals = derive(homePair(to = null))
         assertEquals(GapReason.UNKNOWN_ENDPOINT, (intervals.first { it is Gap } as Gap).reason)

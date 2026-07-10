@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.DistanceFn
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -83,4 +84,45 @@ class PlaceClustererTest {
     /** index → anchor of its cluster (cluster identity that's comparable across runs). */
     private fun assignments(clusters: List<PlaceClusterer.Cluster>): Map<Int, Endpoint> =
         clusters.flatMap { c -> c.memberIndices.map { it to c.anchor } }.toMap()
+
+    // --- Seeded clustering ------------------------------------------------------
+
+    private fun seed(meters: Double, radius: Double = 350.0) = PlaceClusterer.Seed(at(meters), radius)
+
+    private fun clusterSeeded(seeds: List<PlaceClusterer.Seed>, vararg locations: Endpoint) =
+        PlaceClusterer.cluster(locations.toList(), distance = flatDistance, seeds = seeds)
+
+    @Test fun `a seed captures locations at its own radius, beyond the organic one`() {
+        // 300 m from the pin — past the 150 m organic radius but within the 350 m seed radius.
+        val c = clusterSeeded(listOf(seed(0.0)), at(300.0)).single()
+        assertEquals(0, c.seedIndex)
+        assertEquals(at(0.0), c.anchor)
+        assertEquals(listOf(0), c.memberIndices)
+    }
+
+    @Test fun `a memberless seed is still listed, centred on its pin`() {
+        val clusters = clusterSeeded(listOf(seed(0.0)), at(1000.0))
+        assertEquals(2, clusters.size)
+        assertEquals(0, clusters[0].seedIndex)
+        assertEquals(0, clusters[0].visitCount)
+        assertEquals(at(0.0), clusters[0].centroid)
+        assertNull(clusters[1].seedIndex)
+    }
+
+    @Test fun `organic anchors only form beyond every seed radius`() {
+        // 300 joins the seed; 400 is past 350 → founds an organic cluster that 450 then joins.
+        val clusters = clusterSeeded(listOf(seed(0.0)), at(300.0), at(400.0), at(450.0))
+        assertEquals(2, clusters.size)
+        assertEquals(listOf(0), clusters[0].memberIndices)
+        assertEquals(listOf(1, 2), clusters[1].memberIndices)
+        assertNull(clusters[1].seedIndex)
+    }
+
+    @Test fun `a location nearer an organic anchor is not pulled into a seed`() {
+        // The organic anchor forms at 400 (outside the seed); 300 is within both radii but
+        // nearer the organic anchor (100 m vs 300 m) — nearest qualifying anchor wins.
+        val clusters = clusterSeeded(listOf(seed(0.0)), at(400.0), at(300.0))
+        assertTrue(clusters[0].memberIndices.isEmpty())
+        assertEquals(listOf(0, 1), clusters[1].memberIndices)
+    }
 }

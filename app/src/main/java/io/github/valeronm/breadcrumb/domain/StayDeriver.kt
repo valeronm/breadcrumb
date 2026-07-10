@@ -9,12 +9,14 @@ import java.time.ZoneId
  * Derives *stays* — where the user was between recorded tracks — from data the app already has,
  * at zero sensing cost. A stay is the interval between the end of one kept track and the start of
  * the next, when both endpoints land at "the same place". Same place means any of:
- *  - the same endpoint cluster ([PlaceClusterer] over every track endpoint in history — repeated
- *    visits widen the tolerance to the place's real GPS scatter);
+ *  - the same endpoint cluster ([PlaceClusterer] over every track endpoint in history, *seeded*
+ *    by the user's named-place pins at [Params.placeOverrideRadiusM] — user-curated pins make
+ *    large venues (malls, garages) generous where blanket radii can't be, and repeated visits
+ *    widen organic clusters to the place's real GPS scatter);
  *  - raw distance within [Params.agreementRadiusM], so nearby endpoints straddling two clusters
  *    still agree;
- *  - the same nearest *named place* pin within [Params.placeOverrideRadiusM] — user-curated pins
- *    make large venues (malls, garages) generous where blanket radii can't be.
+ *  - the same nearest *named place* pin within [Params.placeOverrideRadiusM], for the residual
+ *    case where a nearer organic anchor pulled one endpoint out of the pin's seeded cluster.
  * Endpoint disagreement means movement the recorder missed, and is reported as a [Gap] instead.
  *
  * Honesty rule: silence is only a stay if the app was alive and armed throughout — that evidence
@@ -56,7 +58,8 @@ object StayDeriver {
         val agreementRadiusM: Double = 100.0,
         /** Radius for clustering track endpoints into places. */
         val placeRadiusM: Double = PlaceClusterer.DEFAULT_RADIUS_M,
-        /** Endpoints whose shared nearest named-place pin is within this radius agree. */
+        /** Named-place pins seed endpoint clusters at this radius; endpoints whose shared
+         *  nearest pin is within it also agree directly. */
         val placeOverrideRadiusM: Double = 350.0,
         /** Inter-track gaps shorter than this emit nothing. 0 = keep every stay (brief stops
          *  included) — the auto-pause resume window already absorbs the truly-momentary ones. */
@@ -96,7 +99,8 @@ object StayDeriver {
     /** Derivation output: the timeline intervals plus the endpoint clusters stays index into. */
     data class Derivation(
         val intervals: List<Interval>,
-        /** Clusters over every track endpoint, in chronological order; see [Stay.clusterId]. */
+        /** Clusters over every track endpoint — one per named-place pin first (in pin order,
+         *  possibly memberless), then organic clusters chronologically; see [Stay.clusterId]. */
         val clusters: List<PlaceClusterer.Cluster>,
     )
 
@@ -107,11 +111,13 @@ object StayDeriver {
         activeRecording: Boolean,
         params: Params = Params(),
         distance: DistanceFn,
-        /** Named-place pins, for the same-nearest-pin agreement override. */
+        /** Named-place pins: seed the endpoint clustering (in pin order — [PlaceResolver] maps
+         *  [PlaceClusterer.Cluster.seedIndex] back to the same places list) and drive the
+         *  same-nearest-pin agreement override. */
         placePins: List<Endpoint> = emptyList(),
     ): Derivation {
         val evidence = summarizeLiveness(liveness, nowMs)
-        val (clusters, clusterOf) = clusterEndpoints(tracks, params, distance)
+        val (clusters, clusterOf) = clusterEndpoints(tracks, placePins, params, distance)
         val out = mutableListOf<Interval>()
 
         fun nearestPin(e: Endpoint): Int? = placePins.indices
@@ -157,11 +163,13 @@ object StayDeriver {
 
     /**
      * Clusters every track endpoint (chronological: each track's start then end) so anchors are
-     * stable as history grows. Identical coordinates always land in the same cluster, so the
-     * value-keyed map is safe even when endpoints repeat.
+     * stable as history grows, seeding the clustering with the named-place pins so endpoints near
+     * a pin belong to that place's cluster. Identical coordinates always land in the same cluster,
+     * so the value-keyed map is safe even when endpoints repeat.
      */
     private fun clusterEndpoints(
         tracks: List<TrackEnd>,
+        placePins: List<Endpoint>,
         params: Params,
         distance: DistanceFn,
     ): Pair<List<PlaceClusterer.Cluster>, Map<Endpoint, Int>> {
@@ -171,7 +179,10 @@ object StayDeriver {
                 track.end?.let { add(it) }
             }
         }
-        val clusters = PlaceClusterer.cluster(endpoints, params.placeRadiusM, distance)
+        val clusters = PlaceClusterer.cluster(
+            endpoints, params.placeRadiusM, distance,
+            seeds = placePins.map { PlaceClusterer.Seed(it, params.placeOverrideRadiusM) },
+        )
         val clusterOf = HashMap<Endpoint, Int>(endpoints.size)
         clusters.forEachIndexed { ci, cluster ->
             for (index in cluster.memberIndices) clusterOf[endpoints[index]] = ci

@@ -9,18 +9,30 @@ import io.github.valeronm.breadcrumb.data.DistanceFn
  * appending new stays can never re-shuffle the clusters older stays belong to. Every member is
  * within [radius] of its anchor, so a cluster can't chain-walk across a neighbourhood.
  *
- * Label matching (see [PlaceResolver]) also goes through the anchor, because the centroid drifts
- * as visits accumulate while the anchor never moves.
+ * The user's named-place pins enter as [Seed]s: pre-existing anchors, each with its own (venue-
+ * scale) capture radius, that outrank chronology. A seeded cluster's identity *is* its place
+ * ([Cluster.seedIndex]), which kills the anchor lottery — a skewed first visit can no longer
+ * found a shadow cluster next to a named place, because endpoints within the seed radius join
+ * the pin's cluster instead. Assignment is nearest-qualifying-anchor, so an endpoint closer to
+ * a distinct organic anchor still goes there.
  */
 object PlaceClusterer {
 
+    /** A pre-existing anchor — a stored place pin — with its own capture radius. */
+    class Seed(
+        val anchor: StayDeriver.Endpoint,
+        val radiusM: Double,
+    )
+
     class Cluster(
-        /** First member's location — the stable identity used for place matching. */
+        /** First member's location (or the seed pin) — the stable cluster identity. */
         val anchor: StayDeriver.Endpoint,
         /** Arithmetic mean of member locations — the display/pin location. */
         val centroid: StayDeriver.Endpoint,
         /** Indices into the input list. */
         val memberIndices: List<Int>,
+        /** Index into the seed list when this cluster grew from a seed; null for organic clusters. */
+        val seedIndex: Int? = null,
     ) {
         val visitCount: Int get() = memberIndices.size
     }
@@ -29,18 +41,26 @@ object PlaceClusterer {
         locations: List<StayDeriver.Endpoint>,
         radiusM: Double = DEFAULT_RADIUS_M,
         distance: DistanceFn,
+        seeds: List<Seed> = emptyList(),
     ): List<Cluster> {
         val anchors = mutableListOf<StayDeriver.Endpoint>()
+        val radii = mutableListOf<Double>()
         val members = mutableListOf<MutableList<Int>>()
+        for (seed in seeds) {
+            anchors += seed.anchor
+            radii += seed.radiusM
+            members += mutableListOf<Int>()
+        }
         locations.forEachIndexed { index, location ->
-            val nearest = anchors.withIndex()
-                .map { (ci, anchor) -> ci to distance.metres(anchor.lat, anchor.lon, location.lat, location.lon) }
-                .filter { (_, d) -> d <= radiusM }
+            val nearest = anchors.indices
+                .map { ci -> ci to distance.metres(anchors[ci].lat, anchors[ci].lon, location.lat, location.lon) }
+                .filter { (ci, d) -> d <= radii[ci] }
                 .minByOrNull { (_, d) -> d }
             if (nearest != null) {
                 members[nearest.first] += index
             } else {
                 anchors += location
+                radii += radiusM
                 members += mutableListOf(index)
             }
         }
@@ -48,11 +68,13 @@ object PlaceClusterer {
             val locs = members[ci].map { locations[it] }
             Cluster(
                 anchor = anchor,
-                centroid = StayDeriver.Endpoint(
+                // A seed with no members keeps its pin as the centroid.
+                centroid = if (locs.isEmpty()) anchor else StayDeriver.Endpoint(
                     lat = locs.sumOf { it.lat } / locs.size,
                     lon = locs.sumOf { it.lon } / locs.size,
                 ),
                 memberIndices = members[ci],
+                seedIndex = ci.takeIf { it < seeds.size },
             )
         }
     }

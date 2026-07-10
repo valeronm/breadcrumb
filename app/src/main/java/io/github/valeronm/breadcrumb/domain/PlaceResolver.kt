@@ -1,14 +1,13 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.DistanceFn
 import io.github.valeronm.breadcrumb.data.db.Place
 
 /**
  * Resolves each derived stay to its place: stays arrive already carrying their endpoint-cluster id
- * (see [StayDeriver.Derivation]), and each cluster is matched to the nearest persisted [Place]
- * within [radius] of the cluster's *anchor*. The anchor, not the centroid: a place is pinned at
- * the centroid when named, but the centroid drifts as visits accumulate — the anchor is guaranteed
- * within radius of the pin at naming time and never moves, so labels can't silently detach.
+ * (see [StayDeriver.Derivation]), and the clustering was *seeded* by the place pins, so a cluster's
+ * [PlaceClusterer.Cluster.seedIndex] identifies its place exactly — no distance matching, labels
+ * can't silently detach. The [places] list must be the same list (same order) whose pins seeded
+ * the derivation; organic clusters (null seedIndex) are unnamed.
  *
  * Results are keyed by [StayDeriver.Stay.afterTrackId] — unique per stay within a derivation and
  * preserved by [StayDeriver.slicePerDay]'s copies, so resolution happens once over the unsliced
@@ -47,13 +46,11 @@ object PlaceResolver {
         stays: List<StayDeriver.Stay>,
         clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
-        radiusM: Double = PlaceClusterer.DEFAULT_RADIUS_M,
-        distance: DistanceFn,
     ): Map<Long, ResolvedStay> {
         val result = HashMap<Long, ResolvedStay>(stays.size)
         for ((clusterId, members) in stays.groupBy { it.clusterId }) {
             val cluster = clusters[clusterId]
-            val place = matchedPlace(cluster, places, radiusM, distance)
+            val place = matchedPlace(cluster, places)
             val resolved = ResolvedStay(
                 label = place?.label,
                 placeId = place?.id,
@@ -80,8 +77,6 @@ object PlaceResolver {
         clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
         nowMs: Long,
-        radiusM: Double = PlaceClusterer.DEFAULT_RADIUS_M,
-        distance: DistanceFn,
     ): List<PlaceSummary> {
         val namedAgg = HashMap<Long, Agg>()   // placeId -> aggregate over its matching clusters
         val unnamed = mutableListOf<PlaceSummary>()
@@ -96,7 +91,7 @@ object PlaceResolver {
                 total += end - stay.start
                 last = maxOf(last, end)
             }
-            val place = matchedPlace(cluster, places, radiusM, distance)
+            val place = matchedPlace(cluster, places)
             if (place == null) {
                 unnamed += PlaceSummary(null, cluster.centroid, count, last, total)
             } else {
@@ -121,15 +116,7 @@ object PlaceResolver {
 
     private class Agg(var count: Int = 0, var total: Long = 0L, var last: Long = Long.MIN_VALUE)
 
-    /** The nearest place within [radiusM] of the cluster's anchor, or null. */
-    private fun matchedPlace(
-        cluster: PlaceClusterer.Cluster,
-        places: List<Place>,
-        radiusM: Double,
-        distance: DistanceFn,
-    ): Place? = places
-        .map { it to distance.metres(it.lat, it.lon, cluster.anchor.lat, cluster.anchor.lon) }
-        .filter { (_, d) -> d <= radiusM }
-        .minByOrNull { (_, d) -> d }
-        ?.first
+    /** The place whose pin seeded this cluster, or null for an organic (unnamed) cluster. */
+    private fun matchedPlace(cluster: PlaceClusterer.Cluster, places: List<Place>): Place? =
+        cluster.seedIndex?.let(places::getOrNull)
 }

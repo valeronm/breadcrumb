@@ -10,12 +10,14 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Cluster → place matching goes through the stable anchor; results key by afterTrackId. */
+/** Cluster → place matching goes through seed identity; results key by afterTrackId. */
 class PlaceResolverTest {
 
     private val flatDistance = DistanceFn { aLat, aLon, bLat, bLon ->
         maxOf(Math.abs(aLat - bLat), Math.abs(aLon - bLon)) * 100_000.0
     }
+
+    private val PIN_RADIUS = 350.0
 
     private fun at(meters: Double) = Endpoint(1.0, 1.0 + meters / 100_000.0)
 
@@ -29,12 +31,18 @@ class PlaceResolverTest {
         Place(id = id, label = label, lat = location.lat, lon = location.lon, createdAt = 0L)
 
     /**
-     * Clusters the stay locations and stamps each stay with its cluster id — the shape
-     * [StayDeriver.derive] hands to the resolver in production.
+     * Clusters the stay locations — seeded by the places' pins, as in production — and stamps
+     * each stay with its cluster id: the shape [StayDeriver.derive] hands to the resolver.
      */
-    private fun withClusters(stays: List<Stay>): Pair<List<Stay>, List<PlaceClusterer.Cluster>> {
+    private fun withClusters(
+        stays: List<Stay>,
+        places: List<Place>,
+    ): Pair<List<Stay>, List<PlaceClusterer.Cluster>> {
         val locations = stays.map { it.location }
-        val clusters = PlaceClusterer.cluster(locations, distance = flatDistance)
+        val clusters = PlaceClusterer.cluster(
+            locations, distance = flatDistance,
+            seeds = places.map { PlaceClusterer.Seed(Endpoint(it.lat, it.lon), PIN_RADIUS) },
+        )
         val clusterIdByStay = IntArray(stays.size)
         clusters.forEachIndexed { ci, cluster ->
             for (index in cluster.memberIndices) clusterIdByStay[index] = ci
@@ -43,11 +51,11 @@ class PlaceResolverTest {
     }
 
     private fun resolve(stays: List<Stay>, places: List<Place>): Map<Long, PlaceResolver.ResolvedStay> {
-        val (stamped, clusters) = withClusters(stays)
-        return PlaceResolver.resolve(stamped, clusters, places, distance = flatDistance)
+        val (stamped, clusters) = withClusters(stays, places)
+        return PlaceResolver.resolve(stamped, clusters, places)
     }
 
-    @Test fun `a place near the cluster anchor labels every member stay`() {
+    @Test fun `a place pin labels every stay it captures`() {
         val stays = listOf(stay(at(0.0)), stay(at(50.0)), stay(at(30.0)))
         val resolved = resolve(stays, listOf(place(7, "Home", at(50.0))))
         stays.forEach { s ->
@@ -59,14 +67,14 @@ class PlaceResolverTest {
     }
 
     @Test fun `a distant place leaves the cluster unnamed but counted`() {
-        val resolved = resolve(listOf(stay(at(0.0)), stay(at(10.0))), listOf(place(7, "Home", at(300.0))))
+        val resolved = resolve(listOf(stay(at(0.0)), stay(at(10.0))), listOf(place(7, "Home", at(500.0))))
         val r = resolved.values.first()
         assertNull(r.label)
         assertNull(r.placeId)
         assertEquals(2, r.visitCount)
     }
 
-    @Test fun `two places within radius resolve to the nearest`() {
+    @Test fun `a stay between two pins resolves to the nearest`() {
         val resolved = resolve(
             listOf(stay(at(0.0))),
             listOf(place(1, "Cafe", at(140.0)), place(2, "Home", at(40.0))),
@@ -74,9 +82,9 @@ class PlaceResolverTest {
         assertEquals("Home", resolved.values.first().label)
     }
 
-    @Test fun `a drifted centroid pin still matches via the anchor`() {
-        // Anchor at 0; later stays drag the centroid east; the place was pinned at a centroid
-        // 100 m from the anchor — still within radius of the anchor, so the label holds.
+    @Test fun `venue-scale scatter all resolves to the seeding pin`() {
+        // Stays spread over 140 m — beyond what an organic 150 m anchor at 0 would hold together
+        // reliably — but all within the pin's 350 m seed radius, so they're one named cluster.
         val stays = listOf(stay(at(0.0)), stay(at(140.0)), stay(at(140.0)), stay(at(120.0)))
         val resolved = resolve(stays, listOf(place(3, "Office", at(100.0))))
         assertEquals("Office", resolved.getValue(stays[0].afterTrackId).label)
@@ -102,8 +110,8 @@ class PlaceResolverTest {
 
     private val NOW = 100_000L
     private fun summarize(stays: List<Stay>, places: List<Place>): List<PlaceResolver.PlaceSummary> {
-        val (stamped, clusters) = withClusters(stays)
-        return PlaceResolver.summarize(stamped, clusters, places, NOW, distance = flatDistance)
+        val (stamped, clusters) = withClusters(stays, places)
+        return PlaceResolver.summarize(stamped, clusters, places, NOW)
     }
 
     private fun stayAt(location: Endpoint, start: Long, end: Long?) = Stay(
