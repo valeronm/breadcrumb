@@ -33,6 +33,9 @@ class StayDeriverTest {
     private val nearHome = Endpoint(1.0005, 1.0) // 50 m away — agrees
     private val office = Endpoint(2.0, 2.0)
 
+    /** An endpoint `meters` east of `home`. */
+    private fun at(meters: Double) = Endpoint(1.0, 1.0 + meters / 100_000.0)
+
     private val MIN = 60_000L
     private val NOW = 1_000 * MIN
 
@@ -45,6 +48,7 @@ class StayDeriverTest {
         now: Long = NOW,
         recording: Boolean = false,
     ) = StayDeriver.derive(tracks, liveness, now, recording, StayDeriver.Params(), flatDistance)
+        .intervals
 
     /** Two tracks whose gap is [120, 240) min, both ending/starting near `home`. */
     private fun homePair(to: Endpoint? = home, from: Endpoint? = nearHome) = listOf(
@@ -116,6 +120,65 @@ class StayDeriverTest {
         assertTrue(stays.any { it.end == 240 * MIN })
     }
 
+    @Test fun `same-cluster endpoints beyond the agreement radius still form a stay`() {
+        // 120 m apart — over the raw-distance radius, but both within the 150 m cluster around
+        // the anchor at `home`, so clustering recognizes them as the same place.
+        val stays = derive(homePair(from = at(120.0))).filterIsInstance<Stay>()
+        assertTrue(stays.any { it.end == 240 * MIN })
+    }
+
+    @Test fun `nearby endpoints straddling two clusters agree via the distance fallback`() {
+        // Anchors form at 0 m and 170 m (>150 m apart). prev ends at 130 m (first cluster), next
+        // starts at 170 m (second cluster): different clusters but only 40 m apart — still a stay.
+        val intervals = derive(
+            listOf(
+                track(1, start = 60 * MIN, end = 120 * MIN, from = at(0.0), to = at(130.0)),
+                track(2, start = 240 * MIN, end = 300 * MIN, from = at(170.0), to = at(300.0)),
+            ),
+            now = 300 * MIN, recording = true,
+        )
+        assertTrue(intervals.filterIsInstance<Stay>().any { it.end == 240 * MIN })
+    }
+
+    @Test fun `endpoints sharing a nearest named-place pin agree at venue scale`() {
+        // 300 m apart — beyond both the raw radius and any shared 150 m cluster — but both
+        // nearest to the same pin within 350 m (a mall-sized venue).
+        val intervals = StayDeriver.derive(
+            homePair(from = at(300.0)), listOf(Armed(0)), NOW, false,
+            StayDeriver.Params(), flatDistance,
+            placePins = listOf(at(150.0)),
+        ).intervals
+        assertTrue(intervals.filterIsInstance<Stay>().any { it.end == 240 * MIN })
+    }
+
+    @Test fun `endpoints nearest to different pins stay a gap`() {
+        // Each endpoint sits by its own pin; distance (300 m) and clusters disagree too.
+        val intervals = StayDeriver.derive(
+            homePair(from = at(300.0)), listOf(Armed(0)), NOW, false,
+            StayDeriver.Params(), flatDistance,
+            placePins = listOf(at(0.0), at(300.0)),
+        ).intervals
+        assertEquals(GapReason.MOVED_UNRECORDED, (intervals.first { it is Gap } as Gap).reason)
+    }
+
+    @Test fun `a pin near only one endpoint does not force agreement`() {
+        val intervals = StayDeriver.derive(
+            homePair(from = at(600.0)), listOf(Armed(0)), NOW, false,
+            StayDeriver.Params(), flatDistance,
+            placePins = listOf(at(0.0)),
+        ).intervals
+        assertEquals(GapReason.MOVED_UNRECORDED, (intervals.first { it is Gap } as Gap).reason)
+    }
+
+    @Test fun `stays index into the derivation's endpoint clusters`() {
+        val derivation = StayDeriver.derive(
+            homePair(), listOf(Armed(0)), NOW, false, StayDeriver.Params(), flatDistance,
+        )
+        val stay = derivation.intervals.filterIsInstance<Stay>().first()
+        val anchor = derivation.clusters[stay.clusterId].anchor
+        assertTrue(flatDistance.metres(anchor.lat, anchor.lon, home.lat, home.lon) <= 150.0)
+    }
+
     @Test fun `a missing endpoint is an unknown-endpoint gap`() {
         val intervals = derive(homePair(to = null))
         assertEquals(GapReason.UNKNOWN_ENDPOINT, (intervals.first { it is Gap } as Gap).reason)
@@ -140,7 +203,7 @@ class StayDeriverTest {
             ),
             listOf(Armed(0)), 300 * MIN, true,
             StayDeriver.Params(minStayMs = 5 * MIN), flatDistance,
-        )
+        ).intervals
         assertTrue(intervals.isEmpty())
     }
 
@@ -214,7 +277,7 @@ class StayDeriverTest {
 
     @Test fun `a midnight-spanning stay splits into per-day slices with clamped bounds`() {
         val stay = Stay(start = 20 * 60 * MIN, end = DAY + 9 * 60 * MIN, location = home,
-            provenance = Provenance.OBSERVED, afterTrackId = 1)
+            provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0)
         val slices = StayDeriver.slicePerDay(listOf(stay), utc, nowMs = 2 * DAY)
         assertEquals(2, slices.size)
         assertEquals(20 * 60 * MIN, slices[0].start)
@@ -226,7 +289,7 @@ class StayDeriverTest {
 
     @Test fun `an ongoing stay keeps its null end on the final slice only`() {
         val stay = Stay(start = 20 * 60 * MIN, end = null, location = home,
-            provenance = Provenance.OBSERVED, afterTrackId = 1)
+            provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0)
         val slices = StayDeriver.slicePerDay(listOf(stay), utc, nowMs = DAY + 9 * 60 * MIN)
         assertEquals(2, slices.size)
         assertEquals(DAY, slices[0].end)
@@ -247,7 +310,7 @@ class StayDeriverTest {
         val end = java.time.LocalDate.of(2026, 3, 29).atStartOfDay(lisbon)
             .plusHours(12).toInstant().toEpochMilli()
         val slices = StayDeriver.slicePerDay(
-            listOf(Stay(start, end, home, Provenance.OBSERVED, 1)), lisbon, end + DAY,
+            listOf(Stay(start, end, home, Provenance.OBSERVED, 1, clusterId = 0)), lisbon, end + DAY,
         )
         assertEquals(2, slices.size)
         assertTrue(slices[0].end!! <= slices[1].start)
@@ -261,7 +324,7 @@ class StayDeriverTest {
             summary(2, startedAt = 240 * MIN),
             summary(1, startedAt = 60 * MIN),
         )
-        val stay = Stay(120 * MIN, 240 * MIN, home, Provenance.OBSERVED, 1)
+        val stay = Stay(120 * MIN, 240 * MIN, home, Provenance.OBSERVED, 1, clusterId = 0)
         val items = StayDeriver.interleave(summaries, listOf(stay))
         assertEquals(
             listOf(240 * MIN, 120 * MIN, 60 * MIN),
@@ -272,7 +335,7 @@ class StayDeriverTest {
 
     @Test fun `on a start-time tie the interval sorts newer than the track`() {
         val summaries = listOf(summary(1, startedAt = 60 * MIN))
-        val stay = Stay(60 * MIN, null, home, Provenance.OBSERVED, 1)
+        val stay = Stay(60 * MIN, null, home, Provenance.OBSERVED, 1, clusterId = 0)
         val items = StayDeriver.interleave(summaries, listOf(stay))
         assertTrue(items[0] is TimelineItem.StayItem)
         assertTrue(items[1] is TimelineItem.TrackItem)

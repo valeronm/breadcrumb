@@ -4,11 +4,11 @@ import io.github.valeronm.breadcrumb.data.DistanceFn
 import io.github.valeronm.breadcrumb.data.db.Place
 
 /**
- * Resolves each derived stay to its place: cluster the stay locations ([PlaceClusterer]), then
- * match each cluster to the nearest persisted [Place] within [radius] of the cluster's *anchor*.
- * The anchor, not the centroid: a place is pinned at the centroid when named, but the centroid
- * drifts as visits accumulate — the anchor is guaranteed within radius of the pin at naming time
- * and never moves, so labels can't silently detach.
+ * Resolves each derived stay to its place: stays arrive already carrying their endpoint-cluster id
+ * (see [StayDeriver.Derivation]), and each cluster is matched to the nearest persisted [Place]
+ * within [radius] of the cluster's *anchor*. The anchor, not the centroid: a place is pinned at
+ * the centroid when named, but the centroid drifts as visits accumulate — the anchor is guaranteed
+ * within radius of the pin at naming time and never moves, so labels can't silently detach.
  *
  * Results are keyed by [StayDeriver.Stay.afterTrackId] — unique per stay within a derivation and
  * preserved by [StayDeriver.slicePerDay]'s copies, so resolution happens once over the unsliced
@@ -45,50 +45,52 @@ object PlaceResolver {
 
     fun resolve(
         stays: List<StayDeriver.Stay>,
+        clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
         radiusM: Double = PlaceClusterer.DEFAULT_RADIUS_M,
         distance: DistanceFn,
     ): Map<Long, ResolvedStay> {
-        val clusters = PlaceClusterer.cluster(stays.map { it.location }, radiusM, distance)
         val result = HashMap<Long, ResolvedStay>(stays.size)
-        for (cluster in clusters) {
+        for ((clusterId, members) in stays.groupBy { it.clusterId }) {
+            val cluster = clusters[clusterId]
             val place = matchedPlace(cluster, places, radiusM, distance)
             val resolved = ResolvedStay(
                 label = place?.label,
                 placeId = place?.id,
-                visitCount = cluster.visitCount,
+                visitCount = members.size,
                 centroid = cluster.centroid,
             )
-            for (index in cluster.memberIndices) {
-                result[stays[index].afterTrackId] = resolved
+            for (stay in members) {
+                result[stay.afterTrackId] = resolved
             }
         }
         return result
     }
 
     /**
-     * Summaries for the Places screen: **every cluster** in the history, plus any named place with
-     * no current stays (so labels stay listed/manageable). Clusters that match the same place are
-     * aggregated into one row; unnamed clusters get a row each. Runs over the unsliced stays so
-     * counts and durations are exact. Order: named places (input order) first, then unnamed
-     * clusters (chronological); the UI applies its own sort.
+     * Summaries for the Places screen: **every visited cluster** in the history, plus any named
+     * place with no current stays (so labels stay listed/manageable). Clusters that match the same
+     * place are aggregated into one row; unnamed clusters get a row each. Endpoint clusters with
+     * no stays (pass-through places) are skipped. Runs over the unsliced stays so counts and
+     * durations are exact. Order: named places (input order) first, then unnamed clusters
+     * (chronological); the UI applies its own sort.
      */
     fun summarize(
         stays: List<StayDeriver.Stay>,
+        clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
         nowMs: Long,
         radiusM: Double = PlaceClusterer.DEFAULT_RADIUS_M,
         distance: DistanceFn,
     ): List<PlaceSummary> {
-        val clusters = PlaceClusterer.cluster(stays.map { it.location }, radiusM, distance)
         val namedAgg = HashMap<Long, Agg>()   // placeId -> aggregate over its matching clusters
         val unnamed = mutableListOf<PlaceSummary>()
-        for (cluster in clusters) {
+        for ((clusterId, members) in stays.groupBy { it.clusterId }) {
+            val cluster = clusters[clusterId]
             var count = 0
             var total = 0L
             var last = Long.MIN_VALUE
-            for (index in cluster.memberIndices) {
-                val stay = stays[index]
+            for (stay in members) {
                 val end = stay.end ?: nowMs
                 count++
                 total += end - stay.start

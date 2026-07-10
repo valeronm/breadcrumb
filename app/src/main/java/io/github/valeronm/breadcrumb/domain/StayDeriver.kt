@@ -8,8 +8,14 @@ import java.time.ZoneId
 /**
  * Derives *stays* — where the user was between recorded tracks — from data the app already has,
  * at zero sensing cost. A stay is the interval between the end of one kept track and the start of
- * the next, located where their endpoint coordinates agree. Endpoint disagreement means movement
- * the recorder missed, and is reported as a [Gap] instead.
+ * the next, when both endpoints land at "the same place". Same place means any of:
+ *  - the same endpoint cluster ([PlaceClusterer] over every track endpoint in history — repeated
+ *    visits widen the tolerance to the place's real GPS scatter);
+ *  - raw distance within [Params.agreementRadiusM], so nearby endpoints straddling two clusters
+ *    still agree;
+ *  - the same nearest *named place* pin within [Params.placeOverrideRadiusM] — user-curated pins
+ *    make large venues (malls, garages) generous where blanket radii can't be.
+ * Endpoint disagreement means movement the recorder missed, and is reported as a [Gap] instead.
  *
  * Honesty rule: silence is only a stay if the app was alive and armed throughout — that evidence
  * is the liveness log ([Armed]/[Disarmed]/[Outage] events). When an outage or a disarm-rearm
@@ -46,8 +52,12 @@ object StayDeriver {
     data class Outage(override val at: Long, val until: Long) : Liveness
 
     data class Params(
-        /** Endpoints at most this far apart (metres) count as "the same place". */
+        /** Fallback: endpoints at most this far apart (metres) agree even across cluster lines. */
         val agreementRadiusM: Double = 100.0,
+        /** Radius for clustering track endpoints into places. */
+        val placeRadiusM: Double = PlaceClusterer.DEFAULT_RADIUS_M,
+        /** Endpoints whose shared nearest named-place pin is within this radius agree. */
+        val placeOverrideRadiusM: Double = 350.0,
         /** Inter-track gaps shorter than this emit nothing. 0 = keep every stay (brief stops
          *  included) — the auto-pause resume window already absorbs the truly-momentary ones. */
         val minStayMs: Long = 0L,
@@ -73,6 +83,8 @@ object StayDeriver {
         val provenance: Provenance,
         /** The track whose end anchors this stay. */
         val afterTrackId: Long,
+        /** Index into [Derivation.clusters] — the place this stay belongs to. */
+        val clusterId: Int,
     ) : Interval
 
     data class Gap(
@@ -81,6 +93,13 @@ object StayDeriver {
         val reason: GapReason,
     ) : Interval
 
+    /** Derivation output: the timeline intervals plus the endpoint clusters stays index into. */
+    data class Derivation(
+        val intervals: List<Interval>,
+        /** Clusters over every track endpoint, in chronological order; see [Stay.clusterId]. */
+        val clusters: List<PlaceClusterer.Cluster>,
+    )
+
     fun derive(
         tracks: List<TrackEnd>,
         liveness: List<Liveness>,
@@ -88,9 +107,16 @@ object StayDeriver {
         activeRecording: Boolean,
         params: Params = Params(),
         distance: DistanceFn,
-    ): List<Interval> {
+        /** Named-place pins, for the same-nearest-pin agreement override. */
+        placePins: List<Endpoint> = emptyList(),
+    ): Derivation {
         val evidence = summarizeLiveness(liveness, nowMs)
+        val (clusters, clusterOf) = clusterEndpoints(tracks, params, distance)
         val out = mutableListOf<Interval>()
+
+        fun nearestPin(e: Endpoint): Int? = placePins.indices
+            .filter { distance.metres(placePins[it].lat, placePins[it].lon, e.lat, e.lon) <= params.placeOverrideRadiusM }
+            .minByOrNull { distance.metres(placePins[it].lat, placePins[it].lon, e.lat, e.lon) }
 
         for (i in 0 until tracks.size - 1) {
             val prev = tracks[i]
@@ -105,7 +131,11 @@ object StayDeriver {
                 out += Gap(gapStart, gapEnd, GapReason.UNKNOWN_ENDPOINT)
                 continue
             }
-            if (distance.metres(a.lat, a.lon, b.lat, b.lon) > params.agreementRadiusM) {
+            val samePin = nearestPin(a)?.let { it == nearestPin(b) } ?: false
+            val samePlace = clusterOf.getValue(a) == clusterOf.getValue(b) ||
+                distance.metres(a.lat, a.lon, b.lat, b.lon) <= params.agreementRadiusM ||
+                samePin
+            if (!samePlace) {
                 out += Gap(gapStart, gapEnd, GapReason.MOVED_UNRECORDED)
                 continue
             }
@@ -116,11 +146,37 @@ object StayDeriver {
                 location = midpoint(a, b),
                 provenance = evidence.provenanceOver(gapStart, gapEnd),
                 afterTrackId = prev.trackId,
+                clusterId = clusterOf.getValue(a),
             )
         }
 
-        tailStay(tracks.lastOrNull(), evidence, nowMs, activeRecording, params)?.let { out += it }
-        return out
+        tailStay(tracks.lastOrNull(), evidence, nowMs, activeRecording, params, clusterOf)
+            ?.let { out += it }
+        return Derivation(out, clusters)
+    }
+
+    /**
+     * Clusters every track endpoint (chronological: each track's start then end) so anchors are
+     * stable as history grows. Identical coordinates always land in the same cluster, so the
+     * value-keyed map is safe even when endpoints repeat.
+     */
+    private fun clusterEndpoints(
+        tracks: List<TrackEnd>,
+        params: Params,
+        distance: DistanceFn,
+    ): Pair<List<PlaceClusterer.Cluster>, Map<Endpoint, Int>> {
+        val endpoints = buildList {
+            for (track in tracks) {
+                track.start?.let { add(it) }
+                track.end?.let { add(it) }
+            }
+        }
+        val clusters = PlaceClusterer.cluster(endpoints, params.placeRadiusM, distance)
+        val clusterOf = HashMap<Endpoint, Int>(endpoints.size)
+        clusters.forEachIndexed { ci, cluster ->
+            for (index in cluster.memberIndices) clusterOf[endpoints[index]] = ci
+        }
+        return clusters to clusterOf
     }
 
     /** The open-ended stay after the last track — where the user is right now. */
@@ -130,6 +186,7 @@ object StayDeriver {
         nowMs: Long,
         activeRecording: Boolean,
         params: Params,
+        clusterOf: Map<Endpoint, Int>,
     ): Stay? {
         // While a track is being recorded the "gap" after the last finished track isn't a gap.
         if (last == null || activeRecording) return null
@@ -146,6 +203,7 @@ object StayDeriver {
             location = location,
             provenance = evidence.provenanceOver(start, effectiveEnd),
             afterTrackId = last.trackId,
+            clusterId = clusterOf.getValue(location),
         )
     }
 

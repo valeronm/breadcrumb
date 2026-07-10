@@ -47,21 +47,23 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         TrackingStatus.state,
     ) { summaries, endpoints, events, places, status ->
         val now = System.currentTimeMillis()
-        val intervals = StayDeriver.derive(
+        val derivation = StayDeriver.derive(
             tracks = endpoints.map { it.toTrackEnd() },
             liveness = events.mapNotNull { it.toLiveness() },
             nowMs = now,
             activeRecording = status.recording,
             distance = AndroidDistance,
+            placePins = places.map { StayDeriver.Endpoint(it.lat, it.lon) },
         )
         // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
         // as 3 visits. afterTrackId keys survive the slicing copies.
         val resolutions = PlaceResolver.resolve(
-            intervals.filterIsInstance<StayDeriver.Stay>(), places, distance = AndroidDistance,
+            derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
+            derivation.clusters, places, distance = AndroidDistance,
         )
         StayDeriver.interleave(
             summaries,
-            StayDeriver.slicePerDay(intervals, ZoneId.systemDefault(), now),
+            StayDeriver.slicePerDay(derivation.intervals, ZoneId.systemDefault(), now),
         ).map { item ->
             if (item is TimelineItem.StayItem) item.copy(place = resolutions[item.stay.afterTrackId])
             else item
@@ -77,15 +79,17 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         TrackingStatus.state,
     ) { endpoints, events, places, status ->
         val now = System.currentTimeMillis()
-        val intervals = StayDeriver.derive(
+        val derivation = StayDeriver.derive(
             tracks = endpoints.map { it.toTrackEnd() },
             liveness = events.mapNotNull { it.toLiveness() },
             nowMs = now,
             activeRecording = status.recording,
             distance = AndroidDistance,
+            placePins = places.map { StayDeriver.Endpoint(it.lat, it.lon) },
         )
         PlaceResolver.summarize(
-            intervals.filterIsInstance<StayDeriver.Stay>(), places, now, distance = AndroidDistance,
+            derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
+            derivation.clusters, places, now, distance = AndroidDistance,
         )
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

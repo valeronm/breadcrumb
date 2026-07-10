@@ -22,14 +22,30 @@ class PlaceResolverTest {
     private var nextTrackId = 0L
     private fun stay(location: Endpoint, end: Long? = 2_000L) = Stay(
         start = 1_000L, end = end, location = location,
-        provenance = Provenance.OBSERVED, afterTrackId = ++nextTrackId,
+        provenance = Provenance.OBSERVED, afterTrackId = ++nextTrackId, clusterId = 0,
     )
 
     private fun place(id: Long, label: String, location: Endpoint) =
         Place(id = id, label = label, lat = location.lat, lon = location.lon, createdAt = 0L)
 
-    private fun resolve(stays: List<Stay>, places: List<Place>) =
-        PlaceResolver.resolve(stays, places, distance = flatDistance)
+    /**
+     * Clusters the stay locations and stamps each stay with its cluster id — the shape
+     * [StayDeriver.derive] hands to the resolver in production.
+     */
+    private fun withClusters(stays: List<Stay>): Pair<List<Stay>, List<PlaceClusterer.Cluster>> {
+        val locations = stays.map { it.location }
+        val clusters = PlaceClusterer.cluster(locations, distance = flatDistance)
+        val clusterIdByStay = IntArray(stays.size)
+        clusters.forEachIndexed { ci, cluster ->
+            for (index in cluster.memberIndices) clusterIdByStay[index] = ci
+        }
+        return stays.mapIndexed { i, s -> s.copy(clusterId = clusterIdByStay[i]) } to clusters
+    }
+
+    private fun resolve(stays: List<Stay>, places: List<Place>): Map<Long, PlaceResolver.ResolvedStay> {
+        val (stamped, clusters) = withClusters(stays)
+        return PlaceResolver.resolve(stamped, clusters, places, distance = flatDistance)
+    }
 
     @Test fun `a place near the cluster anchor labels every member stay`() {
         val stays = listOf(stay(at(0.0)), stay(at(50.0)), stay(at(30.0)))
@@ -85,12 +101,14 @@ class PlaceResolverTest {
     // --- summarize -----------------------------------------------------------
 
     private val NOW = 100_000L
-    private fun summarize(stays: List<Stay>, places: List<Place>) =
-        PlaceResolver.summarize(stays, places, NOW, distance = flatDistance)
+    private fun summarize(stays: List<Stay>, places: List<Place>): List<PlaceResolver.PlaceSummary> {
+        val (stamped, clusters) = withClusters(stays)
+        return PlaceResolver.summarize(stamped, clusters, places, NOW, distance = flatDistance)
+    }
 
     private fun stayAt(location: Endpoint, start: Long, end: Long?) = Stay(
         start = start, end = end, location = location,
-        provenance = Provenance.OBSERVED, afterTrackId = ++nextTrackId,
+        provenance = Provenance.OBSERVED, afterTrackId = ++nextTrackId, clusterId = 0,
     )
 
     @Test fun `a named summary aggregates count, last seen and total over its stays`() {
