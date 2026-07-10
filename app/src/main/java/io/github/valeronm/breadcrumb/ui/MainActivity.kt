@@ -1390,6 +1390,7 @@ private fun SettingsScreen(
     var accuracyGateM by remember { mutableFloatStateOf(AppSettings.accuracyGateM(context).toFloat()) }
     var requireGnssFix by remember { mutableStateOf(AppSettings.requireGnssFix(context)) }
     var gpsGiveUpSec by remember { mutableFloatStateOf(AppSettings.gpsGiveUpSec(context).toFloat()) }
+    var useFusedProvider by remember { mutableStateOf(AppSettings.useFusedProvider(context)) }
 
     Scaffold(
         topBar = {
@@ -1411,22 +1412,49 @@ private fun SettingsScreen(
                 .padding(16.dp),
         ) {
         SectionHeader(
-            "Recording detail",
+            "Recording",
             canReset = intervalSec.toInt() != AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC ||
-                distanceM.toInt() != AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
+                distanceM.toInt() != AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M ||
+                useFusedProvider != AppSettings.DEFAULT_USE_FUSED_PROVIDER,
         ) {
             intervalSec = AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC.toFloat()
             distanceM = AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M.toFloat()
+            useFusedProvider = AppSettings.DEFAULT_USE_FUSED_PROVIDER
             AppSettings.setMinIntervalSec(context, AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC)
             AppSettings.setMinDistanceM(context, AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M)
+            AppSettings.setUseFusedProvider(context, AppSettings.DEFAULT_USE_FUSED_PROVIDER)
         }
         Text(
-            "How densely points are recorded while moving.",
+            "Where positions come from and how densely points are recorded while moving.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))
         GroupedRows(
+            {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Use fused location", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Also estimates position from Wi-Fi and mobile networks, so " +
+                                "tracks can continue indoors. Uses more battery.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    IconSwitch(
+                        checked = useFusedProvider,
+                        onCheckedChange = {
+                            useFusedProvider = it
+                            AppSettings.setUseFusedProvider(context, it)
+                        },
+                    )
+                }
+            },
             {
                 SliderSetting("Time between points", intervalSec, 1f..30f, 1, { "${it.toInt()} s" }) {
                     intervalSec = it
@@ -1467,7 +1495,8 @@ private fun SettingsScreen(
                     Column(Modifier.weight(1f)) {
                         Text("Require satellite fix", style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            "Drops guessed positions, like in a tunnel.",
+                            "Drops guessed positions, like in a tunnel. Walks with fused " +
+                                "location keep them, so indoor tracks survive.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
