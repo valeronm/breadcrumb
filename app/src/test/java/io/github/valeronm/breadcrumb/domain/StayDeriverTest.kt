@@ -121,13 +121,25 @@ class StayDeriverTest {
         assertEquals(GapReason.UNKNOWN_ENDPOINT, (intervals.first { it is Gap } as Gap).reason)
     }
 
-    @Test fun `a gap shorter than the minimum stay emits nothing`() {
+    @Test fun `a short gap emits a stay by default (no minimum)`() {
         val intervals = derive(
             listOf(
                 track(1, start = 60 * MIN, end = 120 * MIN),
                 track(2, start = 120 * MIN + 60_000, from = nearHome, end = 300 * MIN),
             ),
             now = 300 * MIN, recording = true,
+        )
+        assertEquals(1, intervals.filterIsInstance<Stay>().size)
+    }
+
+    @Test fun `a configured minimum stay still suppresses short gaps`() {
+        val intervals = StayDeriver.derive(
+            listOf(
+                track(1, start = 60 * MIN, end = 120 * MIN),
+                track(2, start = 120 * MIN + 60_000, from = nearHome, end = 300 * MIN),
+            ),
+            listOf(Armed(0)), 300 * MIN, true,
+            StayDeriver.Params(minStayMs = 5 * MIN), flatDistance,
         )
         assertTrue(intervals.isEmpty())
     }
@@ -174,12 +186,12 @@ class StayDeriverTest {
         assertEquals(Provenance.OBSERVED, stay.provenance)
     }
 
-    @Test fun `a tail disarm right after the track end emits nothing`() {
-        val intervals = derive(
+    @Test fun `a tail disarm bounds the ongoing stay even when short`() {
+        val stay = derive(
             listOf(track(1, start = 60 * MIN, end = 120 * MIN)),
             liveness = listOf(Armed(0), Disarmed(121 * MIN)),
-        )
-        assertTrue(intervals.isEmpty())
+        ).filterIsInstance<Stay>().single()
+        assertEquals(121 * MIN, stay.end)
     }
 
     @Test fun `an outage in the tail makes the ongoing stay inferred`() {

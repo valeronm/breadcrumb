@@ -60,7 +60,6 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -81,6 +80,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
@@ -138,6 +140,7 @@ import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.RecordCardState
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -154,6 +157,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -215,6 +219,7 @@ private enum class HomeTab { RECORD, TRACKS }
 private sealed interface Overlay {
     data class TrackDetail(val id: Long) : Overlay
     data object Settings : Overlay
+    data object Places : Overlay
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -271,21 +276,6 @@ private fun MainScreen() {
     ) {
         backgroundOk = context.backgroundGranted()
     }
-    val exportAllLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocumentTree(),
-    ) { treeUri ->
-        if (treeUri != null) {
-            viewModel.exportAll(treeUri) { count ->
-                val message = if (count > 0) {
-                    "Exported $count track${if (count == 1) "" else "s"} as GPX"
-                } else {
-                    "No tracks to export"
-                }
-                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     // Reconcile persisted "armed" state with the actual service: if auto-recording is on but
     // the service isn't running (e.g. after a reinstall or being killed), restart it so the UI
     // doesn't get stuck on "Starting…".
@@ -373,9 +363,9 @@ private fun MainScreen() {
                         )
                     },
                     actions = {
-                        if (selectedTab == HomeTab.TRACKS && timeline.any { it is TimelineItem.TrackItem }) {
-                            IconButton(onClick = { exportAllLauncher.launch(null) }) {
-                                Icon(Icons.Filled.Download, contentDescription = "Export all as GPX")
+                        if (selectedTab == HomeTab.TRACKS) {
+                            IconButton(onClick = { overlay = Overlay.Places }) {
+                                Icon(Icons.Filled.Place, contentDescription = "Places")
                             }
                         }
                         IconButton(onClick = { overlay = Overlay.Settings }) {
@@ -476,6 +466,11 @@ private fun MainScreen() {
                         viewModel = viewModel,
                         onBack = { overlay = null },
                         onShowLogs = { showLogs = true },
+                    )
+
+                    Overlay.Places -> PlacesScreen(
+                        viewModel = viewModel,
+                        onBack = { overlay = null },
                     )
                 }
             }
@@ -1116,6 +1111,263 @@ private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () 
                 }
             }
         }
+    }
+}
+
+private enum class PlaceSort(val label: String) {
+    LAST_VISIT("Last visit"),
+    MOST_VISITS("Most visits"),
+    TIME_SPENT("Time spent"),
+}
+
+// Unnamed clusters are only worth listing once they recur — a place you passed through once
+// isn't a place worth naming. Named places always show, however many visits.
+private const val MIN_UNNAMED_VISITS = 2
+
+/** Manage named places: sortable list with derived stats, tap to rename, swipe to delete. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlacesScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
+    val places by viewModel.places.collectAsState()
+    var sort by remember { mutableStateOf(PlaceSort.LAST_VISIT) }
+    var pendingRename by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
+    var pendingDelete by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
+
+    val sorted = remember(sort, places) {
+        val comparator = when (sort) {
+            PlaceSort.LAST_VISIT -> compareByDescending<PlaceResolver.PlaceSummary> { it.lastSeenMs ?: Long.MIN_VALUE }
+            PlaceSort.MOST_VISITS -> compareByDescending { it.visitCount }
+            PlaceSort.TIME_SPENT -> compareByDescending { it.totalMs }
+        }
+        places
+            .filter { it.isNamed || it.visitCount >= MIN_UNNAMED_VISITS }
+            // Tiebreak: named before unnamed, then by label — stable across recompositions.
+            .sortedWith(comparator.thenBy { it.place?.label?.lowercase(Locale.getDefault()) ?: "￿" })
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Places") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        if (sorted.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(inner).padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "No places yet. Recurring stays and places you name show up here.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            return@Scaffold
+        }
+        Column(Modifier.fillMaxSize().padding(inner)) {
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                PlaceSort.entries.forEachIndexed { index, option ->
+                    SegmentedButton(
+                        selected = sort == option,
+                        onClick = { sort = option },
+                        shape = SegmentedButtonDefaults.itemShape(index, PlaceSort.entries.size),
+                    ) { Text(option.label) }
+                }
+            }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                itemsIndexed(sorted, key = { _, s -> s.rowKey() }) { index, summary ->
+                    PlaceRow(
+                        summary = summary,
+                        shape = groupedRowShape(index, sorted.size),
+                        onEdit = { pendingRename = summary },
+                        onDeleteRequest = { pendingDelete = summary },
+                    )
+                }
+            }
+        }
+    }
+
+    pendingRename?.let { summary ->
+        val existing = summary.place
+        var text by remember(summary) { mutableStateOf(existing?.label ?: "") }
+        AlertDialog(
+            onDismissRequest = { pendingRename = null },
+            icon = { Icon(Icons.Filled.Place, contentDescription = null) },
+            title = { Text(if (existing == null) "Name this place" else "Rename place") },
+            text = {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    label = { Text("Place name") },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (existing != null) viewModel.renamePlace(existing.id, text)
+                        else viewModel.createPlace(summary.centroid.lat, summary.centroid.lon, text)
+                        pendingRename = null
+                    },
+                    enabled = text.isNotBlank(),
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRename = null }) { Text("Cancel") }
+            },
+        )
+    }
+
+    pendingDelete?.let { summary ->
+        val existing = summary.place
+        if (existing == null) {
+            pendingDelete = null
+            return@let
+        }
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+            title = { Text("Delete this place?") },
+            text = {
+                Text(
+                    "\"${existing.label}\" will be removed. Its stays stay recorded — they " +
+                        "just go back to being unnamed.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deletePlace(existing.id)
+                    pendingDelete = null
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun PlaceRow(
+    summary: PlaceResolver.PlaceSummary,
+    shape: RoundedCornerShape,
+    onEdit: () -> Unit,
+    onDeleteRequest: () -> Unit,
+) {
+    // Only named places can be deleted (there's a label to remove) — unnamed clusters render as a
+    // plain tap-to-name card with no swipe.
+    if (!summary.isNamed) {
+        PlaceRowCard(summary, shape, onEdit)
+        return
+    }
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) {
+                onDeleteRequest()
+                false
+            } else {
+                true
+            }
+        },
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(shape)
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        },
+    ) {
+        PlaceRowCard(summary, shape, onEdit)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlaceRowCard(
+    summary: PlaceResolver.PlaceSummary,
+    shape: RoundedCornerShape,
+    onClick: () -> Unit,
+) {
+    val named = summary.isNamed
+    Card(modifier = Modifier.fillMaxWidth(), shape = shape, onClick = onClick) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val tint = if (named) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant
+            Box(
+                modifier = Modifier.size(36.dp).clip(CircleShape).background(tint.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Place, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    summary.place?.label ?: "Unnamed place",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (named) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    placeSubtitle(summary),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** Stable list key: the place id for named places, the centroid for ephemeral unnamed clusters. */
+private fun PlaceResolver.PlaceSummary.rowKey(): String =
+    place?.let { "place:${it.id}" } ?: "cluster:%.5f,%.5f".format(centroid.lat, centroid.lon)
+
+private fun placeSubtitle(summary: PlaceResolver.PlaceSummary): String {
+    if (summary.visitCount == 0) return "No visits yet"
+    val visits = "visited ${summary.visitCount}×"
+    val total = "${formatDurationMs(summary.totalMs)} total"
+    val lastSeen = summary.lastSeenMs?.let { "last seen ${relativeDay(it)}" }
+    return listOfNotNull(visits, lastSeen, total).joinToString(" · ")
+}
+
+/** Coarse relative day for "last seen": today / yesterday / N days ago / a date. */
+private fun relativeDay(epochMs: Long): String {
+    val zone = ZoneId.systemDefault()
+    val then = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
+    val days = ChronoUnit.DAYS.between(then, LocalDate.now(zone))
+    return when {
+        days <= 0 -> "today"
+        days == 1L -> "yesterday"
+        days < 7 -> "$days days ago"
+        else -> then.format(dayHeaderFormat)
     }
 }
 

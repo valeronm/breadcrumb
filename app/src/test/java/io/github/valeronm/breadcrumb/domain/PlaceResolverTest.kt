@@ -7,6 +7,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver.Provenance
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Cluster → place matching goes through the stable anchor; results key by afterTrackId. */
@@ -79,5 +80,65 @@ class PlaceResolverTest {
         assertEquals(2, resolved.size)
         assertEquals(1, resolved.getValue(a.afterTrackId).visitCount)
         assertEquals(at(500.0), resolved.getValue(b.afterTrackId).centroid)
+    }
+
+    // --- summarize -----------------------------------------------------------
+
+    private val NOW = 100_000L
+    private fun summarize(stays: List<Stay>, places: List<Place>) =
+        PlaceResolver.summarize(stays, places, NOW, distance = flatDistance)
+
+    private fun stayAt(location: Endpoint, start: Long, end: Long?) = Stay(
+        start = start, end = end, location = location,
+        provenance = Provenance.OBSERVED, afterTrackId = ++nextTrackId,
+    )
+
+    @Test fun `a named summary aggregates count, last seen and total over its stays`() {
+        val stays = listOf(
+            stayAt(at(0.0), start = 1_000, end = 3_000),   // 2_000
+            stayAt(at(40.0), start = 5_000, end = 6_000),  // 1_000
+            stayAt(at(20.0), start = 9_000, end = 9_500),  // 500
+        )
+        val s = summarize(stays, listOf(place(7, "Home", at(0.0)))).single()
+        assertEquals("Home", s.place?.label)
+        assertEquals(3, s.visitCount)
+        assertEquals(9_500L, s.lastSeenMs)
+        assertEquals(3_500L, s.totalMs)
+    }
+
+    @Test fun `an ongoing stay counts up to now`() {
+        val s = summarize(listOf(stayAt(at(0.0), start = 40_000, end = null)),
+            listOf(place(7, "Home", at(0.0)))).single()
+        assertEquals(NOW, s.lastSeenMs)
+        assertEquals(NOW - 40_000, s.totalMs)
+    }
+
+    @Test fun `a named place with no stays is still listed with zero`() {
+        // The lone stay forms its own unnamed cluster; the distant named place is a zero orphan.
+        val summaries = summarize(listOf(stayAt(at(0.0), 1_000, 2_000)),
+            listOf(place(7, "Faraway", at(500.0))))
+        val faraway = summaries.single { it.place?.label == "Faraway" }
+        assertEquals(0, faraway.visitCount)
+        assertNull(faraway.lastSeenMs)
+        assertEquals(0L, faraway.totalMs)
+    }
+
+    @Test fun `unnamed clusters are listed too`() {
+        val summaries = summarize(
+            listOf(stayAt(at(0.0), 1_000, 2_000), stayAt(at(500.0), 3_000, 4_000)),
+            emptyList(),
+        )
+        assertEquals(2, summaries.size)
+        assertTrue(summaries.all { !it.isNamed && it.visitCount == 1 })
+    }
+
+    @Test fun `named places come first in input order, then unnamed clusters`() {
+        val places = listOf(place(1, "Home", at(0.0)), place(2, "Office", at(500.0)))
+        val stays = listOf(stayAt(at(500.0), 1_000, 2_000), stayAt(at(900.0), 3_000, 4_000))
+        val summaries = summarize(stays, places)
+        assertEquals(listOf("Home", "Office"), summaries.take(2).map { it.place?.label })
+        assertEquals(0, summaries[0].visitCount)        // Home: orphan
+        assertEquals(1, summaries[1].visitCount)        // Office: one matching stay
+        assertEquals(1, summaries.count { !it.isNamed }) // the (900) stay is an unnamed cluster
     }
 }

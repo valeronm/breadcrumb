@@ -48,8 +48,9 @@ object StayDeriver {
     data class Params(
         /** Endpoints at most this far apart (metres) count as "the same place". */
         val agreementRadiusM: Double = 100.0,
-        /** Inter-track gaps shorter than this emit nothing — brief stops, not stays. */
-        val minStayMs: Long = 5 * 60_000L,
+        /** Inter-track gaps shorter than this emit nothing. 0 = keep every stay (brief stops
+         *  included) — the auto-pause resume window already absorbs the truly-momentary ones. */
+        val minStayMs: Long = 0L,
         /** Heartbeat staleness after which a restart materializes an outage. Lives here as the
          *  single source of truth; the service reads it when calling materializeOutageIfDead. */
         val heartbeatToleranceMs: Long = 30 * 60_000L,

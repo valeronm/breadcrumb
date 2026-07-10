@@ -69,6 +69,44 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Per-place aggregate stats for the Places screen (idle unless that screen is open). */
+    val places: StateFlow<List<PlaceResolver.PlaceSummary>> = combine(
+        repository.observeEndpoints(),
+        livenessRepository.observeEvents(),
+        placeRepository.observePlaces(),
+        TrackingStatus.state,
+    ) { endpoints, events, places, status ->
+        val now = System.currentTimeMillis()
+        val intervals = StayDeriver.derive(
+            tracks = endpoints.map { it.toTrackEnd() },
+            liveness = events.mapNotNull { it.toLiveness() },
+            nowMs = now,
+            activeRecording = status.recording,
+            distance = AndroidDistance,
+        )
+        PlaceResolver.summarize(
+            intervals.filterIsInstance<StayDeriver.Stay>(), places, now, distance = AndroidDistance,
+        )
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun renamePlace(id: Long, label: String) {
+        val trimmed = label.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch { placeRepository.rename(id, trimmed) }
+    }
+
+    /** Name an unnamed cluster from the Places screen — pins a place at its centroid. */
+    fun createPlace(lat: Double, lon: Double, label: String) {
+        val trimmed = label.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch { placeRepository.create(trimmed, lat, lon, System.currentTimeMillis()) }
+    }
+
+    fun deletePlace(id: Long) {
+        viewModelScope.launch { placeRepository.delete(id) }
+    }
+
     /** Save from the naming dialog: blank clears an existing label; otherwise create or rename. */
     fun savePlace(place: PlaceResolver.ResolvedStay, label: String) {
         viewModelScope.launch {
