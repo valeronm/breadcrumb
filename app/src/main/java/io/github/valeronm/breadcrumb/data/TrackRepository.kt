@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Track
+import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.KeepRule
@@ -20,6 +21,8 @@ class TrackRepository(context: Context) {
     private val dao = AppDatabase.get(context).trackDao()
 
     fun observeSummaries(): Flow<List<TrackSummary>> = dao.observeSummaries()
+
+    fun observeEndpoints(): Flow<List<TrackEndpoints>> = dao.observeEndpoints()
 
     suspend fun startTrack(activityType: ActivityType, startedAt: Long): Long =
         dao.insertTrack(Track(activityType = activityType.name, startedAt = startedAt))

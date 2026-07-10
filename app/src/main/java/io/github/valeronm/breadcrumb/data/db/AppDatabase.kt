@@ -8,12 +8,13 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Track::class, TrackPoint::class],
-    version = 5,
+    entities = [Track::class, TrackPoint::class, LivenessEvent::class],
+    version = 6,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
+    abstract fun livenessDao(): LivenessDao
 
     companion object {
         @Volatile
@@ -57,13 +58,36 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v6 adds the liveness_events table (recorder-lifecycle evidence for stay derivation) and
+        // upgrades the track_points FK index to (trackId, timestamp) so the first/last-endpoint
+        // subqueries walk the index. DDL must match the entity annotations exactly — Room
+        // validates the schema at open and crashes on mismatch.
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS liveness_events (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "type TEXT NOT NULL, at INTEGER NOT NULL, until INTEGER)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_liveness_events_at ON liveness_events(at)",
+                )
+                db.execSQL("DROP INDEX IF EXISTS index_track_points_trackId")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_track_points_trackId_timestamp " +
+                        "ON track_points(trackId, timestamp)",
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "tracks.db",
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .build().also { instance = it }
             }
     }
 }

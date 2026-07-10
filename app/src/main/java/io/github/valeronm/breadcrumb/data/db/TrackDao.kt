@@ -61,4 +61,27 @@ interface TrackDao {
         """
     )
     fun observeSummaries(): Flow<List<TrackSummary>>
+
+    /**
+     * Finished tracks with first/last good-point coordinates, oldest first — the stay deriver's
+     * input. The subqueries walk the (trackId, timestamp) index, stopping at the first
+     * non-ignored row.
+     */
+    @Query(
+        """
+        SELECT t.id, t.activityType, t.startedAt, t.endedAt,
+               (SELECT p.latitude  FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0
+                  ORDER BY p.timestamp ASC,  p.id ASC  LIMIT 1) AS startLat,
+               (SELECT p.longitude FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0
+                  ORDER BY p.timestamp ASC,  p.id ASC  LIMIT 1) AS startLon,
+               (SELECT p.latitude  FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0
+                  ORDER BY p.timestamp DESC, p.id DESC LIMIT 1) AS endLat,
+               (SELECT p.longitude FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0
+                  ORDER BY p.timestamp DESC, p.id DESC LIMIT 1) AS endLon
+        FROM tracks t
+        WHERE t.endedAt IS NOT NULL
+        ORDER BY t.startedAt ASC
+        """
+    )
+    fun observeEndpoints(): Flow<List<TrackEndpoints>>
 }

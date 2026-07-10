@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
@@ -137,6 +138,8 @@ import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.RecordCardState
+import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.location.TrackingStatus
@@ -218,7 +221,7 @@ private sealed interface Overlay {
 private fun MainScreen() {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
-    val tracks by viewModel.tracks.collectAsState()
+    val timeline by viewModel.timeline.collectAsState()
     val status by TrackingStatus.state.collectAsState()
 
     // Keep-screen-on while charging: live charger state + persisted preference; the window flag
@@ -369,7 +372,7 @@ private fun MainScreen() {
                         )
                     },
                     actions = {
-                        if (selectedTab == HomeTab.TRACKS && tracks.isNotEmpty()) {
+                        if (selectedTab == HomeTab.TRACKS && timeline.any { it is TimelineItem.TrackItem }) {
                             IconButton(onClick = { exportAllLauncher.launch(null) }) {
                                 Icon(Icons.Filled.Download, contentDescription = "Export all as GPX")
                             }
@@ -437,7 +440,7 @@ private fun MainScreen() {
                     )
 
                     HomeTab.TRACKS -> TracksTab(
-                        tracks = tracks,
+                        items = timeline,
                         viewModel = viewModel,
                         onOpen = { overlay = Overlay.TrackDetail(it) },
                         onReplay = { track ->
@@ -461,7 +464,9 @@ private fun MainScreen() {
                 when (rendered) {
                     is Overlay.TrackDetail -> TrackMapScreen(
                         trackId = rendered.id,
-                        summary = tracks.find { it.id == rendered.id },
+                        summary = timeline.firstNotNullOfOrNull {
+                            (it as? TimelineItem.TrackItem)?.summary?.takeIf { s -> s.id == rendered.id }
+                        },
                         viewModel = viewModel,
                         onBack = { overlay = null },
                     )
@@ -902,7 +907,7 @@ private fun AutoRecordControls(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TracksTab(
-    tracks: List<TrackSummary>,
+    items: List<TimelineItem>,
     viewModel: TrackListViewModel,
     onOpen: (Long) -> Unit,
     onReplay: (TrackSummary) -> Unit,
@@ -910,7 +915,7 @@ private fun TracksTab(
     val context = LocalContext.current
     var pendingDelete by remember { mutableStateOf<TrackSummary?>(null) }
 
-    if (tracks.isEmpty()) {
+    if (items.none { it is TimelineItem.TrackItem }) {
         Box(
             modifier = Modifier.fillMaxSize().padding(24.dp),
             contentAlignment = Alignment.Center,
@@ -924,14 +929,15 @@ private fun TracksTab(
         return
     }
 
-    val groups = remember(tracks) { groupTracksByDay(tracks) }
+    val groups = remember(items) { groupTimelineByDay(items) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         // Rows within a day sit tight so the group reads as one visual block.
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        groups.forEach { (label, dayTracks) ->
+        groups.forEach { (label, dayItems) ->
+            val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
             stickyHeader(key = "header:$label") {
                 DayHeader(label, dayTracks) {
                     viewModel.shareTracks(dayTracks.map { it.id }) { intent ->
@@ -939,19 +945,24 @@ private fun TracksTab(
                     }
                 }
             }
-            itemsIndexed(dayTracks, key = { _, track -> track.id }) { index, track ->
-                TrackRow(
-                    track = track,
-                    shape = groupedRowShape(index, dayTracks.size),
-                    onOpen = { onOpen(track.id) },
-                    onDeleteRequest = { pendingDelete = track },
-                    // DEBUG: long-press replays the track through the Record tab's live view.
-                    onReplay = if (BuildConfig.DEBUG) {
-                        { onReplay(track) }
-                    } else {
-                        null
-                    },
-                )
+            itemsIndexed(dayItems, key = { _, item -> item.rowKey() }) { index, item ->
+                val shape = groupedRowShape(index, dayItems.size)
+                when (item) {
+                    is TimelineItem.TrackItem -> TrackRow(
+                        track = item.summary,
+                        shape = shape,
+                        onOpen = { onOpen(item.summary.id) },
+                        onDeleteRequest = { pendingDelete = item.summary },
+                        // DEBUG: long-press replays the track through the Record tab's live view.
+                        onReplay = if (BuildConfig.DEBUG) {
+                            { onReplay(item.summary) }
+                        } else {
+                            null
+                        },
+                    )
+                    is TimelineItem.StayItem -> StayRow(item.stay, shape)
+                    is TimelineItem.GapItem -> GapRow(item.gap, shape)
+                }
             }
         }
     }
@@ -1479,13 +1490,23 @@ private fun lengthSettingLabel(m: Int): String = when {
     else -> "%.1f km".format(m / 1000.0)
 }
 
-private fun groupTracksByDay(tracks: List<TrackSummary>): List<Pair<String, List<TrackSummary>>> {
+private fun groupTimelineByDay(items: List<TimelineItem>): List<Pair<String, List<TimelineItem>>> {
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
-    // groupBy preserves encounter order, and tracks arrive newest-first, so days stay descending.
-    return tracks
+    // groupBy preserves encounter order, and items arrive newest-first, so days stay descending.
+    // Midnight-spanning stays were already sliced per day by the deriver.
+    return items
         .groupBy { Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate() }
         .map { (date, list) -> dayLabel(date, today) to list }
+}
+
+private fun isLocalMidnight(epochMs: Long): Boolean =
+    Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).toLocalTime() == java.time.LocalTime.MIDNIGHT
+
+private fun TimelineItem.rowKey(): String = when (this) {
+    is TimelineItem.TrackItem -> "track:${summary.id}"
+    is TimelineItem.StayItem -> "stay:${stay.afterTrackId}:${stay.start}"
+    is TimelineItem.GapItem -> "gap:${gap.start}"
 }
 
 private val dayHeaderFormat = DateTimeFormatter.ofPattern("EEEE, d MMM yyyy", Locale.getDefault())
@@ -1583,6 +1604,81 @@ private fun TrackRow(
                     )
                 }
             }
+        }
+    }
+}
+
+/** A derived stationary period between two tracks. Inferred stays render muted with a "~". */
+@Composable
+private fun StayRow(stay: StayDeriver.Stay, shape: RoundedCornerShape) {
+    val inferred = stay.provenance == StayDeriver.Provenance.INFERRED
+    Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val tint = MaterialTheme.colorScheme.onSurfaceVariant
+            Box(
+                modifier = Modifier.size(36.dp).clip(CircleShape)
+                    .background(tint.copy(alpha = if (inferred) 0.10f else 0.16f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Place,
+                    contentDescription = "Stay",
+                    tint = tint.copy(alpha = if (inferred) 0.6f else 1f),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                val start = timeFormat.format(Date(stay.start))
+                val end = stay.end
+                val timeLine = when {
+                    end == null -> "$start – now"
+                    // A whole-day slice of a multi-day stay: both bounds are local midnight.
+                    isLocalMidnight(stay.start) && isLocalMidnight(end) -> "All day"
+                    else -> "$start – ${timeFormat.format(Date(end))}"
+                }
+                Text(
+                    timeLine,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (inferred) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurface,
+                )
+                val duration = formatDurationMs((stay.end ?: System.currentTimeMillis()) - stay.start)
+                Text(
+                    if (inferred) "Stayed ~$duration" else "Stayed · $duration",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** Movement the recorder missed: neighbouring track endpoints disagree. Deliberately subdued. */
+@Composable
+private fun GapRow(gap: StayDeriver.Gap, shape: RoundedCornerShape) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Filled.MoreHoriz,
+                    contentDescription = "Gap",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Text(
+                "Moved without recording · ${formatDurationMs(gap.end - gap.start)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

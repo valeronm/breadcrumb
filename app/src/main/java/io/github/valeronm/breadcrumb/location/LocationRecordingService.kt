@@ -5,8 +5,10 @@ import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.hardware.Sensor
 import android.hardware.SensorManager
@@ -29,6 +31,7 @@ import io.github.valeronm.breadcrumb.App
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.IgnoreReason
+import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackRepository
@@ -37,14 +40,17 @@ import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.Confirmed
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.RecordingAction
+import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackController
 import io.github.valeronm.breadcrumb.ui.MainActivity
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -61,8 +67,21 @@ class LocationRecordingService : Service() {
     private val mutex = Mutex()
 
     private lateinit var repository: TrackRepository
+    private lateinit var livenessRepository: LivenessRepository
     private lateinit var activityManager: ActivityRecognitionManager
     private var locationManager: LocationManager? = null
+
+    // --- Liveness heartbeat (evidence for stay derivation) ---
+    // A periodic "still alive" timestamp in Settings; a restart finding it stale materializes an
+    // OUTAGE row so the silent interval isn't derived as a stay. Doze defers the loop's delay —
+    // that's fine: a dozed phone is alive, and a late heartbeat only widens a real outage's start.
+    private var heartbeatJob: Job? = null
+    private val shutdownReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            // Best-effort exact outage start on a clean power-off; synchronous — the process dies.
+            Settings.setLastHeartbeatMs(context, System.currentTimeMillis(), sync = true)
+        }
+    }
 
     // Two small state machines own the logic; this service owns only the resources below, and wires
     // them together. The gate debounces raw readings into a trusted activity; the controller turns
@@ -110,10 +129,19 @@ class LocationRecordingService : Service() {
         super.onCreate()
         instance = this
         repository = TrackRepository(this)
+        livenessRepository = LivenessRepository(this)
         activityManager = ActivityRecognitionManager(this)
         locationManager = getSystemService(LocationManager::class.java)
         sensorManager = getSystemService(SensorManager::class.java)
         motionSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)
+        // Must be dynamic: ACTION_SHUTDOWN is not on the API-26+ implicit-broadcast exemption
+        // list, so a manifest receiver would never fire.
+        ContextCompat.registerReceiver(
+            this,
+            shutdownReceiver,
+            IntentFilter(Intent.ACTION_SHUTDOWN).apply { addAction("android.intent.action.QUICKBOOT_POWEROFF") },
+            ContextCompat.RECEIVER_EXPORTED,
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -147,6 +175,15 @@ class LocationRecordingService : Service() {
                 // Close any track left open by a previous crash/kill, but never the one we're
                 // actively recording (a snapshot may have already opened it).
                 repository.finalizeDangling(exceptTrackId = activeTrackId)
+                // Liveness bookkeeping: if the heartbeat went stale while armed, the app was dead
+                // for that span — record the outage before the new ARMED row.
+                livenessRepository.materializeOutageIfDead(
+                    lastHeartbeat = Settings.lastHeartbeatMs(this@LocationRecordingService),
+                    now = now(),
+                    toleranceMs = StayDeriver.Params().heartbeatToleranceMs,
+                )
+                livenessRepository.recordArmed(now())
+                startHeartbeat()
                 gate.onArmed()
                 publishStatus()
             }
@@ -173,6 +210,10 @@ class LocationRecordingService : Service() {
             mutex.withLock {
                 closeCurrentTrack()
                 gate.onArmed()
+                heartbeatJob?.cancel()
+                heartbeatJob = null
+                Settings.setLastHeartbeatMs(this@LocationRecordingService, now())
+                livenessRepository.recordDisarmed(now())
             }
             withContext(Dispatchers.Main) {
                 TrackingStatus.reset()
@@ -270,8 +311,21 @@ class LocationRecordingService : Service() {
         withContext(Dispatchers.Main) { startLocationUpdates() }
     }
 
+    /** Writes the heartbeat every 15 min while armed; a track close is a free extra attestation. */
+    private fun startHeartbeat() {
+        heartbeatJob?.cancel()
+        Settings.setLastHeartbeatMs(this, now())
+        heartbeatJob = scope.launch {
+            while (isActive) {
+                delay(HEARTBEAT_INTERVAL_MS)
+                Settings.setLastHeartbeatMs(this@LocationRecordingService, now())
+            }
+        }
+    }
+
     private suspend fun closeCurrentTrack() {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
+        Settings.setLastHeartbeatMs(this, now())
         val id = currentTrackId ?: return
         // A paused track ended when its last fix arrived, not now — don't count the idle gap.
         val endedAt = if (controller.isPaused) lastGoodPoint?.timestamp ?: now() else now()
@@ -627,6 +681,7 @@ class LocationRecordingService : Service() {
 
     override fun onDestroy() {
         stopLocationUpdates()
+        unregisterReceiver(shutdownReceiver)
         instance = null
         activeTrackId = null
         scope.cancel()
@@ -652,6 +707,7 @@ class LocationRecordingService : Service() {
         const val ACTION_STOP = "io.github.valeronm.breadcrumb.STOP"
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "Breadcrumb"
+        private const val HEARTBEAT_INTERVAL_MS = 15 * 60_000L
 
         // A fix counts as GNSS-backed when a satellite fix using at least this many satellites
         // occurred within [GNSS_FIX_MAX_AGE_MS] of it. Four is the minimum for a genuine 3D fix;

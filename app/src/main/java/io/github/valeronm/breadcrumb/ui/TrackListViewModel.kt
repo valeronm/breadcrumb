@@ -5,21 +5,55 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.db.LivenessEvent
+import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.GpxExporter
+import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.location.TrackingStatus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.ZoneId
 
 class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repository = TrackRepository(app)
+    private val livenessRepository = LivenessRepository(app)
 
     val tracks: StateFlow<List<TrackSummary>> = repository.observeSummaries()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Tracks interleaved with derived stays and data gaps, newest first, sliced per local day. */
+    val timeline: StateFlow<List<TimelineItem>> = combine(
+        repository.observeSummaries(),
+        repository.observeEndpoints(),
+        livenessRepository.observeEvents(),
+        TrackingStatus.state,
+    ) { summaries, endpoints, events, status ->
+        val now = System.currentTimeMillis()
+        val intervals = StayDeriver.derive(
+            tracks = endpoints.map { it.toTrackEnd() },
+            liveness = events.mapNotNull { it.toLiveness() },
+            nowMs = now,
+            activeRecording = status.recording,
+            distance = AndroidDistance,
+        )
+        StayDeriver.interleave(
+            summaries,
+            StayDeriver.slicePerDay(intervals, ZoneId.systemDefault(), now),
+        )
+    }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
@@ -78,4 +112,19 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             onReady(Intent.createChooser(intent, if (single) "Share GPX track" else "Share GPX tracks"))
         }
     }
+}
+
+private fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(
+    trackId = id,
+    startedAt = startedAt,
+    endedAt = endedAt,
+    start = if (startLat != null && startLon != null) StayDeriver.Endpoint(startLat, startLon) else null,
+    end = if (endLat != null && endLon != null) StayDeriver.Endpoint(endLat, endLon) else null,
+)
+
+private fun LivenessEvent.toLiveness(): StayDeriver.Liveness? = when (type) {
+    LivenessEvent.TYPE_ARMED -> StayDeriver.Armed(at)
+    LivenessEvent.TYPE_DISARMED -> StayDeriver.Disarmed(at)
+    LivenessEvent.TYPE_OUTAGE -> until?.let { StayDeriver.Outage(at, it) }
+    else -> null
 }

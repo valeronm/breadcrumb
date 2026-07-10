@@ -29,7 +29,9 @@ data class Track(
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index("trackId")],
+    // Composite: serves the FK (trackId prefix) and makes first/last-point-per-track
+    // subqueries index-order walks instead of per-track sorts.
+    indices = [Index("trackId", "timestamp")],
 )
 data class TrackPoint(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -69,6 +71,41 @@ data class TrackPoint(
      * in distance (the segments are logically disconnected).
      */
     val segmentStart: Boolean = false,
+)
+
+/**
+ * Recorder-lifecycle evidence for deriving stays: a gap between tracks only counts as "stayed
+ * here" if the app was alive and armed throughout. Low volume — a few rows per day at most;
+ * the high-frequency liveness signal is the heartbeat timestamp in Settings, which only
+ * materializes as an OUTAGE row here when a restart discovers it went stale.
+ */
+@Entity(tableName = "liveness_events", indices = [Index("at")])
+data class LivenessEvent(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** "ARMED" | "DISARMED" | "OUTAGE". */
+    val type: String,
+    /** Event time (epoch ms). For OUTAGE: when the app was last known alive before dying. */
+    val at: Long,
+    /** OUTAGE only: when the app came back (the restart time). Null for ARMED/DISARMED. */
+    val until: Long? = null,
+) {
+    companion object {
+        const val TYPE_ARMED = "ARMED"
+        const val TYPE_DISARMED = "DISARMED"
+        const val TYPE_OUTAGE = "OUTAGE"
+    }
+}
+
+/** A finished track projected to what stay derivation needs: interval + endpoint coordinates. */
+data class TrackEndpoints(
+    val id: Long,
+    val activityType: String,
+    val startedAt: Long,
+    val endedAt: Long,
+    val startLat: Double?,
+    val startLon: Double?,
+    val endLat: Double?,
+    val endLon: Double?,
 )
 
 /** Lightweight summary row for the track list (no point geometry loaded). */

@@ -20,6 +20,7 @@ object Settings {
     private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
     private const val KEY_IGNORE_REASON_BACKFILL_DONE = "ignore_reason_backfill_done"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
+    private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
 
     const val DEFAULT_SAMPLING_MIN_INTERVAL_SEC = 5
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
@@ -51,6 +52,18 @@ object Settings {
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    // --- Liveness heartbeat --------------------------------------------------
+
+    /** When the app was last known alive (epoch ms, 0 = never). See LivenessRepository. */
+    fun lastHeartbeatMs(context: Context): Long =
+        prefs(context).getLong(KEY_LAST_HEARTBEAT_MS, 0L)
+
+    fun setLastHeartbeatMs(context: Context, now: Long, sync: Boolean = false) {
+        // sync commits on the caller's thread — for ACTION_SHUTDOWN, where the process is dying
+        // and an async apply() may never hit disk.
+        prefs(context).edit(commit = sync) { putLong(KEY_LAST_HEARTBEAT_MS, now) }
+    }
 
     /** Keep the screen on while the app is open and the phone is charging (car-mount use). */
     fun keepScreenOnCharging(context: Context): Boolean =
