@@ -60,6 +60,7 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -137,6 +138,7 @@ import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -300,6 +302,18 @@ private fun MainScreen() {
     val logsBackProgress = remember { Animatable(0f) }
     var logsBackEdgeSign by remember { mutableFloatStateOf(1f) }
 
+    // Place detail is another stacked layer, opened from the Places list or a timeline stay —
+    // back lands wherever it was opened from. Keyed by PlaceSummary.rowKey() so the screen tracks
+    // the live summary while the derivation re-runs underneath (rename, radius change).
+    var placeDetailKey by remember { mutableStateOf<String?>(null) }
+    var renderedPlaceDetail by remember { mutableStateOf(false) }
+    // The last summary the key resolved to: keeps the screen stable between re-derivations and
+    // re-finds a just-named cluster by centroid (naming moves its key from cluster: to place:).
+    var placeDetailSnapshot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
+    val placeDetailPresence = remember { Animatable(0f) }
+    val placeDetailBackProgress = remember { Animatable(0f) }
+    var placeDetailBackEdgeSign by remember { mutableFloatStateOf(1f) }
+
     LaunchedEffect(overlay) {
         val current = overlay
         if (current != null) {
@@ -325,7 +339,20 @@ private fun MainScreen() {
         }
     }
 
-    PredictiveBackHandler(enabled = overlay != null && !showLogs) { events ->
+    LaunchedEffect(placeDetailKey == null) {
+        if (placeDetailKey != null) {
+            renderedPlaceDetail = true
+            placeDetailBackProgress.snapTo(0f)
+            placeDetailPresence.animateTo(1f, tween(300))
+        } else if (renderedPlaceDetail) {
+            placeDetailPresence.animateTo(0f, tween(300))
+            renderedPlaceDetail = false
+            placeDetailBackProgress.snapTo(0f)
+            placeDetailSnapshot = null
+        }
+    }
+
+    PredictiveBackHandler(enabled = overlay != null && !showLogs && placeDetailKey == null) { events ->
         try {
             events.collect { event ->
                 backEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
@@ -346,6 +373,18 @@ private fun MainScreen() {
             showLogs = false // gesture committed -> back to Settings
         } catch (cancelled: CancellationException) {
             logsBackProgress.animateTo(0f, tween(200))
+        }
+    }
+
+    PredictiveBackHandler(enabled = placeDetailKey != null) { events ->
+        try {
+            events.collect { event ->
+                placeDetailBackEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
+                placeDetailBackProgress.snapTo(event.progress)
+            }
+            placeDetailKey = null // gesture committed -> back to where it was opened from
+        } catch (cancelled: CancellationException) {
+            placeDetailBackProgress.animateTo(0f, tween(200))
         }
     }
 
@@ -434,6 +473,7 @@ private fun MainScreen() {
                         items = timeline,
                         viewModel = viewModel,
                         onOpen = { overlay = Overlay.TrackDetail(it) },
+                        onOpenPlace = { placeDetailKey = it },
                         onReplay = { track ->
                             TrackReplayer.start(context, track.id)
                             selectedTab = HomeTab.RECORD
@@ -471,6 +511,54 @@ private fun MainScreen() {
                     Overlay.Places -> PlacesScreen(
                         viewModel = viewModel,
                         onBack = { overlay = null },
+                        onOpenPlace = { placeDetailKey = it },
+                    )
+                }
+            }
+        }
+
+        // Place detail: stacked above whatever opened it (the Places overlay or the Tracks tab),
+        // with the same open/close and predictive-back treatment.
+        if (renderedPlaceDetail) {
+            val placeSummaries by viewModel.places.collectAsState()
+            val summary = placeSummaries.firstOrNull { it.rowKey() == placeDetailKey }
+                ?: placeDetailSnapshot?.let { snap -> placeSummaries.firstOrNull { it.centroid == snap.centroid } }
+                ?: placeDetailSnapshot
+            LaunchedEffect(summary) {
+                val s = summary ?: return@LaunchedEffect
+                placeDetailSnapshot = s
+                if (placeDetailKey != null && placeDetailKey != s.rowKey()) placeDetailKey = s.rowKey()
+            }
+            summary?.let { detail ->
+                // Surrounding clusters for radius context: their endpoints as grey dots, named
+                // neighbours as labelled pins.
+                val neighbors = remember(placeSummaries, detail) {
+                    placeSummaries
+                        .filter { other ->
+                            other.rowKey() != detail.rowKey() && AndroidDistance.metres(
+                                other.anchor.lat, other.anchor.lon,
+                                detail.anchor.lat, detail.anchor.lon,
+                            ) <= NEIGHBOR_CONTEXT_M
+                        }
+                        .flatMap { other ->
+                            other.endpoints.map { NeighborPlace(it) } +
+                                listOfNotNull(other.place?.let { NeighborPlace(other.anchor, it.label) })
+                        }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .overlayTransform(
+                            placeDetailPresence.value,
+                            placeDetailBackProgress.value,
+                            placeDetailBackEdgeSign,
+                        ),
+                ) {
+                    PlaceDetailScreen(
+                        summary = detail,
+                        neighbors = neighbors,
+                        viewModel = viewModel,
+                        onBack = { placeDetailKey = null },
                     )
                 }
             }
@@ -906,11 +994,11 @@ private fun TracksTab(
     items: List<TimelineItem>,
     viewModel: TrackListViewModel,
     onOpen: (Long) -> Unit,
+    onOpenPlace: (String) -> Unit,
     onReplay: (TrackSummary) -> Unit,
 ) {
     val context = LocalContext.current
     var pendingDelete by remember { mutableStateOf<TrackSummary?>(null) }
-    var pendingName by remember { mutableStateOf<TimelineItem.StayItem?>(null) }
 
     if (items.none { it is TimelineItem.TrackItem }) {
         Box(
@@ -957,56 +1045,13 @@ private fun TracksTab(
                             null
                         },
                     )
-                    is TimelineItem.StayItem -> StayRow(item, shape) { pendingName = item }
+                    is TimelineItem.StayItem -> StayRow(item, shape) {
+                        item.place?.let { onOpenPlace(placeDetailKeyOf(it.placeId, it.centroid)) }
+                    }
                     is TimelineItem.GapItem -> GapRow(item.gap, shape)
                 }
             }
         }
-    }
-
-    pendingName?.let { item ->
-        val place = item.place
-        if (place == null) {
-            pendingName = null
-            return@let
-        }
-        var text by remember(item) { mutableStateOf(place.label ?: "") }
-        val removing = text.isBlank() && place.label != null
-        AlertDialog(
-            onDismissRequest = { pendingName = null },
-            icon = { Icon(Icons.Filled.Place, contentDescription = null) },
-            title = { Text(if (place.label == null) "Name this place" else "Rename place") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = text,
-                        onValueChange = { text = it },
-                        singleLine = true,
-                        label = { Text("Place name") },
-                    )
-                    if (place.label != null) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Clear the name to remove the label.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.savePlace(place, text)
-                        pendingName = null
-                    },
-                    enabled = text.isNotBlank() || place.label != null,
-                ) { Text(if (removing) "Remove" else "Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingName = null }) { Text("Cancel") }
-            },
-        )
     }
 
     pendingDelete?.let { track ->
@@ -1124,13 +1169,19 @@ private enum class PlaceSort(val label: String) {
 // isn't a place worth naming. Named places always show, however many visits.
 private const val MIN_UNNAMED_VISITS = 2
 
+/** How far around a place the detail map shows neighbouring clusters for radius context. */
+private const val NEIGHBOR_CONTEXT_M = 1_200.0
+
 /** Manage named places: sortable list with derived stats, tap to rename, swipe to delete. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PlacesScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
+private fun PlacesScreen(
+    viewModel: TrackListViewModel,
+    onBack: () -> Unit,
+    onOpenPlace: (String) -> Unit,
+) {
     val places by viewModel.places.collectAsState()
     var sort by remember { mutableStateOf(PlaceSort.LAST_VISIT) }
-    var pendingRename by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
     var pendingDelete by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
 
     val sorted = remember(sort, places) {
@@ -1191,43 +1242,12 @@ private fun PlacesScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
                     PlaceRow(
                         summary = summary,
                         shape = groupedRowShape(index, sorted.size),
-                        onEdit = { pendingRename = summary },
+                        onOpen = { onOpenPlace(summary.rowKey()) },
                         onDeleteRequest = { pendingDelete = summary },
                     )
                 }
             }
         }
-    }
-
-    pendingRename?.let { summary ->
-        val existing = summary.place
-        var text by remember(summary) { mutableStateOf(existing?.label ?: "") }
-        AlertDialog(
-            onDismissRequest = { pendingRename = null },
-            icon = { Icon(Icons.Filled.Place, contentDescription = null) },
-            title = { Text(if (existing == null) "Name this place" else "Rename place") },
-            text = {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    singleLine = true,
-                    label = { Text("Place name") },
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (existing != null) viewModel.renamePlace(existing.id, text)
-                        else viewModel.createPlace(summary.centroid.lat, summary.centroid.lon, text)
-                        pendingRename = null
-                    },
-                    enabled = text.isNotBlank(),
-                ) { Text("Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingRename = null }) { Text("Cancel") }
-            },
-        )
     }
 
     pendingDelete?.let { summary ->
@@ -1264,13 +1284,13 @@ private fun PlacesScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
 private fun PlaceRow(
     summary: PlaceResolver.PlaceSummary,
     shape: RoundedCornerShape,
-    onEdit: () -> Unit,
+    onOpen: () -> Unit,
     onDeleteRequest: () -> Unit,
 ) {
     // Only named places can be deleted (there's a label to remove) — unnamed clusters render as a
-    // plain tap-to-name card with no swipe.
+    // plain card with no swipe.
     if (!summary.isNamed) {
-        PlaceRowCard(summary, shape, onEdit)
+        PlaceRowCard(summary, shape, onOpen)
         return
     }
     val dismissState = rememberSwipeToDismissBoxState(
@@ -1303,7 +1323,179 @@ private fun PlaceRow(
             }
         },
     ) {
-        PlaceRowCard(summary, shape, onEdit)
+        PlaceRowCard(summary, shape, onOpen)
+    }
+}
+
+/**
+ * Full-screen detail for one place: stats header, the cluster on a map (capture circle +
+ * endpoints), and — for named places — a live radius slider (the circle previews while dragging;
+ * the value persists on release and the derivation re-clusters reactively).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlaceDetailScreen(
+    summary: PlaceResolver.PlaceSummary,
+    neighbors: List<NeighborPlace>,
+    viewModel: TrackListViewModel,
+    onBack: () -> Unit,
+) {
+    val place = summary.place
+    var showNameDialog by remember { mutableStateOf(false) }
+    // Local while dragging; summary.radiusM catches up after the persisted value re-derives.
+    var radiusM by remember(place?.id) { mutableFloatStateOf(summary.radiusM.toFloat()) }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(place?.label ?: "Unnamed place")
+                        Text(
+                            "${summary.endpoints.size} recorded track endpoints",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showNameDialog = true }) {
+                        Icon(
+                            Icons.Filled.Edit,
+                            contentDescription = if (summary.isNamed) "Rename place" else "Name place",
+                        )
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(inner)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Card(Modifier.fillMaxWidth()) { PlaceStatsHeader(summary) }
+            // Stats, radius and map read as one group, like the track page's chips/map/scrubber.
+            Column(
+                Modifier.weight(1f).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                val blocks = if (place != null) 2 else 1
+                if (place != null) {
+                    Card(Modifier.fillMaxWidth(), shape = groupedRowShape(0, blocks)) {
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text("Place radius", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "${radiusM.roundToInt()} m",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            Slider(
+                                value = radiusM,
+                                valueRange = 50f..500f,
+                                onValueChange = { raw ->
+                                    radiusM = ((raw / 25f).roundToInt() * 25f).coerceIn(50f, 500f)
+                                },
+                                onValueChangeFinished = {
+                                    viewModel.setPlaceRadius(place.id, radiusM.toDouble())
+                                },
+                            )
+                        }
+                    }
+                }
+                Card(Modifier.weight(1f).fillMaxWidth(), shape = groupedRowShape(blocks - 1, blocks)) {
+                    Box(Modifier.fillMaxSize().clipToBounds()) {
+                        MapLibrePlaceMap(
+                            center = summary.anchor,
+                            radiusM = if (place != null) radiusM.toDouble() else summary.radiusM,
+                            endpoints = summary.endpoints,
+                            neighbors = neighbors,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showNameDialog) {
+        var text by remember(place?.id) { mutableStateOf(place?.label ?: "") }
+        val removing = text.isBlank() && place != null
+        AlertDialog(
+            onDismissRequest = { showNameDialog = false },
+            icon = { Icon(Icons.Filled.Place, contentDescription = null) },
+            title = { Text(if (place == null) "Name this place" else "Rename place") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        singleLine = true,
+                        label = { Text("Place name") },
+                    )
+                    if (place != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Clear the name to remove the label.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val trimmed = text.trim()
+                        when {
+                            trimmed.isEmpty() && place != null -> viewModel.deletePlace(place.id)
+                            place != null -> viewModel.renamePlace(place.id, trimmed)
+                            trimmed.isNotEmpty() -> viewModel.createPlace(
+                                summary.centroid.lat, summary.centroid.lon, trimmed,
+                            )
+                        }
+                        showNameDialog = false
+                    },
+                    enabled = text.isNotBlank() || place != null,
+                ) { Text(if (removing) "Remove" else "Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNameDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+        HeaderStat(
+            "Visits",
+            if (summary.visitCount > 0) "${summary.visitCount}×" else "—",
+            Modifier.weight(1f),
+        )
+        HeaderStat(
+            "Time there",
+            if (summary.totalMs > 0) formatDurationMs(summary.totalMs) else "—",
+            Modifier.weight(1f),
+        )
+        HeaderStat(
+            "Last seen",
+            summary.lastSeenMs?.let { relativeDay(it) } ?: "—",
+            Modifier.weight(1f),
+        )
     }
 }
 
@@ -1346,9 +1538,15 @@ private fun PlaceRowCard(
     }
 }
 
-/** Stable list key: the place id for named places, the centroid for ephemeral unnamed clusters. */
-private fun PlaceResolver.PlaceSummary.rowKey(): String =
-    place?.let { "place:${it.id}" } ?: "cluster:%.5f,%.5f".format(centroid.lat, centroid.lon)
+/**
+ * Stable place identity: the place id for named places, the centroid for ephemeral unnamed
+ * clusters. Shared by the Places list keys, the detail overlay, and stay-row tap-through —
+ * a stay's [PlaceResolver.ResolvedStay] carries the same placeId/centroid pair.
+ */
+private fun placeDetailKeyOf(placeId: Long?, centroid: StayDeriver.Endpoint): String =
+    placeId?.let { "place:$it" } ?: "cluster:%.5f,%.5f".format(centroid.lat, centroid.lon)
+
+private fun PlaceResolver.PlaceSummary.rowKey(): String = placeDetailKeyOf(place?.id, centroid)
 
 private fun placeSubtitle(summary: PlaceResolver.PlaceSummary): String {
     if (summary.visitCount == 0) return "No visits yet"

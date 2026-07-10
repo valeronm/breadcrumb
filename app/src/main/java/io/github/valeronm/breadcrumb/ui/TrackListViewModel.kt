@@ -15,6 +15,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.GpxExporter
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -53,7 +54,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             nowMs = now,
             activeRecording = status.recording,
             distance = AndroidDistance,
-            placePins = places.map { StayDeriver.Endpoint(it.lat, it.lon) },
+            placePins = places.map { PlaceClusterer.Seed(StayDeriver.Endpoint(it.lat, it.lon), it.radiusM) },
         )
         // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
         // as 3 visits. afterTrackId keys survive the slicing copies.
@@ -85,7 +86,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             nowMs = now,
             activeRecording = status.recording,
             distance = AndroidDistance,
-            placePins = places.map { StayDeriver.Endpoint(it.lat, it.lon) },
+            placePins = places.map { PlaceClusterer.Seed(StayDeriver.Endpoint(it.lat, it.lon), it.radiusM) },
         )
         PlaceResolver.summarize(
             derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
@@ -111,18 +112,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { placeRepository.delete(id) }
     }
 
-    /** Save from the naming dialog: blank clears an existing label; otherwise create or rename. */
-    fun savePlace(place: PlaceResolver.ResolvedStay, label: String) {
-        viewModelScope.launch {
-            val trimmed = label.trim()
-            when {
-                trimmed.isEmpty() && place.placeId != null -> placeRepository.delete(place.placeId)
-                place.placeId != null -> placeRepository.rename(place.placeId, trimmed)
-                trimmed.isNotEmpty() -> placeRepository.create(
-                    trimmed, place.centroid.lat, place.centroid.lon, System.currentTimeMillis(),
-                )
-            }
-        }
+    /** Set a place's capture radius; the derivation re-runs and re-clusters reactively. */
+    fun setPlaceRadius(id: Long, radiusM: Double) {
+        viewModelScope.launch { placeRepository.setRadius(id, radiusM) }
     }
 
     init {

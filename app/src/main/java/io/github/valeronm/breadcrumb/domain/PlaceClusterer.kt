@@ -31,6 +31,10 @@ object PlaceClusterer {
         val centroid: StayDeriver.Endpoint,
         /** Indices into the input list. */
         val memberIndices: List<Int>,
+        /** Member locations ([memberIndices] resolved), for showing the cluster on a map. */
+        val members: List<StayDeriver.Endpoint>,
+        /** The capture radius this cluster admits members within (seed's own, or the default). */
+        val radiusM: Double,
         /** Index into the seed list when this cluster grew from a seed; null for organic clusters. */
         val seedIndex: Int? = null,
     ) {
@@ -74,6 +78,8 @@ object PlaceClusterer {
                     lon = locs.sumOf { it.lon } / locs.size,
                 ),
                 memberIndices = members[ci],
+                members = locs,
+                radiusM = radii[ci],
                 seedIndex = ci.takeIf { it < seeds.size },
             )
         }

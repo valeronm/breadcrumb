@@ -38,6 +38,12 @@ object PlaceResolver {
         val lastSeenMs: Long?,
         /** Summed stay durations (ongoing → now). */
         val totalMs: Long,
+        /** Cluster anchor — the pin for a named place; the capture circle's centre on a map. */
+        val anchor: StayDeriver.Endpoint,
+        /** The cluster's capture radius (metres). */
+        val radiusM: Double,
+        /** Every track endpoint captured by the cluster, for showing the scatter on a map. */
+        val endpoints: List<StayDeriver.Endpoint>,
     ) {
         val isNamed: Boolean get() = place != null
     }
@@ -93,7 +99,10 @@ object PlaceResolver {
             }
             val place = matchedPlace(cluster, places)
             if (place == null) {
-                unnamed += PlaceSummary(null, cluster.centroid, count, last, total)
+                unnamed += PlaceSummary(
+                    null, cluster.centroid, count, last, total,
+                    anchor = cluster.anchor, radiusM = cluster.radiusM, endpoints = cluster.members,
+                )
             } else {
                 val agg = namedAgg.getOrPut(place.id) { Agg() }
                 agg.count += count
@@ -101,14 +110,20 @@ object PlaceResolver {
                 agg.last = maxOf(agg.last, last)
             }
         }
-        val named = places.map { place ->
+        val named = places.mapIndexed { index, place ->
             val agg = namedAgg[place.id]
+            // The place's seeded cluster — carries the pin's capture radius and every endpoint it
+            // captured (including pass-throughs, which have no stays but still show on the map).
+            val cluster = clusters.firstOrNull { it.seedIndex == index }
             PlaceSummary(
                 place = place,
                 centroid = StayDeriver.Endpoint(place.lat, place.lon),
                 visitCount = agg?.count ?: 0,
                 lastSeenMs = agg?.last,
                 totalMs = agg?.total ?: 0L,
+                anchor = StayDeriver.Endpoint(place.lat, place.lon),
+                radiusM = cluster?.radiusM ?: place.radiusM,
+                endpoints = cluster?.members ?: emptyList(),
             )
         }
         return named + unnamed

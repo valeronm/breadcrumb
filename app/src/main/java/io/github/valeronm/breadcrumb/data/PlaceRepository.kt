@@ -21,5 +21,7 @@ class PlaceRepository(context: Context) {
 
     suspend fun rename(id: Long, label: String) = dao.rename(id, label)
 
+    suspend fun setRadius(id: Long, radiusM: Double) = dao.setRadius(id, radiusM)
+
     suspend fun delete(id: Long) = dao.delete(id)
 }

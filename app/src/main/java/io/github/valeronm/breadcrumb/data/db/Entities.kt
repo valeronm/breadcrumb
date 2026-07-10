@@ -108,7 +108,15 @@ data class Place(
     val lat: Double,
     val lon: Double,
     val createdAt: Long,
-)
+    /** Capture radius (metres): endpoints within it cluster to this place. User-tunable per
+     *  place — widen for big venues (malls, garages) whose GPS scatter exceeds the default. */
+    val radiusM: Double = DEFAULT_RADIUS_M,
+) {
+    companion object {
+        /** Matches the organic cluster radius (PlaceClusterer.DEFAULT_RADIUS_M). */
+        const val DEFAULT_RADIUS_M = 150.0
+    }
+}
 
 /** A finished track projected to what stay derivation needs: interval + endpoint coordinates. */
 data class TrackEndpoints(

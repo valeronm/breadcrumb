@@ -36,6 +36,9 @@ class StayDeriverTest {
     /** An endpoint `meters` east of `home`. */
     private fun at(meters: Double) = Endpoint(1.0, 1.0 + meters / 100_000.0)
 
+    /** A named-place pin at venue scale (the default place radius is 150 m; venues get widened). */
+    private fun pin(meters: Double, radiusM: Double = 350.0) = PlaceClusterer.Seed(at(meters), radiusM)
+
     private val MIN = 60_000L
     private val NOW = 1_000 * MIN
 
@@ -146,7 +149,7 @@ class StayDeriverTest {
         val intervals = StayDeriver.derive(
             homePair(from = at(300.0)), listOf(Armed(0)), NOW, false,
             StayDeriver.Params(), flatDistance,
-            placePins = listOf(at(150.0)),
+            placePins = listOf(pin(150.0)),
         ).intervals
         assertTrue(intervals.filterIsInstance<Stay>().any { it.end == 240 * MIN })
     }
@@ -156,7 +159,7 @@ class StayDeriverTest {
         val intervals = StayDeriver.derive(
             homePair(from = at(300.0)), listOf(Armed(0)), NOW, false,
             StayDeriver.Params(), flatDistance,
-            placePins = listOf(at(0.0), at(300.0)),
+            placePins = listOf(pin(0.0), pin(300.0)),
         ).intervals
         assertEquals(GapReason.MOVED_UNRECORDED, (intervals.first { it is Gap } as Gap).reason)
     }
@@ -165,7 +168,19 @@ class StayDeriverTest {
         val intervals = StayDeriver.derive(
             homePair(from = at(600.0)), listOf(Armed(0)), NOW, false,
             StayDeriver.Params(), flatDistance,
-            placePins = listOf(at(0.0)),
+            placePins = listOf(pin(0.0)),
+        ).intervals
+        assertEquals(GapReason.MOVED_UNRECORDED, (intervals.first { it is Gap } as Gap).reason)
+    }
+
+    @Test fun `agreement honours each pin's own radius`() {
+        // 300 m apart with a default-radius (150 m) pin between them: neither endpoint is captured
+        // (both are ~150 m out but the near one clusters organically first at 0), and no shared
+        // nearest pin within radius — a gap. The same layout with a widened pin is a stay above.
+        val intervals = StayDeriver.derive(
+            homePair(from = at(300.0)), listOf(Armed(0)), NOW, false,
+            StayDeriver.Params(), flatDistance,
+            placePins = listOf(pin(150.0, radiusM = 100.0)),
         ).intervals
         assertEquals(GapReason.MOVED_UNRECORDED, (intervals.first { it is Gap } as Gap).reason)
     }
@@ -183,7 +198,7 @@ class StayDeriverTest {
         val derivation = StayDeriver.derive(
             homePair(from = at(300.0)), listOf(Armed(0)), NOW, false,
             StayDeriver.Params(), flatDistance,
-            placePins = listOf(at(150.0)),
+            placePins = listOf(pin(150.0)),
         )
         val stay = derivation.intervals.filterIsInstance<Stay>().first { it.end == 240 * MIN }
         assertEquals(0, derivation.clusters[stay.clusterId].seedIndex)

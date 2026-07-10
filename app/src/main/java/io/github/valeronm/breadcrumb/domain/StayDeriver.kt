@@ -10,13 +10,13 @@ import java.time.ZoneId
  * at zero sensing cost. A stay is the interval between the end of one kept track and the start of
  * the next, when both endpoints land at "the same place". Same place means any of:
  *  - the same endpoint cluster ([PlaceClusterer] over every track endpoint in history, *seeded*
- *    by the user's named-place pins at [Params.placeOverrideRadiusM] — user-curated pins make
- *    large venues (malls, garages) generous where blanket radii can't be, and repeated visits
- *    widen organic clusters to the place's real GPS scatter);
+ *    by the user's named-place pins at each pin's own capture radius — widening a venue's radius
+ *    makes it generous where blanket radii can't be, and repeated visits widen organic clusters
+ *    to the place's real GPS scatter);
  *  - raw distance within [Params.agreementRadiusM], so nearby endpoints straddling two clusters
  *    still agree;
- *  - the same nearest *named place* pin within [Params.placeOverrideRadiusM], for the residual
- *    case where a nearer organic anchor pulled one endpoint out of the pin's seeded cluster.
+ *  - the same nearest *named place* pin within that pin's radius, for the residual case where a
+ *    nearer organic anchor pulled one endpoint out of the pin's seeded cluster.
  * Endpoint disagreement means movement the recorder missed, and is reported as a [Gap] instead.
  *
  * Honesty rule: silence is only a stay if the app was alive and armed throughout — that evidence
@@ -58,9 +58,6 @@ object StayDeriver {
         val agreementRadiusM: Double = 100.0,
         /** Radius for clustering track endpoints into places. */
         val placeRadiusM: Double = PlaceClusterer.DEFAULT_RADIUS_M,
-        /** Named-place pins seed endpoint clusters at this radius; endpoints whose shared
-         *  nearest pin is within it also agree directly. */
-        val placeOverrideRadiusM: Double = 350.0,
         /** Inter-track gaps shorter than this emit nothing. 0 = keep every stay (brief stops
          *  included) — the auto-pause resume window already absorbs the truly-momentary ones. */
         val minStayMs: Long = 0L,
@@ -111,18 +108,18 @@ object StayDeriver {
         activeRecording: Boolean,
         params: Params = Params(),
         distance: DistanceFn,
-        /** Named-place pins: seed the endpoint clustering (in pin order — [PlaceResolver] maps
-         *  [PlaceClusterer.Cluster.seedIndex] back to the same places list) and drive the
-         *  same-nearest-pin agreement override. */
-        placePins: List<Endpoint> = emptyList(),
+        /** Named-place pins with their per-place capture radii: seed the endpoint clustering
+         *  (in pin order — [PlaceResolver] maps [PlaceClusterer.Cluster.seedIndex] back to the
+         *  same places list) and drive the same-nearest-pin agreement override. */
+        placePins: List<PlaceClusterer.Seed> = emptyList(),
     ): Derivation {
         val evidence = summarizeLiveness(liveness, nowMs)
         val (clusters, clusterOf) = clusterEndpoints(tracks, placePins, params, distance)
         val out = mutableListOf<Interval>()
 
         fun nearestPin(e: Endpoint): Int? = placePins.indices
-            .filter { distance.metres(placePins[it].lat, placePins[it].lon, e.lat, e.lon) <= params.placeOverrideRadiusM }
-            .minByOrNull { distance.metres(placePins[it].lat, placePins[it].lon, e.lat, e.lon) }
+            .filter { distance.metres(placePins[it].anchor.lat, placePins[it].anchor.lon, e.lat, e.lon) <= placePins[it].radiusM }
+            .minByOrNull { distance.metres(placePins[it].anchor.lat, placePins[it].anchor.lon, e.lat, e.lon) }
 
         for (i in 0 until tracks.size - 1) {
             val prev = tracks[i]
@@ -169,7 +166,7 @@ object StayDeriver {
      */
     private fun clusterEndpoints(
         tracks: List<TrackEnd>,
-        placePins: List<Endpoint>,
+        placePins: List<PlaceClusterer.Seed>,
         params: Params,
         distance: DistanceFn,
     ): Pair<List<PlaceClusterer.Cluster>, Map<Endpoint, Int>> {
@@ -179,10 +176,7 @@ object StayDeriver {
                 track.end?.let { add(it) }
             }
         }
-        val clusters = PlaceClusterer.cluster(
-            endpoints, params.placeRadiusM, distance,
-            seeds = placePins.map { PlaceClusterer.Seed(it, params.placeOverrideRadiusM) },
-        )
+        val clusters = PlaceClusterer.cluster(endpoints, params.placeRadiusM, distance, seeds = placePins)
         val clusterOf = HashMap<Endpoint, Int>(endpoints.size)
         clusters.forEachIndexed { ci, cluster ->
             for (index in cluster.memberIndices) clusterOf[endpoints[index]] = ci

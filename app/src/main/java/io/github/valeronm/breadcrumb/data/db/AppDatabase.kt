@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [Track::class, TrackPoint::class, LivenessEvent::class, Place::class],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -94,6 +94,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v8 adds the per-place capture radius (default 150 m, matching the organic cluster
+        // radius); users widen it for big venues whose GPS scatter exceeds the default.
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE places ADD COLUMN radiusM REAL NOT NULL DEFAULT 150.0")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -102,7 +110,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "tracks.db",
                 ).addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                    MIGRATION_6_7,
+                    MIGRATION_6_7, MIGRATION_7_8,
                 ).build().also { instance = it }
             }
     }

@@ -24,6 +24,7 @@ import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.StayDeriver
 import com.google.gson.JsonObject
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -35,6 +36,7 @@ import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
@@ -45,6 +47,7 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
+import org.maplibre.geojson.Polygon
 import kotlin.math.asin
 import kotlin.math.cos
 import kotlin.math.sin
@@ -427,3 +430,179 @@ private fun drawableBitmap(ctx: Context, resId: Int): Bitmap {
 private fun loadProtomapsDarkStyle(ctx: Context): String =
     ctx.assets.open("protomaps-dark.json").bufferedReader().use { it.readText() }
         .replace("{PROTOMAPS_KEY}", BuildConfig.PROTOMAPS_API_KEY)
+
+// --- Place map ----------------------------------------------------------------------------------
+
+/** A neighbouring cluster shown for context on the place map. */
+class NeighborPlace(
+    val location: StayDeriver.Endpoint,
+    /** Named neighbours render as a labelled pin; null = a plain neighbour endpoint dot. */
+    val label: String? = null,
+)
+
+/**
+ * Renders one place on the dark basemap: the cluster's capture circle (metre-true polygon around
+ * [center]) with the pin marker, every track endpoint the cluster captured as small dots, and
+ * [neighbors] — surrounding clusters' endpoints (grey dots) and named pins (labelled) — so the
+ * radius can be judged against what a wider circle would swallow. The camera fits the circle once
+ * on open; the place data is a snapshot, so there is no live update path beyond a full refresh
+ * when the inputs change.
+ */
+@Composable
+fun MapLibrePlaceMap(
+    center: StayDeriver.Endpoint,
+    radiusM: Double,
+    endpoints: List<StayDeriver.Endpoint>,
+    neighbors: List<NeighborPlace> = emptyList(),
+    modifier: Modifier = Modifier,
+) {
+    val mapView = rememberMapLibreMapView()
+    val mapRef = remember(mapView) { arrayOfNulls<MapLibreMap>(1) }
+    val inited = remember(mapView) { booleanArrayOf(false) }
+    val applied = remember(mapView) { arrayOfNulls<Any?>(2) } // circle (center+radius), markers
+    AndroidView(
+        modifier = modifier,
+        factory = { mapView },
+        update = { view ->
+            if (!inited[0]) {
+                inited[0] = true
+                view.getMapAsync { map ->
+                    mapRef[0] = map
+                    map.setStyle(Style.Builder().fromJson(loadProtomapsDarkStyle(view.context))) { style ->
+                        applied[0] = center to radiusM
+                        applied[1] = endpoints to neighbors
+                        addPlaceLayers(view.context, style, center, radiusM, endpoints, neighbors)
+                        framePlace(map, center, radiusM)
+                    }
+                }
+            } else {
+                val map = mapRef[0]
+                val style = map?.style ?: return@AndroidView
+                if (applied[0] != center to radiusM) {
+                    applied[0] = center to radiusM
+                    style.getSourceAs<GeoJsonSource>(PLACE_CIRCLE_SOURCE)
+                        ?.setGeoJson(circleFeature(center, radiusM))
+                    framePlace(map, center, radiusM)
+                }
+                if (applied[1] != endpoints to neighbors) {
+                    applied[1] = endpoints to neighbors
+                    style.getSourceAs<GeoJsonSource>(PLACE_MARKER_SOURCE)
+                        ?.setGeoJson(placeMarkerCollection(center, endpoints, neighbors))
+                }
+            }
+        },
+    )
+}
+
+private const val PLACE_CIRCLE_SOURCE = "place-circle-src"
+private const val PLACE_CIRCLE_FILL = "place-circle-fill"
+private const val PLACE_CIRCLE_LINE = "place-circle-line"
+private const val PLACE_MARKER_SOURCE = "place-marker-src"
+private const val PLACE_MARKER_LAYER = "place-marker-layer"
+private const val IMG_ENDPOINT = "marker-endpoint"
+private const val IMG_NEIGHBOR = "marker-neighbor"
+private const val IMG_PLACE = "marker-place"
+private const val CIRCLE_FILL = 0x2E5B9BF0
+private const val CIRCLE_LINE = 0x995B9BF0.toInt()
+
+private fun addPlaceLayers(
+    ctx: Context,
+    style: Style,
+    center: StayDeriver.Endpoint,
+    radiusM: Double,
+    endpoints: List<StayDeriver.Endpoint>,
+    neighbors: List<NeighborPlace>,
+) {
+    style.addSource(GeoJsonSource(PLACE_CIRCLE_SOURCE, circleFeature(center, radiusM)))
+    style.addLayer(
+        FillLayer(PLACE_CIRCLE_FILL, PLACE_CIRCLE_SOURCE).withProperties(
+            PropertyFactory.fillColor(CIRCLE_FILL),
+        ),
+    )
+    style.addLayer(
+        LineLayer(PLACE_CIRCLE_LINE, PLACE_CIRCLE_SOURCE).withProperties(
+            PropertyFactory.lineColor(CIRCLE_LINE),
+            PropertyFactory.lineWidth(1.5f),
+            PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
+        ),
+    )
+    style.addImage(IMG_ENDPOINT, drawableBitmap(ctx, R.drawable.ic_marker_endpoint))
+    style.addImage(IMG_NEIGHBOR, drawableBitmap(ctx, R.drawable.ic_marker_neighbor))
+    style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))
+    style.addSource(GeoJsonSource(PLACE_MARKER_SOURCE, placeMarkerCollection(center, endpoints, neighbors)))
+    style.addLayer(
+        SymbolLayer(PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE).withProperties(
+            PropertyFactory.iconImage(Expression.get("icon")),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true),
+            PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+            // Named neighbours carry a label under the pin; other features have an empty string.
+            PropertyFactory.textField(Expression.get("label")),
+            PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
+            PropertyFactory.textSize(12f),
+            PropertyFactory.textColor("#C8CFC6"),
+            PropertyFactory.textHaloColor("#14211A"),
+            PropertyFactory.textHaloWidth(1.2f),
+            PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
+            PropertyFactory.textOffset(arrayOf(0f, 0.8f)),
+            PropertyFactory.textOptional(true),
+        ),
+    )
+}
+
+/**
+ * Neighbour context first (visually underneath), then the place's own endpoint dots, then the
+ * pin marker last so it draws on top.
+ */
+private fun placeMarkerCollection(
+    center: StayDeriver.Endpoint,
+    endpoints: List<StayDeriver.Endpoint>,
+    neighbors: List<NeighborPlace>,
+): FeatureCollection {
+    val features = ArrayList<Feature>(neighbors.size + endpoints.size + 1)
+    neighbors.forEach { n ->
+        val icon = if (n.label != null) IMG_PLACE else IMG_NEIGHBOR
+        features.add(endpointFeature(n.location, icon, n.label))
+    }
+    endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
+    features.add(endpointFeature(center, IMG_PLACE))
+    return FeatureCollection.fromFeatures(features)
+}
+
+private fun endpointFeature(e: StayDeriver.Endpoint, icon: String, label: String? = null): Feature =
+    Feature.fromGeometry(
+        Point.fromLngLat(e.lon, e.lat),
+        JsonObject().apply {
+            addProperty("icon", icon)
+            addProperty("label", label ?: "")
+        },
+    )
+
+/** A metre-true circle approximated by a 72-gon (fine at place zoom levels). */
+private fun circleFeature(center: StayDeriver.Endpoint, radiusM: Double): Feature {
+    val ring = (0..72).map { i ->
+        val theta = 2 * Math.PI * i / 72
+        val (lat, lon) = offsetMeters(center, radiusM * sin(theta), radiusM * cos(theta))
+        Point.fromLngLat(lon, lat)
+    }
+    return Feature.fromGeometry(Polygon.fromLngLats(listOf(ring)))
+}
+
+/** ([lat], [lon]) displaced by metres north/east — flat-earth, fine at circle scale. */
+private fun offsetMeters(e: StayDeriver.Endpoint, northM: Double, eastM: Double): Pair<Double, Double> {
+    val lat = e.lat + northM / 111_320.0
+    val lon = e.lon + eastM / (111_320.0 * cos(Math.toRadians(e.lat)))
+    return lat to lon
+}
+
+private fun framePlace(map: MapLibreMap, center: StayDeriver.Endpoint, radiusM: Double) {
+    val (north, _) = offsetMeters(center, radiusM, 0.0)
+    val (south, _) = offsetMeters(center, -radiusM, 0.0)
+    val (_, east) = offsetMeters(center, 0.0, radiusM)
+    val (_, west) = offsetMeters(center, 0.0, -radiusM)
+    val bounds = LatLngBounds.Builder()
+        .include(LatLng(north, east))
+        .include(LatLng(south, west))
+        .build()
+    map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 64))
+}
