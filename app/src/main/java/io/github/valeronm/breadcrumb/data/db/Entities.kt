@@ -17,6 +17,11 @@ data class Track(
     val endedAt: Long? = null,
     /** Running total distance in metres, maintained as points arrive. */
     val distanceMeters: Double = 0.0,
+    /**
+     * Set when a finished track failed the keep-thresholds. Soft-deleted rather than removed so the
+     * data survives for tuning the thresholds; excluded from the UI, stats, stays, and export.
+     */
+    val discardedAt: Long? = null,
 )
 
 @Entity(

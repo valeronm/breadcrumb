@@ -26,6 +26,10 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE id = :trackId")
     suspend fun deleteTrack(trackId: Long)
 
+    /** Soft-delete a keep-threshold-filtered track: finalise it and mark it discarded. */
+    @Query("UPDATE tracks SET endedAt = :endedAt, discardedAt = :discardedAt WHERE id = :trackId")
+    suspend fun discardTrack(trackId: Long, endedAt: Long, discardedAt: Long)
+
     /** Usable (non-ignored) points, for rendering and export. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")
     suspend fun pointsFor(trackId: Long): List<TrackPoint>
@@ -54,7 +58,7 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE id = :trackId")
     suspend fun track(trackId: Long): Track?
 
-    @Query("SELECT id FROM tracks ORDER BY startedAt DESC")
+    @Query("SELECT id FROM tracks WHERE discardedAt IS NULL ORDER BY startedAt DESC")
     suspend fun allTrackIds(): List<Long>
 
     @Query(
@@ -63,11 +67,25 @@ interface TrackDao {
                (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0) AS pointCount,
                (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 1) AS ignoredCount
         FROM tracks t
-        WHERE t.endedAt IS NOT NULL
+        WHERE t.endedAt IS NOT NULL AND t.discardedAt IS NULL
         ORDER BY t.startedAt DESC
         """
     )
     fun observeSummaries(): Flow<List<TrackSummary>>
+
+    /** The inverse of [observeSummaries]: keep-threshold-filtered (soft-deleted) tracks, for the
+     *  debug "Discarded tracks" screen used to tune the thresholds against real data. */
+    @Query(
+        """
+        SELECT t.id, t.activityType, t.startedAt, t.endedAt, t.distanceMeters,
+               (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0) AS pointCount,
+               (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 1) AS ignoredCount
+        FROM tracks t
+        WHERE t.discardedAt IS NOT NULL
+        ORDER BY t.startedAt DESC
+        """
+    )
+    fun observeDiscardedSummaries(): Flow<List<TrackSummary>>
 
     /**
      * Finished tracks with first/last good-point coordinates, oldest first — the stay deriver's
@@ -86,7 +104,7 @@ interface TrackDao {
                (SELECT p.longitude FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0
                   ORDER BY p.timestamp DESC, p.id DESC LIMIT 1) AS endLon
         FROM tracks t
-        WHERE t.endedAt IS NOT NULL
+        WHERE t.endedAt IS NOT NULL AND t.discardedAt IS NULL
         ORDER BY t.startedAt ASC
         """
     )

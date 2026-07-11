@@ -43,6 +43,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     val tracks: StateFlow<List<TrackSummary>> = repository.observeSummaries()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Keep-threshold-filtered (soft-deleted) tracks, for the debug "Discarded tracks" screen. */
+    val discardedTracks: StateFlow<List<TrackSummary>> = repository.observeDiscardedSummaries()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Tracks interleaved with derived stays and data gaps, newest first, sliced per local day. */
     // This is combine's last typed overload (5 flows) — a sixth flow needs the vararg form.
     val timeline: StateFlow<List<TimelineItem>> = combine(

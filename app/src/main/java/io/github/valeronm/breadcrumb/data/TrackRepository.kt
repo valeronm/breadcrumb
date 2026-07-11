@@ -27,6 +27,9 @@ class TrackRepository(context: Context) {
 
     fun observeEndpoints(): Flow<List<TrackEndpoints>> = dao.observeEndpoints()
 
+    /** Keep-threshold-filtered (soft-deleted) tracks, for the debug "Discarded tracks" screen. */
+    fun observeDiscardedSummaries(): Flow<List<TrackSummary>> = dao.observeDiscardedSummaries()
+
     suspend fun startTrack(activityType: ActivityType, startedAt: Long): Long =
         dao.insertTrack(Track(activityType = activityType.name, startedAt = startedAt))
 
@@ -112,17 +115,21 @@ class TrackRepository(context: Context) {
                 "${track.distanceMeters.toInt()} m, ${durationSec}s vs min " +
                 "${thresholds.minLengthM} m / ${thresholds.minDurationSec}s" +
                 (if (thresholds.minExtentM > 0) " / extent ${thresholds.minExtentM} m" else "") +
-                " -> ${if (keep) "keep" else "delete"}",
+                " -> ${if (keep) "keep" else "discard"}",
         )
         return keep
     }
 
-    /** Closes a track, deleting it instead if it's too short to be meaningful. */
+    /**
+     * Closes a track, soft-deleting it instead if it's too short to be meaningful. Discarded tracks
+     * keep their rows/points (excluded from the UI, stats, stays, and export) so the keep-thresholds
+     * can be tuned against real data rather than losing it.
+     */
     private suspend fun closeOrDelete(track: Track, endedAt: Long) {
         if (meetsKeepThresholds(track, endedAt)) {
             dao.closeTrack(track.id, endedAt)
         } else {
-            dao.deleteTrack(track.id)
+            dao.discardTrack(track.id, endedAt = endedAt, discardedAt = endedAt)
         }
     }
 

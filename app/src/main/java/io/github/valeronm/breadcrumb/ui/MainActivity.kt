@@ -77,6 +77,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -251,6 +252,9 @@ private sealed interface Overlay {
     data object Settings : Overlay
 }
 
+/** A debug-only detail page stacked above Settings (shares one overlay slot). */
+private enum class DebugDetail { Logs, Discarded }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
@@ -332,8 +336,11 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
 
     // Logs is a second overlay layer stacked above Settings, with the same animations — so the
     // predictive-back preview under it shows Settings (where back actually lands), not the tabs.
-    var showLogs by remember { mutableStateOf(false) }
+    var debugDetail by remember { mutableStateOf<DebugDetail?>(null) }
     var renderedLogs by remember { mutableStateOf(false) }
+    // Which debug screen is in the slot; held stable through the close animation so it doesn't
+    // flip to the other one as it recedes.
+    var renderedDebugDetail by remember { mutableStateOf(DebugDetail.Logs) }
     val logsPresence = remember { Animatable(0f) }
     val logsBackProgress = remember { Animatable(0f) }
     var logsBackEdgeSign by remember { mutableFloatStateOf(1f) }
@@ -363,8 +370,9 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
         }
     }
 
-    LaunchedEffect(showLogs) {
-        if (showLogs) {
+    LaunchedEffect(debugDetail != null) {
+        if (debugDetail != null) {
+            renderedDebugDetail = debugDetail!!
             renderedLogs = true
             logsBackProgress.snapTo(0f)
             logsPresence.animateTo(1f, tween(300))
@@ -388,7 +396,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
         }
     }
 
-    PredictiveBackHandler(enabled = overlay != null && !showLogs && placeDetailKey == null) { events ->
+    PredictiveBackHandler(enabled = overlay != null && debugDetail == null && placeDetailKey == null) { events ->
         try {
             events.collect { event ->
                 backEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
@@ -400,13 +408,13 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
         }
     }
 
-    PredictiveBackHandler(enabled = showLogs) { events ->
+    PredictiveBackHandler(enabled = debugDetail != null) { events ->
         try {
             events.collect { event ->
                 logsBackEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
                 logsBackProgress.snapTo(event.progress)
             }
-            showLogs = false // gesture committed -> back to Settings
+            debugDetail = null // gesture committed -> back to Settings
         } catch (cancelled: CancellationException) {
             logsBackProgress.animateTo(0f, tween(200))
         }
@@ -564,7 +572,8 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                     Overlay.Settings -> SettingsScreen(
                         viewModel = viewModel,
                         onBack = { overlay = null },
-                        onShowLogs = { showLogs = true },
+                        onShowLogs = { debugDetail = DebugDetail.Logs },
+                        onShowDiscarded = { debugDetail = DebugDetail.Discarded },
                     )
 
                 }
@@ -626,7 +635,10 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                     .fillMaxSize()
                     .overlayTransform(logsPresence.value, logsBackProgress.value, logsBackEdgeSign),
             ) {
-                LogsScreen(onBack = { showLogs = false })
+                when (renderedDebugDetail) {
+                    DebugDetail.Logs -> LogsScreen(onBack = { debugDetail = null })
+                    DebugDetail.Discarded -> DiscardedTracksScreen(viewModel, onBack = { debugDetail = null })
+                }
             }
         }
     }
@@ -1703,6 +1715,7 @@ private fun SettingsScreen(
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
     onShowLogs: () -> Unit,
+    onShowDiscarded: () -> Unit,
 ) {
     val context = LocalContext.current
     var intervalSec by remember { mutableFloatStateOf(AppSettings.minIntervalSec(context).toFloat()) }
@@ -2049,6 +2062,27 @@ private fun SettingsScreen(
                     }
                 },
                 {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onShowDiscarded)
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Discarded tracks",
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                },
+                {
                     Text(
                         "Insert a synthetic track for testing the list, map, swipe and share.",
                         style = MaterialTheme.typography.bodySmall,
@@ -2134,6 +2168,86 @@ private fun LogsScreen(onBack: () -> Unit) {
                         color = color,
                         modifier = Modifier.padding(vertical = 2.dp),
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Debug-only list of keep-threshold-filtered (soft-deleted) tracks, with the metrics the keep-rule
+ * judges (points / distance / duration) shown against the current thresholds — a tool for tuning
+ * those thresholds against real filtered data rather than losing it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DiscardedTracksScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val tracks by viewModel.discardedTracks.collectAsState()
+    val minDurationSec = AppSettings.minTrackDurationSec(context)
+    val minLengthM = AppSettings.minTrackLengthM(context)
+    val minExtentM = AppSettings.minTrackExtentM(context)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Discarded tracks (${tracks.size})") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        if (tracks.isEmpty()) {
+            Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "No discarded tracks — filtered tracks will appear here.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LazyColumn(modifier = Modifier.padding(inner).fillMaxSize().padding(horizontal = 16.dp)) {
+                item {
+                    Text(
+                        "Keep thresholds: ≥ $minLengthM m · ≥ ${minDurationSec}s" +
+                            (if (minExtentM > 0) " · extent ≥ $minExtentM m" else ""),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    )
+                }
+                items(tracks, key = { it.id }) { t ->
+                    val activity = ActivityType.ofName(t.activityType) ?: ActivityType.UNKNOWN
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            activityIcon(activity),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp),
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            val started = Instant.ofEpochMilli(t.startedAt)
+                                .atZone(ZoneId.systemDefault()).format(discardedWhenFormat)
+                            Text(
+                                "${activity.label} · $started",
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                "${t.pointCount} pts · ${formatKm(t.distanceMeters)} · " +
+                                    formatDurationMs((t.endedAt ?: t.startedAt) - t.startedAt) +
+                                    (if (t.ignoredCount > 0) " · ${t.ignoredCount} noisy" else ""),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 }
             }
         }
@@ -2427,6 +2541,8 @@ private fun GapRow(gap: StayDeriver.Gap, shape: RoundedCornerShape) {
         }
     }
 }
+
+private val discardedWhenFormat = DateTimeFormatter.ofPattern("d MMM HH:mm")
 
 private fun formatDuration(startedAt: Long, endedAt: Long?): String {
     val end = endedAt ?: return "recording"
