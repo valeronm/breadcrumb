@@ -47,7 +47,18 @@ class TrackController {
             else -> RecordingAction.StartNew(confirmed.activity)
         }
 
-        is Confirmed.Started -> RecordingAction.StartNew(confirmed.activity)
+        is Confirmed.Started -> when (val p = phase) {
+            // A switch within the same motion family (e.g. walking ⇄ running) stays one track:
+            // continue recording into it with a new segment while it's live, or resume it if a
+            // brief stop paused it. Only a cross-family change (e.g. walking → driving) splits.
+            is Phase.Recording ->
+                if (p.activity.sharesTrackWith(confirmed.activity)) RecordingAction.ContinueSameTrack(confirmed.activity)
+                else RecordingAction.StartNew(confirmed.activity)
+            is Phase.Paused ->
+                if (p.activity.sharesTrackWith(confirmed.activity)) RecordingAction.Resume
+                else RecordingAction.StartNew(confirmed.activity)
+            Phase.Idle -> RecordingAction.StartNew(confirmed.activity)
+        }
     }
 
     fun onRecordingStarted(activity: ActivityType) {
@@ -59,6 +70,11 @@ class TrackController {
     }
 
     fun onResumed(activity: ActivityType) {
+        phase = Phase.Recording(activity)
+    }
+
+    /** A same-family switch continued the live track; track the new sub-activity in the phase. */
+    fun onContinuedSameTrack(activity: ActivityType) {
         phase = Phase.Recording(activity)
     }
 
@@ -85,4 +101,10 @@ sealed interface RecordingAction {
 
     /** Finalize whatever is open and start a new track for [activity]. */
     data class StartNew(val activity: ActivityType) : RecordingAction
+
+    /**
+     * Keep the live track open across a same-family activity switch (e.g. walking → running),
+     * starting a new segment at the boundary. The track keeps its original label.
+     */
+    data class ContinueSameTrack(val activity: ActivityType) : RecordingAction
 }

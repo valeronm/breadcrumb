@@ -10,6 +10,7 @@ import org.junit.Test
 class TrackControllerTest {
 
     private val WALKING = ActivityType.WALKING
+    private val RUNNING = ActivityType.RUNNING
     private val DRIVING = ActivityType.DRIVING
 
     private fun recording(activity: ActivityType): TrackController =
@@ -24,8 +25,31 @@ class TrackControllerTest {
         assertEquals(RecordingAction.StartNew(WALKING), TrackController().onConfirmed(Confirmed.Started(WALKING)))
     }
 
-    @Test fun `started while recording another activity switches track`() {
+    @Test fun `started while recording a different-family activity switches track`() {
         assertEquals(RecordingAction.StartNew(DRIVING), recording(WALKING).onConfirmed(Confirmed.Started(DRIVING)))
+    }
+
+    @Test fun `started while recording a same-family activity continues the track`() {
+        // Walking ⇄ running (a common Activity-Recognition flip) stays one track, new segment.
+        assertEquals(
+            RecordingAction.ContinueSameTrack(RUNNING),
+            recording(WALKING).onConfirmed(Confirmed.Started(RUNNING)),
+        )
+    }
+
+    @Test fun `a same-family activity after a brief pause resumes the track`() {
+        // Walk → stop → run within the grace window resumes the walk track rather than splitting.
+        assertEquals(RecordingAction.Resume, paused(WALKING).onConfirmed(Confirmed.Started(RUNNING)))
+    }
+
+    @Test fun `a different-family activity after a pause starts fresh`() {
+        assertEquals(RecordingAction.StartNew(DRIVING), paused(WALKING).onConfirmed(Confirmed.Started(DRIVING)))
+    }
+
+    @Test fun `onContinuedSameTrack tracks the new sub-activity`() {
+        val c = recording(WALKING)
+        c.onContinuedSameTrack(RUNNING)
+        assertEquals(TrackController.Phase.Recording(RUNNING), c.phase)
     }
 
     @Test fun `stopped while recording pauses, carrying the resume deadline`() {

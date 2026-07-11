@@ -287,6 +287,13 @@ class LocationRecordingService : Service() {
                 closeCurrentTrack()
                 openTrack(action.activity)
             }
+            is RecordingAction.ContinueSameTrack -> {
+                // Same motion family (e.g. walking ⇄ running): keep the track and its label, just
+                // break a new segment at the boundary. GPS is already running.
+                DebugLog.i(TAG, "  -> ${action.activity} continues track $currentTrackId (same family); new segment")
+                pendingSegmentStart = true
+                controller.onContinuedSameTrack(action.activity)
+            }
         }
         // A confirmed moving reading while the no-fix guard has GPS off is a resume signal too
         // (Resume/StartNew restart GPS themselves; this covers confirmations that map to Noop).

@@ -11,16 +11,25 @@ enum class ActivityType(
     val label: String,
     /** Whether we actively record GPS while in this state. */
     val recording: Boolean,
+    /**
+     * Activities in the same [TrackGroup] stay in one track when detection switches between them
+     * mid-recording — a brief run during a walk (a common Activity-Recognition flip-flop) stays a
+     * single track with a new segment, rather than fragmenting into walk/run/walk.
+     */
+    val trackGroup: TrackGroup,
 ) {
-    WALKING("Walking", true),
-    RUNNING("Running", true),
-    CYCLING("Cycling", true),
-    DRIVING("Driving", true),
+    WALKING("Walking", true, TrackGroup.FOOT),
+    RUNNING("Running", true, TrackGroup.FOOT),
+    CYCLING("Cycling", true, TrackGroup.BICYCLE),
+    DRIVING("Driving", true, TrackGroup.VEHICLE),
     /** Never detected (activity recognition only sees IN_VEHICLE) — assigned by hand on the
      *  track page to mark rides where the user was a passenger. */
-    TAXI("Taxi", true),
-    STILL("Stationary", false),
-    UNKNOWN("Moving", true);
+    TAXI("Taxi", true, TrackGroup.VEHICLE),
+    STILL("Stationary", false, TrackGroup.STILL),
+    UNKNOWN("Moving", true, TrackGroup.UNKNOWN);
+
+    /** Whether [other] belongs in the same track as this activity when detection switches between them. */
+    fun sharesTrackWith(other: ActivityType): Boolean = trackGroup == other.trackGroup
 
     companion object {
         /** The activity transition types we ask Google Play Services to report. */
@@ -54,3 +63,6 @@ enum class ActivityType(
         }
     }
 }
+
+/** Coarse motion family used to decide whether an activity switch splits the track. */
+enum class TrackGroup { FOOT, BICYCLE, VEHICLE, STILL, UNKNOWN }
