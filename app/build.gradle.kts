@@ -24,7 +24,7 @@ android {
         applicationId = "io.github.valeronm.breadcrumb"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
+        versionCode = 2
         versionName = "1.0"
 
         // SPIKE: Protomaps hosted-API key, read from local.properties (gitignored) so it isn't committed.
@@ -65,11 +65,17 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // Package native symbol tables (MapLibre) into the bundle so Play can symbolicate
+            // native crashes.
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
             // Sign with the upload key by default (for Play). Pass -PsignWithAppSigningKey to sign
             // with the app signing key instead, for an APK distributed outside Play. Only applied
             // when that key's credentials are actually present in keystore.properties.
