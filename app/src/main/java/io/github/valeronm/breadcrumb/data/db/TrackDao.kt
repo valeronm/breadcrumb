@@ -34,6 +34,33 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL AND discardedAt < :cutoff")
     suspend fun purgeDiscardedBefore(cutoff: Long): Int
 
+    // --- Track merge (close a short same-activity stay into a new track) ------------------------
+
+    /** Copy every point of [srcId] onto [newId] (the merged track keeps its own copy). */
+    @Query(
+        """
+        INSERT INTO track_points
+            (trackId, latitude, longitude, altitude, accuracy, speed, bearing, timestamp,
+             verticalAccuracy, speedAccuracy, bearingAccuracy, satellitesInFix, cn0, provider,
+             ignored, ignoreReason, segmentStart)
+        SELECT :newId, latitude, longitude, altitude, accuracy, speed, bearing, timestamp,
+               verticalAccuracy, speedAccuracy, bearingAccuracy, satellitesInFix, cn0, provider,
+               ignored, ignoreReason, segmentStart
+        FROM track_points WHERE trackId = :srcId
+        """
+    )
+    suspend fun copyPointsInto(newId: Long, srcId: Long)
+
+    /** The merged track's first point at/after [timestamp] — marked as the segment break at the join. */
+    @Query("SELECT id FROM track_points WHERE trackId = :trackId AND timestamp >= :timestamp ORDER BY timestamp ASC, id ASC LIMIT 1")
+    suspend fun firstPointAtOrAfter(trackId: Long, timestamp: Long): Long?
+
+    @Query("UPDATE track_points SET segmentStart = 1 WHERE id = :pointId")
+    suspend fun markSegmentStart(pointId: Long)
+
+    @Query("UPDATE tracks SET discardedAt = :discardedAt WHERE id = :trackId")
+    suspend fun setDiscarded(trackId: Long, discardedAt: Long)
+
     /** Usable (non-ignored) points, for rendering and export. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")
     suspend fun pointsFor(trackId: Long): List<TrackPoint>

@@ -57,6 +57,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -151,6 +152,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.RecordCardState
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
@@ -261,6 +263,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
     val timeline by viewModel.timeline.collectAsState()
+    val discardedTracks by viewModel.discardedTracks.collectAsState()
     val status by TrackingStatus.state.collectAsState()
 
     // GPX files shared/opened into the app import as soon as the UI is up.
@@ -562,9 +565,11 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                 when (rendered) {
                     is Overlay.TrackDetail -> TrackMapScreen(
                         trackId = rendered.id,
+                        // From the timeline, or the discarded list (a discarded track opened from
+                        // the debug screen isn't in the timeline).
                         summary = timeline.firstNotNullOfOrNull {
                             (it as? TimelineItem.TrackItem)?.summary?.takeIf { s -> s.id == rendered.id }
-                        },
+                        } ?: discardedTracks.firstOrNull { it.id == rendered.id },
                         viewModel = viewModel,
                         onBack = { overlay = null },
                     )
@@ -637,7 +642,14 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
             ) {
                 when (renderedDebugDetail) {
                     DebugDetail.Logs -> LogsScreen(onBack = { debugDetail = null })
-                    DebugDetail.Discarded -> DiscardedTracksScreen(viewModel, onBack = { debugDetail = null })
+                    DebugDetail.Discarded -> DiscardedTracksScreen(
+                        viewModel = viewModel,
+                        onBack = { debugDetail = null },
+                        onOpenTrack = { id ->
+                            debugDetail = null
+                            overlay = Overlay.TrackDetail(id)
+                        },
+                    )
                 }
             }
         }
@@ -1071,6 +1083,7 @@ private fun TracksTab(
 ) {
     val context = LocalContext.current
     var pendingDelete by remember { mutableStateOf<TrackSummary?>(null) }
+    var pendingMerge by remember { mutableStateOf<TrackMerge.Plan?>(null) }
 
     if (items.none { it is TimelineItem.TrackItem }) {
         Box(
@@ -1117,9 +1130,14 @@ private fun TracksTab(
                             null
                         },
                     )
-                    is TimelineItem.StayItem -> StayRow(item, shape) {
-                        item.place?.let { onOpenPlace(placeDetailKeyOf(it.placeId, it.centroid)) }
-                    }
+                    is TimelineItem.StayItem -> StayRow(
+                        item = item,
+                        shape = shape,
+                        onMerge = item.merge?.let { plan -> { pendingMerge = plan } },
+                        onClick = {
+                            item.place?.let { onOpenPlace(placeDetailKeyOf(it.placeId, it.centroid)) }
+                        },
+                    )
                     is TimelineItem.GapItem -> GapRow(item.gap, shape)
                 }
             }
@@ -1146,6 +1164,29 @@ private fun TracksTab(
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            },
+        )
+    }
+
+    pendingMerge?.let { plan ->
+        AlertDialog(
+            onDismissRequest = { pendingMerge = null },
+            icon = { Icon(Icons.AutoMirrored.Filled.CallMerge, contentDescription = null) },
+            title = { Text("Merge these tracks?") },
+            text = {
+                Text(
+                    "The two tracks either side of this short stop will be joined into one. " +
+                        "The stop is removed. This can't be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.mergeTracks(plan)
+                    pendingMerge = null
+                }) { Text("Merge") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingMerge = null }) { Text("Cancel") }
             },
         )
     }
@@ -2181,7 +2222,11 @@ private fun LogsScreen(onBack: () -> Unit) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DiscardedTracksScreen(viewModel: TrackListViewModel, onBack: () -> Unit) {
+private fun DiscardedTracksScreen(
+    viewModel: TrackListViewModel,
+    onBack: () -> Unit,
+    onOpenTrack: (Long) -> Unit,
+) {
     val context = LocalContext.current
     val tracks by viewModel.discardedTracks.collectAsState()
     val minDurationSec = AppSettings.minTrackDurationSec(context)
@@ -2221,7 +2266,9 @@ private fun DiscardedTracksScreen(viewModel: TrackListViewModel, onBack: () -> U
                 items(tracks, key = { it.id }) { t ->
                     val activity = ActivityType.ofName(t.activityType) ?: ActivityType.UNKNOWN
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                            .clickable { onOpenTrack(t.id) }
+                            .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
@@ -2457,12 +2504,61 @@ private const val VISIT_COUNT_BADGE_MIN = 3
  * A derived stationary period between two tracks. Inferred stays render muted with a "~"; a
  * resolved place shows its label, an unnamed recurring cluster shows its visit count. Tap → name.
  */
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun StayRow(item: TimelineItem.StayItem, shape: RoundedCornerShape, onClick: () -> Unit) {
+private fun StayRow(
+    item: TimelineItem.StayItem,
+    shape: RoundedCornerShape,
+    onMerge: (() -> Unit)?,
+    onClick: () -> Unit,
+) {
     val stay = item.stay
     val place = item.place
     val inferred = stay.provenance == StayDeriver.Provenance.INFERRED
     val named = place?.label != null
+    val card = @Composable { StayCard(item, shape, inferred, named, onClick) }
+    // A short same-activity stay can be swiped to merge its two tracks. Ineligible stays aren't
+    // swipeable (the swipe would just spring back with nothing to do).
+    if (onMerge == null) {
+        card()
+        return
+    }
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) onMerge()
+            false // never dismiss the row; merge replaces it, or the swipe springs back
+        },
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        backgroundContent = {
+            Box(
+                modifier = Modifier.fillMaxSize().clip(shape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.CallMerge,
+                    contentDescription = "Merge tracks",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+        },
+    ) { card() }
+}
+
+@Composable
+private fun StayCard(
+    item: TimelineItem.StayItem,
+    shape: RoundedCornerShape,
+    inferred: Boolean,
+    named: Boolean,
+    onClick: () -> Unit,
+) {
+    val stay = item.stay
+    val place = item.place
     Card(modifier = Modifier.fillMaxWidth(), shape = shape, onClick = onClick) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),

@@ -144,6 +144,34 @@ class TrackRepository(context: Context) {
     suspend fun deleteTrack(trackId: Long) = dao.deleteTrack(trackId)
 
     /**
+     * Close the short stay between [earlierId] and [laterId] by building a NEW track that spans both
+     * (their points copied in order, a segment break marking the join) and moving the two originals
+     * to discarded — so the merge is a fresh track and the originals are preserved (reviewable in the
+     * debug screen, auto-purged after the retention window) rather than destroyed. The derived stay
+     * disappears because the discarded originals leave the timeline.
+     */
+    suspend fun mergeTracks(earlierId: Long, laterId: Long) {
+        db.withTransaction {
+            val earlier = dao.track(earlierId) ?: return@withTransaction
+            val later = dao.track(laterId) ?: return@withTransaction
+            val mergedId = dao.insertTrack(
+                Track(
+                    activityType = earlier.activityType, // == later's (the merge condition)
+                    startedAt = earlier.startedAt,
+                    endedAt = later.endedAt ?: later.startedAt,
+                    distanceMeters = earlier.distanceMeters + later.distanceMeters,
+                ),
+            )
+            dao.copyPointsInto(mergedId, earlierId)
+            dao.copyPointsInto(mergedId, laterId)
+            dao.firstPointAtOrAfter(mergedId, later.startedAt)?.let { dao.markSegmentStart(it) }
+            val now = System.currentTimeMillis()
+            dao.setDiscarded(earlierId, now)
+            dao.setDiscarded(laterId, now)
+        }
+    }
+
+    /**
      * Hard-delete soft-deleted tracks older than the retention window — discarded tracks are kept
      * only long enough to tune the keep-thresholds against, not forever. Called on app open.
      */

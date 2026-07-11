@@ -327,6 +327,8 @@ sealed interface TimelineItem {
         val stay: StayDeriver.Stay,
         /** Place resolution, attached after derivation; null only if resolution wasn't run. */
         val place: PlaceResolver.ResolvedStay? = null,
+        /** Non-null when this short same-activity stay can be closed by merging its two tracks. */
+        val merge: TrackMerge.Plan? = null,
     ) : TimelineItem {
         override val startedAt get() = stay.start
     }

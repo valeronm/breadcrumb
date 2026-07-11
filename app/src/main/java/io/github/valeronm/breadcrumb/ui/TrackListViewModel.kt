@@ -21,6 +21,7 @@ import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Dispatchers
@@ -71,12 +72,25 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
             derivation.clusters, places,
         )
+        // Each track's chronological successor, for merging a short same-activity stay's two tracks.
+        val byId = summaries.associateBy { it.id }
+        val nextTrack = summaries.sortedBy { it.startedAt }.zipWithNext()
+            .associate { (a, b) -> a.id to b }
         StayDeriver.interleave(
             summaries,
             StayDeriver.slicePerDay(derivation.intervals, ZoneId.systemDefault(), now),
         ).map { item ->
-            if (item is TimelineItem.StayItem) item.copy(place = resolutions[item.stay.afterTrackId])
-            else item
+            if (item !is TimelineItem.StayItem) return@map item
+            val resolution = resolutions[item.stay.afterTrackId]
+            // Offer merge only for unnamed stays — merging one on a named place would delete a real visit.
+            val merge = if (resolution?.label != null) null else {
+                val before = byId[item.stay.afterTrackId]
+                val after = nextTrack[item.stay.afterTrackId]
+                if (before != null && after != null) {
+                    TrackMerge.plan(before, after, item.stay.start, item.stay.end)
+                } else null
+            }
+            item.copy(place = resolution, merge = merge)
         }
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -145,6 +159,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 Settings.setIgnoreReasonBackfillDone(getApplication())
             }
         }
+    }
+
+    /** Merge the two tracks bracketing a short same-activity stay (closes the stay). */
+    fun mergeTracks(plan: TrackMerge.Plan) {
+        viewModelScope.launch { repository.mergeTracks(plan.earlierId, plan.laterId) }
     }
 
     fun delete(trackId: Long) {
