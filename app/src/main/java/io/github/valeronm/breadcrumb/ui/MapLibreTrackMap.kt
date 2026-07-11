@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -49,10 +50,8 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 import org.maplibre.geojson.Polygon
-import kotlin.math.asin
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
  * Renders a track on a Protomaps dark vector basemap via MapLibre GL Native. The line is coloured by
@@ -79,75 +78,60 @@ fun MapLibreTrackMap(
         trackColoring(points, TrackQuality.pointSpeedsKmh(points), colorMode, activity)
     }
     val paint = remember(points, coloring) { buildTrackPaint(points, coloring.colors) }
-    val mapView = rememberMapLibreMapView()
-    val mapRef = remember(mapView) { arrayOfNulls<MapLibreMap>(1) }
-    val inited = remember(mapView) { booleanArrayOf(false) }
     // Frame once per map; later updates (colour switches, live point growth) must not move the
     // camera — the live preview re-frames only when the current position nears the viewport edge.
-    val framed = remember(mapView) { booleanArrayOf(false) }
+    val framed = remember { booleanArrayOf(false) }
     // What each source/layer was last fed, so unrelated recompositions (e.g. the graph scrubber
     // moving the selection) don't re-serialize the full track geometry into the native map.
-    val applied = remember(mapView) { arrayOfNulls<Any?>(4) } // points, noisy, paint, selection
+    val applied = remember { arrayOfNulls<Any?>(4) } // points, noisy, paint, selection
 
     Box(modifier) {
-        AndroidView(
+        MapLibreStyledMap(
             modifier = Modifier.fillMaxSize(),
-            factory = { mapView },
-            update = { view ->
-                if (!inited[0]) {
-                    inited[0] = true
-                    view.getMapAsync { map ->
-                        mapRef[0] = map
-                        map.setStyle(Style.Builder().fromJson(loadProtomapsDarkStyle(view.context))) { style ->
-                            addTrackLine(style, points, paint)
-                            addMarkers(view.context, style, points, noisyPoints, directionalEnd)
-                            addSelectionLayer(view.context, style, selectedPoint)
-                            frameTo(map, points)
-                            framed[0] = true
-                        }
-                    }
-                } else {
-                    // Recolour on colour-mode change; also refresh geometry when the track grows (the
-                    // live "current track" preview). Re-frame only when the points changed (not on a
-                    // colour switch), so a colour change keeps the user's pan/zoom.
-                    val map = mapRef[0]
-                    val style = map?.style
-                    if (style != null) {
-                        if (applied[0] !== points || applied[1] !== noisyPoints) {
-                            applied[0] = points
-                            applied[1] = noisyPoints
-                            style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points))
-                            style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints, directionalEnd))
-                            // Live preview: hold the camera (so a pan/zoom survives and the map
-                            // isn't re-rendered every fix); re-fit only when the current position
-                            // drifts out of the middle 80% of the viewport.
-                            if (framed[0] && directionalEnd) {
-                                points.lastOrNull()?.let { last ->
-                                    if (!map.projection.visibleRegion.latLngBounds
-                                            .containsWithMargin(last.latitude, last.longitude)
-                                    ) {
-                                        // Headroom so the position lands inside the 80% zone, not
-                                        // straight back on its edge (which would re-frame again on
-                                        // the next fix while moving outward). 1.2 keeps each zoom
-                                        // step small; the fit padding provides the rest of the slack.
-                                        frameTo(map, points, headroom = 1.2)
-                                    }
-                                }
+            onStyleLoaded = { ctx, map, style ->
+                addTrackLine(style, points, paint)
+                addMarkers(ctx, style, points, noisyPoints, directionalEnd)
+                addSelectionLayer(ctx, style, selectedPoint)
+                frameTo(map, points.map { LatLng(it.latitude, it.longitude) }, singlePointZoom = 15.0)
+                framed[0] = true
+            },
+            onUpdate = { map, style ->
+                // Recolour on colour-mode change; also refresh geometry when the track grows (the
+                // live "current track" preview). Re-frame only when the points changed (not on a
+                // colour switch), so a colour change keeps the user's pan/zoom.
+                if (applied[0] !== points || applied[1] !== noisyPoints) {
+                    applied[0] = points
+                    applied[1] = noisyPoints
+                    style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points))
+                    style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints, directionalEnd))
+                    // Live preview: hold the camera (so a pan/zoom survives and the map
+                    // isn't re-rendered every fix); re-fit only when the current position
+                    // drifts out of the middle 80% of the viewport.
+                    if (framed[0] && directionalEnd) {
+                        points.lastOrNull()?.let { last ->
+                            if (!map.projection.visibleRegion.latLngBounds
+                                    .containsWithMargin(last.latitude, last.longitude)
+                            ) {
+                                // Headroom so the position lands inside the 80% zone, not
+                                // straight back on its edge (which would re-frame again on
+                                // the next fix while moving outward). 1.2 keeps each zoom
+                                // step small; the fit padding provides the rest of the slack.
+                                frameTo(map, points.map { LatLng(it.latitude, it.longitude) }, singlePointZoom = 15.0, headroom = 1.2)
                             }
                         }
-                        if (applied[2] !== paint) {
-                            applied[2] = paint
-                            style.getLayerAs<LineLayer>(TRACK_LAYER)?.let { applyPaint(it, paint) }
-                        }
-                        if (applied[3] !== selectedPoint) {
-                            applied[3] = selectedPoint
-                            style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(selectedPoint))
-                        }
-                        if (!framed[0]) {
-                            frameTo(map, points)
-                            framed[0] = true
-                        }
                     }
+                }
+                if (applied[2] !== paint) {
+                    applied[2] = paint
+                    style.getLayerAs<LineLayer>(TRACK_LAYER)?.let { applyPaint(it, paint) }
+                }
+                if (applied[3] !== selectedPoint) {
+                    applied[3] = selectedPoint
+                    style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(selectedPoint))
+                }
+                if (!framed[0]) {
+                    frameTo(map, points.map { LatLng(it.latitude, it.longitude) }, singlePointZoom = 15.0)
+                    framed[0] = true
                 }
             },
         )
@@ -156,6 +140,44 @@ fun MapLibreTrackMap(
             TrackLegend(coloring.legend, Modifier.align(Alignment.BottomEnd).padding(12.dp))
         }
     }
+}
+
+/**
+ * Shared host for all the map composables: owns the [MapView], loads the Protomaps dark style once,
+ * then routes subsequent recompositions to [onUpdate]. [onMapReady] runs before the style loads —
+ * for one-time map-level setup like click listeners. Callers keep their own "what was last applied"
+ * state; this only removes the init/style boilerplate.
+ */
+@Composable
+private fun MapLibreStyledMap(
+    modifier: Modifier = Modifier,
+    onMapReady: (MapLibreMap) -> Unit = {},
+    onStyleLoaded: (Context, MapLibreMap, Style) -> Unit,
+    onUpdate: (MapLibreMap, Style) -> Unit,
+) {
+    val mapView = rememberMapLibreMapView()
+    val mapRef = remember(mapView) { arrayOfNulls<MapLibreMap>(1) }
+    val inited = remember(mapView) { booleanArrayOf(false) }
+    AndroidView(
+        modifier = modifier,
+        factory = { mapView },
+        update = { view ->
+            if (!inited[0]) {
+                inited[0] = true
+                view.getMapAsync { map ->
+                    mapRef[0] = map
+                    onMapReady(map)
+                    map.setStyle(Style.Builder().fromJson(loadProtomapsDarkStyle(view.context))) { style ->
+                        onStyleLoaded(view.context, map, style)
+                    }
+                }
+            } else {
+                val map = mapRef[0]
+                val style = map?.style ?: return@AndroidView
+                onUpdate(map, style)
+            }
+        },
+    )
 }
 
 /** A MapLibre [MapView] whose lifecycle follows the composition's [LifecycleOwner]. */
@@ -276,18 +298,39 @@ private fun addMarkers(
     style.addImage(IMG_NOISY_JUMP, drawableBitmap(ctx, R.drawable.ic_marker_noisy_jump))
     style.addImage(IMG_NOISY_GNSS, drawableBitmap(ctx, R.drawable.ic_marker_noisy_gnss))
     style.addSource(GeoJsonSource(MARKER_SOURCE, markerCollection(points, noisyPoints, directionalEnd)))
-    style.addLayer(
-        SymbolLayer(MARKER_LAYER, MARKER_SOURCE).withProperties(
-            PropertyFactory.iconImage(Expression.get("icon")),
-            PropertyFactory.iconAllowOverlap(true),
-            PropertyFactory.iconIgnorePlacement(true),
-            PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
-            // Rotate with the map so the droplet keeps pointing along the ground-track bearing.
-            PropertyFactory.iconRotate(Expression.get("bearing")),
-            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
-        ),
-    )
+    style.addLayer(iconSymbolLayer(MARKER_LAYER, MARKER_SOURCE))
 }
+
+/** Icon-marker layer shared by the track's marker and selection layers. */
+private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
+    SymbolLayer(id, source).withProperties(
+        PropertyFactory.iconImage(Expression.get("icon")),
+        PropertyFactory.iconAllowOverlap(true),
+        PropertyFactory.iconIgnorePlacement(true),
+        PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+        // Rotate with the map so the droplet keeps pointing along the ground-track bearing.
+        PropertyFactory.iconRotate(Expression.get("bearing")),
+        PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+    )
+
+/** Labelled pin layer shared by the place and overview maps: icon plus a label under it. */
+private fun labelledSymbolLayer(id: String, source: String): SymbolLayer =
+    SymbolLayer(id, source).withProperties(
+        PropertyFactory.iconImage(Expression.get("icon")),
+        PropertyFactory.iconAllowOverlap(true),
+        PropertyFactory.iconIgnorePlacement(true),
+        PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+        // Named features carry a label under the pin; other features have an empty string.
+        PropertyFactory.textField(Expression.get("label")),
+        PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
+        PropertyFactory.textSize(12f),
+        PropertyFactory.textColor("#C8CFC6"),
+        PropertyFactory.textHaloColor("#14211A"),
+        PropertyFactory.textHaloWidth(1.2f),
+        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
+        PropertyFactory.textOffset(arrayOf(0f, 0.8f)),
+        PropertyFactory.textOptional(true),
+    )
 
 /**
  * The graph-scrubber selection: its own source/layer so updates don't rebuild the marker set.
@@ -308,16 +351,7 @@ private fun addSelectionLayer(ctx: Context, style: Style, selected: TrackPoint?)
     style.addImage(IMG_SELECTED, drawableBitmap(ctx, R.drawable.ic_marker_selected))
     style.addImage(IMG_POINTER, drawableBitmap(ctx, R.drawable.ic_marker_pointer))
     style.addSource(GeoJsonSource(SELECT_SOURCE, selectionCollection(selected)))
-    style.addLayer(
-        SymbolLayer(SELECT_LAYER, SELECT_SOURCE).withProperties(
-            PropertyFactory.iconImage(Expression.get("icon")),
-            PropertyFactory.iconAllowOverlap(true),
-            PropertyFactory.iconIgnorePlacement(true),
-            PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
-            PropertyFactory.iconRotate(Expression.get("bearing")),
-            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
-        ),
-    )
+    style.addLayer(iconSymbolLayer(SELECT_LAYER, SELECT_SOURCE))
 }
 
 private fun markerFeature(p: TrackPoint, icon: String, bearing: Float = 0f): Feature =
@@ -340,16 +374,17 @@ private fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction: 
 }
 
 /**
+ * Fits the camera to [positions]: ≥2 → bounds fit with 96px padding, exactly 1 → [singlePointZoom].
  * [headroom] > 1 zooms out beyond the exact fit (half-spans scaled around the centre). The live
  * re-fit needs it: a tight fit puts the current position right back at the viewport edge, so the
  * very next fix would trigger another re-frame.
  */
-private fun frameTo(map: MapLibreMap, points: List<TrackPoint>, headroom: Double = 1.0) {
+private fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom: Double, headroom: Double = 1.0) {
     when {
         // moveCamera (not easeCamera): the map should open already framed, with no zoom animation.
-        points.size >= 2 -> {
+        positions.size >= 2 -> {
             val b = LatLngBounds.Builder()
-            points.forEach { b.include(LatLng(it.latitude, it.longitude)) }
+            positions.forEach { b.include(it) }
             var bounds = b.build()
             if (headroom > 1.0) {
                 val centerLat = (bounds.latitudeNorth + bounds.latitudeSouth) / 2
@@ -363,8 +398,8 @@ private fun frameTo(map: MapLibreMap, points: List<TrackPoint>, headroom: Double
             }
             map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 96))
         }
-        points.size == 1 -> map.cameraPosition = CameraPosition.Builder()
-            .target(LatLng(points[0].latitude, points[0].longitude)).zoom(15.0).build()
+        positions.size == 1 -> map.cameraPosition = CameraPosition.Builder()
+            .target(positions[0]).zoom(singlePointZoom).build()
     }
 }
 
@@ -383,7 +418,9 @@ private fun buildTrackPaint(points: List<TrackPoint>, colors: IntArray): TrackPa
     if (points.size < 2 || colors.isEmpty()) return TrackPaint.Solid(colors.firstOrNull() ?: DEFAULT_LINE)
     val cumulative = DoubleArray(points.size)
     for (i in 1 until points.size) {
-        cumulative[i] = cumulative[i - 1] + haversineMeters(points[i - 1], points[i])
+        cumulative[i] = cumulative[i - 1] + AndroidDistance.metres(
+            points[i - 1].latitude, points[i - 1].longitude, points[i].latitude, points[i].longitude,
+        )
     }
     val total = cumulative.last()
     if (total <= 0.0) return TrackPaint.Solid(colors.first())
@@ -405,16 +442,6 @@ private fun buildTrackPaint(points: List<TrackPoint>, colors: IntArray): TrackPa
     return TrackPaint.Gradient(
         Expression.interpolate(Expression.linear(), Expression.lineProgress(), *stops.toTypedArray()),
     )
-}
-
-private fun haversineMeters(a: TrackPoint, b: TrackPoint): Double {
-    val r = 6_371_000.0
-    val la1 = Math.toRadians(a.latitude)
-    val la2 = Math.toRadians(b.latitude)
-    val dLa = Math.toRadians(b.latitude - a.latitude)
-    val dLo = Math.toRadians(b.longitude - a.longitude)
-    val h = sin(dLa / 2) * sin(dLa / 2) + cos(la1) * cos(la2) * sin(dLo / 2) * sin(dLo / 2)
-    return 2 * r * asin(sqrt(h))
 }
 
 private fun drawableBitmap(ctx: Context, resId: Int): Bitmap {
@@ -457,39 +484,26 @@ fun MapLibrePlaceMap(
     neighbors: List<NeighborPlace> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
-    val mapView = rememberMapLibreMapView()
-    val mapRef = remember(mapView) { arrayOfNulls<MapLibreMap>(1) }
-    val inited = remember(mapView) { booleanArrayOf(false) }
-    val applied = remember(mapView) { arrayOfNulls<Any?>(2) } // circle (center+radius), markers
-    AndroidView(
+    val applied = remember { arrayOfNulls<Any?>(2) } // circle (center+radius), markers
+    MapLibreStyledMap(
         modifier = modifier,
-        factory = { mapView },
-        update = { view ->
-            if (!inited[0]) {
-                inited[0] = true
-                view.getMapAsync { map ->
-                    mapRef[0] = map
-                    map.setStyle(Style.Builder().fromJson(loadProtomapsDarkStyle(view.context))) { style ->
-                        applied[0] = center to radiusM
-                        applied[1] = endpoints to neighbors
-                        addPlaceLayers(view.context, style, center, radiusM, endpoints, neighbors)
-                        framePlace(map, center, radiusM)
-                    }
-                }
-            } else {
-                val map = mapRef[0]
-                val style = map?.style ?: return@AndroidView
-                if (applied[0] != center to radiusM) {
-                    applied[0] = center to radiusM
-                    style.getSourceAs<GeoJsonSource>(PLACE_CIRCLE_SOURCE)
-                        ?.setGeoJson(circleFeature(center, radiusM))
-                    framePlace(map, center, radiusM)
-                }
-                if (applied[1] != endpoints to neighbors) {
-                    applied[1] = endpoints to neighbors
-                    style.getSourceAs<GeoJsonSource>(PLACE_MARKER_SOURCE)
-                        ?.setGeoJson(placeMarkerCollection(center, endpoints, neighbors))
-                }
+        onStyleLoaded = { ctx, map, style ->
+            applied[0] = center to radiusM
+            applied[1] = endpoints to neighbors
+            addPlaceLayers(ctx, style, center, radiusM, endpoints, neighbors)
+            framePlace(map, center, radiusM)
+        },
+        onUpdate = { map, style ->
+            if (applied[0] != center to radiusM) {
+                applied[0] = center to radiusM
+                style.getSourceAs<GeoJsonSource>(PLACE_CIRCLE_SOURCE)
+                    ?.setGeoJson(circleFeature(center, radiusM))
+                framePlace(map, center, radiusM)
+            }
+            if (applied[1] != endpoints to neighbors) {
+                applied[1] = endpoints to neighbors
+                style.getSourceAs<GeoJsonSource>(PLACE_MARKER_SOURCE)
+                    ?.setGeoJson(placeMarkerCollection(center, endpoints, neighbors))
             }
         },
     )
@@ -531,24 +545,7 @@ private fun addPlaceLayers(
     style.addImage(IMG_NEIGHBOR, drawableBitmap(ctx, R.drawable.ic_marker_neighbor))
     style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))
     style.addSource(GeoJsonSource(PLACE_MARKER_SOURCE, placeMarkerCollection(center, endpoints, neighbors)))
-    style.addLayer(
-        SymbolLayer(PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE).withProperties(
-            PropertyFactory.iconImage(Expression.get("icon")),
-            PropertyFactory.iconAllowOverlap(true),
-            PropertyFactory.iconIgnorePlacement(true),
-            PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
-            // Named neighbours carry a label under the pin; other features have an empty string.
-            PropertyFactory.textField(Expression.get("label")),
-            PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
-            PropertyFactory.textSize(12f),
-            PropertyFactory.textColor("#C8CFC6"),
-            PropertyFactory.textHaloColor("#14211A"),
-            PropertyFactory.textHaloWidth(1.2f),
-            PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
-            PropertyFactory.textOffset(arrayOf(0f, 0.8f)),
-            PropertyFactory.textOptional(true),
-        ),
-    )
+    style.addLayer(labelledSymbolLayer(PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE))
 }
 
 /**
@@ -617,42 +614,32 @@ fun MapLibrePlacesMap(
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val mapView = rememberMapLibreMapView()
-    val mapRef = remember(mapView) { arrayOfNulls<MapLibreMap>(1) }
-    val inited = remember(mapView) { booleanArrayOf(false) }
-    val applied = remember(mapView) { arrayOfNulls<Any?>(1) }
+    val applied = remember { arrayOfNulls<Any?>(1) }
     // The click listener is registered once; route through a ref so it never goes stale.
-    val onOpenRef = remember(mapView) { arrayOf(onOpen) }
+    val onOpenRef = remember { arrayOf(onOpen) }
     onOpenRef[0] = onOpen
-    AndroidView(
+    MapLibreStyledMap(
         modifier = modifier,
-        factory = { mapView },
-        update = { view ->
-            if (!inited[0]) {
-                inited[0] = true
-                view.getMapAsync { map ->
-                    mapRef[0] = map
-                    map.setStyle(Style.Builder().fromJson(loadProtomapsDarkStyle(view.context))) { style ->
-                        applied[0] = places
-                        addOverviewLayers(view.context, style, places)
-                        frameOverview(map, places)
-                    }
-                    map.addOnMapClickListener { latLng ->
-                        val screen = map.projection.toScreenLocation(latLng)
-                        val touch = RectF(screen.x - 36, screen.y - 36, screen.x + 36, screen.y + 36)
-                        val key = map.queryRenderedFeatures(touch, OVERVIEW_LAYER)
-                            .firstOrNull()?.getStringProperty("key")
-                        if (key != null) onOpenRef[0](key)
-                        key != null
-                    }
-                }
-            } else {
-                val style = mapRef[0]?.style ?: return@AndroidView
-                if (applied[0] !== places) {
-                    applied[0] = places
-                    style.getSourceAs<GeoJsonSource>(OVERVIEW_SOURCE)
-                        ?.setGeoJson(overviewCollection(places))
-                }
+        onMapReady = { map ->
+            map.addOnMapClickListener { latLng ->
+                val screen = map.projection.toScreenLocation(latLng)
+                val touch = RectF(screen.x - 36, screen.y - 36, screen.x + 36, screen.y + 36)
+                val key = map.queryRenderedFeatures(touch, OVERVIEW_LAYER)
+                    .firstOrNull()?.getStringProperty("key")
+                if (key != null) onOpenRef[0](key)
+                key != null
+            }
+        },
+        onStyleLoaded = { ctx, map, style ->
+            applied[0] = places
+            addOverviewLayers(ctx, style, places)
+            frameTo(map, places.map { LatLng(it.location.lat, it.location.lon) }, singlePointZoom = 13.0)
+        },
+        onUpdate = { _, style ->
+            if (applied[0] !== places) {
+                applied[0] = places
+                style.getSourceAs<GeoJsonSource>(OVERVIEW_SOURCE)
+                    ?.setGeoJson(overviewCollection(places))
             }
         },
     )
@@ -665,23 +652,7 @@ private fun addOverviewLayers(ctx: Context, style: Style, places: List<OverviewP
     style.addImage(IMG_ENDPOINT, drawableBitmap(ctx, R.drawable.ic_marker_endpoint))
     style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))
     style.addSource(GeoJsonSource(OVERVIEW_SOURCE, overviewCollection(places)))
-    style.addLayer(
-        SymbolLayer(OVERVIEW_LAYER, OVERVIEW_SOURCE).withProperties(
-            PropertyFactory.iconImage(Expression.get("icon")),
-            PropertyFactory.iconAllowOverlap(true),
-            PropertyFactory.iconIgnorePlacement(true),
-            PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
-            PropertyFactory.textField(Expression.get("label")),
-            PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
-            PropertyFactory.textSize(12f),
-            PropertyFactory.textColor("#C8CFC6"),
-            PropertyFactory.textHaloColor("#14211A"),
-            PropertyFactory.textHaloWidth(1.2f),
-            PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
-            PropertyFactory.textOffset(arrayOf(0f, 0.8f)),
-            PropertyFactory.textOptional(true),
-        ),
-    )
+    style.addLayer(labelledSymbolLayer(OVERVIEW_LAYER, OVERVIEW_SOURCE))
 }
 
 private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
@@ -698,18 +669,6 @@ private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
             )
         },
     )
-
-private fun frameOverview(map: MapLibreMap, places: List<OverviewPlace>) {
-    when {
-        places.size >= 2 -> {
-            val b = LatLngBounds.Builder()
-            places.forEach { b.include(LatLng(it.location.lat, it.location.lon)) }
-            map.moveCamera(CameraUpdateFactory.newLatLngBounds(b.build(), 96))
-        }
-        places.size == 1 -> map.cameraPosition = CameraPosition.Builder()
-            .target(LatLng(places[0].location.lat, places[0].location.lon)).zoom(13.0).build()
-    }
-}
 
 private fun framePlace(map: MapLibreMap, center: StayDeriver.Endpoint, radiusM: Double) {
     val (north, _) = offsetMeters(center, radiusM, 0.0)

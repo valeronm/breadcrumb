@@ -40,6 +40,7 @@ import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
+import io.github.valeronm.breadcrumb.data.TrackGroup
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -101,7 +102,6 @@ class LocationRecordingService : Service() {
     // Set while the service is armed; duplicate ACTION_STARTs while armed are no-ops.
     @Volatile private var armed = false
 
-    @Volatile private var currentTrackId: Long? = null
     @Volatile private var distanceMeters = 0.0
     @Volatile private var pointCount = 0
     @Volatile private var trackStartedAt = 0L
@@ -137,7 +137,7 @@ class LocationRecordingService : Service() {
     @Volatile private var lastGnssCn0Top4: Float? = null
 
     // --- Auto-pause / stitch resources (all touched only under [mutex]) ---
-    // While paused, [currentTrackId] stays open (GPS off) so a brief stop can be stitched back into
+    // While paused, [activeTrackId] stays open (GPS off) so a brief stop can be stitched back into
     // the same track when the same activity resumes within the configured window.
     private var pendingSegmentStart = false           // mark the first good fix after a resume as a new segment
 
@@ -270,16 +270,16 @@ class LocationRecordingService : Service() {
         when (val action = controller.onConfirmed(confirmed)) {
             RecordingAction.Noop -> Unit
             is RecordingAction.Pause -> {
-                DebugLog.i(TAG, "  -> pausing track $currentTrackId")
+                DebugLog.i(TAG, "  -> pausing track $activeTrackId")
                 pauseTrack(action.pausedActivity, action.resumeDeadlineMs)
             }
             RecordingAction.Finalize -> {
                 // Unreachable from a reading (expiry only comes from the pause wake); for totality.
-                DebugLog.i(TAG, "  -> finalizing track $currentTrackId")
+                DebugLog.i(TAG, "  -> finalizing track $activeTrackId")
                 closeCurrentTrack()
             }
             RecordingAction.Resume -> {
-                DebugLog.i(TAG, "  -> resuming paused track $currentTrackId")
+                DebugLog.i(TAG, "  -> resuming paused track $activeTrackId")
                 resumeTrack(gate.confirmed)
             }
             is RecordingAction.StartNew -> {
@@ -290,7 +290,7 @@ class LocationRecordingService : Service() {
             is RecordingAction.ContinueSameTrack -> {
                 // Same motion family (e.g. walking ⇄ running): keep the track and its label, just
                 // break a new segment at the boundary. GPS is already running.
-                DebugLog.i(TAG, "  -> ${action.activity} continues track $currentTrackId (same family); new segment")
+                DebugLog.i(TAG, "  -> ${action.activity} continues track $activeTrackId (same family); new segment")
                 pendingSegmentStart = true
                 controller.onContinuedSameTrack(action.activity)
             }
@@ -305,7 +305,7 @@ class LocationRecordingService : Service() {
     }
 
     private fun logTransition(previous: ActivityType, activity: ActivityType) {
-        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$currentTrackId paused=${controller.isPaused})")
+        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$activeTrackId paused=${controller.isPaused})")
     }
 
     /** Stop GPS but keep the track open; a wake at [resumeDeadlineMs] finalizes it if unresumed. */
@@ -319,7 +319,7 @@ class LocationRecordingService : Service() {
             // stale wake after a resume, fresh start, or newer pause just maps to Noop.
             mutex.withLock {
                 if (controller.onConfirmed(gate.onTick(now())) == RecordingAction.Finalize) {
-                    DebugLog.i(TAG, "pause expired — finalizing track $currentTrackId")
+                    DebugLog.i(TAG, "pause expired — finalizing track $activeTrackId")
                     closeCurrentTrack()
                     publishStatus()
                 }
@@ -342,9 +342,7 @@ class LocationRecordingService : Service() {
         noFixGuard.onTrackOpened()
         val startedAt = now()
         trackStartedAt = startedAt
-        val id = repository.startTrack(activity, startedAt)
-        currentTrackId = id
-        activeTrackId = id
+        activeTrackId = repository.startTrack(activity, startedAt)
         controller.onRecordingStarted(activity)
         withContext(Dispatchers.Main) { startLocationUpdates() }
     }
@@ -364,10 +362,9 @@ class LocationRecordingService : Service() {
     private suspend fun closeCurrentTrack() {
         withContext(Dispatchers.Main) { stopLocationUpdates() }
         Settings.setLastHeartbeatMs(this, now())
-        val id = currentTrackId ?: return
+        val id = activeTrackId ?: return
         // A paused track ended when its last fix arrived, not now — don't count the idle gap.
         val endedAt = if (controller.isPaused) lastGoodPoint?.timestamp ?: now() else now()
-        currentTrackId = null
         activeTrackId = null
         controller.onClosed()
         pendingSegmentStart = false
@@ -449,7 +446,7 @@ class LocationRecordingService : Service() {
         if (activeRequest == null || !noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return
         scope.launch {
             mutex.withLock {
-                if (activeRequest == null || currentTrackId == null || controller.isPaused) return@withLock
+                if (activeRequest == null || activeTrackId == null || controller.isPaused) return@withLock
                 if (!noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return@withLock
                 val backoffMs = noFixGuard.onGaveUp(SystemClock.elapsedRealtime())
                 DebugLog.i(
@@ -552,18 +549,28 @@ class LocationRecordingService : Service() {
         val lm = locationManager ?: return
         val callback = object : GnssStatusCompat.Callback() {
             override fun onSatelliteStatusChanged(status: GnssStatusCompat) {
+                // Single pass, no allocations — this ticks ~1/s for the whole recording.
                 var used = 0
-                val cn0s = ArrayList<Float>()
+                val top = FloatArray(4) // strongest C/N0s seen, descending
+                var topCount = 0
                 for (i in 0 until status.satelliteCount) {
-                    if (status.usedInFix(i)) {
-                        used++
-                        val cn0 = status.getCn0DbHz(i)
-                        if (cn0 > 0f) cn0s.add(cn0)
+                    if (!status.usedInFix(i)) continue
+                    used++
+                    var cn0 = status.getCn0DbHz(i)
+                    if (cn0 <= 0f) continue
+                    for (j in 0 until topCount) {
+                        if (cn0 > top[j]) {
+                            val t = top[j]; top[j] = cn0; cn0 = t
+                        }
                     }
+                    if (topCount < top.size) top[topCount++] = cn0
                 }
                 lastGnssSatsInFix = used
-                lastGnssCn0Top4 = if (cn0s.isEmpty()) null
-                    else cn0s.sortedDescending().take(4).average().toFloat()
+                lastGnssCn0Top4 = if (topCount == 0) null else {
+                    var sum = 0f
+                    for (j in 0 until topCount) sum += top[j]
+                    sum / topCount
+                }
                 if (used >= GNSS_MIN_SATELLITES_IN_FIX) lastGnssFixElapsedMs = SystemClock.elapsedRealtime()
                 maybeGiveUpOnNoFix()
             }
@@ -604,15 +611,18 @@ class LocationRecordingService : Service() {
 
     private suspend fun ingestLocations(locations: List<Location>) {
         val maxAccuracyM = Settings.accuracyGateM(this).toFloat()
-        // Fused walks are exempt from the satellite cross-check: indoors, network fixes are the
-        // only positions a walk track can get, and admitting them is the fused mode's purpose.
-        // Raw GPS keeps the check even while walking — the GNSS engine dead-reckons through
-        // signal loss (observed: ~80 s of zero-satellite fixes entering a parking garage), and
-        // those fabrications are exactly what this rejects.
-        val fusedWalk = activeRequest is ActiveRequest.Fused && gate.confirmed == ActivityType.WALKING
-        val requireGnss = Settings.requireGnssFix(this) && !fusedWalk
+        // Fused on-foot fixes are exempt from the satellite cross-check: indoors, network fixes are
+        // the only positions a walk track can get, and admitting them is the fused mode's purpose.
+        // The whole foot family qualifies — a walking↔running flip mid-track must not start
+        // rejecting fixes. Raw GPS keeps the check even on foot — the GNSS engine dead-reckons
+        // through signal loss (observed: ~80 s of zero-satellite fixes entering a parking garage),
+        // and those fabrications are exactly what this rejects.
+        val fusedOnFoot = activeRequest is ActiveRequest.Fused && gate.confirmed.trackGroup == TrackGroup.FOOT
+        val requireGnss = Settings.requireGnssFix(this) && !fusedOnFoot
+        // One insert per batch — a LocationResult can deliver several buffered fixes at once.
+        val batch = ArrayList<TrackPoint>(locations.size)
         for (loc in locations) {
-            val trackId = currentTrackId ?: return
+            val trackId = activeTrackId ?: return
             val candidate = TrackPoint(
                 trackId = trackId,
                 latitude = loc.latitude,
@@ -656,11 +666,11 @@ class LocationRecordingService : Service() {
                 if (segStart) pendingSegmentStart = false
                 noFixGuard.onFixAccepted(SystemClock.elapsedRealtime())
             }
-            repository.addPoint(point)
+            batch.add(point)
         }
-        // One distance write per batch — only the final value persists, and a LocationResult can
-        // deliver several buffered fixes at once.
-        currentTrackId?.let { repository.updateDistance(it, distanceMeters) }
+        if (batch.isNotEmpty()) repository.addPoints(batch)
+        // One distance write per batch — only the final value persists.
+        activeTrackId?.let { repository.updateDistance(it, distanceMeters) }
         publishStatus()
     }
 
@@ -669,8 +679,9 @@ class LocationRecordingService : Service() {
         TrackingStatus.update {
             it.copy(
                 tracking = true,
-                activityLabel = activity.label,
+                activity = activity,
                 recording = activity.recording,
+                activeTrackId = activeTrackId,
                 distanceMeters = if (activity.recording) distanceMeters else 0.0,
                 points = if (activity.recording) pointCount else 0,
                 startedAtMillis = if (activity.recording && trackStartedAt > 0) trackStartedAt else null,
@@ -750,6 +761,7 @@ class LocationRecordingService : Service() {
         unregisterReceiver(shutdownReceiver)
         instance = null
         activeTrackId = null
+        TrackingStatus.update { it.copy(activeTrackId = null) }
         scope.cancel()
         super.onDestroy()
     }

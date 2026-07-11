@@ -56,12 +56,18 @@ object PlaceClusterer {
             members += mutableListOf<Int>()
         }
         locations.forEachIndexed { index, location ->
-            val nearest = anchors.indices
-                .map { ci -> ci to distance.metres(anchors[ci].lat, anchors[ci].lon, location.lat, location.lon) }
-                .filter { (ci, d) -> d <= radii[ci] }
-                .minByOrNull { (_, d) -> d }
-            if (nearest != null) {
-                members[nearest.first] += index
+            // Nearest qualifying anchor, scanned inline — this runs per endpoint on every derivation.
+            var nearest = -1
+            var nearestD = Double.MAX_VALUE
+            for (ci in anchors.indices) {
+                val d = distance.metres(anchors[ci].lat, anchors[ci].lon, location.lat, location.lon)
+                if (d <= radii[ci] && d < nearestD) {
+                    nearest = ci
+                    nearestD = d
+                }
+            }
+            if (nearest >= 0) {
+                members[nearest] += index
             } else {
                 anchors += location
                 radii += radiusM

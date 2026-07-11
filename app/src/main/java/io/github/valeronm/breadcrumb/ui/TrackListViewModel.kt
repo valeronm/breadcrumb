@@ -9,9 +9,9 @@ import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.PlaceRepository
-import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.LivenessEvent
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -25,11 +25,15 @@ import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,29 +52,42 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     val discardedTracks: StateFlow<List<TrackSummary>> = repository.observeDiscardedSummaries()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Tracks interleaved with derived stays and data gaps, newest first, sliced per local day. */
-    // This is combine's last typed overload (5 flows) — a sixth flow needs the vararg form.
-    val timeline: StateFlow<List<TimelineItem>> = combine(
-        repository.observeSummaries(),
+    /** One derivation run's inputs and outputs, shared by [timeline] and [places]. */
+    private class Derived(
+        val derivation: StayDeriver.Derivation,
+        val places: List<Place>,
+        val now: Long,
+    )
+
+    // The stay/place derivation is the most expensive pure computation in the app, so it runs once
+    // here and both screens map from it. Of the live status only recording on/off matters —
+    // distinctUntilChanged keeps per-fix status emissions from re-running the clustering.
+    private val derived: Flow<Derived> = combine(
         repository.observeEndpoints(),
         livenessRepository.observeEvents(),
         placeRepository.observePlaces(),
-        TrackingStatus.state,
-    ) { summaries, endpoints, events, places, status ->
+        TrackingStatus.state.map { it.recording }.distinctUntilChanged(),
+    ) { endpoints, events, places, recording ->
         val now = System.currentTimeMillis()
         val derivation = StayDeriver.derive(
             tracks = endpoints.map { it.toTrackEnd() },
             liveness = events.mapNotNull { it.toLiveness() },
             nowMs = now,
-            activeRecording = status.recording,
+            activeRecording = recording,
             distance = AndroidDistance,
             placePins = places.map { PlaceClusterer.Seed(StayDeriver.Endpoint(it.lat, it.lon), it.radiusM) },
         )
+        Derived(derivation, places, now)
+    }.flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /** Tracks interleaved with derived stays and data gaps, newest first, sliced per local day. */
+    val timeline: StateFlow<List<TimelineItem>> = combine(tracks, derived) { summaries, d ->
         // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
         // as 3 visits. afterTrackId keys survive the slicing copies.
         val resolutions = PlaceResolver.resolve(
-            derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
-            derivation.clusters, places,
+            d.derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
+            d.derivation.clusters, d.places,
         )
         // Each track's chronological successor, for merging a short same-activity stay's two tracks.
         val byId = summaries.associateBy { it.id }
@@ -78,7 +95,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             .associate { (a, b) -> a.id to b }
         StayDeriver.interleave(
             summaries,
-            StayDeriver.slicePerDay(derivation.intervals, ZoneId.systemDefault(), now),
+            StayDeriver.slicePerDay(d.derivation.intervals, ZoneId.systemDefault(), d.now),
         ).map { item ->
             if (item !is TimelineItem.StayItem) return@map item
             val resolution = resolutions[item.stay.afterTrackId]
@@ -96,32 +113,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Per-place aggregate stats for the Places screen (idle unless that screen is open). */
-    val places: StateFlow<List<PlaceResolver.PlaceSummary>> = combine(
-        repository.observeEndpoints(),
-        livenessRepository.observeEvents(),
-        placeRepository.observePlaces(),
-        TrackingStatus.state,
-    ) { endpoints, events, places, status ->
-        val now = System.currentTimeMillis()
-        val derivation = StayDeriver.derive(
-            tracks = endpoints.map { it.toTrackEnd() },
-            liveness = events.mapNotNull { it.toLiveness() },
-            nowMs = now,
-            activeRecording = status.recording,
-            distance = AndroidDistance,
-            placePins = places.map { PlaceClusterer.Seed(StayDeriver.Endpoint(it.lat, it.lon), it.radiusM) },
-        )
+    val places: StateFlow<List<PlaceResolver.PlaceSummary>> = derived.map { d ->
         PlaceResolver.summarize(
-            derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
-            derivation.clusters, places, now,
+            d.derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
+            d.derivation.clusters, d.places, d.now,
         )
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    init {
-        // Housekeeping: drop soft-deleted tracks past the retention window (kept only for tuning).
-        viewModelScope.launch { repository.purgeOldDiscarded() }
-    }
 
     fun renamePlace(id: Long, label: String) {
         val trimmed = label.trim()
@@ -150,17 +148,6 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { placeRepository.setPin(id, lat, lon) }
     }
 
-    init {
-        viewModelScope.launch {
-            // Crash-cleanup of dangling tracks happens in the service's arm path; here only the
-            // one-time backfill of the ignore reason over points recorded before DB v5.
-            if (!Settings.isIgnoreReasonBackfillDone(getApplication())) {
-                repository.backfillIgnoreReasons()
-                Settings.setIgnoreReasonBackfillDone(getApplication())
-            }
-        }
-    }
-
     /** Merge the two tracks bracketing a short same-activity stay (closes the stay). */
     fun mergeTracks(plan: TrackMerge.Plan) {
         viewModelScope.launch { repository.mergeTracks(plan.earlierId, plan.laterId) }
@@ -183,6 +170,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     suspend fun getPoints(trackId: Long): List<TrackPoint> = repository.pointsFor(trackId)
+
+    /** Points newer than [afterId] — the live preview's incremental reload. */
+    suspend fun getPointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
+        repository.pointsAfter(trackId, afterId)
 
     /** The ignored "bad fix" points, shown as markers on the track map. */
     suspend fun getIgnoredPoints(trackId: Long): List<TrackPoint> = repository.ignoredPointsFor(trackId)

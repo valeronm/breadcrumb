@@ -38,6 +38,8 @@ class TrackRepository(context: Context) {
 
     suspend fun addPoint(point: TrackPoint): Long = dao.insertPoint(point)
 
+    suspend fun addPoints(points: List<TrackPoint>) = dao.insertPoints(points)
+
     class GpxImportCounts(val imported: Int, val duplicates: Int)
 
     /**
@@ -62,8 +64,8 @@ class TrackRepository(context: Context) {
                         distanceMeters = track.distanceMeters,
                     ),
                 )
-                for (p in track.points) {
-                    dao.insertPoint(
+                dao.insertPoints(
+                    track.points.map { p ->
                         TrackPoint(
                             trackId = trackId,
                             latitude = p.lat,
@@ -75,9 +77,9 @@ class TrackRepository(context: Context) {
                             timestamp = p.timeMs,
                             segmentStart = p.segmentStart,
                             provider = "import",
-                        ),
-                    )
-                }
+                        )
+                    },
+                )
             }
             imported++
         }
@@ -200,6 +202,10 @@ class TrackRepository(context: Context) {
 
     suspend fun pointsFor(trackId: Long): List<TrackPoint> = dao.pointsFor(trackId)
 
+    /** Usable points inserted after [afterId] — the live preview's incremental reload. */
+    suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
+        dao.pointsAfter(trackId, afterId)
+
     /** The ignored "bad fix" points, for marking them on the map. */
     suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint> = dao.ignoredPointsFor(trackId)
 
@@ -214,8 +220,7 @@ class TrackRepository(context: Context) {
         val maxAccuracyM = Settings.accuracyGateM(appContext).toFloat()
         for (trackId in dao.allTrackIds()) {
             val track = dao.track(trackId) ?: continue
-            val activity = runCatching { ActivityType.valueOf(track.activityType) }
-                .getOrDefault(ActivityType.UNKNOWN)
+            val activity = ActivityType.ofName(track.activityType) ?: ActivityType.UNKNOWN
             var lastGood: TrackPoint? = null
             val idsByReason = HashMap<IgnoreReason, MutableList<Long>>()
             for (point in dao.allPointsFor(trackId)) {

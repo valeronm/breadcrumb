@@ -115,7 +115,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
@@ -133,6 +132,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
@@ -160,7 +160,9 @@ import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.DebugLog
+import io.github.valeronm.breadcrumb.util.avgSpeedKmh
 import io.github.valeronm.breadcrumb.util.formatKm
+import io.github.valeronm.breadcrumb.util.formatKmh
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
@@ -331,110 +333,36 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
         }
     }
 
-    // The detail (map) screen overlays everything. Opening animates it in; the back gesture drives
-    // a predictive scale/shift that previews the tabs underneath (Android 14+ predictive back).
-    var renderedOverlay by remember { mutableStateOf<Overlay?>(null) }
-    val presence = remember { Animatable(0f) }      // 0 = tabs shown, 1 = overlay fully shown
-    val backProgress = remember { Animatable(0f) }  // predictive back gesture progress, 0..1
-    var backEdgeSign by remember { mutableFloatStateOf(1f) }
+    // Full-screen pages stack above the tabs as overlay layers, each animated in on open and
+    // scaled/shifted by the predictive back gesture (Android 14+), previewing what's underneath.
 
-    // Logs is a second overlay layer stacked above Settings, with the same animations — so the
-    // predictive-back preview under it shows Settings (where back actually lands), not the tabs.
+    // The detail (map) screen or Settings — previews the tabs underneath. Its back handler yields
+    // while a layer is stacked above it.
     var debugDetail by remember { mutableStateOf<DebugDetail?>(null) }
-    var renderedLogs by remember { mutableStateOf(false) }
-    // Which debug screen is in the slot; held stable through the close animation so it doesn't
-    // flip to the other one as it recedes.
-    var renderedDebugDetail by remember { mutableStateOf(DebugDetail.Logs) }
-    val logsPresence = remember { Animatable(0f) }
-    val logsBackProgress = remember { Animatable(0f) }
-    var logsBackEdgeSign by remember { mutableFloatStateOf(1f) }
-
-    // Place detail is another stacked layer, opened from the Places list or a timeline stay —
-    // back lands wherever it was opened from. Keyed by PlaceSummary.rowKey() so the screen tracks
-    // the live summary while the derivation re-runs underneath (rename, radius change).
+    // Place detail is opened from the Places list or a timeline stay — back lands wherever it was
+    // opened from. Keyed by PlaceSummary.rowKey() so the screen tracks the live summary while the
+    // derivation re-runs underneath (rename, radius change).
     var placeDetailKey by remember { mutableStateOf<String?>(null) }
-    var renderedPlaceDetail by remember { mutableStateOf(false) }
     // The last summary the key resolved to: keeps the screen stable between re-derivations and
     // re-finds a just-named cluster by centroid (naming moves its key from cluster: to place:).
     var placeDetailSnapshot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
-    val placeDetailPresence = remember { Animatable(0f) }
-    val placeDetailBackProgress = remember { Animatable(0f) }
-    var placeDetailBackEdgeSign by remember { mutableFloatStateOf(1f) }
 
-    LaunchedEffect(overlay) {
-        val current = overlay
-        if (current != null) {
-            renderedOverlay = current
-            backProgress.snapTo(0f)
-            presence.animateTo(1f, tween(300))
-        } else if (renderedOverlay != null) {
-            presence.animateTo(0f, tween(300))
-            renderedOverlay = null
-            backProgress.snapTo(0f)
-        }
-    }
-
-    LaunchedEffect(debugDetail != null) {
-        if (debugDetail != null) {
-            renderedDebugDetail = debugDetail!!
-            renderedLogs = true
-            logsBackProgress.snapTo(0f)
-            logsPresence.animateTo(1f, tween(300))
-        } else if (renderedLogs) {
-            logsPresence.animateTo(0f, tween(300))
-            renderedLogs = false
-            logsBackProgress.snapTo(0f)
-        }
-    }
-
-    LaunchedEffect(placeDetailKey == null) {
-        if (placeDetailKey != null) {
-            renderedPlaceDetail = true
-            placeDetailBackProgress.snapTo(0f)
-            placeDetailPresence.animateTo(1f, tween(300))
-        } else if (renderedPlaceDetail) {
-            placeDetailPresence.animateTo(0f, tween(300))
-            renderedPlaceDetail = false
-            placeDetailBackProgress.snapTo(0f)
-            placeDetailSnapshot = null
-        }
-    }
-
-    PredictiveBackHandler(enabled = overlay != null && debugDetail == null && placeDetailKey == null) { events ->
-        try {
-            events.collect { event ->
-                backEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
-                backProgress.snapTo(event.progress)
-            }
-            overlay = null // gesture committed -> dismiss
-        } catch (cancelled: CancellationException) {
-            backProgress.animateTo(0f, tween(200)) // gesture cancelled -> spring back
-        }
-    }
-
-    PredictiveBackHandler(enabled = debugDetail != null) { events ->
-        try {
-            events.collect { event ->
-                logsBackEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
-                logsBackProgress.snapTo(event.progress)
-            }
-            debugDetail = null // gesture committed -> back to Settings
-        } catch (cancelled: CancellationException) {
-            logsBackProgress.animateTo(0f, tween(200))
-        }
-    }
-
-    PredictiveBackHandler(enabled = placeDetailKey != null) { events ->
-        try {
-            events.collect { event ->
-                placeDetailBackEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
-                placeDetailBackProgress.snapTo(event.progress)
-            }
-            placeDetailKey = null // gesture committed -> back to where it was opened from
-        } catch (cancelled: CancellationException) {
-            placeDetailBackProgress.animateTo(0f, tween(200))
-        }
-    }
+    val overlayLayer = rememberOverlayLayer(
+        content = overlay,
+        backEnabled = overlay != null && debugDetail == null && placeDetailKey == null,
+        onDismiss = { overlay = null },
+    )
+    // The debug screens (Logs / Discarded) stack above Settings — the predictive-back preview under
+    // them shows Settings (where back actually lands), not the tabs.
+    val debugLayer = rememberOverlayLayer(
+        content = debugDetail,
+        onDismiss = { debugDetail = null },
+    )
+    val placeLayer = rememberOverlayLayer(
+        content = placeDetailKey,
+        onDismiss = { placeDetailKey = null },
+        onClosed = { placeDetailSnapshot = null },
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         // The tabbed UI stays composed underneath so it can be previewed during the back gesture.
@@ -556,12 +484,12 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
 
         // Overlay (track detail or settings): animates in on open and scales/shifts with the
         // predictive-back gesture, previewing the tabs underneath.
-        val rendered = renderedOverlay
+        val rendered = overlayLayer.rendered
         if (rendered != null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .overlayTransform(presence.value, backProgress.value, backEdgeSign),
+                    .overlayTransform(overlayLayer),
             ) {
                 when (rendered) {
                     is Overlay.TrackDetail -> TrackMapScreen(
@@ -588,7 +516,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
 
         // Place detail: stacked above whatever opened it (the Places overlay or the Tracks tab),
         // with the same open/close and predictive-back treatment.
-        if (renderedPlaceDetail) {
+        if (placeLayer.rendered != null) {
             val placeSummaries by viewModel.places.collectAsState()
             val summary = placeSummaries.firstOrNull { it.rowKey() == placeDetailKey }
                 ?: placeDetailSnapshot?.let { snap -> placeSummaries.firstOrNull { it.centroid == snap.centroid } }
@@ -617,11 +545,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .overlayTransform(
-                            placeDetailPresence.value,
-                            placeDetailBackProgress.value,
-                            placeDetailBackEdgeSign,
-                        ),
+                        .overlayTransform(placeLayer),
                 ) {
                     PlaceDetailScreen(
                         summary = detail,
@@ -633,15 +557,15 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
             }
         }
 
-        // Logs: a second overlay layer above Settings, same open/close and predictive-back
-        // treatment — the gesture previews Settings underneath, which is where back lands.
-        if (renderedLogs) {
+        // The debug screens: a second overlay layer above Settings, same open/close and
+        // predictive-back treatment — the gesture previews Settings underneath, where back lands.
+        debugLayer.rendered?.let { detail ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .overlayTransform(logsPresence.value, logsBackProgress.value, logsBackEdgeSign),
+                    .overlayTransform(debugLayer),
             ) {
-                when (renderedDebugDetail) {
+                when (detail) {
                     DebugDetail.Logs -> LogsScreen(onBack = { debugDetail = null })
                     DebugDetail.Discarded -> DiscardedTracksScreen(
                         viewModel = viewModel,
@@ -653,7 +577,63 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
     }
 }
 
+/**
+ * Animation state for one stacked overlay layer: open/close presence plus the predictive-back
+ * gesture. [rendered] holds the layer's content from open until the close animation finishes —
+ * keep the layer composed (with that content) while it's non-null, so the page doesn't blank
+ * or flip while receding.
+ */
+private class OverlayLayerState<T : Any> {
+    val presence = Animatable(0f)      // 0 = underneath shown, 1 = layer fully shown
+    val backProgress = Animatable(0f)  // predictive back gesture progress, 0..1
+    var backEdgeSign by mutableFloatStateOf(1f)
+    var rendered by mutableStateOf<T?>(null)
+}
+
+/**
+ * One stacked overlay layer: animates in while [content] is non-null, out when it goes null, and
+ * wires the predictive back gesture ([backEnabled] gates it — a layer yields to one stacked above).
+ * [onDismiss] fires when the gesture commits; [onClosed] after the close animation finishes.
+ */
+@Composable
+private fun <T : Any> rememberOverlayLayer(
+    content: T?,
+    backEnabled: Boolean = content != null,
+    onDismiss: () -> Unit,
+    onClosed: () -> Unit = {},
+): OverlayLayerState<T> {
+    val state = remember { OverlayLayerState<T>() }
+    // Snapshot the content while present; held stable through the close animation.
+    if (content != null) state.rendered = content
+    LaunchedEffect(content != null) {
+        if (content != null) {
+            state.backProgress.snapTo(0f)
+            state.presence.animateTo(1f, tween(300))
+        } else if (state.rendered != null) {
+            state.presence.animateTo(0f, tween(300))
+            state.rendered = null
+            state.backProgress.snapTo(0f)
+            onClosed()
+        }
+    }
+    PredictiveBackHandler(enabled = backEnabled) { events ->
+        try {
+            events.collect { event ->
+                state.backEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
+                state.backProgress.snapTo(event.progress)
+            }
+            onDismiss() // gesture committed -> dismiss
+        } catch (cancelled: CancellationException) {
+            state.backProgress.animateTo(0f, tween(200)) // gesture cancelled -> spring back
+        }
+    }
+    return state
+}
+
 /** The overlay open/close + predictive-back transform: slide/scale in, recede toward the edge. */
+private fun Modifier.overlayTransform(layer: OverlayLayerState<*>): Modifier =
+    overlayTransform(layer.presence.value, layer.backProgress.value, layer.backEdgeSign)
+
 private fun Modifier.overlayTransform(enter: Float, back: Float, edgeSign: Float): Modifier =
     graphicsLayer {
         val scale = (0.92f + 0.08f * enter) * (1f - 0.10f * back)
@@ -751,7 +731,7 @@ private fun RecordTab(
                     recording = status.recording,
                     gpsSuspended = status.gpsSuspended,
                     points = status.points,
-                    hasOpenTrack = LocationRecordingService.activeTrackId != null,
+                    hasOpenTrack = status.activeTrackId != null,
                 )
                 when {
                     replay != null -> {
@@ -780,7 +760,7 @@ private fun RecordTab(
                     }
                     else -> {
                         Spacer(Modifier.height(16.dp))
-                        RecorderStateCard(cardState, status.activityLabel)
+                        RecorderStateCard(cardState, status.activity?.label ?: "Idle")
                         Spacer(Modifier.height(12.dp))
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                             RecordedStats(viewModel)
@@ -810,11 +790,14 @@ private fun RecordedStats(viewModel: TrackListViewModel) {
     val byDate = remember(tracks) {
         tracks.map { it to Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate() }
     }
-    val periods = listOf(
-        "Today" to byDate.filter { it.second == today },
-        "This month" to byDate.filter { it.second.year == today.year && it.second.month == today.month },
-        "This year" to byDate.filter { it.second.year == today.year },
-    )
+    // Remembered: RecordTab recomposes on every status tick while visible.
+    val periods = remember(byDate, today) {
+        listOf(
+            "Today" to byDate.filter { it.second == today },
+            "This month" to byDate.filter { it.second.year == today.year && it.second.month == today.month },
+            "This year" to byDate.filter { it.second.year == today.year },
+        )
+    }
     GroupedRows(
         *periods.map { (title, entries) ->
             @Composable { PeriodStats(title, entries.map { it.first }) }
@@ -841,19 +824,13 @@ private fun PeriodStats(title: String, tracks: List<TrackSummary>) {
         for (total in totals) {
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val tint = activityColor(total.activity)
-                Box(
-                    modifier = Modifier.size(28.dp).clip(CircleShape)
-                        .background(tint.copy(alpha = 0.22f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = activityIcon(total.activity),
-                        contentDescription = total.activity?.label,
-                        tint = tint,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
+                TonalIconDisc(
+                    icon = activityIcon(total.activity),
+                    tint = activityColor(total.activity),
+                    contentDescription = total.activity?.label,
+                    size = 28.dp,
+                    iconSize = 16.dp,
+                )
                 Spacer(Modifier.width(12.dp))
                 Text(
                     total.activity?.label ?: "Other",
@@ -893,10 +870,16 @@ private fun LiveTrackPreview(
     status: TrackingStatus.State,
     modifier: Modifier = Modifier,
 ) {
-    val activeId = LocationRecordingService.activeTrackId ?: return
-    // Reload the in-progress track's points whenever a new one is recorded (points count changes).
-    val points by produceState<List<TrackPoint>>(emptyList(), activeId, status.points) {
-        value = viewModel.getPoints(activeId)
+    val activeId = status.activeTrackId ?: return
+    // Refresh whenever a new point is recorded (points count changes), loading incrementally:
+    // the full list once, then only rows newer than the last seen — re-reading the whole track
+    // costs O(track length) per fix and grows for the whole recording.
+    var points by remember(activeId) { mutableStateOf<List<TrackPoint>>(emptyList()) }
+    LaunchedEffect(activeId, status.points) {
+        val lastId = points.lastOrNull()?.id
+        val fresh = if (lastId == null) viewModel.getPoints(activeId)
+        else viewModel.getPointsAfter(activeId, lastId)
+        if (fresh.isNotEmpty()) points = points + fresh
     }
     CurrentTrackPreview(status = status, points = points, modifier = modifier)
 }
@@ -908,9 +891,7 @@ private fun CurrentTrackPreview(
     points: List<TrackPoint>,
     modifier: Modifier = Modifier,
 ) {
-    val activity = remember(status.activityLabel) {
-        ActivityType.entries.firstOrNull { it.label == status.activityLabel }
-    }
+    val activity = status.activity
     Card(modifier = modifier) {
         Column {
             // The map takes whatever height the card is given beyond the stats block.
@@ -928,22 +909,22 @@ private fun CurrentTrackPreview(
             }
             Column(Modifier.padding(16.dp)) {
                 Text(
-                    "Current track · ${status.activityLabel}",
+                    "Current track · ${status.activity?.label ?: "Idle"}",
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Spacer(Modifier.height(8.dp))
                 // Live trip stats; the status flow updates per fix, which keeps these ticking.
                 val startedAt = status.startedAtMillis
                 val durationS = startedAt?.let { (System.currentTimeMillis() - it) / 1000.0 } ?: 0.0
-                val avgKmh = if (durationS > 0) (status.distanceMeters / durationS) * 3.6 else 0.0
+                val avgKmh = avgSpeedKmh(status.distanceMeters, durationS)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     StatItem("Distance", formatKm(status.distanceMeters))
                     StatItem(
                         "Duration",
                         startedAt?.let { formatDuration(it, System.currentTimeMillis()) } ?: "—",
                     )
-                    StatItem("Speed", status.speedMps?.let { "%.0f km/h".format(it * 3.6f) } ?: "—")
-                    StatItem("Avg", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—")
+                    StatItem("Speed", status.speedMps?.let { formatKmh(it * 3.6) } ?: "—")
+                    StatItem("Avg", if (avgKmh > 0) formatKmh(avgKmh) else "—")
                     StatItem("Elevation", status.altitudeM?.let { "%.0f m".format(it) } ?: "—")
                 }
             }
@@ -1083,16 +1064,10 @@ private fun TracksTab(
     var pendingMerge by remember { mutableStateOf<TrackMerge.Plan?>(null) }
 
     if (items.none { it is TimelineItem.TrackItem }) {
-        Box(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "No tracks yet. They'll appear here once recording captures some movement.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        EmptyState(
+            "No tracks yet. They'll appear here once recording captures some movement.",
+            Modifier.fillMaxSize().padding(24.dp),
+        )
         return
     }
 
@@ -1142,49 +1117,33 @@ private fun TracksTab(
     }
 
     pendingDelete?.let { track ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-            title = { Text("Delete this track?") },
-            text = {
-                Text(
-                    "The ${ActivityType.labelFor(track.activityType)} track from " +
-                        "${dateFormat.format(Date(track.startedAt))} will be permanently " +
-                        "deleted. This can't be undone.",
-                )
+        ConfirmDialog(
+            icon = Icons.Filled.Delete,
+            title = "Delete this track?",
+            text = "The ${ActivityType.labelFor(track.activityType)} track from " +
+                "${dateFormat.format(Date(track.startedAt))} will be permanently " +
+                "deleted. This can't be undone.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                viewModel.delete(track.id)
+                pendingDelete = null
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.delete(track.id)
-                    pendingDelete = null
-                }) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
-            },
+            onDismiss = { pendingDelete = null },
         )
     }
 
     pendingMerge?.let { plan ->
-        AlertDialog(
-            onDismissRequest = { pendingMerge = null },
-            icon = { Icon(Icons.AutoMirrored.Filled.CallMerge, contentDescription = null) },
-            title = { Text("Merge these tracks?") },
-            text = {
-                Text(
-                    "The two tracks either side of this short stop will be joined into one. " +
-                        "The stop is removed. This can't be undone.",
-                )
+        ConfirmDialog(
+            icon = Icons.AutoMirrored.Filled.CallMerge,
+            title = "Merge these tracks?",
+            text = "The two tracks either side of this short stop will be joined into one. " +
+                "The stop is removed. This can't be undone.",
+            confirmLabel = "Merge",
+            onConfirm = {
+                viewModel.mergeTracks(plan)
+                pendingMerge = null
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.mergeTracks(plan)
-                    pendingMerge = null
-                }) { Text("Merge") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingMerge = null }) { Text("Cancel") }
-            },
+            onDismiss = { pendingMerge = null },
         )
     }
 }
@@ -1336,16 +1295,10 @@ private fun PlacesTab(
             modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp),
         )
         if (sorted.isEmpty()) {
-            Box(
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "No places yet. Stays and places you name show up here.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            EmptyState(
+                "No places yet. Stays and places you name show up here.",
+                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+            )
         } else if (view == PlacesView.MAP) {
             // Card padding keeps the texture-mode map off the back-gesture edge strips.
             Card(
@@ -1390,25 +1343,17 @@ private fun PlacesTab(
             pendingDelete = null
             return@let
         }
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            icon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-            title = { Text("Delete this place?") },
-            text = {
-                Text(
-                    "\"${existing.label}\" will be removed. Its stays stay recorded — they " +
-                        "just go back to being unnamed.",
-                )
+        ConfirmDialog(
+            icon = Icons.Filled.Delete,
+            title = "Delete this place?",
+            text = "\"${existing.label}\" will be removed. Its stays stay recorded — they " +
+                "just go back to being unnamed.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                viewModel.deletePlace(existing.id)
+                pendingDelete = null
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deletePlace(existing.id)
-                    pendingDelete = null
-                }) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
-            },
+            onDismiss = { pendingDelete = null },
         )
     }
 }
@@ -1427,35 +1372,13 @@ private fun PlaceRow(
         PlaceRowCard(summary, shape, onOpen)
         return
     }
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onDeleteRequest()
-                false
-            } else {
-                true
-            }
-        },
-    )
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = false,
-        backgroundContent = {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(shape)
-                    .background(MaterialTheme.colorScheme.errorContainer)
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.CenterEnd,
-            ) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.onErrorContainer,
-                )
-            }
-        },
+    SwipeActionRow(
+        shape = shape,
+        containerColor = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        icon = Icons.Filled.Delete,
+        iconDescription = "Delete",
+        onAction = onDeleteRequest,
     ) {
         PlaceRowCard(summary, shape, onOpen)
     }
@@ -1498,11 +1421,7 @@ private fun PlaceDetailScreen(
                         )
                     }
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+                navigationIcon = { BackNavIcon(onBack) },
                 actions = {
                     if (place != null && endpointCentroid != null) {
                         IconButton(onClick = { showRecenterDialog = true }) {
@@ -1580,25 +1499,17 @@ private fun PlaceDetailScreen(
     }
 
     if (showRecenterDialog && place != null && endpointCentroid != null) {
-        AlertDialog(
-            onDismissRequest = { showRecenterDialog = false },
-            icon = { Icon(Icons.Filled.FilterCenterFocus, contentDescription = null) },
-            title = { Text("Re-centre pin?") },
-            text = {
-                Text(
-                    "Moves \"${place.label}\" to the centre of its recorded endpoints. " +
-                        "Clustering and stays re-derive around the new spot.",
-                )
+        ConfirmDialog(
+            icon = Icons.Filled.FilterCenterFocus,
+            title = "Re-centre pin?",
+            text = "Moves \"${place.label}\" to the centre of its recorded endpoints. " +
+                "Clustering and stays re-derive around the new spot.",
+            confirmLabel = "Move",
+            onConfirm = {
+                viewModel.setPlacePin(place.id, endpointCentroid.lat, endpointCentroid.lon)
+                showRecenterDialog = false
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.setPlacePin(place.id, endpointCentroid.lat, endpointCentroid.lon)
-                    showRecenterDialog = false
-                }) { Text("Move") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRecenterDialog = false }) { Text("Cancel") }
-            },
+            onDismiss = { showRecenterDialog = false },
         )
     }
 
@@ -1686,12 +1597,7 @@ private fun PlaceRowCard(
         ) {
             val tint = if (named) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant
-            Box(
-                modifier = Modifier.size(36.dp).clip(CircleShape).background(tint.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Filled.Place, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
-            }
+            TonalIconDisc(Icons.Filled.Place, tint, contentDescription = null, discAlpha = 0.16f)
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -1756,28 +1662,32 @@ private fun SettingsScreen(
     onShowDiscarded: () -> Unit,
 ) {
     val context = LocalContext.current
-    var intervalSec by remember { mutableFloatStateOf(AppSettings.minIntervalSec(context).toFloat()) }
-    var distanceM by remember { mutableFloatStateOf(AppSettings.minDistanceM(context).toFloat()) }
-    var minDurationSec by remember {
-        mutableFloatStateOf(AppSettings.minTrackDurationSec(context).toFloat())
-    }
-    var minLengthM by remember { mutableFloatStateOf(AppSettings.minTrackLengthM(context).toFloat()) }
-    var minExtentM by remember { mutableFloatStateOf(AppSettings.minTrackExtentM(context).toFloat()) }
-    var resumeWindowSec by remember { mutableFloatStateOf(AppSettings.resumeWindowSec(context).toFloat()) }
-    var accuracyGateM by remember { mutableFloatStateOf(AppSettings.accuracyGateM(context).toFloat()) }
-    var requireGnssFix by remember { mutableStateOf(AppSettings.requireGnssFix(context)) }
-    var gpsGiveUpSec by remember { mutableFloatStateOf(AppSettings.gpsGiveUpSec(context).toFloat()) }
-    var useFusedProvider by remember { mutableStateOf(AppSettings.useFusedProvider(context)) }
+    val intervalSec = rememberPref(AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC,
+        { AppSettings.minIntervalSec(context) }) { AppSettings.setMinIntervalSec(context, it) }
+    val distanceM = rememberPref(AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
+        { AppSettings.minDistanceM(context) }) { AppSettings.setMinDistanceM(context, it) }
+    val minDurationSec = rememberPref(AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC,
+        { AppSettings.minTrackDurationSec(context) }) { AppSettings.setMinTrackDurationSec(context, it) }
+    val minLengthM = rememberPref(AppSettings.DEFAULT_TRACK_MIN_LENGTH_M,
+        { AppSettings.minTrackLengthM(context) }) { AppSettings.setMinTrackLengthM(context, it) }
+    val minExtentM = rememberPref(AppSettings.DEFAULT_TRACK_MIN_EXTENT_M,
+        { AppSettings.minTrackExtentM(context) }) { AppSettings.setMinTrackExtentM(context, it) }
+    val resumeWindowSec = rememberPref(AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
+        { AppSettings.resumeWindowSec(context) }) { AppSettings.setResumeWindowSec(context, it) }
+    val accuracyGateM = rememberPref(AppSettings.DEFAULT_ACCURACY_GATE_M,
+        { AppSettings.accuracyGateM(context) }) { AppSettings.setAccuracyGateM(context, it) }
+    val requireGnssFix = rememberPref(AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
+        { AppSettings.requireGnssFix(context) }) { AppSettings.setRequireGnssFix(context, it) }
+    val gpsGiveUpSec = rememberPref(AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
+        { AppSettings.gpsGiveUpSec(context) }) { AppSettings.setGpsGiveUpSec(context, it) }
+    val useFusedProvider = rememberPref(AppSettings.DEFAULT_USE_FUSED_PROVIDER,
+        { AppSettings.useFusedProvider(context) }) { AppSettings.setUseFusedProvider(context, it) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+                navigationIcon = { BackNavIcon(onBack) },
             )
         },
     ) { inner ->
@@ -1788,19 +1698,7 @@ private fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-        SectionHeader(
-            "Recording",
-            canReset = intervalSec.toInt() != AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC ||
-                distanceM.toInt() != AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M ||
-                useFusedProvider != AppSettings.DEFAULT_USE_FUSED_PROVIDER,
-        ) {
-            intervalSec = AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC.toFloat()
-            distanceM = AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M.toFloat()
-            useFusedProvider = AppSettings.DEFAULT_USE_FUSED_PROVIDER
-            AppSettings.setMinIntervalSec(context, AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC)
-            AppSettings.setMinDistanceM(context, AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M)
-            AppSettings.setUseFusedProvider(context, AppSettings.DEFAULT_USE_FUSED_PROVIDER)
-        }
+        SettingsSectionHeader("Recording", intervalSec, distanceM, useFusedProvider)
         Text(
             "Where positions come from and how densely points are recorded while moving.",
             style = MaterialTheme.typography.bodySmall,
@@ -1809,54 +1707,28 @@ private fun SettingsScreen(
         Spacer(Modifier.height(8.dp))
         GroupedRows(
             {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Use fused location", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Also estimates position from Wi-Fi and mobile networks, so " +
-                                "tracks can continue indoors. Uses more battery.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    IconSwitch(
-                        checked = useFusedProvider,
-                        onCheckedChange = {
-                            useFusedProvider = it
-                            AppSettings.setUseFusedProvider(context, it)
-                        },
-                    )
+                SwitchSettingRow(
+                    title = "Use fused location",
+                    subtitle = "Also estimates position from Wi-Fi and mobile networks, so " +
+                        "tracks can continue indoors. Uses more battery.",
+                    checked = useFusedProvider.value,
+                    onCheckedChange = { useFusedProvider.set(it) },
+                )
+            },
+            {
+                SliderSetting("Time between points", intervalSec.value.toFloat(), 1f..30f, 1, { "${it.toInt()} s" }) {
+                    intervalSec.set(it.toInt())
                 }
             },
             {
-                SliderSetting("Time between points", intervalSec, 1f..30f, 1, { "${it.toInt()} s" }) {
-                    intervalSec = it
-                    AppSettings.setMinIntervalSec(context, it.toInt())
-                }
-            },
-            {
-                SliderSetting("Distance between points", distanceM, 1f..50f, 1, { "${it.toInt()} m" }) {
-                    distanceM = it
-                    AppSettings.setMinDistanceM(context, it.toInt())
+                SliderSetting("Distance between points", distanceM.value.toFloat(), 1f..50f, 1, { "${it.toInt()} m" }) {
+                    distanceM.set(it.toInt())
                 }
             },
         )
 
         Spacer(Modifier.height(24.dp))
-        SectionHeader(
-            "Point quality",
-            canReset = accuracyGateM.toInt() != AppSettings.DEFAULT_ACCURACY_GATE_M ||
-                requireGnssFix != AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
-        ) {
-            accuracyGateM = AppSettings.DEFAULT_ACCURACY_GATE_M.toFloat()
-            requireGnssFix = AppSettings.DEFAULT_REQUIRE_GNSS_FIX
-            AppSettings.setAccuracyGateM(context, AppSettings.DEFAULT_ACCURACY_GATE_M)
-            AppSettings.setRequireGnssFix(context, AppSettings.DEFAULT_REQUIRE_GNSS_FIX)
-        }
+        SettingsSectionHeader("Point quality", accuracyGateM, requireGnssFix)
         Text(
             "Which recorded points count as good.",
             style = MaterialTheme.typography.bodySmall,
@@ -1865,28 +1737,13 @@ private fun SettingsScreen(
         Spacer(Modifier.height(8.dp))
         GroupedRows(
             {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Require satellite fix", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Drops guessed positions, like in a tunnel. Walks with fused " +
-                                "location keep them, so indoor tracks survive.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    IconSwitch(
-                        checked = requireGnssFix,
-                        onCheckedChange = {
-                            requireGnssFix = it
-                            AppSettings.setRequireGnssFix(context, it)
-                        },
-                    )
-                }
+                SwitchSettingRow(
+                    title = "Require satellite fix",
+                    subtitle = "Drops guessed positions, like in a tunnel. Walks with fused " +
+                        "location keep them, so indoor tracks survive.",
+                    checked = requireGnssFix.value,
+                    onCheckedChange = { requireGnssFix.set(it) },
+                )
             },
             {
                 Text(
@@ -1895,21 +1752,14 @@ private fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-                SliderSetting("Max accuracy radius", accuracyGateM, 10f..150f, 10, { "${it.toInt()} m" }) {
-                    accuracyGateM = it
-                    AppSettings.setAccuracyGateM(context, it.toInt())
+                SliderSetting("Max accuracy radius", accuracyGateM.value.toFloat(), 10f..150f, 10, { "${it.toInt()} m" }) {
+                    accuracyGateM.set(it.toInt())
                 }
             },
         )
 
         Spacer(Modifier.height(24.dp))
-        SectionHeader(
-            "Auto-pause",
-            canReset = resumeWindowSec.toInt() != AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
-        ) {
-            resumeWindowSec = AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC.toFloat()
-            AppSettings.setResumeWindowSec(context, AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC)
-        }
+        SettingsSectionHeader("Auto-pause", resumeWindowSec)
         Text(
             "A stop shorter than this keeps the track open — moving again continues the same " +
                 "track. When set to Off, every stop ends the track.",
@@ -1919,21 +1769,14 @@ private fun SettingsScreen(
         Spacer(Modifier.height(8.dp))
         GroupedRows(
             {
-                SliderSetting("Resume window", resumeWindowSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
-                    resumeWindowSec = it
-                    AppSettings.setResumeWindowSec(context, it.toInt())
+                SliderSetting("Resume window", resumeWindowSec.value.toFloat(), 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
+                    resumeWindowSec.set(it.toInt())
                 }
             },
         )
 
         Spacer(Modifier.height(24.dp))
-        SectionHeader(
-            "GPS search",
-            canReset = gpsGiveUpSec.toInt() != AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
-        ) {
-            gpsGiveUpSec = AppSettings.DEFAULT_GPS_GIVE_UP_SEC.toFloat()
-            AppSettings.setGpsGiveUpSec(context, AppSettings.DEFAULT_GPS_GIVE_UP_SEC)
-        }
+        SettingsSectionHeader("GPS search", gpsGiveUpSec)
         Text(
             "If no good position arrives for this long, GPS pauses and retries when you move " +
                 "or another app gets a location. When set to Off, GPS never stops searching.",
@@ -1943,27 +1786,14 @@ private fun SettingsScreen(
         Spacer(Modifier.height(8.dp))
         GroupedRows(
             {
-                SliderSetting("Give up after", gpsGiveUpSec, 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
-                    gpsGiveUpSec = it
-                    AppSettings.setGpsGiveUpSec(context, it.toInt())
+                SliderSetting("Give up after", gpsGiveUpSec.value.toFloat(), 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
+                    gpsGiveUpSec.set(it.toInt())
                 }
             },
         )
 
         Spacer(Modifier.height(24.dp))
-        SectionHeader(
-            "Discard short tracks",
-            canReset = minDurationSec.toInt() != AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC ||
-                minLengthM.toInt() != AppSettings.DEFAULT_TRACK_MIN_LENGTH_M ||
-                minExtentM.toInt() != AppSettings.DEFAULT_TRACK_MIN_EXTENT_M,
-        ) {
-            minDurationSec = AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC.toFloat()
-            minLengthM = AppSettings.DEFAULT_TRACK_MIN_LENGTH_M.toFloat()
-            minExtentM = AppSettings.DEFAULT_TRACK_MIN_EXTENT_M.toFloat()
-            AppSettings.setMinTrackDurationSec(context, AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC)
-            AppSettings.setMinTrackLengthM(context, AppSettings.DEFAULT_TRACK_MIN_LENGTH_M)
-            AppSettings.setMinTrackExtentM(context, AppSettings.DEFAULT_TRACK_MIN_EXTENT_M)
-        }
+        SettingsSectionHeader("Discard short tracks", minDurationSec, minLengthM, minExtentM)
         Text(
             "Tracks under these limits are deleted when they finish.",
             style = MaterialTheme.typography.bodySmall,
@@ -1972,15 +1802,13 @@ private fun SettingsScreen(
         Spacer(Modifier.height(8.dp))
         GroupedRows(
             {
-                SliderSetting("Min duration", minDurationSec, 0f..300f, 30, { durationSettingLabel(it.toInt()) }) {
-                    minDurationSec = it
-                    AppSettings.setMinTrackDurationSec(context, it.toInt())
+                SliderSetting("Min duration", minDurationSec.value.toFloat(), 0f..300f, 30, { durationSettingLabel(it.toInt()) }) {
+                    minDurationSec.set(it.toInt())
                 }
             },
             {
-                SliderSetting("Min length", minLengthM, 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
-                    minLengthM = it
-                    AppSettings.setMinTrackLengthM(context, it.toInt())
+                SliderSetting("Min length", minLengthM.value.toFloat(), 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
+                    minLengthM.set(it.toInt())
                 }
             },
             {
@@ -1991,9 +1819,8 @@ private fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-                SliderSetting("Min extent", minExtentM, 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
-                    minExtentM = it
-                    AppSettings.setMinTrackExtentM(context, it.toInt())
+                SliderSetting("Min extent", minExtentM.value.toFloat(), 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
+                    minExtentM.set(it.toInt())
                 }
             },
         )
@@ -2078,48 +1905,8 @@ private fun SettingsScreen(
             Text("Debug", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             GroupedRows(
-                {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onShowLogs)
-                            .padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            "Logs",
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Icon(
-                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
-                },
-                {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onShowDiscarded)
-                            .padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            "Discarded tracks",
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Icon(
-                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
-                },
+                { NavRow("Logs", onShowLogs) },
+                { NavRow("Discarded tracks", onShowDiscarded) },
                 {
                     Text(
                         "Insert a synthetic track for testing the list, map, swipe and share.",
@@ -2163,11 +1950,7 @@ private fun LogsScreen(onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text("Logs (${entries.size})") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+                navigationIcon = { BackNavIcon(onBack) },
                 actions = {
                     IconButton(onClick = {
                         val share = Intent(Intent.ACTION_SEND).apply {
@@ -2184,13 +1967,7 @@ private fun LogsScreen(onBack: () -> Unit) {
         },
     ) { inner ->
         if (entries.isEmpty()) {
-            Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "No logs yet — arm recording and move around.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            EmptyState("No logs yet — arm recording and move around.", Modifier.padding(inner).fillMaxSize())
         } else {
             // Newest first so the latest events are visible without scrolling.
             LazyColumn(modifier = Modifier.padding(inner).fillMaxSize().padding(horizontal = 12.dp)) {
@@ -2244,22 +2021,12 @@ private fun DiscardedTracksScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Discarded tracks (${tracks.size})") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+                navigationIcon = { BackNavIcon(onBack) },
             )
         },
     ) { inner ->
         if (tracks.isEmpty()) {
-            Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "No discarded tracks — filtered tracks will appear here.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            EmptyState("No discarded tracks — filtered tracks will appear here.", Modifier.padding(inner).fillMaxSize())
         } else {
             LazyColumn(modifier = Modifier.padding(inner).fillMaxSize().padding(horizontal = 16.dp)) {
                 item {
@@ -2324,6 +2091,30 @@ private fun GroupedRows(vararg rows: @Composable () -> Unit) {
     }
 }
 
+/** Settings-style navigation row: label + chevron, opening a stacked screen. */
+@Composable
+private fun NavRow(label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(28.dp),
+        )
+    }
+}
+
 @Composable
 private fun SectionHeader(title: String, canReset: Boolean, onReset: () -> Unit) {
     Row(
@@ -2337,6 +2128,61 @@ private fun SectionHeader(title: String, canReset: Boolean, onReset: () -> Unit)
     }
 }
 
+/**
+ * One settings value on this screen: a local mirror of the pref plus its persist and default, so a
+ * section's canReset/reset derive from the prefs themselves instead of hand-listing every write.
+ */
+private class Pref<T>(initial: T, val default: T, private val persist: (T) -> Unit) {
+    var value by mutableStateOf(initial)
+        private set
+
+    val isDefault: Boolean get() = value == default
+
+    fun set(newValue: T) {
+        value = newValue
+        persist(newValue)
+    }
+
+    fun reset() = set(default)
+}
+
+@Composable
+private fun <T> rememberPref(default: T, load: () -> T, save: (T) -> Unit): Pref<T> =
+    remember { Pref(load(), default, save) }
+
+/** [SectionHeader] wired to a settings section's prefs: reset offered/applied over all of them. */
+@Composable
+private fun SettingsSectionHeader(title: String, vararg prefs: Pref<*>) {
+    SectionHeader(title, canReset = prefs.any { !it.isDefault }) {
+        prefs.forEach { it.reset() }
+    }
+}
+
+/** Settings row with a title, explanatory subtitle and an [IconSwitch]. */
+@Composable
+private fun SwitchSettingRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        IconSwitch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
 @Composable
 private fun SliderSetting(
     label: String,
@@ -2344,11 +2190,9 @@ private fun SliderSetting(
     range: ClosedFloatingPointRange<Float>,
     step: Int,
     valueText: (Float) -> String,
-    enabled: Boolean = true,
     onChange: (Float) -> Unit,
 ) {
-    // Dim the whole row when disabled (the Slider greys itself, the labels need help).
-    Column(Modifier.alpha(if (enabled) 1f else 0.38f)) {
+    Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -2362,7 +2206,6 @@ private fun SliderSetting(
         }
         Slider(
             value = value,
-            enabled = enabled,
             onValueChange = { raw ->
                 // Snap to the nearest step so values land on round numbers.
                 val snapped = ((raw / step).roundToInt() * step).toFloat()
@@ -2384,7 +2227,7 @@ private fun durationSettingLabel(sec: Int): String = when {
 private fun lengthSettingLabel(m: Int): String = when {
     m <= 0 -> "Off"
     m < 1000 -> "$m m"
-    else -> "%.1f km".format(m / 1000.0)
+    else -> formatKm(m.toDouble())
 }
 
 private fun groupTimelineByDay(items: List<TimelineItem>): List<Pair<String, List<TimelineItem>>> {
@@ -2417,26 +2260,96 @@ private fun dayLabel(date: LocalDate, today: LocalDate): String = when (date) {
 private val dateFormat = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
 private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-@OptIn(ExperimentalFoundationApi::class)
+/** The screens' shared top-bar back arrow. */
 @Composable
-private fun TrackRow(
-    track: TrackSummary,
-    shape: RoundedCornerShape,
-    onOpen: () -> Unit,
-    onDeleteRequest: () -> Unit,
-    onReplay: (() -> Unit)? = null,
+private fun BackNavIcon(onBack: () -> Unit) {
+    IconButton(onClick = onBack) {
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+    }
+}
+
+/** Centered placeholder for a list with nothing to show. */
+@Composable
+private fun EmptyState(message: String, modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Text(
+            message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** The list rows' category token: a glyph on a soft tonal disc of the same colour (M3 "tonal"). */
+@Composable
+private fun TonalIconDisc(
+    icon: ImageVector,
+    tint: Color,
+    contentDescription: String?,
+    size: Dp = 36.dp,
+    iconSize: Dp = 20.dp,
+    discAlpha: Float = 0.22f,
+    iconAlpha: Float = 1f,
 ) {
-    // Swipe right-to-left to request deletion: veto the dismissal itself (so the row springs back
-    // on its own) and ask for confirmation — the actual delete happens via the dialog. Resetting
-    // from a targetValue observer instead loses to an in-progress drag and leaves the row stuck
-    // showing the red background after Cancel.
+    Box(
+        modifier = Modifier.size(size).clip(CircleShape).background(tint.copy(alpha = discAlpha)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint.copy(alpha = iconAlpha),
+            modifier = Modifier.size(iconSize),
+        )
+    }
+}
+
+/** Confirm-style dialog: icon, message, a confirm action and a Cancel button. */
+@Composable
+private fun ConfirmDialog(
+    icon: ImageVector,
+    title: String,
+    text: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(icon, contentDescription = null) },
+        title = { Text(title) },
+        text = { Text(text) },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Row with a swipe-left action revealed behind it. The end-to-start dismissal itself is always
+ * vetoed (so the row springs back on its own) and [onAction] takes over — a confirm dialog or the
+ * merge. Resetting from a targetValue observer instead loses to an in-progress drag and leaves the
+ * row stuck showing the background after Cancel. [confirmSettle] is what other state changes
+ * (settling back) return from confirmValueChange.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeActionRow(
+    shape: RoundedCornerShape,
+    containerColor: Color,
+    contentColor: Color,
+    icon: ImageVector,
+    iconDescription: String,
+    onAction: () -> Unit,
+    confirmSettle: Boolean = true,
+    content: @Composable () -> Unit,
+) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             if (value == SwipeToDismissBoxValue.EndToStart) {
-                onDeleteRequest()
+                onAction()
                 false
             } else {
-                true
+                confirmSettle
             }
         },
     )
@@ -2448,17 +2361,33 @@ private fun TrackRow(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(shape)
-                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .background(containerColor)
                     .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.CenterEnd,
             ) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.onErrorContainer,
-                )
+                Icon(icon, contentDescription = iconDescription, tint = contentColor)
             }
         },
+    ) { content() }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TrackRow(
+    track: TrackSummary,
+    shape: RoundedCornerShape,
+    onOpen: () -> Unit,
+    onDeleteRequest: () -> Unit,
+    onReplay: (() -> Unit)? = null,
+) {
+    // Swipe right-to-left to request deletion — the actual delete happens via the confirm dialog.
+    SwipeActionRow(
+        shape = shape,
+        containerColor = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        icon = Icons.Filled.Delete,
+        iconDescription = "Delete",
+        onAction = onDeleteRequest,
     ) {
         Card(
             modifier = Modifier
@@ -2471,21 +2400,12 @@ private fun TrackRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val activity = ActivityType.ofName(track.activityType)
-                val activityTint = activityColor(activity)
-                // Activity token: the glyph in the activity colour on a soft tonal disc of the same
-                // colour (M3 "tonal" style) — a clear category cue that stays quiet.
-                Box(
-                    modifier = Modifier.size(36.dp).clip(CircleShape)
-                        .background(activityTint.copy(alpha = 0.22f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = activityIcon(activity),
-                        contentDescription = ActivityType.labelFor(track.activityType),
-                        tint = activityTint,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
+                // Activity token: a clear category cue that stays quiet.
+                TonalIconDisc(
+                    icon = activityIcon(activity),
+                    tint = activityColor(activity),
+                    contentDescription = ActivityType.labelFor(track.activityType),
+                )
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     val start = timeFormat.format(Date(track.startedAt))
@@ -2531,29 +2451,15 @@ private fun StayRow(
         card()
         return
     }
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) onMerge()
-            false // never dismiss the row; merge replaces it, or the swipe springs back
-        },
-    )
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = false,
-        backgroundContent = {
-            Box(
-                modifier = Modifier.fillMaxSize().clip(shape)
-                    .background(MaterialTheme.colorScheme.secondaryContainer)
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.CenterEnd,
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.CallMerge,
-                    contentDescription = "Merge tracks",
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-            }
-        },
+    SwipeActionRow(
+        shape = shape,
+        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        icon = Icons.AutoMirrored.Filled.CallMerge,
+        iconDescription = "Merge tracks",
+        onAction = onMerge,
+        // Never dismiss the row: merge replaces it, or the swipe springs back.
+        confirmSettle = false,
     ) { card() }
 }
 
@@ -2574,18 +2480,13 @@ private fun StayCard(
         ) {
             val tint = if (named) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant
-            Box(
-                modifier = Modifier.size(36.dp).clip(CircleShape)
-                    .background(tint.copy(alpha = if (inferred) 0.10f else 0.16f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Place,
-                    contentDescription = "Stay",
-                    tint = tint.copy(alpha = if (inferred) 0.6f else 1f),
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            TonalIconDisc(
+                icon = Icons.Filled.Place,
+                tint = tint,
+                contentDescription = "Stay",
+                discAlpha = if (inferred) 0.10f else 0.16f,
+                iconAlpha = if (inferred) 0.6f else 1f,
+            )
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 val start = timeFormat.format(Date(stay.start))
@@ -2699,11 +2600,7 @@ private fun TrackMapScreen(
                         }
                     }
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+                navigationIcon = { BackNavIcon(onBack) },
                 actions = {
                     if (noisyPoints.isNotEmpty()) {
                         IconButton(onClick = { showNoisy = !showNoisy }) {
@@ -2860,7 +2757,8 @@ internal fun metricGraphData(
     mode: ColorMode,
     activity: ActivityType?,
 ): MetricGraphData? {
-    val speeds by lazy { TrackQuality.pointSpeedsKmh(points) }
+    // Computed unconditionally: trackColoring below needs it whatever the mode.
+    val speeds = TrackQuality.pointSpeedsKmh(points)
     val values: List<Float?> = when (mode) {
         ColorMode.SPEED -> List(points.size) { speeds[it] }
         ColorMode.ELEVATION -> points.map { it.altitude?.toFloat() }
@@ -2875,11 +2773,9 @@ internal fun metricGraphData(
         ColorMode.SATELLITES -> "sat"
         ColorMode.CN0 -> "dB"
     }
-    val colors = trackColoring(points, TrackQuality.pointSpeedsKmh(points), mode, activity).colors
+    val colors = trackColoring(points, speeds, mode, activity).colors
     return MetricGraphData(points, values, colors, unit)
 }
-
-private val graphTimeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
 /**
  * The metric polyline alone, rasterized once per (graph, size) into a bitmap and blitted per frame.
@@ -2943,23 +2839,36 @@ private fun MetricGraph(
     val t0 = graph.points.first().timestamp
     val tSpan = (graph.points.last().timestamp - t0).coerceAtLeast(1L).toFloat()
 
-    // x (0..width) -> index of the nearest point that actually has a value.
+    // x (0..width) -> index of the nearest point that actually has a value. Runs per drag event
+    // while scrubbing, so it binary-searches the (sorted) timestamps instead of scanning them all.
     fun indexAt(x: Float, width: Float): Int? {
         if (width <= 0f) return null
         // Keep the epoch-millis math in Long: t0 (~1.8e12) + Float promotes to Float, whose
         // precision at that magnitude quantizes the target to ~131 s steps.
         val target = t0 + ((x / width).coerceIn(0f, 1f) * tSpan).toLong()
-        var best: Int? = null
-        var bestDist = Long.MAX_VALUE
-        for (i in graph.points.indices) {
-            if (graph.values[i] == null) continue
-            val d = kotlin.math.abs(graph.points[i].timestamp - target)
-            if (d < bestDist) {
-                bestDist = d
-                best = i
-            }
+        // First index with timestamp >= target.
+        var lo = 0
+        var hi = graph.points.lastIndex
+        while (lo < hi) {
+            val mid = (lo + hi) / 2
+            if (graph.points[mid].timestamp < target) lo = mid + 1 else hi = mid
         }
-        return best
+        // Nearest valued point on each side of the boundary; distances only grow further out.
+        var left = lo - 1
+        while (left >= 0 && graph.values[left] == null) left--
+        var right = lo
+        while (right <= graph.points.lastIndex && graph.values[right] == null) right++
+        val leftDist = if (left >= 0) target - graph.points[left].timestamp else Long.MAX_VALUE
+        val rightDist = if (right <= graph.points.lastIndex) {
+            kotlin.math.abs(graph.points[right].timestamp - target)
+        } else {
+            Long.MAX_VALUE
+        }
+        return when {
+            left < 0 && right > graph.points.lastIndex -> null
+            leftDist <= rightDist -> left
+            else -> right
+        }
     }
 
     Surface(modifier = modifier, tonalElevation = 3.dp, shadowElevation = 3.dp) {
@@ -2986,6 +2895,9 @@ private fun MetricGraph(
                 lastReported[0] = index
                 onSelect(index)
             }
+            // The selection, bounds-checked once for both the cursor and the readout below.
+            val sel = selectedIndex?.takeIf { it in graph.points.indices }
+            val selValue = sel?.let { graph.values[it] }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 // Static plot in its own skippable composable: scrubbing recomposes MetricGraph per
                 // touch event, and redrawing the full multi-thousand-segment polyline each time is
@@ -3007,8 +2919,6 @@ private fun MetricGraph(
                         },
                 ) {
                     val h = size.height - 2 * padPx
-                    val sel = selectedIndex?.takeIf { it in graph.points.indices }
-                    val selValue = sel?.let { graph.values[it] }
                     if (sel != null && selValue != null) {
                         val x = (graph.points[sel].timestamp - t0) / tSpan * size.width
                         val y = padPx + h - ((selValue - minV) / span) * h
@@ -3033,13 +2943,11 @@ private fun MetricGraph(
                     style = MaterialTheme.typography.labelSmall,
                     color = labelColor,
                 )
-                val sel = selectedIndex?.takeIf { it in graph.points.indices }
-                val selValue = sel?.let { graph.values[it] }
                 if (sel != null && selValue != null) {
                     Text(
                         "%.0f %s · %s".format(
                             selValue, graph.unit,
-                            graphTimeFormat.format(Date(graph.points[sel].timestamp)),
+                            timeFormat.format(Date(graph.points[sel].timestamp)),
                         ),
                         modifier = Modifier.align(Alignment.TopEnd).padding(horizontal = 8.dp, vertical = 2.dp),
                         style = MaterialTheme.typography.labelSmall,
@@ -3050,14 +2958,14 @@ private fun MetricGraph(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(graphTimeFormat.format(Date(t0)), style = MaterialTheme.typography.labelSmall, color = labelColor)
+                Text(timeFormat.format(Date(t0)), style = MaterialTheme.typography.labelSmall, color = labelColor)
                 Text(
-                    graphTimeFormat.format(Date(t0 + (tSpan / 2).toLong())),
+                    timeFormat.format(Date(t0 + (tSpan / 2).toLong())),
                     style = MaterialTheme.typography.labelSmall,
                     color = labelColor,
                 )
                 Text(
-                    graphTimeFormat.format(Date(t0 + tSpan.toLong())),
+                    timeFormat.format(Date(t0 + tSpan.toLong())),
                     style = MaterialTheme.typography.labelSmall,
                     color = labelColor,
                 )
@@ -3093,11 +3001,11 @@ private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
 @Composable
 private fun TrackStatsHeader(summary: TrackSummary) {
     val durationS = summary.endedAt?.let { (it - summary.startedAt) / 1000.0 } ?: 0.0
-    val avgKmh = if (durationS > 0) (summary.distanceMeters / durationS) * 3.6 else 0.0
+    val avgKmh = avgSpeedKmh(summary.distanceMeters, durationS)
     Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
         HeaderStat("Distance", formatKm(summary.distanceMeters), Modifier.weight(1f))
         HeaderStat("Duration", formatDuration(summary.startedAt, summary.endedAt), Modifier.weight(1f))
-        HeaderStat("Avg speed", if (avgKmh > 0) "%.0f km/h".format(avgKmh) else "—", Modifier.weight(1f))
+        HeaderStat("Avg speed", if (avgKmh > 0) formatKmh(avgKmh) else "—", Modifier.weight(1f))
     }
 }
 

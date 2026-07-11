@@ -46,6 +46,7 @@ object TrackReplayer {
             val track = repository.track(trackId) ?: return@launch
             val points = repository.pointsFor(trackId)
             if (points.size < 2) return@launch
+            val activity = ActivityType.ofName(track.activityType) ?: ActivityType.UNKNOWN
             val label = ActivityType.labelFor(track.activityType)
             var distance = 0.0
             var lastGood: TrackPoint? = null
@@ -61,7 +62,7 @@ object TrackReplayer {
                     speedX = speedX,
                     status = TrackingStatus.State(
                         tracking = true,
-                        activityLabel = label,
+                        activity = activity,
                         recording = true,
                         distanceMeters = distance,
                         points = i + 1,

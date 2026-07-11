@@ -14,6 +14,9 @@ interface TrackDao {
     @Insert
     suspend fun insertPoint(point: TrackPoint): Long
 
+    @Insert
+    suspend fun insertPoints(points: List<TrackPoint>)
+
     @Query("UPDATE tracks SET endedAt = :endedAt WHERE id = :trackId")
     suspend fun closeTrack(trackId: Long, endedAt: Long)
 
@@ -64,6 +67,10 @@ interface TrackDao {
     /** Usable (non-ignored) points, for rendering and export. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")
     suspend fun pointsFor(trackId: Long): List<TrackPoint>
+
+    /** Usable points inserted after [afterId] — the live preview's incremental reload. */
+    @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 AND id > :afterId ORDER BY timestamp ASC, id ASC")
+    suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint>
 
     /** Only the ignored "bad fix" points, for marking them on the map. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 1 ORDER BY timestamp ASC, id ASC")

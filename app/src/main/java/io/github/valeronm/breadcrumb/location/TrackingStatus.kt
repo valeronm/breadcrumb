@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.location
 
+import io.github.valeronm.breadcrumb.data.ActivityType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -8,8 +9,11 @@ object TrackingStatus {
 
     data class State(
         val tracking: Boolean = false,
-        val activityLabel: String = "Idle",
+        /** Confirmed activity, null while idle (not armed). The UI derives its label. */
+        val activity: ActivityType? = null,
         val recording: Boolean = false,
+        /** Id of the currently open track (recording or paused), or null. */
+        val activeTrackId: Long? = null,
         val distanceMeters: Double = 0.0,
         val points: Int = 0,
         /** Wall-clock start of the current track, null when not recording. */
