@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -2806,6 +2807,7 @@ private fun activityIcon(activity: ActivityType?): ImageVector = when (activity)
     ActivityType.RUNNING -> Icons.AutoMirrored.Filled.DirectionsRun
     ActivityType.CYCLING -> Icons.AutoMirrored.Filled.DirectionsBike
     ActivityType.DRIVING -> Icons.Filled.DirectionsCar
+    ActivityType.TAXI -> Icons.Filled.LocalTaxi
     // Route, not Place: the pin means "a stay" in the timeline, and UNKNOWN tracks (e.g. a GPX
     // import without a <type>) are still movement.
     else -> Icons.Filled.Route
@@ -2822,6 +2824,7 @@ private const val ACTIVITY_LUM = 0.62f
 @Composable
 private fun activityColor(activity: ActivityType?): Color = when (activity) {
     ActivityType.DRIVING -> Color.hsl(210f, ACTIVITY_SAT, ACTIVITY_LUM) // blue
+    ActivityType.TAXI -> Color.hsl(48f, ACTIVITY_SAT, ACTIVITY_LUM)     // taxi yellow
     ActivityType.CYCLING -> Color.hsl(165f, ACTIVITY_SAT, ACTIVITY_LUM) // teal-green
     ActivityType.RUNNING -> Color.hsl(30f, ACTIVITY_SAT, ACTIVITY_LUM)  // orange
     ActivityType.WALKING -> Color.hsl(275f, ACTIVITY_SAT, ACTIVITY_LUM) // violet
@@ -2841,7 +2844,7 @@ private const val SPEED_LUMINANCE = 0.5f
 private data class SpeedScale(val minKmh: Float, val midKmh: Float, val maxKmh: Float)
 
 private fun speedScaleFor(activity: ActivityType): SpeedScale = when (activity) {
-    ActivityType.DRIVING, ActivityType.UNKNOWN -> SpeedScale(30f, 90f, 150f)
+    ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN -> SpeedScale(30f, 90f, 150f)
     ActivityType.CYCLING -> SpeedScale(10f, 22f, 34f)
     ActivityType.RUNNING -> SpeedScale(6f, 11f, 16f)
     ActivityType.WALKING, ActivityType.STILL -> SpeedScale(2f, 5f, 8f)

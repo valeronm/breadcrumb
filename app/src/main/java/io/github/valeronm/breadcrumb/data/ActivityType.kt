@@ -16,6 +16,9 @@ enum class ActivityType(
     RUNNING("Running", true),
     CYCLING("Cycling", true),
     DRIVING("Driving", true),
+    /** Never detected (activity recognition only sees IN_VEHICLE) — assigned by hand on the
+     *  track page to mark rides where the user was a passenger. */
+    TAXI("Taxi", true),
     STILL("Stationary", false),
     UNKNOWN("Moving", true);
 

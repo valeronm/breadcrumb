@@ -39,7 +39,7 @@ object TrackQuality {
         ActivityType.WALKING, ActivityType.STILL -> 12.0
         ActivityType.RUNNING -> 30.0
         ActivityType.CYCLING -> 70.0
-        ActivityType.DRIVING, ActivityType.UNKNOWN -> 220.0
+        ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN -> 220.0
     }
 
     fun distanceMeters(a: TrackPoint, b: TrackPoint, distance: DistanceFn = AndroidDistance): Double =
