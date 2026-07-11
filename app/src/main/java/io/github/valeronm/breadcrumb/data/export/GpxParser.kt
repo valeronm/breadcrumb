@@ -92,16 +92,19 @@ object GpxParser {
         )
     }
 
-    /** Our own exports round-trip via the enum name; common foreign type strings map loosely. */
+    /**
+     * Our own exports round-trip via the enum name; common foreign type strings map loosely.
+     * Missing or unrecognised types default to DRIVING — imported archives are overwhelmingly
+     * car trips, and the track page can reassign the odd exception.
+     */
     private fun activityTypeFor(type: String?): ActivityType {
-        val t = type?.trim()?.uppercase() ?: return ActivityType.UNKNOWN
+        val t = type?.trim()?.uppercase() ?: return ActivityType.DRIVING
         ActivityType.ofName(t)?.let { return it }
         return when {
             "WALK" in t || "HIK" in t -> ActivityType.WALKING
             "RUN" in t || "JOG" in t -> ActivityType.RUNNING
             "CYCL" in t || "BIK" in t -> ActivityType.CYCLING
-            "DRIV" in t || "CAR" in t || "VEHICLE" in t -> ActivityType.DRIVING
-            else -> ActivityType.UNKNOWN
+            else -> ActivityType.DRIVING
         }
     }
 

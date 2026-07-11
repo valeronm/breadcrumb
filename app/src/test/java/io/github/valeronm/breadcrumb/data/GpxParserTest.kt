@@ -77,14 +77,14 @@ class GpxParserTest {
         assertEquals(25.5, importable.points[1].ele!!, 1e-6)
     }
 
-    @Test fun `unknown type maps to UNKNOWN and missing type too`() {
+    @Test fun `unknown and missing types default to DRIVING`() {
         val gpx = """
             <gpx><trk><type>kayaking</type><trkseg>
               <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time></trkpt>
               <trkpt lat="1.001" lon="1"><time>2026-01-01T00:01:00Z</time></trkpt>
             </trkseg></trk></gpx>
         """.trimIndent()
-        assertEquals("UNKNOWN", GpxParser.toImportable(parse(gpx).single(), flatDistance)!!.activityTypeName)
+        assertEquals("DRIVING", GpxParser.toImportable(parse(gpx).single(), flatDistance)!!.activityTypeName)
     }
 
     @Test fun `untimed points are dropped and an untimeable track is rejected`() {

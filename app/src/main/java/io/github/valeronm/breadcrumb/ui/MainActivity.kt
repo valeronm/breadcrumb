@@ -61,10 +61,10 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FilterCenterFocus
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Route
-import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
@@ -456,7 +456,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                     NavigationBarItem(
                         selected = selectedTab == HomeTab.TRACKS,
                         onClick = { selectedTab = HomeTab.TRACKS },
-                        icon = { Icon(Icons.Filled.Map, contentDescription = null) },
+                        icon = { Icon(Icons.Filled.Route, contentDescription = null) },
                         label = { Text("Tracks") },
                     )
                     NavigationBarItem(
@@ -1213,6 +1213,9 @@ private enum class PlacesView(val label: String) {
 /** How far around a place the detail map shows neighbouring clusters for radius context. */
 private const val NEIGHBOR_CONTEXT_M = 1_200.0
 
+/** Unnamed clusters with fewer visits than this are hidden unless "Rare unnamed stops" is on. */
+private const val RARE_UNNAMED_MIN_VISITS = 3
+
 /** The Places tab: sortable list (tap for detail, swipe to delete) or an all-places map. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1220,33 +1223,24 @@ private fun PlacesTab(
     viewModel: TrackListViewModel,
     onOpenPlace: (String) -> Unit,
 ) {
+    val context = LocalContext.current
     val places by viewModel.places.collectAsState()
     var view by remember { mutableStateOf(PlacesView.MAP) }
+    var showRareUnnamed by remember { mutableStateOf(AppSettings.placesShowRareUnnamed(context)) }
     var pendingDelete by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
 
-    val sorted = remember(view, places) {
+    val sorted = remember(view, places, showRareUnnamed) {
         val comparator = when (view) {
             PlacesView.MOST_VISITS -> compareByDescending<PlaceResolver.PlaceSummary> { it.visitCount }
             PlacesView.TIME_SPENT -> compareByDescending { it.totalMs }
             else -> compareByDescending { it.lastSeenMs ?: Long.MIN_VALUE }
         }
-        // Tiebreak: named before unnamed, then by label — stable across recompositions.
-        places.sortedWith(comparator.thenBy { it.place?.label?.lowercase(Locale.getDefault()) ?: "￿" })
+        places
+            .filter { it.isNamed || showRareUnnamed || it.visitCount >= RARE_UNNAMED_MIN_VISITS }
+            // Tiebreak: named before unnamed, then by label — stable across recompositions.
+            .sortedWith(comparator.thenBy { it.place?.label?.lowercase(Locale.getDefault()) ?: "￿" })
     }
 
-    if (sorted.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "No places yet. Stays and places you name show up here.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        return
-    }
     Column(Modifier.fillMaxSize()) {
         SingleChoiceSegmentedButtonRow(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1261,7 +1255,32 @@ private fun PlacesTab(
                 ) { Text(option.label) }
             }
         }
-        if (view == PlacesView.MAP) {
+        FilterChip(
+            selected = showRareUnnamed,
+            onClick = {
+                showRareUnnamed = !showRareUnnamed
+                AppSettings.setPlacesShowRareUnnamed(context, showRareUnnamed)
+            },
+            label = { Text("Rare unnamed stops") },
+            leadingIcon = if (showRareUnnamed) {
+                { Icon(Icons.Filled.Check, contentDescription = null, Modifier.size(18.dp)) }
+            } else {
+                null
+            },
+            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp),
+        )
+        if (sorted.isEmpty()) {
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "No places yet. Stays and places you name show up here.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else if (view == PlacesView.MAP) {
             // Card padding keeps the texture-mode map off the back-gesture edge strips.
             Card(
                 Modifier
@@ -1271,8 +1290,8 @@ private fun PlacesTab(
                     .padding(bottom = 16.dp),
             ) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
-                    val mapPlaces = remember(places) {
-                        places.map { OverviewPlace(it.anchor, it.place?.label, it.rowKey()) }
+                    val mapPlaces = remember(sorted) {
+                        sorted.map { OverviewPlace(it.anchor, it.place?.label, it.rowKey()) }
                     }
                     MapLibrePlacesMap(
                         places = mapPlaces,
@@ -1391,8 +1410,15 @@ private fun PlaceDetailScreen(
 ) {
     val place = summary.place
     var showNameDialog by remember { mutableStateOf(false) }
+    var showRecenterDialog by remember { mutableStateOf(false) }
     // Local while dragging; summary.radiusM catches up after the persisted value re-derives.
     var radiusM by remember(place?.id) { mutableFloatStateOf(summary.radiusM.toFloat()) }
+    // Where the pin would move: the mean of the endpoints the cluster currently captures.
+    val endpointCentroid = remember(summary.endpoints) {
+        summary.endpoints.takeIf { it.isNotEmpty() }?.let { pts ->
+            StayDeriver.Endpoint(pts.sumOf { it.lat } / pts.size, pts.sumOf { it.lon } / pts.size)
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -1412,6 +1438,14 @@ private fun PlaceDetailScreen(
                     }
                 },
                 actions = {
+                    if (place != null && endpointCentroid != null) {
+                        IconButton(onClick = { showRecenterDialog = true }) {
+                            Icon(
+                                Icons.Filled.FilterCenterFocus,
+                                contentDescription = "Re-centre pin",
+                            )
+                        }
+                    }
                     IconButton(onClick = { showNameDialog = true }) {
                         Icon(
                             Icons.Filled.Edit,
@@ -1477,6 +1511,29 @@ private fun PlaceDetailScreen(
                 }
             }
         }
+    }
+
+    if (showRecenterDialog && place != null && endpointCentroid != null) {
+        AlertDialog(
+            onDismissRequest = { showRecenterDialog = false },
+            icon = { Icon(Icons.Filled.FilterCenterFocus, contentDescription = null) },
+            title = { Text("Re-centre pin?") },
+            text = {
+                Text(
+                    "Moves \"${place.label}\" to the centre of its recorded endpoints. " +
+                        "Clustering and stays re-derive around the new spot.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.setPlacePin(place.id, endpointCentroid.lat, endpointCentroid.lon)
+                    showRecenterDialog = false
+                }) { Text("Move") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRecenterDialog = false }) { Text("Cancel") }
+            },
+        )
     }
 
     if (showNameDialog) {

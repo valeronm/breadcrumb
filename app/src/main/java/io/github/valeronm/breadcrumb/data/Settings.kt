@@ -19,6 +19,7 @@ object Settings {
     private const val KEY_REQUIRE_GNSS_FIX = "require_gnss_fix"
     private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
     private const val KEY_USE_FUSED_PROVIDER = "use_fused_provider"
+    private const val KEY_PLACES_SHOW_RARE_UNNAMED = "places_show_rare_unnamed"
     private const val KEY_IGNORE_REASON_BACKFILL_DONE = "ignore_reason_backfill_done"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
@@ -173,6 +174,14 @@ object Settings {
 
     fun setUseFusedProvider(context: Context, enabled: Boolean) {
         prefs(context).edit { putBoolean(KEY_USE_FUSED_PROVIDER, enabled) }
+    }
+
+    /** Places tab: also show unnamed clusters with fewer than 3 visits (hidden by default). */
+    fun placesShowRareUnnamed(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_PLACES_SHOW_RARE_UNNAMED, false)
+
+    fun setPlacesShowRareUnnamed(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_PLACES_SHOW_RARE_UNNAMED, enabled) }
     }
 
     // --- One-time migrations -------------------------------------------------

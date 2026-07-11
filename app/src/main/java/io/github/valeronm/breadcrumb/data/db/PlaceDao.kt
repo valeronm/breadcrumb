@@ -16,6 +16,9 @@ interface PlaceDao {
     @Query("UPDATE places SET radiusM = :radiusM WHERE id = :id")
     suspend fun setRadius(id: Long, radiusM: Double)
 
+    @Query("UPDATE places SET lat = :lat, lon = :lon WHERE id = :id")
+    suspend fun setPin(id: Long, lat: Double, lon: Double)
+
     @Query("DELETE FROM places WHERE id = :id")
     suspend fun delete(id: Long)
 

@@ -122,6 +122,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { placeRepository.setRadius(id, radiusM) }
     }
 
+    /** Move a place's pin (re-centre action); clustering and stays re-derive around it. */
+    fun setPlacePin(id: Long, lat: Double, lon: Double) {
+        viewModelScope.launch { placeRepository.setPin(id, lat, lon) }
+    }
+
     init {
         viewModelScope.launch {
             // Crash-cleanup of dangling tracks happens in the service's arm path; here only the
