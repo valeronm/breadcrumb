@@ -1271,12 +1271,14 @@ private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () 
             )
             // Share exports the day's tracks as GPX — nothing to offer on a day with only stays.
             if (dayTracks.isNotEmpty()) {
-                IconButton(onClick = onShare) {
+                // Compact: a full 48dp/24dp action on every header outweighs the content rows.
+                IconButton(onClick = onShare, modifier = Modifier.size(36.dp)) {
                     Icon(
                         Icons.Filled.Share,
                         contentDescription = "Share $label tracks",
                         // Match the top bar's action-icon tint — plain onSurface reads too bright here.
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
@@ -2319,10 +2321,13 @@ private fun TimelineItem.rowKey(): String = when (this) {
 }
 
 private val dayHeaderFormat = DateTimeFormatter.ofPattern("EEEE, d MMM yyyy", Locale.getDefault())
+private val dayHeaderFormatThisYear = DateTimeFormatter.ofPattern("EEEE, d MMM", Locale.getDefault())
 
-private fun dayLabel(date: LocalDate, today: LocalDate): String = when (date) {
-    today -> "Today"
-    today.minusDays(1) -> "Yesterday"
+private fun dayLabel(date: LocalDate, today: LocalDate): String = when {
+    date == today -> "Today"
+    date == today.minusDays(1) -> "Yesterday"
+    // The current year goes without saying.
+    date.year == today.year -> date.format(dayHeaderFormatThisYear)
     else -> date.format(dayHeaderFormat)
 }
 
@@ -2358,7 +2363,6 @@ private fun TonalIconDisc(
     size: Dp = 36.dp,
     iconSize: Dp = 20.dp,
     discAlpha: Float = 0.22f,
-    iconAlpha: Float = 1f,
 ) {
     Box(
         modifier = Modifier.size(size).clip(CircleShape).background(tint.copy(alpha = discAlpha)),
@@ -2367,7 +2371,7 @@ private fun TonalIconDisc(
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = tint.copy(alpha = iconAlpha),
+            tint = tint,
             modifier = Modifier.size(iconSize),
         )
     }
@@ -2477,14 +2481,15 @@ private fun TrackRow(
                 )
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
+                    // What happened leads; when it happened is the metadata line.
+                    Text(
+                        "${ActivityType.labelFor(track.activityType)} · ${formatKm(track.distanceMeters)}",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
                     val start = timeFormat.format(Date(track.startedAt))
                     val timeLine = track.endedAt?.let { "$start – ${timeFormat.format(Date(it))}" } ?: start
                     Text(
-                        timeLine,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        "${formatKm(track.distanceMeters)} · ${formatDuration(track.startedAt, track.endedAt)}",
+                        "$timeLine · ${formatDuration(track.startedAt, track.endedAt)}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -2498,8 +2503,9 @@ private fun TrackRow(
 private const val VISIT_COUNT_BADGE_MIN = 3
 
 /**
- * A derived stationary period between two tracks. Inferred stays render muted with a "~"; a
- * resolved place shows its label, an unnamed recurring cluster shows its visit count. Tap → name.
+ * A derived stationary period between two tracks. A resolved place shows its label, an unnamed
+ * recurring cluster shows its visit count. Tap → name. (The derivation's observed/inferred
+ * provenance is deliberately NOT rendered: the customer can't act on it either way.)
  */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -2509,11 +2515,9 @@ private fun StayRow(
     onMerge: (() -> Unit)?,
     onClick: () -> Unit,
 ) {
-    val stay = item.stay
     val place = item.place
-    val inferred = stay.provenance == StayDeriver.Provenance.INFERRED
     val named = place?.label != null
-    val card = @Composable { StayCard(item, shape, inferred, named, onClick) }
+    val card = @Composable { StayCard(item, shape, named, onClick) }
     // A short same-activity stay can be swiped to merge its two tracks. Ineligible stays aren't
     // swipeable (the swipe would just spring back with nothing to do).
     if (onMerge == null) {
@@ -2536,7 +2540,6 @@ private fun StayRow(
 private fun StayCard(
     item: TimelineItem.StayItem,
     shape: RoundedCornerShape,
-    inferred: Boolean,
     named: Boolean,
     onClick: () -> Unit,
 ) {
@@ -2553,33 +2556,39 @@ private fun StayCard(
                 icon = Icons.Filled.Place,
                 tint = tint,
                 contentDescription = "Stay",
-                discAlpha = if (inferred) 0.10f else 0.16f,
-                iconAlpha = if (inferred) 0.6f else 1f,
+                discAlpha = 0.16f,
             )
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
+                // The place leads; when (with midnight slices phrased humanly) is the metadata line.
+                Text(
+                    place?.label ?: "Stayed",
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 val start = timeFormat.format(Date(stay.start))
                 val end = stay.end
-                val timeLine = when {
+                val startsAtMidnight = isLocalMidnight(stay.start)
+                val endsAtMidnight = end != null && isLocalMidnight(end)
+                val timePhrase = when {
+                    // Ongoing from midnight = all of today so far; completed midnight-to-midnight
+                    // slices of a multi-day stay read the same.
+                    startsAtMidnight && (end == null || endsAtMidnight) -> "All day"
                     end == null -> "$start – now"
-                    // A whole-day slice of a multi-day stay: both bounds are local midnight.
-                    isLocalMidnight(stay.start) && isLocalMidnight(end) -> "All day"
+                    startsAtMidnight -> "Until ${timeFormat.format(Date(end))}"
+                    endsAtMidnight -> "From $start"
                     else -> "$start – ${timeFormat.format(Date(end))}"
                 }
-                Text(
-                    timeLine,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (inferred) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.onSurface,
-                )
-                val duration = formatDurationMs((stay.end ?: System.currentTimeMillis()) - stay.start)
-                val what = place?.label ?: "Stayed"
                 val visits = place?.visitCount?.takeIf { !named && it >= VISIT_COUNT_BADGE_MIN }
                 Text(
                     buildString {
-                        append(what)
-                        append(if (inferred) " ~" else " · ")
-                        append(duration)
+                        append(timePhrase)
+                        // A midnight-sliced bound makes the duration both redundant (it restates
+                        // the clock time) and misleading (the real stay continues across the
+                        // slice) — only whole stays show one.
+                        if (!startsAtMidnight && !endsAtMidnight) {
+                            append(" · ")
+                            append(formatDurationMs((end ?: System.currentTimeMillis()) - stay.start))
+                        }
                         if (visits != null) append(" · visited $visits×")
                     },
                     style = MaterialTheme.typography.bodyMedium,
@@ -2625,7 +2634,11 @@ private fun formatDuration(startedAt: Long, endedAt: Long?): String {
 
 private fun formatDurationMs(durationMs: Long): String {
     val minutes = (durationMs / 60000.0).roundToLong()
-    return if (minutes >= 60) "%dh %02dm".format(minutes / 60, minutes % 60) else "%dm".format(minutes)
+    return when {
+        minutes >= 60 && minutes % 60 == 0L -> "%dh".format(minutes / 60)
+        minutes >= 60 -> "%dh %02dm".format(minutes / 60, minutes % 60)
+        else -> "%dm".format(minutes)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

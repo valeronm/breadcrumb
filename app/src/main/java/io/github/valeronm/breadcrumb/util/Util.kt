@@ -7,11 +7,15 @@ import androidx.core.content.ContextCompat
 
 /**
  * Formats a distance in metres as km — the app's one rendering of track length. One decimal up
- * to 100 km; beyond that the tenth is noise, so whole (locale-grouped) kilometres.
+ * to 100 km (dropped when it's zero: "4 km", not "4,0 km"); beyond that the tenth is noise, so
+ * whole (locale-grouped) kilometres.
  */
 fun formatKm(meters: Double): String {
     val km = meters / 1000.0
-    return if (km >= 100) "%,.0f km".format(km) else "%.1f km".format(km)
+    if (km >= 100) return "%,.0f km".format(km)
+    // The decimal separator is locale-dependent — strip either form of a zero tenth.
+    val value = "%.1f".format(km).removeSuffix(",0").removeSuffix(".0")
+    return "$value km"
 }
 
 /** Formats a speed as a whole-number "km/h" string — the app's one rendering of speed. */
