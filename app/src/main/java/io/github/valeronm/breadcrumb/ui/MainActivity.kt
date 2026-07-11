@@ -16,6 +16,7 @@ import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -645,10 +646,6 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                     DebugDetail.Discarded -> DiscardedTracksScreen(
                         viewModel = viewModel,
                         onBack = { debugDetail = null },
-                        onOpenTrack = { id ->
-                            debugDetail = null
-                            overlay = Overlay.TrackDetail(id)
-                        },
                     )
                 }
             }
@@ -2225,10 +2222,21 @@ private fun LogsScreen(onBack: () -> Unit) {
 private fun DiscardedTracksScreen(
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
-    onOpenTrack: (Long) -> Unit,
 ) {
     val context = LocalContext.current
     val tracks by viewModel.discardedTracks.collectAsState()
+    // Tapping a row opens its full detail in place; back returns here, not to the tabs.
+    var openTrackId by remember { mutableStateOf<Long?>(null) }
+    openTrackId?.let { id ->
+        BackHandler { openTrackId = null }
+        TrackMapScreen(
+            trackId = id,
+            summary = tracks.firstOrNull { it.id == id },
+            viewModel = viewModel,
+            onBack = { openTrackId = null },
+        )
+        return
+    }
     val minDurationSec = AppSettings.minTrackDurationSec(context)
     val minLengthM = AppSettings.minTrackLengthM(context)
     val minExtentM = AppSettings.minTrackExtentM(context)
@@ -2267,7 +2275,7 @@ private fun DiscardedTracksScreen(
                     val activity = ActivityType.ofName(t.activityType) ?: ActivityType.UNKNOWN
                     Row(
                         modifier = Modifier.fillMaxWidth()
-                            .clickable { onOpenTrack(t.id) }
+                            .clickable { openTrackId = t.id }
                             .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
