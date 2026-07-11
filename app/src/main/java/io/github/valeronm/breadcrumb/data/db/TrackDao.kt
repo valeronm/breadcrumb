@@ -83,7 +83,11 @@ interface TrackDao {
     @Query("UPDATE track_points SET ignoreReason = :reason WHERE id IN (:ids)")
     suspend fun setIgnoreReason(ids: List<Long>, reason: String)
 
-    /** Duplicate check for GPX import: a track with the exact same time span already exists. */
+    /**
+     * Duplicate check for GPX import: a track with the exact same time span already exists.
+     * Deliberately does NOT filter `discardedAt` — a soft-deleted track still blocks re-importing
+     * the same span (it was judged not worth keeping; an import shouldn't resurrect it).
+     */
     @Query("SELECT COUNT(*) FROM tracks WHERE startedAt = :startedAt AND endedAt = :endedAt")
     suspend fun countTracksSpanning(startedAt: Long, endedAt: Long): Int
 
