@@ -13,3 +13,6 @@
 
 # Python
 __pycache__/
+
+# Local-only Play demo video (not committed)
+/tools/permission-demo.mp4
