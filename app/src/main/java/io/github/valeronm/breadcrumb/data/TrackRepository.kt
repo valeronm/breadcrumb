@@ -16,6 +16,9 @@ import kotlin.random.Random
 
 private const val TAG = "Breadcrumb"
 
+/** How long soft-deleted (keep-threshold-filtered) tracks are retained before being purged. */
+private const val DISCARDED_RETENTION_DAYS = 14
+
 /** Thin wrapper around the DAO so callers don't touch Room directly. */
 class TrackRepository(context: Context) {
 
@@ -139,6 +142,16 @@ class TrackRepository(context: Context) {
     }
 
     suspend fun deleteTrack(trackId: Long) = dao.deleteTrack(trackId)
+
+    /**
+     * Hard-delete soft-deleted tracks older than the retention window — discarded tracks are kept
+     * only long enough to tune the keep-thresholds against, not forever. Called on app open.
+     */
+    suspend fun purgeOldDiscarded(retentionDays: Int = DISCARDED_RETENTION_DAYS) {
+        val cutoff = System.currentTimeMillis() - retentionDays * 86_400_000L
+        val purged = dao.purgeDiscardedBefore(cutoff)
+        if (purged > 0) DebugLog.i(TAG, "purged $purged discarded track(s) older than $retentionDays days")
+    }
 
     /**
      * Closes tracks left open by a crash/kill (endedAt == null), using their last recorded point

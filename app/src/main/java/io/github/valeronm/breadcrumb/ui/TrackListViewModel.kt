@@ -104,6 +104,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    init {
+        // Housekeeping: drop soft-deleted tracks past the retention window (kept only for tuning).
+        viewModelScope.launch { repository.purgeOldDiscarded() }
+    }
+
     fun renamePlace(id: Long, label: String) {
         val trimmed = label.trim()
         if (trimmed.isEmpty()) return

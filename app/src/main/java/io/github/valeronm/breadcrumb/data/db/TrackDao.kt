@@ -30,6 +30,10 @@ interface TrackDao {
     @Query("UPDATE tracks SET endedAt = :endedAt, discardedAt = :discardedAt WHERE id = :trackId")
     suspend fun discardTrack(trackId: Long, endedAt: Long, discardedAt: Long)
 
+    /** Hard-delete soft-deleted tracks discarded before [cutoff] (points cascade). Returns the count. */
+    @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL AND discardedAt < :cutoff")
+    suspend fun purgeDiscardedBefore(cutoff: Long): Int
+
     /** Usable (non-ignored) points, for rendering and export. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")
     suspend fun pointsFor(trackId: Long): List<TrackPoint>
