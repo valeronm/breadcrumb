@@ -195,7 +195,7 @@ class LocationRecordingService : Service() {
         }
         armed = true
         DebugLog.i(TAG, "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)})")
-        startForegroundWithNotification(ActivityType.STILL.label, "Waiting for movement…")
+        startForegroundWithNotification("Standing by", "Waiting for movement")
         TrackingStatus.update { it.copy(tracking = true) }
 
         // Start armed but paused — recording begins when a moving activity transition arrives.
@@ -692,12 +692,14 @@ class LocationRecordingService : Service() {
         }
         // State only — no live distance. The notification re-posts only on activity/pause
         // transitions (a per-fix post costs a wakelock + IPC every second while recording).
-        val detail = when {
-            activity.recording && noFixGuard.suspended -> "Recording — no GPS signal, waiting"
-            activity.recording -> "Recording"
-            else -> "Paused — waiting for movement"
+        // Same "recording"/"standing by" vocabulary as the Record tab's state card.
+        val (title, detail) = when {
+            activity.recording && noFixGuard.suspended ->
+                "Recording · ${activity.label}" to "No GPS signal — waiting for one"
+            activity.recording -> "Recording · ${activity.label}" to "Track in progress"
+            else -> "Standing by" to "Waiting for movement"
         }
-        updateNotification(activity.label, detail)
+        updateNotification(title, detail)
     }
 
     // --- Notifications -------------------------------------------------------
@@ -743,7 +745,7 @@ class LocationRecordingService : Service() {
 
     private fun buildNotification(title: String, text: String): Notification {
         return NotificationCompat.Builder(this, App.CHANNEL_ID)
-            .setContentTitle("Tracking: $title")
+            .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)

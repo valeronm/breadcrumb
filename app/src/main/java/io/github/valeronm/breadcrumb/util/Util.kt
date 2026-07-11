@@ -5,8 +5,14 @@ import android.content.Context
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 
-/** Formats a distance in metres as a "%.1f km" string — the app's one rendering of track length. */
-fun formatKm(meters: Double): String = "%.1f km".format(meters / 1000.0)
+/**
+ * Formats a distance in metres as km — the app's one rendering of track length. One decimal up
+ * to 100 km; beyond that the tenth is noise, so whole (locale-grouped) kilometres.
+ */
+fun formatKm(meters: Double): String {
+    val km = meters / 1000.0
+    return if (km >= 100) "%,.0f km".format(km) else "%.1f km".format(km)
+}
 
 /** Formats a speed as a whole-number "km/h" string — the app's one rendering of speed. */
 fun formatKmh(kmh: Double): String = "%.0f km/h".format(kmh)

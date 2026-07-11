@@ -386,7 +386,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                             Text(
                                 when (selectedTab) {
                                     HomeTab.RECORD -> "Breadcrumb"
-                                    HomeTab.TRACKS -> "Recorded tracks"
+                                    HomeTab.TRACKS -> "Timeline"
                                     HomeTab.PLACES -> "Places"
                                 },
                             )
@@ -425,7 +425,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                         selected = selectedTab == HomeTab.TRACKS,
                         onClick = { selectedTab = HomeTab.TRACKS },
                         icon = { Icon(Icons.Filled.Route, contentDescription = null) },
-                        label = { Text("Tracks") },
+                        label = { Text("Timeline") },
                     )
                     NavigationBarItem(
                         selected = selectedTab == HomeTab.PLACES,
@@ -1019,7 +1019,7 @@ private fun RecorderStateCard(state: RecordCardState, activityLabel: String) {
             "Waiting for GPS…" to
                 "Recording $activityLabel — the track appears once a fix arrives."
         RecordCardState.WAITING_FOR_MOVEMENT ->
-            "Paused" to "Waiting for movement — recording starts on its own."
+            "Standing by" to "Waiting for movement — recording starts on its own."
         else ->
             "Starting…" to "The recording service is starting up."
     }
@@ -1078,7 +1078,7 @@ private fun KeepScreenOnRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                if (charging) "While the app is open, on the charger." else "Available while charging.",
+                if (charging) "While charging, with the app open." else "Available while charging.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1269,13 +1269,16 @@ private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () 
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
-            IconButton(onClick = onShare) {
-                Icon(
-                    Icons.Filled.Share,
-                    contentDescription = "Share $label tracks",
-                    // Match the top bar's action-icon tint — plain onSurface reads too bright here.
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            // Share exports the day's tracks as GPX — nothing to offer on a day with only stays.
+            if (dayTracks.isNotEmpty()) {
+                IconButton(onClick = onShare) {
+                    Icon(
+                        Icons.Filled.Share,
+                        contentDescription = "Share $label tracks",
+                        // Match the top bar's action-icon tint — plain onSurface reads too bright here.
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         // Day totals per recorded activity, in the row style: tinted glyph + distance · duration.
