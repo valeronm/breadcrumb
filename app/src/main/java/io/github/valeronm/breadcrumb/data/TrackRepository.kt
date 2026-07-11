@@ -1,6 +1,8 @@
 package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
+import androidx.room.withTransaction
+import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
@@ -18,7 +20,8 @@ private const val TAG = "Breadcrumb"
 class TrackRepository(context: Context) {
 
     private val appContext = context.applicationContext
-    private val dao = AppDatabase.get(context).trackDao()
+    private val db = AppDatabase.get(context)
+    private val dao = db.trackDao()
 
     fun observeSummaries(): Flow<List<TrackSummary>> = dao.observeSummaries()
 
@@ -29,8 +32,59 @@ class TrackRepository(context: Context) {
 
     suspend fun addPoint(point: TrackPoint): Long = dao.insertPoint(point)
 
+    class GpxImportCounts(val imported: Int, val duplicates: Int)
+
+    /**
+     * Inserts parsed GPX tracks. Keep thresholds do NOT apply — an explicit import is kept as-is.
+     * A track whose exact time span already exists is skipped as a duplicate (re-importing the
+     * same file, or importing our own export back). Each track inserts in its own transaction.
+     */
+    suspend fun importTracks(tracks: List<GpxParser.ImportableTrack>): GpxImportCounts {
+        var imported = 0
+        var duplicates = 0
+        for (track in tracks) {
+            if (dao.countTracksSpanning(track.startedAt, track.endedAt) > 0) {
+                duplicates++
+                continue
+            }
+            db.withTransaction {
+                val trackId = dao.insertTrack(
+                    Track(
+                        activityType = track.activityTypeName,
+                        startedAt = track.startedAt,
+                        endedAt = track.endedAt,
+                        distanceMeters = track.distanceMeters,
+                    ),
+                )
+                for (p in track.points) {
+                    dao.insertPoint(
+                        TrackPoint(
+                            trackId = trackId,
+                            latitude = p.lat,
+                            longitude = p.lon,
+                            altitude = p.ele,
+                            accuracy = null,
+                            speed = null,
+                            bearing = null,
+                            timestamp = p.timeMs,
+                            segmentStart = p.segmentStart,
+                            provider = "import",
+                        ),
+                    )
+                }
+            }
+            imported++
+        }
+        if (imported > 0) DebugLog.i(TAG, "gpx import: $imported tracks added, $duplicates duplicates skipped")
+        return GpxImportCounts(imported, duplicates)
+    }
+
     suspend fun updateDistance(trackId: Long, distanceMeters: Double) =
         dao.updateDistance(trackId, distanceMeters)
+
+    /** Reassign a finished track's activity (misdetected, or an imported GPX without a type). */
+    suspend fun setActivityType(trackId: Long, activityType: ActivityType) =
+        dao.setActivityType(trackId, activityType.name)
 
     /**
      * Whether a track meets the user's configured keep thresholds (duration / length / extent).

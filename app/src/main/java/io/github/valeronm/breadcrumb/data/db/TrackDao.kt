@@ -20,6 +20,9 @@ interface TrackDao {
     @Query("UPDATE tracks SET distanceMeters = :distance WHERE id = :trackId")
     suspend fun updateDistance(trackId: Long, distance: Double)
 
+    @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId")
+    suspend fun setActivityType(trackId: Long, activityType: String)
+
     @Query("DELETE FROM tracks WHERE id = :trackId")
     suspend fun deleteTrack(trackId: Long)
 
@@ -37,6 +40,10 @@ interface TrackDao {
 
     @Query("UPDATE track_points SET ignoreReason = :reason WHERE id IN (:ids)")
     suspend fun setIgnoreReason(ids: List<Long>, reason: String)
+
+    /** Duplicate check for GPX import: a track with the exact same time span already exists. */
+    @Query("SELECT COUNT(*) FROM tracks WHERE startedAt = :startedAt AND endedAt = :endedAt")
+    suspend fun countTracksSpanning(startedAt: Long, endedAt: Long): Int
 
     @Query("SELECT * FROM tracks WHERE endedAt IS NULL")
     suspend fun openTracks(): List<Track>

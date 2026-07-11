@@ -142,4 +142,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
     testImplementation("junit:junit:4.13.2")
+    // XmlPullParser implementation for GpxParser unit tests (Android provides one at runtime).
+    testImplementation("net.sf.kxml:kxml2:2.3.0")
 }

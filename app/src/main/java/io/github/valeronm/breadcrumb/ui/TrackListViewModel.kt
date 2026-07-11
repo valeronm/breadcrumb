@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.PlaceRepository
@@ -15,6 +16,8 @@ import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.GpxExporter
+import io.github.valeronm.breadcrumb.data.export.GpxParser
+import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -27,6 +30,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.ZoneId
 
 class TrackListViewModel(app: Application) : AndroidViewModel(app) {
@@ -132,6 +136,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repository.deleteTrack(trackId) }
     }
 
+    fun setTrackActivity(trackId: Long, activityType: ActivityType) {
+        viewModelScope.launch { repository.setActivityType(trackId, activityType) }
+    }
+
     /** DEBUG: inserts a synthetic track for exercising the UI without real movement. */
     fun seedSampleTrack(onDone: () -> Unit) {
         viewModelScope.launch {
@@ -149,6 +157,39 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     fun exportAll(treeUri: Uri, onDone: (Int) -> Unit) {
         viewModelScope.launch {
             onDone(GpxExporter.exportAllToTree(getApplication(), repository, treeUri))
+        }
+    }
+
+    class GpxImportSummary(val imported: Int, val duplicates: Int, val failed: Int)
+
+    /**
+     * Imports the picked GPX files. [failed] counts unreadable/unparseable files plus tracks
+     * without enough timestamped points to place on the timeline.
+     */
+    fun importGpx(uris: List<Uri>, onDone: (GpxImportSummary) -> Unit) {
+        viewModelScope.launch {
+            var imported = 0
+            var duplicates = 0
+            var failed = 0
+            withContext(Dispatchers.IO) {
+                val resolver = getApplication<Application>().contentResolver
+                for (uri in uris) {
+                    val parsed = try {
+                        resolver.openInputStream(uri)?.use { GpxParser.parse(it) } ?: emptyList()
+                    } catch (e: Exception) {
+                        DebugLog.w("Breadcrumb", "gpx import failed for $uri: ${e.message}")
+                        failed++
+                        continue
+                    }
+                    val importable = parsed.mapNotNull { GpxParser.toImportable(it, AndroidDistance) }
+                    failed += parsed.size - importable.size
+                    if (parsed.isEmpty()) failed++ // a readable file with no tracks at all
+                    val counts = repository.importTracks(importable)
+                    imported += counts.imported
+                    duplicates += counts.duplicates
+                }
+            }
+            onDone(GpxImportSummary(imported, duplicates, failed))
         }
     }
 
