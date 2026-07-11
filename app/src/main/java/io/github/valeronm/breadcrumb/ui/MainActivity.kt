@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MyLocation
@@ -97,6 +98,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -128,6 +130,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
@@ -167,14 +170,37 @@ import kotlin.math.roundToLong
 
 class MainActivity : ComponentActivity() {
 
+    /** GPX uris handed to us via share/open-with, waiting for the UI to import them. */
+    private val pendingGpxImport = mutableStateOf<List<Uri>?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        consumeGpxIntent(intent)
         setContent {
             AppTheme {
-                MainScreen()
+                MainScreen(pendingGpxImport)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        consumeGpxIntent(intent)
+    }
+
+    private fun consumeGpxIntent(intent: Intent?) {
+        val uris: List<Uri> = when (intent?.action) {
+            Intent.ACTION_SEND -> listOfNotNull(
+                IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java),
+            )
+            Intent.ACTION_SEND_MULTIPLE ->
+                IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                    .orEmpty()
+            Intent.ACTION_VIEW -> listOfNotNull(intent.data)
+            else -> emptyList()
+        }
+        if (uris.isNotEmpty()) pendingGpxImport.value = uris
     }
 }
 
@@ -215,22 +241,30 @@ private fun Context.requestIgnoreBatteryOptimization() {
     }
 }
 
-private enum class HomeTab { RECORD, TRACKS }
+private enum class HomeTab { RECORD, TRACKS, PLACES }
 
 /** A full-screen page shown over the tabs, animated with predictive back. */
 private sealed interface Overlay {
     data class TrackDetail(val id: Long) : Overlay
     data object Settings : Overlay
-    data object Places : Overlay
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainScreen() {
+private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
     val timeline by viewModel.timeline.collectAsState()
     val status by TrackingStatus.state.collectAsState()
+
+    // GPX files shared/opened into the app import as soon as the UI is up.
+    LaunchedEffect(pendingGpxImport.value) {
+        val uris = pendingGpxImport.value ?: return@LaunchedEffect
+        pendingGpxImport.value = null
+        viewModel.importGpx(uris) { result ->
+            Toast.makeText(context, gpxImportMessage(result), Toast.LENGTH_LONG).show()
+        }
+    }
 
     // Keep-screen-on while charging: live charger state + persisted preference; the window flag
     // holds the screen only while this activity is in the foreground (no wakelock, no permission).
@@ -398,15 +432,11 @@ private fun MainScreen() {
                             when (selectedTab) {
                                 HomeTab.RECORD -> "Breadcrumb"
                                 HomeTab.TRACKS -> "Recorded tracks"
+                                HomeTab.PLACES -> "Places"
                             },
                         )
                     },
                     actions = {
-                        if (selectedTab == HomeTab.TRACKS) {
-                            IconButton(onClick = { overlay = Overlay.Places }) {
-                                Icon(Icons.Filled.Place, contentDescription = "Places")
-                            }
-                        }
                         IconButton(onClick = { overlay = Overlay.Settings }) {
                             Icon(Icons.Filled.Settings, contentDescription = "Settings")
                         }
@@ -426,6 +456,12 @@ private fun MainScreen() {
                         onClick = { selectedTab = HomeTab.TRACKS },
                         icon = { Icon(Icons.Filled.Map, contentDescription = null) },
                         label = { Text("Tracks") },
+                    )
+                    NavigationBarItem(
+                        selected = selectedTab == HomeTab.PLACES,
+                        onClick = { selectedTab = HomeTab.PLACES },
+                        icon = { Icon(Icons.Filled.Place, contentDescription = null) },
+                        label = { Text("Places") },
                     )
                 }
             },
@@ -479,6 +515,11 @@ private fun MainScreen() {
                             selectedTab = HomeTab.RECORD
                         },
                     )
+
+                    HomeTab.PLACES -> PlacesTab(
+                        viewModel = viewModel,
+                        onOpenPlace = { placeDetailKey = it },
+                    )
                 }
             }
         }
@@ -508,11 +549,6 @@ private fun MainScreen() {
                         onShowLogs = { showLogs = true },
                     )
 
-                    Overlay.Places -> PlacesScreen(
-                        viewModel = viewModel,
-                        onBack = { overlay = null },
-                        onOpenPlace = { placeDetailKey = it },
-                    )
                 }
             }
         }
@@ -590,6 +626,12 @@ private fun Modifier.overlayTransform(enter: Float, back: Float, edgeSign: Float
         shape = RoundedCornerShape(back * 48f)
         clip = back > 0f
     }
+
+private fun gpxImportMessage(result: TrackListViewModel.GpxImportSummary): String = buildList {
+    add("Imported ${result.imported} tracks")
+    if (result.duplicates > 0) add("${result.duplicates} duplicates skipped")
+    if (result.failed > 0) add("${result.failed} failed")
+}.joinToString(" · ")
 
 /** Live charger state from the sticky ACTION_BATTERY_CHANGED broadcast (reacts to plug/unplug). */
 @Composable
@@ -1159,80 +1201,85 @@ private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () 
     }
 }
 
-private enum class PlaceSort(val label: String) {
-    LAST_VISIT("Last visit"),
-    MOST_VISITS("Most visits"),
-    TIME_SPENT("Time spent"),
+private enum class PlacesView(val label: String) {
+    MAP("Map"),
+    LAST_VISIT("Recent"),
+    MOST_VISITS("Visits"),
+    TIME_SPENT("Time"),
 }
-
-// Unnamed clusters are only worth listing once they recur — a place you passed through once
-// isn't a place worth naming. Named places always show, however many visits.
-private const val MIN_UNNAMED_VISITS = 2
 
 /** How far around a place the detail map shows neighbouring clusters for radius context. */
 private const val NEIGHBOR_CONTEXT_M = 1_200.0
 
-/** Manage named places: sortable list with derived stats, tap to rename, swipe to delete. */
+/** The Places tab: sortable list (tap for detail, swipe to delete) or an all-places map. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PlacesScreen(
+private fun PlacesTab(
     viewModel: TrackListViewModel,
-    onBack: () -> Unit,
     onOpenPlace: (String) -> Unit,
 ) {
     val places by viewModel.places.collectAsState()
-    var sort by remember { mutableStateOf(PlaceSort.LAST_VISIT) }
+    var view by remember { mutableStateOf(PlacesView.MAP) }
     var pendingDelete by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
 
-    val sorted = remember(sort, places) {
-        val comparator = when (sort) {
-            PlaceSort.LAST_VISIT -> compareByDescending<PlaceResolver.PlaceSummary> { it.lastSeenMs ?: Long.MIN_VALUE }
-            PlaceSort.MOST_VISITS -> compareByDescending { it.visitCount }
-            PlaceSort.TIME_SPENT -> compareByDescending { it.totalMs }
+    val sorted = remember(view, places) {
+        val comparator = when (view) {
+            PlacesView.MOST_VISITS -> compareByDescending<PlaceResolver.PlaceSummary> { it.visitCount }
+            PlacesView.TIME_SPENT -> compareByDescending { it.totalMs }
+            else -> compareByDescending { it.lastSeenMs ?: Long.MIN_VALUE }
         }
-        places
-            .filter { it.isNamed || it.visitCount >= MIN_UNNAMED_VISITS }
-            // Tiebreak: named before unnamed, then by label — stable across recompositions.
-            .sortedWith(comparator.thenBy { it.place?.label?.lowercase(Locale.getDefault()) ?: "￿" })
+        // Tiebreak: named before unnamed, then by label — stable across recompositions.
+        places.sortedWith(comparator.thenBy { it.place?.label?.lowercase(Locale.getDefault()) ?: "￿" })
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Places") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+    if (sorted.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "No places yet. Stays and places you name show up here.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        },
-    ) { inner ->
-        if (sorted.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(inner).padding(24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "No places yet. Recurring stays and places you name show up here.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            return@Scaffold
         }
-        Column(Modifier.fillMaxSize().padding(inner)) {
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        return
+    }
+    Column(Modifier.fillMaxSize()) {
+        SingleChoiceSegmentedButtonRow(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            PlacesView.entries.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = view == option,
+                    onClick = { view = option },
+                    shape = SegmentedButtonDefaults.itemShape(index, PlacesView.entries.size),
+                    // No checkmark: four segments need the width for their labels.
+                    icon = {},
+                ) { Text(option.label) }
+            }
+        }
+        if (view == PlacesView.MAP) {
+            // Card padding keeps the texture-mode map off the back-gesture edge strips.
+            Card(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 16.dp),
             ) {
-                PlaceSort.entries.forEachIndexed { index, option ->
-                    SegmentedButton(
-                        selected = sort == option,
-                        onClick = { sort = option },
-                        shape = SegmentedButtonDefaults.itemShape(index, PlaceSort.entries.size),
-                    ) { Text(option.label) }
+                Box(Modifier.fillMaxSize().clipToBounds()) {
+                    val mapPlaces = remember(places) {
+                        places.map { OverviewPlace(it.anchor, it.place?.label, it.rowKey()) }
+                    }
+                    MapLibrePlacesMap(
+                        places = mapPlaces,
+                        onOpen = onOpenPlace,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
             }
+        } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
@@ -1820,6 +1867,65 @@ private fun SettingsScreen(
         )
 
 
+        Spacer(Modifier.height(24.dp))
+        Text("Data", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        GroupedRows(
+            {
+                Text(
+                    "Bring tracks recorded elsewhere. GPX files; points need timestamps.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                var importing by remember { mutableStateOf(false) }
+                val importLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenMultipleDocuments(),
+                ) { uris ->
+                    if (uris.isEmpty()) return@rememberLauncherForActivityResult
+                    importing = true
+                    viewModel.importGpx(uris) { result ->
+                        importing = false
+                        Toast.makeText(context, gpxImportMessage(result), Toast.LENGTH_LONG).show()
+                    }
+                }
+                Button(
+                    enabled = !importing,
+                    onClick = {
+                        importLauncher.launch(
+                            arrayOf(
+                                "application/gpx+xml", "application/octet-stream",
+                                "text/xml", "application/xml",
+                            ),
+                        )
+                    },
+                ) { Text(if (importing) "Importing…" else "Import GPX tracks") }
+            },
+            {
+                Text(
+                    "Write every track as a GPX file into a folder you pick.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                var exporting by remember { mutableStateOf(false) }
+                val exportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocumentTree(),
+                ) { uri ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    exporting = true
+                    viewModel.exportAll(uri) { count ->
+                        exporting = false
+                        Toast.makeText(context, "Exported $count tracks", Toast.LENGTH_LONG).show()
+                    }
+                }
+                Button(
+                    enabled = !exporting,
+                    onClick = { exportLauncher.launch(null) },
+                ) { Text(if (exporting) "Exporting…" else "Export all tracks") }
+            },
+        )
+
         if (BuildConfig.DEBUG) {
             Spacer(Modifier.height(24.dp))
             Text("Debug", style = MaterialTheme.typography.titleMedium)
@@ -2260,6 +2366,7 @@ private fun TrackMapScreen(
     var showNoisy by remember(trackId) { mutableStateOf(false) }
     // Point picked on the metric graph, highlighted on the map. Index into the good-points list.
     var selectedIndex by remember(trackId) { mutableStateOf<Int?>(null) }
+    var showTypeDialog by remember(trackId) { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -2294,6 +2401,11 @@ private fun TrackMapScreen(
                                     MaterialTheme.colorScheme.onSurfaceVariant
                                 },
                             )
+                        }
+                    }
+                    if (summary != null) {
+                        IconButton(onClick = { showTypeDialog = true }) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Change track type")
                         }
                     }
                     IconButton(onClick = {
@@ -2368,6 +2480,52 @@ private fun TrackMapScreen(
                 }
             }
         }
+    }
+
+    if (showTypeDialog && summary != null) {
+        AlertDialog(
+            onDismissRequest = { showTypeDialog = false },
+            icon = { Icon(activityIcon(activity), contentDescription = null) },
+            title = { Text("Track type") },
+            text = {
+                Column {
+                    // Selecting applies immediately: the summary flow re-emits and the title,
+                    // icon, colours and speed scale all follow.
+                    for (option in ActivityType.entries.filter { it.recording && it != ActivityType.UNKNOWN }) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    viewModel.setTrackActivity(trackId, option)
+                                    showTypeDialog = false
+                                }
+                                .padding(horizontal = 8.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                activityIcon(option),
+                                contentDescription = null,
+                                tint = activityColor(option),
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            Text(option.label, style = MaterialTheme.typography.bodyLarge)
+                            if (option == activity) {
+                                Spacer(Modifier.weight(1f))
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = "Current type",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTypeDialog = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 
@@ -2648,7 +2806,9 @@ private fun activityIcon(activity: ActivityType?): ImageVector = when (activity)
     ActivityType.RUNNING -> Icons.AutoMirrored.Filled.DirectionsRun
     ActivityType.CYCLING -> Icons.AutoMirrored.Filled.DirectionsBike
     ActivityType.DRIVING -> Icons.Filled.DirectionsCar
-    else -> Icons.Filled.Place
+    // Route, not Place: the pin means "a stay" in the timeline, and UNKNOWN tracks (e.g. a GPX
+    // import without a <type>) are still movement.
+    else -> Icons.Filled.Route
 }
 
 // A qualitative (categorical) palette for activity type. M3 has no categorical roles, so this is a

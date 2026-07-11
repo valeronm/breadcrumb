@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.RectF
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -593,6 +594,121 @@ private fun offsetMeters(e: StayDeriver.Endpoint, northM: Double, eastM: Double)
     val lat = e.lat + northM / 111_320.0
     val lon = e.lon + eastM / (111_320.0 * cos(Math.toRadians(e.lat)))
     return lat to lon
+}
+
+// --- All-places overview map ---------------------------------------------------------------
+
+/** One place on the overview map; tapping its marker reports [key] back. */
+class OverviewPlace(
+    val location: StayDeriver.Endpoint,
+    /** Named places render as labelled pins; null = an unnamed cluster dot. */
+    val label: String?,
+    /** The place-detail key reported on tap. */
+    val key: String,
+)
+
+/**
+ * Every place on one map: labelled amber pins for named places, small dots for unnamed clusters,
+ * framed to fit them all once on open. Tapping a marker reports its key via [onOpen].
+ */
+@Composable
+fun MapLibrePlacesMap(
+    places: List<OverviewPlace>,
+    onOpen: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val mapView = rememberMapLibreMapView()
+    val mapRef = remember(mapView) { arrayOfNulls<MapLibreMap>(1) }
+    val inited = remember(mapView) { booleanArrayOf(false) }
+    val applied = remember(mapView) { arrayOfNulls<Any?>(1) }
+    // The click listener is registered once; route through a ref so it never goes stale.
+    val onOpenRef = remember(mapView) { arrayOf(onOpen) }
+    onOpenRef[0] = onOpen
+    AndroidView(
+        modifier = modifier,
+        factory = { mapView },
+        update = { view ->
+            if (!inited[0]) {
+                inited[0] = true
+                view.getMapAsync { map ->
+                    mapRef[0] = map
+                    map.setStyle(Style.Builder().fromJson(loadProtomapsDarkStyle(view.context))) { style ->
+                        applied[0] = places
+                        addOverviewLayers(view.context, style, places)
+                        frameOverview(map, places)
+                    }
+                    map.addOnMapClickListener { latLng ->
+                        val screen = map.projection.toScreenLocation(latLng)
+                        val touch = RectF(screen.x - 36, screen.y - 36, screen.x + 36, screen.y + 36)
+                        val key = map.queryRenderedFeatures(touch, OVERVIEW_LAYER)
+                            .firstOrNull()?.getStringProperty("key")
+                        if (key != null) onOpenRef[0](key)
+                        key != null
+                    }
+                }
+            } else {
+                val style = mapRef[0]?.style ?: return@AndroidView
+                if (applied[0] !== places) {
+                    applied[0] = places
+                    style.getSourceAs<GeoJsonSource>(OVERVIEW_SOURCE)
+                        ?.setGeoJson(overviewCollection(places))
+                }
+            }
+        },
+    )
+}
+
+private const val OVERVIEW_SOURCE = "places-overview-src"
+private const val OVERVIEW_LAYER = "places-overview-layer"
+
+private fun addOverviewLayers(ctx: Context, style: Style, places: List<OverviewPlace>) {
+    style.addImage(IMG_ENDPOINT, drawableBitmap(ctx, R.drawable.ic_marker_endpoint))
+    style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))
+    style.addSource(GeoJsonSource(OVERVIEW_SOURCE, overviewCollection(places)))
+    style.addLayer(
+        SymbolLayer(OVERVIEW_LAYER, OVERVIEW_SOURCE).withProperties(
+            PropertyFactory.iconImage(Expression.get("icon")),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true),
+            PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+            PropertyFactory.textField(Expression.get("label")),
+            PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
+            PropertyFactory.textSize(12f),
+            PropertyFactory.textColor("#C8CFC6"),
+            PropertyFactory.textHaloColor("#14211A"),
+            PropertyFactory.textHaloWidth(1.2f),
+            PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
+            PropertyFactory.textOffset(arrayOf(0f, 0.8f)),
+            PropertyFactory.textOptional(true),
+        ),
+    )
+}
+
+private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        // Unnamed dots first so named pins draw (and hit-test) on top.
+        places.sortedBy { it.label != null }.map { p ->
+            Feature.fromGeometry(
+                Point.fromLngLat(p.location.lon, p.location.lat),
+                JsonObject().apply {
+                    addProperty("icon", if (p.label != null) IMG_PLACE else IMG_ENDPOINT)
+                    addProperty("label", p.label ?: "")
+                    addProperty("key", p.key)
+                },
+            )
+        },
+    )
+
+private fun frameOverview(map: MapLibreMap, places: List<OverviewPlace>) {
+    when {
+        places.size >= 2 -> {
+            val b = LatLngBounds.Builder()
+            places.forEach { b.include(LatLng(it.location.lat, it.location.lon)) }
+            map.moveCamera(CameraUpdateFactory.newLatLngBounds(b.build(), 96))
+        }
+        places.size == 1 -> map.cameraPosition = CameraPosition.Builder()
+            .target(LatLng(places[0].location.lat, places[0].location.lon)).zoom(13.0).build()
+    }
 }
 
 private fun framePlace(map: MapLibreMap, center: StayDeriver.Endpoint, radiusM: Double) {
