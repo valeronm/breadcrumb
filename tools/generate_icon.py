@@ -58,6 +58,13 @@ BG_CX, BG_CY, BG_RADIUS = 54.0, 78.0, 108.0  # glow centred on the pin
 CRUMB_COLOR = "#A8E6C8"
 PIN_COLOR = "#FFFFFF"
 
+# Debug launcher background: a blueprint grid, so the debug install is obvious in
+# the launcher. Overrides ic_launcher_background.xml in the debug source set only;
+# the foreground/monochrome stay shared with release.
+DBG_INNER, DBG_OUTER = "#12324A", "#0A1622"  # diagonal blueprint gradient
+DBG_GRID = "#2E5F86"
+DBG_GRID_STEP = 12  # units between grid lines on the 108 canvas
+
 REPO = Path(__file__).resolve().parent.parent
 
 # ---------------------------------------------------------------- geometry
@@ -143,6 +150,34 @@ def launcher_background() -> str:
                 android:endColor="{BG_OUTER}" />
         </aapt:attr>
     </path>
+</vector>
+"""
+
+
+def debug_launcher_background() -> str:
+    grid = " ".join(
+        f"M{i},0 V108 M0,{i} H108" for i in range(0, 109, DBG_GRID_STEP))
+    return f"""{HEADER}<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0" android:startY="0"
+                android:endX="108" android:endY="108"
+                android:startColor="{DBG_INNER}"
+                android:endColor="{DBG_OUTER}" />
+        </aapt:attr>
+    </path>
+    <path
+        android:strokeColor="{DBG_GRID}"
+        android:strokeWidth="0.6"
+        android:strokeAlpha="0.6"
+        android:pathData="{grid}" />
 </vector>
 """
 
@@ -254,6 +289,10 @@ def main() -> None:
     write(res / "drawable/ic_launcher_background.xml", launcher_background())
     write(res / "drawable/ic_launcher_foreground.xml", launcher_foreground())
     write(res / "drawable/ic_notification.xml", notification_icon())
+    # Debug-only background override (blueprint grid); foreground/monochrome shared.
+    dbg = REPO / "app/src/debug/res/drawable"
+    dbg.mkdir(parents=True, exist_ok=True)
+    write(dbg / "ic_launcher_background.xml", debug_launcher_background())
     write(REPO / "tools/play-icon.svg", play_icon_svg())
     rasterize_play_icon()
 
