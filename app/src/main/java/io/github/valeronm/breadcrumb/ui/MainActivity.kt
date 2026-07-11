@@ -430,13 +430,29 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
             topBar = {
                 TopAppBar(
                     title = {
-                        Text(
-                            when (selectedTab) {
-                                HomeTab.RECORD -> "Breadcrumb"
-                                HomeTab.TRACKS -> "Recorded tracks"
-                                HomeTab.PLACES -> "Places"
-                            },
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                when (selectedTab) {
+                                    HomeTab.RECORD -> "Breadcrumb"
+                                    HomeTab.TRACKS -> "Recorded tracks"
+                                    HomeTab.PLACES -> "Places"
+                                },
+                            )
+                            if (BuildConfig.DEBUG) {
+                                Spacer(Modifier.width(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                ) {
+                                    Text(
+                                        "debug",
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    )
+                                }
+                            }
+                        }
                     },
                     actions = {
                         IconButton(onClick = { overlay = Overlay.Settings }) {

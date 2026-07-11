@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Distinguishes the debug install (io.github.valeronm.breadcrumb.debug) in the launcher. -->
+    <string name="app_name">Breadcrumb (debug)</string>
+</resources>
