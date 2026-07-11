@@ -16,7 +16,6 @@ import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -117,7 +116,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
@@ -165,6 +166,8 @@ import io.github.valeronm.breadcrumb.util.formatKm
 import io.github.valeronm.breadcrumb.util.formatKmh
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -339,6 +342,8 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
     // The detail (map) screen or Settings — previews the tabs underneath. Its back handler yields
     // while a layer is stacked above it.
     var debugDetail by remember { mutableStateOf<DebugDetail?>(null) }
+    // A discarded track's full detail, stacked above the debug "Discarded tracks" list.
+    var discardedTrackId by remember { mutableStateOf<Long?>(null) }
     // Place detail is opened from the Places list or a timeline stay — back lands wherever it was
     // opened from. Keyed by PlaceSummary.rowKey() so the screen tracks the live summary while the
     // derivation re-runs underneath (rename, radius change).
@@ -356,7 +361,13 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
     // them shows Settings (where back actually lands), not the tabs.
     val debugLayer = rememberOverlayLayer(
         content = debugDetail,
+        backEnabled = debugDetail != null && discardedTrackId == null,
         onDismiss = { debugDetail = null },
+    )
+    // Discarded-track detail: back returns to the discarded list, previewing it under the gesture.
+    val discardedLayer = rememberOverlayLayer(
+        content = discardedTrackId,
+        onDismiss = { discardedTrackId = null },
     )
     val placeLayer = rememberOverlayLayer(
         content = placeDetailKey,
@@ -367,6 +378,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
     Box(modifier = Modifier.fillMaxSize()) {
         // The tabbed UI stays composed underneath so it can be previewed during the back gesture.
         Scaffold(
+            modifier = Modifier.underlayBlur(overlayLayer, placeLayer),
             topBar = {
                 TopAppBar(
                     title = {
@@ -489,16 +501,15 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .overlayTransform(overlayLayer),
+                    .overlayTransform(overlayLayer)
+                    .underlayBlur(debugLayer),
             ) {
                 when (rendered) {
                     is Overlay.TrackDetail -> TrackMapScreen(
                         trackId = rendered.id,
-                        // From the timeline, or the discarded list (a discarded track opened from
-                        // the debug screen isn't in the timeline).
                         summary = timeline.firstNotNullOfOrNull {
                             (it as? TimelineItem.TrackItem)?.summary?.takeIf { s -> s.id == rendered.id }
-                        } ?: discardedTracks.firstOrNull { it.id == rendered.id },
+                        },
                         viewModel = viewModel,
                         onBack = { overlay = null },
                     )
@@ -563,15 +574,34 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .overlayTransform(debugLayer),
+                    .overlayTransform(debugLayer)
+                    .underlayBlur(discardedLayer),
             ) {
                 when (detail) {
                     DebugDetail.Logs -> LogsScreen(onBack = { debugDetail = null })
                     DebugDetail.Discarded -> DiscardedTracksScreen(
                         viewModel = viewModel,
                         onBack = { debugDetail = null },
+                        onOpenTrack = { discardedTrackId = it },
                     )
                 }
+            }
+        }
+
+        // A discarded track's full detail: stacked above the debug list — back (and the
+        // predictive-back preview) returns to the list, not the tabs.
+        discardedLayer.rendered?.let { trackId ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .overlayTransform(discardedLayer),
+            ) {
+                TrackMapScreen(
+                    trackId = trackId,
+                    summary = discardedTracks.firstOrNull { it.id == trackId },
+                    viewModel = viewModel,
+                    onBack = { discardedTrackId = null },
+                )
             }
         }
     }
@@ -586,9 +616,18 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
 private class OverlayLayerState<T : Any> {
     val presence = Animatable(0f)      // 0 = underneath shown, 1 = layer fully shown
     val backProgress = Animatable(0f)  // predictive back gesture progress, 0..1
+    val backOffsetY = Animatable(0f)   // finger's vertical travel (px) since the gesture started
     var backEdgeSign by mutableFloatStateOf(1f)
     var rendered by mutableStateOf<T?>(null)
+
+    /** Blur radius (dp) for content underneath: full while covered, sharpening with the gesture. */
+    val backdropBlurDp: Float
+        get() = presence.value * (1f - 0.7f * easeOutBack(backProgress.value)) * 12f
 }
+
+// Ease-out on the gesture progress: like the system's cross-activity animation, most of the
+// reveal happens right at gesture start, then the surface tracks the finger gently.
+private fun easeOutBack(back: Float): Float = 1f - (1f - back) * (1f - back)
 
 /**
  * One stacked overlay layer: animates in while [content] is non-null, out when it goes null, and
@@ -608,43 +647,80 @@ private fun <T : Any> rememberOverlayLayer(
     LaunchedEffect(content != null) {
         if (content != null) {
             state.backProgress.snapTo(0f)
+            state.backOffsetY.snapTo(0f)
             state.presence.animateTo(1f, tween(300))
         } else if (state.rendered != null) {
             state.presence.animateTo(0f, tween(300))
             state.rendered = null
             state.backProgress.snapTo(0f)
+            state.backOffsetY.snapTo(0f)
             onClosed()
         }
     }
     PredictiveBackHandler(enabled = backEnabled) { events ->
+        var startTouchY = Float.NaN
         try {
             events.collect { event ->
+                if (startTouchY.isNaN()) startTouchY = event.touchY
                 state.backEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
+                state.backOffsetY.snapTo(event.touchY - startTouchY)
                 state.backProgress.snapTo(event.progress)
             }
             onDismiss() // gesture committed -> dismiss
         } catch (cancelled: CancellationException) {
-            state.backProgress.animateTo(0f, tween(200)) // gesture cancelled -> spring back
+            // Gesture cancelled -> spring back to place.
+            coroutineScope {
+                launch { state.backProgress.animateTo(0f, tween(200)) }
+                launch { state.backOffsetY.animateTo(0f, tween(200)) }
+            }
         }
     }
     return state
 }
 
 /** The overlay open/close + predictive-back transform: slide/scale in, recede toward the edge. */
-private fun Modifier.overlayTransform(layer: OverlayLayerState<*>): Modifier =
-    overlayTransform(layer.presence.value, layer.backProgress.value, layer.backEdgeSign)
+private fun Modifier.overlayTransform(layer: OverlayLayerState<*>): Modifier = overlayTransform(
+    layer.presence.value,
+    layer.backProgress.value,
+    layer.backEdgeSign,
+    layer.backOffsetY.value,
+)
 
-private fun Modifier.overlayTransform(enter: Float, back: Float, edgeSign: Float): Modifier =
+private fun Modifier.overlayTransform(
+    enter: Float,
+    back: Float,
+    edgeSign: Float,
+    backOffsetY: Float = 0f,
+): Modifier =
     graphicsLayer {
-        val scale = (0.92f + 0.08f * enter) * (1f - 0.10f * back)
+        val eased = easeOutBack(back)
+        val scale = (0.92f + 0.08f * enter) * (1f - 0.10f * eased)
         scaleX = scale
         scaleY = scale
-        translationX = (1f - enter) * size.width * 0.25f + edgeSign * back * 24.dp.toPx()
-        alpha = enter * (1f - 0.2f * back)
+        translationX = (1f - enter) * size.width * 0.25f + edgeSign * eased * 48.dp.toPx()
+        // The receding card follows the finger vertically at a damped rate (another system-
+        // animation trait), fading in with the gesture so a near-full-screen card stays put.
+        translationY = eased * (backOffsetY / 3f).coerceIn(-96.dp.toPx(), 96.dp.toPx())
+        // Opaque through the back gesture (M3 predictive-back spec); only open/close fades.
+        alpha = enter
         transformOrigin = TransformOrigin(if (edgeSign > 0f) 1f else 0f, 0.5f)
-        shape = RoundedCornerShape(back * 48f)
+        shape = RoundedCornerShape(eased * 48f)
         clip = back > 0f
     }
+
+/**
+ * Blurs this content while any of [layers] sits above it — the system blurs the background
+ * activity the same way during predictive back. Strongest when fully covered, sharpening as the
+ * gesture reveals it. No-op below Android 12 (no RenderEffect there).
+ */
+private fun Modifier.underlayBlur(vararg layers: OverlayLayerState<*>): Modifier {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return this
+    return graphicsLayer {
+        val radius = layers.maxOf { it.backdropBlurDp }.dp.toPx()
+        renderEffect = if (radius > 0.5f) BlurEffect(radius, radius, TileMode.Clamp) else null
+        clip = renderEffect != null
+    }
+}
 
 private fun gpxImportMessage(result: TrackListViewModel.GpxImportSummary): String = buildList {
     add("Imported ${result.imported} tracks")
@@ -1999,21 +2075,11 @@ private fun LogsScreen(onBack: () -> Unit) {
 private fun DiscardedTracksScreen(
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
+    // Tapping a row opens its full detail as a layer above this list; back returns here.
+    onOpenTrack: (Long) -> Unit,
 ) {
     val context = LocalContext.current
     val tracks by viewModel.discardedTracks.collectAsState()
-    // Tapping a row opens its full detail in place; back returns here, not to the tabs.
-    var openTrackId by remember { mutableStateOf<Long?>(null) }
-    openTrackId?.let { id ->
-        BackHandler { openTrackId = null }
-        TrackMapScreen(
-            trackId = id,
-            summary = tracks.firstOrNull { it.id == id },
-            viewModel = viewModel,
-            onBack = { openTrackId = null },
-        )
-        return
-    }
     val minDurationSec = AppSettings.minTrackDurationSec(context)
     val minLengthM = AppSettings.minTrackLengthM(context)
     val minExtentM = AppSettings.minTrackExtentM(context)
@@ -2042,7 +2108,7 @@ private fun DiscardedTracksScreen(
                     val activity = ActivityType.ofName(t.activityType) ?: ActivityType.UNKNOWN
                     Row(
                         modifier = Modifier.fillMaxWidth()
-                            .clickable { openTrackId = t.id }
+                            .clickable { onOpenTrack(t.id) }
                             .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
