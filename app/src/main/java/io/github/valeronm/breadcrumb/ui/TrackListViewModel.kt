@@ -24,6 +24,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -162,33 +163,44 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     class GpxImportSummary(val imported: Int, val duplicates: Int, val failed: Int)
 
+    class GpxImportProgress(val filesDone: Int, val filesTotal: Int, val imported: Int)
+
+    /** Non-null while an import runs — drives the Settings progress row; survives navigation. */
+    private val _importProgress = MutableStateFlow<GpxImportProgress?>(null)
+    val importProgress: StateFlow<GpxImportProgress?> = _importProgress
+
     /**
-     * Imports the picked GPX files. [failed] counts unreadable/unparseable files plus tracks
-     * without enough timestamped points to place on the timeline.
+     * Imports the picked GPX files, one file at a time with [importProgress] updates. [failed]
+     * counts unreadable/unparseable files plus tracks without enough timestamped points to place
+     * on the timeline. A second call while one runs is ignored.
      */
     fun importGpx(uris: List<Uri>, onDone: (GpxImportSummary) -> Unit) {
+        if (_importProgress.value != null) return
+        _importProgress.value = GpxImportProgress(0, uris.size, 0)
         viewModelScope.launch {
             var imported = 0
             var duplicates = 0
             var failed = 0
             withContext(Dispatchers.IO) {
                 val resolver = getApplication<Application>().contentResolver
-                for (uri in uris) {
-                    val parsed = try {
-                        resolver.openInputStream(uri)?.use { GpxParser.parse(it) } ?: emptyList()
+                for ((index, uri) in uris.withIndex()) {
+                    try {
+                        val parsed =
+                            resolver.openInputStream(uri)?.use { GpxParser.parse(it) } ?: emptyList()
+                        val importable = parsed.mapNotNull { GpxParser.toImportable(it, AndroidDistance) }
+                        failed += parsed.size - importable.size
+                        if (parsed.isEmpty()) failed++ // a readable file with no tracks at all
+                        val counts = repository.importTracks(importable)
+                        imported += counts.imported
+                        duplicates += counts.duplicates
                     } catch (e: Exception) {
                         DebugLog.w("Breadcrumb", "gpx import failed for $uri: ${e.message}")
                         failed++
-                        continue
                     }
-                    val importable = parsed.mapNotNull { GpxParser.toImportable(it, AndroidDistance) }
-                    failed += parsed.size - importable.size
-                    if (parsed.isEmpty()) failed++ // a readable file with no tracks at all
-                    val counts = repository.importTracks(importable)
-                    imported += counts.imported
-                    duplicates += counts.duplicates
+                    _importProgress.value = GpxImportProgress(index + 1, uris.size, imported)
                 }
             }
+            _importProgress.value = null
             onDone(GpxImportSummary(imported, duplicates, failed))
         }
     }

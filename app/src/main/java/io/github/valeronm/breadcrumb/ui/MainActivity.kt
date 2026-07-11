@@ -86,6 +86,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
@@ -1608,14 +1609,20 @@ private fun placeSubtitle(summary: PlaceResolver.PlaceSummary): String {
 private fun relativeDay(epochMs: Long): String {
     val zone = ZoneId.systemDefault()
     val then = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
-    val days = ChronoUnit.DAYS.between(then, LocalDate.now(zone))
+    val today = LocalDate.now(zone)
+    val days = ChronoUnit.DAYS.between(then, today)
     return when {
         days <= 0 -> "today"
         days == 1L -> "yesterday"
         days < 7 -> "$days days ago"
-        else -> then.format(dayHeaderFormat)
+        // Compact beyond a week — this renders inside stat cells and one-line row subtitles.
+        then.year == today.year -> then.format(compactDayFormat)
+        else -> then.format(compactDayYearFormat)
     }
 }
+
+private val compactDayFormat = DateTimeFormatter.ofPattern("d MMM")
+private val compactDayYearFormat = DateTimeFormatter.ofPattern("d MMM yyyy")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1879,19 +1886,34 @@ private fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
-                var importing by remember { mutableStateOf(false) }
+                // Progress lives in the ViewModel, so it survives leaving Settings mid-import.
+                val importProgress by viewModel.importProgress.collectAsState()
+                val appContext = context.applicationContext
                 val importLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.OpenMultipleDocuments(),
                 ) { uris ->
                     if (uris.isEmpty()) return@rememberLauncherForActivityResult
-                    importing = true
                     viewModel.importGpx(uris) { result ->
-                        importing = false
-                        Toast.makeText(context, gpxImportMessage(result), Toast.LENGTH_LONG).show()
+                        Toast.makeText(appContext, gpxImportMessage(result), Toast.LENGTH_LONG).show()
                     }
                 }
+                val progress = importProgress
+                if (progress != null) {
+                    Text(
+                        "Importing file ${(progress.filesDone + 1).coerceAtMost(progress.filesTotal)} " +
+                            "of ${progress.filesTotal} · ${progress.imported} tracks so far",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { progress.filesDone.toFloat() / progress.filesTotal },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 Button(
-                    enabled = !importing,
+                    enabled = progress == null,
                     onClick = {
                         importLauncher.launch(
                             arrayOf(
@@ -1900,7 +1922,7 @@ private fun SettingsScreen(
                             ),
                         )
                     },
-                ) { Text(if (importing) "Importing…" else "Import GPX tracks") }
+                ) { Text(if (progress != null) "Importing…" else "Import GPX tracks") }
             },
             {
                 Text(
