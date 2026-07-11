@@ -50,6 +50,7 @@ import io.github.valeronm.breadcrumb.domain.RecordingAction
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackController
 import io.github.valeronm.breadcrumb.ui.MainActivity
+import io.github.valeronm.breadcrumb.util.hasLocationPermission
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -172,6 +173,20 @@ class LocationRecordingService : Service() {
     }
 
     private fun handleStart() {
+        // A location-type foreground service can't be started without location permission (the
+        // platform throws SecurityException on Android 14+). This is reachable when the OS restarts
+        // the sticky service after the user revoked location — or after unused-app auto-revoke —
+        // while the armed flag is still set. Bail out cleanly instead of crash-looping; the UI's
+        // permission prompt takes over. (The startForegroundService caller path is guarded in
+        // [start] so this only fires for system-initiated restarts, which carry no
+        // startForeground deadline.)
+        if (!hasLocationPermission()) {
+            DebugLog.i(TAG, "handleStart: location permission missing — staying disarmed")
+            armed = false
+            TrackingStatus.reset()
+            stopSelf()
+            return
+        }
         // Arming is requested from several places that can race (package-replaced receiver, the
         // activity's reconciliation, sticky restart) — collapse duplicates instead of re-arming.
         if (armed) {
@@ -762,6 +777,14 @@ class LocationRecordingService : Service() {
         private const val PASSIVE_INTERVAL_MS = 30_000L
 
         fun start(context: Context) {
+            // Never start the location foreground service without location permission — the platform
+            // throws SecurityException on Android 14+, and startForegroundService obligates a
+            // startForeground call we couldn't satisfy. Leave disarmed so the UI prompts for the
+            // grant; the user re-arms once it's granted.
+            if (!context.hasLocationPermission()) {
+                Settings.setAutoRecord(context, false)
+                return
+            }
             Settings.setAutoRecord(context, true)
             val intent = Intent(context, LocationRecordingService::class.java).setAction(ACTION_START)
             ContextCompat.startForegroundService(context, intent)
