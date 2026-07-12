@@ -277,24 +277,17 @@ class LocationRecordingService : Service() {
      */
     fun onActivityChanged(activity: ActivityType, eventTimeMs: Long? = null, onApplied: (() -> Unit)? = null) {
         transitionSinceArm = true
-        scope.launch {
-            try {
-                mutex.withLock { applyActivity(activity, eventTimeMs) }
-            } finally {
-                onApplied?.invoke()
-            }
-        }
+        // invokeOnCompletion (not try/finally in the body): it also fires when the scope was
+        // already cancelled and the body never ran — otherwise a dying service would leak the
+        // receiver's goAsync and pin the broadcast until the system times it out.
+        scope.launch { mutex.withLock { applyActivity(activity, eventTimeMs) } }
+            .invokeOnCompletion { onApplied?.invoke() }
     }
 
     /** The arm-time snapshot reading — applied like a transition but never claims to be one. */
     fun onSnapshot(activity: ActivityType, eventTimeMs: Long? = null, onApplied: (() -> Unit)? = null) {
-        scope.launch {
-            try {
-                mutex.withLock { applyActivity(activity, eventTimeMs) }
-            } finally {
-                onApplied?.invoke()
-            }
-        }
+        scope.launch { mutex.withLock { applyActivity(activity, eventTimeMs) } }
+            .invokeOnCompletion { onApplied?.invoke() }
     }
 
     private suspend fun applyActivity(raw: ActivityType, eventTimeMs: Long?) {
@@ -422,14 +415,24 @@ class LocationRecordingService : Service() {
         getSystemService(AlarmManager::class.java).cancel(watchdogIntent)
     }
 
-    /** Called by [WatchdogReceiver] on the armed-session alarm. */
-    fun onWatchdog() {
-        if (!armed) return
+    /**
+     * Called by [WatchdogReceiver] on the armed-session alarm. [onDone] fires once the
+     * re-registration has been handed to GMS — the receiver holds its wakelock open until then.
+     */
+    fun onWatchdog(onDone: (() -> Unit)? = null) {
+        if (!armed) {
+            onDone?.invoke()
+            return
+        }
         DebugLog.i(TAG, "watchdog: re-registering transition updates")
         // A free heartbeat: the alarm fires even in Doze, where the heartbeat coroutine is frozen.
         Settings.setLastHeartbeatMs(this, now())
-        if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) activityManager.start()
         scheduleWatchdog()
+        if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) {
+            activityManager.start().addOnCompleteListener { onDone?.invoke() }
+        } else {
+            onDone?.invoke()
+        }
     }
 
     /** Writes the heartbeat every 15 min while armed; a track close is a free extra attestation. */

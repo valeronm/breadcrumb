@@ -68,13 +68,16 @@ class ActivityRecognitionManager(private val context: Context) {
         return ActivityTransitionRequest(transitions)
     }
 
-    /** Caller must hold ACTIVITY_RECOGNITION; the service checks before invoking. */
+    /**
+     * Caller must hold ACTIVITY_RECOGNITION; the service checks before invoking. Returns the
+     * chained registration task so a broadcast-driven caller can hold its wakelock until the
+     * request has reached GMS.
+     */
     @SuppressLint("MissingPermission")
-    fun start() {
+    fun start(): Task<Void> =
         chain { client.requestActivityTransitionUpdates(buildRequest(), transitionPendingIntent()) }
             .addOnSuccessListener { DebugLog.i(TAG, "transition updates registered") }
             .addOnFailureListener { DebugLog.e(TAG, "transition updates registration FAILED: ${it.message}") }
-    }
 
     @SuppressLint("MissingPermission")
     fun stop() {

@@ -19,7 +19,13 @@ class WatchdogReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val service = LocationRecordingService.instance
         when {
-            service != null -> service.onWatchdog()
+            service != null -> {
+                // Hold the broadcast open until the re-register reaches GMS: the chained call
+                // posts to the main looper, and without the wakelock Doze could freeze it there —
+                // the very failure this alarm exists to fix.
+                val pending = goAsync()
+                service.onWatchdog { pending.finish() }
+            }
             Settings.isAutoRecord(context) -> {
                 DebugLog.w(TAG, "watchdog: armed but service dead — restarting")
                 runCatching { LocationRecordingService.start(context) }
