@@ -91,6 +91,11 @@
             android:name=".location.ActivityTransitionReceiver"
             android:exported="false" />
 
+        <!-- Armed-session watchdog alarm: heals a silently dead transition registration -->
+        <receiver
+            android:name=".location.WatchdogReceiver"
+            android:exported="false" />
+
         <!-- Re-arms automatic recording after a reboot or app update -->
         <receiver
             android:name=".location.BootReceiver"

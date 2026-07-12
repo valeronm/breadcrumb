@@ -37,22 +37,32 @@ class ActivityInterpreterTest {
     // --- Snapshots --------------------------------------------------------
 
     @Test fun `a confident moving snapshot is forwarded`() {
-        assertEquals(WALKING, ActivityInterpreter.interpretSnapshot(WALKING, confidence = 88, confidenceThreshold = 50))
+        assertEquals(WALKING, snapshot(WALKING, confidence = 88))
     }
 
     @Test fun `a confident STILL snapshot is forwarded too`() {
-        assertEquals(STILL, ActivityInterpreter.interpretSnapshot(STILL, confidence = 96, confidenceThreshold = 50))
+        assertEquals(STILL, snapshot(STILL, confidence = 96))
     }
 
     @Test fun `a low-confidence snapshot is ignored`() {
-        assertNull(ActivityInterpreter.interpretSnapshot(WALKING, confidence = 24, confidenceThreshold = 50))
+        assertNull(snapshot(WALKING, confidence = 24))
     }
 
     @Test fun `an UNKNOWN snapshot is ignored even when confident`() {
-        assertNull(ActivityInterpreter.interpretSnapshot(ActivityType.UNKNOWN, confidence = 90, confidenceThreshold = 50))
+        assertNull(snapshot(ActivityType.UNKNOWN, confidence = 90))
     }
 
     @Test fun `confidence exactly at the threshold is forwarded`() {
-        assertEquals(WALKING, ActivityInterpreter.interpretSnapshot(WALKING, confidence = 50, confidenceThreshold = 50))
+        assertEquals(WALKING, snapshot(WALKING, confidence = 50))
     }
+
+    @Test fun `any snapshot is ignored once a transition has been applied`() {
+        // The stale-STILL case: a replayed ENTER IN_VEHICLE started a drive, then the cached
+        // snapshot reports STILL — it must not pause the track.
+        assertNull(snapshot(STILL, confidence = 100, transitionApplied = true))
+        assertNull(snapshot(WALKING, confidence = 100, transitionApplied = true))
+    }
+
+    private fun snapshot(activity: ActivityType, confidence: Int, transitionApplied: Boolean = false) =
+        ActivityInterpreter.interpretSnapshot(activity, confidence, confidenceThreshold = 50, transitionApplied)
 }

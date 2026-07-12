@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.location
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
@@ -102,6 +103,13 @@ class LocationRecordingService : Service() {
     // Set while the service is armed; duplicate ACTION_STARTs while armed are no-ops.
     @Volatile private var armed = false
 
+    // True once any transition reading has been applied since the last arm. Read by
+    // [ActivityTransitionReceiver] to drop the arm-time snapshot once the transition stream has
+    // spoken — set synchronously on delivery (not in the apply coroutine) so a snapshot arriving
+    // after a transition can never slip past the check while the apply is still queued.
+    @Volatile var transitionSinceArm = false
+        private set
+
     @Volatile private var distanceMeters = 0.0
     @Volatile private var pointCount = 0
     @Volatile private var trackStartedAt = 0L
@@ -194,8 +202,10 @@ class LocationRecordingService : Service() {
             return
         }
         armed = true
+        transitionSinceArm = false
         DebugLog.i(TAG, "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)})")
         startForegroundWithNotification("Standing by", "Waiting for movement")
+        scheduleWatchdog()
         TrackingStatus.update { it.copy(tracking = true) }
 
         // Start armed but paused — recording begins when a moving activity transition arrives.
@@ -236,6 +246,7 @@ class LocationRecordingService : Service() {
     private fun handleStop() {
         armed = false
         DebugLog.i(TAG, "handleStop: disarming")
+        cancelWatchdog()
         activityManager.stop()
         scope.launch {
             mutex.withLock {
@@ -254,8 +265,14 @@ class LocationRecordingService : Service() {
         }
     }
 
-    /** Called by [ActivityTransitionReceiver] when Play Services reports a new activity. */
+    /** Called by [ActivityTransitionReceiver] when Play Services reports a transition. */
     fun onActivityChanged(activity: ActivityType) {
+        transitionSinceArm = true
+        scope.launch { mutex.withLock { applyActivity(activity) } }
+    }
+
+    /** The arm-time snapshot reading — applied like a transition but never claims to be one. */
+    fun onSnapshot(activity: ActivityType) {
         scope.launch { mutex.withLock { applyActivity(activity) } }
     }
 
@@ -345,6 +362,45 @@ class LocationRecordingService : Service() {
         activeTrackId = repository.startTrack(activity, startedAt)
         controller.onRecordingStarted(activity)
         withContext(Dispatchers.Main) { startLocationUpdates() }
+    }
+
+    // --- Registration watchdog ---
+    // The GMS transition registration can die silently (observed: the arm-time replay arrives,
+    // then no live transitions ever again). While armed, an alarm re-registers every interval:
+    // registration replays the current activity, so a missed transition is recovered within one
+    // tick. Alarm-based (not a coroutine delay) because Doze freezes coroutine timers — exactly
+    // when transitions go missing.
+    private val watchdogIntent: PendingIntent by lazy {
+        PendingIntent.getBroadcast(
+            this,
+            2,
+            Intent(this, WatchdogReceiver::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun scheduleWatchdog() {
+        // setAndAllowWhileIdle needs no exact-alarm grant; in deep Doze while-idle alarms are
+        // throttled to roughly one per 15 min per app, which matches the interval anyway.
+        getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL_MS,
+            watchdogIntent,
+        )
+    }
+
+    private fun cancelWatchdog() {
+        getSystemService(AlarmManager::class.java).cancel(watchdogIntent)
+    }
+
+    /** Called by [WatchdogReceiver] on the armed-session alarm. */
+    fun onWatchdog() {
+        if (!armed) return
+        DebugLog.i(TAG, "watchdog: re-registering transition updates")
+        // A free heartbeat: the alarm fires even in Doze, where the heartbeat coroutine is frozen.
+        Settings.setLastHeartbeatMs(this, now())
+        if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) activityManager.start()
+        scheduleWatchdog()
     }
 
     /** Writes the heartbeat every 15 min while armed; a track close is a free extra attestation. */
@@ -788,6 +844,7 @@ class LocationRecordingService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "Breadcrumb"
         private const val HEARTBEAT_INTERVAL_MS = 15 * 60_000L
+        private const val WATCHDOG_INTERVAL_MS = 15 * 60_000L
 
         // A fix counts as GNSS-backed when a satellite fix using at least this many satellites
         // occurred within [GNSS_FIX_MAX_AGE_MS] of it. Four is the minimum for a genuine 3D fix;

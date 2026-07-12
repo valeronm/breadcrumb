@@ -10,11 +10,18 @@ import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionRequest
 import com.google.android.gms.location.DetectedActivity
+import com.google.android.gms.tasks.Task
+import com.google.android.gms.tasks.Tasks
 import io.github.valeronm.breadcrumb.data.ActivityType
 
 /**
  * Registers/unregisters Activity Transition updates with Google Play Services. Transitions are
  * delivered to [ActivityTransitionReceiver] via a broadcast [PendingIntent].
+ *
+ * All Play Services calls go through [chain]: GMS processes them asynchronously and does not
+ * guarantee issue order, so a disarm's remove landing *after* a rearm's request (they're ~0.5s
+ * apart on a toggle) silently unregisters the fresh registration — observed in the field as
+ * "registered" succeeding, the arm-time replay arriving, then no live transitions ever again.
  */
 class ActivityRecognitionManager(private val context: Context) {
 
@@ -64,7 +71,7 @@ class ActivityRecognitionManager(private val context: Context) {
     /** Caller must hold ACTIVITY_RECOGNITION; the service checks before invoking. */
     @SuppressLint("MissingPermission")
     fun start() {
-        client.requestActivityTransitionUpdates(buildRequest(), transitionPendingIntent())
+        chain { client.requestActivityTransitionUpdates(buildRequest(), transitionPendingIntent()) }
             .addOnSuccessListener { DebugLog.i(TAG, "transition updates registered") }
             .addOnFailureListener { DebugLog.e(TAG, "transition updates registration FAILED: ${it.message}") }
     }
@@ -72,7 +79,7 @@ class ActivityRecognitionManager(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun stop() {
         DebugLog.i(TAG, "removing transition updates")
-        client.removeActivityTransitionUpdates(transitionPendingIntent())
+        chain { client.removeActivityTransitionUpdates(transitionPendingIntent()) }
     }
 
     /**
@@ -81,18 +88,30 @@ class ActivityRecognitionManager(private val context: Context) {
      */
     @SuppressLint("MissingPermission")
     fun requestSnapshot() {
-        client.requestActivityUpdates(0L, snapshotPendingIntent())
+        chain { client.requestActivityUpdates(0L, snapshotPendingIntent()) }
             .addOnFailureListener { DebugLog.e(TAG, "snapshot request FAILED: ${it.message}") }
     }
 
     @SuppressLint("MissingPermission")
     fun removeSnapshot() {
-        client.removeActivityUpdates(snapshotPendingIntent())
+        chain { client.removeActivityUpdates(snapshotPendingIntent()) }
     }
 
-    private companion object {
-        const val REQUEST_TRANSITION = 4711
-        const val REQUEST_SNAPSHOT = 4712
-        const val TAG = "Breadcrumb"
+    companion object {
+        private const val REQUEST_TRANSITION = 4711
+        private const val REQUEST_SNAPSHOT = 4712
+        private const val TAG = "Breadcrumb"
+
+        // The tail of the ordered GMS-call chain. Shared across instances (the receiver creates
+        // its own manager for removeSnapshot) — ordering must hold per-package, not per-instance.
+        private var lastOp: Task<*> = Tasks.forResult(null)
+
+        // continueWithTask (not onSuccessTask) so a failed op never wedges the chain.
+        @Synchronized
+        private fun <T> chain(op: () -> Task<T>): Task<T> {
+            val next = lastOp.continueWithTask { op() }
+            lastOp = next
+            return next
+        }
     }
 }

@@ -32,7 +32,21 @@ object ActivityInterpreter {
      * A snapshot's most-probable activity, if it's confident enough to act on — else null to ignore.
      * Bidirectional (a confident reading drives the state either way); UNKNOWN and low-confidence
      * readings (e.g. a cold engine reporting a flat distribution) are dropped.
+     *
+     * The snapshot only exists to cover the gap between arming and the first transition. Once any
+     * transition has been applied since arming ([transitionApplied]), the transition stream is
+     * authoritative and the snapshot is dropped: it reports Play Services' *cached* detection,
+     * which can lag reality — a stale STILL arriving moments after a replayed ENTER IN_VEHICLE
+     * would pause (and eventually discard) a genuine drive.
      */
-    fun interpretSnapshot(mostProbable: ActivityType, confidence: Int, confidenceThreshold: Int): ActivityType? =
-        if (confidence >= confidenceThreshold && mostProbable != ActivityType.UNKNOWN) mostProbable else null
+    fun interpretSnapshot(
+        mostProbable: ActivityType,
+        confidence: Int,
+        confidenceThreshold: Int,
+        transitionApplied: Boolean,
+    ): ActivityType? = when {
+        transitionApplied -> null
+        confidence >= confidenceThreshold && mostProbable != ActivityType.UNKNOWN -> mostProbable
+        else -> null
+    }
 }

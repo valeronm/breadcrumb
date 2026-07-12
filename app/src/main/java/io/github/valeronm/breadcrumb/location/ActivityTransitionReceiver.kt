@@ -63,21 +63,26 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
 
                 val probable = result.mostProbableActivity
                 val activity = ActivityType.fromDetectedActivity(probable.type)
-                val forward = ActivityInterpreter.interpretSnapshot(activity, probable.confidence, CONFIDENCE_THRESHOLD)
-                // Re-arms repeat the same reading; only log when it changes so the log stays signal.
-                if (activity != lastSnapshotActivity) {
-                    val ranked = result.probableActivities.joinToString {
-                        "${detectedName(it.type)}:${it.confidence}"
-                    }
-                    DebugLog.i(
-                        TAG,
-                        "snapshot mostProbable=${detectedName(probable.type)}(${probable.confidence}) " +
-                            "-> $activity acts=${forward != null} serviceAlive=$serviceAlive [$ranked]",
-                    )
-                    lastSnapshotActivity = activity
+                val transitionApplied = LocationRecordingService.instance?.transitionSinceArm ?: false
+                val forward = ActivityInterpreter.interpretSnapshot(
+                    activity,
+                    probable.confidence,
+                    CONFIDENCE_THRESHOLD,
+                    transitionApplied,
+                )
+                // Always logged: a snapshot fires once per arm, and a suppressed one once hid a
+                // stale STILL pausing a just-started drive.
+                val ranked = result.probableActivities.joinToString {
+                    "${detectedName(it.type)}:${it.confidence}"
                 }
+                DebugLog.i(
+                    TAG,
+                    "snapshot mostProbable=${detectedName(probable.type)}(${probable.confidence}) " +
+                        "-> $activity acts=${forward != null} transitionApplied=$transitionApplied " +
+                        "serviceAlive=$serviceAlive [$ranked]",
+                )
                 if (forward != null) {
-                    LocationRecordingService.instance?.onActivityChanged(forward)
+                    LocationRecordingService.instance?.onSnapshot(forward)
                 }
             }
 
@@ -108,9 +113,5 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
         const val ACTION_SNAPSHOT = "io.github.valeronm.breadcrumb.ACTION_SNAPSHOT"
         private const val CONFIDENCE_THRESHOLD = 50
         private const val TAG = "Breadcrumb"
-
-        // Last snapshot reading we logged, to suppress identical repeats across re-arms.
-        @Volatile
-        private var lastSnapshotActivity: ActivityType? = null
     }
 }
