@@ -48,6 +48,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.Confirmed
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
+import io.github.valeronm.breadcrumb.domain.ReadingClock
 import io.github.valeronm.breadcrumb.domain.RecordingAction
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackController
@@ -265,25 +266,50 @@ class LocationRecordingService : Service() {
         }
     }
 
-    /** Called by [ActivityTransitionReceiver] when Play Services reports a transition. */
-    fun onActivityChanged(activity: ActivityType) {
+    // Sanitizes AR event timestamps into gate reading times; see [ReadingClock].
+    private val readingClock = ReadingClock()
+
+    /**
+     * Called by [ActivityTransitionReceiver] when Play Services reports a transition.
+     * [eventTimeMs] is the event's own (wall-clock) timestamp; [onApplied] runs once the reading
+     * has been applied — the receiver holds its broadcast wakelock open until then, so Doze can't
+     * freeze the apply between delivery and processing.
+     */
+    fun onActivityChanged(activity: ActivityType, eventTimeMs: Long? = null, onApplied: (() -> Unit)? = null) {
         transitionSinceArm = true
-        scope.launch { mutex.withLock { applyActivity(activity) } }
+        scope.launch {
+            try {
+                mutex.withLock { applyActivity(activity, eventTimeMs) }
+            } finally {
+                onApplied?.invoke()
+            }
+        }
     }
 
     /** The arm-time snapshot reading — applied like a transition but never claims to be one. */
-    fun onSnapshot(activity: ActivityType) {
-        scope.launch { mutex.withLock { applyActivity(activity) } }
+    fun onSnapshot(activity: ActivityType, eventTimeMs: Long? = null, onApplied: (() -> Unit)? = null) {
+        scope.launch {
+            try {
+                mutex.withLock { applyActivity(activity, eventTimeMs) }
+            } finally {
+                onApplied?.invoke()
+            }
+        }
     }
 
-    private suspend fun applyActivity(raw: ActivityType) {
-        // 1) Debounce the raw reading into a trusted activity signal.
+    private suspend fun applyActivity(raw: ActivityType, eventTimeMs: Long?) {
+        // 1) Debounce the raw reading into a trusted activity signal. The gate gets the event's
+        // own (sanitized) time, not the apply time: readings drained late from a frozen queue
+        // must keep their real spacing, or a stop and a return ten minutes apart would land
+        // inside the resume window and stitch through a genuine stop.
+        val nowMs = now()
+        val readingMs = readingClock.sanitize(eventTimeMs, nowMs, READING_MAX_AGE_MS)
         val previous = gate.confirmed
-        val confirmed = gate.onReading(raw, now(), Settings.resumeWindowSec(this) * 1000L)
+        val confirmed = gate.onReading(raw, readingMs, Settings.resumeWindowSec(this) * 1000L)
         if (confirmed == Confirmed.NoChange) return
 
         // 2) Turn the trusted change into a track action and apply it.
-        logTransition(previous, gate.confirmed)
+        logTransition(previous, gate.confirmed, nowMs - readingMs)
         when (val action = controller.onConfirmed(confirmed)) {
             RecordingAction.Noop -> Unit
             is RecordingAction.Pause -> {
@@ -321,8 +347,11 @@ class LocationRecordingService : Service() {
         publishStatus()
     }
 
-    private fun logTransition(previous: ActivityType, activity: ActivityType) {
-        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$activeTrackId paused=${controller.isPaused})")
+    private fun logTransition(previous: ActivityType, activity: ActivityType, readingLagMs: Long) {
+        // Surface a materially late reading (Doze drain, replay recovery) — it explains why a
+        // track decision doesn't line up with the log line's own timestamp.
+        val lag = if (readingLagMs > 5_000) " reading=-${readingLagMs / 1000}s" else ""
+        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$activeTrackId paused=${controller.isPaused}$lag)")
     }
 
     /** Stop GPS but keep the track open; a wake at [resumeDeadlineMs] finalizes it if unresumed. */
@@ -845,6 +874,10 @@ class LocationRecordingService : Service() {
         private const val TAG = "Breadcrumb"
         private const val HEARTBEAT_INTERVAL_MS = 15 * 60_000L
         private const val WATCHDOG_INTERVAL_MS = 15 * 60_000L
+
+        // Age cap for trusting an AR event's own timestamp (see [ReadingClock]): far above any
+        // real Doze drain delay, below the garbage stamps observed in the field (22.5 h).
+        private const val READING_MAX_AGE_MS = 6 * 60 * 60_000L
 
         // A fix counts as GNSS-backed when a satellite fix using at least this many satellites
         // occurred within [GNSS_FIX_MAX_AGE_MS] of it. Four is the minimum for a genuine 3D fix;

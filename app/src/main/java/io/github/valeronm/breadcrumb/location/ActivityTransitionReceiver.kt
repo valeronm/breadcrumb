@@ -21,11 +21,16 @@ import java.util.Locale
  *    user is already moving when they arm.
  * We hand off to the live service instance directly (same process) rather than re-starting it,
  * which avoids background-start restrictions.
+ *
+ * Forwarded readings hold the broadcast open ([goAsync]) until the service has applied them:
+ * returning from onReceive releases the broadcast's wakelock, and in Doze the apply coroutine
+ * then freezes — transitions were observed logged on time but applied minutes later, putting a
+ * walking tail on a drive track and stitching through a real stop.
  */
 class ActivityTransitionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        val serviceAlive = LocationRecordingService.instance != null
+        val service = LocationRecordingService.instance
         when {
             ActivityTransitionResult.hasResult(intent) -> {
                 val result = ActivityTransitionResult.extractResult(intent) ?: return
@@ -48,10 +53,15 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                     ActivityInterpreter.TransitionDecision.Ignore -> Unit
                     is ActivityInterpreter.TransitionDecision.Forward -> {
                         if (decision.exitMapped) DebugLog.i(TAG, "  EXIT $detected -> treating as STILL")
-                        if (!serviceAlive) {
+                        if (service == null) {
                             DebugLog.w(TAG, "transition ${decision.activity} DROPPED — service instance is null")
+                        } else {
+                            // The event's own wall-clock time (its stamp is elapsed-realtime).
+                            val eventTimeMs =
+                                System.currentTimeMillis() - (nowNanos - latest.elapsedRealTimeNanos) / 1_000_000
+                            val pending = goAsync()
+                            service.onActivityChanged(decision.activity, eventTimeMs) { pending.finish() }
                         }
-                        LocationRecordingService.instance?.onActivityChanged(decision.activity)
                     }
                 }
             }
@@ -63,7 +73,7 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
 
                 val probable = result.mostProbableActivity
                 val activity = ActivityType.fromDetectedActivity(probable.type)
-                val transitionApplied = LocationRecordingService.instance?.transitionSinceArm ?: false
+                val transitionApplied = service?.transitionSinceArm ?: false
                 val forward = ActivityInterpreter.interpretSnapshot(
                     activity,
                     probable.confidence,
@@ -79,10 +89,12 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                     TAG,
                     "snapshot mostProbable=${detectedName(probable.type)}(${probable.confidence}) " +
                         "-> $activity acts=${forward != null} transitionApplied=$transitionApplied " +
-                        "serviceAlive=$serviceAlive [$ranked]",
+                        "serviceAlive=${service != null} [$ranked]",
                 )
-                if (forward != null) {
-                    LocationRecordingService.instance?.onSnapshot(forward)
+                if (forward != null && service != null) {
+                    val pending = goAsync()
+                    // result.time is already wall-clock (unlike transition events' elapsed stamps).
+                    service.onSnapshot(forward, result.time) { pending.finish() }
                 }
             }
 
