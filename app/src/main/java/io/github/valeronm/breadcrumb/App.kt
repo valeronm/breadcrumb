@@ -36,6 +36,12 @@ class App : Application() {
                 repository.backfillIgnoreReasons()
                 Settings.setIgnoreReasonBackfillDone(this@App)
             }
+            // One-time: repair drive-start stray leading points on tracks imported before the
+            // auto-repair-on-import shipped.
+            if (!Settings.isLeadingPointRepairDone(this@App)) {
+                repository.repairAllLeadingPoints()
+                Settings.setLeadingPointRepairDone(this@App)
+            }
         }
     }
 

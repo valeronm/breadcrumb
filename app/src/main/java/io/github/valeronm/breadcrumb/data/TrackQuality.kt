@@ -102,24 +102,47 @@ object TrackQuality {
         distance: DistanceFn = AndroidDistance,
     ): Boolean = badFixReason(lastGood, point, activity, maxAccuracyM, distance) != null
 
+    /** First seam at least this fast (km/h) to be a candidate stray — an implausible launch from
+     *  a drive start (40 km/h in a ~1 s opening seam is ~1 g of acceleration from standstill). */
+    private const val LEADING_STRAY_MIN_KMH = 40.0
+
+    /** …and at least this many times the following real pace, so genuine fast starts (first seam
+     *  ≈ the rest of the track) aren't flagged — only the fast-first-then-slow stray shape is. */
+    private const val LEADING_STRAY_FACTOR = 4.0
+
+    /** How many seams after the first to sample for the track's real early pace. */
+    private const val LEADING_STRAY_LOOKAHEAD = 4
+
+    /** Speed (km/h) across a seam, or null when its time gap is non-positive (can't derive). */
+    private fun seamSpeedKmh(a: TrackPoint, b: TrackPoint, distance: DistanceFn): Double? {
+        val dtSec = (b.timestamp - a.timestamp) / 1000.0
+        if (dtSec <= 0) return null
+        return distanceMeters(a, b, distance) / dtSec * 3.6
+    }
+
     /**
-     * Whether the track opens with a stray point: reaching the second point from the first needs
-     * an implausible speed for [activity], while the second-to-third pair is plausible — the
-     * classic cold-start artifact (first fix far off, rest of the track consistent). Common in
-     * imported GPX, which bypasses live ingest filtering; the forward jump check can't catch it
-     * because it would blame the second point. Repair: ignore the first point.
+     * Whether the track opens with a stray point: the first seam's speed is implausibly high for a
+     * drive *start* — well above [LEADING_STRAY_MIN_KMH] and at least [LEADING_STRAY_FACTOR]× the
+     * real pace of the seams that follow (a car pulling out does a few km/h, not 180). This is the
+     * classic recorder cold-start artifact — the first fix lands far off, then the track is
+     * consistent — common in imported GPX, which bypasses live ingest filtering.
+     *
+     * An absolute jump ceiling misses it: a stray commonly reads 40–200 km/h, under the driving
+     * ceiling yet impossible one second after setting off. The comparison is relative to the
+     * track's own following pace, so it catches the sub-ceiling cases the forward jump check can't.
+     * Repair: ignore the first point.
      */
     fun leadingPointIsJump(
         points: List<TrackPoint>,
-        activity: ActivityType,
         distance: DistanceFn = AndroidDistance,
     ): Boolean {
         if (points.size < 3) return false
-        val firstSeamJumps =
-            badFixReason(points[0], points[1], activity, Float.MAX_VALUE, distance) == IgnoreReason.JUMP
-        val nextSeamOk =
-            badFixReason(points[1], points[2], activity, Float.MAX_VALUE, distance) != IgnoreReason.JUMP
-        return firstSeamJumps && nextSeamOk
+        val firstSeam = seamSpeedKmh(points[0], points[1], distance) ?: return false
+        if (firstSeam < LEADING_STRAY_MIN_KMH) return false
+        val followPace = (2..LEADING_STRAY_LOOKAHEAD.coerceAtMost(points.size - 1))
+            .mapNotNull { seamSpeedKmh(points[it - 1], points[it], distance) }
+            .maxOrNull() ?: return false
+        return firstSeam >= LEADING_STRAY_FACTOR * followPace
     }
 
     /** Like [isBadFix], but says *why* — [IgnoreReason.ACCURACY] or [IgnoreReason.JUMP] — or null. */

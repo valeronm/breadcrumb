@@ -76,7 +76,6 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.automirrored.filled.CallMerge
-import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -2859,12 +2858,10 @@ private fun TrackMapScreen(
 ) {
     // null = still loading the track's points from the database.
     val context = LocalContext.current
-    // Bumped after a repair mutates the points, to reload them.
-    var reloadKey by remember(trackId) { mutableStateOf(0) }
-    val points by produceState<List<TrackPoint>?>(initialValue = null, trackId, reloadKey) {
+    val points by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
         value = viewModel.getPoints(trackId)
     }
-    val noisyPoints by produceState<List<TrackPoint>>(initialValue = emptyList(), trackId, reloadKey) {
+    val noisyPoints by produceState<List<TrackPoint>>(initialValue = emptyList(), trackId) {
         value = viewModel.getIgnoredPoints(trackId)
     }
     val activity = remember(summary) {
@@ -2876,13 +2873,6 @@ private fun TrackMapScreen(
     // Point picked on the metric graph, highlighted on the map. Index into the good-points list.
     var selectedIndex by remember(trackId) { mutableStateOf<Int?>(null) }
     var showTypeDialog by remember(trackId) { mutableStateOf(false) }
-    // A stray leading point (import cold-start artifact) — offers the one-tap repair.
-    val strayLeadingPoint = remember(points, activity) {
-        points?.let {
-            TrackQuality.leadingPointIsJump(it, activity ?: ActivityType.UNKNOWN)
-        } == true
-    }
-    var showRepairDialog by remember(trackId) { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -2901,15 +2891,6 @@ private fun TrackMapScreen(
                 },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
-                    if (strayLeadingPoint) {
-                        IconButton(onClick = { showRepairDialog = true }) {
-                            Icon(
-                                Icons.Filled.AutoFixHigh,
-                                contentDescription = "Repair stray first point",
-                                tint = MaterialTheme.colorScheme.tertiary,
-                            )
-                        }
-                    }
                     if (noisyPoints.isNotEmpty()) {
                         IconButton(onClick = { showNoisy = !showNoisy }) {
                             Icon(
@@ -3001,24 +2982,6 @@ private fun TrackMapScreen(
                 }
             }
         }
-    }
-
-    if (showRepairDialog) {
-        ConfirmDialog(
-            icon = Icons.Filled.AutoFixHigh,
-            title = "Repair stray first point?",
-            text = "This track starts with a point that would need an impossible speed to reach " +
-                "the rest of the track — a common recorder cold-start artifact in imports. The " +
-                "point will be marked noisy and the distance recalculated.",
-            confirmLabel = "Repair",
-            onConfirm = {
-                showRepairDialog = false
-                viewModel.repairLeadingPoint(trackId) { repaired ->
-                    if (repaired) reloadKey++
-                }
-            },
-            onDismiss = { showRepairDialog = false },
-        )
     }
 
     if (showTypeDialog && summary != null) {

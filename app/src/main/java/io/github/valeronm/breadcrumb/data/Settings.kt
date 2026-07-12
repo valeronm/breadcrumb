@@ -21,6 +21,7 @@ object Settings {
     private const val KEY_USE_FUSED_PROVIDER = "use_fused_provider"
     private const val KEY_PLACES_SHOW_RARE_UNNAMED = "places_show_rare_unnamed"
     private const val KEY_IGNORE_REASON_BACKFILL_DONE = "ignore_reason_backfill_done"
+    private const val KEY_LEADING_POINT_REPAIR_DONE = "leading_point_repair_done"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
 
@@ -192,5 +193,13 @@ object Settings {
 
     fun setIgnoreReasonBackfillDone(context: Context) {
         prefs(context).edit { putBoolean(KEY_IGNORE_REASON_BACKFILL_DONE, true) }
+    }
+
+    /** Whether existing tracks have had their drive-start stray leading points repaired once. */
+    fun isLeadingPointRepairDone(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_LEADING_POINT_REPAIR_DONE, false)
+
+    fun setLeadingPointRepairDone(context: Context) {
+        prefs(context).edit { putBoolean(KEY_LEADING_POINT_REPAIR_DONE, true) }
     }
 }

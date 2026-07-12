@@ -154,43 +154,73 @@ class TrackQualityTest {
         assertArrayEquals(floatArrayOf(), TrackQuality.pointSpeedsKmh(emptyList(), gap(1.0)), 1e-3f)
     }
 
-    // --- Stray leading point (cold-start artifact in imports) -------------
+    // --- Stray leading point (drive-start cold-start artifact in imports) -----
+    //
+    // The rule is relative, not an absolute ceiling: the first seam is a stray when it's much
+    // faster than the real pace that follows (a car pulling out does a few km/h, not 180 in the
+    // opening second). Per-seam distance is keyed by the from-point's latitude, and every point is
+    // one second apart unless a test says otherwise, so seam speed (km/h) = gap-metres × 3.6.
 
     /** Per-seam gaps keyed by the from-point's latitude: lat n -> gaps[n] metres to the next. */
     private fun seamGaps(vararg gaps: Double) = DistanceFn { la1, _, la2, _ ->
         gaps[minOf(la1, la2).toInt()]
     }
 
-    private fun pointsAtLats(count: Int) = List(count) { i ->
-        point(timestamp = i * 10_000L, lat = i.toDouble())
+    /** Five points, lat 0..4, one second apart — four seams driven by [seamGaps]. */
+    private fun fivePoints() = List(5) { i -> point(timestamp = i * 1_000L, lat = i.toDouble()) }
+
+    @Test fun `a stray first point is detected when the rest of the track is a slow start`() {
+        // First seam 180 km/h; the car then crawls out at ~14 km/h — an impossible launch.
+        val pts = fivePoints()
+        assertTrue(TrackQuality.leadingPointIsJump(pts, seamGaps(50.0, 4.0, 4.0, 4.0)))
     }
 
-    @Test fun `a stray first point is detected when the rest of the track is consistent`() {
-        // Seam 0->1: 10 km in 10 s (implausible for walking); seam 1->2: 10 m (fine).
-        val pts = pointsAtLats(3)
-        assertTrue(TrackQuality.leadingPointIsJump(pts, WALKING, seamGaps(10_000.0, 10.0)))
+    @Test fun `a fast start that stays fast is not a stray`() {
+        // Already on the motorway: every seam ~100 km/h, first seam no outlier.
+        val pts = fivePoints()
+        assertFalse(TrackQuality.leadingPointIsJump(pts, seamGaps(28.0, 28.0, 28.0, 28.0)))
     }
 
-    @Test fun `a consistent track has no stray leading point`() {
-        val pts = pointsAtLats(3)
-        assertFalse(TrackQuality.leadingPointIsJump(pts, WALKING, seamGaps(10.0, 10.0)))
+    @Test fun `a genuine acceleration from a stop is not a stray`() {
+        // First seam slow (~4 km/h), speeding up after — the opposite shape from a stray.
+        val pts = fivePoints()
+        assertFalse(TrackQuality.leadingPointIsJump(pts, seamGaps(1.0, 17.0, 17.0, 17.0)))
     }
 
-    @Test fun `dropping the first point must actually repair the seam`() {
-        // Both leading seams implausible: removing the first point wouldn't fix the track.
-        val pts = pointsAtLats(3)
-        assertFalse(TrackQuality.leadingPointIsJump(pts, WALKING, seamGaps(10_000.0, 10_000.0)))
+    @Test fun `a sub-ceiling stray is still caught`() {
+        // 100 km/h first seam is under the driving jump ceiling, yet impossible one second after
+        // setting off when the real pace is ~14 km/h. The absolute rule missed exactly these.
+        val pts = fivePoints()
+        assertTrue(TrackQuality.leadingPointIsJump(pts, seamGaps(28.0, 4.0, 4.0, 4.0)))
     }
 
-    @Test fun `the activity ceiling decides what counts as a stray`() {
-        // 500 m in 10 s = 180 km/h: a teleport for walking, plausible while driving.
-        val pts = pointsAtLats(3)
-        assertTrue(TrackQuality.leadingPointIsJump(pts, WALKING, seamGaps(500.0, 10.0)))
-        assertFalse(TrackQuality.leadingPointIsJump(pts, DRIVING, seamGaps(500.0, 10.0)))
+    @Test fun `a modest first seam below the floor is not a stray`() {
+        // ~29 km/h first seam: faster than the follow pace, but a plausible launch — not flagged.
+        val pts = fivePoints()
+        assertFalse(TrackQuality.leadingPointIsJump(pts, seamGaps(8.0, 0.5, 0.5, 0.5)))
+    }
+
+    @Test fun `a first seam not far enough above the follow pace is not a stray`() {
+        // First 180, follow 72 km/h — fast but only 2.5x, within a plausible ramp-up.
+        val pts = fivePoints()
+        assertFalse(TrackQuality.leadingPointIsJump(pts, seamGaps(50.0, 20.0, 20.0, 20.0)))
+    }
+
+    @Test fun `a degenerate second seam is skipped when judging the follow pace`() {
+        // Points 1 and 2 share a timestamp (the real data's shape); the follow pace comes from
+        // the later valid seams, and the stray is still caught.
+        val pts = listOf(
+            point(timestamp = 0, lat = 0.0),
+            point(timestamp = 1_000, lat = 1.0),
+            point(timestamp = 1_000, lat = 2.0),
+            point(timestamp = 2_000, lat = 3.0),
+            point(timestamp = 3_000, lat = 4.0),
+        )
+        assertTrue(TrackQuality.leadingPointIsJump(pts, seamGaps(50.0, 5.0, 4.0, 4.0)))
     }
 
     @Test fun `tracks with fewer than three points are never flagged`() {
-        assertFalse(TrackQuality.leadingPointIsJump(pointsAtLats(2), WALKING, seamGaps(10_000.0)))
-        assertFalse(TrackQuality.leadingPointIsJump(emptyList(), WALKING, seamGaps()))
+        assertFalse(TrackQuality.leadingPointIsJump(fivePoints().take(2), seamGaps(50.0)))
+        assertFalse(TrackQuality.leadingPointIsJump(emptyList(), seamGaps()))
     }
 }

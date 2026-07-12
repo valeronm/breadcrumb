@@ -19,6 +19,9 @@ private const val TAG = "Breadcrumb"
 /** How long soft-deleted (keep-threshold-filtered) tracks are retained before being purged. */
 private const val DISCARDED_RETENTION_DAYS = 14
 
+/** Safety bound on leading-stray removal per track (real runs are 1, rarely 2). */
+private const val MAX_LEADING_REPAIRS = 5
+
 /** Thin wrapper around the DAO so callers don't touch Room directly. */
 class TrackRepository(context: Context) {
 
@@ -55,8 +58,8 @@ class TrackRepository(context: Context) {
                 duplicates++
                 continue
             }
-            db.withTransaction {
-                val trackId = dao.insertTrack(
+            val trackId = db.withTransaction {
+                val id = dao.insertTrack(
                     Track(
                         activityType = track.activityTypeName,
                         startedAt = track.startedAt,
@@ -67,7 +70,7 @@ class TrackRepository(context: Context) {
                 dao.insertPoints(
                     track.points.map { p ->
                         TrackPoint(
-                            trackId = trackId,
+                            trackId = id,
                             latitude = p.lat,
                             longitude = p.lon,
                             altitude = p.ele,
@@ -80,7 +83,10 @@ class TrackRepository(context: Context) {
                         )
                     },
                 )
+                id
             }
+            // Imports bypass live ingest filtering, so drop a drive-start stray up front.
+            repairLeadingPoints(trackId)
             imported++
         }
         if (imported > 0) DebugLog.i(TAG, "gpx import: $imported tracks added, $duplicates duplicates skipped")
@@ -210,31 +216,45 @@ class TrackRepository(context: Context) {
     suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint> = dao.ignoredPointsFor(trackId)
 
     /**
-     * Repairs a stray leading point ([TrackQuality.leadingPointIsJump] — the cold-start artifact
-     * imports let through): marks it an ignored JUMP fix and recomputes the stored distance over
-     * the remaining good points. The track's time span is deliberately left unchanged so the
-     * exact-span duplicate check still recognises a re-import of the same file. Returns whether
-     * a repair was applied (false = the track no longer qualifies).
+     * Repairs a track's stray leading point(s) ([TrackQuality.leadingPointIsJump] — the drive-start
+     * cold-start artifact imports let through): marks each as an ignored JUMP fix and recomputes the
+     * stored distance over the remaining good points. Loops in case more than one stray leads the
+     * track. The track's time span is deliberately left unchanged so the exact-span duplicate check
+     * still recognises a re-import of the same file. Returns how many points were dropped.
      */
-    suspend fun repairLeadingPoint(trackId: Long): Boolean {
-        val track = dao.track(trackId) ?: return false
-        val activity = ActivityType.ofName(track.activityType) ?: ActivityType.UNKNOWN
-        val points = dao.pointsFor(trackId)
-        if (!TrackQuality.leadingPointIsJump(points, activity)) return false
-        db.withTransaction {
-            dao.setIgnored(points.first().id, IgnoreReason.JUMP.code)
-            // Same distance walk as the recorder: segment starts detach from the previous point.
-            var distance = 0.0
-            var prev: TrackPoint? = null
-            for (p in points.drop(1)) {
-                val baseline = if (p.segmentStart) null else prev
-                if (baseline != null) distance += TrackQuality.distanceMeters(baseline, p)
-                prev = p
+    suspend fun repairLeadingPoints(trackId: Long): Int {
+        var dropped = 0
+        // Bounded: each pass ignores one leading point, so a handful covers any real run of strays.
+        repeat(MAX_LEADING_REPAIRS) {
+            val points = dao.pointsFor(trackId)
+            if (!TrackQuality.leadingPointIsJump(points)) return dropped
+            db.withTransaction {
+                dao.setIgnored(points.first().id, IgnoreReason.JUMP.code)
+                // Same distance walk as the recorder: segment starts detach from the previous point.
+                var distance = 0.0
+                var prev: TrackPoint? = null
+                for (p in points.drop(1)) {
+                    val baseline = if (p.segmentStart) null else prev
+                    if (baseline != null) distance += TrackQuality.distanceMeters(baseline, p)
+                    prev = p
+                }
+                dao.updateDistance(trackId, distance)
             }
-            dao.updateDistance(trackId, distance)
+            dropped++
         }
-        DebugLog.i(TAG, "track $trackId: stray leading point ${points.first().id} repaired")
-        return true
+        return dropped
+    }
+
+    /**
+     * One-time backfill: repairs stray leading points across every track. Imports before this
+     * shipped (and any imported before the auto-repair on import) kept their drive-start artifact;
+     * this cleans the existing history. Idempotent — a track with no stray is left untouched.
+     */
+    suspend fun repairAllLeadingPoints(): Int {
+        var total = 0
+        for (trackId in dao.allTrackIds()) total += repairLeadingPoints(trackId)
+        if (total > 0) DebugLog.i(TAG, "repaired stray leading points on $total track-point(s)")
+        return total
     }
 
     /**
