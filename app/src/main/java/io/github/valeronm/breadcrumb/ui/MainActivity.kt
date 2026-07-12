@@ -23,6 +23,24 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -66,8 +84,10 @@ import androidx.compose.material.icons.filled.FilterCenterFocus
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -112,7 +132,10 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -167,6 +190,7 @@ import io.github.valeronm.breadcrumb.util.formatKmh
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -1148,48 +1172,63 @@ private fun TracksTab(
     }
 
     val groups = remember(items) { groupTimelineByDay(items) }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        // Rows within a day sit tight so the group reads as one visual block.
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        groups.forEach { (label, dayItems) ->
-            val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
-            stickyHeader(key = "header:$label") {
-                DayHeader(label, dayTracks) {
-                    viewModel.shareTracks(dayTracks.map { it.id }) { intent ->
-                        if (intent != null) context.startActivity(intent)
+    val listState = rememberLazyListState()
+    // Day label -> its header's lazy-item index: the fast scroller jumps between these anchors.
+    val dayAnchors = remember(groups) {
+        buildList {
+            var index = 0
+            groups.forEach { (label, dayItems) ->
+                add(label to index)
+                index += dayItems.size + 1
+            }
+        }
+    }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            // Rows within a day sit tight so the group reads as one visual block.
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            groups.forEach { (label, dayItems) ->
+                val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
+                stickyHeader(key = "header:$label") {
+                    DayHeader(label, dayTracks) {
+                        viewModel.shareTracks(dayTracks.map { it.id }) { intent ->
+                            if (intent != null) context.startActivity(intent)
+                        }
+                    }
+                }
+                itemsIndexed(dayItems, key = { _, item -> item.rowKey() }) { index, item ->
+                    val shape = groupedRowShape(index, dayItems.size)
+                    when (item) {
+                        is TimelineItem.TrackItem -> TrackRow(
+                            track = item.summary,
+                            shape = shape,
+                            onOpen = { onOpen(item.summary.id) },
+                            onDeleteRequest = { pendingDelete = item.summary },
+                            // DEBUG: long-press replays the track through the Record tab's live view.
+                            onReplay = if (BuildConfig.DEBUG) {
+                                { onReplay(item.summary) }
+                            } else {
+                                null
+                            },
+                        )
+                        is TimelineItem.StayItem -> StayRow(
+                            item = item,
+                            shape = shape,
+                            onMerge = item.merge?.let { plan -> { pendingMerge = plan } },
+                            onClick = {
+                                item.place?.let { onOpenPlace(placeDetailKeyOf(it.placeId, it.centroid)) }
+                            },
+                        )
+                        is TimelineItem.GapItem -> GapRow(item.gap, shape)
                     }
                 }
             }
-            itemsIndexed(dayItems, key = { _, item -> item.rowKey() }) { index, item ->
-                val shape = groupedRowShape(index, dayItems.size)
-                when (item) {
-                    is TimelineItem.TrackItem -> TrackRow(
-                        track = item.summary,
-                        shape = shape,
-                        onOpen = { onOpen(item.summary.id) },
-                        onDeleteRequest = { pendingDelete = item.summary },
-                        // DEBUG: long-press replays the track through the Record tab's live view.
-                        onReplay = if (BuildConfig.DEBUG) {
-                            { onReplay(item.summary) }
-                        } else {
-                            null
-                        },
-                    )
-                    is TimelineItem.StayItem -> StayRow(
-                        item = item,
-                        shape = shape,
-                        onMerge = item.merge?.let { plan -> { pendingMerge = plan } },
-                        onClick = {
-                            item.place?.let { onOpenPlace(placeDetailKeyOf(it.placeId, it.centroid)) }
-                        },
-                    )
-                    is TimelineItem.GapItem -> GapRow(item.gap, shape)
-                }
-            }
         }
+        TimelineFastScroller(state = listState, dayAnchors = dayAnchors)
     }
 
     pendingDelete?.let { track ->
@@ -1221,6 +1260,161 @@ private fun TracksTab(
             },
             onDismiss = { pendingMerge = null },
         )
+    }
+}
+
+/**
+ * Fast scroller for the timeline: a finger-sized handle that fades in while the list scrolls and
+ * can be grabbed and dragged through the history. The drag snaps to day headers (never into the
+ * middle of a day), a bubble names the day under the thumb, and crossing into a different day
+ * ticks like the track scrubber.
+ */
+@Composable
+private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List<Pair<String, Int>>) {
+    val scope = rememberCoroutineScope()
+    val view = LocalView.current
+    var dragging by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableFloatStateOf(0f) }
+    // Tick when the drag crosses into a different day (same throttled pattern as the track
+    // scrubber); holders rather than composed state — the drag lambdas capture one composition.
+    val lastDay = remember { arrayOf<String?>(null) }
+    val lastTick = remember { longArrayOf(0L) }
+    // Linger after the scroll stops so there's time to reach for the handle before it fades.
+    var shown by remember { mutableStateOf(false) }
+    val active = dragging || state.isScrollInProgress
+    LaunchedEffect(active) {
+        if (active) {
+            shown = true
+        } else {
+            delay(1_500)
+            shown = false
+        }
+    }
+    val alpha by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = tween(if (shown) 100 else 500),
+        label = "fastScrollerAlpha",
+    )
+    if (alpha == 0f || dayAnchors.isEmpty()) return
+
+    // Where the thumb sits when the finger isn't driving it: the day currently at the top,
+    // on the same day-quantized scale the drag uses (so grabbing the handle doesn't jump).
+    val listFraction by remember(state, dayAnchors) {
+        derivedStateOf {
+            val first = state.layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: return@derivedStateOf 0f
+            val dayIdx = dayAnchors.indexOfLast { it.second <= first }.coerceAtLeast(0)
+            if (dayAnchors.size <= 1) 0f else dayIdx.toFloat() / (dayAnchors.size - 1)
+        }
+    }
+    val fraction = if (dragging) dragFraction else listFraction
+
+    BoxWithConstraints(Modifier.matchParentSize()) {
+        val density = LocalDensity.current
+        val thumbHeight = 56.dp
+        val thumbWidth = 32.dp
+        val thumbPx = with(density) { thumbHeight.toPx() }
+        val trackPx = (constraints.maxHeight - thumbPx).coerceAtLeast(1f)
+        val thumbY = (trackPx * fraction).roundToInt()
+
+        fun dayIndexAt(f: Float): Int =
+            (f * (dayAnchors.size - 1)).roundToInt().coerceIn(dayAnchors.indices)
+
+        fun applyFraction(f: Float) {
+            dragFraction = f.coerceIn(0f, 1f)
+            val (day, headerIndex) = dayAnchors[dayIndexAt(dragFraction)]
+            if (day != lastDay[0]) {
+                if (lastDay[0] != null) {
+                    val now = SystemClock.uptimeMillis()
+                    if (now - lastTick[0] >= 30) {
+                        lastTick[0] = now
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    }
+                }
+                lastDay[0] = day
+            }
+            scope.launch { state.scrollToItem(headerIndex) }
+        }
+
+        // The handle: a half-circle hugging the edge inside a larger touch box that captures on
+        // first touch-down — no slop wait, so grabs aren't eaten by drag detection (which loses
+        // slow or slightly diagonal starts). Only the handle area takes input; the rest of the
+        // edge scrolls the list as usual.
+        val touchPad = 12.dp
+        val touchPadPx = with(density) { touchPad.toPx() }
+        val currentFraction = rememberUpdatedState(fraction)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset { IntOffset(0, (thumbY - touchPadPx).roundToInt()) }
+                .size(width = thumbWidth + touchPad, height = thumbHeight + touchPad * 2)
+                .pointerInput(dayAnchors.size, trackPx) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        down.consume()
+                        dragging = true
+                        lastDay[0] = null
+                        dragFraction = currentFraction.value
+                        // This box moves with the thumb, so map local positions to track space
+                        // through the thumb's current offset; anchor the grab point so the
+                        // handle doesn't jump under the finger.
+                        fun trackY(localY: Float) = localY + trackPx * dragFraction - touchPadPx
+                        val grabDelta = (trackPx * dragFraction + thumbPx / 2) - trackY(down.position.y)
+                        try {
+                            drag(down.id) { change ->
+                                change.consume()
+                                val centre = trackY(change.position.y) + grabDelta
+                                applyFraction((centre - thumbPx / 2) / trackPx)
+                            }
+                        } finally {
+                            dragging = false
+                        }
+                    }
+                },
+            contentAlignment = Alignment.CenterEnd,
+        ) {
+            Surface(
+                modifier = Modifier.size(width = thumbWidth, height = thumbHeight).alpha(alpha),
+                shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
+                color = if (dragging) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.secondaryContainer,
+                tonalElevation = 3.dp,
+                shadowElevation = 3.dp,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Filled.UnfoldMore,
+                        contentDescription = "Scroll to a day",
+                        tint = if (dragging) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+        }
+        if (dragging) {
+            val label = dayAnchors[dayIndexAt(fraction)].first
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset {
+                        IntOffset(
+                            -with(density) { (thumbWidth + 12.dp).roundToPx() },
+                            (thumbY + (thumbPx / 2).roundToInt() - with(density) { 16.dp.roundToPx() }),
+                        )
+                    },
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                tonalElevation = 3.dp,
+                shadowElevation = 3.dp,
+            ) {
+                Text(
+                    label,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+        }
     }
 }
 
@@ -2550,19 +2744,26 @@ private fun StayCard(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val tint = if (named) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.onSurfaceVariant
+            // A merge-eligible short stop is its own species: tertiary accent (matching the
+            // swipe-to-merge hint) and a pause glyph instead of the place pin.
+            val mergeable = item.merge != null
+            val tint = when {
+                mergeable -> MaterialTheme.colorScheme.tertiary
+                named -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
             TonalIconDisc(
-                icon = Icons.Filled.Place,
+                icon = if (mergeable) Icons.Filled.Pause else Icons.Filled.Place,
                 tint = tint,
-                contentDescription = "Stay",
+                contentDescription = if (mergeable) "Short stop" else "Stay",
                 discAlpha = 0.16f,
             )
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 // The place leads; when (with midnight slices phrased humanly) is the metadata line.
+                // Merge-eligible stays (always unnamed) name the situation instead.
                 Text(
-                    place?.label ?: "Stayed",
+                    place?.label ?: if (mergeable) "Short stop" else "Stayed",
                     style = MaterialTheme.typography.titleMedium,
                 )
                 val start = timeFormat.format(Date(stay.start))
@@ -2579,8 +2780,9 @@ private fun StayCard(
                     else -> "$start – ${timeFormat.format(Date(end))}"
                 }
                 val visits = place?.visitCount?.takeIf { !named && it >= VISIT_COUNT_BADGE_MIN }
+                val tertiaryHint = MaterialTheme.colorScheme.tertiary
                 Text(
-                    buildString {
+                    buildAnnotatedString {
                         append(timePhrase)
                         // A midnight-sliced bound makes the duration both redundant (it restates
                         // the clock time) and misleading (the real stay continues across the
@@ -2590,6 +2792,11 @@ private fun StayCard(
                             append(formatDurationMs((end ?: System.currentTimeMillis()) - stay.start))
                         }
                         if (visits != null) append(" · visited $visits×")
+                        // The swipe-to-merge gesture is invisible on its own — this is its one hint.
+                        if (mergeable) {
+                            append(" · ")
+                            withStyle(SpanStyle(color = tertiaryHint)) { append("swipe to merge") }
+                        }
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
