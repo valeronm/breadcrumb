@@ -26,8 +26,8 @@ adb shell am start -n io.github.valeronm.breadcrumb.debug/io.github.valeronm.bre
 adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png   # screenshot to inspect UI
 ```
 
-Unit tests live in `app/src/test` and cover the pure domain/data logic (ActivityGate,
-TrackController, ActivityInterpreter, KeepRule, TrackQuality, GpxExporter) — run them with
+Unit tests live in `app/src/test` and cover the pure logic in `domain/` plus data-layer pieces
+(TrackQuality, GpxExporter/GpxParser) — run them with
 `./gradlew :app:testDebugUnitTest`, and note that `assembleDebug` does **not** compile them, so
 run the tests after touching anything they cover. There are no instrumented/UI tests; behaviour
 above the domain layer is verified by building and driving the app on a device/emulator (activity
@@ -58,6 +58,13 @@ The pieces below only make sense together — read them as a unit.
 **State bridge:** `location/TrackingStatus` is a process-wide `MutableStateFlow` the service writes
 and the UI collects — this is how live recording state reaches Compose without binding to the service.
 
+**Domain logic** (`domain/`): pure, unit-tested Kotlin with no Android dependencies — the service
+and UI stay thin by delegating here. `TrackController` (track lifecycle state machine),
+`ActivityGate`/`ActivityInterpreter` (transition debouncing/filtering), `NoFixGuard` (give up when
+GPS can't get a fix), `KeepRule`, `TrackMerge` (merge short same-activity stays), `StayDeriver` +
+`PlaceClusterer` + `PlaceResolver` (timeline stays and named places), `RecordCard`. New behaviour
+belongs here first, with a test, before wiring into the service or UI.
+
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
 time/distance between points) and keep-track thresholds (min duration/length). Sampling is read
 by the service when each track's GPS request starts; thresholds are read by the repository when a track
@@ -65,15 +72,18 @@ finishes. `ActivityType` therefore only carries a label + a `recording` boolean 
 **not** per-activity anymore.
 
 **Data** (`data/`): Room behind `TrackRepository`. The repository's `meetsKeepThresholds` decides
-whether a finished track is kept or deleted; this runs
+whether a finished track is kept or soft-deleted as *discarded* — discarded tracks are reviewable
+from a debug screen, auto-purged after 14 days, and deliberately block GPX re-import; the check runs
 both on normal finish and via `finalizeDangling`, which also cleans up tracks left open by a crash
-(it skips `LocationRecordingService.activeTrackId`). `GpxExporter` builds GPX for share intents
-(`FileProvider`) or bulk-writes to a user-picked folder (Storage Access Framework).
+(it skips `LocationRecordingService.activeTrackId`). `GpxExporter` (`data/export/`) builds GPX for
+share intents (`FileProvider`) or bulk-writes to a user-picked folder (Storage Access Framework);
+`GpxParser` imports GPX files shared/opened into the app. `PlaceRepository` backs the Places tab.
 
-**UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Tracks) Scaffold with a
-full-screen **overlay** on top (sealed `Overlay` = `TrackDetail` | `Settings`),
-both animated by one shared `PredictiveBackHandler` (Android predictive back — scale/shift previewing
-the tabs underneath). The track map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps dark
+**UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places) Scaffold
+with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
+stacked layers for place detail, the debug Logs/Discarded pages, and discarded-track detail — each
+animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
+one layer at a time). The track map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps dark
 vector basemap**: the track is a `line-gradient` coloured per point by the selected metric, start/end
 and noisy-fix markers sit on a symbol layer, and switching the colour metric recolours in place
 without moving the camera. The map renders in texture mode (a SurfaceView would ignore Compose
