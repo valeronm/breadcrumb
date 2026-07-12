@@ -210,6 +210,34 @@ class TrackRepository(context: Context) {
     suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint> = dao.ignoredPointsFor(trackId)
 
     /**
+     * Repairs a stray leading point ([TrackQuality.leadingPointIsJump] — the cold-start artifact
+     * imports let through): marks it an ignored JUMP fix and recomputes the stored distance over
+     * the remaining good points. The track's time span is deliberately left unchanged so the
+     * exact-span duplicate check still recognises a re-import of the same file. Returns whether
+     * a repair was applied (false = the track no longer qualifies).
+     */
+    suspend fun repairLeadingPoint(trackId: Long): Boolean {
+        val track = dao.track(trackId) ?: return false
+        val activity = ActivityType.ofName(track.activityType) ?: ActivityType.UNKNOWN
+        val points = dao.pointsFor(trackId)
+        if (!TrackQuality.leadingPointIsJump(points, activity)) return false
+        db.withTransaction {
+            dao.setIgnored(points.first().id, IgnoreReason.JUMP.code)
+            // Same distance walk as the recorder: segment starts detach from the previous point.
+            var distance = 0.0
+            var prev: TrackPoint? = null
+            for (p in points.drop(1)) {
+                val baseline = if (p.segmentStart) null else prev
+                if (baseline != null) distance += TrackQuality.distanceMeters(baseline, p)
+                prev = p
+            }
+            dao.updateDistance(trackId, distance)
+        }
+        DebugLog.i(TAG, "track $trackId: stray leading point ${points.first().id} repaired")
+        return true
+    }
+
+    /**
      * One-time backfill of [IgnoreReason] for ignored points recorded before DB v5 (which stored
      * only the flag). Replays [TrackQuality.badFixReason] over each track with the same baseline
      * walk the recorder used — the stored flags decide which points were good — and attributes

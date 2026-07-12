@@ -102,6 +102,26 @@ object TrackQuality {
         distance: DistanceFn = AndroidDistance,
     ): Boolean = badFixReason(lastGood, point, activity, maxAccuracyM, distance) != null
 
+    /**
+     * Whether the track opens with a stray point: reaching the second point from the first needs
+     * an implausible speed for [activity], while the second-to-third pair is plausible — the
+     * classic cold-start artifact (first fix far off, rest of the track consistent). Common in
+     * imported GPX, which bypasses live ingest filtering; the forward jump check can't catch it
+     * because it would blame the second point. Repair: ignore the first point.
+     */
+    fun leadingPointIsJump(
+        points: List<TrackPoint>,
+        activity: ActivityType,
+        distance: DistanceFn = AndroidDistance,
+    ): Boolean {
+        if (points.size < 3) return false
+        val firstSeamJumps =
+            badFixReason(points[0], points[1], activity, Float.MAX_VALUE, distance) == IgnoreReason.JUMP
+        val nextSeamOk =
+            badFixReason(points[1], points[2], activity, Float.MAX_VALUE, distance) != IgnoreReason.JUMP
+        return firstSeamJumps && nextSeamOk
+    }
+
     /** Like [isBadFix], but says *why* — [IgnoreReason.ACCURACY] or [IgnoreReason.JUMP] — or null. */
     fun badFixReason(
         lastGood: TrackPoint?,

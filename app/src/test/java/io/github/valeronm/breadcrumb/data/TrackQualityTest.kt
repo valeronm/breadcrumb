@@ -153,4 +153,44 @@ class TrackQualityTest {
     @Test fun `an empty track yields an empty array`() {
         assertArrayEquals(floatArrayOf(), TrackQuality.pointSpeedsKmh(emptyList(), gap(1.0)), 1e-3f)
     }
+
+    // --- Stray leading point (cold-start artifact in imports) -------------
+
+    /** Per-seam gaps keyed by the from-point's latitude: lat n -> gaps[n] metres to the next. */
+    private fun seamGaps(vararg gaps: Double) = DistanceFn { la1, _, la2, _ ->
+        gaps[minOf(la1, la2).toInt()]
+    }
+
+    private fun pointsAtLats(count: Int) = List(count) { i ->
+        point(timestamp = i * 10_000L, lat = i.toDouble())
+    }
+
+    @Test fun `a stray first point is detected when the rest of the track is consistent`() {
+        // Seam 0->1: 10 km in 10 s (implausible for walking); seam 1->2: 10 m (fine).
+        val pts = pointsAtLats(3)
+        assertTrue(TrackQuality.leadingPointIsJump(pts, WALKING, seamGaps(10_000.0, 10.0)))
+    }
+
+    @Test fun `a consistent track has no stray leading point`() {
+        val pts = pointsAtLats(3)
+        assertFalse(TrackQuality.leadingPointIsJump(pts, WALKING, seamGaps(10.0, 10.0)))
+    }
+
+    @Test fun `dropping the first point must actually repair the seam`() {
+        // Both leading seams implausible: removing the first point wouldn't fix the track.
+        val pts = pointsAtLats(3)
+        assertFalse(TrackQuality.leadingPointIsJump(pts, WALKING, seamGaps(10_000.0, 10_000.0)))
+    }
+
+    @Test fun `the activity ceiling decides what counts as a stray`() {
+        // 500 m in 10 s = 180 km/h: a teleport for walking, plausible while driving.
+        val pts = pointsAtLats(3)
+        assertTrue(TrackQuality.leadingPointIsJump(pts, WALKING, seamGaps(500.0, 10.0)))
+        assertFalse(TrackQuality.leadingPointIsJump(pts, DRIVING, seamGaps(500.0, 10.0)))
+    }
+
+    @Test fun `tracks with fewer than three points are never flagged`() {
+        assertFalse(TrackQuality.leadingPointIsJump(pointsAtLats(2), WALKING, seamGaps(10_000.0)))
+        assertFalse(TrackQuality.leadingPointIsJump(emptyList(), WALKING, seamGaps()))
+    }
 }

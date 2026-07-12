@@ -83,6 +83,10 @@ interface TrackDao {
     @Query("UPDATE track_points SET ignoreReason = :reason WHERE id IN (:ids)")
     suspend fun setIgnoreReason(ids: List<Long>, reason: String)
 
+    /** Flag one point as an ignored bad fix, with the reason. */
+    @Query("UPDATE track_points SET ignored = 1, ignoreReason = :reason WHERE id = :pointId")
+    suspend fun setIgnored(pointId: Long, reason: String)
+
     /**
      * Duplicate check for GPX import: a track with the exact same time span already exists.
      * Deliberately does NOT filter `discardedAt` — a soft-deleted track still blocks re-importing

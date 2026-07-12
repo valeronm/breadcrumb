@@ -178,6 +178,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     /** The ignored "bad fix" points, shown as markers on the track map. */
     suspend fun getIgnoredPoints(trackId: Long): List<TrackPoint> = repository.ignoredPointsFor(trackId)
 
+    /** Repairs a stray leading point (import cold-start artifact); [onDone] gets whether it did. */
+    fun repairLeadingPoint(trackId: Long, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch { onDone(repository.repairLeadingPoint(trackId)) }
+    }
+
     /** Exports every track as a .gpx file into the picked folder; reports how many were written. */
     fun exportAll(treeUri: Uri, onDone: (Int) -> Unit) {
         viewModelScope.launch {
