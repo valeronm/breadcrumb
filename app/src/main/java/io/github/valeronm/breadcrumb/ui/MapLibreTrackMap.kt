@@ -26,6 +26,7 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import com.google.gson.JsonObject
 import org.maplibre.android.MapLibre
@@ -69,6 +70,8 @@ fun MapLibreTrackMap(
     colorMode: ColorMode = ColorMode.SPEED,
     showLegend: Boolean = false,
     selectedPoint: TrackPoint? = null,
+    // Detected in-track stops, highlighted as place-style capture circles under the line.
+    dwells: List<DwellDetector.Dwell> = emptyList(),
     // Live preview: the last point is the current position — a droplet rotated to the movement
     // bearing instead of the finished-track end dot.
     directionalEnd: Boolean = false,
@@ -83,12 +86,13 @@ fun MapLibreTrackMap(
     val framed = remember { booleanArrayOf(false) }
     // What each source/layer was last fed, so unrelated recompositions (e.g. the graph scrubber
     // moving the selection) don't re-serialize the full track geometry into the native map.
-    val applied = remember { arrayOfNulls<Any?>(4) } // points, noisy, paint, selection
+    val applied = remember { arrayOfNulls<Any?>(5) } // points, noisy, paint, selection, dwells
 
     Box(modifier) {
         MapLibreStyledMap(
             modifier = Modifier.fillMaxSize(),
             onStyleLoaded = { ctx, map, style ->
+                addDwellLayers(style, dwells) // first, so the circles render under the line
                 addTrackLine(style, points, paint)
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
                 addSelectionLayer(ctx, style, selectedPoint)
@@ -129,6 +133,10 @@ fun MapLibreTrackMap(
                     applied[3] = selectedPoint
                     style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(selectedPoint))
                 }
+                if (applied[4] !== dwells) {
+                    applied[4] = dwells
+                    style.getSourceAs<GeoJsonSource>(DWELL_SOURCE)?.setGeoJson(dwellCollection(dwells))
+                }
                 if (!framed[0]) {
                     frameTo(map, points.map { LatLng(it.latitude, it.longitude) }, singlePointZoom = 15.0)
                     framed[0] = true
@@ -158,6 +166,11 @@ private fun MapLibreStyledMap(
     val mapView = rememberMapLibreMapView()
     val mapRef = remember(mapView) { arrayOfNulls<MapLibreMap>(1) }
     val inited = remember(mapView) { booleanArrayOf(false) }
+    // The style loads asynchronously; inputs that arrive in the meantime recompose while the
+    // style is still null, so their update is skipped. Route the callback through a ref so the
+    // load applies the *latest* composition's data, not what the first composition captured.
+    val styleLoadedRef = remember(mapView) { arrayOf(onStyleLoaded) }
+    styleLoadedRef[0] = onStyleLoaded
     AndroidView(
         modifier = modifier,
         factory = { mapView },
@@ -168,7 +181,7 @@ private fun MapLibreStyledMap(
                     mapRef[0] = map
                     onMapReady(map)
                     map.setStyle(Style.Builder().fromJson(loadProtomapsDarkStyle(view.context))) { style ->
-                        onStyleLoaded(view.context, map, style)
+                        styleLoadedRef[0](view.context, map, style)
                     }
                 }
             } else {
@@ -232,6 +245,32 @@ private const val SELECT_SOURCE = "select-src"
 private const val SELECT_LAYER = "select-layer"
 private const val IMG_SELECTED = "marker-selected"
 private const val DEFAULT_LINE = 0xFF5B9BF0.toInt()
+
+private const val DWELL_SOURCE = "dwell-src"
+private const val DWELL_FILL = "dwell-fill"
+private const val DWELL_LINE = "dwell-line"
+
+/** One place-style capture circle per detected stop, sized at the detector's corral radius. */
+private fun dwellCollection(dwells: List<DwellDetector.Dwell>): FeatureCollection {
+    val radiusM = DwellDetector.Params().corralRadiusM
+    return FeatureCollection.fromFeatures(dwells.map { circleFeature(it.centroid, radiusM) })
+}
+
+private fun addDwellLayers(style: Style, dwells: List<DwellDetector.Dwell>) {
+    style.addSource(GeoJsonSource(DWELL_SOURCE, dwellCollection(dwells)))
+    style.addLayer(
+        FillLayer(DWELL_FILL, DWELL_SOURCE).withProperties(
+            PropertyFactory.fillColor(CIRCLE_FILL),
+        ),
+    )
+    style.addLayer(
+        LineLayer(DWELL_LINE, DWELL_SOURCE).withProperties(
+            PropertyFactory.lineColor(CIRCLE_LINE),
+            PropertyFactory.lineWidth(1.5f),
+            PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
+        ),
+    )
+}
 
 private fun trackLineFeature(points: List<TrackPoint>): Feature =
     Feature.fromGeometry(LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) }))

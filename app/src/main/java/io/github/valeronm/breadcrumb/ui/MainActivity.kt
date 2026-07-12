@@ -174,6 +174,7 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.RecordCardState
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -189,9 +190,11 @@ import io.github.valeronm.breadcrumb.util.formatKm
 import io.github.valeronm.breadcrumb.util.formatKmh
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -2864,12 +2867,20 @@ private fun TrackMapScreen(
     val noisyPoints by produceState<List<TrackPoint>>(initialValue = emptyList(), trackId) {
         value = viewModel.getIgnoredPoints(trackId)
     }
+    // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
+    val dwells by produceState<List<DwellDetector.Dwell>>(initialValue = emptyList(), points) {
+        value = points?.let { pts ->
+            withContext(Dispatchers.Default) { DwellDetector.detect(pts, distance = AndroidDistance) }
+        } ?: emptyList()
+    }
     val activity = remember(summary) {
         summary?.let { ActivityType.ofName(it.activityType) }
     }
     var colorMode by remember { mutableStateOf(ColorMode.SPEED) }
     // Noisy (ignored) fixes are hidden by default; the warning toggle shows them with a legend.
     var showNoisy by remember(trackId) { mutableStateOf(false) }
+    // Detected stops default to visible — this screen is the validation tool for the detector.
+    var showStops by remember(trackId) { mutableStateOf(true) }
     // Point picked on the metric graph, highlighted on the map. Index into the good-points list.
     var selectedIndex by remember(trackId) { mutableStateOf<Int?>(null) }
     var showTypeDialog by remember(trackId) { mutableStateOf(false) }
@@ -2891,6 +2902,20 @@ private fun TrackMapScreen(
                 },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
+                    if (dwells.isNotEmpty()) {
+                        IconButton(onClick = { showStops = !showStops }) {
+                            Icon(
+                                Icons.Filled.Place,
+                                contentDescription =
+                                    if (showStops) "Hide detected stops" else "Show detected stops",
+                                tint = if (showStops) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
                     if (noisyPoints.isNotEmpty()) {
                         IconButton(onClick = { showNoisy = !showNoisy }) {
                             Icon(
@@ -2960,11 +2985,16 @@ private fun TrackMapScreen(
                                     colorMode = colorMode,
                                     showLegend = true,
                                     selectedPoint = selectedIndex?.let { loaded.getOrNull(it) },
+                                    dwells = if (showStops) dwells else emptyList(),
                                     modifier = Modifier.fillMaxSize(),
                                 )
                                 if (showNoisy) {
                                     // Top-right, clear of the colour-metric legend (bottom-right).
                                     NoisyLegend(noisyPoints, Modifier.align(Alignment.TopEnd).padding(12.dp))
+                                }
+                                if (showStops && dwells.isNotEmpty()) {
+                                    // Top-left: the noisy legend owns the top-right corner.
+                                    DwellLegend(dwells, Modifier.align(Alignment.TopStart).padding(12.dp))
                                 }
                             }
                         }
@@ -3271,6 +3301,25 @@ private fun noisyLegendEntry(reason: IgnoreReason?): Pair<String, Color> = when 
 }
 
 /** Legend for the noisy-fix markers: one row per rejection reason present in [noisyPoints]. */
+/** Detected in-track stops: one row per dwell — "14:36 – 16:10 · 1h 34m". */
+@Composable
+private fun DwellLegend(dwells: List<DwellDetector.Dwell>, modifier: Modifier) {
+    LegendSurface(modifier) {
+        Text(
+            "Stops",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        for (d in dwells) {
+            Text(
+                "${timeFormat.format(Date(d.entryTs))} – ${timeFormat.format(Date(d.exitTs))}" +
+                    " · ${formatDuration(d.entryTs, d.exitTs)}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
 @Composable
 private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
     val entries = remember(noisyPoints) {
