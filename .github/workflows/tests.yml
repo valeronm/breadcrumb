@@ -3,7 +3,21 @@ name: Tests
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'tools/**'
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.github/workflows/release.yml'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - 'tools/**'
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.github/workflows/release.yml'
 
 jobs:
   unit-tests:
