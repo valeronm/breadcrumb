@@ -1,10 +1,12 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.RectF
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -78,8 +80,9 @@ fun MapLibreTrackMap(
     directionalEnd: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val coloring = remember(points, colorMode, activity) {
-        trackColoring(points, TrackQuality.pointSpeedsKmh(points), colorMode, activity)
+    val darkTheme = isSystemInDarkTheme()
+    val coloring = remember(points, colorMode, activity, darkTheme) {
+        trackColoring(points, TrackQuality.pointSpeedsKmh(points), colorMode, activity, darkTheme)
     }
     val paint = remember(points, coloring) { buildTrackPaint(points, coloring.colors) }
     // Frame once per map; later updates (colour switches, live point growth) must not move the
@@ -181,7 +184,7 @@ private fun MapLibreStyledMap(
                 view.getMapAsync { map ->
                     mapRef[0] = map
                     onMapReady(map)
-                    map.setStyle(Style.Builder().fromJson(loadProtomapsDarkStyle(view.context))) { style ->
+                    map.setStyle(Style.Builder().fromJson(loadProtomapsStyle(view.context))) { style ->
                         styleLoadedRef[0](view.context, map, style)
                     }
                 }
@@ -204,7 +207,13 @@ private fun rememberMapLibreMapView(): MapView {
         // layer and ignores Compose clipping, so it would bleed over rounded card corners. The
         // cards' side padding also keeps the map out of the back-gesture edge strips, so no
         // edge-swipe handling is needed on the view itself.
-        val options = MapLibreMapOptions.createFromAttributes(ctx).textureMode(true)
+        val options = MapLibreMapOptions.createFromAttributes(ctx)
+            .textureMode(true)
+            // Shown until the first rendered frame; defaults to white, which flashes hard
+            // against a dark UI. Match the current flavour's background-color.
+            .foregroundLoadColor(
+                android.graphics.Color.parseColor(if (isDarkUi(ctx)) "#34373D" else "#CCCCCC"),
+            )
         MapView(ctx, options).apply {
             onCreate(null)
             onStart()
@@ -370,8 +379,9 @@ private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
     )
 
 /** Labelled pin layer shared by the place and overview maps: icon plus a label under it. */
-private fun labelledSymbolLayer(id: String, source: String): SymbolLayer =
-    SymbolLayer(id, source).withProperties(
+private fun labelledSymbolLayer(ctx: Context, id: String, source: String): SymbolLayer {
+    val dark = isDarkUi(ctx)
+    return SymbolLayer(id, source).withProperties(
         PropertyFactory.iconImage(Expression.get("icon")),
         PropertyFactory.iconAllowOverlap(true),
         PropertyFactory.iconIgnorePlacement(true),
@@ -380,13 +390,14 @@ private fun labelledSymbolLayer(id: String, source: String): SymbolLayer =
         PropertyFactory.textField(Expression.get("label")),
         PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
         PropertyFactory.textSize(12f),
-        PropertyFactory.textColor("#C8CFC6"),
-        PropertyFactory.textHaloColor("#14211A"),
+        PropertyFactory.textColor(if (dark) "#C8CFC6" else "#38423B"),
+        PropertyFactory.textHaloColor(if (dark) "#14211A" else "#F0F2EE"),
         PropertyFactory.textHaloWidth(1.2f),
         PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
         PropertyFactory.textOffset(arrayOf(0f, 0.8f)),
         PropertyFactory.textOptional(true),
     )
+}
 
 /**
  * The graph-scrubber selection: its own source/layer so updates don't rebuild the marker set.
@@ -509,9 +520,18 @@ private fun drawableBitmap(ctx: Context, resId: Int): Bitmap {
     return bmp
 }
 
-/** The bundled official Protomaps dark style (assets/protomaps-dark.json) with the hosted-API key injected. */
-private fun loadProtomapsDarkStyle(ctx: Context): String =
-    ctx.assets.open("protomaps-dark.json").bufferedReader().use { it.readText() }
+/** Whether the UI is in dark mode — the single switch for basemap flavour and map ink colours. */
+private fun isDarkUi(ctx: Context): Boolean =
+    (ctx.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+        Configuration.UI_MODE_NIGHT_YES
+
+/**
+ * The bundled official Protomaps style for the current theme (assets/protomaps-{dark,light}.json)
+ * with the hosted-API key injected.
+ */
+private fun loadProtomapsStyle(ctx: Context): String =
+    ctx.assets.open(if (isDarkUi(ctx)) "protomaps-dark.json" else "protomaps-light.json")
+        .bufferedReader().use { it.readText() }
         .replace("{PROTOMAPS_KEY}", BuildConfig.PROTOMAPS_API_KEY)
 
 // --- Place map ----------------------------------------------------------------------------------
@@ -604,7 +624,7 @@ private fun addPlaceLayers(
     style.addSource(
         GeoJsonSource(PLACE_MARKER_SOURCE, placeMarkerCollection(center, endpoints, neighbors, showInternals)),
     )
-    style.addLayer(labelledSymbolLayer(PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE))
+    style.addLayer(labelledSymbolLayer(ctx, PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE))
 }
 
 /**
@@ -714,7 +734,7 @@ private fun addOverviewLayers(ctx: Context, style: Style, places: List<OverviewP
     style.addImage(IMG_ENDPOINT, drawableBitmap(ctx, R.drawable.ic_marker_endpoint))
     style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))
     style.addSource(GeoJsonSource(OVERVIEW_SOURCE, overviewCollection(places)))
-    style.addLayer(labelledSymbolLayer(OVERVIEW_LAYER, OVERVIEW_SOURCE))
+    style.addLayer(labelledSymbolLayer(ctx, OVERVIEW_LAYER, OVERVIEW_SOURCE))
 }
 
 private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =

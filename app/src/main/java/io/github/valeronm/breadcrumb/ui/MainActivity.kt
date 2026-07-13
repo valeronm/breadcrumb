@@ -27,6 +27,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.BoxScope
@@ -126,6 +127,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -428,6 +430,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
             modifier = Modifier.underlayBlur(overlayLayer, placeLayer),
             topBar = {
                 TopAppBar(
+                    colors = canvasTopBarColors(),
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -461,7 +464,9 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                 )
             },
             bottomBar = {
-                NavigationBar {
+                // One container step below the canvas: the default surfaceContainer became the
+                // light theme's canvas tone, which made the bar invisible against it.
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
                     NavigationBarItem(
                         selected = selectedTab == HomeTab.RECORD,
                         onClick = { selectedTab = HomeTab.RECORD },
@@ -1738,6 +1743,7 @@ private fun PlaceDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = canvasTopBarColors(),
                 title = {
                     Column {
                         Text(place?.label ?: "Unnamed place")
@@ -2116,6 +2122,7 @@ private fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = canvasTopBarColors(),
                 title = { Text("Settings") },
                 navigationIcon = { BackNavIcon(onBack) },
             )
@@ -2205,6 +2212,7 @@ private fun SettingsSubPage(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = canvasTopBarColors(),
                 title = { Text(title) },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
@@ -2453,6 +2461,7 @@ private fun LogsScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = canvasTopBarColors(),
                 title = { Text("Logs (${entries.size})") },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
@@ -2512,6 +2521,7 @@ private fun DiscardedTracksScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = canvasTopBarColors(),
                 title = { Text("Recently deleted" + if (tracks.isEmpty()) "" else " (${tracks.size})") },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
@@ -3182,6 +3192,15 @@ private fun GapPlaceLine(place: PlaceResolver.ResolvedStay?, onOpenPlace: (Strin
     }
 }
 
+/**
+ * Top bars sit on the scaffold canvas instead of the default lighter surface — visible since
+ * the light theme dips the canvas below the cards; identical tones in dark.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun canvasTopBarColors() =
+    TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+
 private val discardedWhenFormat = DateTimeFormatter.ofPattern("d MMM HH:mm")
 
 private fun formatDuration(startedAt: Long, endedAt: Long?): String {
@@ -3240,6 +3259,7 @@ private fun TrackMapScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = canvasTopBarColors(),
                 title = {
                     Column {
                         Text(summary?.let { ActivityType.labelFor(it.activityType) } ?: "Track")
@@ -3315,8 +3335,9 @@ private fun TrackMapScreen(
                     if (summary != null) {
                         Card(Modifier.fillMaxWidth()) { TrackStatsHeader(summary) }
                     }
-                    val graph = remember(loaded, colorMode, activity) {
-                        metricGraphData(loaded, colorMode, activity)
+                    val darkTheme = isSystemInDarkTheme()
+                    val graph = remember(loaded, colorMode, activity, darkTheme) {
+                        metricGraphData(loaded, colorMode, activity, darkTheme)
                     }
                     // Metric chips, map, and scrubber read as one group: small gaps, small
                     // corners between neighbours.
@@ -3428,12 +3449,13 @@ internal fun metricGraphData(
     points: List<TrackPoint>,
     mode: ColorMode,
     activity: ActivityType?,
+    dark: Boolean,
 ): MetricGraphData? {
     // Computed unconditionally: trackColoring below needs it whatever the mode.
     val speeds = TrackQuality.pointSpeedsKmh(points)
     val (values, unit) = metricSeries(points, mode, speeds)
     if (values.all { it == null }) return null
-    val colors = trackColoring(points, speeds, mode, activity).colors
+    val colors = trackColoring(points, speeds, mode, activity, dark).colors
     return MetricGraphData(points, values, colors, unit)
 }
 
@@ -3729,10 +3751,12 @@ private fun activityColor(activity: ActivityType?): Color = when (activity) {
 // red (slow) → green (a good cruising pace) → blue (fast). Hue runs 0°(red)→240°(blue), so with an
 // evenly-spaced min/mid/max the midpoint speed lands exactly on green.
 private const val HUE_RED = 0f
-private const val HUE_GREEN = 120f
 private const val HUE_BLUE = 240f
 private const val SPEED_SATURATION = 0.9f
-private const val SPEED_LUMINANCE = 0.5f
+
+// L=0.5 glows against the dark basemap but washes out (especially the green/yellow middle of
+// the ramp) on the pale light basemap — deeper colours there.
+private fun rampLuminance(dark: Boolean) = if (dark) 0.5f else 0.33f
 
 /** Speed thresholds (km/h) anchoring the red / green / blue points of the colour ramp per activity. */
 private data class SpeedScale(val minKmh: Float, val midKmh: Float, val maxKmh: Float)
@@ -3755,8 +3779,8 @@ enum class ColorMode(val label: String) {
     CN0("Signal"),
 }
 
-private val NO_DATA_COLOR = Color.hsl(0f, 0f, 0.6f) // grey for points the metric has no value for
-private val NO_DATA_ARGB = NO_DATA_COLOR.toArgb()
+/** Grey for points the metric has no value for; darker on the light basemap. */
+private fun noDataArgb(dark: Boolean) = Color.hsl(0f, 0f, if (dark) 0.6f else 0.45f).toArgb()
 
 /** Legend content for the current colour mode. */
 internal sealed interface Legend {
@@ -3769,20 +3793,20 @@ internal sealed interface Legend {
 internal class TrackColoring(val colors: IntArray, val legend: Legend)
 
 /** ARGB on the red(0°)→green(120°)→blue(240°) ramp for [value] between the [redAt] and [blueAt] anchors. */
-private fun rampColor(value: Float?, redAt: Float, blueAt: Float): Int {
-    if (value == null) return NO_DATA_ARGB
+private fun rampColor(value: Float?, redAt: Float, blueAt: Float, dark: Boolean): Int {
+    if (value == null) return noDataArgb(dark)
     val t = ((value - redAt) / (blueAt - redAt)).coerceIn(0f, 1f)
     val hue = HUE_RED + t * (HUE_BLUE - HUE_RED)
-    return Color.hsl(hue, SPEED_SATURATION, SPEED_LUMINANCE).toArgb()
+    return Color.hsl(hue, SPEED_SATURATION, rampLuminance(dark)).toArgb()
 }
 
 private fun rampColoring(
-    values: List<Float?>, redAt: Float, blueAt: Float, unit: String, emptyMsg: String,
+    values: List<Float?>, redAt: Float, blueAt: Float, unit: String, emptyMsg: String, dark: Boolean,
 ): TrackColoring {
     if (values.all { it == null }) {
-        return TrackColoring(IntArray(values.size) { NO_DATA_ARGB }, Legend.None(emptyMsg))
+        return TrackColoring(IntArray(values.size) { noDataArgb(dark) }, Legend.None(emptyMsg))
     }
-    val colors = IntArray(values.size) { rampColor(values[it], redAt, blueAt) }
+    val colors = IntArray(values.size) { rampColor(values[it], redAt, blueAt, dark) }
     fun num(v: Float) = "%.0f".format(v)
     // Unit only on the rightmost label, else three "… unit" labels overflow the fixed-width legend.
     val right = num(blueAt).let { if (unit.isEmpty()) it else "$it $unit" }
@@ -3810,28 +3834,29 @@ private fun metricSeries(
  */
 internal fun trackColoring(
     points: List<TrackPoint>, speedsKmh: FloatArray, mode: ColorMode, activity: ActivityType?,
+    dark: Boolean,
 ): TrackColoring {
     val (values, unit) = metricSeries(points, mode, speedsKmh)
     return when (mode) {
         ColorMode.SPEED -> {
             val s = speedScaleFor(activity ?: ActivityType.UNKNOWN)
-            rampColoring(values, s.minKmh, s.maxKmh, unit, "No speed data")
+            rampColoring(values, s.minKmh, s.maxKmh, unit, "No speed data", dark)
         }
         ColorMode.ELEVATION -> {
             val present = values.filterNotNull()
             if (present.isEmpty()) {
-                TrackColoring(IntArray(points.size) { NO_DATA_ARGB }, Legend.None("No elevation data"))
+                TrackColoring(IntArray(points.size) { noDataArgb(dark) }, Legend.None("No elevation data"))
             } else {
                 val lo = present.min()
                 val hi = present.max()
                 val span = if (hi - lo < 1f) 1f else hi - lo // avoid a zero-width ramp on a flat track
-                rampColoring(values, lo, lo + span, unit, "No elevation data")
+                rampColoring(values, lo, lo + span, unit, "No elevation data", dark)
             }
         }
         // Lower accuracy radius is better, so 0 m sits at the blue (good) end.
-        ColorMode.ACCURACY -> rampColoring(values, 50f, 0f, unit, "No accuracy data")
-        ColorMode.SATELLITES -> rampColoring(values, 0f, 12f, unit, "No satellite data")
-        ColorMode.CN0 -> rampColoring(values, 15f, 45f, unit, "No signal data")
+        ColorMode.ACCURACY -> rampColoring(values, 50f, 0f, unit, "No accuracy data", dark)
+        ColorMode.SATELLITES -> rampColoring(values, 0f, 12f, unit, "No satellite data", dark)
+        ColorMode.CN0 -> rampColoring(values, 15f, 45f, unit, "No signal data", dark)
     }
 }
 
@@ -3864,18 +3889,21 @@ internal fun TrackLegend(legend: Legend, modifier: Modifier) {
             }
         is Legend.Ramp ->
             LegendSurface(modifier) {
+                val luminance = rampLuminance(isSystemInDarkTheme())
                 Box(
                     Modifier
                         .width(132.dp)
                         .height(8.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(
+                            // Dense stops along the same HSL ramp the track uses: the brush
+                            // blends neighbours in RGB, and RGB midpoints of red/green and
+                            // green/blue are muddy brown/grey — 30° hue steps stay on-hue.
                             Brush.horizontalGradient(
-                                listOf(
-                                    Color.hsl(HUE_RED, SPEED_SATURATION, SPEED_LUMINANCE),
-                                    Color.hsl(HUE_GREEN, SPEED_SATURATION, SPEED_LUMINANCE),
-                                    Color.hsl(HUE_BLUE, SPEED_SATURATION, SPEED_LUMINANCE),
-                                ),
+                                (0..8).map {
+                                    val hue = HUE_RED + it * (HUE_BLUE - HUE_RED) / 8f
+                                    Color.hsl(hue, SPEED_SATURATION, luminance)
+                                },
                             ),
                         ),
                 )

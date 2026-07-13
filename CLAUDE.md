@@ -103,8 +103,9 @@ with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `S
 stacked layers for place detail, the Settings sub-pages (sampling, point quality, auto-pause, GPS
 search, track filtering, Recently deleted, Logs), and discarded-track detail — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
-one layer at a time). The track map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps dark
-vector basemap**: the track is a `line-gradient` coloured per point by the selected metric, start/end
+one layer at a time). The track map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps
+vector basemap** (dark or light flavour following the app theme): the track is a `line-gradient`
+coloured per point by the selected metric (ramp luminance also theme-dependent), start/end
 and noisy-fix markers sit on a symbol layer, and switching the colour metric recolours in place
 without moving the camera. The map renders in texture mode (a SurfaceView would ignore Compose
 clipping and bleed over rounded card corners), sits inside padded cards (so it never reaches the
@@ -141,11 +142,15 @@ tag → download the `.aab` from the GitHub Release and upload it to the Play Co
   Settings page is where server URL/key fields would go).
 - **The Protomaps hosted-API key is not committed.** It lives in `local.properties` as
   `protomapsApiKey=…` (gitignored), surfaced as `BuildConfig.PROTOMAPS_API_KEY`, and injected into the
-  bundled style at load time (`{PROTOMAPS_KEY}` placeholder in `assets/protomaps-dark.json`). A fresh
-  checkout needs that line added or the basemap won't load.
-- **The dark basemap style is a bundled asset** (`assets/protomaps-dark.json`) — the official
-  `protomaps-themes-base` dark flavour with its source repointed at the hosted API. To refresh it,
-  re-fetch the flavour JSON and re-point the `protomaps` source, keeping the `{PROTOMAPS_KEY}` placeholder.
+  bundled style at load time (`{PROTOMAPS_KEY}` placeholder in `assets/protomaps-{dark,light}.json`).
+  A fresh checkout needs that line added or the basemap won't load.
+- **The basemap styles are bundled assets** (`assets/protomaps-dark.json` / `protomaps-light.json`,
+  picked by theme) — the official `protomaps-themes-base` v4 flavours with their source repointed at
+  the hosted API. Local edits on top of the official flavours: the POI `kind` whitelist is widened to
+  every kind the v4 sprite has an icon for, and the POI text-colour fallback is a readable ink (the
+  official fallback equals the halo colour, so non-whitelisted kinds rendered invisibly). To refresh,
+  re-fetch the flavour JSON, re-point the `protomaps` source (keeping the `{PROTOMAPS_KEY}`
+  placeholder), and re-apply those two edits.
 - **Frame the map with `moveCamera`, not `easeCamera`** — the track view should open already fitted,
   with no zoom-in animation. Framing runs once per map instance (guarded by a `BooleanArray`) so
   switching the colour metric recolours without re-centring; the live preview refreshes the source
