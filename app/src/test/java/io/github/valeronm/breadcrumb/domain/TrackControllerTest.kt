@@ -6,97 +6,146 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Maps the trusted [Confirmed] signal onto track-lifecycle actions over the sealed [Phase]. */
+/**
+ * The track lifecycle: trusted activity changes (timestamped) map onto actions over the sealed
+ * [TrackController.Phase]. Both rules that decide continue-vs-split live here — the resume window
+ * and the motion family — so they're tested together against the clock.
+ */
 class TrackControllerTest {
 
+    private val STILL = ActivityType.STILL
     private val WALKING = ActivityType.WALKING
     private val RUNNING = ActivityType.RUNNING
     private val DRIVING = ActivityType.DRIVING
 
+    private val WINDOW = 180_000L
+
     private fun recording(activity: ActivityType): TrackController =
         TrackController().apply { onRecordingStarted(activity) }
 
+    /** Recording [activity], then stopped at 60s — so the resume window runs until 240s. */
     private fun paused(activity: ActivityType): TrackController =
-        recording(activity).apply { onPaused(activity) }
+        recording(activity).apply {
+            onActivity(STILL, 60_000, WINDOW)
+            onPaused(activity, 60_000 + WINDOW)
+        }
 
-    // --- onConfirmed → action -------------------------------------------
+    // --- Starting and switching while live -------------------------------
 
-    @Test fun `started from idle opens a new track`() {
-        assertEquals(RecordingAction.StartNew(WALKING), TrackController().onConfirmed(Confirmed.Started(WALKING)))
+    @Test fun `a moving activity from idle opens a new track`() {
+        assertEquals(
+            RecordingAction.StartNew(WALKING),
+            TrackController().onActivity(WALKING, 0, WINDOW),
+        )
     }
 
-    @Test fun `started while recording a different-family activity switches track`() {
-        assertEquals(RecordingAction.StartNew(DRIVING), recording(WALKING).onConfirmed(Confirmed.Started(DRIVING)))
+    @Test fun `a different-family activity while recording switches track`() {
+        assertEquals(
+            RecordingAction.StartNew(DRIVING),
+            recording(WALKING).onActivity(DRIVING, 30_000, WINDOW),
+        )
     }
 
-    @Test fun `started while recording a same-family activity continues the track`() {
+    @Test fun `a same-family activity while recording continues the track`() {
         // Walking ⇄ running (a common Activity-Recognition flip) stays one track, new segment.
         assertEquals(
             RecordingAction.ContinueSameTrack(RUNNING),
-            recording(WALKING).onConfirmed(Confirmed.Started(RUNNING)),
+            recording(WALKING).onActivity(RUNNING, 30_000, WINDOW),
         )
     }
 
-    @Test fun `a same-family activity within the resume window continues the paused track`() {
-        // Walk → stop → run inside the window: the gate reports Continuing, so the walk track
-        // resumes rather than splitting.
-        assertEquals(RecordingAction.Resume, paused(WALKING).onConfirmed(Confirmed.Continuing(RUNNING)))
-    }
+    // --- Stopping ---------------------------------------------------------
 
-    @Test fun `a start on a paused track always splits — the window has lapsed`() {
-        // The gate only reports Started once the resume window expired, so a return (even to the
-        // same activity) is a new outing. Resuming here would swallow the stop whenever the
-        // pause timer runs late.
-        assertEquals(RecordingAction.StartNew(WALKING), paused(WALKING).onConfirmed(Confirmed.Started(WALKING)))
-        assertEquals(RecordingAction.StartNew(RUNNING), paused(WALKING).onConfirmed(Confirmed.Started(RUNNING)))
-    }
-
-    @Test fun `a different-family activity after a pause starts fresh`() {
-        assertEquals(RecordingAction.StartNew(DRIVING), paused(WALKING).onConfirmed(Confirmed.Started(DRIVING)))
-    }
-
-    @Test fun `onContinuedSameTrack tracks the new sub-activity`() {
-        val c = recording(WALKING)
-        c.onContinuedSameTrack(RUNNING)
-        assertEquals(TrackController.Phase.Recording(RUNNING), c.phase)
-    }
-
-    @Test fun `stopped while recording pauses, carrying the resume deadline`() {
+    @Test fun `stopping while recording pauses, deriving the deadline from the reading`() {
+        // The deadline is the reading's own time + the window — not the apply time, so a reading
+        // drained late from a frozen queue can't extend the window it belongs to.
         assertEquals(
-            RecordingAction.Pause(WALKING, 240_000L),
-            recording(WALKING).onConfirmed(Confirmed.Stopped(240_000L)),
+            RecordingAction.Pause(WALKING, 60_000 + WINDOW),
+            recording(WALKING).onActivity(STILL, 60_000, WINDOW),
         )
     }
 
-    @Test fun `stopped while idle does nothing`() {
-        assertEquals(RecordingAction.Noop, TrackController().onConfirmed(Confirmed.Stopped(240_000L)))
+    @Test fun `stopping while idle does nothing`() {
+        assertEquals(RecordingAction.Noop, TrackController().onActivity(STILL, 0, WINDOW))
     }
 
-    @Test fun `expiry while paused finalizes`() {
-        assertEquals(RecordingAction.Finalize, paused(WALKING).onConfirmed(Confirmed.Expired))
+    // --- The resume window ------------------------------------------------
+
+    @Test fun `a prompt return resumes the paused track`() {
+        assertEquals(RecordingAction.Resume, paused(WALKING).onActivity(WALKING, 120_000, WINDOW))
     }
 
-    @Test fun `a stale expiry wake is a noop`() {
+    @Test fun `a same-family return within the window resumes too`() {
+        // Stop mid-walk, return as a run: still the same outing, one track.
+        assertEquals(RecordingAction.Resume, paused(WALKING).onActivity(RUNNING, 120_000, WINDOW))
+    }
+
+    @Test fun `a return after the window splits, even for the same activity`() {
+        // The whole point of the window. This must hold no matter how late the expiry tick runs
+        // (Doze defers it by minutes) — the decision is made from the reading's timestamp, not
+        // from whether a timer fired.
+        assertEquals(
+            RecordingAction.StartNew(WALKING),
+            paused(WALKING).onActivity(WALKING, 300_000, WINDOW),
+        )
+    }
+
+    @Test fun `the deadline itself has already lapsed`() {
+        // Strictly before: at the deadline the window is over (a zero window never resumes).
+        assertEquals(
+            RecordingAction.StartNew(WALKING),
+            paused(WALKING).onActivity(WALKING, 240_000, WINDOW),
+        )
+    }
+
+    @Test fun `a different-family activity within the window splits`() {
+        assertEquals(
+            RecordingAction.StartNew(DRIVING),
+            paused(WALKING).onActivity(DRIVING, 120_000, WINDOW),
+        )
+    }
+
+    @Test fun `a return with no paused track starts fresh`() {
+        assertEquals(
+            RecordingAction.StartNew(WALKING),
+            TrackController().onActivity(WALKING, 120_000, WINDOW),
+        )
+    }
+
+    // --- onTick (the pause wake's expiry question) ------------------------
+
+    @Test fun `a tick before the deadline changes nothing`() {
+        val c = paused(WALKING)
+        assertEquals(RecordingAction.Noop, c.onTick(120_000))
+        // The window is still live — a return after the early tick still resumes.
+        assertEquals(RecordingAction.Resume, c.onActivity(WALKING, 130_000, WINDOW))
+    }
+
+    @Test fun `a tick at the deadline finalizes`() {
+        assertEquals(RecordingAction.Finalize, paused(WALKING).onTick(240_000))
+    }
+
+    @Test fun `a tick well past the deadline still finalizes — a late wake is not a lost one`() {
+        assertEquals(RecordingAction.Finalize, paused(WALKING).onTick(20 * 60_000))
+    }
+
+    @Test fun `a stale tick is a noop`() {
         // The wake landed after a resume (Recording) or after the track closed (Idle).
-        assertEquals(RecordingAction.Noop, recording(WALKING).onConfirmed(Confirmed.Expired))
-        assertEquals(RecordingAction.Noop, TrackController().onConfirmed(Confirmed.Expired))
+        assertEquals(RecordingAction.Noop, recording(WALKING).onTick(240_000))
+        assertEquals(RecordingAction.Noop, TrackController().onTick(240_000))
     }
 
-    @Test fun `continuing a paused track resumes it`() {
-        assertEquals(RecordingAction.Resume, paused(WALKING).onConfirmed(Confirmed.Continuing(WALKING)))
-    }
-
-    @Test fun `continuing with no paused track starts fresh`() {
-        // The grace window said "resume" but the finalize timer already closed the track.
-        assertEquals(RecordingAction.StartNew(WALKING), TrackController().onConfirmed(Confirmed.Continuing(WALKING)))
-    }
-
-    @Test fun `non-changes are noops`() {
+    @Test fun `a zero window is already lapsed at the stop`() {
+        // Auto-pause off: the deadline is the stop itself, so nothing ever resumes into the track.
         val c = recording(WALKING)
-        assertEquals(RecordingAction.Noop, c.onConfirmed(Confirmed.NoChange))
+        val pause = c.onActivity(STILL, 60_000, 0) as RecordingAction.Pause
+        assertEquals(60_000L, pause.resumeDeadlineMs)
+        c.onPaused(WALKING, pause.resumeDeadlineMs)
+        assertEquals(RecordingAction.Finalize, c.onTick(60_000))
+        assertEquals(RecordingAction.StartNew(WALKING), c.onActivity(WALKING, 60_000, 0))
     }
 
-    // --- Phase bookkeeping ----------------------------------------------
+    // --- Phase bookkeeping ------------------------------------------------
 
     @Test fun `lifecycle callbacks move through the phases`() {
         val c = TrackController()
@@ -106,8 +155,8 @@ class TrackControllerTest {
         assertEquals(TrackController.Phase.Recording(WALKING), c.phase)
         assertFalse(c.isPaused)
 
-        c.onPaused(WALKING)
-        assertEquals(TrackController.Phase.Paused(WALKING), c.phase)
+        c.onPaused(WALKING, 240_000)
+        assertEquals(TrackController.Phase.Paused(WALKING, 240_000), c.phase)
         assertTrue(c.isPaused)
 
         c.onResumed(WALKING)
@@ -116,5 +165,11 @@ class TrackControllerTest {
 
         c.onClosed()
         assertEquals(TrackController.Phase.Idle, c.phase)
+    }
+
+    @Test fun `onContinuedSameTrack tracks the new sub-activity`() {
+        val c = recording(WALKING)
+        c.onContinuedSameTrack(RUNNING)
+        assertEquals(TrackController.Phase.Recording(RUNNING), c.phase)
     }
 }

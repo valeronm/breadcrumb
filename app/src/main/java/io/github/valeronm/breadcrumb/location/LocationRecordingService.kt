@@ -46,7 +46,6 @@ import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityGate
-import io.github.valeronm.breadcrumb.domain.Confirmed
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ReadingClock
 import io.github.valeronm.breadcrumb.domain.RecordingAction
@@ -306,25 +305,29 @@ class LocationRecordingService : Service() {
         // tab's standing-by card surfaces this.
         TrackingStatus.update { it.copy(lastReadingAtMillis = readingMs) }
         val previous = gate.confirmed
-        val confirmed = gate.onReading(raw, readingMs, Settings.resumeWindowSec(this) * 1000L)
-        if (confirmed == Confirmed.NoChange) return
+        val changed = gate.onReading(raw) ?: return
 
-        // 2) Turn the trusted change into a track action and apply it.
-        logTransition(previous, gate.confirmed, nowMs - readingMs)
-        when (val action = controller.onConfirmed(confirmed)) {
+        // 2) Turn the trusted change into a track action and apply it. The controller compares
+        // the reading's own time against the pause deadline, so a late-drained reading can't
+        // stitch through a genuine stop even if the pause wake never fired.
+        logTransition(previous, changed, nowMs - readingMs)
+        val action = controller.onActivity(
+            changed, readingMs, Settings.resumeWindowSec(this) * 1000L,
+        )
+        when (action) {
             RecordingAction.Noop -> Unit
             is RecordingAction.Pause -> {
                 DebugLog.i(TAG, "  -> pausing track $activeTrackId")
                 pauseTrack(action.pausedActivity, action.resumeDeadlineMs)
             }
             RecordingAction.Finalize -> {
-                // Unreachable from a reading (expiry only comes from the pause wake); for totality.
+                // Unreachable from a reading (expiry only comes from a tick); for totality.
                 DebugLog.i(TAG, "  -> finalizing track $activeTrackId")
                 closeCurrentTrack()
             }
             RecordingAction.Resume -> {
                 DebugLog.i(TAG, "  -> resuming paused track $activeTrackId")
-                resumeTrack(gate.confirmed)
+                resumeTrack(changed)
             }
             is RecordingAction.StartNew -> {
                 DebugLog.i(TAG, "  -> starting new ${action.activity} track")
@@ -360,11 +363,11 @@ class LocationRecordingService : Service() {
         pauseDeadlineMs = resumeDeadlineMs
         withContext(Dispatchers.Main) { stopLocationUpdates() }
         noFixGuard.onStopped()
-        controller.onPaused(trackActivity)
+        controller.onPaused(trackActivity, resumeDeadlineMs)
         scope.launch {
             delay(resumeDeadlineMs - now())
-            // Logic-free wake: the gate decides whether this deadline still means anything — a
-            // stale wake after a resume, fresh start, or newer pause just maps to Noop.
+            // Logic-free wake: the controller decides whether this deadline still means anything —
+            // a stale wake after a resume, fresh start, or newer pause just maps to Noop.
             mutex.withLock { finalizeIfPauseExpired() }
         }
     }
@@ -377,7 +380,7 @@ class LocationRecordingService : Service() {
      * which splits into a new track regardless. Caller holds [mutex].
      */
     private suspend fun finalizeIfPauseExpired(): Boolean {
-        if (controller.onConfirmed(gate.onTick(now())) != RecordingAction.Finalize) return false
+        if (controller.onTick(now()) != RecordingAction.Finalize) return false
         DebugLog.i(TAG, "pause expired — finalizing track $activeTrackId")
         closeCurrentTrack()
         return true

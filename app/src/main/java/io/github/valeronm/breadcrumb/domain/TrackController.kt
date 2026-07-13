@@ -3,23 +3,28 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.ActivityType
 
 /**
- * Translates the trusted activity signal ([Confirmed], from [ActivityGate]) into track-lifecycle
- * actions, holding the current [Phase]. Pure mechanics with **no timing**: the gate has already
- * decided whether a moving reading is a fresh start or a resume, so this only maps that onto
- * Idle/Recording/Paused. The sealed [Phase] makes illegal states (e.g. "moving but no track")
- * unrepresentable, so there are no defensive guards.
+ * Owns the track lifecycle: it turns trusted activity changes (from [ActivityGate]) into
+ * track-lifecycle actions, holding the current [Phase].
  *
- * [LocationRecordingService] applies the returned [RecordingAction] and reports the resulting phase
- * back via [onRecordingStarted] / [onPaused] / [onResumed] / [onClosed] (including for closes driven
- * by the pause wake's [Confirmed.Expired] or the resume-distance split, not just by activity
- * readings).
+ * Both rules that decide whether an activity continues the open track or starts a new one live
+ * here, next to the phase they act on:
+ *  - **the resume window** — a stop pauses the track rather than closing it, and a return within
+ *    [Phase.Paused.resumeDeadlineMs] resumes it. Timing is compared against the *reading's own*
+ *    timestamp, so a decision is correct even when the recorder's timers were frozen in Doze and
+ *    the reading arrives late (or the expiry tick never fired at all).
+ *  - **the motion family** — walking ⇄ running stays one track; walking → driving splits.
+ *
+ * Pure and Android-free. The service applies the returned [RecordingAction] and reports the
+ * resulting phase back via [onRecordingStarted] / [onPaused] / [onResumed] / [onClosed].
  */
 class TrackController {
 
     sealed interface Phase {
         data object Idle : Phase
         data class Recording(val activity: ActivityType) : Phase
-        data class Paused(val activity: ActivityType) : Phase
+
+        /** [activity] resumes this track if a moving reading arrives before [resumeDeadlineMs]. */
+        data class Paused(val activity: ActivityType, val resumeDeadlineMs: Long) : Phase
     }
 
     var phase: Phase = Phase.Idle
@@ -27,48 +32,54 @@ class TrackController {
 
     val isPaused: Boolean get() = phase is Phase.Paused
 
-    fun onConfirmed(confirmed: Confirmed): RecordingAction = when (confirmed) {
-        // Non-changes are handled by the service before it ever reaches here; map to Noop for totality.
-        Confirmed.NoChange -> RecordingAction.Noop
+    /**
+     * A trusted activity change at [atMs] (the reading's own time, not the apply time), with the
+     * user's [resumeWindowMs].
+     */
+    fun onActivity(activity: ActivityType, atMs: Long, resumeWindowMs: Long): RecordingAction =
+        if (!activity.recording) onStop(atMs, resumeWindowMs) else onMoving(activity, atMs)
 
-        is Confirmed.Stopped -> when (val p = phase) {
-            is Phase.Recording -> RecordingAction.Pause(p.activity, confirmed.resumeDeadlineMs)
-            else -> RecordingAction.Noop // nothing open to pause
-        }
+    private fun onStop(atMs: Long, resumeWindowMs: Long): RecordingAction = when (val p = phase) {
+        // A stop pauses the open track: it stays open until the window lapses, so a brief stop
+        // stitches back into the same track instead of splitting it.
+        is Phase.Recording -> RecordingAction.Pause(p.activity, atMs + resumeWindowMs)
+        else -> RecordingAction.Noop // nothing open to pause
+    }
 
-        Confirmed.Expired -> when (phase) {
-            is Phase.Paused -> RecordingAction.Finalize
-            else -> RecordingAction.Noop // resumed or already closed before the wake arrived
-        }
+    private fun onMoving(activity: ActivityType, atMs: Long): RecordingAction = when (val p = phase) {
+        // A switch within the same motion family keeps the live track, with a segment break at
+        // the boundary; a cross-family change splits.
+        is Phase.Recording ->
+            if (p.activity.sharesTrackWith(activity)) RecordingAction.ContinueSameTrack(activity)
+            else RecordingAction.StartNew(activity)
 
-        is Confirmed.Continuing -> when (phase) {
-            is Phase.Paused -> RecordingAction.Resume
-            // The paused track was already finalized (timer) — treat the return as a fresh start.
-            else -> RecordingAction.StartNew(confirmed.activity)
-        }
+        // Back before the deadline, in the same family: the same outing continues. Otherwise the
+        // window has lapsed (or this is a different kind of movement) and it's a new track —
+        // strictly before, so a zero window never resumes.
+        is Phase.Paused ->
+            if (atMs < p.resumeDeadlineMs && p.activity.sharesTrackWith(activity)) RecordingAction.Resume
+            else RecordingAction.StartNew(activity)
 
-        is Confirmed.Started -> when (val p = phase) {
-            // A switch within the same motion family (e.g. walking ⇄ running) stays one live
-            // track: continue recording into it with a new segment. Only a cross-family change
-            // (e.g. walking → driving) splits.
-            is Phase.Recording ->
-                if (p.activity.sharesTrackWith(confirmed.activity)) RecordingAction.ContinueSameTrack(confirmed.activity)
-                else RecordingAction.StartNew(confirmed.activity)
-            // Paused: the gate only reports Started once the resume window has expired (a return
-            // inside it is Continuing), so this is a genuinely new outing — split, even for the
-            // same activity. Resuming here would silently swallow the stop whenever the pause
-            // timer runs late (Doze), making the window meaningless.
-            is Phase.Paused -> RecordingAction.StartNew(confirmed.activity)
-            Phase.Idle -> RecordingAction.StartNew(confirmed.activity)
-        }
+        Phase.Idle -> RecordingAction.StartNew(activity)
+    }
+
+    /**
+     * Clock tick at (or after) a pause deadline: [RecordingAction.Finalize] once the window has
+     * lapsed with the track still paused. Callers' timers are logic-free — an early or stale tick
+     * (after a resume, a fresh start, or a newer pause with its own later deadline) is a
+     * [RecordingAction.Noop], so a tick can be fired from anywhere, as often as convenient.
+     */
+    fun onTick(nowMs: Long): RecordingAction = when (val p = phase) {
+        is Phase.Paused -> if (nowMs >= p.resumeDeadlineMs) RecordingAction.Finalize else RecordingAction.Noop
+        else -> RecordingAction.Noop
     }
 
     fun onRecordingStarted(activity: ActivityType) {
         phase = Phase.Recording(activity)
     }
 
-    fun onPaused(activity: ActivityType) {
-        phase = Phase.Paused(activity)
+    fun onPaused(activity: ActivityType, resumeDeadlineMs: Long) {
+        phase = Phase.Paused(activity, resumeDeadlineMs)
     }
 
     fun onResumed(activity: ActivityType) {
@@ -91,14 +102,14 @@ sealed interface RecordingAction {
 
     /**
      * Pause the open track, recording [pausedActivity] as the activity to resume into. The service
-     * schedules a logic-free wake at [resumeDeadlineMs] that just ticks the gate.
+     * schedules a logic-free wake at [resumeDeadlineMs] that just ticks the controller.
      */
     data class Pause(val pausedActivity: ActivityType, val resumeDeadlineMs: Long) : RecordingAction
 
     /** Resume the paused track. */
     data object Resume : RecordingAction
 
-    /** The grace window expired with the track still paused — close it. */
+    /** The resume window lapsed with the track still paused — close it. */
     data object Finalize : RecordingAction
 
     /** Finalize whatever is open and start a new track for [activity]. */
