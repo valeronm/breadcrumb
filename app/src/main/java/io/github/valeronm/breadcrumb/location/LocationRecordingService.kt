@@ -149,6 +149,11 @@ class LocationRecordingService : Service() {
     // While paused, [activeTrackId] stays open (GPS off) so a brief stop can be stitched back into
     // the same track when the same activity resumes within the configured window.
     private var pendingSegmentStart = false           // mark the first good fix after a resume as a new segment
+    private var pauseDeadlineMs: Long? = null         // resume-window end, for the Record tab's countdown
+
+    // Last fix's accuracy and whether the gate rejected it — the "waiting for GPS" card's feedback.
+    private var lastFixAccuracyM: Float? = null
+    private var lastFixRejectedByAccuracy = false
 
     override fun onCreate() {
         super.onCreate()
@@ -297,6 +302,9 @@ class LocationRecordingService : Service() {
         // inside the resume window and stitch through a genuine stop.
         val nowMs = now()
         val readingMs = readingClock.sanitize(eventTimeMs, nowMs, READING_MAX_AGE_MS)
+        // Every delivery — even a NoChange — proves activity detection is alive; the Record
+        // tab's standing-by card surfaces this.
+        TrackingStatus.update { it.copy(lastReadingAtMillis = readingMs) }
         val previous = gate.confirmed
         val confirmed = gate.onReading(raw, readingMs, Settings.resumeWindowSec(this) * 1000L)
         if (confirmed == Confirmed.NoChange) return
@@ -349,6 +357,7 @@ class LocationRecordingService : Service() {
 
     /** Stop GPS but keep the track open; a wake at [resumeDeadlineMs] finalizes it if unresumed. */
     private suspend fun pauseTrack(trackActivity: ActivityType, resumeDeadlineMs: Long) {
+        pauseDeadlineMs = resumeDeadlineMs
         withContext(Dispatchers.Main) { stopLocationUpdates() }
         noFixGuard.onStopped()
         controller.onPaused(trackActivity)
@@ -368,6 +377,7 @@ class LocationRecordingService : Service() {
 
     /** Continue the paused track: GPS back on, accumulators kept; the first fix begins a new segment. */
     private suspend fun resumeTrack(activity: ActivityType) {
+        pauseDeadlineMs = null
         controller.onResumed(activity)
         pendingSegmentStart = true
         withContext(Dispatchers.Main) { startLocationUpdates() }
@@ -378,6 +388,9 @@ class LocationRecordingService : Service() {
         pointCount = 0
         lastGoodPoint = null
         pendingSegmentStart = false
+        pauseDeadlineMs = null
+        lastFixAccuracyM = null
+        lastFixRejectedByAccuracy = false
         noFixGuard.onTrackOpened()
         val startedAt = now()
         trackStartedAt = startedAt
@@ -742,6 +755,8 @@ class LocationRecordingService : Service() {
                 DebugLog.i(TAG, "fix dropped — no recent GNSS backing (acc=${candidate.accuracy})")
             }
             val bad = reason != null
+            lastFixAccuracyM = candidate.accuracy
+            lastFixRejectedByAccuracy = reason == IgnoreReason.ACCURACY
             val point = candidate.copy(
                 ignored = bad,
                 ignoreReason = reason?.code,
@@ -764,6 +779,8 @@ class LocationRecordingService : Service() {
 
     private fun publishStatus() {
         val activity = gate.confirmed
+        val pausedActivity = (controller.phase as? TrackController.Phase.Paused)?.activity
+        val suspended = activity.recording && noFixGuard.suspended
         TrackingStatus.update {
             it.copy(
                 tracking = true,
@@ -775,7 +792,16 @@ class LocationRecordingService : Service() {
                 startedAtMillis = if (activity.recording && trackStartedAt > 0) trackStartedAt else null,
                 speedMps = if (activity.recording) lastGoodPoint?.speed else null,
                 altitudeM = if (activity.recording) lastGoodPoint?.altitude else null,
-                gpsSuspended = activity.recording && noFixGuard.suspended,
+                gpsSuspended = suspended,
+                gpsSuspendedSinceMillis = when {
+                    !suspended -> null
+                    it.gpsSuspendedSinceMillis != null -> it.gpsSuspendedSinceMillis
+                    else -> now()
+                },
+                pausedActivity = pausedActivity,
+                pausedUntilMillis = if (pausedActivity != null) pauseDeadlineMs else null,
+                lastFixAccuracyM = if (activity.recording) lastFixAccuracyM else null,
+                lastFixRejectedByAccuracy = activity.recording && lastFixRejectedByAccuracy,
             )
         }
         // State only — no live distance. The notification re-posts only on activity/pause
@@ -785,6 +811,8 @@ class LocationRecordingService : Service() {
             activity.recording && noFixGuard.suspended ->
                 "Recording · ${activity.label}" to "No GPS signal — waiting for one"
             activity.recording -> "Recording · ${activity.label}" to "Track in progress"
+            pausedActivity != null ->
+                "Paused · ${pausedActivity.label}" to "Continues if you move soon"
             else -> "Standing by" to "Waiting for movement"
         }
         updateNotification(title, detail)

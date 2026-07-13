@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
+import io.github.valeronm.breadcrumb.data.ActivityType
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -14,10 +15,11 @@ class RecordCardTest {
         armed: Boolean = true,
         tracking: Boolean = true,
         recording: Boolean = true,
+        paused: Boolean = false,
         gpsSuspended: Boolean = false,
         points: Int = 10,
         hasOpenTrack: Boolean = true,
-    ) = recordCardState(armed, tracking, recording, gpsSuspended, points, hasOpenTrack)
+    ) = recordCardState(armed, tracking, recording, paused, gpsSuspended, points, hasOpenTrack)
 
     @Test fun `not armed shows stats only, whatever the recorder claims`() {
         assertEquals(RecordCardState.STATS_ONLY, state(armed = false))
@@ -31,6 +33,16 @@ class RecordCardTest {
 
     @Test fun `armed and idle waits for movement`() {
         assertEquals(RecordCardState.WAITING_FOR_MOVEMENT, state(recording = false, points = 0))
+    }
+
+    @Test fun `an auto-paused track shows the paused card, not standing by`() {
+        assertEquals(RecordCardState.PAUSED, state(recording = false, paused = true, points = 0))
+    }
+
+    @Test fun `paused loses to any recording state`() {
+        // A stale paused flag must never override an active recording's cards.
+        assertEquals(RecordCardState.LIVE_MAP, state(paused = true))
+        assertEquals(RecordCardState.WAITING_FOR_GPS, state(paused = true, points = 0))
     }
 
     @Test fun `a fresh track with no fixes waits for GPS instead of showing an empty map`() {
@@ -57,5 +69,124 @@ class RecordCardTest {
     @Test fun `no open track never shows the map, even with stale point state`() {
         // Around finalization the service can briefly publish recording=true after the track closed.
         assertEquals(RecordCardState.WAITING_FOR_GPS, state(points = 10, hasOpenTrack = false))
+    }
+
+    // --- recorderCardTitle -----------------------------------------------------
+
+    private val NOW = 1_000_000L
+    private val SUSPENDED_AT = 900_000L
+
+    private fun title(
+        state: RecordCardState,
+        activity: ActivityType? = null,
+        pausedActivity: ActivityType? = null,
+        pausedUntilMs: Long? = null,
+        lastReadingAtMs: Long? = null,
+        lastFixAccuracyM: Float? = null,
+        lastFixRejectedByAccuracy: Boolean = false,
+        gpsSuspendedSinceMs: Long? = null,
+    ) = recorderCardTitle(
+        state, NOW, activity, pausedActivity, pausedUntilMs, lastReadingAtMs,
+        lastFixAccuracyM, lastFixRejectedByAccuracy,
+        gpsSuspendedSinceMs = gpsSuspendedSinceMs,
+        // Renders like the real UI would, but only for the exact inputs the title should pass —
+        // anything else fails loudly instead of producing a plausible string.
+        formatClock = { at -> if (at == SUSPENDED_AT) "14:36" else error("unexpected clock($at)") },
+        formatDuration = { "${it / 60_000}m" },
+    )
+
+    @Test fun `idle leads with the recording status`() {
+        assertEquals("Idle · waiting for activity", title(RecordCardState.WAITING_FOR_MOVEMENT))
+    }
+
+    @Test fun `a fresh reading adds nothing — under a minute goes without saying`() {
+        assertEquals(
+            "Idle · waiting for activity",
+            title(RecordCardState.WAITING_FOR_MOVEMENT, lastReadingAtMs = NOW - 30_000),
+        )
+    }
+
+    @Test fun `an aged reading shows how long there has been nothing to record`() {
+        assertEquals(
+            "Idle · waiting for activity · none for 17m",
+            title(RecordCardState.WAITING_FOR_MOVEMENT, lastReadingAtMs = NOW - 17 * 60_000),
+        )
+    }
+
+    @Test fun `paused says what resumes and the time left`() {
+        assertEquals(
+            "Paused · walking resumes within 1m 40s",
+            title(
+                RecordCardState.PAUSED,
+                pausedActivity = ActivityType.WALKING,
+                pausedUntilMs = NOW + 100_000,
+            ),
+        )
+    }
+
+    @Test fun `paused countdown never goes negative and survives a missing deadline`() {
+        assertEquals(
+            "Paused · walking resumes within 0s",
+            title(
+                RecordCardState.PAUSED,
+                pausedActivity = ActivityType.WALKING,
+                pausedUntilMs = NOW - 5_000,
+            ),
+        )
+        assertEquals(
+            "Paused · walking",
+            title(RecordCardState.PAUSED, pausedActivity = ActivityType.WALKING),
+        )
+    }
+
+    @Test fun `positioning keeps the recording status in front`() {
+        assertEquals(
+            "Recording walking · positioning",
+            title(RecordCardState.WAITING_FOR_GPS, activity = ActivityType.WALKING),
+        )
+        // An old accepted fix (not accuracy-rejected) doesn't fake a radius readout.
+        assertEquals(
+            "Recording walking · positioning",
+            title(
+                RecordCardState.WAITING_FOR_GPS,
+                activity = ActivityType.WALKING,
+                lastFixAccuracyM = 12f,
+            ),
+        )
+    }
+
+    @Test fun `an accuracy-rejected fix shows the current radius`() {
+        assertEquals(
+            "Recording walking · positioning ±78 m",
+            title(
+                RecordCardState.WAITING_FOR_GPS,
+                activity = ActivityType.WALKING,
+                lastFixAccuracyM = 78.4f,
+                lastFixRejectedByAccuracy = true,
+            ),
+        )
+    }
+
+    @Test fun `no gps shows since when the guard suspended`() {
+        assertEquals(
+            "Recording driving · no GPS since 14:36",
+            title(
+                RecordCardState.NO_GPS_SIGNAL,
+                activity = ActivityType.DRIVING,
+                gpsSuspendedSinceMs = SUSPENDED_AT,
+            ),
+        )
+        assertEquals(
+            "Recording driving · no GPS",
+            title(RecordCardState.NO_GPS_SIGNAL, activity = ActivityType.DRIVING),
+        )
+    }
+
+    @Test fun `countdown rounds up and drops the minute part under a minute`() {
+        assertEquals("25s", formatCountdown(25_000))
+        assertEquals("25s", formatCountdown(24_001))
+        assertEquals("1m 0s", formatCountdown(60_000))
+        assertEquals("1m 40s", formatCountdown(100_000))
+        assertEquals("0s", formatCountdown(0))
     }
 }

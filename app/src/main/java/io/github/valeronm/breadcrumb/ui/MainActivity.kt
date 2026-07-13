@@ -133,6 +133,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -191,6 +192,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.recordCardState
+import io.github.valeronm.breadcrumb.domain.recorderCardTitle
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
@@ -850,6 +852,7 @@ private fun RecordTab(
                     armed = autoOn,
                     tracking = status.tracking,
                     recording = status.recording,
+                    paused = status.pausedActivity != null,
                     gpsSuspended = status.gpsSuspended,
                     points = status.points,
                     hasOpenTrack = status.activeTrackId != null,
@@ -881,7 +884,7 @@ private fun RecordTab(
                     }
                     else -> {
                         Spacer(Modifier.height(16.dp))
-                        RecorderStateCard(cardState, status.activity?.label ?: "Idle")
+                        RecorderStateCard(cardState, status)
                         Spacer(Modifier.height(12.dp))
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                             RecordedStats(viewModel)
@@ -900,8 +903,8 @@ private fun RecordTab(
 }
 
 /**
- * Recorded totals per activity for today / this month / this year — fills the Record tab while
- * nothing is recording, in the same grouped-block style as the settings page.
+ * Recorded totals per activity for today / this month / the previous month — fills the Record
+ * tab while nothing is recording, in the same grouped-block style as the settings page.
  */
 @Composable
 private fun RecordedStats(viewModel: TrackListViewModel) {
@@ -913,10 +916,11 @@ private fun RecordedStats(viewModel: TrackListViewModel) {
     }
     // Remembered: RecordTab recomposes on every status tick while visible.
     val periods = remember(byDate, today) {
+        val prevMonth = YearMonth.from(today).minusMonths(1)
         listOf(
             "Today" to byDate.filter { it.second == today },
             "This month" to byDate.filter { it.second.year == today.year && it.second.month == today.month },
-            "This year" to byDate.filter { it.second.year == today.year },
+            monthLabel(prevMonth, today) to byDate.filter { YearMonth.from(it.second) == prevMonth },
         )
     }
     GroupedRows(
@@ -1053,31 +1057,37 @@ private fun CurrentTrackPreview(
     }
 }
 
-/** Recorder state while there's no track to draw: starting, waiting for movement or for GPS. */
+/** Recorder state while there's no track to draw: starting, idle, paused or waiting for GPS. */
 @Composable
-private fun RecorderStateCard(state: RecordCardState, activityLabel: String) {
-    val (title, body) = when (state) {
-        RecordCardState.NO_GPS_SIGNAL ->
-            "No GPS signal" to
-                "Recording $activityLabel — GPS is resting until movement or a signal."
-        RecordCardState.WAITING_FOR_GPS ->
-            "Waiting for GPS…" to
-                "Recording $activityLabel — the track appears once a fix arrives."
-        RecordCardState.WAITING_FOR_MOVEMENT ->
-            "Standing by" to "Waiting for movement — recording starts on its own."
-        else ->
-            "Starting…" to "The recording service is starting up."
-    }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                body,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+private fun RecorderStateCard(state: RecordCardState, status: TrackingStatus.State) {
+    val context = LocalContext.current
+    // A 1 Hz tick drives the pause countdown and the "last signal" age.
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(state) {
+        while (true) {
+            delay(1_000)
+            nowMs = System.currentTimeMillis()
         }
+    }
+    val title = recorderCardTitle(
+        state = state,
+        nowMs = nowMs,
+        activity = status.activity,
+        pausedActivity = status.pausedActivity,
+        pausedUntilMs = status.pausedUntilMillis,
+        lastReadingAtMs = status.lastReadingAtMillis,
+        lastFixAccuracyM = status.lastFixAccuracyM,
+        lastFixRejectedByAccuracy = status.lastFixRejectedByAccuracy,
+        gpsSuspendedSinceMs = status.gpsSuspendedSinceMillis,
+        formatClock = { timeFormat.format(Date(it)) },
+        formatDuration = ::formatDurationMs,
+    )
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        )
     }
 }
 

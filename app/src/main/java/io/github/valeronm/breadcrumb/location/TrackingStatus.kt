@@ -23,6 +23,17 @@ object TrackingStatus {
         val altitudeM: Double? = null,
         /** True while the no-fix guard has GPS off, waiting for a resume signal. */
         val gpsSuspended: Boolean = false,
+        /** When the no-fix guard switched GPS off; null while GPS is on. */
+        val gpsSuspendedSinceMillis: Long? = null,
+        /** While a track is auto-paused: its activity and the resume-window deadline. */
+        val pausedActivity: ActivityType? = null,
+        val pausedUntilMillis: Long? = null,
+        /** When the latest raw activity reading arrived — proof detection is alive. */
+        val lastReadingAtMillis: Long? = null,
+        /** Last fix's accuracy radius (m) and whether the accuracy gate rejected it — feedback
+         *  for the "waiting for GPS" card when fixes arrive but aren't good enough. */
+        val lastFixAccuracyM: Float? = null,
+        val lastFixRejectedByAccuracy: Boolean = false,
     )
 
     private val _state = MutableStateFlow(State())
