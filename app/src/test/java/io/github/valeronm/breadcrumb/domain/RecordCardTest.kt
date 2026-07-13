@@ -124,15 +124,41 @@ class RecordCardTest {
         )
     }
 
-    @Test fun `paused countdown never goes negative and survives a missing deadline`() {
+    @Test fun `a lapsed resume window reads as idle, never as a stuck countdown`() {
+        // Past the deadline nothing resumes into the track (the next activity starts a new one),
+        // so promising a resume — or showing "0s" while a Doze-deferred timer catches up — would
+        // be a lie.
         assertEquals(
-            "Paused · walking resumes within 0s",
+            "Idle · waiting for activity",
             title(
                 RecordCardState.PAUSED,
                 pausedActivity = ActivityType.WALKING,
                 pausedUntilMs = NOW - 5_000,
             ),
         )
+        assertEquals(
+            "Idle · waiting for activity · none for 17m",
+            title(
+                RecordCardState.PAUSED,
+                pausedActivity = ActivityType.WALKING,
+                pausedUntilMs = NOW - 5_000,
+                lastReadingAtMs = NOW - 17 * 60_000,
+            ),
+        )
+    }
+
+    @Test fun `the last second of the window still counts down`() {
+        assertEquals(
+            "Paused · walking resumes within 1s",
+            title(
+                RecordCardState.PAUSED,
+                pausedActivity = ActivityType.WALKING,
+                pausedUntilMs = NOW + 1,
+            ),
+        )
+    }
+
+    @Test fun `paused survives a missing deadline`() {
         assertEquals(
             "Paused · walking",
             title(RecordCardState.PAUSED, pausedActivity = ActivityType.WALKING),

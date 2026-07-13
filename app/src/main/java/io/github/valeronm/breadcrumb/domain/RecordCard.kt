@@ -85,19 +85,29 @@ fun recorderCardTitle(
         "Recording${labelSuffix(activity)} · positioning$radius"
     }
     RecordCardState.PAUSED -> {
-        val label = (pausedActivity ?: activity)?.label?.lowercase() ?: "activity"
-        val left = pausedUntilMs?.let { (it - nowMs).coerceAtLeast(0) }
-        if (left != null) "Paused · $label resumes within ${formatCountdown(left)}"
-        else "Paused · $label"
+        val left = pausedUntilMs?.let { it - nowMs }
+        // Past the deadline nothing resumes into the track — the next activity starts a new
+        // one — so it's idle in every way that matters to the user; only the close is pending.
+        if (left != null && left <= 0) {
+            idleTitle(nowMs, lastReadingAtMs, formatDuration)
+        } else {
+            val label = (pausedActivity ?: activity)?.label?.lowercase() ?: "activity"
+            if (left != null) "Paused · $label resumes within ${formatCountdown(left)}"
+            else "Paused · $label"
+        }
     }
-    RecordCardState.WAITING_FOR_MOVEMENT -> {
-        // The reading's age is how long there's been nothing to record; under a minute it
-        // goes without saying.
-        val quiet = lastReadingAtMs?.let { nowMs - it }?.takeIf { it >= 60_000 }
-        "Idle · waiting for activity" +
-            (quiet?.let { " · none for ${formatDuration(it)}" } ?: "")
-    }
+    RecordCardState.WAITING_FOR_MOVEMENT -> idleTitle(nowMs, lastReadingAtMs, formatDuration)
     else -> "Starting…"
+}
+
+/** The reading's age is how long there's been nothing to record; under a minute goes unsaid. */
+private fun idleTitle(
+    nowMs: Long,
+    lastReadingAtMs: Long?,
+    formatDuration: (Long) -> String,
+): String {
+    val quiet = lastReadingAtMs?.let { nowMs - it }?.takeIf { it >= 60_000 }
+    return "Idle · waiting for activity" + (quiet?.let { " · none for ${formatDuration(it)}" } ?: "")
 }
 
 private fun labelSuffix(activity: ActivityType?): String =

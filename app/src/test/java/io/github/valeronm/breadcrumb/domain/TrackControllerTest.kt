@@ -37,9 +37,18 @@ class TrackControllerTest {
         )
     }
 
-    @Test fun `a same-family activity after a brief pause resumes the track`() {
-        // Walk → stop → run within the grace window resumes the walk track rather than splitting.
-        assertEquals(RecordingAction.Resume, paused(WALKING).onConfirmed(Confirmed.Started(RUNNING)))
+    @Test fun `a same-family activity within the resume window continues the paused track`() {
+        // Walk → stop → run inside the window: the gate reports Continuing, so the walk track
+        // resumes rather than splitting.
+        assertEquals(RecordingAction.Resume, paused(WALKING).onConfirmed(Confirmed.Continuing(RUNNING)))
+    }
+
+    @Test fun `a start on a paused track always splits — the window has lapsed`() {
+        // The gate only reports Started once the resume window expired, so a return (even to the
+        // same activity) is a new outing. Resuming here would swallow the stop whenever the
+        // pause timer runs late.
+        assertEquals(RecordingAction.StartNew(WALKING), paused(WALKING).onConfirmed(Confirmed.Started(WALKING)))
+        assertEquals(RecordingAction.StartNew(RUNNING), paused(WALKING).onConfirmed(Confirmed.Started(RUNNING)))
     }
 
     @Test fun `a different-family activity after a pause starts fresh`() {

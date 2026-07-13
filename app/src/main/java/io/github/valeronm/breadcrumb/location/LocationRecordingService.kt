@@ -365,14 +365,22 @@ class LocationRecordingService : Service() {
             delay(resumeDeadlineMs - now())
             // Logic-free wake: the gate decides whether this deadline still means anything — a
             // stale wake after a resume, fresh start, or newer pause just maps to Noop.
-            mutex.withLock {
-                if (controller.onConfirmed(gate.onTick(now())) == RecordingAction.Finalize) {
-                    DebugLog.i(TAG, "pause expired — finalizing track $activeTrackId")
-                    closeCurrentTrack()
-                    publishStatus()
-                }
-            }
+            mutex.withLock { finalizeIfPauseExpired() }
         }
+    }
+
+    /**
+     * Close a paused track whose resume window has passed. Doze can defer the pause wake by many
+     * minutes, so this also runs from [publishStatus] — any event the recorder handles anyway
+     * (a transition, the watchdog, the UI resuming) resolves the pending close at no extra power
+     * cost. Correctness doesn't depend on it: past the deadline the gate reports a fresh Start,
+     * which splits into a new track regardless. Caller holds [mutex].
+     */
+    private suspend fun finalizeIfPauseExpired(): Boolean {
+        if (controller.onConfirmed(gate.onTick(now())) != RecordingAction.Finalize) return false
+        DebugLog.i(TAG, "pause expired — finalizing track $activeTrackId")
+        closeCurrentTrack()
+        return true
     }
 
     /** Continue the paused track: GPS back on, accumulators kept; the first fix begins a new segment. */
@@ -441,10 +449,26 @@ class LocationRecordingService : Service() {
         // A free heartbeat: the alarm fires even in Doze, where the heartbeat coroutine is frozen.
         Settings.setLastHeartbeatMs(this, now())
         scheduleWatchdog()
+        // The alarm fires in Doze, where the pause wake's coroutine delay does not — so this is
+        // also where a pause whose window quietly expired gets closed.
+        finalizeExpiredPause()
         if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) {
             activityManager.start().addOnCompleteListener { onDone?.invoke() }
         } else {
             onDone?.invoke()
+        }
+    }
+
+    /**
+     * Close a paused track whose resume window has passed, if the pause wake hasn't run yet
+     * (Doze defers it). Safe to call from anywhere in the process — the watchdog alarm and the
+     * UI coming to the foreground both do, so the finished track reaches the timeline promptly
+     * instead of waiting on a frozen timer.
+     */
+    fun finalizeExpiredPause() {
+        if (!controller.isPaused) return
+        scope.launch {
+            mutex.withLock { if (finalizeIfPauseExpired()) publishStatus() }
         }
     }
 

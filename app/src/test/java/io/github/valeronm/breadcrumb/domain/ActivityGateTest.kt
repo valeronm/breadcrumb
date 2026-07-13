@@ -10,6 +10,7 @@ class ActivityGateTest {
     private val STILL = ActivityType.STILL
     private val WALKING = ActivityType.WALKING
     private val RUNNING = ActivityType.RUNNING
+    private val DRIVING = ActivityType.DRIVING
 
     private val GRACE_MS = 180_000L
 
@@ -55,10 +56,26 @@ class ActivityGateTest {
         assertEquals(Confirmed.Started(WALKING), g.onReading(WALKING, 300_000, GRACE_MS))
     }
 
-    @Test fun `a different activity within grace does not continue`() {
+    @Test fun `a same-family activity within grace continues`() {
+        // Stop mid-walk, return as a run: still the same outing — the track layer keeps the
+        // foot family on one track, so the gate reports a resume, not a fresh start.
         val g = started(WALKING)
         g.onReading(STILL, 60_000, GRACE_MS)
-        assertEquals(Confirmed.Started(RUNNING), g.onReading(RUNNING, 120_000, GRACE_MS))
+        assertEquals(Confirmed.Continuing(RUNNING), g.onReading(RUNNING, 120_000, GRACE_MS))
+    }
+
+    @Test fun `a different-family activity within grace does not continue`() {
+        val g = started(WALKING)
+        g.onReading(STILL, 60_000, GRACE_MS)
+        assertEquals(Confirmed.Started(DRIVING), g.onReading(DRIVING, 120_000, GRACE_MS))
+    }
+
+    @Test fun `a same-family activity past grace is a fresh start, not a resume`() {
+        // The whole point of the window: once it lapses, the return is a new outing — even
+        // though the track layer might still be sitting on a paused track (Doze-deferred timer).
+        val g = started(WALKING)
+        g.onReading(STILL, 60_000, GRACE_MS)
+        assertEquals(Confirmed.Started(RUNNING), g.onReading(RUNNING, 300_000, GRACE_MS))
     }
 
     @Test fun `a zero grace window never continues`() {
@@ -70,8 +87,9 @@ class ActivityGateTest {
     @Test fun `starting fresh clears the grace state`() {
         val g = started(WALKING)
         g.onReading(STILL, 60_000, GRACE_MS)              // WALKING in grace until 240s
-        g.onReading(RUNNING, 120_000, GRACE_MS)           // fresh start clears it
-        g.onReading(STILL, 130_000, GRACE_MS)             // now RUNNING is the recent activity
+        g.onReading(DRIVING, 120_000, GRACE_MS)           // fresh start (other family) clears it
+        g.onReading(STILL, 130_000, GRACE_MS)             // now DRIVING is the recent activity
+        // Walking is no longer the remembered activity, so it can't resume into the drive.
         assertEquals(Confirmed.Started(WALKING), g.onReading(WALKING, 140_000, GRACE_MS))
     }
 

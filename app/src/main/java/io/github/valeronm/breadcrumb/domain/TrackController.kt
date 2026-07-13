@@ -48,15 +48,17 @@ class TrackController {
         }
 
         is Confirmed.Started -> when (val p = phase) {
-            // A switch within the same motion family (e.g. walking ⇄ running) stays one track:
-            // continue recording into it with a new segment while it's live, or resume it if a
-            // brief stop paused it. Only a cross-family change (e.g. walking → driving) splits.
+            // A switch within the same motion family (e.g. walking ⇄ running) stays one live
+            // track: continue recording into it with a new segment. Only a cross-family change
+            // (e.g. walking → driving) splits.
             is Phase.Recording ->
                 if (p.activity.sharesTrackWith(confirmed.activity)) RecordingAction.ContinueSameTrack(confirmed.activity)
                 else RecordingAction.StartNew(confirmed.activity)
-            is Phase.Paused ->
-                if (p.activity.sharesTrackWith(confirmed.activity)) RecordingAction.Resume
-                else RecordingAction.StartNew(confirmed.activity)
+            // Paused: the gate only reports Started once the resume window has expired (a return
+            // inside it is Continuing), so this is a genuinely new outing — split, even for the
+            // same activity. Resuming here would silently swallow the stop whenever the pause
+            // timer runs late (Doze), making the window meaningless.
+            is Phase.Paused -> RecordingAction.StartNew(confirmed.activity)
             Phase.Idle -> RecordingAction.StartNew(confirmed.activity)
         }
     }

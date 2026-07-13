@@ -42,10 +42,14 @@ class ActivityGate {
         // Already on this activity — nothing changes.
         if (raw == confirmed) return Confirmed.NoChange
 
-        // A prompt return to the activity we just left → a resume rather than a fresh start.
+        // A prompt return to the motion family we just left → a resume rather than a fresh start.
+        // The family (not the exact activity) so a stop mid-walk that returns as a run still
+        // resumes the same track — the track layer keeps those together anyway.
         // Strictly before the deadline: at the deadline the window has expired (a zero window
-        // never resumes).
-        if (raw == recentActivity && nowMs < recentUntilMs) {
+        // never resumes). Past it, this falls through to Started, and the track layer must split
+        // even for the same activity — that's the whole point of the window.
+        val recent = recentActivity
+        if (recent != null && raw.sharesTrackWith(recent) && nowMs < recentUntilMs) {
             clearRecent()
             confirmed = raw
             return Confirmed.Continuing(raw)

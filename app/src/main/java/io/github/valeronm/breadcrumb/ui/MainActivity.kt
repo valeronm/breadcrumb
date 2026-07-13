@@ -353,6 +353,9 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                 backgroundOk = context.backgroundGranted()
                 autoOn = AppSettings.isAutoRecord(context)
                 batteryOk = context.isBatteryOptimizationIgnored()
+                // Doze can hold the pause wake for minutes; opening the app closes a track whose
+                // resume window has already passed, so the timeline isn't stale on arrival.
+                LocationRecordingService.instance?.finalizeExpiredPause()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
