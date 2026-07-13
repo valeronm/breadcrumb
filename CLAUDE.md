@@ -90,6 +90,13 @@ without moving the camera. The map renders in texture mode (a SurfaceView would 
 clipping and bleed over rounded card corners), sits inside padded cards (so it never reaches the
 back-gesture edge strips), and is lifecycle-bound to the composition.
 
+## Releases
+
+When preparing a Play release (version bump, building the bundle, or writing the "What's new"
+text), follow `docs/release-notes-guide.md` — it defines the audience rules for release notes,
+how to derive them from commits since the last *uploaded* build, and the versioning scheme
+(git-derived `versionName`, manual `versionCode`, never upload a `-dirty` build).
+
 ## Conventions & constraints
 
 - **Activity recognition needs Google Play Services**, so this is intentionally not a FOSS/F-Droid
