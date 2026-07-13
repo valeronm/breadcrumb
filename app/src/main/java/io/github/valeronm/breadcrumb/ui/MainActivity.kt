@@ -97,6 +97,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -137,6 +138,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.Modifier
@@ -1724,17 +1726,13 @@ private fun PlaceDetailScreen(
                         IconButton(onClick = { editing = false }) {
                             Icon(Icons.Filled.Check, contentDescription = "Done")
                         }
-                    } else {
+                    } else if (place != null) {
+                        // Unnamed places get no top-bar actions: naming has the header CTA.
                         IconButton(onClick = { showNameDialog = true }) {
-                            Icon(
-                                Icons.Filled.Edit,
-                                contentDescription = if (summary.isNamed) "Rename place" else "Name place",
-                            )
+                            Icon(Icons.Filled.Edit, contentDescription = "Rename place")
                         }
-                        if (place != null) {
-                            IconButton(onClick = { editing = true }) {
-                                Icon(Icons.Filled.Tune, contentDescription = "Adjust area")
-                            }
+                        IconButton(onClick = { editing = true }) {
+                            Icon(Icons.Filled.Tune, contentDescription = "Adjust area")
                         }
                     }
                 },
@@ -1845,6 +1843,8 @@ private fun PlaceDetailScreen(
                         onValueChange = { text = it },
                         singleLine = true,
                         label = { Text("Place name") },
+                        // Place names are proper nouns — capitalize each word.
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
                     )
                     if (place != null) {
                         Spacer(Modifier.height(4.dp))
@@ -2053,20 +2053,24 @@ private fun relativeDay(epochMs: Long): String {
     }
 }
 
-/** [relativeDay] squeezed for the big stat cells, where "5 days ago" overflows: "5d ago". */
+/** [relativeDay] squeezed for the big stat cells, where "5 days ago" or a full date overflows:
+ *  "5d ago", "29 Nov", "Nov 2025" — always one line; exact dates live in the visit history. */
 private fun relativeDayCompact(epochMs: Long): String {
     val zone = ZoneId.systemDefault()
     val then = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
-    val days = ChronoUnit.DAYS.between(then, LocalDate.now(zone))
+    val today = LocalDate.now(zone)
+    val days = ChronoUnit.DAYS.between(then, today)
     return when {
         days <= 0 -> "today"
         days < 7 -> "${days}d ago"
-        else -> relativeDay(epochMs)
+        then.year == today.year -> then.format(compactDayFormat)
+        else -> then.format(monthOfYearFormat)
     }
 }
 
 private val compactDayFormat = DateTimeFormatter.ofPattern("d MMM")
 private val compactDayYearFormat = DateTimeFormatter.ofPattern("d MMM yyyy")
+private val monthOfYearFormat = DateTimeFormatter.ofPattern("MMM yyyy")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
