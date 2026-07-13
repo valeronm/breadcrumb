@@ -75,10 +75,13 @@ object PlaceResolver {
     /**
      * Summaries for the Places screen: **every visited cluster** in the history, plus any named
      * place with no current stays (so labels stay listed/manageable). Clusters that match the same
-     * place are aggregated into one row; unnamed clusters get a row each. Endpoint clusters with
-     * no stays (pass-through places) are skipped. Runs over the unsliced stays so counts and
-     * durations are exact. Order: named places (input order) first, then unnamed clusters
-     * (chronological); the UI applies its own sort.
+     * place are aggregated into one row; unnamed clusters get a row each, *including* zero-visit
+     * pass-through clusters — gap sides land in exactly those (a stray endpoint cluster only
+     * ever produces disagreements, so it never earns a stay), and the detail screen needs a row
+     * to open so the stray can be named or swallowed by widening a neighbour. Keeping
+     * pass-throughs off the Places tab is that screen's presentation filter, not this layer's.
+     * Runs over the unsliced stays so counts and durations are exact. Order: named places
+     * (input order) first, then unnamed clusters (chronological); the UI applies its own sort.
      */
     fun summarize(
         stays: List<StayDeriver.Stay>,
@@ -86,10 +89,11 @@ object PlaceResolver {
         places: List<Place>,
         nowMs: Long,
     ): List<PlaceSummary> {
+        val staysByCluster = stays.groupBy { it.clusterId }
         val namedAgg = HashMap<Long, Agg>()   // placeId -> aggregate over its matching clusters
         val unnamed = mutableListOf<PlaceSummary>()
-        for ((clusterId, members) in stays.groupBy { it.clusterId }) {
-            val cluster = clusters[clusterId]
+        clusters.forEachIndexed { clusterId, cluster ->
+            val members = staysByCluster[clusterId].orEmpty()
             var count = 0
             var total = 0L
             var last = Long.MIN_VALUE
@@ -102,11 +106,13 @@ object PlaceResolver {
             val place = matchedPlace(cluster, places)
             if (place == null) {
                 unnamed += PlaceSummary(
-                    null, cluster.centroid, count, last, total,
+                    null, cluster.centroid, count, last.takeIf { count > 0 }, total,
                     anchor = cluster.anchor, radiusM = cluster.radiusM, endpoints = cluster.members,
                     stays = members.sortedByDescending { it.start },
                 )
-            } else {
+            } else if (count > 0) {
+                // Zero-stay seeded clusters add nothing: the place row below reports null/zero
+                // stats via the missing Agg, exactly as before.
                 val agg = namedAgg.getOrPut(place.id) { Agg() }
                 agg.count += count
                 agg.total += total

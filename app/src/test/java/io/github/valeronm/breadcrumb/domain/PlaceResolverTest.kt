@@ -171,6 +171,24 @@ class PlaceResolverTest {
         assertEquals(0L, faraway.totalMs)
     }
 
+    @Test fun `a stay-less unnamed cluster gets a zero-visit summary`() {
+        // A pass-through endpoint (e.g. a gap side) forms a cluster no stay belongs to; it must
+        // still summarize so the gap card can open its detail page.
+        val places = listOf(place(7, "Home", at(600.0)))
+        val clusters = PlaceClusterer.cluster(
+            listOf(at(0.0), at(1200.0)), distance = flatDistance,
+            seeds = places.map { PlaceClusterer.Seed(Endpoint(it.lat, it.lon), PIN_RADIUS) },
+        )
+        val stayClusterId = clusters.indexOfFirst { 0 in it.memberIndices }
+        val stays = listOf(stay(at(0.0)).copy(clusterId = stayClusterId))
+        val summaries = PlaceResolver.summarize(stays, clusters, places, NOW)
+        val passThrough = summaries.single { !it.isNamed && it.visitCount == 0 }
+        assertEquals(at(1200.0), passThrough.centroid)
+        assertEquals(listOf(at(1200.0)), passThrough.endpoints)
+        assertNull(passThrough.lastSeenMs)
+        assertEquals(0L, passThrough.totalMs)
+    }
+
     @Test fun `unnamed clusters are listed too`() {
         val summaries = summarize(
             listOf(stayAt(at(0.0), 1_000, 2_000), stayAt(at(500.0), 3_000, 4_000)),

@@ -578,10 +578,15 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
         // Place detail: stacked above whatever opened it (the Places overlay or the Tracks tab),
         // with the same open/close and predictive-back treatment.
         if (placeLayer.rendered != null) {
+            // Includes zero-visit pass-through clusters (summarize emits every cluster), so gap
+            // sides open even when their cluster never earned a stay — and their endpoints show
+            // as neighbour context on adjacent places' maps.
             val placeSummaries by viewModel.places.collectAsState()
-            val summary = placeSummaries.firstOrNull { it.rowKey() == placeDetailKey }
-                ?: placeDetailSnapshot?.let { snap -> placeSummaries.firstOrNull { it.centroid == snap.centroid } }
-                ?: placeDetailSnapshot
+            val summary = remember(placeSummaries, placeDetailKey, placeDetailSnapshot) {
+                placeSummaries.firstOrNull { it.rowKey() == placeDetailKey }
+                    ?: placeDetailSnapshot?.let { snap -> placeSummaries.firstOrNull { it.centroid == snap.centroid } }
+                    ?: placeDetailSnapshot
+            }
             LaunchedEffect(summary) {
                 val s = summary ?: return@LaunchedEffect
                 placeDetailSnapshot = s
@@ -1588,7 +1593,12 @@ private fun PlacesTab(
             else -> compareByDescending { it.lastSeenMs ?: Long.MIN_VALUE }
         }
         places
-            .filter { it.isNamed || showRareUnnamed || it.visitCount >= RARE_UNNAMED_MIN_VISITS }
+            // Zero-visit pass-through clusters exist for gap-side detail pages, never for this
+            // tab; the rare-stops chip only reveals *visited* unnamed clusters below the floor.
+            .filter {
+                it.isNamed ||
+                    (it.visitCount > 0 && (showRareUnnamed || it.visitCount >= RARE_UNNAMED_MIN_VISITS))
+            }
             // Tiebreak: named before unnamed, then by label — stable across recompositions.
             .sortedWith(comparator.thenBy { it.place?.label?.lowercase(Locale.getDefault()) ?: "￿" })
     }
@@ -3154,24 +3164,17 @@ private fun GapRow(item: TimelineItem.GapItem, shape: RoundedCornerShape, onOpen
 
 /**
  * One side of a gap: a full-width tappable line (pin glyph + place name, ripple across the row,
- * like every other tappable row in the app) opening the place's detail screen. A side that's
- * unknown renders nothing — its position tells the story; one with no Places-screen row to open
- * (an unnamed cluster with no visits) renders without the tap affordance.
+ * like every other tappable row in the app) opening the place's detail screen — stay-less
+ * clusters have zero-visit rows (summarize emits every cluster), so every known side opens.
+ * A side that's unknown renders nothing; its position tells the story.
  */
 @Composable
 private fun GapPlaceLine(place: PlaceResolver.ResolvedStay?, onOpenPlace: (String) -> Unit) {
     if (place == null) return
-    val openable = place.placeId != null || place.visitCount > 0
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .then(
-                if (openable) {
-                    Modifier.clickable { onOpenPlace(placeDetailKeyOf(place.placeId, place.centroid)) }
-                } else {
-                    Modifier
-                },
-            )
+            .clickable { onOpenPlace(placeDetailKeyOf(place.placeId, place.centroid)) }
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

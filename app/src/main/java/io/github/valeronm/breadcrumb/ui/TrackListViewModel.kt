@@ -64,7 +64,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val derivation: StayDeriver.Derivation,
         val places: List<Place>,
         val now: Long,
-    )
+    ) {
+        /** The unsliced stays, extracted once — every downstream flow needs them. */
+        val stays: List<StayDeriver.Stay> = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
+    }
 
     // The stay/place derivation is the most expensive pure computation in the app, so it runs once
     // here and both screens map from it. Of the live status only the active track's start matters
@@ -93,10 +96,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     val timeline: StateFlow<List<TimelineItem>> = combine(tracks, derived) { summaries, d ->
         // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
         // as 3 visits. Cluster ids survive the slicing copies, so items look up directly.
-        val clusterPlaces = PlaceResolver.resolveClusters(
-            d.derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
-            d.derivation.clusters, d.places,
-        )
+        val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places)
         // Each track's chronological successor, for merging a short same-activity stay's two tracks.
         val byId = summaries.associateBy { it.id }
         val nextTrack = summaries.sortedBy { it.startedAt }.zipWithNext()
@@ -128,12 +128,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Per-place aggregate stats for the Places screen (idle unless that screen is open). */
+    /**
+     * Every cluster's aggregate stats — visited places for the Places screen plus zero-visit
+     * pass-through clusters so gap sides always have a detail page to open (the Places tab
+     * filters the zero-visit rows out at display time). Idle unless a subscriber screen is open.
+     */
     val places: StateFlow<List<PlaceResolver.PlaceSummary>> = derived.map { d ->
-        PlaceResolver.summarize(
-            d.derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
-            d.derivation.clusters, d.places, d.now,
-        )
+        PlaceResolver.summarize(d.stays, d.derivation.clusters, d.places, d.now)
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
