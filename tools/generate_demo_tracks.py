@@ -34,7 +34,7 @@ REPO = Path(__file__).resolve().parent.parent
 OUT = REPO / "tools/demo-data"
 
 # Bump to the shoot date; walk/bike land on this day, drive on the day before.
-BASE_DAY = "2026-07-11"
+BASE_DAY = "2026-07-13"
 
 HOME = (-9.1625, 38.7185)   # Campo de Ourique
 WORK = (-9.2076, 38.6979)   # west (drive origin)

@@ -6,6 +6,16 @@ it records while you move and pauses while you're still. Everything stays **on y
 account, no server — with a dark vector map, a day-by-day timeline of your trips and stays, named
 places, and GPX import/export.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/record.png" alt="Record tab with auto recording armed" width="30%">
+  <img src="docs/screenshots/timeline.png" alt="Timeline of trips and stays" width="30%">
+  <img src="docs/screenshots/track-detail.png" alt="Track detail with speed-coloured route" width="30%">
+</p>
+
+*Demo data — the bundled `tools/demo-data` GPX tracks imported on an emulator.*
+
 ## Features
 
 - **Activity-aware recording** — uses on-device activity recognition to start a track when you
