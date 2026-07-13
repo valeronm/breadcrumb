@@ -6,7 +6,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * Pure track geometry and fix-quality math over recorded [TrackPoint]s — distance, bounding extent,
  * per-point speed, and the "bad fix" rule — all host-testable via an injectable [DistanceFn].
  *
- * The bad-fix rule ([isBadFix]) decides which fixes are unreliable so they can be flagged and
+ * The bad-fix rule ([TrackQuality.badFixReason]) decides which fixes are unreliable so they can be flagged and
  * excluded from distance, the rendered track line, and exports; the fixes are still stored, since
  * the count of ignored points is itself a signal that a track is questionable. It's the single
  * source of truth for that rule, applied by live recording
@@ -46,24 +46,6 @@ object TrackQuality {
         distance.metres(a.latitude, a.longitude, b.latitude, b.longitude)
 
     /**
-     * How far a track spread through space: the diagonal of its lat/lon bounding box, in metres.
-     * Distinguishes a real trip from a stationary blob — unlike accumulated length, GPS jitter can't
-     * inflate it, since standing still keeps every fix inside a small box. 0 for fewer than 2 points.
-     */
-    fun boundingExtentMeters(points: List<TrackPoint>, distance: DistanceFn = AndroidDistance): Double {
-        if (points.size < 2) return 0.0
-        var minLat = points[0].latitude; var maxLat = minLat
-        var minLon = points[0].longitude; var maxLon = minLon
-        for (p in points) {
-            if (p.latitude < minLat) minLat = p.latitude
-            if (p.latitude > maxLat) maxLat = p.latitude
-            if (p.longitude < minLon) minLon = p.longitude
-            if (p.longitude > maxLon) maxLon = p.longitude
-        }
-        return distance.metres(minLat, minLon, maxLat, maxLon)
-    }
-
-    /**
      * Per-point speed in km/h: the GPS-reported speed where present (non-null and non-negative),
      * else derived from the previous point over [distance], else 0. [distance] is injectable so the
      * derivation is host-testable. Used to colour the rendered track by speed.
@@ -87,21 +69,6 @@ object TrackQuality {
         return out
     }
 
-    /**
-     * Whether [point] is a bad fix relative to the last accepted ("good") point. A fix is bad if its
-     * accuracy radius is at least [maxAccuracyM], or if reaching it from [lastGood] would require an
-     * implausible speed for [activity] (a GPS teleport — these can have good reported accuracy, so
-     * the speed check is independent of the accuracy gate). [lastGood] is null for the first point
-     * of a track (or a segment). [distance] is injectable so the speed logic is host-testable.
-     */
-    fun isBadFix(
-        lastGood: TrackPoint?,
-        point: TrackPoint,
-        activity: ActivityType,
-        maxAccuracyM: Float,
-        distance: DistanceFn = AndroidDistance,
-    ): Boolean = badFixReason(lastGood, point, activity, maxAccuracyM, distance) != null
-
     /** First seam at least this fast (km/h) to be a candidate stray — an implausible launch from
      *  a drive start (40 km/h in a ~1 s opening seam is ~1 g of acceleration from standstill). */
     private const val LEADING_STRAY_MIN_KMH = 40.0
@@ -112,6 +79,9 @@ object TrackQuality {
 
     /** How many seams after the first to sample for the track's real early pace. */
     private const val LEADING_STRAY_LOOKAHEAD = 4
+
+    /** How many leading points [leadingPointIsJump] inspects — a prefix this long decides it. */
+    const val LEADING_CHECK_POINT_COUNT = LEADING_STRAY_LOOKAHEAD + 1
 
     /** Speed (km/h) across a seam, or null when its time gap is non-positive (can't derive). */
     private fun seamSpeedKmh(a: TrackPoint, b: TrackPoint, distance: DistanceFn): Double? {
@@ -145,7 +115,14 @@ object TrackQuality {
         return firstSeam >= LEADING_STRAY_FACTOR * followPace
     }
 
-    /** Like [isBadFix], but says *why* — [IgnoreReason.ACCURACY] or [IgnoreReason.JUMP] — or null. */
+    /**
+     * Whether [point] is a bad fix relative to the last accepted ("good") point, and why —
+     * [IgnoreReason.ACCURACY] or [IgnoreReason.JUMP] — or null for a good fix. A fix is bad if its
+     * accuracy radius is at least [maxAccuracyM], or if reaching it from [lastGood] would require an
+     * implausible speed for [activity] (a GPS teleport — these can have good reported accuracy, so
+     * the speed check is independent of the accuracy gate). [lastGood] is null for the first point
+     * of a track (or a segment). [distance] is injectable so the speed logic is host-testable.
+     */
     fun badFixReason(
         lastGood: TrackPoint?,
         point: TrackPoint,

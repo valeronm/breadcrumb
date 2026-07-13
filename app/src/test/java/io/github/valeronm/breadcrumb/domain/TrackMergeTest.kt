@@ -39,4 +39,8 @@ class TrackMergeTest {
     @Test fun `an ongoing stay is not mergeable`() {
         assertNull(TrackMerge.plan(before, after, stayStart = 0, stayEnd = null))
     }
+
+    @Test fun `a stay on a named place is not mergeable`() {
+        assertNull(TrackMerge.plan(before, after, stayStart = 0, stayEnd = 60_000, stayIsNamedPlace = true))
+    }
 }

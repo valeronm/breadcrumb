@@ -43,6 +43,7 @@ import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.PropertyValue
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonOptions
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -258,16 +259,32 @@ private fun dwellCollection(dwells: List<DwellDetector.Dwell>): FeatureCollectio
 
 private fun addDwellLayers(style: Style, dwells: List<DwellDetector.Dwell>) {
     style.addSource(GeoJsonSource(DWELL_SOURCE, dwellCollection(dwells)))
+    addCaptureCircleLayers(style, DWELL_SOURCE, DWELL_FILL, DWELL_LINE)
+}
+
+/**
+ * The capture-circle look — translucent fill + dashed outline — shared by the place detail's
+ * capture circle and the track map's dwell circles, so they read as the same species.
+ */
+private fun addCaptureCircleLayers(
+    style: Style,
+    sourceId: String,
+    fillLayerId: String,
+    lineLayerId: String,
+    vararg extraProps: PropertyValue<*>,
+) {
     style.addLayer(
-        FillLayer(DWELL_FILL, DWELL_SOURCE).withProperties(
+        FillLayer(fillLayerId, sourceId).withProperties(
             PropertyFactory.fillColor(CIRCLE_FILL),
+            *extraProps,
         ),
     )
     style.addLayer(
-        LineLayer(DWELL_LINE, DWELL_SOURCE).withProperties(
+        LineLayer(lineLayerId, sourceId).withProperties(
             PropertyFactory.lineColor(CIRCLE_LINE),
             PropertyFactory.lineWidth(1.5f),
             PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
+            *extraProps,
         ),
     )
 }
@@ -402,15 +419,23 @@ private fun markerFeature(p: TrackPoint, icon: String, bearing: Float = 0f): Fea
         },
     )
 
-/** Whether ([lat], [lon]) sits within the central [fraction] of these bounds. */
-private fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction: Double = 0.8): Boolean {
+/** These bounds with their half-spans scaled by [factor] around the centre. */
+private fun LatLngBounds.scaled(factor: Double): LatLngBounds {
     val centerLat = (latitudeNorth + latitudeSouth) / 2
     val centerLon = (longitudeEast + longitudeWest) / 2
-    val halfLat = (latitudeNorth - latitudeSouth) / 2 * fraction
-    val halfLon = (longitudeEast - longitudeWest) / 2 * fraction
-    return lat in (centerLat - halfLat)..(centerLat + halfLat) &&
-        lon in (centerLon - halfLon)..(centerLon + halfLon)
+    val halfLat = (latitudeNorth - latitudeSouth) / 2 * factor
+    val halfLon = (longitudeEast - longitudeWest) / 2 * factor
+    return LatLngBounds.from(
+        centerLat + halfLat, centerLon + halfLon,
+        centerLat - halfLat, centerLon - halfLon,
+    )
 }
+
+/** Whether ([lat], [lon]) sits within the central [fraction] of these bounds. */
+private fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction: Double = 0.8): Boolean =
+    with(scaled(fraction)) {
+        lat in latitudeSouth..latitudeNorth && lon in longitudeWest..longitudeEast
+    }
 
 /**
  * Fits the camera to [positions]: ≥2 → bounds fit with 96px padding, exactly 1 → [singlePointZoom].
@@ -425,16 +450,7 @@ private fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom: 
             val b = LatLngBounds.Builder()
             positions.forEach { b.include(it) }
             var bounds = b.build()
-            if (headroom > 1.0) {
-                val centerLat = (bounds.latitudeNorth + bounds.latitudeSouth) / 2
-                val centerLon = (bounds.longitudeEast + bounds.longitudeWest) / 2
-                val halfLat = (bounds.latitudeNorth - bounds.latitudeSouth) / 2 * headroom
-                val halfLon = (bounds.longitudeEast - bounds.longitudeWest) / 2 * headroom
-                bounds = LatLngBounds.from(
-                    centerLat + halfLat, centerLon + halfLon,
-                    centerLat - halfLat, centerLon - halfLon,
-                )
-            }
+            if (headroom > 1.0) bounds = bounds.scaled(headroom)
             map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 96))
         }
         positions.size == 1 -> map.cameraPosition = CameraPosition.Builder()
@@ -581,20 +597,7 @@ private fun addPlaceLayers(
 ) {
     val visibility = PropertyFactory.visibility(if (showInternals) Property.VISIBLE else Property.NONE)
     style.addSource(GeoJsonSource(PLACE_CIRCLE_SOURCE, circleFeature(center, radiusM)))
-    style.addLayer(
-        FillLayer(PLACE_CIRCLE_FILL, PLACE_CIRCLE_SOURCE).withProperties(
-            PropertyFactory.fillColor(CIRCLE_FILL),
-            visibility,
-        ),
-    )
-    style.addLayer(
-        LineLayer(PLACE_CIRCLE_LINE, PLACE_CIRCLE_SOURCE).withProperties(
-            PropertyFactory.lineColor(CIRCLE_LINE),
-            PropertyFactory.lineWidth(1.5f),
-            PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
-            visibility,
-        ),
-    )
+    addCaptureCircleLayers(style, PLACE_CIRCLE_SOURCE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE, visibility)
     style.addImage(IMG_ENDPOINT, drawableBitmap(ctx, R.drawable.ic_marker_endpoint))
     style.addImage(IMG_NEIGHBOR, drawableBitmap(ctx, R.drawable.ic_marker_neighbor))
     style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))

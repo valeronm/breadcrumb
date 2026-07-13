@@ -21,7 +21,7 @@ class TrackControllerTest {
     private val WINDOW = 180_000L
 
     private fun recording(activity: ActivityType): TrackController =
-        TrackController().apply { onRecordingStarted(activity) }
+        TrackController().apply { onRecording(activity) }
 
     /** Recording [activity], then stopped at 60s — so the resume window runs until 240s. */
     private fun paused(activity: ActivityType): TrackController =
@@ -151,7 +151,7 @@ class TrackControllerTest {
         val c = TrackController()
         assertEquals(TrackController.Phase.Idle, c.phase)
 
-        c.onRecordingStarted(WALKING)
+        c.onRecording(WALKING)
         assertEquals(TrackController.Phase.Recording(WALKING), c.phase)
         assertFalse(c.isPaused)
 
@@ -159,7 +159,7 @@ class TrackControllerTest {
         assertEquals(TrackController.Phase.Paused(WALKING, 240_000), c.phase)
         assertTrue(c.isPaused)
 
-        c.onResumed(WALKING)
+        c.onRecording(WALKING)
         assertEquals(TrackController.Phase.Recording(WALKING), c.phase)
         assertFalse(c.isPaused)
 
@@ -167,9 +167,9 @@ class TrackControllerTest {
         assertEquals(TrackController.Phase.Idle, c.phase)
     }
 
-    @Test fun `onContinuedSameTrack tracks the new sub-activity`() {
+    @Test fun `a same-family switch tracks the new sub-activity`() {
         val c = recording(WALKING)
-        c.onContinuedSameTrack(RUNNING)
+        c.onRecording(RUNNING)
         assertEquals(TrackController.Phase.Recording(RUNNING), c.phase)
     }
 }

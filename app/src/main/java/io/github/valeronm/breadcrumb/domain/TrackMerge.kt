@@ -18,10 +18,17 @@ object TrackMerge {
 
     /**
      * A plan to merge across the stay between [before] (ends into the stay) and [after] (starts out
-     * of it), or null if the stay is too long, still ongoing, or the two tracks aren't the same
-     * activity. Named-place exclusion is applied by the caller (it has the place resolution).
+     * of it), or null if the stay is too long, still ongoing, on a named place ([stayIsNamedPlace]
+     * — merging would delete a real visit), or the two tracks aren't the same activity.
      */
-    fun plan(before: TrackSummary, after: TrackSummary, stayStart: Long, stayEnd: Long?): Plan? {
+    fun plan(
+        before: TrackSummary,
+        after: TrackSummary,
+        stayStart: Long,
+        stayEnd: Long?,
+        stayIsNamedPlace: Boolean = false,
+    ): Plan? {
+        if (stayIsNamedPlace) return null
         if (stayEnd == null || stayEnd - stayStart > MAX_STAY_MS) return null
         if (before.activityType != after.activityType) return null
         return Plan(earlierId = before.id, laterId = after.id)

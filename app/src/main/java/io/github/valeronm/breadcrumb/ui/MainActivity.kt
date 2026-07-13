@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
+import android.view.View
 import android.widget.Toast
 import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
@@ -114,7 +115,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
@@ -311,8 +311,6 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
     val timeline by viewModel.timeline.collectAsState()
-    val discardedTracks by viewModel.discardedTracks.collectAsState()
-    val status by TrackingStatus.state.collectAsState()
 
     // GPX files shared/opened into the app import as soon as the UI is up.
     LaunchedEffect(pendingGpxImport.value) {
@@ -494,7 +492,6 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                             keepScreenOn = enabled
                             AppSettings.setKeepScreenOnCharging(context, enabled)
                         },
-                        status = status,
                         viewModel = viewModel,
                         onGrantForeground = {
                             requestForeground.launch(foregroundPermissions().toTypedArray())
@@ -641,6 +638,9 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
         // A deleted track's full detail: stacked above the Recently deleted list — back (and the
         // predictive-back preview) returns to the list, not the tabs.
         discardedLayer.rendered?.let { trackId ->
+            // Collected here, not at MainScreen level: the aggregate query only stays live
+            // while this rarely-open layer exists.
+            val discardedTracks by viewModel.discardedTracks.collectAsState()
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -728,21 +728,17 @@ private fun <T : Any> rememberOverlayLayer(
     return state
 }
 
-/** The overlay open/close + predictive-back transform: slide/scale in, recede toward the edge. */
-private fun Modifier.overlayTransform(layer: OverlayLayerState<*>): Modifier = overlayTransform(
-    layer.presence.value,
-    layer.backProgress.value,
-    layer.backEdgeSign,
-    layer.backOffsetY.value,
-)
-
-private fun Modifier.overlayTransform(
-    enter: Float,
-    back: Float,
-    edgeSign: Float,
-    backOffsetY: Float = 0f,
-): Modifier =
+/**
+ * The overlay open/close + predictive-back transform: slide/scale in, recede toward the edge.
+ * The animated values are read inside the graphicsLayer block (like [underlayBlur]) so animation
+ * frames re-run only this draw-time block, not the composition that applied the modifier.
+ */
+private fun Modifier.overlayTransform(layer: OverlayLayerState<*>): Modifier =
     graphicsLayer {
+        val enter = layer.presence.value
+        val back = layer.backProgress.value
+        val edgeSign = layer.backEdgeSign
+        val backOffsetY = layer.backOffsetY.value
         val eased = easeOutBack(back)
         val scale = (0.92f + 0.08f * enter) * (1f - 0.10f * eased)
         scaleX = scale
@@ -807,13 +803,14 @@ private fun RecordTab(
     charging: Boolean,
     keepScreenOn: Boolean,
     onToggleKeepScreenOn: (Boolean) -> Unit,
-    status: TrackingStatus.State,
     viewModel: TrackListViewModel,
     onGrantForeground: () -> Unit,
     onGrantBackground: () -> Unit,
     onToggleAuto: (Boolean) -> Unit,
     onRequestBattery: () -> Unit,
 ) {
+    // Collected here, not in MainScreen: the status flow emits per fix, and only this tab reads it.
+    val status by TrackingStatus.state.collectAsState()
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         when {
             !foregroundOk -> PermissionCard(
@@ -860,9 +857,14 @@ private fun RecordTab(
                     points = status.points,
                     hasOpenTrack = status.activeTrackId != null,
                 )
+                Spacer(Modifier.height(16.dp))
+                val scrollingStats: @Composable ColumnScope.() -> Unit = {
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                        RecordedStats(viewModel)
+                    }
+                }
                 when {
                     replay != null -> {
-                        Spacer(Modifier.height(16.dp))
                         ReplayBanner(replay) { TrackReplayer.stop() }
                         Spacer(Modifier.height(8.dp))
                         CurrentTrackPreview(
@@ -872,26 +874,17 @@ private fun RecordTab(
                         )
                     }
                     cardState == RecordCardState.LIVE_MAP -> {
-                        Spacer(Modifier.height(16.dp))
                         LiveTrackPreview(
                             viewModel = viewModel,
                             status = status,
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                         )
                     }
-                    cardState == RecordCardState.STATS_ONLY -> {
-                        Spacer(Modifier.height(16.dp))
-                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                            RecordedStats(viewModel)
-                        }
-                    }
+                    cardState == RecordCardState.STATS_ONLY -> scrollingStats()
                     else -> {
-                        Spacer(Modifier.height(16.dp))
                         RecorderStateCard(cardState, status)
                         Spacer(Modifier.height(12.dp))
-                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                            RecordedStats(viewModel)
-                        }
+                        scrollingStats()
                     }
                 }
                 Spacer(Modifier.height(16.dp))
@@ -915,7 +908,7 @@ private fun RecordedStats(viewModel: TrackListViewModel) {
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
     val byDate = remember(tracks) {
-        tracks.map { it to Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate() }
+        tracks.map { it to it.startedAt.toLocalDate(zone) }
     }
     // Remembered: RecordTab recomposes on every status tick while visible.
     val periods = remember(byDate, today) {
@@ -1298,6 +1291,33 @@ private fun TracksTab(
 }
 
 /**
+ * Haptic CLOCK_TICK when a scrubbed value crosses to a different key, throttled (30 ms) so a fast
+ * drag feels like a picker, not a buzz. A plain holder rather than composed state: gesture lambdas
+ * capture one composition and go stale. [tickOnFirst] controls whether the first non-null key
+ * after construction (or a [reset]) ticks. Shared by the timeline fast scroller and the metric
+ * graph scrubber.
+ */
+private class ThrottledTick(private val view: View, private val tickOnFirst: Boolean) {
+    private var last: Any? = null
+    private var lastTickAt = 0L
+
+    fun onChange(key: Any?) {
+        if (key != null && key != last && (last != null || tickOnFirst)) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastTickAt >= 30) {
+                lastTickAt = now
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            }
+        }
+        last = key
+    }
+
+    fun reset() {
+        last = null
+    }
+}
+
+/**
  * Fast scroller for the timeline: a finger-sized handle that fades in while the list scrolls and
  * can be grabbed and dragged through the history. The drag snaps to day headers (never into the
  * middle of a day), a bubble names the day under the thumb, and crossing into a different day
@@ -1309,10 +1329,8 @@ private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List
     val view = LocalView.current
     var dragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
-    // Tick when the drag crosses into a different day (same throttled pattern as the track
-    // scrubber); holders rather than composed state — the drag lambdas capture one composition.
-    val lastDay = remember { arrayOf<String?>(null) }
-    val lastTick = remember { longArrayOf(0L) }
+    // Tick when the drag crosses into a different day (never on the day under the initial grab).
+    val dayTick = remember { ThrottledTick(view, tickOnFirst = false) }
     // Linger after the scroll stops so there's time to reach for the handle before it fades.
     var shown by remember { mutableStateOf(false) }
     val active = dragging || state.isScrollInProgress
@@ -1356,16 +1374,7 @@ private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List
         fun applyFraction(f: Float) {
             dragFraction = f.coerceIn(0f, 1f)
             val (day, headerIndex) = dayAnchors[dayIndexAt(dragFraction)]
-            if (day != lastDay[0]) {
-                if (lastDay[0] != null) {
-                    val now = SystemClock.uptimeMillis()
-                    if (now - lastTick[0] >= 30) {
-                        lastTick[0] = now
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    }
-                }
-                lastDay[0] = day
-            }
+            dayTick.onChange(day)
             scope.launch { state.scrollToItem(headerIndex) }
         }
 
@@ -1386,7 +1395,7 @@ private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List
                         val down = awaitFirstDown()
                         down.consume()
                         dragging = true
-                        lastDay[0] = null
+                        dayTick.reset()
                         dragFraction = currentFraction.value
                         // This box moves with the thumb, so map local positions to track space
                         // through the thumb's current offset; anchor the grab point so the
@@ -1933,7 +1942,7 @@ private fun PlaceVisitsList(stays: List<StayDeriver.Stay>, modifier: Modifier = 
     val nowMs = remember { System.currentTimeMillis() }
     // Stays arrive newest first, so groupBy preserves month order and in-month order.
     val groups = remember(stays) {
-        stays.groupBy { YearMonth.from(Instant.ofEpochMilli(it.start).atZone(zone).toLocalDate()) }
+        stays.groupBy { YearMonth.from(it.start.toLocalDate(zone)) }
     }
     LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         groups.forEach { (month, visits) ->
@@ -1996,8 +2005,8 @@ private fun visitTimeRange(stay: StayDeriver.Stay, zone: ZoneId): String {
     val start = timeFormat.format(Date(stay.start))
     val end = stay.end ?: return "since $start"
     val nights = ChronoUnit.DAYS.between(
-        Instant.ofEpochMilli(stay.start).atZone(zone).toLocalDate(),
-        Instant.ofEpochMilli(end).atZone(zone).toLocalDate(),
+        stay.start.toLocalDate(zone),
+        end.toLocalDate(zone),
     )
     val rollover = if (nights > 0) " +$nights" else ""
     return "$start – ${timeFormat.format(Date(end))}$rollover"
@@ -2056,40 +2065,36 @@ private fun PlaceResolver.PlaceSummary.rowKey(): String = placeDetailKeyOf(place
 
 private fun placeSubtitle(summary: PlaceResolver.PlaceSummary): String {
     if (summary.visitCount == 0) return "No visits yet"
-    val visits = if (summary.visitCount == 1) "1 visit" else "${summary.visitCount} visits"
     val total = formatDurationMs(summary.totalMs)
     val lastVisit = summary.lastSeenMs?.let { "last visit ${relativeDayCompact(it)}" }
-    return listOfNotNull(visits, lastVisit, total).joinToString(" · ")
+    return listOfNotNull(visitCountLabel(summary.visitCount), lastVisit, total).joinToString(" · ")
 }
 
+private fun visitCountLabel(n: Int): String = if (n == 1) "1 visit" else "$n visits"
+
+/** Epoch millis → the local calendar date in [zone]. */
+private fun Long.toLocalDate(zone: ZoneId): LocalDate =
+    Instant.ofEpochMilli(this).atZone(zone).toLocalDate()
+
 /** Coarse relative day for "last seen": today / yesterday / N days ago / a date. */
-private fun relativeDay(epochMs: Long): String {
-    val zone = ZoneId.systemDefault()
-    val then = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
-    val today = LocalDate.now(zone)
-    val days = ChronoUnit.DAYS.between(then, today)
-    return when {
-        days <= 0 -> "today"
-        days == 1L -> "yesterday"
-        days < 7 -> "$days days ago"
-        // Compact beyond a week — this renders inside stat cells and one-line row subtitles.
-        then.year == today.year -> then.format(compactDayFormat)
-        else -> then.format(compactDayYearFormat)
-    }
-}
+private fun relativeDay(epochMs: Long): String = relativeDay(epochMs, compact = false)
 
 /** [relativeDay] squeezed for the big stat cells, where "5 days ago" or a full date overflows:
  *  "5d ago", "29 Nov", "Nov 2025" — always one line; exact dates live in the visit history. */
-private fun relativeDayCompact(epochMs: Long): String {
+private fun relativeDayCompact(epochMs: Long): String = relativeDay(epochMs, compact = true)
+
+private fun relativeDay(epochMs: Long, compact: Boolean): String {
     val zone = ZoneId.systemDefault()
-    val then = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
+    val then = epochMs.toLocalDate(zone)
     val today = LocalDate.now(zone)
     val days = ChronoUnit.DAYS.between(then, today)
     return when {
         days <= 0 -> "today"
-        days < 7 -> "${days}d ago"
+        days == 1L && !compact -> "yesterday"
+        days < 7 -> if (compact) "${days}d ago" else "$days days ago"
+        // Compact beyond a week — this renders inside stat cells and one-line row subtitles.
         then.year == today.year -> then.format(compactDayFormat)
-        else -> then.format(monthOfYearFormat)
+        else -> then.format(if (compact) monthOfYearFormat else compactDayYearFormat)
     }
 }
 
@@ -2774,7 +2779,7 @@ private fun groupTimelineByDay(items: List<TimelineItem>): List<Pair<String, Lis
     // groupBy preserves encounter order, and items arrive newest-first, so days stay descending.
     // Midnight-spanning stays were already sliced per day by the deriver.
     return items
-        .groupBy { Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate() }
+        .groupBy { it.startedAt.toLocalDate(zone) }
         .map { (date, list) -> dayLabel(date, today) to list }
 }
 
@@ -3065,7 +3070,7 @@ private fun StayCard(
                             append(formatDurationMs((end ?: System.currentTimeMillis()) - stay.start))
                         }
                         if (visits != null) {
-                            append(" · " + if (visits == 1) "1 visit" else "$visits visits")
+                            append(" · " + visitCountLabel(visits))
                         }
                         // The swipe-to-merge gesture is invisible on its own — this is its one hint.
                         if (mergeable) {
@@ -3348,7 +3353,7 @@ internal class MetricGraphData(
     val unit: String,
 )
 
-/** Null when [mode] has no numeric series (categorical Source) or no point carries the metric. */
+/** Null when no point carries the metric. */
 internal fun metricGraphData(
     points: List<TrackPoint>,
     mode: ColorMode,
@@ -3356,20 +3361,8 @@ internal fun metricGraphData(
 ): MetricGraphData? {
     // Computed unconditionally: trackColoring below needs it whatever the mode.
     val speeds = TrackQuality.pointSpeedsKmh(points)
-    val values: List<Float?> = when (mode) {
-        ColorMode.SPEED -> List(points.size) { speeds[it] }
-        ColorMode.ELEVATION -> points.map { it.altitude?.toFloat() }
-        ColorMode.ACCURACY -> points.map { it.accuracy }
-        ColorMode.SATELLITES -> points.map { it.satellitesInFix?.toFloat() }
-        ColorMode.CN0 -> points.map { it.cn0 }
-    }
+    val (values, unit) = metricSeries(points, mode, speeds)
     if (values.all { it == null }) return null
-    val unit = when (mode) {
-        ColorMode.SPEED -> "km/h"
-        ColorMode.ELEVATION, ColorMode.ACCURACY -> "m"
-        ColorMode.SATELLITES -> "sat"
-        ColorMode.CN0 -> "dB"
-    }
     val colors = trackColoring(points, speeds, mode, activity).colors
     return MetricGraphData(points, values, colors, unit)
 }
@@ -3429,9 +3422,12 @@ private fun MetricGraph(
     onSelect: (Int?) -> Unit,
     modifier: Modifier,
 ) {
-    val present = graph.values.filterNotNull()
-    val minV = present.min()
-    val maxV = present.max()
+    // Remembered: MetricGraph recomposes per touch event while scrubbing, and the min/max scan
+    // is O(points) — the series is immutable per graph instance.
+    val (minV, maxV) = remember(graph) {
+        val present = graph.values.filterNotNull()
+        present.min() to present.max()
+    }
     val span = (maxV - minV).let { if (it < 1e-3f) 1f else it }
     val t0 = graph.points.first().timestamp
     val tSpan = (graph.points.last().timestamp - t0).coerceAtLeast(1L).toFloat()
@@ -3475,21 +3471,10 @@ private fun MetricGraph(
             val cursorColor = MaterialTheme.colorScheme.onSurface
             val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
             val view = LocalView.current
-            // Tick only when the scrubber actually lands on a different point, throttled so a fast
-            // drag across ~1 Hz data feels like a picker, not a buzz. The last index lives in a
-            // holder rather than comparing against the composed selectedIndex: the gesture lambdas
-            // run inside pointerInput(graph), whose closure captures one composition and goes stale.
-            val lastReported = remember(graph) { arrayOf<Int?>(null) }
-            val lastTick = remember(graph) { longArrayOf(0L) }
+            // Tick only when the scrubber actually lands on a different point.
+            val pointTick = remember(graph) { ThrottledTick(view, tickOnFirst = true) }
             fun select(index: Int?) {
-                if (index != null && index != lastReported[0]) {
-                    val now = SystemClock.uptimeMillis()
-                    if (now - lastTick[0] >= 30) {
-                        lastTick[0] = now
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    }
-                }
-                lastReported[0] = index
+                pointTick.onChange(index)
                 onSelect(index)
             }
             // The selection, bounds-checked once for both the cursor and the readout below.
@@ -3578,7 +3563,6 @@ private fun noisyLegendEntry(reason: IgnoreReason?): Pair<String, Color> = when 
     IgnoreReason.ACCURACY, null -> "Low accuracy" to Color(0xFFFF8F00)
 }
 
-/** Legend for the noisy-fix markers: one row per rejection reason present in [noisyPoints]. */
 /** Detected in-track stops: one row per dwell — "14:36 – 16:10 · 1h 34m". */
 @Composable
 private fun DwellLegend(dwells: List<DwellDetector.Dwell>, modifier: Modifier) {
@@ -3598,6 +3582,7 @@ private fun DwellLegend(dwells: List<DwellDetector.Dwell>, modifier: Modifier) {
     }
 }
 
+/** Legend for the noisy-fix markers: one row per rejection reason present in [noisyPoints]. */
 @Composable
 private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
     val entries = remember(noisyPoints) {
@@ -3735,34 +3720,49 @@ private fun rampColoring(
 }
 
 /**
+ * The per-point value series for [mode] (null where a point lacks the metric) and its display
+ * unit — the single mode→series/unit mapping, feeding both the graph and the map colouring.
+ */
+private fun metricSeries(
+    points: List<TrackPoint>, mode: ColorMode, speedsKmh: FloatArray,
+): Pair<List<Float?>, String> = when (mode) {
+    ColorMode.SPEED -> List(points.size) { speedsKmh[it] } to "km/h"
+    ColorMode.ELEVATION -> points.map { it.altitude?.toFloat() } to "m"
+    ColorMode.ACCURACY -> points.map { it.accuracy } to "m"
+    ColorMode.SATELLITES -> points.map { it.satellitesInFix?.toFloat() } to "sat"
+    ColorMode.CN0 -> points.map { it.cn0 } to "dB"
+}
+
+/**
  * Per-point colours + legend for [mode]. Ramps go red→green→blue between two anchor values; where an
  * anchor is "worse" it's placed at red (e.g. accuracy: 50 m = red, 0 m = blue). Points missing the
  * metric are grey.
  */
 internal fun trackColoring(
     points: List<TrackPoint>, speedsKmh: FloatArray, mode: ColorMode, activity: ActivityType?,
-): TrackColoring = when (mode) {
-    ColorMode.SPEED -> {
-        val s = speedScaleFor(activity ?: ActivityType.UNKNOWN)
-        rampColoring(List(points.size) { speedsKmh[it] }, s.minKmh, s.maxKmh, "km/h", "No speed data")
-    }
-    ColorMode.ELEVATION -> {
-        val alts = points.map { it.altitude?.toFloat() }
-        val present = alts.filterNotNull()
-        if (present.isEmpty()) {
-            TrackColoring(IntArray(points.size) { NO_DATA_ARGB }, Legend.None("No elevation data"))
-        } else {
-            val lo = present.min()
-            val hi = present.max()
-            val span = if (hi - lo < 1f) 1f else hi - lo // avoid a zero-width ramp on a flat track
-            rampColoring(alts, lo, lo + span, "m", "No elevation data")
+): TrackColoring {
+    val (values, unit) = metricSeries(points, mode, speedsKmh)
+    return when (mode) {
+        ColorMode.SPEED -> {
+            val s = speedScaleFor(activity ?: ActivityType.UNKNOWN)
+            rampColoring(values, s.minKmh, s.maxKmh, unit, "No speed data")
         }
+        ColorMode.ELEVATION -> {
+            val present = values.filterNotNull()
+            if (present.isEmpty()) {
+                TrackColoring(IntArray(points.size) { NO_DATA_ARGB }, Legend.None("No elevation data"))
+            } else {
+                val lo = present.min()
+                val hi = present.max()
+                val span = if (hi - lo < 1f) 1f else hi - lo // avoid a zero-width ramp on a flat track
+                rampColoring(values, lo, lo + span, unit, "No elevation data")
+            }
+        }
+        // Lower accuracy radius is better, so 0 m sits at the blue (good) end.
+        ColorMode.ACCURACY -> rampColoring(values, 50f, 0f, unit, "No accuracy data")
+        ColorMode.SATELLITES -> rampColoring(values, 0f, 12f, unit, "No satellite data")
+        ColorMode.CN0 -> rampColoring(values, 15f, 45f, unit, "No signal data")
     }
-    // Lower accuracy radius is better, so 0 m sits at the blue (good) end.
-    ColorMode.ACCURACY -> rampColoring(points.map { it.accuracy }, 50f, 0f, "m", "No accuracy data")
-    ColorMode.SATELLITES ->
-        rampColoring(points.map { it.satellitesInFix?.toFloat() }, 0f, 12f, "sat", "No satellite data")
-    ColorMode.CN0 -> rampColoring(points.map { it.cn0 }, 15f, 45f, "dB", "No signal data")
 }
 
 /** Horizontally-scrollable chips to pick how the track line is coloured. */

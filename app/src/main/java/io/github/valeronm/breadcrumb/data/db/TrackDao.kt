@@ -12,9 +12,6 @@ interface TrackDao {
     suspend fun insertTrack(track: Track): Long
 
     @Insert
-    suspend fun insertPoint(point: TrackPoint): Long
-
-    @Insert
     suspend fun insertPoints(points: List<TrackPoint>)
 
     @Query("UPDATE tracks SET endedAt = :endedAt WHERE id = :trackId")
@@ -75,6 +72,24 @@ interface TrackDao {
     /** Usable (non-ignored) points, for rendering and export. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")
     suspend fun pointsFor(trackId: Long): List<TrackPoint>
+
+    /** The first [limit] usable points — enough to check for a stray leading point. */
+    @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC LIMIT :limit")
+    suspend fun firstPointsFor(trackId: Long, limit: Int): List<TrackPoint>
+
+    /** Usable-point count, for the keep-thresholds check without loading rows. */
+    @Query("SELECT COUNT(*) FROM track_points WHERE trackId = :trackId AND ignored = 0")
+    suspend fun countGoodPoints(trackId: Long): Int
+
+    /** Usable-point bounding box, for the keep-thresholds extent gate without loading rows. */
+    @Query(
+        """
+        SELECT MIN(latitude) AS minLat, MAX(latitude) AS maxLat,
+               MIN(longitude) AS minLon, MAX(longitude) AS maxLon
+        FROM track_points WHERE trackId = :trackId AND ignored = 0
+        """
+    )
+    suspend fun goodPointBounds(trackId: Long): PointBounds?
 
     /** Usable points inserted after [afterId] — the live preview's incremental reload. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 AND id > :afterId ORDER BY timestamp ASC, id ASC")

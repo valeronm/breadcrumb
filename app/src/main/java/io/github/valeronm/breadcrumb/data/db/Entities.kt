@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 
 /**
  * A single continuous recording session for one activity type (e.g. one drive, one walk).
@@ -128,10 +129,18 @@ data class Place(
     val radiusM: Double = DEFAULT_RADIUS_M,
 ) {
     companion object {
-        /** Matches the organic cluster radius (PlaceClusterer.DEFAULT_RADIUS_M). */
-        const val DEFAULT_RADIUS_M = 150.0
+        /** Matches the organic cluster radius. */
+        const val DEFAULT_RADIUS_M = PlaceClusterer.DEFAULT_RADIUS_M
     }
 }
+
+/** Bounding box of a track's usable points; fields are null when the track has none. */
+data class PointBounds(
+    val minLat: Double?,
+    val maxLat: Double?,
+    val minLon: Double?,
+    val maxLon: Double?,
+)
 
 /** A finished track projected to what stay derivation needs: interval + endpoint coordinates. */
 data class TrackEndpoints(

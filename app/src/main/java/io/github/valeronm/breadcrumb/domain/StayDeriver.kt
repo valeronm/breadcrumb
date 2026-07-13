@@ -127,8 +127,10 @@ object StayDeriver {
         val out = mutableListOf<Interval>()
 
         fun nearestPin(e: Endpoint): Int? = placePins.indices
-            .filter { distance.metres(placePins[it].anchor.lat, placePins[it].anchor.lon, e.lat, e.lon) <= placePins[it].radiusM }
-            .minByOrNull { distance.metres(placePins[it].anchor.lat, placePins[it].anchor.lon, e.lat, e.lon) }
+            .map { it to distance.metres(placePins[it].anchor.lat, placePins[it].anchor.lon, e.lat, e.lon) }
+            .filter { (i, d) -> d <= placePins[i].radiusM }
+            .minByOrNull { (_, d) -> d }
+            ?.first
 
         fun samePlace(a: Endpoint, b: Endpoint): Boolean =
             clusterOf.getValue(a) == clusterOf.getValue(b) ||
@@ -309,7 +311,7 @@ object StayDeriver {
                 val nextMidnight = Instant.ofEpochMilli(sliceStart).atZone(zone)
                     .toLocalDate().plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
                 if (end <= nextMidnight) {
-                    slices += copyWith(interval, sliceStart, interval.end?.let { end })
+                    slices += copyWith(interval, sliceStart, interval.end)
                     break
                 }
                 slices += copyWith(interval, sliceStart, nextMidnight)

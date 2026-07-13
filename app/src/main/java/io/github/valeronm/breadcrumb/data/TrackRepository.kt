@@ -38,8 +38,6 @@ class TrackRepository(context: Context) {
     suspend fun startTrack(activityType: ActivityType, startedAt: Long): Long =
         dao.insertTrack(Track(activityType = activityType.name, startedAt = startedAt))
 
-    suspend fun addPoint(point: TrackPoint): Long = dao.insertPoint(point)
-
     suspend fun addPoints(points: List<TrackPoint>) = dao.insertPoints(points)
 
     class GpxImportCounts(val imported: Int, val duplicates: Int)
@@ -105,23 +103,34 @@ class TrackRepository(context: Context) {
      * passed lazily so its bounding-box pass runs only when the extent gate is enabled.
      */
     private suspend fun meetsKeepThresholds(track: Track, endedAt: Long): Boolean {
-        val points = dao.pointsFor(track.id)
+        val pointCount = dao.countGoodPoints(track.id)
         val durationSec = (endedAt - track.startedAt) / 1000
         val thresholds = KeepRule.Thresholds(
             minDurationSec = Settings.minTrackDurationSec(appContext),
             minLengthM = Settings.minTrackLengthM(appContext),
             minExtentM = Settings.minTrackExtentM(appContext),
         )
+        // Extent = the diagonal of the lat/lon bounding box: distinguishes a real trip from a
+        // stationary blob — unlike accumulated length, GPS jitter can't inflate it. Computed via
+        // SQL aggregates instead of loading every point row; the bounds query runs only when the
+        // extent gate is enabled (mirroring KeepRule's lazy extent).
+        val extentM = if (thresholds.minExtentM > 0 && pointCount >= 2) {
+            val b = dao.goodPointBounds(track.id)
+            if (b?.minLat == null) 0.0
+            else AndroidDistance.metres(b.minLat, b.minLon!!, b.maxLat!!, b.maxLon!!)
+        } else {
+            0.0
+        }
         val keep = KeepRule.shouldKeep(
-            pointCount = points.size,
+            pointCount = pointCount,
             durationSec = durationSec,
             distanceMeters = track.distanceMeters,
             thresholds = thresholds,
-            extent = { TrackQuality.boundingExtentMeters(points) },
+            extent = { extentM },
         )
         DebugLog.i(
             TAG,
-            "track ${track.id} (${track.activityType}): ${points.size} pts, " +
+            "track ${track.id} (${track.activityType}): $pointCount pts, " +
                 "${track.distanceMeters.toInt()} m, ${durationSec}s vs min " +
                 "${thresholds.minLengthM} m / ${thresholds.minDurationSec}s" +
                 (if (thresholds.minExtentM > 0) " / extent ${thresholds.minExtentM} m" else "") +
@@ -240,9 +249,11 @@ class TrackRepository(context: Context) {
         var dropped = 0
         // Bounded: each pass ignores one leading point, so a handful covers any real run of strays.
         repeat(MAX_LEADING_REPAIRS) {
-            val points = dao.pointsFor(trackId)
-            if (!TrackQuality.leadingPointIsJump(points)) return dropped
+            // The stray check only needs the leading prefix; load the full track only on a repair.
+            val head = dao.firstPointsFor(trackId, TrackQuality.LEADING_CHECK_POINT_COUNT)
+            if (!TrackQuality.leadingPointIsJump(head)) return dropped
             db.withTransaction {
+                val points = dao.pointsFor(trackId)
                 dao.setIgnored(points.first().id, IgnoreReason.JUMP.code)
                 // Same distance walk as the recorder: segment starts detach from the previous point.
                 var distance = 0.0

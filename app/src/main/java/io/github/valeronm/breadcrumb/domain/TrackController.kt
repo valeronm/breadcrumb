@@ -15,7 +15,7 @@ import io.github.valeronm.breadcrumb.data.ActivityType
  *  - **the motion family** — walking ⇄ running stays one track; walking → driving splits.
  *
  * Pure and Android-free. The service applies the returned [RecordingAction] and reports the
- * resulting phase back via [onRecordingStarted] / [onPaused] / [onResumed] / [onClosed].
+ * resulting phase back via [onRecording] / [onPaused] / [onClosed].
  */
 class TrackController {
 
@@ -74,21 +74,13 @@ class TrackController {
         else -> RecordingAction.Noop
     }
 
-    fun onRecordingStarted(activity: ActivityType) {
+    /** Recording is live for [activity] — a fresh start, a resume, or a same-family switch. */
+    fun onRecording(activity: ActivityType) {
         phase = Phase.Recording(activity)
     }
 
     fun onPaused(activity: ActivityType, resumeDeadlineMs: Long) {
         phase = Phase.Paused(activity, resumeDeadlineMs)
-    }
-
-    fun onResumed(activity: ActivityType) {
-        phase = Phase.Recording(activity)
-    }
-
-    /** A same-family switch continued the live track; track the new sub-activity in the phase. */
-    fun onContinuedSameTrack(activity: ActivityType) {
-        phase = Phase.Recording(activity)
     }
 
     fun onClosed() {

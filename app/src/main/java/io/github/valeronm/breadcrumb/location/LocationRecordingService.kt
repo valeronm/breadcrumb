@@ -281,15 +281,18 @@ class LocationRecordingService : Service() {
      */
     fun onActivityChanged(activity: ActivityType, eventTimeMs: Long? = null, onApplied: (() -> Unit)? = null) {
         transitionSinceArm = true
-        // invokeOnCompletion (not try/finally in the body): it also fires when the scope was
-        // already cancelled and the body never ran — otherwise a dying service would leak the
-        // receiver's goAsync and pin the broadcast until the system times it out.
-        scope.launch { mutex.withLock { applyActivity(activity, eventTimeMs) } }
-            .invokeOnCompletion { onApplied?.invoke() }
+        applyActivityAsync(activity, eventTimeMs, onApplied)
     }
 
     /** The arm-time snapshot reading — applied like a transition but never claims to be one. */
     fun onSnapshot(activity: ActivityType, eventTimeMs: Long? = null, onApplied: (() -> Unit)? = null) {
+        applyActivityAsync(activity, eventTimeMs, onApplied)
+    }
+
+    private fun applyActivityAsync(activity: ActivityType, eventTimeMs: Long?, onApplied: (() -> Unit)?) {
+        // invokeOnCompletion (not try/finally in the body): it also fires when the scope was
+        // already cancelled and the body never ran — otherwise a dying service would leak the
+        // receiver's goAsync and pin the broadcast until the system times it out.
         scope.launch { mutex.withLock { applyActivity(activity, eventTimeMs) } }
             .invokeOnCompletion { onApplied?.invoke() }
     }
@@ -339,7 +342,7 @@ class LocationRecordingService : Service() {
                 // break a new segment at the boundary. GPS is already running.
                 DebugLog.i(TAG, "  -> ${action.activity} continues track $activeTrackId (same family); new segment")
                 pendingSegmentStart = true
-                controller.onContinuedSameTrack(action.activity)
+                controller.onRecording(action.activity)
             }
         }
         // A confirmed moving reading while the no-fix guard has GPS off is a resume signal too
@@ -389,7 +392,7 @@ class LocationRecordingService : Service() {
     /** Continue the paused track: GPS back on, accumulators kept; the first fix begins a new segment. */
     private suspend fun resumeTrack(activity: ActivityType) {
         pauseDeadlineMs = null
-        controller.onResumed(activity)
+        controller.onRecording(activity)
         pendingSegmentStart = true
         withContext(Dispatchers.Main) { startLocationUpdates() }
     }
@@ -406,7 +409,7 @@ class LocationRecordingService : Service() {
         val startedAt = now()
         trackStartedAt = startedAt
         activeTrackId = repository.startTrack(activity, startedAt)
-        controller.onRecordingStarted(activity)
+        controller.onRecording(activity)
         withContext(Dispatchers.Main) { startLocationUpdates() }
     }
 
@@ -806,19 +809,20 @@ class LocationRecordingService : Service() {
 
     private fun publishStatus() {
         val activity = gate.confirmed
+        val rec = activity.recording
         val pausedActivity = (controller.phase as? TrackController.Phase.Paused)?.activity
-        val suspended = activity.recording && noFixGuard.suspended
+        val suspended = rec && noFixGuard.suspended
         TrackingStatus.update {
             it.copy(
                 tracking = true,
                 activity = activity,
-                recording = activity.recording,
+                recording = rec,
                 activeTrackId = activeTrackId,
-                distanceMeters = if (activity.recording) distanceMeters else 0.0,
-                points = if (activity.recording) pointCount else 0,
-                startedAtMillis = if (activity.recording && trackStartedAt > 0) trackStartedAt else null,
-                speedMps = if (activity.recording) lastGoodPoint?.speed else null,
-                altitudeM = if (activity.recording) lastGoodPoint?.altitude else null,
+                distanceMeters = if (rec) distanceMeters else 0.0,
+                points = if (rec) pointCount else 0,
+                startedAtMillis = if (rec && trackStartedAt > 0) trackStartedAt else null,
+                speedMps = if (rec) lastGoodPoint?.speed else null,
+                altitudeM = if (rec) lastGoodPoint?.altitude else null,
                 gpsSuspended = suspended,
                 gpsSuspendedSinceMillis = when {
                     !suspended -> null
@@ -827,8 +831,8 @@ class LocationRecordingService : Service() {
                 },
                 pausedActivity = pausedActivity,
                 pausedUntilMillis = if (pausedActivity != null) pauseDeadlineMs else null,
-                lastFixAccuracyM = if (activity.recording) lastFixAccuracyM else null,
-                lastFixRejectedByAccuracy = activity.recording && lastFixRejectedByAccuracy,
+                lastFixAccuracyM = if (rec) lastFixAccuracyM else null,
+                lastFixRejectedByAccuracy = rec && lastFixRejectedByAccuracy,
             )
         }
         // State only — no live distance. The notification re-posts only on activity/pause

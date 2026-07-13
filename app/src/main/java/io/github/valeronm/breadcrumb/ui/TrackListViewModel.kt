@@ -46,11 +46,17 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private val livenessRepository = LivenessRepository(app)
     private val placeRepository = PlaceRepository(app)
 
+    // Room re-runs these queries on ANY write to the tables they touch — including every point
+    // batch of the live recording, whose content they exclude (endedAt IS NOT NULL). The
+    // distinctUntilChanged calls turn those identical re-emissions into cheap list-equality
+    // checks instead of re-running the derivation/UI work downstream.
     val tracks: StateFlow<List<TrackSummary>> = repository.observeSummaries()
+        .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Soft-deleted tracks (deleted, filtered, merged), for the Recently deleted screen. */
     val discardedTracks: StateFlow<List<DiscardedSummary>> = repository.observeDiscardedSummaries()
+        .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** One derivation run's inputs and outputs, shared by [timeline] and [places]. */
@@ -65,9 +71,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     // (constant per track) — distinctUntilChanged keeps per-fix status emissions from re-running
     // the clustering.
     private val derived: Flow<Derived> = combine(
-        repository.observeEndpoints(),
-        livenessRepository.observeEvents(),
-        placeRepository.observePlaces(),
+        repository.observeEndpoints().distinctUntilChanged(),
+        livenessRepository.observeEvents().distinctUntilChanged(),
+        placeRepository.observePlaces().distinctUntilChanged(),
         TrackingStatus.state.map { if (it.recording) it.startedAtMillis else null }.distinctUntilChanged(),
     ) { endpoints, events, places, activeStartedAt ->
         val now = System.currentTimeMillis()
@@ -101,14 +107,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         ).map { item ->
             if (item !is TimelineItem.StayItem) return@map item
             val resolution = resolutions[item.stay.afterTrackId]
-            // Offer merge only for unnamed stays — merging one on a named place would delete a real visit.
-            val merge = if (resolution?.label != null) null else {
-                val before = byId[item.stay.afterTrackId]
-                val after = nextTrack[item.stay.afterTrackId]
-                if (before != null && after != null) {
-                    TrackMerge.plan(before, after, item.stay.start, item.stay.end)
-                } else null
-            }
+            val before = byId[item.stay.afterTrackId]
+            val after = nextTrack[item.stay.afterTrackId]
+            val merge = if (before != null && after != null) {
+                TrackMerge.plan(
+                    before, after, item.stay.start, item.stay.end,
+                    stayIsNamedPlace = resolution?.label != null,
+                )
+            } else null
             item.copy(place = resolution, merge = merge)
         }
     }.flowOn(Dispatchers.Default)
