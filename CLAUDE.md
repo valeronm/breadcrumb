@@ -88,6 +88,16 @@ both on normal finish and via `finalizeDangling`, which also cleans up tracks le
 share intents (`FileProvider`) or bulk-writes to a user-picked folder (Storage Access Framework);
 `GpxParser` imports GPX files shared/opened into the app. `PlaceRepository` backs the Places tab.
 
+**Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*
+rows and a Room SQL migration can't express the logic, add a repository pass and run it from
+`App.onCreate`'s IO coroutine behind a `Settings` done-flag:
+`if (!Settings.isXDone(...)) { repository.x(); Settings.setXDone(...) }`. It runs there (not in
+any screen) because the background service can keep the process alive for weeks without the UI
+opening. Make the pass idempotent — a crash between the work and the flag write means it re-runs.
+Delete the pass, its flag, and any DAO queries only it used once the installed base has run it;
+the pre-DB-v5 ignore-reason backfill and the drive-start leading-stray repair followed this
+pattern and were dropped 2026-07-13 (see git history for a template).
+
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
 stacked layers for place detail, the Settings sub-pages (sampling, point quality, auto-pause, GPS

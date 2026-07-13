@@ -270,45 +270,4 @@ class TrackRepository(context: Context) {
         return dropped
     }
 
-    /**
-     * One-time backfill: repairs stray leading points across every track. Imports before this
-     * shipped (and any imported before the auto-repair on import) kept their drive-start artifact;
-     * this cleans the existing history. Idempotent — a track with no stray is left untouched.
-     */
-    suspend fun repairAllLeadingPoints(): Int {
-        var total = 0
-        for (trackId in dao.allTrackIds()) total += repairLeadingPoints(trackId)
-        if (total > 0) DebugLog.i(TAG, "repaired stray leading points on $total track-point(s)")
-        return total
-    }
-
-    /**
-     * One-time backfill of [IgnoreReason] for ignored points recorded before DB v5 (which stored
-     * only the flag). Replays [TrackQuality.badFixReason] over each track with the same baseline
-     * walk the recorder used — the stored flags decide which points were good — and attributes
-     * whatever the accuracy/jump rules don't explain to the GNSS cross-check, the recorder's only
-     * other rejection path. Idempotent: it only touches ignored points whose reason is still null.
-     */
-    suspend fun backfillIgnoreReasons() {
-        val maxAccuracyM = Settings.accuracyGateM(appContext).toFloat()
-        for (trackId in dao.allTrackIds()) {
-            val track = dao.track(trackId) ?: continue
-            val activity = ActivityType.ofName(track.activityType) ?: ActivityType.UNKNOWN
-            var lastGood: TrackPoint? = null
-            val idsByReason = HashMap<IgnoreReason, MutableList<Long>>()
-            for (point in dao.allPointsFor(trackId)) {
-                val baseline = if (point.segmentStart) null else lastGood
-                if (!point.ignored) {
-                    lastGood = point
-                    continue
-                }
-                if (point.ignoreReason != null) continue
-                val reason = TrackQuality.badFixReason(baseline, point, activity, maxAccuracyM)
-                    ?: IgnoreReason.NO_GNSS
-                idsByReason.getOrPut(reason) { ArrayList() }.add(point.id)
-            }
-            for ((reason, ids) in idsByReason) dao.setIgnoreReason(ids, reason.code)
-        }
-    }
-
 }
