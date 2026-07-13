@@ -107,6 +107,16 @@ text), follow `docs/release-notes-guide.md` — it defines the audience rules fo
 how to derive them from commits since the last *uploaded* build, and the versioning scheme
 (git-derived `versionName`, manual `versionCode`, never upload a `-dirty` build).
 
+Every build uploaded to Play is marked with a lightweight tag `v1.0-vc<N>` (N = versionCode) on
+the commit it was built from — so "commits since the last uploaded build" is just
+`git log v1.0-vc<N>..`. GitHub Actions automates the pipeline (`.github/workflows/`):
+`tests.yml` runs the unit tests on every push/PR; `release.yml` fires on pushing a `v1.0-vc<N>`
+tag — it fails unless N matches `versionCode` in `app/build.gradle.kts`, builds the signed
+bundle (upload keystore + Protomaps key come from repo secrets), and attaches the `.aab` to a
+GitHub Release. Release flow: commit the `versionCode` bump → tag it `v1.0-vc<N>` → push the
+tag → download the `.aab` from the GitHub Release and upload it to the Play Console manually.
+`versionCode`'s source of truth is `app/build.gradle.kts`; the tag only cross-checks it.
+
 ## Conventions & constraints
 
 - **Activity recognition needs Google Play Services**, so this is intentionally not a FOSS/F-Droid

@@ -15,9 +15,10 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
 
 ## Writing the notes
 
-1. Find the range: commits since the last build **uploaded to Play** (by its
-   versionCode/SHA), not since the last git tag or version bump — some
-   versionCodes never ship.
+1. Find the range: commits since the last build **uploaded to Play** — that's
+   the latest `v1.0-vc<N>` tag (`git log v1.0-vc<N>..HEAD`). Only uploaded
+   builds get tagged; version bumps alone don't count (some versionCodes never
+   ship).
 2. Bucket the commits: user-visible feature, user-felt fix, internal-only.
    Drop the internal-only bucket entirely; several related internal fixes may
    collapse into one user-felt bullet ("more reliable automatic recording").
@@ -40,3 +41,6 @@ What's new:
   never upload a `-dirty` build; commit first, then build.
 - `versionCode` is bumped manually in `app/build.gradle.kts` and must increase
   for every upload. Gaps are fine.
+- Building the bundle: push a `v1.0-vc<N>` tag on the bump commit — the
+  Release workflow builds the signed `.aab` and attaches it to a GitHub
+  Release (it fails if N doesn't match the committed `versionCode`).
