@@ -80,10 +80,12 @@ import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterCenterFocus
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.LocalTaxi
+import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -177,6 +179,9 @@ import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
+import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
+import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
+import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.DwellDetector
@@ -293,8 +298,10 @@ private sealed interface Overlay {
     data object Settings : Overlay
 }
 
-/** A debug-only detail page stacked above Settings (shares one overlay slot). */
-private enum class DebugDetail { Logs, Discarded }
+/** A Settings sub-page stacked above the Settings hub (shares one overlay slot). */
+private enum class SettingsPage {
+    Sampling, PointQuality, AutoPause, GpsSearch, TrackFiltering, RecentlyDeleted, Logs,
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -374,8 +381,8 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
 
     // The detail (map) screen or Settings — previews the tabs underneath. Its back handler yields
     // while a layer is stacked above it.
-    var debugDetail by remember { mutableStateOf<DebugDetail?>(null) }
-    // A discarded track's full detail, stacked above the debug "Discarded tracks" list.
+    var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
+    // A deleted track's full detail, stacked above the Recently deleted list.
     var discardedTrackId by remember { mutableStateOf<Long?>(null) }
     // Place detail is opened from the Places list or a timeline stay — back lands wherever it was
     // opened from. Keyed by PlaceSummary.rowKey() so the screen tracks the live summary while the
@@ -387,17 +394,17 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
 
     val overlayLayer = rememberOverlayLayer(
         content = overlay,
-        backEnabled = overlay != null && debugDetail == null && placeDetailKey == null,
+        backEnabled = overlay != null && settingsPage == null && placeDetailKey == null,
         onDismiss = { overlay = null },
     )
-    // The debug screens (Logs / Discarded) stack above Settings — the predictive-back preview under
-    // them shows Settings (where back actually lands), not the tabs.
-    val debugLayer = rememberOverlayLayer(
-        content = debugDetail,
-        backEnabled = debugDetail != null && discardedTrackId == null,
-        onDismiss = { debugDetail = null },
+    // Settings sub-pages stack above the hub — the predictive-back preview under them shows
+    // the hub (where back actually lands), not the tabs.
+    val settingsPageLayer = rememberOverlayLayer(
+        content = settingsPage,
+        backEnabled = settingsPage != null && discardedTrackId == null,
+        onDismiss = { settingsPage = null },
     )
-    // Discarded-track detail: back returns to the discarded list, previewing it under the gesture.
+    // Deleted-track detail: back returns to the Recently deleted list, previewing it under the gesture.
     val discardedLayer = rememberOverlayLayer(
         content = discardedTrackId,
         onDismiss = { discardedTrackId = null },
@@ -535,7 +542,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                 modifier = Modifier
                     .fillMaxSize()
                     .overlayTransform(overlayLayer)
-                    .underlayBlur(debugLayer),
+                    .underlayBlur(settingsPageLayer),
             ) {
                 when (rendered) {
                     is Overlay.TrackDetail -> TrackMapScreen(
@@ -550,8 +557,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                     Overlay.Settings -> SettingsScreen(
                         viewModel = viewModel,
                         onBack = { overlay = null },
-                        onShowLogs = { debugDetail = DebugDetail.Logs },
-                        onShowDiscarded = { debugDetail = DebugDetail.Discarded },
+                        onOpenPage = { settingsPage = it },
                     )
 
                 }
@@ -601,27 +607,33 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
             }
         }
 
-        // The debug screens: a second overlay layer above Settings, same open/close and
-        // predictive-back treatment — the gesture previews Settings underneath, where back lands.
-        debugLayer.rendered?.let { detail ->
+        // Settings sub-pages: a second overlay layer above the hub, same open/close and
+        // predictive-back treatment — the gesture previews the hub underneath, where back lands.
+        settingsPageLayer.rendered?.let { page ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .overlayTransform(debugLayer)
+                    .overlayTransform(settingsPageLayer)
                     .underlayBlur(discardedLayer),
             ) {
-                when (detail) {
-                    DebugDetail.Logs -> LogsScreen(onBack = { debugDetail = null })
-                    DebugDetail.Discarded -> DiscardedTracksScreen(
+                val closePage = { settingsPage = null }
+                when (page) {
+                    SettingsPage.Sampling -> SamplingSettingsScreen(onBack = closePage)
+                    SettingsPage.PointQuality -> PointQualitySettingsScreen(onBack = closePage)
+                    SettingsPage.AutoPause -> AutoPauseSettingsScreen(onBack = closePage)
+                    SettingsPage.GpsSearch -> GpsSearchSettingsScreen(onBack = closePage)
+                    SettingsPage.TrackFiltering -> TrackFilteringSettingsScreen(onBack = closePage)
+                    SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
                         viewModel = viewModel,
-                        onBack = { debugDetail = null },
+                        onBack = closePage,
                         onOpenTrack = { discardedTrackId = it },
                     )
+                    SettingsPage.Logs -> LogsScreen(onBack = closePage)
                 }
             }
         }
 
-        // A discarded track's full detail: stacked above the debug list — back (and the
+        // A deleted track's full detail: stacked above the Recently deleted list — back (and the
         // predictive-back preview) returns to the list, not the tabs.
         discardedLayer.rendered?.let { trackId ->
             Box(
@@ -631,7 +643,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
             ) {
                 TrackMapScreen(
                     trackId = trackId,
-                    summary = discardedTracks.firstOrNull { it.id == trackId },
+                    summary = discardedTracks.firstOrNull { it.id == trackId }?.toTrackSummary(),
                     viewModel = viewModel,
                     onBack = { discardedTrackId = null },
                 )
@@ -1245,8 +1257,8 @@ private fun TracksTab(
             icon = Icons.Filled.Delete,
             title = "Delete this track?",
             text = "The ${ActivityType.labelFor(track.activityType)} track from " +
-                "${dateFormat.format(Date(track.startedAt))} will be permanently " +
-                "deleted. This can't be undone.",
+                "${dateFormat.format(Date(track.startedAt))} will be deleted. For 14 days " +
+                "it can be restored from Settings → Data → Recently deleted.",
             confirmLabel = "Delete",
             onConfirm = {
                 viewModel.delete(track.id)
@@ -2077,31 +2089,8 @@ private val monthOfYearFormat = DateTimeFormatter.ofPattern("MMM yyyy")
 private fun SettingsScreen(
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
-    onShowLogs: () -> Unit,
-    onShowDiscarded: () -> Unit,
+    onOpenPage: (SettingsPage) -> Unit,
 ) {
-    val context = LocalContext.current
-    val intervalSec = rememberPref(AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC,
-        { AppSettings.minIntervalSec(context) }) { AppSettings.setMinIntervalSec(context, it) }
-    val distanceM = rememberPref(AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
-        { AppSettings.minDistanceM(context) }) { AppSettings.setMinDistanceM(context, it) }
-    val minDurationSec = rememberPref(AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC,
-        { AppSettings.minTrackDurationSec(context) }) { AppSettings.setMinTrackDurationSec(context, it) }
-    val minLengthM = rememberPref(AppSettings.DEFAULT_TRACK_MIN_LENGTH_M,
-        { AppSettings.minTrackLengthM(context) }) { AppSettings.setMinTrackLengthM(context, it) }
-    val minExtentM = rememberPref(AppSettings.DEFAULT_TRACK_MIN_EXTENT_M,
-        { AppSettings.minTrackExtentM(context) }) { AppSettings.setMinTrackExtentM(context, it) }
-    val resumeWindowSec = rememberPref(AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
-        { AppSettings.resumeWindowSec(context) }) { AppSettings.setResumeWindowSec(context, it) }
-    val accuracyGateM = rememberPref(AppSettings.DEFAULT_ACCURACY_GATE_M,
-        { AppSettings.accuracyGateM(context) }) { AppSettings.setAccuracyGateM(context, it) }
-    val requireGnssFix = rememberPref(AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
-        { AppSettings.requireGnssFix(context) }) { AppSettings.setRequireGnssFix(context, it) }
-    val gpsGiveUpSec = rememberPref(AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
-        { AppSettings.gpsGiveUpSec(context) }) { AppSettings.setGpsGiveUpSec(context, it) }
-    val useFusedProvider = rememberPref(AppSettings.DEFAULT_USE_FUSED_PROVIDER,
-        { AppSettings.useFusedProvider(context) }) { AppSettings.setUseFusedProvider(context, it) }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -2117,13 +2106,128 @@ private fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-        SettingsSectionHeader("Recording", intervalSec, distanceM, useFusedProvider)
-        Text(
-            "Where positions come from and how densely points are recorded while moving.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text("Recording", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            GroupedRows(
+                {
+                    NavRow(
+                        "Sampling",
+                        subtitle = "Position source and how densely points are recorded",
+                    ) { onOpenPage(SettingsPage.Sampling) }
+                },
+                {
+                    NavRow(
+                        "Point quality",
+                        subtitle = "Which recorded points count as good",
+                    ) { onOpenPage(SettingsPage.PointQuality) }
+                },
+                {
+                    NavRow(
+                        "Auto-pause",
+                        subtitle = "How long a stop keeps the track open",
+                    ) { onOpenPage(SettingsPage.AutoPause) }
+                },
+                {
+                    NavRow(
+                        "GPS search",
+                        subtitle = "When to stop looking for a position",
+                    ) { onOpenPage(SettingsPage.GpsSearch) }
+                },
+                {
+                    NavRow(
+                        "Track filtering",
+                        subtitle = "Limits below which finished tracks are discarded",
+                    ) { onOpenPage(SettingsPage.TrackFiltering) }
+                },
+            )
+            Spacer(Modifier.height(24.dp))
+            Text("Data", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            GroupedRows(
+                { ImportTracksRow(viewModel) },
+                { ExportTracksRow(viewModel) },
+                {
+                    NavRow(
+                        "Recently deleted",
+                        subtitle = "Restorable for $DISCARDED_RETENTION_DAYS days",
+                    ) { onOpenPage(SettingsPage.RecentlyDeleted) }
+                },
+            )
+            Spacer(Modifier.height(24.dp))
+            Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            GroupedRows(
+                { NavRow("Logs") { onOpenPage(SettingsPage.Logs) } },
+            )
+            Spacer(Modifier.height(32.dp))
+            Text(
+                "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Shared scaffold for one settings group page: title, back, optional top-bar Reset. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsSubPage(
+    title: String,
+    onBack: () -> Unit,
+    resetPrefs: List<Pref<*>> = emptyList(),
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(title) },
+                navigationIcon = { BackNavIcon(onBack) },
+                actions = {
+                    if (resetPrefs.any { !it.isDefault }) {
+                        TextButton(onClick = { resetPrefs.forEach { it.reset() } }) { Text("Reset") }
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(inner)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            content = content,
         )
-        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/** The explanatory line under a settings page's top bar. */
+@Composable
+private fun SettingsPageDescription(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(8.dp))
+}
+
+@Composable
+private fun SamplingSettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val intervalSec = rememberPref(AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC,
+        { AppSettings.minIntervalSec(context) }) { AppSettings.setMinIntervalSec(context, it) }
+    val distanceM = rememberPref(AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
+        { AppSettings.minDistanceM(context) }) { AppSettings.setMinDistanceM(context, it) }
+    val useFusedProvider = rememberPref(AppSettings.DEFAULT_USE_FUSED_PROVIDER,
+        { AppSettings.useFusedProvider(context) }) { AppSettings.setUseFusedProvider(context, it) }
+    SettingsSubPage("Sampling", onBack, listOf(intervalSec, distanceM, useFusedProvider)) {
+        SettingsPageDescription(
+            "Where positions come from and how densely points are recorded while moving.",
+        )
         GroupedRows(
             {
                 SwitchSettingRow(
@@ -2145,15 +2249,18 @@ private fun SettingsScreen(
                 }
             },
         )
+    }
+}
 
-        Spacer(Modifier.height(24.dp))
-        SettingsSectionHeader("Point quality", accuracyGateM, requireGnssFix)
-        Text(
-            "Which recorded points count as good.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
+@Composable
+private fun PointQualitySettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val accuracyGateM = rememberPref(AppSettings.DEFAULT_ACCURACY_GATE_M,
+        { AppSettings.accuracyGateM(context) }) { AppSettings.setAccuracyGateM(context, it) }
+    val requireGnssFix = rememberPref(AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
+        { AppSettings.requireGnssFix(context) }) { AppSettings.setRequireGnssFix(context, it) }
+    SettingsSubPage("Point quality", onBack, listOf(accuracyGateM, requireGnssFix)) {
+        SettingsPageDescription("Which recorded points count as good.")
         GroupedRows(
             {
                 SwitchSettingRow(
@@ -2176,16 +2283,19 @@ private fun SettingsScreen(
                 }
             },
         )
+    }
+}
 
-        Spacer(Modifier.height(24.dp))
-        SettingsSectionHeader("Auto-pause", resumeWindowSec)
-        Text(
+@Composable
+private fun AutoPauseSettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val resumeWindowSec = rememberPref(AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
+        { AppSettings.resumeWindowSec(context) }) { AppSettings.setResumeWindowSec(context, it) }
+    SettingsSubPage("Auto-pause", onBack, listOf(resumeWindowSec)) {
+        SettingsPageDescription(
             "A stop shorter than this keeps the track open — moving again continues the same " +
                 "track. When set to Off, every stop ends the track.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(8.dp))
         GroupedRows(
             {
                 SliderSetting("Resume window", resumeWindowSec.value.toFloat(), 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
@@ -2193,16 +2303,19 @@ private fun SettingsScreen(
                 }
             },
         )
+    }
+}
 
-        Spacer(Modifier.height(24.dp))
-        SettingsSectionHeader("GPS search", gpsGiveUpSec)
-        Text(
+@Composable
+private fun GpsSearchSettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val gpsGiveUpSec = rememberPref(AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
+        { AppSettings.gpsGiveUpSec(context) }) { AppSettings.setGpsGiveUpSec(context, it) }
+    SettingsSubPage("GPS search", onBack, listOf(gpsGiveUpSec)) {
+        SettingsPageDescription(
             "If no good position arrives for this long, GPS pauses and retries when you move " +
                 "or another app gets a location. When set to Off, GPS never stops searching.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(8.dp))
         GroupedRows(
             {
                 SliderSetting("Give up after", gpsGiveUpSec.value.toFloat(), 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
@@ -2210,15 +2323,22 @@ private fun SettingsScreen(
                 }
             },
         )
+    }
+}
 
-        Spacer(Modifier.height(24.dp))
-        SettingsSectionHeader("Discard short tracks", minDurationSec, minLengthM, minExtentM)
-        Text(
-            "Tracks under these limits are deleted when they finish.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+@Composable
+private fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val minDurationSec = rememberPref(AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC,
+        { AppSettings.minTrackDurationSec(context) }) { AppSettings.setMinTrackDurationSec(context, it) }
+    val minLengthM = rememberPref(AppSettings.DEFAULT_TRACK_MIN_LENGTH_M,
+        { AppSettings.minTrackLengthM(context) }) { AppSettings.setMinTrackLengthM(context, it) }
+    val minExtentM = rememberPref(AppSettings.DEFAULT_TRACK_MIN_EXTENT_M,
+        { AppSettings.minTrackExtentM(context) }) { AppSettings.setMinTrackExtentM(context, it) }
+    SettingsSubPage("Track filtering", onBack, listOf(minDurationSec, minLengthM, minExtentM)) {
+        SettingsPageDescription(
+            "Tracks under these limits are moved to Recently deleted when they finish.",
         )
-        Spacer(Modifier.height(8.dp))
         GroupedRows(
             {
                 SliderSetting("Min duration", minDurationSec.value.toFloat(), 0f..300f, 30, { durationSettingLabel(it.toInt()) }) {
@@ -2243,121 +2363,64 @@ private fun SettingsScreen(
                 }
             },
         )
+    }
+}
 
-
-        Spacer(Modifier.height(24.dp))
-        Text("Data", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
-        GroupedRows(
-            {
-                Text(
-                    "Bring tracks recorded elsewhere. GPX files; points need timestamps.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                // Progress lives in the ViewModel, so it survives leaving Settings mid-import.
-                val importProgress by viewModel.importProgress.collectAsState()
-                val appContext = context.applicationContext
-                val importLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.OpenMultipleDocuments(),
-                ) { uris ->
-                    if (uris.isEmpty()) return@rememberLauncherForActivityResult
-                    viewModel.importGpx(uris) { result ->
-                        Toast.makeText(appContext, gpxImportMessage(result), Toast.LENGTH_LONG).show()
-                    }
-                }
-                val progress = importProgress
-                if (progress != null) {
-                    Text(
-                        "Importing file ${(progress.filesDone + 1).coerceAtMost(progress.filesTotal)} " +
-                            "of ${progress.filesTotal} · ${progress.imported} tracks so far",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = { progress.filesDone.toFloat() / progress.filesTotal },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
-                Button(
-                    enabled = progress == null,
-                    onClick = {
-                        importLauncher.launch(
-                            arrayOf(
-                                "application/gpx+xml", "application/octet-stream",
-                                "text/xml", "application/xml",
-                            ),
-                        )
-                    },
-                ) { Text(if (progress != null) "Importing…" else "Import GPX tracks") }
-            },
-            {
-                Text(
-                    "Write every track as a GPX file into a folder you pick.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                var exporting by remember { mutableStateOf(false) }
-                val exportLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.OpenDocumentTree(),
-                ) { uri ->
-                    if (uri == null) return@rememberLauncherForActivityResult
-                    exporting = true
-                    viewModel.exportAll(uri) { count ->
-                        exporting = false
-                        Toast.makeText(context, "Exported $count tracks", Toast.LENGTH_LONG).show()
-                    }
-                }
-                Button(
-                    enabled = !exporting,
-                    onClick = { exportLauncher.launch(null) },
-                ) { Text(if (exporting) "Exporting…" else "Export all tracks") }
-            },
-        )
-
-        if (BuildConfig.DEBUG) {
-            Spacer(Modifier.height(24.dp))
-            Text("Debug", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            GroupedRows(
-                { NavRow("Logs", onShowLogs) },
-                { NavRow("Discarded tracks", onShowDiscarded) },
-                {
-                    Text(
-                        "Insert a synthetic track for testing the list, map, swipe and share.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    var seeding by remember { mutableStateOf(false) }
-                    Button(
-                        enabled = !seeding,
-                        onClick = {
-                            seeding = true
-                            viewModel.seedSampleTrack {
-                                seeding = false
-                                Toast.makeText(context, "Seeded a sample track", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    ) { Text("Seed sample track") }
-                },
-            )
-        }
-
-        Spacer(Modifier.height(32.dp))
-        Text(
-            "Breadcrumb ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+/** Hub row that opens the GPX picker directly; the subtitle doubles as import progress. */
+@Composable
+private fun ImportTracksRow(viewModel: TrackListViewModel) {
+    val context = LocalContext.current
+    // Progress lives in the ViewModel, so it survives leaving Settings mid-import.
+    val importProgress by viewModel.importProgress.collectAsState()
+    val appContext = context.applicationContext
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        viewModel.importGpx(uris) { result ->
+            Toast.makeText(appContext, gpxImportMessage(result), Toast.LENGTH_LONG).show()
         }
     }
+    val progress = importProgress
+    NavRow(
+        "Import tracks",
+        subtitle = if (progress == null) {
+            "GPX files; points need timestamps"
+        } else {
+            "Importing file ${(progress.filesDone + 1).coerceAtMost(progress.filesTotal)} " +
+                "of ${progress.filesTotal} · ${progress.imported} tracks so far"
+        },
+    ) {
+        if (progress == null) {
+            importLauncher.launch(
+                arrayOf(
+                    "application/gpx+xml", "application/octet-stream",
+                    "text/xml", "application/xml",
+                ),
+            )
+        }
+    }
+}
+
+/** Hub row that opens the folder picker and writes every track out as GPX. */
+@Composable
+private fun ExportTracksRow(viewModel: TrackListViewModel) {
+    val context = LocalContext.current
+    var exporting by remember { mutableStateOf(false) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        exporting = true
+        viewModel.exportAll(uri) { count ->
+            exporting = false
+            Toast.makeText(context, "Exported $count tracks", Toast.LENGTH_LONG).show()
+        }
+    }
+    NavRow(
+        "Export tracks",
+        subtitle = if (exporting) "Exporting…" else "Every track as a GPX file, into a folder you pick",
+    ) { if (!exporting) exportLauncher.launch(null) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2409,9 +2472,9 @@ private fun LogsScreen(onBack: () -> Unit) {
 }
 
 /**
- * Debug-only list of keep-threshold-filtered (soft-deleted) tracks, with the metrics the keep-rule
- * judges (points / distance / duration) shown against the current thresholds — a tool for tuning
- * those thresholds against real filtered data rather than losing it.
+ * "Recently deleted": every soft-deleted track — deleted by the user, filtered by the keep
+ * thresholds, or replaced by a merge — with why it's here and how long until the retention
+ * purge removes it for good. Rows restore in place; tapping opens the full track detail.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2421,27 +2484,36 @@ private fun DiscardedTracksScreen(
     // Tapping a row opens its full detail as a layer above this list; back returns here.
     onOpenTrack: (Long) -> Unit,
 ) {
-    val context = LocalContext.current
     val tracks by viewModel.discardedTracks.collectAsState()
-    val minDurationSec = AppSettings.minTrackDurationSec(context)
-    val minLengthM = AppSettings.minTrackLengthM(context)
-    val minExtentM = AppSettings.minTrackExtentM(context)
+    val nowMs = remember { System.currentTimeMillis() }
+    var showClearDialog by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Discarded tracks (${tracks.size})") },
+                title = { Text("Recently deleted" + if (tracks.isEmpty()) "" else " (${tracks.size})") },
                 navigationIcon = { BackNavIcon(onBack) },
+                actions = {
+                    if (tracks.isNotEmpty()) {
+                        IconButton(onClick = { showClearDialog = true }) {
+                            Icon(Icons.Filled.DeleteForever, contentDescription = "Clear all")
+                        }
+                    }
+                },
             )
         },
     ) { inner ->
         if (tracks.isEmpty()) {
-            EmptyState("No discarded tracks — filtered tracks will appear here.", Modifier.padding(inner).fillMaxSize())
+            EmptyState(
+                "Nothing here. Deleted and filtered-out tracks stay restorable " +
+                    "for $DISCARDED_RETENTION_DAYS days.",
+                Modifier.padding(inner).fillMaxSize().padding(horizontal = 24.dp),
+            )
         } else {
             LazyColumn(modifier = Modifier.padding(inner).fillMaxSize().padding(horizontal = 16.dp)) {
                 item {
                     Text(
-                        "Keep thresholds: ≥ $minLengthM m · ≥ ${minDurationSec}s" +
-                            (if (minExtentM > 0) " · extent ≥ $minExtentM m" else ""),
+                        "Tracks stay here for $DISCARDED_RETENTION_DAYS days, " +
+                            "then are removed forever.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 12.dp),
@@ -2476,6 +2548,21 @@ private fun DiscardedTracksScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            Text(
+                                listOfNotNull(
+                                    discardReasonLabel(t.discardReason),
+                                    purgeCountdown(t.discardedAt, nowMs),
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(onClick = { viewModel.restoreTrack(t.id) }) {
+                            Icon(
+                                Icons.Filled.RestoreFromTrash,
+                                contentDescription = "Restore track",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
                         }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
@@ -2483,7 +2570,48 @@ private fun DiscardedTracksScreen(
             }
         }
     }
+
+    if (showClearDialog) {
+        ConfirmDialog(
+            icon = Icons.Filled.DeleteForever,
+            title = "Clear Recently deleted?",
+            text = if (tracks.size == 1) {
+                "The one track here will be permanently deleted. This can't be undone."
+            } else {
+                "All ${tracks.size} tracks here will be permanently deleted. This can't be undone."
+            },
+            confirmLabel = "Delete all",
+            onConfirm = {
+                viewModel.purgeAllDiscarded()
+                showClearDialog = false
+            },
+            onDismiss = { showClearDialog = false },
+        )
+    }
 }
+
+private fun discardReasonLabel(reason: String?): String? = when (reason) {
+    Track.REASON_DELETED -> "Deleted by you"
+    Track.REASON_FILTERED -> "Too short to keep"
+    Track.REASON_MERGED -> "Replaced by a merged track"
+    else -> null
+}
+
+/** "9 days left" until the retention purge; clamps at "removal due". */
+private fun purgeCountdown(discardedAt: Long, nowMs: Long): String {
+    val daysGone = ((nowMs - discardedAt) / (24 * 60 * 60_000L)).toInt()
+    val left = DISCARDED_RETENTION_DAYS - daysGone
+    return when {
+        left <= 0 -> "removal due"
+        left == 1 -> "1 day left"
+        else -> "$left days left"
+    }
+}
+
+private fun DiscardedSummary.toTrackSummary() = TrackSummary(
+    id = id, activityType = activityType, startedAt = startedAt, endedAt = endedAt,
+    distanceMeters = distanceMeters, pointCount = pointCount, ignoredCount = ignoredCount,
+)
 
 /**
  * Android-settings-style group: each row is its own card, large corners on the group's outer
@@ -2502,38 +2630,34 @@ private fun GroupedRows(vararg rows: @Composable () -> Unit) {
 
 /** Settings-style navigation row: label + chevron, opening a stacked screen. */
 @Composable
-private fun NavRow(label: String, onClick: () -> Unit) {
+private fun NavRow(
+    label: String,
+    subtitle: String? = null,
+    onClick: () -> Unit,
+) {
+    // No vertical padding of its own: the GroupedRows card already pads the row.
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(28.dp),
         )
-    }
-}
-
-@Composable
-private fun SectionHeader(title: String, canReset: Boolean, onReset: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        // Only offer Reset when something in the group differs from its default.
-        TextButton(onClick = onReset, enabled = canReset) { Text("Reset") }
     }
 }
 
@@ -2558,14 +2682,6 @@ private class Pref<T>(initial: T, val default: T, private val persist: (T) -> Un
 @Composable
 private fun <T> rememberPref(default: T, load: () -> T, save: (T) -> Unit): Pref<T> =
     remember { Pref(load(), default, save) }
-
-/** [SectionHeader] wired to a settings section's prefs: reset offered/applied over all of them. */
-@Composable
-private fun SettingsSectionHeader(title: String, vararg prefs: Pref<*>) {
-    SectionHeader(title, canReset = prefs.any { !it.isDefault }) {
-        prefs.forEach { it.reset() }
-    }
-}
 
 /** Settings row with a title, explanatory subtitle and an [IconSwitch]. */
 @Composable

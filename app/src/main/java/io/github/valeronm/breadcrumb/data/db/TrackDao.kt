@@ -26,16 +26,24 @@ interface TrackDao {
     @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId")
     suspend fun setActivityType(trackId: Long, activityType: String)
 
-    @Query("DELETE FROM tracks WHERE id = :trackId")
-    suspend fun deleteTrack(trackId: Long)
-
     /** Soft-delete a keep-threshold-filtered track: finalise it and mark it discarded. */
-    @Query("UPDATE tracks SET endedAt = :endedAt, discardedAt = :discardedAt WHERE id = :trackId")
-    suspend fun discardTrack(trackId: Long, endedAt: Long, discardedAt: Long)
+    @Query(
+        "UPDATE tracks SET endedAt = :endedAt, discardedAt = :discardedAt, discardReason = :reason " +
+            "WHERE id = :trackId"
+    )
+    suspend fun discardTrack(trackId: Long, endedAt: Long, discardedAt: Long, reason: String)
+
+    /** Bring a discarded track back to the timeline. */
+    @Query("UPDATE tracks SET discardedAt = NULL, discardReason = NULL WHERE id = :trackId")
+    suspend fun restoreTrack(trackId: Long)
 
     /** Hard-delete soft-deleted tracks discarded before [cutoff] (points cascade). Returns the count. */
     @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL AND discardedAt < :cutoff")
     suspend fun purgeDiscardedBefore(cutoff: Long): Int
+
+    /** Hard-delete every soft-deleted track now — the Recently deleted screen's "clear all". */
+    @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL")
+    suspend fun purgeAllDiscarded(): Int
 
     // --- Track merge (close a short same-activity stay into a new track) ------------------------
 
@@ -61,8 +69,8 @@ interface TrackDao {
     @Query("UPDATE track_points SET segmentStart = 1 WHERE id = :pointId")
     suspend fun markSegmentStart(pointId: Long)
 
-    @Query("UPDATE tracks SET discardedAt = :discardedAt WHERE id = :trackId")
-    suspend fun setDiscarded(trackId: Long, discardedAt: Long)
+    @Query("UPDATE tracks SET discardedAt = :discardedAt, discardReason = :reason WHERE id = :trackId")
+    suspend fun setDiscarded(trackId: Long, discardedAt: Long, reason: String)
 
     /** Usable (non-ignored) points, for rendering and export. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")
@@ -119,19 +127,20 @@ interface TrackDao {
     )
     fun observeSummaries(): Flow<List<TrackSummary>>
 
-    /** The inverse of [observeSummaries]: keep-threshold-filtered (soft-deleted) tracks, for the
-     *  debug "Discarded tracks" screen used to tune the thresholds against real data. */
+    /** The inverse of [observeSummaries]: soft-deleted tracks (user delete, keep-threshold
+     *  filter, merge originals) for the Recently deleted screen. */
     @Query(
         """
         SELECT t.id, t.activityType, t.startedAt, t.endedAt, t.distanceMeters,
                (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0) AS pointCount,
-               (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 1) AS ignoredCount
+               (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 1) AS ignoredCount,
+               t.discardedAt, t.discardReason
         FROM tracks t
         WHERE t.discardedAt IS NOT NULL
         ORDER BY t.startedAt DESC
         """
     )
-    fun observeDiscardedSummaries(): Flow<List<TrackSummary>>
+    fun observeDiscardedSummaries(): Flow<List<DiscardedSummary>>
 
     /**
      * Finished tracks with first/last good-point coordinates, oldest first — the stay deriver's

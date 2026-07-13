@@ -18,11 +18,21 @@ data class Track(
     /** Running total distance in metres, maintained as points arrive. */
     val distanceMeters: Double = 0.0,
     /**
-     * Set when a finished track failed the keep-thresholds. Soft-deleted rather than removed so the
-     * data survives for tuning the thresholds; excluded from the UI, stats, stays, and export.
+     * Set when the track was soft-deleted (user delete, keep-threshold filter, or merge original).
+     * Excluded from the UI, stats, stays, and export; restorable from Recently deleted until the
+     * retention purge hard-deletes it.
      */
     val discardedAt: Long? = null,
-)
+    /** Why it was discarded — [REASON_DELETED] | [REASON_FILTERED] | [REASON_MERGED]; null on
+     *  rows discarded before reasons were tracked. */
+    val discardReason: String? = null,
+) {
+    companion object {
+        const val REASON_DELETED = "deleted"
+        const val REASON_FILTERED = "filtered"
+        const val REASON_MERGED = "merged"
+    }
+}
 
 @Entity(
     tableName = "track_points",
@@ -133,6 +143,19 @@ data class TrackEndpoints(
     val startLon: Double?,
     val endLat: Double?,
     val endLon: Double?,
+)
+
+/** A Recently-deleted row: the summary plus when and why it was discarded. */
+data class DiscardedSummary(
+    val id: Long,
+    val activityType: String,
+    val startedAt: Long,
+    val endedAt: Long?,
+    val distanceMeters: Double,
+    val pointCount: Int,
+    val ignoredCount: Int,
+    val discardedAt: Long,
+    val discardReason: String?,
 )
 
 /** Lightweight summary row for the track list (no point geometry loaded). */

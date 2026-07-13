@@ -10,6 +10,7 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.PlaceRepository
 import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
@@ -48,8 +49,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     val tracks: StateFlow<List<TrackSummary>> = repository.observeSummaries()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Keep-threshold-filtered (soft-deleted) tracks, for the debug "Discarded tracks" screen. */
-    val discardedTracks: StateFlow<List<TrackSummary>> = repository.observeDiscardedSummaries()
+    /** Soft-deleted tracks (deleted, filtered, merged), for the Recently deleted screen. */
+    val discardedTracks: StateFlow<List<DiscardedSummary>> = repository.observeDiscardedSummaries()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** One derivation run's inputs and outputs, shared by [timeline] and [places]. */
@@ -157,16 +158,18 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repository.deleteTrack(trackId) }
     }
 
-    fun setTrackActivity(trackId: Long, activityType: ActivityType) {
-        viewModelScope.launch { repository.setActivityType(trackId, activityType) }
+    /** Restore a discarded track (deleted, keep-threshold-filtered, or merge original). */
+    fun restoreTrack(trackId: Long) {
+        viewModelScope.launch { repository.restoreTrack(trackId) }
     }
 
-    /** DEBUG: inserts a synthetic track for exercising the UI without real movement. */
-    fun seedSampleTrack(onDone: () -> Unit) {
-        viewModelScope.launch {
-            repository.seedSampleTrack()
-            onDone()
-        }
+    /** Permanently delete everything in Recently deleted. */
+    fun purgeAllDiscarded() {
+        viewModelScope.launch { repository.purgeAllDiscarded() }
+    }
+
+    fun setTrackActivity(trackId: Long, activityType: ActivityType) {
+        viewModelScope.launch { repository.setActivityType(trackId, activityType) }
     }
 
     suspend fun getPoints(trackId: Long): List<TrackPoint> = repository.pointsFor(trackId)

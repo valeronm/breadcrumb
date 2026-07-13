@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.withTransaction
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -11,13 +12,11 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
-import kotlin.math.sin
-import kotlin.random.Random
 
 private const val TAG = "Breadcrumb"
 
-/** How long soft-deleted (keep-threshold-filtered) tracks are retained before being purged. */
-private const val DISCARDED_RETENTION_DAYS = 14
+/** How long soft-deleted tracks stay restorable in Recently deleted before being purged. */
+const val DISCARDED_RETENTION_DAYS = 14
 
 /** Safety bound on leading-stray removal per track (real runs are 1, rarely 2). */
 private const val MAX_LEADING_REPAIRS = 5
@@ -33,8 +32,8 @@ class TrackRepository(context: Context) {
 
     fun observeEndpoints(): Flow<List<TrackEndpoints>> = dao.observeEndpoints()
 
-    /** Keep-threshold-filtered (soft-deleted) tracks, for the debug "Discarded tracks" screen. */
-    fun observeDiscardedSummaries(): Flow<List<TrackSummary>> = dao.observeDiscardedSummaries()
+    /** Soft-deleted tracks with when/why, for the Recently deleted screen. */
+    fun observeDiscardedSummaries(): Flow<List<DiscardedSummary>> = dao.observeDiscardedSummaries()
 
     suspend fun startTrack(activityType: ActivityType, startedAt: Long): Long =
         dao.insertTrack(Track(activityType = activityType.name, startedAt = startedAt))
@@ -140,7 +139,7 @@ class TrackRepository(context: Context) {
         if (meetsKeepThresholds(track, endedAt)) {
             dao.closeTrack(track.id, endedAt)
         } else {
-            dao.discardTrack(track.id, endedAt = endedAt, discardedAt = endedAt)
+            dao.discardTrack(track.id, endedAt = endedAt, discardedAt = endedAt, reason = Track.REASON_FILTERED)
         }
     }
 
@@ -149,7 +148,22 @@ class TrackRepository(context: Context) {
         closeOrDelete(track, endedAt)
     }
 
-    suspend fun deleteTrack(trackId: Long) = dao.deleteTrack(trackId)
+    /**
+     * User-initiated delete is a soft delete: the track moves to Recently deleted (restorable)
+     * and is only hard-deleted by [purgeOldDiscarded] after the retention window.
+     */
+    suspend fun deleteTrack(trackId: Long) {
+        dao.setDiscarded(trackId, System.currentTimeMillis(), Track.REASON_DELETED)
+    }
+
+    /** Bring a discarded track back to the timeline (undoes a delete/discard within retention). */
+    suspend fun restoreTrack(trackId: Long) = dao.restoreTrack(trackId)
+
+    /** Hard-delete everything in Recently deleted right now (the user's "clear all"). */
+    suspend fun purgeAllDiscarded() {
+        val purged = dao.purgeAllDiscarded()
+        if (purged > 0) DebugLog.i(TAG, "cleared $purged track(s) from Recently deleted")
+    }
 
     /**
      * Close the short stay between [earlierId] and [laterId] by building a NEW track that spans both
@@ -174,8 +188,8 @@ class TrackRepository(context: Context) {
             dao.copyPointsInto(mergedId, laterId)
             dao.firstPointAtOrAfter(mergedId, later.startedAt)?.let { dao.markSegmentStart(it) }
             val now = System.currentTimeMillis()
-            dao.setDiscarded(earlierId, now)
-            dao.setDiscarded(laterId, now)
+            dao.setDiscarded(earlierId, now, Track.REASON_MERGED)
+            dao.setDiscarded(laterId, now, Track.REASON_MERGED)
         }
     }
 
@@ -286,46 +300,4 @@ class TrackRepository(context: Context) {
         }
     }
 
-    /**
-     * Inserts a synthetic, already-finished track so the list / map / swipe-to-delete / share flows
-     * can be exercised without real movement. Intended for debug builds only; bypasses the keep
-     * thresholds. The path is a short wander at a randomised location so repeated seeds don't overlap.
-     */
-    suspend fun seedSampleTrack(): Long {
-        val activity = ActivityType.entries.filter { it.recording }.random()
-        val pointCount = 40
-        val stepSec = 15L
-        val now = System.currentTimeMillis()
-        val startedAt = now - (pointCount - 1) * stepSec * 1000
-
-        val baseLat = 37.7749 + Random.nextDouble(-0.05, 0.05)
-        val baseLon = -122.4194 + Random.nextDouble(-0.05, 0.05)
-
-        val trackId = dao.insertTrack(Track(activityType = activity.name, startedAt = startedAt))
-        var prevLat = baseLat
-        var prevLon = baseLon
-        var distance = 0.0
-        for (i in 0 until pointCount) {
-            val lat = baseLat + i * 0.00012 + sin(i / 4.0) * 0.00008
-            val lon = baseLon + i * 0.00018
-            if (i > 0) distance += AndroidDistance.metres(prevLat, prevLon, lat, lon)
-            dao.insertPoint(
-                TrackPoint(
-                    trackId = trackId,
-                    latitude = lat,
-                    longitude = lon,
-                    altitude = 30.0,
-                    accuracy = 5f,
-                    speed = 1.4f,
-                    bearing = 45f,
-                    timestamp = startedAt + i * stepSec * 1000,
-                ),
-            )
-            prevLat = lat
-            prevLon = lon
-        }
-        dao.updateDistance(trackId, distance)
-        dao.closeTrack(trackId, startedAt + (pointCount - 1) * stepSec * 1000)
-        return trackId
-    }
 }
