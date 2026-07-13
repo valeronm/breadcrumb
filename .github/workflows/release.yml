@@ -52,7 +52,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version_name="1.0+$(git describe --always --dirty)"
+          bundle="breadcrumb-$GITHUB_REF_NAME.aab"
+          cp app/build/outputs/bundle/release/app-release.aab "$bundle"
           gh release create "$GITHUB_REF_NAME" \
-            app/build/outputs/bundle/release/app-release.aab \
+            "$bundle" \
             --title "$GITHUB_REF_NAME" \
             --notes "Play upload bundle, versionName $version_name, built from $GITHUB_SHA."
