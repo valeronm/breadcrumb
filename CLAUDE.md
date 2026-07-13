@@ -51,29 +51,38 @@ The pieces below only make sense together — read them as a unit.
   *snapshot* on arming). Results arrive at `ActivityTransitionReceiver`, which forwards the detected
   `ActivityType` to `LocationRecordingService.instance` (it does not start the service).
 - Lifecycle: arming (`ACTION_START`) puts the service in a **paused** state (no track, GPS off) and
-  fires the snapshot; recording only begins on a *moving* activity. Each continuous activity is one
-  `Track`; switching activity closes one and opens the next; STILL pauses. `START_STICKY` + the
-  persisted armed flag resume after process death; `BootReceiver` resumes after reboot.
+  fires the snapshot; recording only begins on a *moving* activity. Each continuous stretch of
+  movement is one `Track`: activities in the same `TrackGroup` (walking ⇄ running)
+  share a track, a cross-group switch closes one and opens the next, and STILL pauses with a
+  **resume window** — a same-group return before the deadline stitches back into the open track,
+  and the window lapsing finalizes it. `START_STICKY` + the persisted armed flag resume after
+  process death; `BootReceiver` resumes after reboot.
 
 **State bridge:** `location/TrackingStatus` is a process-wide `MutableStateFlow` the service writes
 and the UI collects — this is how live recording state reaches Compose without binding to the service.
 
 **Domain logic** (`domain/`): pure, unit-tested Kotlin with no Android dependencies — the service
-and UI stay thin by delegating here. `TrackController` (track lifecycle state machine),
-`ActivityGate`/`ActivityInterpreter` (transition debouncing/filtering), `NoFixGuard` (give up when
+and UI stay thin by delegating here. `TrackController` (track lifecycle state machine — owns the
+pause/resume window), `ActivityGate` (signal filter) / `ActivityInterpreter` (transition
+interpretation), `ReadingClock` (event-time gating of activity readings), `NoFixGuard` (give up when
 GPS can't get a fix), `KeepRule`, `TrackMerge` (merge short same-activity stays), `StayDeriver` +
-`PlaceClusterer` + `PlaceResolver` (timeline stays and named places), `RecordCard`. New behaviour
+`PlaceClusterer` + `PlaceResolver` (timeline stays and named places), `DwellDetector` (in-track stop
+detection — currently a read-only track-detail overlay; splitting tracks at stops is designed but
+not built), `RecordCard`. New behaviour
 belongs here first, with a test, before wiring into the service or UI.
 
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
-time/distance between points) and keep-track thresholds (min duration/length). Sampling is read
-by the service when each track's GPS request starts; thresholds are read by the repository when a track
-finishes. `ActivityType` therefore only carries a label + a `recording` boolean — sampling cadence is
+time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
+auto-pause resume window, the GPS give-up timeout, the fused-provider toggle, and keep-track
+thresholds (min duration/length/extent). Sampling is read by the service when each track's GPS
+request starts; thresholds are read by the repository when a track finishes. `ActivityType`
+therefore only carries a label, a `recording` boolean, and a `TrackGroup` — sampling cadence is
 **not** per-activity anymore.
 
 **Data** (`data/`): Room behind `TrackRepository`. The repository's `meetsKeepThresholds` decides
-whether a finished track is kept or soft-deleted as *discarded* — discarded tracks are reviewable
-from a debug screen, auto-purged after 14 days, and deliberately block GPX re-import; the check runs
+whether a finished track is kept or soft-deleted as *discarded* — discarded (and user-deleted)
+tracks are reviewable and restorable from Settings → Recently deleted, auto-purged after 14 days,
+and deliberately block GPX re-import; the check runs
 both on normal finish and via `finalizeDangling`, which also cleans up tracks left open by a crash
 (it skips `LocationRecordingService.activeTrackId`). `GpxExporter` (`data/export/`) builds GPX for
 share intents (`FileProvider`) or bulk-writes to a user-picked folder (Storage Access Framework);
@@ -81,7 +90,8 @@ share intents (`FileProvider`) or bulk-writes to a user-picked folder (Storage A
 
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
-stacked layers for place detail, the debug Logs/Discarded pages, and discarded-track detail — each
+stacked layers for place detail, the Settings sub-pages (sampling, point quality, auto-pause, GPS
+search, track filtering, Recently deleted, Logs), and discarded-track detail — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
 one layer at a time). The track map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps dark
 vector basemap**: the track is a `line-gradient` coloured per point by the selected metric, start/end
