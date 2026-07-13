@@ -3,15 +3,15 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.db.Place
 
 /**
- * Resolves each derived stay to its place: stays arrive already carrying their endpoint-cluster id
+ * Resolves endpoint clusters to places: stays and gaps arrive already carrying their cluster ids
  * (see [StayDeriver.Derivation]), and the clustering was *seeded* by the place pins, so a cluster's
  * [PlaceClusterer.Cluster.seedIndex] identifies its place exactly — no distance matching, labels
  * can't silently detach. The [places] list must be the same list (same order) whose pins seeded
  * the derivation; organic clusters (null seedIndex) are unnamed.
  *
- * Results are keyed by [StayDeriver.Stay.afterTrackId] — unique per stay within a derivation and
- * preserved by [StayDeriver.slicePerDay]'s copies, so resolution happens once over the unsliced
- * stays and survives day slicing.
+ * [resolveClusters] results are indexed by cluster id, which [StayDeriver.slicePerDay]'s copies
+ * preserve on each stay — so resolution runs once over the unsliced stays and consumers look it
+ * up per interval afterwards.
  */
 object PlaceResolver {
 
@@ -50,19 +50,10 @@ object PlaceResolver {
         val isNamed: Boolean get() = place != null
     }
 
-    fun resolve(
-        stays: List<StayDeriver.Stay>,
-        clusters: List<PlaceClusterer.Cluster>,
-        places: List<Place>,
-    ): Map<Long, ResolvedStay> {
-        val byCluster = resolveClusters(stays, clusters, places)
-        return stays.associate { it.afterTrackId to byCluster[it.clusterId] }
-    }
-
     /**
-     * Resolution of *every* endpoint cluster, indexed by cluster id. [resolve] is the stay-keyed
-     * view of this; gaps use it directly to name their two sides (whose clusters may have no
-     * stays at all — those resolve with a zero visit count).
+     * Resolution of *every* endpoint cluster, indexed by cluster id — stays look up by
+     * [StayDeriver.Stay.clusterId], gaps by their side cluster ids (whose clusters may have no
+     * stays at all; those resolve with a zero visit count).
      */
     fun resolveClusters(
         stays: List<StayDeriver.Stay>,

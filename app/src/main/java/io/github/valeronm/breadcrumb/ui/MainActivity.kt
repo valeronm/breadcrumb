@@ -2050,8 +2050,7 @@ private fun PlaceRowCard(
                 Text(
                     summary.place?.label ?: "Unnamed place",
                     style = MaterialTheme.typography.titleMedium,
-                    color = if (named) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = placeTitleColor(named),
                 )
                 Text(
                     placeSubtitle(summary),
@@ -2062,6 +2061,15 @@ private fun PlaceRowCard(
         }
     }
 }
+
+/**
+ * Title colour for anything place-like (Places list rows, stay cards, gap sides): named reads
+ * at full onSurface, unnamed at the variant. Explicit because the inherited card colour dims
+ * to onSurfaceVariant under dynamic colour (contentColorFor matches surfaceVariant first).
+ */
+@Composable
+private fun placeTitleColor(named: Boolean) =
+    if (named) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
 
 /**
  * Stable place identity: the place id for named places, the centroid for ephemeral unnamed
@@ -3060,10 +3068,7 @@ private fun StayCard(
                 Text(
                     place?.label ?: if (mergeable) "Short stop" else "Stayed",
                     style = MaterialTheme.typography.titleMedium,
-                    // Same named/unnamed treatment as PlaceRowCard — explicit because the
-                    // inherited card colour dims to onSurfaceVariant under dynamic colour.
-                    color = if (named) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = placeTitleColor(named),
                 )
                 val start = timeFormat.format(Date(stay.start))
                 val end = stay.end
@@ -3120,6 +3125,11 @@ private fun GapRow(item: TimelineItem.GapItem, shape: RoundedCornerShape, onOpen
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val strokeColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                // Built once, not per draw pass — the ripple invalidates the row on every press.
+                val density = LocalDensity.current
+                val dashEffect = remember(density) {
+                    with(density) { PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 6.dp.toPx())) }
+                }
                 Canvas(modifier = Modifier.width(36.dp).height(24.dp)) {
                     drawLine(
                         color = strokeColor,
@@ -3127,9 +3137,7 @@ private fun GapRow(item: TimelineItem.GapItem, shape: RoundedCornerShape, onOpen
                         end = Offset(size.width / 2, size.height),
                         strokeWidth = 2.dp.toPx(),
                         cap = StrokeCap.Round,
-                        pathEffect = PathEffect.dashPathEffect(
-                            floatArrayOf(4.dp.toPx(), 6.dp.toPx()),
-                        ),
+                        pathEffect = dashEffect,
                     )
                 }
                 Spacer(Modifier.width(16.dp))
@@ -3179,13 +3187,7 @@ private fun GapPlaceLine(place: PlaceResolver.ResolvedStay?, onOpenPlace: (Strin
         Text(
             text = place.label ?: "unnamed place",
             style = MaterialTheme.typography.titleMedium,
-            // PlaceRowCard's convention: named places get true onSurface (the inherited card
-            // colour is dimmed by a contentColorFor quirk), unnamed the variant colour.
-            color = if (place.label != null) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
+            color = placeTitleColor(named = place.label != null),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -3793,20 +3795,23 @@ internal sealed interface Legend {
 internal class TrackColoring(val colors: IntArray, val legend: Legend)
 
 /** ARGB on the red(0°)→green(120°)→blue(240°) ramp for [value] between the [redAt] and [blueAt] anchors. */
-private fun rampColor(value: Float?, redAt: Float, blueAt: Float, dark: Boolean): Int {
-    if (value == null) return noDataArgb(dark)
+private fun rampColor(value: Float?, redAt: Float, blueAt: Float, luminance: Float, noData: Int): Int {
+    if (value == null) return noData
     val t = ((value - redAt) / (blueAt - redAt)).coerceIn(0f, 1f)
     val hue = HUE_RED + t * (HUE_BLUE - HUE_RED)
-    return Color.hsl(hue, SPEED_SATURATION, rampLuminance(dark)).toArgb()
+    return Color.hsl(hue, SPEED_SATURATION, luminance).toArgb()
 }
 
 private fun rampColoring(
     values: List<Float?>, redAt: Float, blueAt: Float, unit: String, emptyMsg: String, dark: Boolean,
 ): TrackColoring {
+    // Resolved once per coloring, not per point — Color.hsl is a real conversion.
+    val noData = noDataArgb(dark)
     if (values.all { it == null }) {
-        return TrackColoring(IntArray(values.size) { noDataArgb(dark) }, Legend.None(emptyMsg))
+        return TrackColoring(IntArray(values.size) { noData }, Legend.None(emptyMsg))
     }
-    val colors = IntArray(values.size) { rampColor(values[it], redAt, blueAt, dark) }
+    val luminance = rampLuminance(dark)
+    val colors = IntArray(values.size) { rampColor(values[it], redAt, blueAt, luminance, noData) }
     fun num(v: Float) = "%.0f".format(v)
     // Unit only on the rightmost label, else three "… unit" labels overflow the fixed-width legend.
     val right = num(blueAt).let { if (unit.isEmpty()) it else "$it $unit" }
@@ -3845,7 +3850,8 @@ internal fun trackColoring(
         ColorMode.ELEVATION -> {
             val present = values.filterNotNull()
             if (present.isEmpty()) {
-                TrackColoring(IntArray(points.size) { noDataArgb(dark) }, Legend.None("No elevation data"))
+                val noData = noDataArgb(dark)
+                TrackColoring(IntArray(points.size) { noData }, Legend.None("No elevation data"))
             } else {
                 val lo = present.min()
                 val hi = present.max()
@@ -3890,22 +3896,23 @@ internal fun TrackLegend(legend: Legend, modifier: Modifier) {
         is Legend.Ramp ->
             LegendSurface(modifier) {
                 val luminance = rampLuminance(isSystemInDarkTheme())
+                // Dense stops along the same HSL ramp the track uses: the brush blends
+                // neighbours in RGB, and RGB midpoints of red/green and green/blue are muddy
+                // brown/grey — 30° hue steps stay on-hue.
+                val rampBrush = remember(luminance) {
+                    Brush.horizontalGradient(
+                        (0..8).map {
+                            val hue = HUE_RED + it * (HUE_BLUE - HUE_RED) / 8f
+                            Color.hsl(hue, SPEED_SATURATION, luminance)
+                        },
+                    )
+                }
                 Box(
                     Modifier
                         .width(132.dp)
                         .height(8.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(
-                            // Dense stops along the same HSL ramp the track uses: the brush
-                            // blends neighbours in RGB, and RGB midpoints of red/green and
-                            // green/blue are muddy brown/grey — 30° hue steps stay on-hue.
-                            Brush.horizontalGradient(
-                                (0..8).map {
-                                    val hue = HUE_RED + it * (HUE_BLUE - HUE_RED) / 8f
-                                    Color.hsl(hue, SPEED_SATURATION, luminance)
-                                },
-                            ),
-                        ),
+                        .background(rampBrush),
                 )
                 Spacer(Modifier.height(2.dp))
                 Row(Modifier.width(132.dp), horizontalArrangement = Arrangement.SpaceBetween) {

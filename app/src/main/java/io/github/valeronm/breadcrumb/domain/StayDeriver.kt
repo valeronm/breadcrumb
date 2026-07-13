@@ -100,12 +100,9 @@ object StayDeriver {
         override val start: Long,
         override val end: Long,
         val reason: GapReason,
-        /** The two disagreeing endpoints (previous track's end, next track's start); a side is
-         *  null only when it's unknown ([GapReason.UNKNOWN_ENDPOINT]). */
-        val from: Endpoint? = null,
-        val to: Endpoint? = null,
-        /** Index into [Derivation.clusters] for each known side — most gaps are really one place
-         *  misclustered as two, so the UI links each side to its place for fixing. */
+        /** Index into [Derivation.clusters] for each side (null = that endpoint is unknown) —
+         *  most gaps are really one place misclustered as two, so the UI links each side to
+         *  its place for fixing. */
         val fromClusterId: Int? = null,
         val toClusterId: Int? = null,
     ) : Interval
@@ -154,21 +151,13 @@ object StayDeriver {
             if (gapEnd <= gapStart) continue
             val a = prev.end
             val b = next.start
-            if (a == null || b == null) {
+            if (a == null || b == null || !samePlace(a, b)) {
+                val reason = if (a == null || b == null) GapReason.UNKNOWN_ENDPOINT
+                else GapReason.MOVED_UNRECORDED
                 out += Gap(
-                    gapStart, gapEnd, GapReason.UNKNOWN_ENDPOINT,
-                    from = a, to = b,
+                    gapStart, gapEnd, reason,
                     fromClusterId = a?.let(clusterOf::getValue),
                     toClusterId = b?.let(clusterOf::getValue),
-                )
-                continue
-            }
-            if (!samePlace(a, b)) {
-                out += Gap(
-                    gapStart, gapEnd, GapReason.MOVED_UNRECORDED,
-                    from = a, to = b,
-                    fromClusterId = clusterOf.getValue(a),
-                    toClusterId = clusterOf.getValue(b),
                 )
                 continue
             }
@@ -245,7 +234,6 @@ object StayDeriver {
             if (b != null && !samePlace(location, b)) {
                 return Gap(
                     start, end, GapReason.MOVED_UNRECORDED,
-                    from = location, to = b,
                     fromClusterId = clusterOf.getValue(location),
                     toClusterId = clusterOf.getValue(b),
                 )

@@ -92,13 +92,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     /** Tracks interleaved with derived stays and data gaps, newest first, sliced per local day. */
     val timeline: StateFlow<List<TimelineItem>> = combine(tracks, derived) { summaries, d ->
         // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
-        // as 3 visits. afterTrackId keys survive the slicing copies.
+        // as 3 visits. Cluster ids survive the slicing copies, so items look up directly.
         val clusterPlaces = PlaceResolver.resolveClusters(
             d.derivation.intervals.filterIsInstance<StayDeriver.Stay>(),
             d.derivation.clusters, d.places,
         )
-        val resolutions = d.derivation.intervals.filterIsInstance<StayDeriver.Stay>()
-            .associate { it.afterTrackId to clusterPlaces[it.clusterId] }
         // Each track's chronological successor, for merging a short same-activity stay's two tracks.
         val byId = summaries.associateBy { it.id }
         val nextTrack = summaries.sortedBy { it.startedAt }.zipWithNext()
@@ -114,7 +112,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                     toPlace = item.gap.toClusterId?.let(clusterPlaces::getOrNull),
                 )
                 is TimelineItem.StayItem -> {
-                    val resolution = resolutions[item.stay.afterTrackId]
+                    val resolution = clusterPlaces.getOrNull(item.stay.clusterId)
                     val before = byId[item.stay.afterTrackId]
                     val after = nextTrack[item.stay.afterTrackId]
                     val merge = if (before != null && after != null) {

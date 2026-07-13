@@ -210,10 +210,8 @@ private fun rememberMapLibreMapView(): MapView {
         val options = MapLibreMapOptions.createFromAttributes(ctx)
             .textureMode(true)
             // Shown until the first rendered frame; defaults to white, which flashes hard
-            // against a dark UI. Match the current flavour's background-color.
-            .foregroundLoadColor(
-                android.graphics.Color.parseColor(if (isDarkUi(ctx)) "#34373D" else "#CCCCCC"),
-            )
+            // against a dark UI.
+            .foregroundLoadColor(styleBackgroundColor(ctx))
         MapView(ctx, options).apply {
             onCreate(null)
             onStart()
@@ -525,14 +523,30 @@ private fun isDarkUi(ctx: Context): Boolean =
     (ctx.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
         Configuration.UI_MODE_NIGHT_YES
 
+/** The current flavour's style JSON, cached (asset name → json) — read for every map creation. */
+private var cachedStyleJson: Pair<String, String>? = null
+
 /**
  * The bundled official Protomaps style for the current theme (assets/protomaps-{dark,light}.json)
  * with the hosted-API key injected.
  */
-private fun loadProtomapsStyle(ctx: Context): String =
-    ctx.assets.open(if (isDarkUi(ctx)) "protomaps-dark.json" else "protomaps-light.json")
-        .bufferedReader().use { it.readText() }
+private fun loadProtomapsStyle(ctx: Context): String {
+    val asset = if (isDarkUi(ctx)) "protomaps-dark.json" else "protomaps-light.json"
+    cachedStyleJson?.let { (name, json) -> if (name == asset) return json }
+    val json = ctx.assets.open(asset).bufferedReader().use { it.readText() }
         .replace("{PROTOMAPS_KEY}", BuildConfig.PROTOMAPS_API_KEY)
+    cachedStyleJson = asset to json
+    return json
+}
+
+/**
+ * The style's own `background` layer colour — used as the pre-render placeholder so a style
+ * refresh can't desync the load flash from the basemap.
+ */
+private fun styleBackgroundColor(ctx: Context): Int =
+    Regex("\"background-color\":\\s*\"(#[0-9a-fA-F]{6})\"").find(loadProtomapsStyle(ctx))
+        ?.groupValues?.get(1)?.let(android.graphics.Color::parseColor)
+        ?: android.graphics.Color.DKGRAY
 
 // --- Place map ----------------------------------------------------------------------------------
 

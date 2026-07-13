@@ -119,13 +119,11 @@ class StayDeriverTest {
         assertEquals(240 * MIN, gap.end)
     }
 
-    @Test fun `a moved-unrecorded gap carries both endpoints and their distinct clusters`() {
+    @Test fun `a moved-unrecorded gap indexes both sides' distinct clusters`() {
         val derivation = StayDeriver.derive(
             homePair(from = office), listOf(Armed(0)), NOW, null, StayDeriver.Params(), flatDistance,
         )
         val gap = derivation.intervals.first { it is Gap } as Gap
-        assertEquals(home, gap.from)
-        assertEquals(office, gap.to)
         // The disagreement that made this a gap: the sides sit in different clusters,
         // and each id indexes a real cluster containing its endpoint.
         assertNotEquals(gap.fromClusterId, gap.toClusterId)
@@ -227,9 +225,7 @@ class StayDeriverTest {
 
     @Test fun `an unknown-endpoint gap still carries the known side`() {
         val gap = derive(homePair(to = null)).first { it is Gap } as Gap
-        assertNull(gap.from)
         assertNull(gap.fromClusterId)
-        assertEquals(nearHome, gap.to)
         assertNotNull(gap.toClusterId)
     }
 
@@ -312,8 +308,6 @@ class StayDeriverTest {
         assertEquals(GapReason.MOVED_UNRECORDED, gap.reason)
         assertEquals(120 * MIN, gap.start)
         assertEquals(200 * MIN, gap.end)
-        assertEquals(home, gap.from)
-        assertEquals(office, gap.to)
         assertNotEquals(gap.fromClusterId, gap.toClusterId)
     }
 

@@ -50,9 +50,11 @@ class PlaceResolverTest {
         return stays.mapIndexed { i, s -> s.copy(clusterId = clusterIdByStay[i]) } to clusters
     }
 
+    /** Stay-keyed view over [PlaceResolver.resolveClusters] — the lookup production does per item. */
     private fun resolve(stays: List<Stay>, places: List<Place>): Map<Long, PlaceResolver.ResolvedStay> {
         val (stamped, clusters) = withClusters(stays, places)
-        return PlaceResolver.resolve(stamped, clusters, places)
+        val byCluster = PlaceResolver.resolveClusters(stamped, clusters, places)
+        return stamped.associate { it.afterTrackId to byCluster[it.clusterId] }
     }
 
     @Test fun `a place pin labels every stay it captures`() {
