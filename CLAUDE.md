@@ -145,12 +145,10 @@ tag → download the `.aab` from the GitHub Release and upload it to the Play Co
   bundled style at load time (`{PROTOMAPS_KEY}` placeholder in `assets/protomaps-{dark,light}.json`).
   A fresh checkout needs that line added or the basemap won't load.
 - **The basemap styles are bundled assets** (`assets/protomaps-dark.json` / `protomaps-light.json`,
-  picked by theme) — the official `protomaps-themes-base` v4 flavours with their source repointed at
-  the hosted API. Local edits on top of the official flavours: the POI `kind` whitelist is widened to
-  every kind the v4 sprite has an icon for, and the POI text-colour fallback is a readable ink (the
-  official fallback equals the halo colour, so non-whitelisted kinds rendered invisibly). To refresh,
-  re-fetch the flavour JSON, re-point the `protomaps` source (keeping the `{PROTOMAPS_KEY}`
-  placeholder), and re-apply those two edits.
+  picked by theme) — the official flavours as served by the hosted API's style endpoint
+  (`https://api.protomaps.com/styles/v5/{dark,light}/en.json?key=…`), verbatim except the API key
+  in the tiles URL replaced with the `{PROTOMAPS_KEY}` placeholder. To refresh, re-fetch from that
+  endpoint and re-apply the placeholder swap.
 - **Frame the map with `moveCamera`, not `easeCamera`** — the track view should open already fitted,
   with no zoom-in animation. Framing runs once per map instance (guarded by a `BooleanArray`) so
   switching the colour metric recolours without re-centring; the live preview refreshes the source
