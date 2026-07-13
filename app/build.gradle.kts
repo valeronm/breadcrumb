@@ -24,8 +24,13 @@ android {
         applicationId = "io.github.valeronm.breadcrumb"
         minSdk = 26
         targetSdk = 37
-        versionCode = 5
-        versionName = "1.1"
+        versionCode = 6
+        // "1.0+16e7a3a", with "-dirty" appended when built from uncommitted changes.
+        val gitSha = providers.exec {
+            commandLine("git", "describe", "--always", "--dirty")
+        }.standardOutput.asText.get().trim()
+        versionName = "1.0+$gitSha"
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
 
         // SPIKE: Protomaps hosted-API key, read from local.properties (gitignored) so it isn't committed.
         val localProps = Properties().apply {
