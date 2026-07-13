@@ -16,6 +16,7 @@ import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -91,9 +92,11 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -198,6 +201,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -1678,6 +1682,9 @@ private fun PlaceDetailScreen(
     val place = summary.place
     var showNameDialog by remember { mutableStateOf(false) }
     var showRecenterDialog by remember { mutableStateOf(false) }
+    // Edit mode reveals the cluster internals (capture circle, endpoints, neighbours) plus the
+    // radius slider and re-centre action; view mode leads with stats, a clean map and visits.
+    var editing by remember(place?.id) { mutableStateOf(false) }
     // Local while dragging; summary.radiusM catches up after the persisted value re-derives.
     var radiusM by remember(place?.id) { mutableFloatStateOf(summary.radiusM.toFloat()) }
     // Where the pin would move: the mean of the endpoints the cluster currently captures.
@@ -1686,34 +1693,49 @@ private fun PlaceDetailScreen(
             StayDeriver.Endpoint(pts.sumOf { it.lat } / pts.size, pts.sumOf { it.lon } / pts.size)
         }
     }
+    // Back steps out of edit mode before it closes the screen.
+    BackHandler(enabled = editing) { editing = false }
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
                         Text(place?.label ?: "Unnamed place")
-                        Text(
-                            "${summary.endpoints.size} recorded track endpoints",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-                navigationIcon = { BackNavIcon(onBack) },
-                actions = {
-                    if (place != null && endpointCentroid != null) {
-                        IconButton(onClick = { showRecenterDialog = true }) {
-                            Icon(
-                                Icons.Filled.FilterCenterFocus,
-                                contentDescription = "Re-centre pin",
+                        if (editing) {
+                            Text(
+                                "${summary.endpoints.size} recorded track endpoints",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
-                    IconButton(onClick = { showNameDialog = true }) {
-                        Icon(
-                            Icons.Filled.Edit,
-                            contentDescription = if (summary.isNamed) "Rename place" else "Name place",
-                        )
+                },
+                navigationIcon = { BackNavIcon { if (editing) editing = false else onBack() } },
+                actions = {
+                    if (editing) {
+                        if (place != null && endpointCentroid != null) {
+                            IconButton(onClick = { showRecenterDialog = true }) {
+                                Icon(
+                                    Icons.Filled.FilterCenterFocus,
+                                    contentDescription = "Re-centre pin",
+                                )
+                            }
+                        }
+                        IconButton(onClick = { editing = false }) {
+                            Icon(Icons.Filled.Check, contentDescription = "Done")
+                        }
+                    } else {
+                        IconButton(onClick = { showNameDialog = true }) {
+                            Icon(
+                                Icons.Filled.Edit,
+                                contentDescription = if (summary.isNamed) "Rename place" else "Name place",
+                            )
+                        }
+                        if (place != null) {
+                            IconButton(onClick = { editing = true }) {
+                                Icon(Icons.Filled.Tune, contentDescription = "Adjust area")
+                            }
+                        }
                     }
                 },
             )
@@ -1727,50 +1749,68 @@ private fun PlaceDetailScreen(
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Card(Modifier.fillMaxWidth()) { PlaceStatsHeader(summary) }
-            // Stats, radius and map read as one group, like the track page's chips/map/scrubber.
-            Column(
-                Modifier.weight(1f).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                val blocks = if (place != null) 2 else 1
-                if (place != null) {
-                    Card(Modifier.fillMaxWidth(), shape = groupedRowShape(0, blocks)) {
-                        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text("Place radius", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    "${radiusM.roundToInt()} m",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                            Slider(
-                                value = radiusM,
-                                valueRange = 50f..500f,
-                                onValueChange = { raw ->
-                                    radiusM = ((raw / 25f).roundToInt() * 25f).coerceIn(50f, 500f)
-                                },
-                                onValueChangeFinished = {
-                                    viewModel.setPlaceRadius(place.id, radiusM.toDouble())
-                                },
-                            )
-                        }
+            if (!editing) {
+                Card(Modifier.fillMaxWidth()) {
+                    PlaceStatsHeader(summary)
+                    if (place == null) {
+                        FilledTonalButton(
+                            onClick = { showNameDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = 16.dp),
+                        ) { Text("Name this place") }
                     }
                 }
-                Card(Modifier.weight(1f).fillMaxWidth(), shape = groupedRowShape(blocks - 1, blocks)) {
-                    Box(Modifier.fillMaxSize().clipToBounds()) {
-                        MapLibrePlaceMap(
-                            center = summary.anchor,
-                            radiusM = if (place != null) radiusM.toDouble() else summary.radiusM,
-                            endpoints = summary.endpoints,
-                            neighbors = neighbors,
-                            modifier = Modifier.fillMaxSize(),
+            } else if (place != null) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text("Place radius", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "${radiusM.roundToInt()} m",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Slider(
+                            value = radiusM,
+                            valueRange = 50f..500f,
+                            onValueChange = { raw ->
+                                radiusM = ((raw / 25f).roundToInt() * 25f).coerceIn(50f, 500f)
+                            },
+                            onValueChangeFinished = {
+                                viewModel.setPlaceRadius(place.id, radiusM.toDouble())
+                            },
                         )
                     }
+                }
+            }
+            // One card at one call site in both modes, so the MapView survives the mode switch
+            // and only restyles (internals on/off) instead of reloading.
+            Card(
+                if (editing) Modifier.weight(1f).fillMaxWidth()
+                else Modifier.height(220.dp).fillMaxWidth(),
+            ) {
+                Box(Modifier.fillMaxSize().clipToBounds()) {
+                    MapLibrePlaceMap(
+                        center = summary.anchor,
+                        radiusM = if (place != null) radiusM.toDouble() else summary.radiusM,
+                        endpoints = summary.endpoints,
+                        neighbors = neighbors,
+                        showInternals = editing,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            if (!editing) {
+                if (summary.stays.isEmpty()) {
+                    EmptyState("No visits yet", Modifier.weight(1f).fillMaxWidth())
+                } else {
+                    PlaceVisitsList(summary.stays, Modifier.weight(1f).fillMaxWidth())
                 }
             }
         }
@@ -1780,8 +1820,8 @@ private fun PlaceDetailScreen(
         ConfirmDialog(
             icon = Icons.Filled.FilterCenterFocus,
             title = "Re-centre pin?",
-            text = "Moves \"${place.label}\" to the centre of its recorded endpoints. " +
-                "Clustering and stays re-derive around the new spot.",
+            text = "Moves \"${place.label}\" to the middle of where your visits actually landed. " +
+                "Visits and stats recalculate around the new spot.",
             confirmLabel = "Move",
             onConfirm = {
                 viewModel.setPlacePin(place.id, endpointCentroid.lat, endpointCentroid.lon)
@@ -1809,7 +1849,7 @@ private fun PlaceDetailScreen(
                     if (place != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Clear the name to remove the label.",
+                            "Clear the name to remove this place.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1844,7 +1884,7 @@ private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {
     Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
         HeaderStat(
             "Visits",
-            if (summary.visitCount > 0) "${summary.visitCount}×" else "—",
+            if (summary.visitCount > 0) "${summary.visitCount}" else "—",
             Modifier.weight(1f),
         )
         HeaderStat(
@@ -1853,12 +1893,97 @@ private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {
             Modifier.weight(1f),
         )
         HeaderStat(
-            "Last seen",
-            summary.lastSeenMs?.let { relativeDay(it) } ?: "—",
+            "Last visit",
+            summary.lastSeenMs?.let { relativeDayCompact(it) } ?: "—",
             Modifier.weight(1f),
         )
     }
 }
+
+/** The place's visit history, newest first, grouped under month headers. */
+@Composable
+private fun PlaceVisitsList(stays: List<StayDeriver.Stay>, modifier: Modifier = Modifier) {
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(zone)
+    val nowMs = remember { System.currentTimeMillis() }
+    // Stays arrive newest first, so groupBy preserves month order and in-month order.
+    val groups = remember(stays) {
+        stays.groupBy { YearMonth.from(Instant.ofEpochMilli(it.start).atZone(zone).toLocalDate()) }
+    }
+    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        groups.forEach { (month, visits) ->
+            item(key = "month:$month") {
+                Text(
+                    monthLabel(month, today),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 6.dp),
+                )
+            }
+            itemsIndexed(visits, key = { _, s -> "visit:${s.afterTrackId}:${s.start}" }) { index, stay ->
+                Card(Modifier.fillMaxWidth(), shape = groupedRowShape(index, visits.size)) {
+                    VisitRowContent(stay, zone, nowMs)
+                }
+            }
+        }
+        // The history ends where it began — a quiet marker instead of a stat-card factoid.
+        stays.lastOrNull()?.let { first ->
+            item(key = "first-visit") {
+                Text(
+                    "First visit ${relativeDay(first.start)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VisitRowContent(stay: StayDeriver.Stay, zone: ZoneId, nowMs: Long) {
+    Row(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                visitDayFormat.format(Instant.ofEpochMilli(stay.start).atZone(zone)),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                visitTimeRange(stay, zone),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            formatDurationMs((stay.end ?: nowMs) - stay.start),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+/** "18:18 – 08:30 +1" — the marker counts midnights crossed; the row title carries the start day. */
+private fun visitTimeRange(stay: StayDeriver.Stay, zone: ZoneId): String {
+    val start = timeFormat.format(Date(stay.start))
+    val end = stay.end ?: return "since $start"
+    val nights = ChronoUnit.DAYS.between(
+        Instant.ofEpochMilli(stay.start).atZone(zone).toLocalDate(),
+        Instant.ofEpochMilli(end).atZone(zone).toLocalDate(),
+    )
+    val rollover = if (nights > 0) " +$nights" else ""
+    return "$start – ${timeFormat.format(Date(end))}$rollover"
+}
+
+private val visitDayFormat = DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())
+private val monthFormat = DateTimeFormatter.ofPattern("MMMM", Locale.getDefault())
+private val monthYearFormat = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())
+
+private fun monthLabel(month: YearMonth, today: LocalDate): String =
+    if (month.year == today.year) month.format(monthFormat) else month.format(monthYearFormat)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1906,10 +2031,10 @@ private fun PlaceResolver.PlaceSummary.rowKey(): String = placeDetailKeyOf(place
 
 private fun placeSubtitle(summary: PlaceResolver.PlaceSummary): String {
     if (summary.visitCount == 0) return "No visits yet"
-    val visits = "visited ${summary.visitCount}×"
-    val total = "${formatDurationMs(summary.totalMs)} total"
-    val lastSeen = summary.lastSeenMs?.let { "last seen ${relativeDay(it)}" }
-    return listOfNotNull(visits, lastSeen, total).joinToString(" · ")
+    val visits = if (summary.visitCount == 1) "1 visit" else "${summary.visitCount} visits"
+    val total = formatDurationMs(summary.totalMs)
+    val lastVisit = summary.lastSeenMs?.let { "last visit ${relativeDayCompact(it)}" }
+    return listOfNotNull(visits, lastVisit, total).joinToString(" · ")
 }
 
 /** Coarse relative day for "last seen": today / yesterday / N days ago / a date. */
@@ -1925,6 +2050,18 @@ private fun relativeDay(epochMs: Long): String {
         // Compact beyond a week — this renders inside stat cells and one-line row subtitles.
         then.year == today.year -> then.format(compactDayFormat)
         else -> then.format(compactDayYearFormat)
+    }
+}
+
+/** [relativeDay] squeezed for the big stat cells, where "5 days ago" overflows: "5d ago". */
+private fun relativeDayCompact(epochMs: Long): String {
+    val zone = ZoneId.systemDefault()
+    val then = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
+    val days = ChronoUnit.DAYS.between(then, LocalDate.now(zone))
+    return when {
+        days <= 0 -> "today"
+        days < 7 -> "${days}d ago"
+        else -> relativeDay(epochMs)
     }
 }
 
@@ -2794,7 +2931,9 @@ private fun StayCard(
                             append(" · ")
                             append(formatDurationMs((end ?: System.currentTimeMillis()) - stay.start))
                         }
-                        if (visits != null) append(" · visited $visits×")
+                        if (visits != null) {
+                            append(" · " + if (visits == 1) "1 visit" else "$visits visits")
+                        }
                         // The swipe-to-merge gesture is invisible on its own — this is its one hint.
                         if (mergeable) {
                             append(" · ")
@@ -2844,6 +2983,12 @@ private fun formatDuration(startedAt: Long, endedAt: Long?): String {
 
 private fun formatDurationMs(durationMs: Long): String {
     val minutes = (durationMs / 60000.0).roundToLong()
+    // A day or more: minutes stop mattering — round to whole hours and split off days.
+    if (minutes >= 24 * 60) {
+        val hours = ((minutes + 30) / 60)
+        return if (hours % 24 == 0L) "%dd".format(hours / 24)
+        else "%dd %dh".format(hours / 24, hours % 24)
+    }
     return when {
         minutes >= 60 && minutes % 60 == 0L -> "%dh".format(minutes / 60)
         minutes >= 60 -> "%dh %02dm".format(minutes / 60, minutes % 60)

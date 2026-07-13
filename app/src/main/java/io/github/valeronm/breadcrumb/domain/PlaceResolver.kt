@@ -44,6 +44,8 @@ object PlaceResolver {
         val radiusM: Double,
         /** Every track endpoint captured by the cluster, for showing the scatter on a map. */
         val endpoints: List<StayDeriver.Endpoint>,
+        /** This place's individual visits (unsliced), newest first — the detail screen's history. */
+        val stays: List<StayDeriver.Stay> = emptyList(),
     ) {
         val isNamed: Boolean get() = place != null
     }
@@ -102,12 +104,14 @@ object PlaceResolver {
                 unnamed += PlaceSummary(
                     null, cluster.centroid, count, last, total,
                     anchor = cluster.anchor, radiusM = cluster.radiusM, endpoints = cluster.members,
+                    stays = members.sortedByDescending { it.start },
                 )
             } else {
                 val agg = namedAgg.getOrPut(place.id) { Agg() }
                 agg.count += count
                 agg.total += total
                 agg.last = maxOf(agg.last, last)
+                agg.stays += members
             }
         }
         val named = places.mapIndexed { index, place ->
@@ -124,12 +128,18 @@ object PlaceResolver {
                 anchor = StayDeriver.Endpoint(place.lat, place.lon),
                 radiusM = cluster?.radiusM ?: place.radiusM,
                 endpoints = cluster?.members ?: emptyList(),
+                stays = agg?.stays?.sortedByDescending { it.start } ?: emptyList(),
             )
         }
         return named + unnamed
     }
 
-    private class Agg(var count: Int = 0, var total: Long = 0L, var last: Long = Long.MIN_VALUE)
+    private class Agg(
+        var count: Int = 0,
+        var total: Long = 0L,
+        var last: Long = Long.MIN_VALUE,
+        val stays: MutableList<StayDeriver.Stay> = mutableListOf(),
+    )
 
     /** The place whose pin seeded this cluster, or null for an organic (unnamed) cluster. */
     private fun matchedPlace(cluster: PlaceClusterer.Cluster, places: List<Place>): Place? =

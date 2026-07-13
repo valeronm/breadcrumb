@@ -508,12 +508,13 @@ class NeighborPlace(
 )
 
 /**
- * Renders one place on the dark basemap: the cluster's capture circle (metre-true polygon around
- * [center]) with the pin marker, every track endpoint the cluster captured as small dots, and
- * [neighbors] — surrounding clusters' endpoints (grey dots) and named pins (labelled) — so the
- * radius can be judged against what a wider circle would swallow. The camera fits the circle once
- * on open; the place data is a snapshot, so there is no live update path beyond a full refresh
- * when the inputs change.
+ * Renders one place on the dark basemap. With [showInternals] the cluster's capture circle
+ * (metre-true polygon around [center]) is drawn with every captured track endpoint as small dots
+ * plus [neighbors] — surrounding clusters' endpoints (grey dots) and named pins (labelled) — so
+ * the radius can be judged against what a wider circle would swallow; without it only the pin
+ * marker shows. Toggling the flag restyles in place without moving the camera. The camera fits
+ * the circle once on open; the place data is a snapshot, so there is no live update path beyond
+ * a full refresh when the inputs change.
  */
 @Composable
 fun MapLibrePlaceMap(
@@ -521,15 +522,17 @@ fun MapLibrePlaceMap(
     radiusM: Double,
     endpoints: List<StayDeriver.Endpoint>,
     neighbors: List<NeighborPlace> = emptyList(),
+    showInternals: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    val applied = remember { arrayOfNulls<Any?>(2) } // circle (center+radius), markers
+    val applied = remember { arrayOfNulls<Any?>(3) } // circle (center+radius), markers, internals
     MapLibreStyledMap(
         modifier = modifier,
         onStyleLoaded = { ctx, map, style ->
             applied[0] = center to radiusM
-            applied[1] = endpoints to neighbors
-            addPlaceLayers(ctx, style, center, radiusM, endpoints, neighbors)
+            applied[1] = Triple(endpoints, neighbors, showInternals)
+            applied[2] = showInternals
+            addPlaceLayers(ctx, style, center, radiusM, endpoints, neighbors, showInternals)
             framePlace(map, center, radiusM)
         },
         onUpdate = { map, style ->
@@ -539,10 +542,18 @@ fun MapLibrePlaceMap(
                     ?.setGeoJson(circleFeature(center, radiusM))
                 framePlace(map, center, radiusM)
             }
-            if (applied[1] != endpoints to neighbors) {
-                applied[1] = endpoints to neighbors
+            if (applied[1] != Triple(endpoints, neighbors, showInternals)) {
+                applied[1] = Triple(endpoints, neighbors, showInternals)
                 style.getSourceAs<GeoJsonSource>(PLACE_MARKER_SOURCE)
-                    ?.setGeoJson(placeMarkerCollection(center, endpoints, neighbors))
+                    ?.setGeoJson(placeMarkerCollection(center, endpoints, neighbors, showInternals))
+            }
+            if (applied[2] != showInternals) {
+                applied[2] = showInternals
+                val visibility = PropertyFactory.visibility(
+                    if (showInternals) Property.VISIBLE else Property.NONE,
+                )
+                style.getLayer(PLACE_CIRCLE_FILL)?.setProperties(visibility)
+                style.getLayer(PLACE_CIRCLE_LINE)?.setProperties(visibility)
             }
         },
     )
@@ -566,11 +577,14 @@ private fun addPlaceLayers(
     radiusM: Double,
     endpoints: List<StayDeriver.Endpoint>,
     neighbors: List<NeighborPlace>,
+    showInternals: Boolean,
 ) {
+    val visibility = PropertyFactory.visibility(if (showInternals) Property.VISIBLE else Property.NONE)
     style.addSource(GeoJsonSource(PLACE_CIRCLE_SOURCE, circleFeature(center, radiusM)))
     style.addLayer(
         FillLayer(PLACE_CIRCLE_FILL, PLACE_CIRCLE_SOURCE).withProperties(
             PropertyFactory.fillColor(CIRCLE_FILL),
+            visibility,
         ),
     )
     style.addLayer(
@@ -578,30 +592,36 @@ private fun addPlaceLayers(
             PropertyFactory.lineColor(CIRCLE_LINE),
             PropertyFactory.lineWidth(1.5f),
             PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
+            visibility,
         ),
     )
     style.addImage(IMG_ENDPOINT, drawableBitmap(ctx, R.drawable.ic_marker_endpoint))
     style.addImage(IMG_NEIGHBOR, drawableBitmap(ctx, R.drawable.ic_marker_neighbor))
     style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))
-    style.addSource(GeoJsonSource(PLACE_MARKER_SOURCE, placeMarkerCollection(center, endpoints, neighbors)))
+    style.addSource(
+        GeoJsonSource(PLACE_MARKER_SOURCE, placeMarkerCollection(center, endpoints, neighbors, showInternals)),
+    )
     style.addLayer(labelledSymbolLayer(PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE))
 }
 
 /**
  * Neighbour context first (visually underneath), then the place's own endpoint dots, then the
- * pin marker last so it draws on top.
+ * pin marker last so it draws on top. Without [showInternals] only the pin is emitted.
  */
 private fun placeMarkerCollection(
     center: StayDeriver.Endpoint,
     endpoints: List<StayDeriver.Endpoint>,
     neighbors: List<NeighborPlace>,
+    showInternals: Boolean,
 ): FeatureCollection {
     val features = ArrayList<Feature>(neighbors.size + endpoints.size + 1)
-    neighbors.forEach { n ->
-        val icon = if (n.label != null) IMG_PLACE else IMG_NEIGHBOR
-        features.add(endpointFeature(n.location, icon, n.label))
+    if (showInternals) {
+        neighbors.forEach { n ->
+            val icon = if (n.label != null) IMG_PLACE else IMG_NEIGHBOR
+            features.add(endpointFeature(n.location, icon, n.label))
+        }
+        endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
     }
-    endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
     features.add(endpointFeature(center, IMG_PLACE))
     return FeatureCollection.fromFeatures(features)
 }
