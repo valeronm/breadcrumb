@@ -106,6 +106,26 @@ class PlaceResolverTest {
         assertEquals(at(500.0), resolved.getValue(b.afterTrackId).centroid)
     }
 
+    @Test fun `resolveClusters covers every cluster including stay-less ones`() {
+        // One visited cluster near the pin, plus a pass-through cluster no stay belongs to
+        // (a gap endpoint could land there) — both must resolve.
+        val stays = listOf(stay(at(0.0)))
+        val places = listOf(place(7, "Home", at(0.0)))
+        val (stamped, _) = withClusters(stays, places)
+        val clusters = PlaceClusterer.cluster(
+            listOf(at(0.0), at(500.0)), distance = flatDistance,
+            seeds = places.map { PlaceClusterer.Seed(Endpoint(it.lat, it.lon), PIN_RADIUS) },
+        )
+        val resolved = PlaceResolver.resolveClusters(stamped, clusters, places)
+        assertEquals(clusters.size, resolved.size)
+        assertEquals("Home", resolved[0].label)
+        assertEquals(1, resolved[0].visitCount)
+        val passThrough = resolved.last()
+        assertNull(passThrough.label)
+        assertEquals(0, passThrough.visitCount)
+        assertEquals(at(500.0), passThrough.centroid)
+    }
+
     // --- summarize -----------------------------------------------------------
 
     private val NOW = 100_000L

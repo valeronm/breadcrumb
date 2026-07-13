@@ -100,6 +100,14 @@ object StayDeriver {
         override val start: Long,
         override val end: Long,
         val reason: GapReason,
+        /** The two disagreeing endpoints (previous track's end, next track's start); a side is
+         *  null only when it's unknown ([GapReason.UNKNOWN_ENDPOINT]). */
+        val from: Endpoint? = null,
+        val to: Endpoint? = null,
+        /** Index into [Derivation.clusters] for each known side — most gaps are really one place
+         *  misclustered as two, so the UI links each side to its place for fixing. */
+        val fromClusterId: Int? = null,
+        val toClusterId: Int? = null,
     ) : Interval
 
     /** Derivation output: the timeline intervals plus the endpoint clusters stays index into. */
@@ -147,11 +155,21 @@ object StayDeriver {
             val a = prev.end
             val b = next.start
             if (a == null || b == null) {
-                out += Gap(gapStart, gapEnd, GapReason.UNKNOWN_ENDPOINT)
+                out += Gap(
+                    gapStart, gapEnd, GapReason.UNKNOWN_ENDPOINT,
+                    from = a, to = b,
+                    fromClusterId = a?.let(clusterOf::getValue),
+                    toClusterId = b?.let(clusterOf::getValue),
+                )
                 continue
             }
             if (!samePlace(a, b)) {
-                out += Gap(gapStart, gapEnd, GapReason.MOVED_UNRECORDED)
+                out += Gap(
+                    gapStart, gapEnd, GapReason.MOVED_UNRECORDED,
+                    from = a, to = b,
+                    fromClusterId = clusterOf.getValue(a),
+                    toClusterId = clusterOf.getValue(b),
+                )
                 continue
             }
             if (gapEnd - gapStart < params.minStayMs) continue
@@ -225,7 +243,12 @@ object StayDeriver {
             // re-derives for real once the track finishes.
             val b = activeTrack.start
             if (b != null && !samePlace(location, b)) {
-                return Gap(start, end, GapReason.MOVED_UNRECORDED)
+                return Gap(
+                    start, end, GapReason.MOVED_UNRECORDED,
+                    from = location, to = b,
+                    fromClusterId = clusterOf.getValue(location),
+                    toClusterId = clusterOf.getValue(b),
+                )
             }
             if (end - start < params.minStayMs) return null
             return Stay(
@@ -373,7 +396,13 @@ sealed interface TimelineItem {
         override val startedAt get() = stay.start
     }
 
-    data class GapItem(val gap: StayDeriver.Gap) : TimelineItem {
+    data class GapItem(
+        val gap: StayDeriver.Gap,
+        /** Place resolution of each known side, attached after derivation — lets the row link
+         *  through to the places whose misclustering usually caused the gap. */
+        val fromPlace: PlaceResolver.ResolvedStay? = null,
+        val toPlace: PlaceResolver.ResolvedStay? = null,
+    ) : TimelineItem {
         override val startedAt get() = gap.start
     }
 }

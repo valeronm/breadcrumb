@@ -13,6 +13,8 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver.Provenance
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
 import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -117,6 +119,20 @@ class StayDeriverTest {
         assertEquals(240 * MIN, gap.end)
     }
 
+    @Test fun `a moved-unrecorded gap carries both endpoints and their distinct clusters`() {
+        val derivation = StayDeriver.derive(
+            homePair(from = office), listOf(Armed(0)), NOW, null, StayDeriver.Params(), flatDistance,
+        )
+        val gap = derivation.intervals.first { it is Gap } as Gap
+        assertEquals(home, gap.from)
+        assertEquals(office, gap.to)
+        // The disagreement that made this a gap: the sides sit in different clusters,
+        // and each id indexes a real cluster containing its endpoint.
+        assertNotEquals(gap.fromClusterId, gap.toClusterId)
+        assertTrue(derivation.clusters[gap.fromClusterId!!].members.contains(home))
+        assertTrue(derivation.clusters[gap.toClusterId!!].members.contains(office))
+    }
+
     @Test fun `endpoints exactly at the agreement radius still count as a stay`() {
         // 0.001° = exactly 100 m = the radius; the rule is ≤.
         val stays = derive(homePair(from = Endpoint(1.001, 1.0))).filterIsInstance<Stay>()
@@ -209,6 +225,14 @@ class StayDeriverTest {
         assertEquals(GapReason.UNKNOWN_ENDPOINT, (intervals.first { it is Gap } as Gap).reason)
     }
 
+    @Test fun `an unknown-endpoint gap still carries the known side`() {
+        val gap = derive(homePair(to = null)).first { it is Gap } as Gap
+        assertNull(gap.from)
+        assertNull(gap.fromClusterId)
+        assertEquals(nearHome, gap.to)
+        assertNotNull(gap.toClusterId)
+    }
+
     @Test fun `a short gap emits a stay by default (no minimum)`() {
         val intervals = derive(
             listOf(
@@ -288,6 +312,9 @@ class StayDeriverTest {
         assertEquals(GapReason.MOVED_UNRECORDED, gap.reason)
         assertEquals(120 * MIN, gap.start)
         assertEquals(200 * MIN, gap.end)
+        assertEquals(home, gap.from)
+        assertEquals(office, gap.to)
+        assertNotEquals(gap.fromClusterId, gap.toClusterId)
     }
 
     @Test fun `an active track whose first fix agrees keeps the tail a stay`() {

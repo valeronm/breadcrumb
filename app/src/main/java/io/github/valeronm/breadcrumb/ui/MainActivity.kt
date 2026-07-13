@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.ColumnScope
@@ -143,12 +144,15 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -1250,7 +1254,7 @@ private fun TracksTab(
                                 item.place?.let { onOpenPlace(placeDetailKeyOf(it.placeId, it.centroid)) }
                             },
                         )
-                        is TimelineItem.GapItem -> GapRow(item.gap, shape)
+                        is TimelineItem.GapItem -> GapRow(item, shape, onOpenPlace)
                     }
                 }
             }
@@ -2957,6 +2961,9 @@ private fun TrackRow(
                     Text(
                         "${ActivityType.labelFor(track.activityType)} · ${formatKm(track.distanceMeters)}",
                         style = MaterialTheme.typography.titleMedium,
+                        // Explicit: the inherited card colour dims to onSurfaceVariant under
+                        // dynamic colour (contentColorFor matches surfaceVariant first).
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     val start = timeFormat.format(Date(track.startedAt))
                     val timeLine = track.endedAt?.let { "$start – ${timeFormat.format(Date(it))}" } ?: start
@@ -3043,6 +3050,10 @@ private fun StayCard(
                 Text(
                     place?.label ?: if (mergeable) "Short stop" else "Stayed",
                     style = MaterialTheme.typography.titleMedium,
+                    // Same named/unnamed treatment as PlaceRowCard — explicit because the
+                    // inherited card colour dims to onSurfaceVariant under dynamic colour.
+                    color = if (named) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 val start = timeFormat.format(Date(stay.start))
                 val end = stay.end
@@ -3058,7 +3069,6 @@ private fun StayCard(
                     else -> "$start – ${timeFormat.format(Date(end))}"
                 }
                 val visits = place?.visitCount?.takeIf { !named && it >= VISIT_COUNT_BADGE_MIN }
-                val tertiaryHint = MaterialTheme.colorScheme.tertiary
                 Text(
                     buildAnnotatedString {
                         append(timePhrase)
@@ -3072,11 +3082,6 @@ private fun StayCard(
                         if (visits != null) {
                             append(" · " + visitCountLabel(visits))
                         }
-                        // The swipe-to-merge gesture is invisible on its own — this is its one hint.
-                        if (mergeable) {
-                            append(" · ")
-                            withStyle(SpanStyle(color = tertiaryHint)) { append("swipe to merge") }
-                        }
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -3086,29 +3091,94 @@ private fun StayCard(
     }
 }
 
-/** Movement the recorder missed: neighbouring track endpoints disagree. Deliberately subdued. */
+/**
+ * Movement the recorder missed: neighbouring track endpoints disagree. Deliberately subdued.
+ * Most such gaps are really one place misclustered as two, so the card names both sides as
+ * full-width tappable lines — the app's row-tap language, not inline links — each opening its
+ * place, where re-pinning or widening the radius fixes the split. Two pin glyphs joined by a
+ * dashed connector in the icon column draw the unrecorded leg the way a map would. Newest-first
+ * timeline: the destination sits above (adjacent to the later track), the source below.
+ */
 @Composable
-private fun GapRow(gap: StayDeriver.Gap, shape: RoundedCornerShape) {
+private fun GapRow(item: TimelineItem.GapItem, shape: RoundedCornerShape, onOpenPlace: (String) -> Unit) {
+    val gap = item.gap
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Filled.MoreHoriz,
-                    contentDescription = "Gap",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp),
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+            GapPlaceLine(item.toPlace, onOpenPlace)
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val strokeColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                Canvas(modifier = Modifier.width(36.dp).height(24.dp)) {
+                    drawLine(
+                        color = strokeColor,
+                        start = Offset(size.width / 2, 0f),
+                        end = Offset(size.width / 2, size.height),
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        pathEffect = PathEffect.dashPathEffect(
+                            floatArrayOf(4.dp.toPx(), 6.dp.toPx()),
+                        ),
+                    )
+                }
+                Spacer(Modifier.width(16.dp))
+                Text(
+                    "missing recording · ${formatDurationMs(gap.end - gap.start)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
             }
-            Spacer(Modifier.width(16.dp))
-            Text(
-                "Moved without recording · ${formatDurationMs(gap.end - gap.start)}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            GapPlaceLine(item.fromPlace, onOpenPlace)
+        }
+    }
+}
+
+/**
+ * One side of a gap: a full-width tappable line (pin glyph + place name, ripple across the row,
+ * like every other tappable row in the app) opening the place's detail screen. A side that's
+ * unknown renders nothing — its position tells the story; one with no Places-screen row to open
+ * (an unnamed cluster with no visits) renders without the tap affordance.
+ */
+@Composable
+private fun GapPlaceLine(place: PlaceResolver.ResolvedStay?, onOpenPlace: (String) -> Unit) {
+    if (place == null) return
+    val openable = place.placeId != null || place.visitCount > 0
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (openable) {
+                    Modifier.clickable { onOpenPlace(placeDetailKeyOf(place.placeId, place.centroid)) }
+                } else {
+                    Modifier
+                },
+            )
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Filled.Place,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(20.dp),
             )
         }
+        Spacer(Modifier.width(16.dp))
+        Text(
+            text = place.label ?: "unnamed place",
+            style = MaterialTheme.typography.titleMedium,
+            // PlaceRowCard's convention: named places get true onSurface (the inherited card
+            // colour is dimmed by a contentColorFor quirk), unnamed the variant colour.
+            color = if (place.label != null) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

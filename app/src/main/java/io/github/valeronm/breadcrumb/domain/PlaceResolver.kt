@@ -55,21 +55,30 @@ object PlaceResolver {
         clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
     ): Map<Long, ResolvedStay> {
-        val result = HashMap<Long, ResolvedStay>(stays.size)
-        for ((clusterId, members) in stays.groupBy { it.clusterId }) {
-            val cluster = clusters[clusterId]
+        val byCluster = resolveClusters(stays, clusters, places)
+        return stays.associate { it.afterTrackId to byCluster[it.clusterId] }
+    }
+
+    /**
+     * Resolution of *every* endpoint cluster, indexed by cluster id. [resolve] is the stay-keyed
+     * view of this; gaps use it directly to name their two sides (whose clusters may have no
+     * stays at all — those resolve with a zero visit count).
+     */
+    fun resolveClusters(
+        stays: List<StayDeriver.Stay>,
+        clusters: List<PlaceClusterer.Cluster>,
+        places: List<Place>,
+    ): List<ResolvedStay> {
+        val visitsByCluster = stays.groupingBy { it.clusterId }.eachCount()
+        return clusters.mapIndexed { clusterId, cluster ->
             val place = matchedPlace(cluster, places)
-            val resolved = ResolvedStay(
+            ResolvedStay(
                 label = place?.label,
                 placeId = place?.id,
-                visitCount = members.size,
+                visitCount = visitsByCluster[clusterId] ?: 0,
                 centroid = cluster.centroid,
             )
-            for (stay in members) {
-                result[stay.afterTrackId] = resolved
-            }
         }
-        return result
     }
 
     /**
