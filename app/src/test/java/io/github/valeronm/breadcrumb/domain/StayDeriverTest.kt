@@ -49,8 +49,8 @@ class StayDeriverTest {
         tracks: List<TrackEnd>,
         liveness: List<Liveness> = listOf(Armed(0)),
         now: Long = NOW,
-        recording: Boolean = false,
-    ) = StayDeriver.derive(tracks, liveness, now, recording, StayDeriver.Params(), flatDistance)
+        active: StayDeriver.ActiveTrack? = null,
+    ) = StayDeriver.derive(tracks, liveness, now, active, StayDeriver.Params(), flatDistance)
         .intervals
 
     /** Two tracks whose gap is [120, 240) min, both ending/starting near `home`. */
@@ -138,7 +138,7 @@ class StayDeriverTest {
                 track(1, start = 60 * MIN, end = 120 * MIN, from = at(0.0), to = at(130.0)),
                 track(2, start = 240 * MIN, end = 300 * MIN, from = at(170.0), to = at(300.0)),
             ),
-            now = 300 * MIN, recording = true,
+            now = 300 * MIN, active = StayDeriver.ActiveTrack(startedAt = 300 * MIN),
         )
         assertTrue(intervals.filterIsInstance<Stay>().any { it.end == 240 * MIN })
     }
@@ -147,7 +147,7 @@ class StayDeriverTest {
         // 300 m apart — beyond both the raw radius and any shared 150 m cluster — but both
         // nearest to the same pin within 350 m (a mall-sized venue).
         val intervals = StayDeriver.derive(
-            homePair(from = at(300.0)), listOf(Armed(0)), NOW, false,
+            homePair(from = at(300.0)), listOf(Armed(0)), NOW, null,
             StayDeriver.Params(), flatDistance,
             placePins = listOf(pin(150.0)),
         ).intervals
@@ -157,7 +157,7 @@ class StayDeriverTest {
     @Test fun `endpoints nearest to different pins stay a gap`() {
         // Each endpoint sits by its own pin; distance (300 m) and clusters disagree too.
         val intervals = StayDeriver.derive(
-            homePair(from = at(300.0)), listOf(Armed(0)), NOW, false,
+            homePair(from = at(300.0)), listOf(Armed(0)), NOW, null,
             StayDeriver.Params(), flatDistance,
             placePins = listOf(pin(0.0), pin(300.0)),
         ).intervals
@@ -166,7 +166,7 @@ class StayDeriverTest {
 
     @Test fun `a pin near only one endpoint does not force agreement`() {
         val intervals = StayDeriver.derive(
-            homePair(from = at(600.0)), listOf(Armed(0)), NOW, false,
+            homePair(from = at(600.0)), listOf(Armed(0)), NOW, null,
             StayDeriver.Params(), flatDistance,
             placePins = listOf(pin(0.0)),
         ).intervals
@@ -178,7 +178,7 @@ class StayDeriverTest {
         // (both are ~150 m out but the near one clusters organically first at 0), and no shared
         // nearest pin within radius — a gap. The same layout with a widened pin is a stay above.
         val intervals = StayDeriver.derive(
-            homePair(from = at(300.0)), listOf(Armed(0)), NOW, false,
+            homePair(from = at(300.0)), listOf(Armed(0)), NOW, null,
             StayDeriver.Params(), flatDistance,
             placePins = listOf(pin(150.0, radiusM = 100.0)),
         ).intervals
@@ -187,7 +187,7 @@ class StayDeriverTest {
 
     @Test fun `stays index into the derivation's endpoint clusters`() {
         val derivation = StayDeriver.derive(
-            homePair(), listOf(Armed(0)), NOW, false, StayDeriver.Params(), flatDistance,
+            homePair(), listOf(Armed(0)), NOW, null, StayDeriver.Params(), flatDistance,
         )
         val stay = derivation.intervals.filterIsInstance<Stay>().first()
         val anchor = derivation.clusters[stay.clusterId].anchor
@@ -196,7 +196,7 @@ class StayDeriverTest {
 
     @Test fun `a pinned venue's stay indexes into the pin's seeded cluster`() {
         val derivation = StayDeriver.derive(
-            homePair(from = at(300.0)), listOf(Armed(0)), NOW, false,
+            homePair(from = at(300.0)), listOf(Armed(0)), NOW, null,
             StayDeriver.Params(), flatDistance,
             placePins = listOf(pin(150.0)),
         )
@@ -215,7 +215,7 @@ class StayDeriverTest {
                 track(1, start = 60 * MIN, end = 120 * MIN),
                 track(2, start = 120 * MIN + 60_000, from = nearHome, end = 300 * MIN),
             ),
-            now = 300 * MIN, recording = true,
+            now = 300 * MIN, active = StayDeriver.ActiveTrack(startedAt = 300 * MIN),
         )
         assertEquals(1, intervals.filterIsInstance<Stay>().size)
     }
@@ -226,7 +226,7 @@ class StayDeriverTest {
                 track(1, start = 60 * MIN, end = 120 * MIN),
                 track(2, start = 120 * MIN + 60_000, from = nearHome, end = 300 * MIN),
             ),
-            listOf(Armed(0)), 300 * MIN, true,
+            listOf(Armed(0)), 300 * MIN, StayDeriver.ActiveTrack(startedAt = 300 * MIN),
             StayDeriver.Params(minStayMs = 5 * MIN), flatDistance,
         ).intervals
         assertTrue(intervals.isEmpty())
@@ -238,7 +238,7 @@ class StayDeriverTest {
                 track(1, start = 60 * MIN, end = 240 * MIN),
                 track(2, start = 120 * MIN, end = 300 * MIN), // starts before prev ended
             ),
-            now = 300 * MIN, recording = true,
+            now = 300 * MIN, active = StayDeriver.ActiveTrack(startedAt = 300 * MIN),
         )
         assertTrue(intervals.isEmpty())
     }
@@ -261,8 +261,41 @@ class StayDeriverTest {
         assertEquals(home, stay.location)
     }
 
-    @Test fun `no tail stay while actively recording`() {
-        assertTrue(derive(listOf(track(1, start = 60 * MIN, end = 120 * MIN)), recording = true).isEmpty())
+    @Test fun `recording closes the tail stay at the active track's start`() {
+        val stay = derive(
+            listOf(track(1, start = 60 * MIN, end = 120 * MIN)),
+            active = StayDeriver.ActiveTrack(startedAt = 200 * MIN),
+        ).filterIsInstance<Stay>().single()
+        assertEquals(120 * MIN, stay.start)
+        assertEquals(200 * MIN, stay.end)
+        assertEquals(home, stay.location)
+    }
+
+    @Test fun `an active track that started immediately leaves no tail interval`() {
+        assertTrue(
+            derive(
+                listOf(track(1, start = 60 * MIN, end = 120 * MIN)),
+                active = StayDeriver.ActiveTrack(startedAt = 120 * MIN),
+            ).isEmpty(),
+        )
+    }
+
+    @Test fun `an active track whose first fix disagrees makes the tail a gap`() {
+        val gap = derive(
+            listOf(track(1, start = 60 * MIN, end = 120 * MIN)),
+            active = StayDeriver.ActiveTrack(startedAt = 200 * MIN, start = office),
+        ).single() as Gap
+        assertEquals(GapReason.MOVED_UNRECORDED, gap.reason)
+        assertEquals(120 * MIN, gap.start)
+        assertEquals(200 * MIN, gap.end)
+    }
+
+    @Test fun `an active track whose first fix agrees keeps the tail a stay`() {
+        val stay = derive(
+            listOf(track(1, start = 60 * MIN, end = 120 * MIN)),
+            active = StayDeriver.ActiveTrack(startedAt = 200 * MIN, start = nearHome),
+        ).filterIsInstance<Stay>().single()
+        assertEquals(200 * MIN, stay.end)
     }
 
     @Test fun `a tail disarm closes the ongoing stay at the disarm time`() {

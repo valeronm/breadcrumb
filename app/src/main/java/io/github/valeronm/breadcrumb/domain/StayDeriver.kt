@@ -42,6 +42,15 @@ object StayDeriver {
         val end: Endpoint?,
     )
 
+    /**
+     * The currently-recording track. Its presence closes the tail stay at [startedAt] instead of
+     * suppressing it, so the timeline shows the just-ended stay live rather than only after the
+     * track finalizes. [start] is the track's first good fix when already known — it lets the
+     * tail run the usual endpoint-agreement check; null (no fix yet) counts as agreement until
+     * the finished track re-derives the interval for real.
+     */
+    data class ActiveTrack(val startedAt: Long, val start: Endpoint? = null)
+
     /** Recorder-lifecycle evidence, ascending by time. */
     sealed interface Liveness {
         val at: Long
@@ -105,7 +114,7 @@ object StayDeriver {
         tracks: List<TrackEnd>,
         liveness: List<Liveness>,
         nowMs: Long,
-        activeRecording: Boolean,
+        activeTrack: ActiveTrack?,
         params: Params = Params(),
         distance: DistanceFn,
         /** Named-place pins with their per-place capture radii: seed the endpoint clustering
@@ -114,12 +123,17 @@ object StayDeriver {
         placePins: List<PlaceClusterer.Seed> = emptyList(),
     ): Derivation {
         val evidence = summarizeLiveness(liveness, nowMs)
-        val (clusters, clusterOf) = clusterEndpoints(tracks, placePins, params, distance)
+        val (clusters, clusterOf) = clusterEndpoints(tracks, activeTrack?.start, placePins, params, distance)
         val out = mutableListOf<Interval>()
 
         fun nearestPin(e: Endpoint): Int? = placePins.indices
             .filter { distance.metres(placePins[it].anchor.lat, placePins[it].anchor.lon, e.lat, e.lon) <= placePins[it].radiusM }
             .minByOrNull { distance.metres(placePins[it].anchor.lat, placePins[it].anchor.lon, e.lat, e.lon) }
+
+        fun samePlace(a: Endpoint, b: Endpoint): Boolean =
+            clusterOf.getValue(a) == clusterOf.getValue(b) ||
+                distance.metres(a.lat, a.lon, b.lat, b.lon) <= params.agreementRadiusM ||
+                (nearestPin(a)?.let { it == nearestPin(b) } ?: false)
 
         for (i in 0 until tracks.size - 1) {
             val prev = tracks[i]
@@ -134,11 +148,7 @@ object StayDeriver {
                 out += Gap(gapStart, gapEnd, GapReason.UNKNOWN_ENDPOINT)
                 continue
             }
-            val samePin = nearestPin(a)?.let { it == nearestPin(b) } ?: false
-            val samePlace = clusterOf.getValue(a) == clusterOf.getValue(b) ||
-                distance.metres(a.lat, a.lon, b.lat, b.lon) <= params.agreementRadiusM ||
-                samePin
-            if (!samePlace) {
+            if (!samePlace(a, b)) {
                 out += Gap(gapStart, gapEnd, GapReason.MOVED_UNRECORDED)
                 continue
             }
@@ -153,7 +163,7 @@ object StayDeriver {
             )
         }
 
-        tailStay(tracks.lastOrNull(), evidence, nowMs, activeRecording, params, clusterOf)
+        tailStay(tracks.lastOrNull(), evidence, nowMs, activeTrack, params, clusterOf, ::samePlace)
             ?.let { out += it }
         return Derivation(out, clusters)
     }
@@ -166,6 +176,7 @@ object StayDeriver {
      */
     private fun clusterEndpoints(
         tracks: List<TrackEnd>,
+        activeStart: Endpoint?,
         placePins: List<PlaceClusterer.Seed>,
         params: Params,
         distance: DistanceFn,
@@ -175,6 +186,9 @@ object StayDeriver {
                 track.start?.let { add(it) }
                 track.end?.let { add(it) }
             }
+            // The active track's first fix joins the clustering so the tail's agreement check
+            // can use cluster identity like every other pair.
+            activeStart?.let { add(it) }
         }
         val clusters = PlaceClusterer.cluster(endpoints, params.placeRadiusM, distance, seeds = placePins)
         val clusterOf = HashMap<Endpoint, Int>(endpoints.size)
@@ -184,19 +198,43 @@ object StayDeriver {
         return clusters to clusterOf
     }
 
-    /** The open-ended stay after the last track — where the user is right now. */
+    /**
+     * The stay after the last finished track: open-ended while idle (where the user is right
+     * now), closed at the active track's start while recording — so the timeline shows the
+     * just-ended stay live instead of only after the track finalizes.
+     */
     private fun tailStay(
         last: TrackEnd?,
         evidence: LivenessSummary,
         nowMs: Long,
-        activeRecording: Boolean,
+        activeTrack: ActiveTrack?,
         params: Params,
         clusterOf: Map<Endpoint, Int>,
-    ): Stay? {
-        // While a track is being recorded the "gap" after the last finished track isn't a gap.
-        if (last == null || activeRecording) return null
+        samePlace: (Endpoint, Endpoint) -> Boolean,
+    ): Interval? {
+        if (last == null) return null
         val location = last.end ?: return null
         val start = last.endedAt
+        if (activeTrack != null) {
+            val end = activeTrack.startedAt
+            if (end <= start) return null
+            // A known first fix that disagrees means the recorder missed movement — same rule
+            // as between finished tracks. No fix yet counts as agreement; the interval
+            // re-derives for real once the track finishes.
+            val b = activeTrack.start
+            if (b != null && !samePlace(location, b)) {
+                return Gap(start, end, GapReason.MOVED_UNRECORDED)
+            }
+            if (end - start < params.minStayMs) return null
+            return Stay(
+                start = start,
+                end = end,
+                location = location,
+                provenance = evidence.provenanceOver(start, end),
+                afterTrackId = last.trackId,
+                clusterId = clusterOf.getValue(location),
+            )
+        }
         if (start > nowMs) return null
         // If currently disarmed, the app can attest nothing past the disarm — close the stay there.
         val end = evidence.disarmedSince?.coerceAtLeast(start)

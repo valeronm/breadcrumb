@@ -61,20 +61,21 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     )
 
     // The stay/place derivation is the most expensive pure computation in the app, so it runs once
-    // here and both screens map from it. Of the live status only recording on/off matters —
-    // distinctUntilChanged keeps per-fix status emissions from re-running the clustering.
+    // here and both screens map from it. Of the live status only the active track's start matters
+    // (constant per track) — distinctUntilChanged keeps per-fix status emissions from re-running
+    // the clustering.
     private val derived: Flow<Derived> = combine(
         repository.observeEndpoints(),
         livenessRepository.observeEvents(),
         placeRepository.observePlaces(),
-        TrackingStatus.state.map { it.recording }.distinctUntilChanged(),
-    ) { endpoints, events, places, recording ->
+        TrackingStatus.state.map { if (it.recording) it.startedAtMillis else null }.distinctUntilChanged(),
+    ) { endpoints, events, places, activeStartedAt ->
         val now = System.currentTimeMillis()
         val derivation = StayDeriver.derive(
             tracks = endpoints.map { it.toTrackEnd() },
             liveness = events.mapNotNull { it.toLiveness() },
             nowMs = now,
-            activeRecording = recording,
+            activeTrack = activeStartedAt?.let { StayDeriver.ActiveTrack(it) },
             distance = AndroidDistance,
             placePins = places.map { PlaceClusterer.Seed(StayDeriver.Endpoint(it.lat, it.lon), it.radiusM) },
         )
