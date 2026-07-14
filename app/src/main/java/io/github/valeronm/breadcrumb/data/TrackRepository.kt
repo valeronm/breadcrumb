@@ -72,7 +72,7 @@ class TrackRepository(context: Context) {
                             longitude = p.lon,
                             altitude = p.ele,
                             accuracy = null,
-                            speed = null,
+                            speed = p.speed,
                             bearing = null,
                             timestamp = p.timeMs,
                             segmentStart = p.segmentStart,

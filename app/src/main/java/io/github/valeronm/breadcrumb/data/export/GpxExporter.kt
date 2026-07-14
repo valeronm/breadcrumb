@@ -75,7 +75,8 @@ object GpxExporter {
             appendLine("""<?xml version="1.0" encoding="UTF-8"?>""")
             appendLine(
                 """<gpx version="1.1" creator="Breadcrumb" """ +
-                    """xmlns="http://www.topografix.com/GPX/1/1">""",
+                    """xmlns="http://www.topografix.com/GPX/1/1" """ +
+                    """xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2">""",
             )
             appendLine("  <trk>")
             appendLine("    <name>${track.activityType} ${iso.format(Date(track.startedAt))}</name>")
@@ -91,6 +92,15 @@ object GpxExporter {
                 appendLine("""      <trkpt lat="${p.latitude}" lon="${p.longitude}">""")
                 p.altitude?.let { appendLine("        <ele>$it</ele>") }
                 appendLine("        <time>${iso.format(Date(p.timestamp))}</time>")
+                // GPS-reported speed (m/s) rides along as a Garmin TrackPointExtension so a
+                // re-import shows the recorded speeds rather than position-derived ones.
+                p.speed?.let {
+                    appendLine(
+                        "        <extensions><gpxtpx:TrackPointExtension>" +
+                            "<gpxtpx:speed>$it</gpxtpx:speed>" +
+                            "</gpxtpx:TrackPointExtension></extensions>",
+                    )
+                }
                 appendLine("      </trkpt>")
             }
             appendLine("    </trkseg>")

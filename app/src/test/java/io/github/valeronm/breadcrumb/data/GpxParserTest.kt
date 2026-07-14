@@ -48,6 +48,8 @@ class GpxParserTest {
         // Distance sums within segments only: (0→1) + (2→3) = 100 + 100 in the flat metric.
         assertEquals(200.0, importable.distanceMeters, 1e-6)
         assertEquals(30.0, importable.points.first().ele!!, 1e-6)
+        // Recorded speeds ride along via the gpxtpx extension.
+        assertEquals(listOf(1f, 1f, 1f, 1f), importable.points.map { it.speed })
     }
 
     @Test fun `parses a minimal foreign gpx with offsets and fractions`() {
@@ -75,6 +77,21 @@ class GpxParserTest {
         // 12:00+01:00 == 11:00Z, one hour after the 10:00:00.500Z start (less the half second).
         assertEquals(3_600_000 - 500, importable.endedAt - importable.startedAt)
         assertEquals(25.5, importable.points[1].ele!!, 1e-6)
+        // A plain <speed> inside <extensions> is read too; the first point has none.
+        assertNull(importable.points[0].speed)
+        assertEquals(1.5f, importable.points[1].speed!!, 1e-6f)
+    }
+
+    @Test fun `gpx 1_0 speed directly on the trkpt is read`() {
+        val gpx = """
+            <gpx version="1.0"><trk><trkseg>
+              <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time><speed>2.5</speed></trkpt>
+              <trkpt lat="1.001" lon="1"><time>2026-01-01T00:01:00Z</time></trkpt>
+            </trkseg></trk></gpx>
+        """.trimIndent()
+        val importable = GpxParser.toImportable(parse(gpx).single(), flatDistance)!!
+        assertEquals(2.5f, importable.points[0].speed!!, 1e-6f)
+        assertNull(importable.points[1].speed)
     }
 
     @Test fun `unknown and missing types default to DRIVING`() {

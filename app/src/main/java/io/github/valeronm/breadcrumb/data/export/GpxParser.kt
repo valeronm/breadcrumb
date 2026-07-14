@@ -11,13 +11,20 @@ import java.time.ZoneOffset
 
 /**
  * Parses GPX 1.0/1.1 track data for import — the inverse of [GpxExporter], but tolerant of
- * foreign files: unknown elements (extensions, waypoints, routes) are skipped, `<type>` maps to
+ * foreign files: unknown elements (waypoints, routes, unrecognised extensions) are skipped,
+ * per-point speed is read from a `<speed>` element or extension where present, `<type>` maps to
  * an [ActivityType] through a few aliases, and points without a `<time>` are dropped (the
  * timeline can't place them). Pure and stream-based; the Room insertion lives in TrackRepository.
  */
 object GpxParser {
 
-    class ParsedPoint(val lat: Double, val lon: Double, val ele: Double?, val timeMs: Long?)
+    class ParsedPoint(
+        val lat: Double,
+        val lon: Double,
+        val ele: Double?,
+        val timeMs: Long?,
+        val speed: Float?,
+    )
 
     class ParsedTrack(val type: String?, val segments: List<List<ParsedPoint>>)
 
@@ -27,6 +34,7 @@ object GpxParser {
         val lon: Double,
         val ele: Double?,
         val timeMs: Long,
+        val speed: Float?,
         val segmentStart: Boolean,
     )
 
@@ -78,7 +86,7 @@ object GpxParser {
                 points.add(
                     ImportPoint(
                         lat = p.lat, lon = p.lon, ele = p.ele, timeMs = p.timeMs!!,
-                        segmentStart = si > 0 && pi == 0,
+                        speed = p.speed, segmentStart = si > 0 && pi == 0,
                     ),
                 )
             }
@@ -139,16 +147,43 @@ object GpxParser {
         val lon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull()
         var ele: Double? = null
         var timeMs: Long? = null
+        var speed: Float? = null
         while (parser.next() != XmlPullParser.END_TAG) {
             if (parser.eventType != XmlPullParser.START_TAG) continue
-            when (parser.name) {
-                "ele" -> ele = parser.nextText().toDoubleOrNull()
-                "time" -> timeMs = parseTime(parser.nextText())
+            when {
+                parser.name == "ele" -> ele = parser.nextText().toDoubleOrNull()
+                parser.name == "time" -> timeMs = parseTime(parser.nextText())
+                // GPX 1.0 puts <speed> (m/s) directly on the trkpt; 1.1 tucks it into
+                // <extensions>, typically as gpxtpx:speed (our own exports included).
+                isSpeedTag(parser.name) -> speed = parser.nextText().toFloatOrNull()
+                parser.name == "extensions" -> speed = readExtensionsSpeed(parser) ?: speed
                 else -> skip(parser)
             }
         }
         if (lat == null || lon == null) return null
-        return ParsedPoint(lat, lon, ele, timeMs)
+        return ParsedPoint(lat, lon, ele, timeMs, speed)
+    }
+
+    /** `<speed>` with any (or no) namespace prefix — the parser runs without namespace processing. */
+    private fun isSpeedTag(name: String): Boolean =
+        name == "speed" || name.endsWith(":speed")
+
+    /** Scans an `<extensions>` subtree for a speed element (m/s), consuming the whole subtree. */
+    private fun readExtensionsSpeed(parser: XmlPullParser): Float? {
+        var speed: Float? = null
+        var depth = 1
+        while (depth != 0) {
+            when (parser.next()) {
+                XmlPullParser.START_TAG ->
+                    if (speed == null && isSpeedTag(parser.name)) {
+                        speed = parser.nextText().toFloatOrNull()
+                    } else {
+                        depth++
+                    }
+                XmlPullParser.END_TAG -> depth--
+            }
+        }
+        return speed
     }
 
     /** ISO-8601 with offset/Z (the GPX norm); a bare local datetime is read as UTC. */

@@ -21,6 +21,7 @@ class GpxExporterTest {
         lat: Double = 1.0,
         lon: Double = 2.0,
         altitude: Double? = null,
+        speed: Float? = null,
         segmentStart: Boolean = false,
     ) = TrackPoint(
         trackId = 1,
@@ -28,7 +29,7 @@ class GpxExporterTest {
         longitude = lon,
         altitude = altitude,
         accuracy = null,
-        speed = null,
+        speed = speed,
         bearing = null,
         timestamp = timestamp,
         segmentStart = segmentStart,
@@ -67,6 +68,15 @@ class GpxExporterTest {
         )
         assertEquals(1, countOf(gpx, "<ele>"))
         assertTrue(gpx.contains("<ele>30.5</ele>"))
+    }
+
+    @Test fun `speed is emitted as a TrackPointExtension only when present`() {
+        val gpx = GpxExporter.buildGpx(
+            track(),
+            listOf(point(0, speed = 1.25f), point(1_000, speed = null)),
+        )
+        assertEquals(1, countOf(gpx, "<extensions>"))
+        assertTrue(gpx.contains("<gpxtpx:TrackPointExtension><gpxtpx:speed>1.25</gpxtpx:speed>"))
     }
 
     @Test fun `timestamps are ISO-8601 UTC`() {
