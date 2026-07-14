@@ -180,11 +180,14 @@ class TrackRepository(context: Context) {
      * to discarded — so the merge is a fresh track and the originals are preserved (reviewable in the
      * debug screen, auto-purged after the retention window) rather than destroyed. The derived stay
      * disappears because the discarded originals leave the timeline.
+     *
+     * Returns the merged track's id (null if either original is gone), which [unmergeTracks] needs
+     * to undo it.
      */
-    suspend fun mergeTracks(earlierId: Long, laterId: Long) {
-        db.withTransaction {
-            val earlier = dao.track(earlierId) ?: return@withTransaction
-            val later = dao.track(laterId) ?: return@withTransaction
+    suspend fun mergeTracks(earlierId: Long, laterId: Long): Long? {
+        return db.withTransaction {
+            val earlier = dao.track(earlierId) ?: return@withTransaction null
+            val later = dao.track(laterId) ?: return@withTransaction null
             val mergedId = dao.insertTrack(
                 Track(
                     activityType = earlier.activityType, // == later's (the merge condition)
@@ -199,6 +202,19 @@ class TrackRepository(context: Context) {
             val now = System.currentTimeMillis()
             dao.setDiscarded(earlierId, now, Track.REASON_MERGED)
             dao.setDiscarded(laterId, now, Track.REASON_MERGED)
+            mergedId
+        }
+    }
+
+    /**
+     * Undo a [mergeTracks]: drop the track it created (its points were copies) and bring the two
+     * originals back to the timeline, which re-derives the stay between them.
+     */
+    suspend fun unmergeTracks(mergedId: Long, earlierId: Long, laterId: Long) {
+        db.withTransaction {
+            dao.purgeTrack(mergedId)
+            dao.restoreTrack(earlierId)
+            dao.restoreTrack(laterId)
         }
     }
 

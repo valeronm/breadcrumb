@@ -155,6 +155,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { placeRepository.delete(id) }
     }
 
+    /** Undo a [deletePlace] — the row comes back with its id, pin and radius intact. */
+    fun restorePlace(place: Place) {
+        viewModelScope.launch { placeRepository.restore(place) }
+    }
+
     /** Set a place's capture radius; the derivation re-runs and re-clusters reactively. */
     fun setPlaceRadius(id: Long, radiusM: Double) {
         viewModelScope.launch { placeRepository.setRadius(id, radiusM) }
@@ -165,9 +170,21 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { placeRepository.setPin(id, lat, lon) }
     }
 
-    /** Merge the two tracks bracketing a short same-activity stay (closes the stay). */
-    fun mergeTracks(plan: TrackMerge.Plan) {
-        viewModelScope.launch { repository.mergeTracks(plan.earlierId, plan.laterId) }
+    /**
+     * Merge the two tracks bracketing a short same-activity stay (closes the stay). [onMerged] gets
+     * the new track's id — the undo snackbar needs it to unmerge.
+     */
+    fun mergeTracks(plan: TrackMerge.Plan, onMerged: (Long) -> Unit) {
+        viewModelScope.launch {
+            repository.mergeTracks(plan.earlierId, plan.laterId)?.let(onMerged)
+        }
+    }
+
+    /** Undo a [mergeTracks]: drop the merged track, bring both originals back. */
+    fun unmergeTracks(mergedId: Long, plan: TrackMerge.Plan) {
+        viewModelScope.launch {
+            repository.unmergeTracks(mergedId, plan.earlierId, plan.laterId)
+        }
     }
 
     fun delete(trackId: Long) {

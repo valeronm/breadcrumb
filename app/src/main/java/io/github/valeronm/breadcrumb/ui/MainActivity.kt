@@ -118,8 +118,14 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxDefaults
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Switch
@@ -128,7 +134,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.MutableState
@@ -188,6 +193,7 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -195,8 +201,8 @@ import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.RecordCardState
 import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderCardTitle
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
@@ -208,7 +214,9 @@ import io.github.valeronm.breadcrumb.util.formatKm
 import io.github.valeronm.breadcrumb.util.formatKmh
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -424,10 +432,17 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
         onClosed = { placeDetailSnapshot = null },
     )
 
+    // Undo snackbars for the swipe actions on the Timeline and Places lists. Owned here, not in the
+    // tabs: a tab switch would take the tab's composition (and its coroutine scope) with it, killing
+    // a snackbar mid-timer and the undo with it.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val undo = rememberUndoSnackbar(snackbarHostState)
+
     Box(modifier = Modifier.fillMaxSize()) {
         // The tabbed UI stays composed underneath so it can be previewed during the back gesture.
         Scaffold(
             modifier = Modifier.underlayBlur(overlayLayer, placeLayer),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 TopAppBar(
                     colors = canvasTopBarColors(),
@@ -529,6 +544,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                     HomeTab.TRACKS -> TracksTab(
                         items = timeline,
                         viewModel = viewModel,
+                        undo = undo,
                         onOpen = { overlay = Overlay.TrackDetail(it) },
                         onOpenPlace = { placeDetailKey = it },
                         onReplay = { track ->
@@ -539,6 +555,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
 
                     HomeTab.PLACES -> PlacesTab(
                         viewModel = viewModel,
+                        undo = undo,
                         onOpenPlace = { placeDetailKey = it },
                     )
                 }
@@ -1196,13 +1213,12 @@ private fun AutoRecordControls(
 private fun TracksTab(
     items: List<TimelineItem>,
     viewModel: TrackListViewModel,
+    undo: UndoSnackbar,
     onOpen: (Long) -> Unit,
     onOpenPlace: (String) -> Unit,
     onReplay: (TrackSummary) -> Unit,
 ) {
     val context = LocalContext.current
-    var pendingDelete by remember { mutableStateOf<TrackSummary?>(null) }
-    var pendingMerge by remember { mutableStateOf<TrackMerge.Plan?>(null) }
 
     if (items.none { it is TimelineItem.TrackItem }) {
         EmptyState(
@@ -1248,7 +1264,11 @@ private fun TracksTab(
                             track = item.summary,
                             shape = shape,
                             onOpen = { onOpen(item.summary.id) },
-                            onDeleteRequest = { pendingDelete = item.summary },
+                            onDelete = {
+                                val id = item.summary.id
+                                viewModel.delete(id)
+                                undo.show("Track deleted") { viewModel.restoreTrack(id) }
+                            },
                             // DEBUG: long-press replays the track through the Record tab's live view.
                             onReplay = if (BuildConfig.DEBUG) {
                                 { onReplay(item.summary) }
@@ -1259,7 +1279,11 @@ private fun TracksTab(
                         is TimelineItem.StayItem -> StayRow(
                             item = item,
                             shape = shape,
-                            onMerge = item.merge?.let { plan -> { pendingMerge = plan } },
+                            onMerge = { plan ->
+                                viewModel.mergeTracks(plan) { mergedId ->
+                                    undo.show("Tracks merged") { viewModel.unmergeTracks(mergedId, plan) }
+                                }
+                            },
                             onClick = {
                                 item.place?.let { onOpenPlace(placeDetailKeyOf(it.placeId, it.centroid)) }
                             },
@@ -1270,37 +1294,6 @@ private fun TracksTab(
             }
         }
         TimelineFastScroller(state = listState, dayAnchors = dayAnchors)
-    }
-
-    pendingDelete?.let { track ->
-        ConfirmDialog(
-            icon = Icons.Filled.Delete,
-            title = "Delete this track?",
-            text = "The ${ActivityType.labelFor(track.activityType)} track from " +
-                "${dateFormat.format(Date(track.startedAt))} will be deleted. For 14 days " +
-                "it can be restored from Settings → Data → Recently deleted.",
-            confirmLabel = "Delete",
-            onConfirm = {
-                viewModel.delete(track.id)
-                pendingDelete = null
-            },
-            onDismiss = { pendingDelete = null },
-        )
-    }
-
-    pendingMerge?.let { plan ->
-        ConfirmDialog(
-            icon = Icons.AutoMirrored.Filled.CallMerge,
-            title = "Merge these tracks?",
-            text = "The two tracks either side of this short stop will be joined into one. " +
-                "The stop is removed. This can't be undone.",
-            confirmLabel = "Merge",
-            onConfirm = {
-                viewModel.mergeTracks(plan)
-                pendingMerge = null
-            },
-            onDismiss = { pendingMerge = null },
-        )
     }
 }
 
@@ -1578,13 +1571,13 @@ private const val RARE_UNNAMED_MIN_VISITS = 3
 @Composable
 private fun PlacesTab(
     viewModel: TrackListViewModel,
+    undo: UndoSnackbar,
     onOpenPlace: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val places by viewModel.places.collectAsState()
     var view by remember { mutableStateOf(PlacesView.MAP) }
     var showRareUnnamed by remember { mutableStateOf(AppSettings.placesShowRareUnnamed(context)) }
-    var pendingDelete by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
 
     val sorted = remember(view, places, showRareUnnamed) {
         val comparator = when (view) {
@@ -1667,45 +1660,30 @@ private fun PlacesTab(
                         summary = summary,
                         shape = groupedRowShape(index, sorted.size),
                         onOpen = { onOpenPlace(summary.rowKey()) },
-                        onDeleteRequest = { pendingDelete = summary },
+                        // Deleting removes the label, not the stays — they go back to being an
+                        // unnamed cluster, and Undo re-pins the place exactly as it was.
+                        onDelete = { place ->
+                            viewModel.deletePlace(place.id)
+                            undo.show("\"${place.label}\" deleted") { viewModel.restorePlace(place) }
+                        },
                     )
                 }
             }
         }
     }
-
-    pendingDelete?.let { summary ->
-        val existing = summary.place
-        if (existing == null) {
-            pendingDelete = null
-            return@let
-        }
-        ConfirmDialog(
-            icon = Icons.Filled.Delete,
-            title = "Delete this place?",
-            text = "\"${existing.label}\" will be removed. Its stays stay recorded — they " +
-                "just go back to being unnamed.",
-            confirmLabel = "Delete",
-            onConfirm = {
-                viewModel.deletePlace(existing.id)
-                pendingDelete = null
-            },
-            onDismiss = { pendingDelete = null },
-        )
-    }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun PlaceRow(
     summary: PlaceResolver.PlaceSummary,
     shape: RoundedCornerShape,
     onOpen: () -> Unit,
-    onDeleteRequest: () -> Unit,
+    onDelete: (Place) -> Unit,
 ) {
     // Only named places can be deleted (there's a label to remove) — unnamed clusters render as a
     // plain card with no swipe.
-    if (!summary.isNamed) {
+    val place = summary.place
+    if (place == null) {
         PlaceRowCard(summary, shape, onOpen)
         return
     }
@@ -1715,7 +1693,7 @@ private fun PlaceRow(
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
         icon = Icons.Filled.Delete,
         iconDescription = "Delete",
-        onAction = onDeleteRequest,
+        onDismiss = { onDelete(place) },
     ) {
         PlaceRowCard(summary, shape, onOpen)
     }
@@ -2902,13 +2880,43 @@ private fun ConfirmDialog(
 }
 
 /**
- * Row with a swipe-left action revealed behind it. The end-to-start dismissal itself is always
- * vetoed (so the row springs back on its own) and [onAction] takes over — a confirm dialog or the
- * merge. Resetting from a targetValue observer instead loses to an in-progress drag and leaves the
- * row stuck showing the background after Cancel. [confirmSettle] is what other state changes
- * (settling back) return from confirmValueChange.
+ * "Undo" snackbars for the swipe actions: the action happens on the swipe and Undo puts it back,
+ * rather than a dialog interrupting the gesture to ask first. A new snackbar replaces whatever is
+ * on screen — rapid swipes shouldn't stack up a queue, so only the latest action stays undoable
+ * (the rest are still recoverable: tracks from Recently deleted, places by naming the cluster again).
  */
-@OptIn(ExperimentalMaterial3Api::class)
+private class UndoSnackbar(
+    private val scope: CoroutineScope,
+    private val host: SnackbarHostState,
+) {
+    private var showing: Job? = null
+
+    fun show(message: String, onUndo: () -> Unit) {
+        showing?.cancel()
+        showing = scope.launch {
+            // Explicit duration: passing an actionLabel defaults it to Indefinite, which would
+            // leave the snackbar parked over the nav bar until something else replaced it.
+            val result = host.showSnackbar(
+                message,
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) onUndo()
+        }
+    }
+}
+
+@Composable
+private fun rememberUndoSnackbar(host: SnackbarHostState): UndoSnackbar {
+    val scope = rememberCoroutineScope()
+    return remember(scope, host) { UndoSnackbar(scope, host) }
+}
+
+/**
+ * Row with a swipe-left action revealed behind it. The swipe *completes*: [onDismiss] performs the
+ * action immediately and the caller offers an Undo snackbar. The row stays swiped away until the
+ * action drops it from the list (an undo brings it back as a fresh, un-swiped row).
+ */
 @Composable
 private fun SwipeActionRow(
     shape: RoundedCornerShape,
@@ -2916,23 +2924,18 @@ private fun SwipeActionRow(
     contentColor: Color,
     icon: ImageVector,
     iconDescription: String,
-    onAction: () -> Unit,
-    confirmSettle: Boolean = true,
+    onDismiss: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onAction()
-                false
-            } else {
-                confirmSettle
-            }
-        },
-    )
+    // Plain remember, NOT rememberSwipeToDismissBoxState: that saves the dismissed state under the
+    // lazy item's key, and an undone row returns under the same key — it would come back already
+    // dismissed and re-fire onDismiss, deleting itself again on the spot.
+    val threshold = SwipeToDismissBoxDefaults.positionalThreshold
+    val state = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled, threshold) }
     SwipeToDismissBox(
-        state = dismissState,
+        state = state,
         enableDismissFromStartToEnd = false,
+        onDismiss = { onDismiss() },
         backgroundContent = {
             Box(
                 modifier = Modifier
@@ -2954,17 +2957,18 @@ private fun TrackRow(
     track: TrackSummary,
     shape: RoundedCornerShape,
     onOpen: () -> Unit,
-    onDeleteRequest: () -> Unit,
+    onDelete: () -> Unit,
     onReplay: (() -> Unit)? = null,
 ) {
-    // Swipe right-to-left to request deletion — the actual delete happens via the confirm dialog.
+    // Swipe right-to-left to delete — a soft delete, undoable from the snackbar and, after that,
+    // from Recently deleted.
     SwipeActionRow(
         shape = shape,
         containerColor = MaterialTheme.colorScheme.errorContainer,
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
         icon = Icons.Filled.Delete,
         iconDescription = "Delete",
-        onAction = onDeleteRequest,
+        onDismiss = onDelete,
     ) {
         Card(
             modifier = Modifier
@@ -3014,20 +3018,20 @@ private const val VISIT_COUNT_BADGE_MIN = 3
  * recurring cluster shows its visit count. Tap → name. (The derivation's observed/inferred
  * provenance is deliberately NOT rendered: the customer can't act on it either way.)
  */
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun StayRow(
     item: TimelineItem.StayItem,
     shape: RoundedCornerShape,
-    onMerge: (() -> Unit)?,
+    onMerge: (TrackMerge.Plan) -> Unit,
     onClick: () -> Unit,
 ) {
     val place = item.place
     val named = place?.label != null
     val card = @Composable { StayCard(item, shape, named, onClick) }
-    // A short same-activity stay can be swiped to merge its two tracks. Ineligible stays aren't
-    // swipeable (the swipe would just spring back with nothing to do).
-    if (onMerge == null) {
+    // A short same-activity stay can be swiped to merge its two tracks — the merged track replaces
+    // the stay and both originals, and Undo unmerges. Ineligible stays (no plan) aren't swipeable.
+    val plan = item.merge
+    if (plan == null) {
         card()
         return
     }
@@ -3037,9 +3041,7 @@ private fun StayRow(
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
         icon = Icons.AutoMirrored.Filled.CallMerge,
         iconDescription = "Merge tracks",
-        onAction = onMerge,
-        // Never dismiss the row: merge replaces it, or the swipe springs back.
-        confirmSettle = false,
+        onDismiss = { onMerge(plan) },
     ) { card() }
 }
 

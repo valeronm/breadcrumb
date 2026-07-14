@@ -27,4 +27,12 @@ class PlaceRepository(context: Context) {
     suspend fun setPin(id: Long, lat: Double, lon: Double) = dao.setPin(id, lat, lon)
 
     suspend fun delete(id: Long) = dao.delete(id)
+
+    /**
+     * Undo a [delete] by re-inserting the row as it was — same id, pin, radius and creation time,
+     * so the stays that clustered to it cluster back exactly as before.
+     */
+    suspend fun restore(place: Place) {
+        dao.insert(place)
+    }
 }

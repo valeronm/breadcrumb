@@ -69,6 +69,13 @@ interface TrackDao {
     @Query("UPDATE tracks SET discardedAt = :discardedAt, discardReason = :reason WHERE id = :trackId")
     suspend fun setDiscarded(trackId: Long, discardedAt: Long, reason: String)
 
+    /**
+     * Hard-delete one track (points cascade). For *derived* rows only — undoing a merge drops the
+     * track the merge created. A user delete is the soft one ([setDiscarded]).
+     */
+    @Query("DELETE FROM tracks WHERE id = :trackId")
+    suspend fun purgeTrack(trackId: Long)
+
     /** Usable (non-ignored) points, for rendering and export. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")
     suspend fun pointsFor(trackId: Long): List<TrackPoint>
