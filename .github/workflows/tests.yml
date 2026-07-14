@@ -9,6 +9,7 @@ on:
       - '**.md'
       - 'LICENSE'
       - '.gitignore'
+      - '.worktreeinclude'
       - '.github/workflows/release.yml'
   pull_request:
     paths-ignore:
@@ -17,6 +18,7 @@ on:
       - '**.md'
       - 'LICENSE'
       - '.gitignore'
+      - '.worktreeinclude'
       - '.github/workflows/release.yml'
 
 jobs:
