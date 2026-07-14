@@ -369,18 +369,18 @@ class LocationRecordingService : Service() {
         controller.onPaused(trackActivity, resumeDeadlineMs)
         scope.launch {
             delay(resumeDeadlineMs - now())
-            // Logic-free wake: the controller decides whether this deadline still means anything —
-            // a stale wake after a resume, fresh start, or newer pause just maps to Noop.
-            mutex.withLock { finalizeIfPauseExpired() }
+            // Logic-free wake: a stale deadline (after a resume, fresh start, or newer pause)
+            // is a no-op inside finalizeExpiredPause.
+            finalizeExpiredPause()
         }
     }
 
     /**
-     * Close a paused track whose resume window has passed. Doze can defer the pause wake by many
-     * minutes, so this also runs from [publishStatus] — any event the recorder handles anyway
-     * (a transition, the watchdog, the UI resuming) resolves the pending close at no extra power
-     * cost. Correctness doesn't depend on it: past the deadline the gate reports a fresh Start,
-     * which splits into a new track regardless. Caller holds [mutex].
+     * Close a paused track whose resume window has passed. Only [finalizeExpiredPause] may call
+     * this: the close must be paired with the [publishStatus] that pushes the post-pause state to
+     * the UI and notification — a finalize without a publish leaves both showing a stale pause,
+     * and every later publish trigger early-outs because the controller is no longer paused.
+     * Caller holds [mutex].
      */
     private suspend fun finalizeIfPauseExpired(): Boolean {
         if (controller.onTick(now()) != RecordingAction.Finalize) return false
@@ -466,10 +466,10 @@ class LocationRecordingService : Service() {
     }
 
     /**
-     * Close a paused track whose resume window has passed, if the pause wake hasn't run yet
-     * (Doze defers it). Safe to call from anywhere in the process — the watchdog alarm and the
-     * UI coming to the foreground both do, so the finished track reaches the timeline promptly
-     * instead of waiting on a frozen timer.
+     * Close a paused track whose resume window has passed. The single entry point for expiring a
+     * pause — the scheduled pause wake, the watchdog alarm (Doze defers the wake's timer), and
+     * the UI coming to the foreground all funnel through here, so the close can never be applied
+     * without the status publish that keeps the UI and notification in sync.
      */
     fun finalizeExpiredPause() {
         if (!controller.isPaused) return
