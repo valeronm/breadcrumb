@@ -27,11 +27,16 @@ adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png   # screenshot to
 ```
 
 Unit tests live in `app/src/test` and cover the pure logic in `domain/` plus data-layer pieces
-(TrackQuality, GpxExporter/GpxParser) — run them with
+(TrackQuality, TrackStats, GpxExporter/GpxParser) — run them with
 `./gradlew :app:testDebugUnitTest`, and note that `assembleDebug` does **not** compile them, so
-run the tests after touching anything they cover. There are no instrumented/UI tests; behaviour
-above the domain layer is verified by building and driving the app on a device/emulator (activity
-recognition needs real movement or an emulator route).
+run the tests after touching anything they cover. **Room runs in these host tests via Robolectric**
+(in-memory DB, `TestDb` fixture), so the repository's DB rules and the schema migrations are
+covered without a device — see `TrackRepositoryTest`, `Migration10To11Test`, and
+`TimelineInvalidationTest`. Robolectric emulates up to SDK 36 while the app targets 37, so its
+tests are pinned in `app/src/test/resources/robolectric.properties`; raise it when Robolectric
+catches up. There are still no instrumented/UI tests: behaviour above the data layer is verified by
+building and driving the app on a device/emulator (activity recognition needs real movement or an
+emulator route).
 
 The Gradle and AGP versions are pinned and coupled — if you upgrade one, move the other to a
 compatible pair, not one alone.
@@ -87,6 +92,20 @@ both on normal finish and via `finalizeDangling`, which also cleans up tracks le
 (it skips `LocationRecordingService.activeTrackId`). `GpxExporter` (`data/export/`) builds GPX for
 share intents (`FileProvider`) or bulk-writes to a user-picked folder (Storage Access Framework);
 `GpxParser` imports GPX files shared/opened into the app. `PlaceRepository` backs the Places tab.
+
+**The track row carries its points' aggregates, and the recorder must never write it.** Distance,
+point/ignored counts and the first/last good coordinates live as columns on `tracks`, written only
+by `TrackRepository.refreshStats` (from `TrackStats`, the one point walk — the recorder accumulates
+through the same code, so live and stored totals can't drift) when a track is *finished, merged,
+imported or repaired*. This is a performance invariant, not a convenience: Room invalidates per
+table, so an observed query that reads `track_points` — or a per-fix write to `tracks` — is re-run
+on **every GPS fix**, scanning the whole point history once a second for a result that can't have
+changed (open tracks have no `endedAt` and are in none of these queries). The observed queries must
+therefore read `tracks` only, and the hot path writes nothing but the point rows; an open track's
+aggregates are meaningless by design, and finishing it (including `finalizeDangling` after a crash)
+recomputes them. `TimelineInvalidationTest` fails if either half is broken. The UI collects with
+`collectAsStateWithLifecycle` for the same reason — a backgrounded Compose tree keeps collecting
+otherwise, and the process outlives the UI by weeks.
 
 **Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*
 rows and a Room SQL migration can't express the logic, add a repository pass and run it from

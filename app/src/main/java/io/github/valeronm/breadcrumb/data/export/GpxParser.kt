@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.data.export
 
 import io.github.valeronm.breadcrumb.data.ActivityType
-import io.github.valeronm.breadcrumb.data.DistanceFn
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.InputStream
@@ -38,12 +37,15 @@ object GpxParser {
         val segmentStart: Boolean,
     )
 
-    /** A parsed track reduced to what insertion needs; distance is summed within segments. */
+    /**
+     * A parsed track reduced to what insertion needs. No distance: an imported track's aggregates
+     * are computed from the points once they're stored, by the same walk every other track uses
+     * (`TrackRepository.refreshStats`), rather than trusting — or duplicating — the file's own sum.
+     */
     class ImportableTrack(
         val activityTypeName: String,
         val startedAt: Long,
         val endedAt: Long,
-        val distanceMeters: Double,
         val points: List<ImportPoint>,
     )
 
@@ -67,7 +69,7 @@ object GpxParser {
      * survive. Untimed points are dropped; points are ordered by time within each segment (and
      * segments by their first time) so malformed files can't produce a backwards track.
      */
-    fun toImportable(parsed: ParsedTrack, distance: DistanceFn): ImportableTrack? {
+    fun toImportable(parsed: ParsedTrack): ImportableTrack? {
         val segments = parsed.segments
             .map { seg -> seg.filter { it.timeMs != null }.sortedBy { it.timeMs } }
             .filter { it.isNotEmpty() }
@@ -75,14 +77,9 @@ object GpxParser {
         val total = segments.sumOf { it.size }
         if (total < 2) return null
 
-        var distanceMeters = 0.0
         val points = ArrayList<ImportPoint>(total)
         for ((si, seg) in segments.withIndex()) {
             for ((pi, p) in seg.withIndex()) {
-                if (pi > 0) {
-                    val prev = seg[pi - 1]
-                    distanceMeters += distance.metres(prev.lat, prev.lon, p.lat, p.lon)
-                }
                 points.add(
                     ImportPoint(
                         lat = p.lat, lon = p.lon, ele = p.ele, timeMs = p.timeMs!!,
@@ -95,7 +92,6 @@ object GpxParser {
             activityTypeName = activityTypeFor(parsed.type).name,
             startedAt = points.first().timeMs,
             endedAt = points.last().timeMs,
-            distanceMeters = distanceMeters,
             points = points,
         )
     }

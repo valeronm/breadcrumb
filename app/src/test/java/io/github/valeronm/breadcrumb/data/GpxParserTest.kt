@@ -12,10 +12,6 @@ import org.junit.Test
 /** GPX import parsing: round-trips our own exports and tolerates foreign files. */
 class GpxParserTest {
 
-    private val flatDistance = DistanceFn { aLat, aLon, bLat, bLon ->
-        maxOf(Math.abs(aLat - bLat), Math.abs(aLon - bLon)) * 100_000.0
-    }
-
     private fun parse(gpx: String) = GpxParser.parse(gpx.byteInputStream())
 
     private fun point(trackId: Long, i: Int, ts: Long, segmentStart: Boolean = false) = TrackPoint(
@@ -38,15 +34,13 @@ class GpxParserTest {
         assertEquals(2, parsed.segments.size)
         assertEquals(listOf(2, 2), parsed.segments.map { it.size })
 
-        val importable = GpxParser.toImportable(parsed, flatDistance)!!
+        val importable = GpxParser.toImportable(parsed)!!
         assertEquals("WALKING", importable.activityTypeName)
         assertEquals(1_000_000, importable.startedAt)
         assertEquals(1_060_000, importable.endedAt)
         assertEquals(4, importable.points.size)
         // The second segment's first point carries the segment break; nothing else does.
         assertEquals(listOf(false, false, true, false), importable.points.map { it.segmentStart })
-        // Distance sums within segments only: (0→1) + (2→3) = 100 + 100 in the flat metric.
-        assertEquals(200.0, importable.distanceMeters, 1e-6)
         assertEquals(30.0, importable.points.first().ele!!, 1e-6)
         // Recorded speeds ride along via the gpxtpx extension.
         assertEquals(listOf(1f, 1f, 1f, 1f), importable.points.map { it.speed })
@@ -71,7 +65,7 @@ class GpxParserTest {
               </trk>
             </gpx>
         """.trimIndent()
-        val importable = GpxParser.toImportable(parse(gpx).single(), flatDistance)!!
+        val importable = GpxParser.toImportable(parse(gpx).single())!!
         assertEquals("WALKING", importable.activityTypeName) // "hiking" alias
         assertEquals(2, importable.points.size)
         // 12:00+01:00 == 11:00Z, one hour after the 10:00:00.500Z start (less the half second).
@@ -89,7 +83,7 @@ class GpxParserTest {
               <trkpt lat="1.001" lon="1"><time>2026-01-01T00:01:00Z</time></trkpt>
             </trkseg></trk></gpx>
         """.trimIndent()
-        val importable = GpxParser.toImportable(parse(gpx).single(), flatDistance)!!
+        val importable = GpxParser.toImportable(parse(gpx).single())!!
         assertEquals(2.5f, importable.points[0].speed!!, 1e-6f)
         assertNull(importable.points[1].speed)
     }
@@ -101,7 +95,7 @@ class GpxParserTest {
               <trkpt lat="1.001" lon="1"><time>2026-01-01T00:01:00Z</time></trkpt>
             </trkseg></trk></gpx>
         """.trimIndent()
-        assertEquals("DRIVING", GpxParser.toImportable(parse(gpx).single(), flatDistance)!!.activityTypeName)
+        assertEquals("DRIVING", GpxParser.toImportable(parse(gpx).single())!!.activityTypeName)
     }
 
     @Test fun `untimed points are dropped and an untimeable track is rejected`() {
@@ -112,7 +106,7 @@ class GpxParserTest {
             </trkseg></trk></gpx>
         """.trimIndent()
         // Only one timed point survives — not enough for a track.
-        assertNull(GpxParser.toImportable(parse(gpx).single(), flatDistance))
+        assertNull(GpxParser.toImportable(parse(gpx).single()))
     }
 
     @Test fun `points are re-ordered by time within a segment`() {
@@ -122,7 +116,7 @@ class GpxParserTest {
               <trkpt lat="1.000" lon="1"><time>2026-01-01T00:00:00Z</time></trkpt>
             </trkseg></trk></gpx>
         """.trimIndent()
-        val importable = GpxParser.toImportable(parse(gpx).single(), flatDistance)!!
+        val importable = GpxParser.toImportable(parse(gpx).single())!!
         assertEquals(1.0, importable.points.first().lat, 1e-9)
         assertTrue(importable.startedAt < importable.endedAt)
     }
@@ -148,7 +142,7 @@ class GpxParserTest {
               <trkpt lat="1.001" lon="1"><time>2026-01-01T00:01:00</time></trkpt>
             </trkseg></trk></gpx>
         """.trimIndent()
-        val importable = GpxParser.toImportable(parse(gpx).single(), flatDistance)!!
+        val importable = GpxParser.toImportable(parse(gpx).single())!!
         assertEquals(60_000, importable.endedAt - importable.startedAt)
     }
 }

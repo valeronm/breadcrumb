@@ -16,8 +16,22 @@ data class Track(
     val activityType: String,
     val startedAt: Long,
     val endedAt: Long? = null,
-    /** Running total distance in metres, maintained as points arrive. */
+    // --- Aggregates of the track's points, denormalized -----------------------------------------
+    // Written only by TrackRepository.refreshStats, when a track is finished (or merged, imported,
+    // repaired) — never per fix, which is what keeps the observed queries off `track_points`; see
+    // [TrackDao]. Meaningless while a track is open: nothing reads an open track's row, and
+    // finishing it — including `finalizeDangling` after a crash — recomputes them from the points.
+    /** Total distance in metres over the good points, segment gaps excluded. */
     val distanceMeters: Double = 0.0,
+    /** Usable (non-ignored) points. */
+    val pointCount: Int = 0,
+    /** Ignored "bad fix" points — a signal that the track is questionable. */
+    val ignoredCount: Int = 0,
+    /** First/last good point — the stay deriver's endpoints. Null for a track with no good points. */
+    val startLat: Double? = null,
+    val startLon: Double? = null,
+    val endLat: Double? = null,
+    val endLon: Double? = null,
     /**
      * Set when the track was soft-deleted (user delete, keep-threshold filter, or merge original).
      * Excluded from the UI, stats, stays, and export; restorable from Recently deleted until the
@@ -133,14 +147,6 @@ data class Place(
         const val DEFAULT_RADIUS_M = PlaceClusterer.DEFAULT_RADIUS_M
     }
 }
-
-/** Bounding box of a track's usable points; fields are null when the track has none. */
-data class PointBounds(
-    val minLat: Double?,
-    val maxLat: Double?,
-    val minLon: Double?,
-    val maxLon: Double?,
-)
 
 /** A finished track projected to what stay derivation needs: interval + endpoint coordinates. */
 data class TrackEndpoints(

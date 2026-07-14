@@ -44,6 +44,7 @@ import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackGroup
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.TrackStats
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
@@ -110,11 +111,13 @@ class LocationRecordingService : Service() {
     @Volatile var transitionSinceArm = false
         private set
 
-    @Volatile private var distanceMeters = 0.0
-    @Volatile private var pointCount = 0
     @Volatile private var trackStartedAt = 0L
-    // Last point accepted as a good fix — the baseline for distance and the bad-fix jump check.
-    private var lastGoodPoint: TrackPoint? = null
+
+    // The open track's running aggregates. The same accumulator the repository folds the stored
+    // points through when the track is finished ([TrackStats]) — so the total the user watches on
+    // the Record card and the one written to the track row can't drift apart. Touched only under
+    // [mutex]; its [TrackStats.Accumulator.lastGood] is also the bad-fix jump check's baseline.
+    private var accumulator = TrackStats.Accumulator()
 
     // The live location request, whichever source made it; non-null == GPS is on.
     private sealed interface ActiveRequest {
@@ -398,9 +401,7 @@ class LocationRecordingService : Service() {
     }
 
     private suspend fun openTrack(activity: ActivityType) {
-        distanceMeters = 0.0
-        pointCount = 0
-        lastGoodPoint = null
+        accumulator = TrackStats.Accumulator()
         pendingSegmentStart = false
         pauseDeadlineMs = null
         lastFixAccuracyM = null
@@ -495,7 +496,7 @@ class LocationRecordingService : Service() {
         Settings.setLastHeartbeatMs(this, now())
         val id = activeTrackId ?: return
         // A paused track ended when its last fix arrived, not now — don't count the idle gap.
-        val endedAt = if (controller.isPaused) lastGoodPoint?.timestamp ?: now() else now()
+        val endedAt = if (controller.isPaused) accumulator.lastGood?.timestamp ?: now() else now()
         activeTrackId = null
         controller.onClosed()
         pendingSegmentStart = false
@@ -773,7 +774,7 @@ class LocationRecordingService : Service() {
             // The first good fix after a resume begins a new segment: disconnect it from the previous
             // segment so the paused gap isn't jump-checked or counted in distance.
             val segStart = pendingSegmentStart
-            val baseline = if (segStart) null else lastGoodPoint
+            val baseline = if (segStart) null else accumulator.lastGood
             // Bad fixes are still stored (with the reason), just excluded from distance and the
             // good-point baseline. A fix with no recent satellite backing is treated the same way.
             val reason = if (requireGnss && !isGnssBacked(loc)) {
@@ -792,18 +793,21 @@ class LocationRecordingService : Service() {
                 ignoreReason = reason?.code,
                 segmentStart = segStart && !bad,
             )
+            // Every fix goes through the accumulator, ignored ones included — it applies the same
+            // rule (skip ignored, detach at a segment start) the finished track is recomputed with.
+            accumulator.add(point)
             if (!bad) {
-                if (baseline != null) distanceMeters += TrackQuality.distanceMeters(baseline, point)
-                lastGoodPoint = point
-                pointCount++
                 if (segStart) pendingSegmentStart = false
                 noFixGuard.onFixAccepted(SystemClock.elapsedRealtime())
             }
             batch.add(point)
         }
+        // The only database write of the hot path: the points themselves. The track row is not
+        // touched — a write to `tracks` per fix would wake every timeline query once a second (see
+        // [TrackDao]), for a row nothing reads while the track is open. Its aggregates are computed
+        // from these points when the track is finished; the live figures the UI shows come from the
+        // accumulator, via [TrackingStatus] below.
         if (batch.isNotEmpty()) repository.addPoints(batch)
-        // One distance write per batch — only the final value persists.
-        activeTrackId?.let { repository.updateDistance(it, distanceMeters) }
         publishStatus()
     }
 
@@ -818,11 +822,11 @@ class LocationRecordingService : Service() {
                 activity = activity,
                 recording = rec,
                 activeTrackId = activeTrackId,
-                distanceMeters = if (rec) distanceMeters else 0.0,
-                points = if (rec) pointCount else 0,
+                distanceMeters = if (rec) accumulator.distanceMeters else 0.0,
+                points = if (rec) accumulator.pointCount else 0,
                 startedAtMillis = if (rec && trackStartedAt > 0) trackStartedAt else null,
-                speedMps = if (rec) lastGoodPoint?.speed else null,
-                altitudeM = if (rec) lastGoodPoint?.altitude else null,
+                speedMps = if (rec) accumulator.lastGood?.speed else null,
+                altitudeM = if (rec) accumulator.lastGood?.altitude else null,
                 gpsSuspended = suspended,
                 gpsSuspendedSinceMillis = when {
                     !suspended -> null

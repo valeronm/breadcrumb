@@ -17,8 +17,29 @@ interface TrackDao {
     @Query("UPDATE tracks SET endedAt = :endedAt WHERE id = :trackId")
     suspend fun closeTrack(trackId: Long, endedAt: Long)
 
-    @Query("UPDATE tracks SET distanceMeters = :distance WHERE id = :trackId")
-    suspend fun updateDistance(trackId: Long, distance: Double)
+    /**
+     * Write a track's aggregates ([io.github.valeronm.breadcrumb.data.TrackStats]) onto its row —
+     * when it's finished, merged, imported or repaired, never per fix (see the observed queries
+     * below: `tracks` is the table they read, so a per-fix write here would wake them all).
+     */
+    @Query(
+        """
+        UPDATE tracks SET distanceMeters = :distanceMeters, pointCount = :pointCount,
+               ignoredCount = :ignoredCount, startLat = :startLat, startLon = :startLon,
+               endLat = :endLat, endLon = :endLon
+        WHERE id = :trackId
+        """
+    )
+    suspend fun updateStats(
+        trackId: Long,
+        distanceMeters: Double,
+        pointCount: Int,
+        ignoredCount: Int,
+        startLat: Double?,
+        startLon: Double?,
+        endLat: Double?,
+        endLon: Double?,
+    )
 
     @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId")
     suspend fun setActivityType(trackId: Long, activityType: String)
@@ -84,19 +105,9 @@ interface TrackDao {
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC LIMIT :limit")
     suspend fun firstPointsFor(trackId: Long, limit: Int): List<TrackPoint>
 
-    /** Usable-point count, for the keep-thresholds check without loading rows. */
-    @Query("SELECT COUNT(*) FROM track_points WHERE trackId = :trackId AND ignored = 0")
-    suspend fun countGoodPoints(trackId: Long): Int
-
-    /** Usable-point bounding box, for the keep-thresholds extent gate without loading rows. */
-    @Query(
-        """
-        SELECT MIN(latitude) AS minLat, MAX(latitude) AS maxLat,
-               MIN(longitude) AS minLon, MAX(longitude) AS maxLon
-        FROM track_points WHERE trackId = :trackId AND ignored = 0
-        """
-    )
-    suspend fun goodPointBounds(trackId: Long): PointBounds?
+    /** Every point of a track, ignored ones included — the input to a [TrackStats] recompute. */
+    @Query("SELECT * FROM track_points WHERE trackId = :trackId ORDER BY timestamp ASC, id ASC")
+    suspend fun allPointsFor(trackId: Long): List<TrackPoint>
 
     /** Usable points inserted after [afterId] — the live preview's incremental reload. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 AND id > :afterId ORDER BY timestamp ASC, id ASC")
@@ -130,14 +141,19 @@ interface TrackDao {
     @Query("SELECT id FROM tracks WHERE discardedAt IS NULL ORDER BY startedAt DESC")
     suspend fun allTrackIds(): List<Long>
 
+    // --- Observed queries -----------------------------------------------------------------------
+    // These read `tracks` and nothing else, deliberately: Room invalidates per table, so a query
+    // that touched `track_points` would re-run on every fix of a live recording — a scan of the
+    // whole point history, once a second, to produce a result that cannot have changed (an open
+    // track has no endedAt, so it isn't in any of them). The aggregates they need live on the
+    // track row instead, written when the track is finished. See [Track] and [TrackStats].
+
     @Query(
         """
-        SELECT t.id, t.activityType, t.startedAt, t.endedAt, t.distanceMeters,
-               (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0) AS pointCount,
-               (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 1) AS ignoredCount
-        FROM tracks t
-        WHERE t.endedAt IS NOT NULL AND t.discardedAt IS NULL
-        ORDER BY t.startedAt DESC
+        SELECT id, activityType, startedAt, endedAt, distanceMeters, pointCount, ignoredCount
+        FROM tracks
+        WHERE endedAt IS NOT NULL AND discardedAt IS NULL
+        ORDER BY startedAt DESC
         """
     )
     fun observeSummaries(): Flow<List<TrackSummary>>
@@ -146,36 +162,22 @@ interface TrackDao {
      *  filter, merge originals) for the Recently deleted screen. */
     @Query(
         """
-        SELECT t.id, t.activityType, t.startedAt, t.endedAt, t.distanceMeters,
-               (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0) AS pointCount,
-               (SELECT COUNT(*) FROM track_points p WHERE p.trackId = t.id AND p.ignored = 1) AS ignoredCount,
-               t.discardedAt, t.discardReason
-        FROM tracks t
-        WHERE t.discardedAt IS NOT NULL
-        ORDER BY t.startedAt DESC
+        SELECT id, activityType, startedAt, endedAt, distanceMeters, pointCount, ignoredCount,
+               discardedAt, discardReason
+        FROM tracks
+        WHERE discardedAt IS NOT NULL
+        ORDER BY startedAt DESC
         """
     )
     fun observeDiscardedSummaries(): Flow<List<DiscardedSummary>>
 
-    /**
-     * Finished tracks with first/last good-point coordinates, oldest first — the stay deriver's
-     * input. The subqueries walk the (trackId, timestamp) index, stopping at the first
-     * non-ignored row.
-     */
+    /** Finished tracks with first/last good-point coordinates, oldest first — the stay deriver's input. */
     @Query(
         """
-        SELECT t.id, t.activityType, t.startedAt, t.endedAt,
-               (SELECT p.latitude  FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0
-                  ORDER BY p.timestamp ASC,  p.id ASC  LIMIT 1) AS startLat,
-               (SELECT p.longitude FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0
-                  ORDER BY p.timestamp ASC,  p.id ASC  LIMIT 1) AS startLon,
-               (SELECT p.latitude  FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0
-                  ORDER BY p.timestamp DESC, p.id DESC LIMIT 1) AS endLat,
-               (SELECT p.longitude FROM track_points p WHERE p.trackId = t.id AND p.ignored = 0
-                  ORDER BY p.timestamp DESC, p.id DESC LIMIT 1) AS endLon
-        FROM tracks t
-        WHERE t.endedAt IS NOT NULL AND t.discardedAt IS NULL
-        ORDER BY t.startedAt ASC
+        SELECT id, activityType, startedAt, endedAt, startLat, startLon, endLat, endLon
+        FROM tracks
+        WHERE endedAt IS NOT NULL AND discardedAt IS NULL
+        ORDER BY startedAt ASC
         """
     )
     fun observeEndpoints(): Flow<List<TrackEndpoints>>

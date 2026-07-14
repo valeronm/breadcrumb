@@ -46,10 +46,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private val livenessRepository = LivenessRepository(app)
     private val placeRepository = PlaceRepository(app)
 
-    // Room re-runs these queries on ANY write to the tables they touch — including every point
-    // batch of the live recording, whose content they exclude (endedAt IS NOT NULL). The
-    // distinctUntilChanged calls turn those identical re-emissions into cheap list-equality
-    // checks instead of re-running the derivation/UI work downstream.
+    // These read `tracks` only, so a live recording's points can't wake them (see TrackDao) — the
+    // distinctUntilChanged calls are for the writes that do: opening a track re-emits a list that
+    // doesn't contain it (endedAt IS NOT NULL), and they stop that identical re-emission from
+    // re-running the derivation downstream.
     val tracks: StateFlow<List<TrackSummary>> = repository.observeSummaries()
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -247,7 +247,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                     try {
                         val parsed =
                             resolver.openInputStream(uri)?.use { GpxParser.parse(it) } ?: emptyList()
-                        val importable = parsed.mapNotNull { GpxParser.toImportable(it, AndroidDistance) }
+                        val importable = parsed.mapNotNull { GpxParser.toImportable(it) }
                         failed += parsed.size - importable.size
                         if (parsed.isEmpty()) failed++ // a readable file with no tracks at all
                         val counts = repository.importTracks(importable)

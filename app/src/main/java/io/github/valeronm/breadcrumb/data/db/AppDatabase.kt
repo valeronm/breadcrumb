@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [Track::class, TrackPoint::class, LivenessEvent::class, Place::class],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -117,6 +117,47 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v11 denormalizes each track's point aggregates (counts + first/last good coordinates)
+         * onto its row, so the timeline queries stop reading `track_points` — see [TrackDao]'s
+         * observed queries. The backfill is SQL rather than a Kotlin pass ([TrackStats]) because it
+         * has to be atomic with the schema change: a migrated-but-unfilled row would show a
+         * finished track with no points and no endpoints, dropping it out of the timeline and the
+         * stay derivation until the pass caught up. `distanceMeters` needs no backfill — it was
+         * already stored, and the SQL couldn't reproduce its great-circle walk anyway.
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN pointCount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN ignoredCount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN startLat REAL")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN startLon REAL")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN endLat REAL")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN endLon REAL")
+                db.execSQL(
+                    """
+                    UPDATE tracks SET
+                      pointCount = (SELECT COUNT(*) FROM track_points p
+                                     WHERE p.trackId = tracks.id AND p.ignored = 0),
+                      ignoredCount = (SELECT COUNT(*) FROM track_points p
+                                       WHERE p.trackId = tracks.id AND p.ignored = 1),
+                      startLat = (SELECT p.latitude FROM track_points p
+                                   WHERE p.trackId = tracks.id AND p.ignored = 0
+                                   ORDER BY p.timestamp ASC, p.id ASC LIMIT 1),
+                      startLon = (SELECT p.longitude FROM track_points p
+                                   WHERE p.trackId = tracks.id AND p.ignored = 0
+                                   ORDER BY p.timestamp ASC, p.id ASC LIMIT 1),
+                      endLat = (SELECT p.latitude FROM track_points p
+                                 WHERE p.trackId = tracks.id AND p.ignored = 0
+                                 ORDER BY p.timestamp DESC, p.id DESC LIMIT 1),
+                      endLon = (SELECT p.longitude FROM track_points p
+                                 WHERE p.trackId = tracks.id AND p.ignored = 0
+                                 ORDER BY p.timestamp DESC, p.id DESC LIMIT 1)
+                    """,
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -125,7 +166,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "tracks.db",
                 ).addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
+                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                 ).build().also { instance = it }
             }
     }

@@ -21,11 +21,13 @@ const val DISCARDED_RETENTION_DAYS = 14
 /** Safety bound on leading-stray removal per track (real runs are 1, rarely 2). */
 private const val MAX_LEADING_REPAIRS = 5
 
-/** Thin wrapper around the DAO so callers don't touch Room directly. */
-class TrackRepository(context: Context) {
+/**
+ * Thin wrapper around the DAO so callers don't touch Room directly. [db] is a seam: production
+ * passes nothing and gets the app's singleton database, tests pass an in-memory one.
+ */
+class TrackRepository(context: Context, private val db: AppDatabase = AppDatabase.get(context)) {
 
     private val appContext = context.applicationContext
-    private val db = AppDatabase.get(context)
     private val dao = db.trackDao()
 
     fun observeSummaries(): Flow<List<TrackSummary>> = dao.observeSummaries()
@@ -61,7 +63,6 @@ class TrackRepository(context: Context) {
                         activityType = track.activityTypeName,
                         startedAt = track.startedAt,
                         endedAt = track.endedAt,
-                        distanceMeters = track.distanceMeters,
                     ),
                 )
                 dao.insertPoints(
@@ -80,9 +81,12 @@ class TrackRepository(context: Context) {
                         )
                     },
                 )
+                // Aggregates come from the points we just stored, not from the GPX header: the two
+                // agree for our own exports, and for a foreign file the points are the truth.
                 id
             }
-            // Imports bypass live ingest filtering, so drop a drive-start stray up front.
+            // Imports bypass live ingest filtering, so drop a drive-start stray up front; the
+            // repair ends by computing the fresh track's aggregates either way.
             repairLeadingPoints(trackId)
             imported++
         }
@@ -90,48 +94,54 @@ class TrackRepository(context: Context) {
         return GpxImportCounts(imported, duplicates)
     }
 
-    suspend fun updateDistance(trackId: Long, distanceMeters: Double) =
-        dao.updateDistance(trackId, distanceMeters)
-
     /** Reassign a finished track's activity (misdetected, or an imported GPX without a type). */
     suspend fun setActivityType(trackId: Long, activityType: ActivityType) =
         dao.setActivityType(trackId, activityType.name)
 
     /**
-     * Whether a track meets the user's configured keep thresholds (duration / length / extent).
-     * The rule itself lives in [KeepRule]; this loads the points/settings it needs. The extent is
-     * passed lazily so its bounding-box pass runs only when the extent gate is enabled.
+     * Recompute a track's aggregates from its points and store them on its row — the only writer of
+     * the denormalized columns, so every path that changes a track's points (finish, merge, import,
+     * repair) must end here or the timeline will show stale counts. Returns the stats it wrote.
      */
-    private suspend fun meetsKeepThresholds(track: Track, endedAt: Long): Boolean {
-        val pointCount = dao.countGoodPoints(track.id)
+    private suspend fun refreshStats(trackId: Long): TrackStats.Stats {
+        val stats = TrackStats.of(dao.allPointsFor(trackId))
+        dao.updateStats(
+            trackId = trackId,
+            distanceMeters = stats.distanceMeters,
+            pointCount = stats.pointCount,
+            ignoredCount = stats.ignoredCount,
+            startLat = stats.startLat,
+            startLon = stats.startLon,
+            endLat = stats.endLat,
+            endLon = stats.endLon,
+        )
+        return stats
+    }
+
+    /**
+     * Whether a track meets the user's configured keep thresholds (duration / length / extent).
+     * The rule itself lives in [KeepRule]; [stats] is the freshly recomputed aggregate, not the row
+     * — an open track's stored distance is stale by design (the recorder doesn't write it per fix),
+     * so judging a crash-recovered track on the row would discard real tracks as zero-length.
+     */
+    private fun meetsKeepThresholds(track: Track, endedAt: Long, stats: TrackStats.Stats): Boolean {
         val durationSec = (endedAt - track.startedAt) / 1000
         val thresholds = KeepRule.Thresholds(
             minDurationSec = Settings.minTrackDurationSec(appContext),
             minLengthM = Settings.minTrackLengthM(appContext),
             minExtentM = Settings.minTrackExtentM(appContext),
         )
-        // Extent = the diagonal of the lat/lon bounding box: distinguishes a real trip from a
-        // stationary blob — unlike accumulated length, GPS jitter can't inflate it. Computed via
-        // SQL aggregates instead of loading every point row; the bounds query runs only when the
-        // extent gate is enabled (mirroring KeepRule's lazy extent).
-        val extentM = if (thresholds.minExtentM > 0 && pointCount >= 2) {
-            val b = dao.goodPointBounds(track.id)
-            if (b?.minLat == null) 0.0
-            else AndroidDistance.metres(b.minLat, b.minLon!!, b.maxLat!!, b.maxLon!!)
-        } else {
-            0.0
-        }
         val keep = KeepRule.shouldKeep(
-            pointCount = pointCount,
+            pointCount = stats.pointCount,
             durationSec = durationSec,
-            distanceMeters = track.distanceMeters,
+            distanceMeters = stats.distanceMeters,
             thresholds = thresholds,
-            extent = { extentM },
+            extent = { stats.extentMeters },
         )
         DebugLog.i(
             TAG,
-            "track ${track.id} (${track.activityType}): $pointCount pts, " +
-                "${track.distanceMeters.toInt()} m, ${durationSec}s vs min " +
+            "track ${track.id} (${track.activityType}): ${stats.pointCount} pts, " +
+                "${stats.distanceMeters.toInt()} m, ${durationSec}s vs min " +
                 "${thresholds.minLengthM} m / ${thresholds.minDurationSec}s" +
                 (if (thresholds.minExtentM > 0) " / extent ${thresholds.minExtentM} m" else "") +
                 " -> ${if (keep) "keep" else "discard"}",
@@ -145,7 +155,10 @@ class TrackRepository(context: Context) {
      * can be tuned against real data rather than losing it.
      */
     private suspend fun closeOrDelete(track: Track, endedAt: Long) {
-        if (meetsKeepThresholds(track, endedAt)) {
+        // Finishing is where the track's aggregates are computed for the first time — the recorder
+        // writes none of them while it records.
+        val stats = refreshStats(track.id)
+        if (meetsKeepThresholds(track, endedAt, stats)) {
             dao.closeTrack(track.id, endedAt)
         } else {
             dao.discardTrack(track.id, endedAt = endedAt, discardedAt = endedAt, reason = Track.REASON_FILTERED)
@@ -193,12 +206,15 @@ class TrackRepository(context: Context) {
                     activityType = earlier.activityType, // == later's (the merge condition)
                     startedAt = earlier.startedAt,
                     endedAt = later.endedAt ?: later.startedAt,
-                    distanceMeters = earlier.distanceMeters + later.distanceMeters,
                 ),
             )
             dao.copyPointsInto(mergedId, earlierId)
             dao.copyPointsInto(mergedId, laterId)
             dao.firstPointAtOrAfter(mergedId, later.startedAt)?.let { dao.markSegmentStart(it) }
+            // Recomputed, not summed: the segment break at the join detaches the two halves, which
+            // is exactly what the walk over the merged points does — and it keeps the one writer
+            // of the denormalized columns in charge.
+            refreshStats(mergedId)
             val now = System.currentTimeMillis()
             dao.setDiscarded(earlierId, now, Track.REASON_MERGED)
             dao.setDiscarded(laterId, now, Track.REASON_MERGED)
@@ -263,25 +279,19 @@ class TrackRepository(context: Context) {
      */
     suspend fun repairLeadingPoints(trackId: Long): Int {
         var dropped = 0
-        // Bounded: each pass ignores one leading point, so a handful covers any real run of strays.
-        repeat(MAX_LEADING_REPAIRS) {
-            // The stray check only needs the leading prefix; load the full track only on a repair.
-            val head = dao.firstPointsFor(trackId, TrackQuality.LEADING_CHECK_POINT_COUNT)
-            if (!TrackQuality.leadingPointIsJump(head)) return dropped
-            db.withTransaction {
-                val points = dao.pointsFor(trackId)
-                dao.setIgnored(points.first().id, IgnoreReason.JUMP.code)
-                // Same distance walk as the recorder: segment starts detach from the previous point.
-                var distance = 0.0
-                var prev: TrackPoint? = null
-                for (p in points.drop(1)) {
-                    val baseline = if (p.segmentStart) null else prev
-                    if (baseline != null) distance += TrackQuality.distanceMeters(baseline, p)
-                    prev = p
-                }
-                dao.updateDistance(trackId, distance)
+        db.withTransaction {
+            // Bounded: each pass ignores one leading point, so a handful covers any real run of
+            // strays. The check reads only the leading prefix, so the loop is cheap.
+            while (dropped < MAX_LEADING_REPAIRS) {
+                val head = dao.firstPointsFor(trackId, TrackQuality.LEADING_CHECK_POINT_COUNT)
+                if (!TrackQuality.leadingPointIsJump(head)) break
+                dao.setIgnored(head.first().id, IgnoreReason.JUMP.code)
+                dropped++
             }
-            dropped++
+            // Unconditional, and inside the transaction: the repair is a point-mutating path, so it
+            // ends in a recompute — its caller (import, whose fresh rows have no aggregates yet)
+            // relies on this being the one point walk either way.
+            refreshStats(trackId)
         }
         return dropped
     }

@@ -2,8 +2,8 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import io.github.valeronm.breadcrumb.data.ActivityType
-import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.TrackStats
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.CoroutineScope
@@ -48,14 +48,12 @@ object TrackReplayer {
             if (points.size < 2) return@launch
             val activity = ActivityType.ofName(track.activityType) ?: ActivityType.UNKNOWN
             val label = ActivityType.labelFor(track.activityType)
-            var distance = 0.0
-            var lastGood: TrackPoint? = null
+            // The recorder's accumulator, replayed: same walk, so the replayed distance matches what
+            // the card showed live and what the track row stores.
+            val accumulator = TrackStats.Accumulator()
             for (i in points.indices) {
                 val point = points[i]
-                // Same distance walk as the recorder: segment starts detach from the previous point.
-                val baseline = if (point.segmentStart) null else lastGood
-                if (baseline != null) distance += TrackQuality.distanceMeters(baseline, point)
-                lastGood = point
+                accumulator.add(point)
                 val elapsedMs = point.timestamp - points.first().timestamp
                 _state.value = Replay(
                     trackLabel = label,
@@ -64,8 +62,8 @@ object TrackReplayer {
                         tracking = true,
                         activity = activity,
                         recording = true,
-                        distanceMeters = distance,
-                        points = i + 1,
+                        distanceMeters = accumulator.distanceMeters,
+                        points = accumulator.pointCount,
                         // Back-dated so the UI's wall-clock duration shows the track's own elapsed time.
                         startedAtMillis = System.currentTimeMillis() - elapsedMs,
                         speedMps = point.speed,

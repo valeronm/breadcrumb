@@ -109,6 +109,11 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true // Robolectric needs the merged resources/manifest.
+        }
+    }
 }
 
 kotlin {
@@ -155,4 +160,11 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // XmlPullParser implementation for GpxParser unit tests (Android provides one at runtime).
     testImplementation("net.sf.kxml:kxml2:2.3.0")
+    // Robolectric runs Room (and the SQLite it needs) on the host JVM, so the repository's
+    // database rules — the denormalized track aggregates, and which writes invalidate which
+    // observed query — are covered by the normal `testDebugUnitTest` run rather than needing a
+    // device. Everything above the data layer still has no automated coverage.
+    testImplementation("org.robolectric:robolectric:4.16")
+    testImplementation("androidx.test:core:1.7.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }

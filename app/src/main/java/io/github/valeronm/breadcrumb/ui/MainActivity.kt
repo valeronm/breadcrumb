@@ -137,7 +137,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -180,6 +179,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -324,7 +324,7 @@ private enum class SettingsPage {
 private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
-    val timeline by viewModel.timeline.collectAsState()
+    val timeline by viewModel.timeline.collectAsStateWithLifecycle()
 
     // GPX files shared/opened into the app import as soon as the UI is up.
     LaunchedEffect(pendingGpxImport.value) {
@@ -598,7 +598,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
             // Includes zero-visit pass-through clusters (summarize emits every cluster), so gap
             // sides open even when their cluster never earned a stay — and their endpoints show
             // as neighbour context on adjacent places' maps.
-            val placeSummaries by viewModel.places.collectAsState()
+            val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
             val summary = remember(placeSummaries, placeDetailKey, placeDetailSnapshot) {
                 placeSummaries.firstOrNull { it.rowKey() == placeDetailKey }
                     ?: placeDetailSnapshot?.let { snap -> placeSummaries.firstOrNull { it.centroid == snap.centroid } }
@@ -671,7 +671,7 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
         discardedLayer.rendered?.let { trackId ->
             // Collected here, not at MainScreen level: the aggregate query only stays live
             // while this rarely-open layer exists.
-            val discardedTracks by viewModel.discardedTracks.collectAsState()
+            val discardedTracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -841,7 +841,7 @@ private fun RecordTab(
     onRequestBattery: () -> Unit,
 ) {
     // Collected here, not in MainScreen: the status flow emits per fix, and only this tab reads it.
-    val status by TrackingStatus.state.collectAsState()
+    val status by TrackingStatus.state.collectAsStateWithLifecycle()
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         when {
             !foregroundOk -> PermissionCard(
@@ -875,7 +875,7 @@ private fun RecordTab(
                 // The middle stretches so the keep-screen-on row is anchored at the bottom; while
                 // recording (or replaying, debug), the track preview card fills all of it.
                 val replay = if (BuildConfig.DEBUG) {
-                    TrackReplayer.state.collectAsState().value
+                    TrackReplayer.state.collectAsStateWithLifecycle().value
                 } else {
                     null
                 }
@@ -935,7 +935,7 @@ private fun RecordTab(
  */
 @Composable
 private fun RecordedStats(viewModel: TrackListViewModel) {
-    val tracks by viewModel.tracks.collectAsState()
+    val tracks by viewModel.tracks.collectAsStateWithLifecycle()
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
     val byDate = remember(tracks) {
@@ -1575,7 +1575,7 @@ private fun PlacesTab(
     onOpenPlace: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    val places by viewModel.places.collectAsState()
+    val places by viewModel.places.collectAsStateWithLifecycle()
     var view by remember { mutableStateOf(PlacesView.MAP) }
     var showRareUnnamed by remember { mutableStateOf(AppSettings.placesShowRareUnnamed(context)) }
 
@@ -2397,7 +2397,7 @@ private fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
 private fun ImportTracksRow(viewModel: TrackListViewModel) {
     val context = LocalContext.current
     // Progress lives in the ViewModel, so it survives leaving Settings mid-import.
-    val importProgress by viewModel.importProgress.collectAsState()
+    val importProgress by viewModel.importProgress.collectAsStateWithLifecycle()
     val appContext = context.applicationContext
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -2453,7 +2453,7 @@ private fun ExportTracksRow(viewModel: TrackListViewModel) {
 @Composable
 private fun LogsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val entries by DebugLog.entries.collectAsState(initial = emptyList())
+    val entries by DebugLog.entries.collectAsStateWithLifecycle(initialValue = emptyList())
     Scaffold(
         topBar = {
             TopAppBar(
@@ -2511,7 +2511,7 @@ private fun DiscardedTracksScreen(
     // Tapping a row opens its full detail as a layer above this list; back returns here.
     onOpenTrack: (Long) -> Unit,
 ) {
-    val tracks by viewModel.discardedTracks.collectAsState()
+    val tracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
     val nowMs = remember { System.currentTimeMillis() }
     var showClearDialog by remember { mutableStateOf(false) }
     Scaffold(
