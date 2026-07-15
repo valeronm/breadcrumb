@@ -49,6 +49,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ReadingClock
+import io.github.valeronm.breadcrumb.domain.StaleReadingOracle
 import io.github.valeronm.breadcrumb.domain.RecordingAction
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackController
@@ -316,20 +317,24 @@ class LocationRecordingService : Service() {
         val nowMs = now()
         val lastReadingMs = readingClock.lastReadingMs
         val readingMs = readingClock.sanitize(eventTimeMs, nowMs, READING_MAX_AGE_MS)
-        // Deafness oracle: live deliveries run seconds behind their event, so a clock-advancing
-        // reading whose event fired well in the past *while we were armed* is one GMS never
-        // delivered — it only reached us as a registration replay. That proves the registration
-        // is deaf (a package update or a GMS restart kills them silently); re-register on a fresh
-        // PendingIntent token, the only revive that works. Requiring the clock to advance skips
-        // replays that repeat an event already applied; the arm-time replay is exempt because its
-        // event legitimately predates the arm. Rate-limited: the re-mint itself can lose a GMS
+        // Deafness oracle: a stale-yet-clock-advancing reading applied while armed can only have
+        // arrived via replay of a transition GMS never delivered live — proof the registration is
+        // deaf (a package update or a GMS restart kills it silently). Re-register on a fresh
+        // PendingIntent token, the only revive that works; the advance must clear
+        // STALE_READING_ADVANCE_MS so a repeat of an already-applied event can't fire a spurious
+        // restart (see [StaleReadingOracle]). Rate-limited: the re-mint itself can lose a GMS
         // server-side race, and the next detection retries it.
-        if (eventTimeMs != null && readingMs > lastReadingMs && readingMs > armedAtMs &&
-            nowMs - readingMs > STALE_READING_RESTART_MS &&
-            nowMs - lastStaleRestartMs > STALE_RESTART_MIN_GAP_MS
+        if (StaleReadingOracle.provesDeaf(
+                eventTimeMs, readingMs, lastReadingMs, armedAtMs, nowMs,
+                STALE_READING_RESTART_MS, STALE_READING_ADVANCE_MS,
+            ) && nowMs - lastStaleRestartMs > STALE_RESTART_MIN_GAP_MS
         ) {
             lastStaleRestartMs = nowMs
-            DebugLog.w(TAG, "reading ${(nowMs - readingMs) / 1000}s late — registration deaf, re-registering")
+            DebugLog.w(
+                TAG,
+                "reading ${(nowMs - readingMs) / 1000}s late (advanced ${readingMs - lastReadingMs}ms) " +
+                    "— registration deaf, re-registering",
+            )
             activityManager.restart()
         }
         // Every delivery — even a NoChange — proves activity detection is alive; the Record
@@ -978,6 +983,11 @@ class LocationRecordingService : Service() {
         // Stale-reading deafness oracle: live transition deliveries arrive 0–5 s after their
         // event; one this late while armed could only have come from a registration replay.
         private const val STALE_READING_RESTART_MS = 60_000L
+        // The reading must advance the clock by at least this much to count — a bare > lets a repeat
+        // of an already-applied event, whose wall-clock stamp drifts a few ms across a long still
+        // stretch, fire a spurious restart; a real missed transition advances by seconds. See
+        // [StaleReadingOracle].
+        private const val STALE_READING_ADVANCE_MS = 1_000L
         private const val STALE_RESTART_MIN_GAP_MS = 5 * 60_000L
 
         // A fix counts as GNSS-backed when a satellite fix using at least this many satellites
