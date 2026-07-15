@@ -15,13 +15,15 @@ package io.github.valeronm.breadcrumb.domain
  */
 class ReadingClock {
 
-    private var lastMs = Long.MIN_VALUE
+    /** The last sanitized reading time; lets callers tell a clock-advancing reading from a repeat. */
+    var lastReadingMs = Long.MIN_VALUE
+        private set
 
     fun sanitize(eventMs: Long?, nowMs: Long, maxAgeMs: Long): Long {
         val plausible =
             if (eventMs == null || eventMs > nowMs || nowMs - eventMs > maxAgeMs) nowMs else eventMs
-        val reading = maxOf(plausible, lastMs)
-        lastMs = reading
+        val reading = maxOf(plausible, lastReadingMs)
+        lastReadingMs = reading
         return reading
     }
 }

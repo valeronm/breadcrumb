@@ -5,12 +5,15 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import io.github.valeronm.breadcrumb.util.DebugLog
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionRequest
 import com.google.android.gms.location.DetectedActivity
 import com.google.android.gms.tasks.Task
+import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import io.github.valeronm.breadcrumb.data.ActivityType
 
@@ -82,7 +85,38 @@ class ActivityRecognitionManager(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun stop() {
         DebugLog.i(TAG, "removing transition updates")
-        chain { client.removeActivityTransitionUpdates(transitionPendingIntent()) }
+        val pi = transitionPendingIntent()
+        chain { client.removeActivityTransitionUpdates(pi) }
+        // The documented deregistration recipe cancels the PendingIntent after removal; a cancel
+        // makes the next getBroadcast(FLAG_UPDATE_CURRENT) mint a fresh token instead of reusing
+        // the one GMS already holds. Chained (not a success listener) so it can't race a rearm's
+        // getBroadcast and cancel the new token instead of the old one.
+        chain {
+            DebugLog.i(TAG, "cancelling transition PendingIntent")
+            pi.cancel()
+            Tasks.forResult(null as Void?)
+        }
+    }
+
+    /**
+     * Full re-registration on a fresh PendingIntent token: remove + cancel ([stop]), settle, then
+     * register. A package update leaves GMS's record for the old token registered-but-dead —
+     * replays and snapshots still flow, live transitions never do — and re-requesting on the same
+     * token (FLAG_UPDATE_CURRENT) can never revive it; only a token minted after [PendingIntent.cancel]
+     * delivers again (verified in the field 2026-07-15). The settle mirrors the manual
+     * disarm/arm timing the fix was verified with.
+     */
+    fun restart(): Task<Void> {
+        stop()
+        chain<Void> { delayed(REGISTER_SETTLE_MS) }
+        return start()
+    }
+
+    /** A Task that completes [delayMs] after being created; spaces chained GMS calls. */
+    private fun delayed(delayMs: Long): Task<Void> {
+        val source = TaskCompletionSource<Void>()
+        Handler(Looper.getMainLooper()).postDelayed({ source.setResult(null) }, delayMs)
+        return source.task
     }
 
     /**
@@ -103,6 +137,7 @@ class ActivityRecognitionManager(private val context: Context) {
     companion object {
         private const val REQUEST_TRANSITION = 4711
         private const val REQUEST_SNAPSHOT = 4712
+        private const val REGISTER_SETTLE_MS = 2_000L
         private const val TAG = "Breadcrumb"
 
         // The tail of the ordered GMS-call chain. Shared across instances (the receiver creates

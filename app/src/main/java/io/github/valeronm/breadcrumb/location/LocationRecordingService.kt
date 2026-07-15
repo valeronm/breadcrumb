@@ -104,6 +104,11 @@ class LocationRecordingService : Service() {
     // Set while the service is armed; duplicate ACTION_STARTs while armed are no-ops.
     @Volatile private var armed = false
 
+    // When the current armed session began, and when the stale-reading oracle last forced a
+    // re-registration — see the deafness check in [applyActivity].
+    @Volatile private var armedAtMs = 0L
+    private var lastStaleRestartMs = 0L
+
     // True once any transition reading has been applied since the last arm. Read by
     // [ActivityTransitionReceiver] to drop the arm-time snapshot once the transition stream has
     // spoken — set synchronously on delivery (not in the apply coroutine) so a snapshot arriving
@@ -210,6 +215,7 @@ class LocationRecordingService : Service() {
             return
         }
         armed = true
+        armedAtMs = now()
         transitionSinceArm = false
         DebugLog.i(TAG, "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)})")
         startForegroundWithNotification("Standing by", "Waiting for movement")
@@ -242,7 +248,9 @@ class LocationRecordingService : Service() {
             // then reset to STILL — wedging the recorder while GPS kept running.
             withContext(Dispatchers.Main) {
                 if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) {
-                    activityManager.start()
+                    // restart, not start: arming after a package update finds a registration whose
+                    // PendingIntent token is dead, and only a fresh token delivers again.
+                    activityManager.restart()
                     // One-shot: if we're already moving right now, start recording without waiting
                     // for the next transition.
                     activityManager.requestSnapshot()
@@ -306,7 +314,24 @@ class LocationRecordingService : Service() {
         // must keep their real spacing, or a stop and a return ten minutes apart would land
         // inside the resume window and stitch through a genuine stop.
         val nowMs = now()
+        val lastReadingMs = readingClock.lastReadingMs
         val readingMs = readingClock.sanitize(eventTimeMs, nowMs, READING_MAX_AGE_MS)
+        // Deafness oracle: live deliveries run seconds behind their event, so a clock-advancing
+        // reading whose event fired well in the past *while we were armed* is one GMS never
+        // delivered — it only reached us as a registration replay. That proves the registration
+        // is deaf (a package update or a GMS restart kills them silently); re-register on a fresh
+        // PendingIntent token, the only revive that works. Requiring the clock to advance skips
+        // replays that repeat an event already applied; the arm-time replay is exempt because its
+        // event legitimately predates the arm. Rate-limited: the re-mint itself can lose a GMS
+        // server-side race, and the next detection retries it.
+        if (eventTimeMs != null && readingMs > lastReadingMs && readingMs > armedAtMs &&
+            nowMs - readingMs > STALE_READING_RESTART_MS &&
+            nowMs - lastStaleRestartMs > STALE_RESTART_MIN_GAP_MS
+        ) {
+            lastStaleRestartMs = nowMs
+            DebugLog.w(TAG, "reading ${(nowMs - readingMs) / 1000}s late — registration deaf, re-registering")
+            activityManager.restart()
+        }
         // Every delivery — even a NoChange — proves activity detection is alive; the Record
         // tab's standing-by card surfaces this.
         TrackingStatus.update { it.copy(lastReadingAtMillis = readingMs) }
@@ -460,6 +485,11 @@ class LocationRecordingService : Service() {
         // also where a pause whose window quietly expired gets closed.
         finalizeExpiredPause()
         if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) {
+            // Request-only, deliberately not restart(): a plain request refreshes a healthy
+            // registration without touching it (and replays the latest transition, feeding the
+            // stale-reading oracle below), while a restart re-mints the token — observed to lose
+            // a server-side race ~1 time in 4 and come up dead. Restarts happen only at arm and
+            // when the oracle proves the registration deaf.
             activityManager.start().addOnCompleteListener { onDone?.invoke() }
         } else {
             onDone?.invoke()
@@ -944,6 +974,11 @@ class LocationRecordingService : Service() {
         // Age cap for trusting an AR event's own timestamp (see [ReadingClock]): far above any
         // real Doze drain delay, below the garbage stamps observed in the field (22.5 h).
         private const val READING_MAX_AGE_MS = 6 * 60 * 60_000L
+
+        // Stale-reading deafness oracle: live transition deliveries arrive 0–5 s after their
+        // event; one this late while armed could only have come from a registration replay.
+        private const val STALE_READING_RESTART_MS = 60_000L
+        private const val STALE_RESTART_MIN_GAP_MS = 5 * 60_000L
 
         // A fix counts as GNSS-backed when a satellite fix using at least this many satellites
         // occurred within [GNSS_FIX_MAX_AGE_MS] of it. Four is the minimum for a genuine 3D fix;
