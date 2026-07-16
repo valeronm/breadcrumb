@@ -23,7 +23,12 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
    Drop the internal-only bucket entirely; several related internal fixes may
    collapse into one user-felt bullet ("more reliable automatic recording").
 3. Write short bullets, most interesting first: new features, then fixes.
-   Plain language, no commit references, no jargon.
+   Plain language, no commit references, no jargon. One line per bullet —
+   state the change and stop; cut qualifiers, parentheticals, and trailing
+   explanations ("— existing ones are cleaned up on first launch").
+   - ✅ "Empty tracks are deleted right away, not left in Recently deleted"
+   - ❌ "Truly empty tracks are now deleted immediately instead of piling up
+     in Recently deleted — existing ones are cleaned up on first launch"
 4. Keep it under Play's **500 characters per language**. 2–4 bullets is the
    sweet spot; if there are more, the release is probably overdue anyway.
 
