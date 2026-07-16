@@ -3243,7 +3243,9 @@ private fun TrackMapScreen(
     val points by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
         value = viewModel.getPoints(trackId)
     }
-    val noisyPoints by produceState<List<TrackPoint>>(initialValue = emptyList(), trackId) {
+    // Also null while loading: the show-a-map decision needs both lists, or a track whose only
+    // points are noisy would flash the "not enough points" placeholder before its markers arrive.
+    val noisyPoints by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
         value = viewModel.getIgnoredPoints(trackId)
     }
     // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
@@ -3257,7 +3259,9 @@ private fun TrackMapScreen(
     }
     var colorMode by remember { mutableStateOf(ColorMode.SPEED) }
     // Noisy (ignored) fixes are hidden by default; the warning toggle shows them with a legend.
-    var showNoisy by remember(trackId) { mutableStateOf(false) }
+    // A track with no drawable line is the exception — its noisy fixes are all there is to see.
+    val noisyOnly = points?.let { it.size < 2 } == true
+    var showNoisy by remember(trackId, noisyOnly) { mutableStateOf(noisyOnly) }
     // Detected stops default to visible — this screen is the validation tool for the detector.
     var showStops by remember(trackId) { mutableStateOf(true) }
     // Point picked on the metric graph, highlighted on the map. Index into the good-points list.
@@ -3296,7 +3300,7 @@ private fun TrackMapScreen(
                             )
                         }
                     }
-                    if (noisyPoints.isNotEmpty()) {
+                    if (noisyPoints.orEmpty().isNotEmpty()) {
                         IconButton(onClick = { showNoisy = !showNoisy }) {
                             Icon(
                                 Icons.Filled.Warning,
@@ -3328,9 +3332,12 @@ private fun TrackMapScreen(
     ) { inner ->
         Box(modifier = Modifier.padding(inner).fillMaxSize().clipToBounds()) {
             val loaded = points
+            val noisy = noisyPoints
             when {
-                loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                loaded.size < 2 -> Text(
+                loaded == null || noisy == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                // A track without a drawable line still gets the map when it has noisy fixes to
+                // mark — a bad-points-only track is exactly what the noisy overlay is for.
+                loaded.size < 2 && noisy.isEmpty() -> Text(
                     "Not enough points to draw this track on a map.",
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
@@ -3361,7 +3368,7 @@ private fun TrackMapScreen(
                             Box(Modifier.fillMaxSize().clipToBounds()) {
                                 MapLibreTrackMap(
                                     points = loaded,
-                                    noisyPoints = if (showNoisy) noisyPoints else emptyList(),
+                                    noisyPoints = if (showNoisy) noisy else emptyList(),
                                     activity = activity,
                                     colorMode = colorMode,
                                     showLegend = true,
@@ -3371,7 +3378,7 @@ private fun TrackMapScreen(
                                 )
                                 if (showNoisy) {
                                     // Top-right, clear of the colour-metric legend (bottom-right).
-                                    NoisyLegend(noisyPoints, Modifier.align(Alignment.TopEnd).padding(12.dp))
+                                    NoisyLegend(noisy, Modifier.align(Alignment.TopEnd).padding(12.dp))
                                 }
                                 if (showStops && dwells.isNotEmpty()) {
                                     // Top-left: the noisy legend owns the top-right corner.

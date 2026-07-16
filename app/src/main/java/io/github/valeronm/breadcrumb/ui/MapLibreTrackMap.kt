@@ -100,7 +100,7 @@ fun MapLibreTrackMap(
                 addTrackLine(style, points, paint)
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
                 addSelectionLayer(ctx, style, selectedPoint)
-                frameTo(map, points.map { LatLng(it.latitude, it.longitude) }, singlePointZoom = 15.0)
+                frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
                 framed[0] = true
             },
             onUpdate = { map, style ->
@@ -142,7 +142,7 @@ fun MapLibreTrackMap(
                     style.getSourceAs<GeoJsonSource>(DWELL_SOURCE)?.setGeoJson(dwellCollection(dwells))
                 }
                 if (!framed[0]) {
-                    frameTo(map, points.map { LatLng(it.latitude, it.longitude) }, singlePointZoom = 15.0)
+                    frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
                     framed[0] = true
                 }
             },
@@ -296,8 +296,24 @@ private fun addCaptureCircleLayers(
     )
 }
 
-private fun trackLineFeature(points: List<TrackPoint>): Feature =
-    Feature.fromGeometry(LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) }))
+/**
+ * What the once-per-map fit frames: the track line's points — or, when there's no drawable line,
+ * whatever markers there are (noisy fixes included), so a bad-points-only track doesn't open on a
+ * world view.
+ */
+private fun framePositions(points: List<TrackPoint>, noisyPoints: List<TrackPoint>): List<LatLng> =
+    (if (points.size >= 2) points else points + noisyPoints).map { LatLng(it.latitude, it.longitude) }
+
+// A GeoJSON LineString needs at least two positions; with fewer the track renders as markers only.
+private fun trackLineFeature(points: List<TrackPoint>): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        if (points.size < 2) emptyList()
+        else listOf(
+            Feature.fromGeometry(
+                LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) }),
+            ),
+        ),
+    )
 
 private fun addTrackLine(style: Style, points: List<TrackPoint>, paint: TrackPaint) {
     // lineMetrics is required for line-gradient (line-progress is measured along the rendered line).
