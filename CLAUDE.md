@@ -19,12 +19,18 @@ resolver if no JDK 21 is installed). No `JAVA_HOME` override is needed, and a to
 won't break the build.
 
 Debug installs as `io.github.valeronm.breadcrumb.debug` (release: `io.github.valeronm.breadcrumb`).
-Launch / verify on a connected device:
+Launch / verify on an emulator (on a physical phone these are the user's to run — see "Testing on
+the device"):
 
 ```bash
 adb shell am start -n io.github.valeronm.breadcrumb.debug/io.github.valeronm.breadcrumb.ui.MainActivity
 adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png   # screenshot to inspect UI
 ```
+
+The Gradle and AGP versions are pinned and coupled — if you upgrade one, move the other to a
+compatible pair, not one alone.
+
+## Unit tests
 
 Unit tests live in `app/src/test` and cover the pure logic in `domain/` plus data-layer pieces
 (TrackQuality, TrackStats, GpxExporter/GpxParser) — run them with
@@ -38,8 +44,25 @@ catches up. There are still no instrumented/UI tests: behaviour above the data l
 building and driving the app on a device/emulator (activity recognition needs real movement or an
 emulator route).
 
-The Gradle and AGP versions are pinned and coupled — if you upgrade one, move the other to a
-compatible pair, not one alone.
+## Testing on the device
+
+Hands-on testing is the human's job, not Claude's. The workflow for a change that needs device
+verification:
+
+1. Verify what you can without the device: build it, run the unit tests.
+2. Install the build on the connected phone (`./gradlew :app:installDebug`).
+3. Hand off with a short test plan: where to navigate, what the change should look like, and what
+   would indicate a regression — pointing at concrete tracks/places found in the device data beats
+   generic instructions. Mining the data for such cases is encouraged:
+   read-only adb — logcat, pulling a copy of the app's DB (`adb exec-out run-as
+   io.github.valeronm.breadcrumb.debug cat databases/tracks.db`) — is fine. Screenshots are not:
+   `screencap` grabs whatever is currently on the phone's screen, which can expose personal info
+   from other apps — take one only when the user asks for it.
+
+Don't launch or drive the app on a physical phone yourself (`am start`, `input tap`/swipe): you
+have no way of knowing whether the user is using the phone at that moment or what for — injected
+launches and taps land on top of whatever that is and can break it. On an emulator, driving the
+app is fair game.
 
 ## Architecture
 
