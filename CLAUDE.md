@@ -71,7 +71,7 @@ The pieces below only make sense together — read them as a unit.
 
 **Recording pipeline** (`location/`):
 - `LocationRecordingService` is the core. It's a started **foreground service** (type `location`)
-  that holds the `FusedLocationProviderClient`, owns the current `Track`, and is the single source of
+  that requests raw platform GPS, owns the current `Track`, and is the single source of
   truth for recording. A `@Volatile companion instance` (plus `activeTrackId`, `isRunning`) lets other
   components talk to the live service **directly within the process** — this deliberately avoids
   Android 12+ background-FGS-start restrictions (we never re-start the service from a broadcast).
@@ -101,7 +101,7 @@ belongs here first, with a test, before wiring into the service or UI.
 
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
 time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
-auto-pause resume window, the GPS give-up timeout, the fused-provider toggle, and keep-track
+auto-pause resume window, the GPS give-up timeout, and keep-track
 thresholds (min duration/length/extent). Sampling is read by the service when each track's GPS
 request starts; thresholds are read by the repository when a track finishes. `ActivityType`
 therefore only carries a label, a `recording` boolean, and a `TrackGroup` — sampling cadence is

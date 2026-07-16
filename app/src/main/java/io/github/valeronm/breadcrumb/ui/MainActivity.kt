@@ -2138,7 +2138,7 @@ private fun SettingsScreen(
                 {
                     NavRow(
                         "Sampling",
-                        subtitle = "Position source and how densely points are recorded",
+                        subtitle = "How densely points are recorded",
                     ) { onOpenPage(SettingsPage.Sampling) }
                 },
                 {
@@ -2249,22 +2249,11 @@ private fun SamplingSettingsScreen(onBack: () -> Unit) {
         { AppSettings.minIntervalSec(context) }) { AppSettings.setMinIntervalSec(context, it) }
     val distanceM = rememberPref(AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
         { AppSettings.minDistanceM(context) }) { AppSettings.setMinDistanceM(context, it) }
-    val useFusedProvider = rememberPref(AppSettings.DEFAULT_USE_FUSED_PROVIDER,
-        { AppSettings.useFusedProvider(context) }) { AppSettings.setUseFusedProvider(context, it) }
-    SettingsSubPage("Sampling", onBack, listOf(intervalSec, distanceM, useFusedProvider)) {
+    SettingsSubPage("Sampling", onBack, listOf(intervalSec, distanceM)) {
         SettingsPageDescription(
-            "Where positions come from and how densely points are recorded while moving.",
+            "How densely points are recorded while moving.",
         )
         GroupedRows(
-            {
-                SwitchSettingRow(
-                    title = "Use fused location",
-                    subtitle = "Also estimates position from Wi-Fi and mobile networks, so " +
-                        "tracks can continue indoors. Uses more battery.",
-                    checked = useFusedProvider.value,
-                    onCheckedChange = { useFusedProvider.set(it) },
-                )
-            },
             {
                 SliderSetting("Time between points", intervalSec.value.toFloat(), 1f..30f, 1, { "${it.toInt()} s" }) {
                     intervalSec.set(it.toInt())
@@ -2292,8 +2281,7 @@ private fun PointQualitySettingsScreen(onBack: () -> Unit) {
             {
                 SwitchSettingRow(
                     title = "Require satellite fix",
-                    subtitle = "Drops guessed positions, like in a tunnel. Walks with fused " +
-                        "location keep them, so indoor tracks survive.",
+                    subtitle = "Drops guessed positions, like in a tunnel.",
                     checked = requireGnssFix.value,
                     onCheckedChange = { requireGnssFix.set(it) },
                 )

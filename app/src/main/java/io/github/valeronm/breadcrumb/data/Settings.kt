@@ -18,7 +18,6 @@ object Settings {
     private const val KEY_ACCURACY_GATE_M = "accuracy_gate_m"
     private const val KEY_REQUIRE_GNSS_FIX = "require_gnss_fix"
     private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
-    private const val KEY_USE_FUSED_PROVIDER = "use_fused_provider"
     private const val KEY_PLACES_SHOW_RARE_UNNAMED = "places_show_rare_unnamed"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
@@ -41,11 +40,10 @@ object Settings {
     // Fixes whose reported accuracy radius is at least this (metres) are flagged noisy and excluded.
     const val DEFAULT_ACCURACY_GATE_M = 50
 
-    // Reject fused fixes with no recent satellite backing (network/dead-reckoning fabrications, e.g.
-    // in a tunnel). These can report good accuracy, so the accuracy gate alone misses them; this
-    // cross-checks against real GNSS satellite status. Walks recorded via the fused provider are
-    // exempt — indoors, network fixes are the only source. Raw-GPS tracks always keep the check:
-    // the GNSS engine itself dead-reckons through signal loss. See LocationRecordingService.
+    // Reject fixes with no recent satellite backing (dead-reckoning fabrications, e.g. in a
+    // tunnel — the GNSS engine dead-reckons through signal loss). These can report good accuracy,
+    // so the accuracy gate alone misses them; this cross-checks against real GNSS satellite
+    // status. See LocationRecordingService.
     const val DEFAULT_REQUIRE_GNSS_FIX = true
 
     // No-fix give-up guard: if GPS runs this long without a single accepted fix (indoors on an
@@ -53,11 +51,6 @@ object Settings {
     // significant-motion trigger, a passive GPS fix, or an activity transition suggests trying
     // again. See LocationRecordingService. 0 = never give up.
     const val DEFAULT_GPS_GIVE_UP_SEC = 240
-
-    // Which location source records tracks: raw platform GPS (default — no Wi-Fi scan overhead,
-    // see 8ef8fa4) or Play Services' fused provider, which adds network positioning that can
-    // produce fixes indoors. Kept switchable for field comparison at GNSS-opaque venues.
-    const val DEFAULT_USE_FUSED_PROVIDER = false
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -162,7 +155,7 @@ object Settings {
         prefs(context).edit { putInt(KEY_ACCURACY_GATE_M, value) }
     }
 
-    /** Whether to drop fused fixes lacking recent satellite backing (network/dead-reckoning only). */
+    /** Whether to drop fixes lacking recent satellite backing (dead-reckoning fabrications). */
     fun requireGnssFix(context: Context): Boolean =
         prefs(context).getBoolean(KEY_REQUIRE_GNSS_FIX, DEFAULT_REQUIRE_GNSS_FIX)
 
@@ -176,14 +169,6 @@ object Settings {
 
     fun setGpsGiveUpSec(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_GPS_GIVE_UP_SEC, value) }
-    }
-
-    /** Whether to record via the fused provider (adds network positioning) instead of raw GPS. */
-    fun useFusedProvider(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_USE_FUSED_PROVIDER, DEFAULT_USE_FUSED_PROVIDER)
-
-    fun setUseFusedProvider(context: Context, enabled: Boolean) {
-        prefs(context).edit { putBoolean(KEY_USE_FUSED_PROVIDER, enabled) }
     }
 
     /** Places tab: also show unnamed clusters with fewer than 3 visits (hidden by default). */

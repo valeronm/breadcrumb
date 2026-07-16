@@ -19,7 +19,6 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
-import android.os.Looper
 import android.os.SystemClock
 import io.github.valeronm.breadcrumb.util.DebugLog
 import androidx.core.app.NotificationCompat
@@ -29,19 +28,12 @@ import androidx.core.location.GnssStatusCompat
 import androidx.core.location.LocationListenerCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.location.LocationRequestCompat
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import io.github.valeronm.breadcrumb.App
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
-import io.github.valeronm.breadcrumb.data.TrackGroup
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.TrackStats
@@ -82,7 +74,6 @@ class LocationRecordingService : Service() {
     private lateinit var livenessRepository: LivenessRepository
     private lateinit var activityManager: ActivityRecognitionManager
     private var locationManager: LocationManager? = null
-    private lateinit var fused: FusedLocationProviderClient
 
     // --- Liveness heartbeat (evidence for stay derivation) ---
     // A periodic "still alive" timestamp in Settings; a restart finding it stale materializes an
@@ -125,13 +116,8 @@ class LocationRecordingService : Service() {
     // [mutex]; its [TrackStats.Accumulator.lastGood] is also the bad-fix jump check's baseline.
     private var accumulator = TrackStats.Accumulator()
 
-    // The live location request, whichever source made it; non-null == GPS is on.
-    private sealed interface ActiveRequest {
-        class Gps(val listener: LocationListenerCompat) : ActiveRequest
-        class Fused(val callback: LocationCallback) : ActiveRequest
-    }
-
-    @Volatile private var activeRequest: ActiveRequest? = null
+    // The live GPS request's listener; non-null == GPS is on.
+    @Volatile private var gpsListener: LocationListenerCompat? = null
 
     // --- No-fix give-up guard ---
     // The decisions (when to give up, backoff gating, what a resume signal means) live in the pure
@@ -170,7 +156,6 @@ class LocationRecordingService : Service() {
         livenessRepository = LivenessRepository(this)
         activityManager = ActivityRecognitionManager(this)
         locationManager = getSystemService(LocationManager::class.java)
-        fused = LocationServices.getFusedLocationProviderClient(this)
         sensorManager = getSystemService(SensorManager::class.java)
         motionSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)
         // Must be dynamic: ACTION_SHUTDOWN is not on the API-26+ implicit-broadcast exemption
@@ -380,7 +365,7 @@ class LocationRecordingService : Service() {
         }
         // A confirmed moving reading while the no-fix guard has GPS off is a resume signal too
         // (Resume/StartNew restart GPS themselves; this covers confirmations that map to Noop).
-        if (noFixGuard.suspended && gate.confirmed.recording && activeRequest == null) {
+        if (noFixGuard.suspended && gate.confirmed.recording && gpsListener == null) {
             DebugLog.i(TAG, "no-fix guard: probing again (activity ${gate.confirmed})")
             withContext(Dispatchers.Main) { startLocationUpdates() }
         }
@@ -539,64 +524,47 @@ class LocationRecordingService : Service() {
         repository.finishTrack(id, endedAt)
     }
 
-    // Default source is the platform GPS provider, not Play Services' fused provider: fused
+    // The source is the platform GPS provider, not Play Services' fused provider: fused
     // HIGH_ACCURACY also drives network location (periodic Wi-Fi scans + GmsCore wakelocks billed
-    // to us), and its Wi-Fi/cell/dead-reckoning fixes are exactly what [isGnssBacked] rejects.
-    // The fused path stays selectable (Settings > Location source) because network positioning is
-    // the only thing that yields fixes inside GNSS-opaque buildings — for field comparison there.
+    // to us), batches delivery minutes late in screen-off power saving, and its Wi-Fi/cell/
+    // dead-reckoning fixes are exactly what [isGnssBacked] rejects. A fused mode used to be
+    // selectable for GNSS-opaque venues; the 2026-07-12 field comparison retired it — venue time
+    // should surface as a stay, not a noisy track.
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
         if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) return
         stopLocationUpdates()
         val intervalMs = Settings.minIntervalSec(this) * 1000L
         val minDistanceM = Settings.minDistanceM(this).toFloat()
-        val useFused = Settings.useFusedProvider(this)
         noFixGuard.onProbeStarted(SystemClock.elapsedRealtime())
-        if (useFused) {
-            val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
-                .setMinUpdateDistanceMeters(minDistanceM)
-                // Don't let fixes arrive faster than the user's chosen minimum interval.
-                .setMinUpdateIntervalMillis(intervalMs)
-                .setWaitForAccurateLocation(false)
-                .build()
-            val callback = object : LocationCallback() {
-                override fun onLocationResult(result: LocationResult) = handleLocations(result.locations)
-            }
-            activeRequest = ActiveRequest.Fused(callback)
-            fused.requestLocationUpdates(request, callback, Looper.getMainLooper())
-        } else {
-            val lm = locationManager ?: return
-            val request = LocationRequestCompat.Builder(intervalMs)
-                .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
-                .setMinUpdateDistanceMeters(minDistanceM)
-                // Don't let fixes arrive faster than the user's chosen minimum interval.
-                .setMinUpdateIntervalMillis(intervalMs)
-                .build()
-            val listener = object : LocationListenerCompat {
-                override fun onLocationChanged(location: Location) = handleLocations(listOf(location))
-                override fun onLocationChanged(locations: List<Location>) = handleLocations(locations)
-            }
-            activeRequest = ActiveRequest.Gps(listener)
-            LocationManagerCompat.requestLocationUpdates(
-                lm,
-                LocationManager.GPS_PROVIDER,
-                request,
-                ContextCompat.getMainExecutor(this),
-                listener,
-            )
+        val lm = locationManager ?: return
+        val request = LocationRequestCompat.Builder(intervalMs)
+            .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
+            .setMinUpdateDistanceMeters(minDistanceM)
+            // Don't let fixes arrive faster than the user's chosen minimum interval.
+            .setMinUpdateIntervalMillis(intervalMs)
+            .build()
+        val listener = object : LocationListenerCompat {
+            override fun onLocationChanged(location: Location) = handleLocations(listOf(location))
+            override fun onLocationChanged(locations: List<Location>) = handleLocations(locations)
         }
-        DebugLog.i(TAG, "location updates started (${if (useFused) "fused" else "gps"})")
+        gpsListener = listener
+        LocationManagerCompat.requestLocationUpdates(
+            lm,
+            LocationManager.GPS_PROVIDER,
+            request,
+            ContextCompat.getMainExecutor(this),
+            listener,
+        )
+        DebugLog.i(TAG, "location updates started")
         registerGnssStatus()
     }
 
     private fun stopLocationUpdates() {
-        when (val request = activeRequest) {
-            is ActiveRequest.Gps ->
-                locationManager?.let { LocationManagerCompat.removeUpdates(it, request.listener) }
-            is ActiveRequest.Fused -> fused.removeLocationUpdates(request.callback)
-            null -> {}
-        }
-        activeRequest = null
+        val lm = locationManager
+        val listener = gpsListener
+        if (lm != null && listener != null) LocationManagerCompat.removeUpdates(lm, listener)
+        gpsListener = null
         unregisterGnssStatus()
         disarmResumeSignals()
     }
@@ -610,10 +578,10 @@ class LocationRecordingService : Service() {
      */
     private fun maybeGiveUpOnNoFix() {
         val giveUpMs = Settings.gpsGiveUpSec(this) * 1000L
-        if (activeRequest == null || !noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return
+        if (gpsListener == null || !noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return
         scope.launch {
             mutex.withLock {
-                if (activeRequest == null || activeTrackId == null || controller.isPaused) return@withLock
+                if (gpsListener == null || activeTrackId == null || controller.isPaused) return@withLock
                 if (!noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return@withLock
                 val backoffMs = noFixGuard.onGaveUp(SystemClock.elapsedRealtime())
                 DebugLog.i(
@@ -778,15 +746,9 @@ class LocationRecordingService : Service() {
 
     private suspend fun ingestLocations(locations: List<Location>) {
         val maxAccuracyM = Settings.accuracyGateM(this).toFloat()
-        // Fused on-foot fixes are exempt from the satellite cross-check: indoors, network fixes are
-        // the only positions a walk track can get, and admitting them is the fused mode's purpose.
-        // The whole foot family qualifies — a walking↔running flip mid-track must not start
-        // rejecting fixes. Raw GPS keeps the check even on foot — the GNSS engine dead-reckons
-        // through signal loss (observed: ~80 s of zero-satellite fixes entering a parking garage),
-        // and those fabrications are exactly what this rejects.
-        val fusedOnFoot = activeRequest is ActiveRequest.Fused && gate.confirmed.trackGroup == TrackGroup.FOOT
-        val requireGnss = Settings.requireGnssFix(this) && !fusedOnFoot
-        // One insert per batch — a LocationResult can deliver several buffered fixes at once.
+        val requireGnss = Settings.requireGnssFix(this)
+        // One insert per batch — the platform listener's List overload can deliver several
+        // buffered fixes at once.
         val batch = ArrayList<TrackPoint>(locations.size)
         for (loc in locations) {
             val trackId = activeTrackId ?: return
@@ -804,7 +766,6 @@ class LocationRecordingService : Service() {
                 bearingAccuracy = if (loc.hasBearingAccuracy()) loc.bearingAccuracyDegrees else null,
                 satellitesInFix = lastGnssSatsInFix,
                 cn0 = lastGnssCn0Top4,
-                provider = loc.provider,
             )
             // The first good fix after a resume begins a new segment: disconnect it from the previous
             // segment so the paused gap isn't jump-checked or counted in distance.
