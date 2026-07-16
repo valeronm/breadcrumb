@@ -6,6 +6,13 @@ it records while you move and pauses while you're still. Everything stays **on y
 account, no server — with a dark vector map, a day-by-day timeline of your trips and stays, named
 places, and GPX import/export.
 
+## Try it (closed testing)
+
+Breadcrumb is on Google Play in closed testing. Join the test track, then install:
+
+- [Join on Android](https://play.google.com/store/apps/details?id=io.github.valeronm.breadcrumb)
+- [Join on the web](https://play.google.com/apps/testing/io.github.valeronm.breadcrumb)
+
 ## Screenshots
 
 <p align="center">
