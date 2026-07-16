@@ -102,16 +102,71 @@ class TrackRepositoryTest {
 
     @Test fun `a track too short to keep is discarded, with its aggregates still written`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        // Two points a metre apart over 10 s: under every keep threshold.
+        // Three points a metre apart over 20 s: enough points to escape the purge floor, but under
+        // every keep threshold.
         repository.addPoints(
-            listOf(test.point(id, 0, lat = 38.7), test.point(id, 1, lat = 38.700009)),
+            listOf(
+                test.point(id, 0, lat = 38.7),
+                test.point(id, 1, lat = 38.700009),
+                test.point(id, 2, lat = 38.700018),
+            ),
         )
 
-        repository.finishTrack(id, TEST_START + 10_000)
+        repository.finishTrack(id, TEST_START + 20_000)
 
         val track = dao.track(id)!!
         assertEquals(Track.REASON_FILTERED, track.discardReason)
         assertStatsMatchPoints(id)
+    }
+
+    @Test fun `a track with two points or fewer is purged outright, not discarded`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints(listOf(test.point(id, 0), test.point(id, 1)))
+
+        repository.finishTrack(id, TEST_START + 10_000)
+
+        assertNull("nothing to review, so no Recently deleted row", dao.track(id))
+        assertEquals("its points cascade away with it", 0, dao.allPointsFor(id).size)
+    }
+
+    @Test fun `ignored fixes count against the purge floor - a noisy track is discarded instead`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        // No good points at all, but a body of rejected fixes: reviewable evidence, so it goes to
+        // Recently deleted (where the map marks the noisy fixes) rather than being destroyed.
+        repository.addPoints((0..4).map { test.point(id, it, ignored = true) })
+
+        repository.finishTrack(id, TEST_START + 50_000)
+
+        val track = dao.track(id)!!
+        assertEquals(Track.REASON_FILTERED, track.discardReason)
+        assertEquals(5, track.ignoredCount)
+        assertStatsMatchPoints(id)
+    }
+
+    @Test fun `the point-starved backfill purges old finished rows but never open or noisy ones`() = runTest {
+        // A pre-rule row: finished with two points stored on it.
+        val starved = dao.insertTrack(
+            Track(activityType = "WALKING", startedAt = TEST_START, endedAt = TEST_START + 10_000, pointCount = 2),
+        )
+        // A noisy row with no good points: its ignored fixes are evidence, not emptiness.
+        val noisy = dao.insertTrack(
+            Track(
+                activityType = "WALKING", startedAt = TEST_START + 20_000, endedAt = TEST_START + 30_000,
+                pointCount = 0, ignoredCount = 5,
+            ),
+        )
+        // A real kept track, and an open one whose zeroed pointCount is stale by design.
+        val kept = repository.startTrack(ActivityType.WALKING, TEST_START + 100_000)
+        repository.addPoints((0..5).map { test.point(kept, it) })
+        repository.finishTrack(kept, TEST_START + 160_000)
+        val open = repository.startTrack(ActivityType.WALKING, TEST_START + 200_000)
+
+        repository.purgePointStarvedTracks()
+
+        assertNull("the point-starved row is gone", dao.track(starved))
+        assertNotNull("a noisy-only row keeps its evidence", dao.track(noisy))
+        assertNotNull("a track with real points survives", dao.track(kept))
+        assertNotNull("an open track is never judged on its stale row", dao.track(open))
     }
 
     @Test fun `merging two tracks recomputes the merged track's aggregates`() = runTest {

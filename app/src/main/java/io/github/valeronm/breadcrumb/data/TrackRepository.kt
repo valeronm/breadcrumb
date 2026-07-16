@@ -119,20 +119,21 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /**
-     * Whether a track meets the user's configured keep thresholds (duration / length / extent).
-     * The rule itself lives in [KeepRule]; [stats] is the freshly recomputed aggregate, not the row
-     * — an open track's stored distance is stale by design (the recorder doesn't write it per fix),
-     * so judging a crash-recovered track on the row would discard real tracks as zero-length.
+     * The keep/discard/purge decision for a finished track. The rule itself lives in [KeepRule];
+     * [stats] is the freshly recomputed aggregate, not the row — an open track's stored distance is
+     * stale by design (the recorder doesn't write it per fix), so judging a crash-recovered track
+     * on the row would discard real tracks as zero-length.
      */
-    private fun meetsKeepThresholds(track: Track, endedAt: Long, stats: TrackStats.Stats): Boolean {
+    private fun keepVerdict(track: Track, endedAt: Long, stats: TrackStats.Stats): KeepRule.Verdict {
         val durationSec = (endedAt - track.startedAt) / 1000
         val thresholds = KeepRule.Thresholds(
             minDurationSec = Settings.minTrackDurationSec(appContext),
             minLengthM = Settings.minTrackLengthM(appContext),
             minExtentM = Settings.minTrackExtentM(appContext),
         )
-        val keep = KeepRule.shouldKeep(
+        val verdict = KeepRule.verdict(
             pointCount = stats.pointCount,
+            ignoredCount = stats.ignoredCount,
             durationSec = durationSec,
             distanceMeters = stats.distanceMeters,
             thresholds = thresholds,
@@ -144,24 +145,27 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 "${stats.distanceMeters.toInt()} m, ${durationSec}s vs min " +
                 "${thresholds.minLengthM} m / ${thresholds.minDurationSec}s" +
                 (if (thresholds.minExtentM > 0) " / extent ${thresholds.minExtentM} m" else "") +
-                " -> ${if (keep) "keep" else "discard"}",
+                " -> ${verdict.name.lowercase()}",
         )
-        return keep
+        return verdict
     }
 
     /**
      * Closes a track, soft-deleting it instead if it's too short to be meaningful. Discarded tracks
      * keep their rows/points (excluded from the UI, stats, stays, and export) so the keep-thresholds
-     * can be tuned against real data rather than losing it.
+     * can be tuned against real data rather than losing it. The exception is a track of
+     * [KeepRule.PURGE_MAX_POINTS] or fewer points in total (good + ignored), which is hard-deleted
+     * outright — empty of information, so nothing to review in Recently deleted either.
      */
     private suspend fun closeOrDelete(track: Track, endedAt: Long) {
         // Finishing is where the track's aggregates are computed for the first time — the recorder
         // writes none of them while it records.
         val stats = refreshStats(track.id)
-        if (meetsKeepThresholds(track, endedAt, stats)) {
-            dao.closeTrack(track.id, endedAt)
-        } else {
-            dao.discardTrack(track.id, endedAt = endedAt, discardedAt = endedAt, reason = Track.REASON_FILTERED)
+        when (keepVerdict(track, endedAt, stats)) {
+            KeepRule.Verdict.KEEP -> dao.closeTrack(track.id, endedAt)
+            KeepRule.Verdict.DISCARD ->
+                dao.discardTrack(track.id, endedAt = endedAt, discardedAt = endedAt, reason = Track.REASON_FILTERED)
+            KeepRule.Verdict.PURGE -> dao.purgeTrack(track.id)
         }
     }
 
@@ -242,6 +246,18 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val cutoff = System.currentTimeMillis() - retentionDays * 86_400_000L
         val purged = dao.purgeDiscardedBefore(cutoff)
         if (purged > 0) DebugLog.i(TAG, "purged $purged discarded track(s) older than $retentionDays days")
+    }
+
+    /**
+     * One-time backfill: hard-delete finished tracks stored with [KeepRule.PURGE_MAX_POINTS] or
+     * fewer points in total, good and ignored counted together, recorded before finishing started
+     * purging them. Open tracks are untouched — their stored counts are meaningless by design, and
+     * [finalizeDangling] judges them from their actual points. Idempotent: a repeat run finds
+     * nothing.
+     */
+    suspend fun purgePointStarvedTracks() {
+        val purged = dao.purgePointStarved(KeepRule.PURGE_MAX_POINTS)
+        if (purged > 0) DebugLog.i(TAG, "backfill purged $purged track(s) empty of points")
     }
 
     /**

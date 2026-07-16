@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +32,10 @@ class App : Application() {
             repository.purgeOldDiscarded()
             // Crash-cleanup of dangling tracks happens in the service's arm path. One-time
             // data backfills also go here when needed — see "Backfills" in CLAUDE.md.
+            if (!Settings.isPointStarvedPurgeDone(this@App)) {
+                repository.purgePointStarvedTracks()
+                Settings.setPointStarvedPurgeDone(this@App)
+            }
         }
     }
 

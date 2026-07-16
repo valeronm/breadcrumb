@@ -91,11 +91,25 @@ interface TrackDao {
     suspend fun setDiscarded(trackId: Long, discardedAt: Long, reason: String)
 
     /**
-     * Hard-delete one track (points cascade). For *derived* rows only — undoing a merge drops the
-     * track the merge created. A user delete is the soft one ([setDiscarded]).
+     * Hard-delete one track (points cascade). For rows with nothing to review — undoing a merge
+     * drops the track the merge created, and a finish with too few points to render skips Recently
+     * deleted. A user delete is the soft one ([setDiscarded]).
      */
     @Query("DELETE FROM tracks WHERE id = :trackId")
     suspend fun purgeTrack(trackId: Long)
+
+    /**
+     * Hard-delete finished tracks with at most [maxPoints] points in total, good and ignored
+     * counted together (points cascade). Backfill for rows stored before finishing purged them;
+     * open tracks are excluded — their denormalized counts are meaningless while recording.
+     * Returns the count.
+     *
+     * The predicate mirrors `KeepRule.verdict`'s purge floor in SQL — a set-delete rather than a
+     * row-by-row pass — so keep the two in step, and delete this query with the backfill once the
+     * installed base has run it.
+     */
+    @Query("DELETE FROM tracks WHERE endedAt IS NOT NULL AND pointCount + ignoredCount <= :maxPoints")
+    suspend fun purgePointStarved(maxPoints: Int): Int
 
     /** Usable (non-ignored) points, for rendering and export. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")

@@ -198,6 +198,7 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.DwellDetector
+import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.RecordCardState
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -3259,9 +3260,10 @@ private fun TrackMapScreen(
     }
     var colorMode by remember { mutableStateOf(ColorMode.SPEED) }
     // Noisy (ignored) fixes are hidden by default; the warning toggle shows them with a legend.
-    // A track with no drawable line is the exception — its noisy fixes are all there is to see.
-    val noisyOnly = points?.let { it.size < 2 } == true
-    var showNoisy by remember(trackId, noisyOnly) { mutableStateOf(noisyOnly) }
+    // A track with no drawable line is the exception — its noisy fixes are all there is to see, so
+    // the default follows the points once they load, until the user says otherwise.
+    var showNoisyOverride by remember(trackId) { mutableStateOf<Boolean?>(null) }
+    val showNoisy = showNoisyOverride ?: (points?.let { it.size < KeepRule.MIN_LINE_POINTS } == true)
     // Detected stops default to visible — this screen is the validation tool for the detector.
     var showStops by remember(trackId) { mutableStateOf(true) }
     // Point picked on the metric graph, highlighted on the map. Index into the good-points list.
@@ -3300,8 +3302,8 @@ private fun TrackMapScreen(
                             )
                         }
                     }
-                    if (noisyPoints.orEmpty().isNotEmpty()) {
-                        IconButton(onClick = { showNoisy = !showNoisy }) {
+                    if (!noisyPoints.isNullOrEmpty()) {
+                        IconButton(onClick = { showNoisyOverride = !showNoisy }) {
                             Icon(
                                 Icons.Filled.Warning,
                                 contentDescription =
@@ -3337,7 +3339,7 @@ private fun TrackMapScreen(
                 loaded == null || noisy == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 // A track without a drawable line still gets the map when it has noisy fixes to
                 // mark — a bad-points-only track is exactly what the noisy overlay is for.
-                loaded.size < 2 && noisy.isEmpty() -> Text(
+                loaded.size < KeepRule.MIN_LINE_POINTS && noisy.isEmpty() -> Text(
                     "Not enough points to draw this track on a map.",
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,

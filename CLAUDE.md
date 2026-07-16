@@ -107,8 +107,10 @@ request starts; thresholds are read by the repository when a track finishes. `Ac
 therefore only carries a label, a `recording` boolean, and a `TrackGroup` — sampling cadence is
 **not** per-activity anymore.
 
-**Data** (`data/`): Room behind `TrackRepository`. The repository's `meetsKeepThresholds` decides
-whether a finished track is kept or soft-deleted as *discarded* — discarded (and user-deleted)
+**Data** (`data/`): Room behind `TrackRepository`. The repository's `keepVerdict` (rule in
+`KeepRule`) decides whether a finished track is kept, soft-deleted as *discarded*, or — with 2 or
+fewer points in total, good and ignored counted together, so truly nothing to review — hard-deleted
+outright. Discarded (and user-deleted)
 tracks are reviewable and restorable from Settings → Recently deleted, auto-purged after 14 days,
 and deliberately block GPX re-import; the check runs
 both on normal finish and via `finalizeDangling`, which also cleans up tracks left open by a crash
