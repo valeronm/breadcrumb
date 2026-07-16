@@ -70,10 +70,10 @@ interface TrackDao {
         """
         INSERT INTO track_points
             (trackId, latitude, longitude, altitude, accuracy, speed, bearing, timestamp,
-             verticalAccuracy, speedAccuracy, bearingAccuracy, satellitesInFix, cn0, provider,
+             verticalAccuracy, speedAccuracy, bearingAccuracy, satellitesInFix, cn0,
              ignored, ignoreReason, segmentStart)
         SELECT :newId, latitude, longitude, altitude, accuracy, speed, bearing, timestamp,
-               verticalAccuracy, speedAccuracy, bearingAccuracy, satellitesInFix, cn0, provider,
+               verticalAccuracy, speedAccuracy, bearingAccuracy, satellitesInFix, cn0,
                ignored, ignoreReason, segmentStart
         FROM track_points WHERE trackId = :srcId
         """

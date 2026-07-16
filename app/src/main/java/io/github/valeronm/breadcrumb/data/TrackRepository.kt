@@ -77,7 +77,6 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                             bearing = null,
                             timestamp = p.timeMs,
                             segmentStart = p.segmentStart,
-                            provider = "import",
                         )
                     },
                 )

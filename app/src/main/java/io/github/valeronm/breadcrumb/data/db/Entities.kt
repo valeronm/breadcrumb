@@ -82,8 +82,6 @@ data class TrackPoint(
     val satellitesInFix: Int? = null,
     /** Average C/N0 (dB-Hz) of the 4 strongest satellites used in the fix — signal strength. */
     val cn0: Float? = null,
-    /** Location provider that produced the fix ("gps", "fused", "network", …). */
-    val provider: String? = null,
     /**
      * True for a fix judged unreliable by [io.github.valeronm.breadcrumb.data.TrackQuality]
      * (too-coarse accuracy or an implausible jump). Stored but excluded from distance, the

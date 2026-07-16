@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [Track::class, TrackPoint::class, LivenessEvent::class, Place::class],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -158,6 +158,49 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v12 drops `track_points.provider`: with the fused path removed there is only one live
+         * source (raw GPS), so the column carried no information. minSdk 26's SQLite predates
+         * `ALTER TABLE … DROP COLUMN`, so the table is rebuilt — new table, copy, drop, rename —
+         * and the composite index is recreated. The DDL must match the entity annotations exactly
+         * (Room validates the schema at open and crashes on mismatch).
+         */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE track_points_new (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, trackId INTEGER NOT NULL,
+                      latitude REAL NOT NULL, longitude REAL NOT NULL, altitude REAL, accuracy REAL,
+                      speed REAL, bearing REAL, timestamp INTEGER NOT NULL, verticalAccuracy REAL,
+                      speedAccuracy REAL, bearingAccuracy REAL, satellitesInFix INTEGER, cn0 REAL,
+                      ignored INTEGER NOT NULL DEFAULT 0, ignoreReason TEXT,
+                      segmentStart INTEGER NOT NULL DEFAULT 0,
+                      FOREIGN KEY(trackId) REFERENCES tracks(id)
+                        ON UPDATE NO ACTION ON DELETE CASCADE)
+                    """,
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO track_points_new
+                        (id, trackId, latitude, longitude, altitude, accuracy, speed, bearing,
+                         timestamp, verticalAccuracy, speedAccuracy, bearingAccuracy,
+                         satellitesInFix, cn0, ignored, ignoreReason, segmentStart)
+                    SELECT id, trackId, latitude, longitude, altitude, accuracy, speed, bearing,
+                           timestamp, verticalAccuracy, speedAccuracy, bearingAccuracy,
+                           satellitesInFix, cn0, ignored, ignoreReason, segmentStart
+                    FROM track_points
+                    """,
+                )
+                db.execSQL("DROP TABLE track_points")
+                db.execSQL("ALTER TABLE track_points_new RENAME TO track_points")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_track_points_trackId_timestamp " +
+                        "ON track_points(trackId, timestamp)",
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -167,6 +210,7 @@ abstract class AppDatabase : RoomDatabase() {
                 ).addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                     MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+                    MIGRATION_11_12,
                 ).build().also { instance = it }
             }
     }
