@@ -143,32 +143,6 @@ class TrackRepositoryTest {
         assertStatsMatchPoints(id)
     }
 
-    @Test fun `the point-starved backfill purges old finished rows but never open or noisy ones`() = runTest {
-        // A pre-rule row: finished with two points stored on it.
-        val starved = dao.insertTrack(
-            Track(activityType = "WALKING", startedAt = TEST_START, endedAt = TEST_START + 10_000, pointCount = 2),
-        )
-        // A noisy row with no good points: its ignored fixes are evidence, not emptiness.
-        val noisy = dao.insertTrack(
-            Track(
-                activityType = "WALKING", startedAt = TEST_START + 20_000, endedAt = TEST_START + 30_000,
-                pointCount = 0, ignoredCount = 5,
-            ),
-        )
-        // A real kept track, and an open one whose zeroed pointCount is stale by design.
-        val kept = repository.startTrack(ActivityType.WALKING, TEST_START + 100_000)
-        repository.addPoints((0..5).map { test.point(kept, it) })
-        repository.finishTrack(kept, TEST_START + 160_000)
-        val open = repository.startTrack(ActivityType.WALKING, TEST_START + 200_000)
-
-        repository.purgePointStarvedTracks()
-
-        assertNull("the point-starved row is gone", dao.track(starved))
-        assertNotNull("a noisy-only row keeps its evidence", dao.track(noisy))
-        assertNotNull("a track with real points survives", dao.track(kept))
-        assertNotNull("an open track is never judged on its stale row", dao.track(open))
-    }
-
     @Test fun `merging two tracks recomputes the merged track's aggregates`() = runTest {
         val first = repository.startTrack(ActivityType.WALKING, TEST_START)
         repository.addPoints((0..3).map { test.point(first, it) })

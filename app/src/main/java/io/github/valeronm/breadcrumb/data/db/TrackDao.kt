@@ -98,19 +98,6 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE id = :trackId")
     suspend fun purgeTrack(trackId: Long)
 
-    /**
-     * Hard-delete finished tracks with at most [maxPoints] points in total, good and ignored
-     * counted together (points cascade). Backfill for rows stored before finishing purged them;
-     * open tracks are excluded — their denormalized counts are meaningless while recording.
-     * Returns the count.
-     *
-     * The predicate mirrors `KeepRule.verdict`'s purge floor in SQL — a set-delete rather than a
-     * row-by-row pass — so keep the two in step, and delete this query with the backfill once the
-     * installed base has run it.
-     */
-    @Query("DELETE FROM tracks WHERE endedAt IS NOT NULL AND pointCount + ignoredCount <= :maxPoints")
-    suspend fun purgePointStarved(maxPoints: Int): Int
-
     /** Usable (non-ignored) points, for rendering and export. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")
     suspend fun pointsFor(trackId: Long): List<TrackPoint>

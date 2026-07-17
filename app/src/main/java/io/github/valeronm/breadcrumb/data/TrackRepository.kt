@@ -248,18 +248,6 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /**
-     * One-time backfill: hard-delete finished tracks stored with [KeepRule.PURGE_MAX_POINTS] or
-     * fewer points in total, good and ignored counted together, recorded before finishing started
-     * purging them. Open tracks are untouched — their stored counts are meaningless by design, and
-     * [finalizeDangling] judges them from their actual points. Idempotent: a repeat run finds
-     * nothing.
-     */
-    suspend fun purgePointStarvedTracks() {
-        val purged = dao.purgePointStarved(KeepRule.PURGE_MAX_POINTS)
-        if (purged > 0) DebugLog.i(TAG, "backfill purged $purged track(s) empty of points")
-    }
-
-    /**
      * Closes tracks left open by a crash/kill (endedAt == null), using their last recorded point
      * as the end time, or deleting them if too short. [exceptTrackId] is the track currently being
      * recorded, which must be left untouched.

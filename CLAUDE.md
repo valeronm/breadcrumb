@@ -139,8 +139,9 @@ rows and a Room SQL migration can't express the logic, add a repository pass and
 any screen) because the background service can keep the process alive for weeks without the UI
 opening. Make the pass idempotent — a crash between the work and the flag write means it re-runs.
 Delete the pass, its flag, and any DAO queries only it used once the installed base has run it;
-the pre-DB-v5 ignore-reason backfill and the drive-start leading-stray repair followed this
-pattern and were dropped 2026-07-13 (see git history for a template).
+the pre-DB-v5 ignore-reason backfill, the drive-start leading-stray repair (both dropped
+2026-07-13) and the point-starved-track purge (dropped 2026-07-17) followed this pattern —
+see git history for a template.
 
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus

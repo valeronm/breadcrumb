@@ -21,7 +21,6 @@ object Settings {
     private const val KEY_PLACES_SHOW_RARE_UNNAMED = "places_show_rare_unnamed"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
-    private const val KEY_POINT_STARVED_PURGE_DONE = "point_starved_purge_done"
 
     const val DEFAULT_SAMPLING_MIN_INTERVAL_SEC = 5
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
@@ -81,16 +80,6 @@ object Settings {
 
     fun setAutoRecord(context: Context, enabled: Boolean) {
         prefs(context).edit { putBoolean(KEY_AUTO_RECORD, enabled) }
-    }
-
-    // --- One-time backfill flags — see "Backfills" in CLAUDE.md --------------
-
-    /** Whether the point-starved-track purge (TrackRepository.purgePointStarvedTracks) has run. */
-    fun isPointStarvedPurgeDone(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_POINT_STARVED_PURGE_DONE, false)
-
-    fun setPointStarvedPurgeDone(context: Context) {
-        prefs(context).edit { putBoolean(KEY_POINT_STARVED_PURGE_DONE, true) }
     }
 
     // --- Sampling (between points) ------------------------------------------
