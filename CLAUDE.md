@@ -116,7 +116,13 @@ and deliberately block GPX re-import; the check runs
 both on normal finish and via `finalizeDangling`, which also cleans up tracks left open by a crash
 (it skips `LocationRecordingService.activeTrackId`). `GpxExporter` (`data/export/`) builds GPX for
 share intents (`FileProvider`) or bulk-writes to a user-picked folder (Storage Access Framework);
-`GpxParser` imports GPX files shared/opened into the app. `PlaceRepository` backs the Places tab.
+`GpxParser` imports GPX files shared/opened into the app. `BackupExporter`/`BackupImporter`
+(`data/export/`) are the full backup: one gzipped JSON file with every kept track's points
+(ignored ones and quality metadata included), places and liveness events — written from Settings,
+streamed both ways (one track's points in memory at a time), point rows as arrays keyed by a
+`pointFields` header so future exports stay restorable. Restore is offered only on the Timeline's
+empty state, deliberately: with existing tracks it would have to merge. The format also feeds the
+planned web companion viewer. `PlaceRepository` backs the Places tab.
 
 **The track row carries its points' aggregates, and the recorder must never write it.** Distance,
 point/ignored counts and the first/last good coordinates live as columns on `tracks`, written only

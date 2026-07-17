@@ -142,6 +142,10 @@ interface TrackDao {
     @Query("SELECT id FROM tracks WHERE discardedAt IS NULL ORDER BY startedAt DESC")
     suspend fun allTrackIds(): List<Long>
 
+    /** Finished, kept tracks oldest-first — the backup export's track set. */
+    @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt ASC")
+    suspend fun exportTracks(): List<Track>
+
     // --- Observed queries -----------------------------------------------------------------------
     // These read `tracks` and nothing else, deliberately: Room invalidates per table, so a query
     // that touched `track_points` would re-run on every fix of a live recording — a scan of the

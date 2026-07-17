@@ -93,6 +93,23 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         return GpxImportCounts(imported, duplicates)
     }
 
+    /**
+     * Inserts a batch of backup tracks verbatim, points and all, under fresh ids — one
+     * transaction for the whole batch, so a 3000-track restore commits (and wakes the observed
+     * timeline queries) dozens of times, not thousands. The rows' aggregates come from the file —
+     * they were written by [refreshStats] over these same points before the export, so re-walking
+     * them here would only recompute the same numbers. No keep thresholds, no duplicate check:
+     * restore targets an empty app (the UI only offers it there).
+     */
+    suspend fun insertBackupTracks(batch: List<Pair<Track, List<TrackPoint>>>) {
+        db.withTransaction {
+            for ((track, points) in batch) {
+                val id = dao.insertTrack(track.copy(id = 0))
+                dao.insertPoints(points.map { it.copy(id = 0, trackId = id) })
+            }
+        }
+    }
+
     /** Reassign a finished track's activity (misdetected, or an imported GPX without a type). */
     suspend fun setActivityType(trackId: Long, activityType: ActivityType) =
         dao.setActivityType(trackId, activityType.name)
@@ -264,7 +281,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     suspend fun allTrackIds(): List<Long> = dao.allTrackIds()
 
+    /** Finished, kept tracks oldest-first — the backup export's track set. */
+    suspend fun exportTracks(): List<Track> = dao.exportTracks()
+
     suspend fun pointsFor(trackId: Long): List<TrackPoint> = dao.pointsFor(trackId)
+
+    /** Every point of a track, ignored ones included — the backup export's per-track load. */
+    suspend fun allPointsFor(trackId: Long): List<TrackPoint> = dao.allPointsFor(trackId)
 
     /** Usable points inserted after [afterId] — the live preview's incremental reload. */
     suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =

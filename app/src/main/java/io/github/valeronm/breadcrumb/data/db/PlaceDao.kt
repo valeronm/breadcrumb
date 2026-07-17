@@ -10,6 +10,10 @@ interface PlaceDao {
     @Insert
     suspend fun insert(place: Place): Long
 
+    /** Backup restore: one transaction for the whole list, not one per row. */
+    @Insert
+    suspend fun insertAll(places: List<Place>)
+
     @Query("UPDATE places SET label = :label WHERE id = :id")
     suspend fun rename(id: Long, label: String)
 
@@ -24,4 +28,7 @@ interface PlaceDao {
 
     @Query("SELECT * FROM places ORDER BY createdAt ASC, id ASC")
     fun observeAll(): Flow<List<Place>>
+
+    @Query("SELECT * FROM places ORDER BY createdAt ASC, id ASC")
+    suspend fun allPlaces(): List<Place>
 }

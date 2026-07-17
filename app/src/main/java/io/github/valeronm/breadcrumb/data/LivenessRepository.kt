@@ -13,11 +13,16 @@ private const val TAG = "Breadcrumb"
  * explicit toggles; an OUTAGE row is materialized at restart when the heartbeat (in [Settings])
  * turns out to have gone stale while armed — i.e. the app died rather than being turned off.
  */
-class LivenessRepository(context: Context) {
+class LivenessRepository(context: Context, db: AppDatabase = AppDatabase.get(context)) {
 
-    private val dao = AppDatabase.get(context).livenessDao()
+    private val dao = db.livenessDao()
 
     fun observeEvents(): Flow<List<LivenessEvent>> = dao.observeAll()
+
+    suspend fun allEvents(): List<LivenessEvent> = dao.allEvents()
+
+    /** Backup restore: re-insert exported events under fresh ids (ordering is by time, not id). */
+    suspend fun restoreEvents(events: List<LivenessEvent>) = dao.insertAll(events.map { it.copy(id = 0) })
 
     suspend fun recordArmed(now: Long) {
         dao.insert(LivenessEvent(type = LivenessEvent.TYPE_ARMED, at = now))

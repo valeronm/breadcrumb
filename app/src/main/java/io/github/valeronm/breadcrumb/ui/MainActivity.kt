@@ -193,6 +193,7 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
+import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -1221,11 +1222,12 @@ private fun TracksTab(
 ) {
     val context = LocalContext.current
 
-    if (items.none { it is TimelineItem.TrackItem }) {
-        EmptyState(
-            "No tracks yet. They'll appear here once recording captures some movement.",
-            Modifier.fillMaxSize().padding(24.dp),
-        )
+    // Held on the empty/progress screen for the whole restore, not just while the list is empty:
+    // the first inserted batch would otherwise replace this screen (and its progress text) with a
+    // timeline that keeps re-deriving as tracks pour in. The finished timeline appears at once.
+    val restoreProgress by viewModel.restoreProgress.collectAsStateWithLifecycle()
+    if (restoreProgress != null || items.none { it is TimelineItem.TrackItem }) {
+        EmptyTracksState(viewModel)
         return
     }
 
@@ -2172,6 +2174,7 @@ private fun SettingsScreen(
             GroupedRows(
                 { ImportTracksRow(viewModel) },
                 { ExportTracksRow(viewModel) },
+                { ExportBackupRow(viewModel) },
                 {
                     NavRow(
                         "Recently deleted",
@@ -2405,37 +2408,79 @@ private fun ImportTracksRow(viewModel: TrackListViewModel) {
             "Importing file ${(progress.filesDone + 1).coerceAtMost(progress.filesTotal)} " +
                 "of ${progress.filesTotal} · ${progress.imported} tracks so far"
         },
+        enabled = progress == null,
     ) {
-        if (progress == null) {
-            importLauncher.launch(
-                arrayOf(
-                    "application/gpx+xml", "application/octet-stream",
-                    "text/xml", "application/xml",
-                ),
-            )
-        }
+        importLauncher.launch(
+            arrayOf(
+                "application/gpx+xml", "application/octet-stream",
+                "text/xml", "application/xml",
+            ),
+        )
     }
+}
+
+/** The busy subtitle shared by the export rows: "<verb> <noun> N of M" once the total is known. */
+private fun exportSubtitle(progress: TrackListViewModel.OpProgress?, idle: String, verb: String, noun: String): String =
+    when {
+        progress == null -> idle
+        progress.tracksTotal != null -> "$verb $noun ${progress.tracksDone} of ${progress.tracksTotal}"
+        else -> verb
+    }
+
+private fun exportResultToast(context: Context, count: Int?) {
+    val message = if (count == null) "Export failed" else "Exported $count tracks"
+    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }
 
 /** Hub row that opens the folder picker and writes every track out as GPX. */
 @Composable
 private fun ExportTracksRow(viewModel: TrackListViewModel) {
-    val context = LocalContext.current
-    var exporting by remember { mutableStateOf(false) }
+    val appContext = LocalContext.current.applicationContext
+    // Progress lives in the ViewModel, so it survives leaving Settings mid-export.
+    val progress by viewModel.gpxExportProgress.collectAsStateWithLifecycle()
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        exporting = true
-        viewModel.exportAll(uri) { count ->
-            exporting = false
-            Toast.makeText(context, "Exported $count tracks", Toast.LENGTH_LONG).show()
-        }
+        viewModel.exportAll(uri) { count -> exportResultToast(appContext, count) }
     }
     NavRow(
         "Export tracks",
-        subtitle = if (exporting) "Exporting…" else "Every track as a GPX file, into a folder you pick",
-    ) { if (!exporting) exportLauncher.launch(null) }
+        subtitle = exportSubtitle(
+            progress,
+            idle = "Every track as a GPX file, into a folder you pick",
+            verb = "Exporting…",
+            noun = "file",
+        ),
+        enabled = progress == null,
+    ) { exportLauncher.launch(null) }
+}
+
+/**
+ * Hub row that writes the whole history as one gzipped JSON file — backup, and the web
+ * companion's source. Progress lives in the ViewModel, so it survives leaving Settings
+ * mid-export; the row is disabled (and counts up in its subtitle) while one runs.
+ */
+@Composable
+private fun ExportBackupRow(viewModel: TrackListViewModel) {
+    val appContext = LocalContext.current.applicationContext
+    val progress by viewModel.exportProgress.collectAsStateWithLifecycle()
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(BackupExporter.MIME_TYPE),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        viewModel.exportBackup(uri) { count -> exportResultToast(appContext, count) }
+    }
+    NavRow(
+        "Back up everything",
+        subtitle = exportSubtitle(
+            progress,
+            idle = "Tracks, places and history as one file",
+            verb = "Backing up…",
+            noun = "track",
+        ),
+        enabled = progress == null,
+    ) { exportLauncher.launch(BackupExporter.fileName(System.currentTimeMillis())) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2650,13 +2695,15 @@ private fun GroupedRows(vararg rows: @Composable () -> Unit) {
 private fun NavRow(
     label: String,
     subtitle: String? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     // No vertical padding of its own: the GroupedRows card already pads the row.
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.5f),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -2813,15 +2860,75 @@ private fun BackNavIcon(onBack: () -> Unit) {
     }
 }
 
-/** Centered placeholder for a list with nothing to show. */
+/**
+ * The Timeline's empty state — the only place that offers restoring a backup.
+ * With tracks present a restore would have to merge with them, so the offer disappears as soon
+ * as the first track exists.
+ */
 @Composable
-private fun EmptyState(message: String, modifier: Modifier = Modifier) {
-    Box(modifier, contentAlignment = Alignment.Center) {
+private fun EmptyTracksState(viewModel: TrackListViewModel) {
+    val context = LocalContext.current
+    val appContext = context.applicationContext
+    val progress by viewModel.restoreProgress.collectAsStateWithLifecycle()
+    val restoreLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        viewModel.restoreBackup(uri) { summary ->
+            val message = if (summary == null) {
+                "Restore failed — not a Breadcrumb backup?"
+            } else {
+                "Restored ${summary.tracks} tracks and ${summary.places} places"
+            }
+            Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
+        }
+    }
+    EmptyState(
+        if (progress == null) {
+            "No tracks yet. They'll appear here once recording captures some movement."
+        } else {
+            "Restoring your backup — the timeline will appear when it finishes."
+        },
+        Modifier.fillMaxSize().padding(24.dp),
+    ) {
+        Spacer(Modifier.height(16.dp))
+        val restoring = progress
+        if (restoring == null) {
+            TextButton(onClick = {
+                restoreLauncher.launch(
+                    arrayOf("application/gzip", "application/x-gzip", "application/octet-stream"),
+                )
+            }) { Text("Restore from backup") }
+        } else {
+            val total = restoring.tracksTotal?.let { " of $it" } ?: ""
+            Text(
+                "Restoring… ${restoring.tracksDone}$total tracks",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Centered placeholder for a list with nothing to show, plus optional content below the message. */
+@Composable
+private fun EmptyState(
+    message: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit = {},
+) {
+    Column(
+        modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         Text(
             message,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
+        content()
     }
 }
 

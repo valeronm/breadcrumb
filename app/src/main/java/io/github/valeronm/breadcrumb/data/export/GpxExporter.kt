@@ -13,6 +13,10 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
+/** The timestamp stamp shared by export file names (GPX and backup). */
+internal fun exportFileStamp(at: Long): String =
+    SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(at))
+
 /** Serialises a stored track to a GPX 1.1 file and returns a shareable content Uri. */
 object GpxExporter {
 
@@ -48,26 +52,42 @@ object GpxExporter {
 
     /**
      * Writes every track as its own .gpx file into the user-picked folder [treeUri] (from the
-     * system folder picker). Returns the number of tracks exported.
+     * system folder picker). Returns the number of tracks exported; [onProgress] counts every
+     * track processed, written or skipped, so it always reaches the total.
      */
-    suspend fun exportAllToTree(context: Context, repository: TrackRepository, treeUri: Uri): Int {
+    suspend fun exportAllToTree(
+        context: Context,
+        repository: TrackRepository,
+        treeUri: Uri,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): Int {
         val dir = DocumentFile.fromTreeUri(context, treeUri) ?: return 0
+        val trackIds = repository.allTrackIds()
         var exported = 0
-        for (trackId in repository.allTrackIds()) {
-            val (track, gpx) = gpxFor(repository, trackId) ?: continue
-            val file = dir.createFile(MIME_TYPE, fileName(track)) ?: continue
-            context.contentResolver.openOutputStream(file.uri)?.use { out ->
-                out.write(gpx.toByteArray())
-            } ?: continue
-            exported++
+        for ((index, trackId) in trackIds.withIndex()) {
+            if (writeTrack(context, dir, repository, trackId)) exported++
+            onProgress(index + 1, trackIds.size)
         }
         return exported
     }
 
-    private fun fileName(track: Track): String {
-        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(track.startedAt))
-        return "${track.activityType.lowercase(Locale.US)}-$stamp.gpx"
+    /** Writes one track's .gpx into [dir]; false if the track is empty or the write failed. */
+    private suspend fun writeTrack(
+        context: Context,
+        dir: DocumentFile,
+        repository: TrackRepository,
+        trackId: Long,
+    ): Boolean {
+        val (track, gpx) = gpxFor(repository, trackId) ?: return false
+        val file = dir.createFile(MIME_TYPE, fileName(track)) ?: return false
+        context.contentResolver.openOutputStream(file.uri)?.use { out ->
+            out.write(gpx.toByteArray())
+        } ?: return false
+        return true
     }
+
+    private fun fileName(track: Track): String =
+        "${track.activityType.lowercase(Locale.US)}-${exportFileStamp(track.startedAt)}.gpx"
 
     internal fun buildGpx(track: Track, points: List<TrackPoint>): String {
         val iso = isoFormatter()

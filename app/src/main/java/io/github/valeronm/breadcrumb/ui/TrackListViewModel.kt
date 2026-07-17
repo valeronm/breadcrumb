@@ -16,6 +16,8 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.data.export.BackupExporter
+import io.github.valeronm.breadcrumb.data.export.BackupImporter
 import io.github.valeronm.breadcrumb.data.export.GpxExporter
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.util.DebugLog
@@ -214,12 +216,76 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     /** The ignored "bad fix" points, shown as markers on the track map. */
     suspend fun getIgnoredPoints(trackId: Long): List<TrackPoint> = repository.ignoredPointsFor(trackId)
 
-    /** Exports every track as a .gpx file into the picked folder; reports how many were written. */
-    fun exportAll(treeUri: Uri, onDone: (Int) -> Unit) {
+    /** Track progress of a long-running export/restore-style operation. */
+    class OpProgress(val tracksDone: Int, val tracksTotal: Int?)
+
+    /** Non-null while a GPX bulk export runs — drives the Export tracks row; survives navigation. */
+    private val _gpxExportProgress = MutableStateFlow<OpProgress?>(null)
+    val gpxExportProgress: StateFlow<OpProgress?> = _gpxExportProgress
+
+    /** Non-null while a backup export runs — drives the Back up everything row; survives navigation. */
+    private val _exportProgress = MutableStateFlow<OpProgress?>(null)
+    val exportProgress: StateFlow<OpProgress?> = _exportProgress
+
+    /** Non-null while a backup restore runs — drives the empty-state progress text. */
+    private val _restoreProgress = MutableStateFlow<OpProgress?>(null)
+    val restoreProgress: StateFlow<OpProgress?> = _restoreProgress
+
+    /**
+     * The shared scaffold of the long-running operations above: one at a time per [progress] flow
+     * (a second call while one runs is ignored), progress published as the operation reports it
+     * and cleared when it ends, failures logged and surfaced to [onDone] as null.
+     */
+    private fun <T> runExclusiveOp(
+        progress: MutableStateFlow<OpProgress?>,
+        logLabel: String,
+        onDone: (T?) -> Unit,
+        op: suspend (onProgress: (Int, Int?) -> Unit) -> T?,
+    ) {
+        if (progress.value != null) return
+        progress.value = OpProgress(0, null)
         viewModelScope.launch {
-            onDone(GpxExporter.exportAllToTree(getApplication(), repository, treeUri))
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    op { done, total -> progress.value = OpProgress(done, total) }
+                } catch (e: Exception) {
+                    DebugLog.w("Breadcrumb", "$logLabel failed: ${e.message}")
+                    null
+                }
+            }
+            progress.value = null
+            onDone(result)
         }
     }
+
+    /** Exports every track as a .gpx file into the picked folder; reports how many were written. */
+    fun exportAll(treeUri: Uri, onDone: (Int?) -> Unit) =
+        runExclusiveOp(_gpxExportProgress, "gpx export", onDone) { onProgress ->
+            GpxExporter.exportAllToTree(getApplication(), repository, treeUri, onProgress)
+        }
+
+    /**
+     * Writes the whole history as one gzipped JSON file (backup, and the web companion's data
+     * source); reports the track count, or null on failure.
+     */
+    fun exportBackup(uri: Uri, onDone: (Int?) -> Unit) =
+        runExclusiveOp(_exportProgress, "backup export", onDone) { onProgress ->
+            BackupExporter.exportTo(
+                getApplication(), repository, placeRepository, livenessRepository,
+                uri, System.currentTimeMillis(), onProgress,
+            )
+        }
+
+    /**
+     * Restores a backup file — the whole file, no merging, which is why the UI only offers it
+     * while the app is empty. Reports the summary, or null on failure.
+     */
+    fun restoreBackup(uri: Uri, onDone: (BackupImporter.Summary?) -> Unit) =
+        runExclusiveOp(_restoreProgress, "backup restore", onDone) { onProgress ->
+            BackupImporter.importFrom(
+                getApplication(), repository, placeRepository, livenessRepository, uri, onProgress,
+            )
+        }
 
     class GpxImportSummary(val imported: Int, val duplicates: Int, val failed: Int)
 

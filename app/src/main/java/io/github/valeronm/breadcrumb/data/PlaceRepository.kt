@@ -10,11 +10,16 @@ import kotlinx.coroutines.flow.Flow
  * and visit counts derive on read; a Place row pins a label to a cluster centroid at naming time
  * (the pin is never moved on rename — matching goes through the cluster anchor, see PlaceResolver).
  */
-class PlaceRepository(context: Context) {
+class PlaceRepository(context: Context, db: AppDatabase = AppDatabase.get(context)) {
 
-    private val dao = AppDatabase.get(context).placeDao()
+    private val dao = db.placeDao()
 
     fun observePlaces(): Flow<List<Place>> = dao.observeAll()
+
+    suspend fun allPlaces(): List<Place> = dao.allPlaces()
+
+    /** Backup restore: re-insert exported places under fresh ids (nothing references place ids). */
+    suspend fun restorePlaces(places: List<Place>) = dao.insertAll(places.map { it.copy(id = 0) })
 
     suspend fun create(label: String, lat: Double, lon: Double, now: Long): Long =
         dao.insert(Place(label = label, lat = lat, lon = lon, createdAt = now))
