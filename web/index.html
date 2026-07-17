@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Breadcrumb Viewer</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+        integrity="sha384-MinO0mNliZ3vwppuPOUnGa+iq619pfMhLVUXfC4LHwSCvF9H+6P/KO4Q7qBOYV5V"
+        crossorigin="anonymous">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <header>
+      <h1>Breadcrumb</h1>
+      <div id="summary"></div>
+      <button id="import-button">Import backup…</button>
+      <div id="progress" hidden></div>
+      <input id="file-input" type="file" accept=".gz,application/gzip" hidden>
+    </header>
+    <div id="empty" hidden>
+      <p id="drop-hint">Drop a Breadcrumb backup (<code>breadcrumb-*.json.gz</code>) anywhere,
+        or use the button above. Export one from the app: Settings → Back up everything.</p>
+    </div>
+    <nav id="track-list" hidden></nav>
+  </aside>
+  <main id="map"></main>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"
+          integrity="sha384-SYKAG6cglRMN0RVvhNeBY0r3FYKNOJtznwA0v7B5Vp9tr31xAHsZC0DqkQ/pZDmj"
+          crossorigin="anonymous"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

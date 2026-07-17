@@ -16,3 +16,6 @@ __pycache__/
 
 # Local-only Play demo video (not committed)
 /tools/permission-demo.mp4
+
+# Web viewer: local API key config
+/web/config.js
