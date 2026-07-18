@@ -16,15 +16,16 @@ import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.data.Settings
+import kotlin.random.Random
 
 /**
  * Registers/unregisters Activity Transition updates with Google Play Services. Transitions are
  * delivered to [ActivityTransitionReceiver] via a broadcast [PendingIntent].
  *
- * All Play Services calls go through [chain]: GMS processes them asynchronously and does not
- * guarantee issue order, so a disarm's remove landing *after* a rearm's request (they're ~0.5s
- * apart on a toggle) silently unregisters the fresh registration — observed in the field as
- * "registered" succeeding, the arm-time replay arriving, then no live transitions ever again.
+ * All Play Services calls go through [chain]. GMS processes them asynchronously with no ordering
+ * guarantee, so a disarm's remove landing after a rearm's request — they are ~0.5s apart on a
+ * toggle — unregisters the fresh registration, and reports success while doing it.
  */
 class ActivityRecognitionManager(private val context: Context) {
 
@@ -42,8 +43,21 @@ class ActivityRecognitionManager(private val context: Context) {
         return PendingIntent.getBroadcast(context, requestCode, intent, flags)
     }
 
-    private fun transitionPendingIntent() =
-        broadcastPendingIntent(ActivityTransitionReceiver.ACTION_TRANSITION, REQUEST_TRANSITION)
+    /**
+     * A first code for an installation that has none. Random rather than a fixed base because
+     * settings are not in the backup set: a reinstall clears the stored code while GMS's entry from
+     * the previous installation can outlive it (see [restart]), and starting at a constant would
+     * retrace the old installation's codes and adopt a stranded entry.
+     */
+    private fun mintRequestCode() = Random.nextInt(REQUEST_TRANSITION_BASE, MAX_SEED)
+
+    /** The code [start] should register on, minted and stored if the installation has none yet. */
+    private fun currentRequestCode(): Int =
+        Settings.arRequestCode(context)
+            ?: mintRequestCode().also { Settings.setArRequestCode(context, it) }
+
+    private fun transitionPendingIntent(requestCode: Int) =
+        broadcastPendingIntent(ActivityTransitionReceiver.ACTION_TRANSITION, requestCode)
 
     private fun snapshotPendingIntent() =
         broadcastPendingIntent(ActivityTransitionReceiver.ACTION_SNAPSHOT, REQUEST_SNAPSHOT)
@@ -76,16 +90,27 @@ class ActivityRecognitionManager(private val context: Context) {
      * chained registration task so a broadcast-driven caller can hold its wakelock until the
      * request has reached GMS.
      */
+    fun start(): Task<Void> = synchronized(opLock) { start(currentRequestCode()) }
+
     @SuppressLint("MissingPermission")
-    fun start(): Task<Void> =
-        chain { client.requestActivityTransitionUpdates(buildRequest(), transitionPendingIntent()) }
+    private fun start(requestCode: Int): Task<Void> =
+        chain {
+            client.requestActivityTransitionUpdates(
+                buildRequest(), transitionPendingIntent(requestCode),
+            )
+        }
             .addOnSuccessListener { DebugLog.i(TAG, "transition updates registered") }
             .addOnFailureListener { DebugLog.e(TAG, "transition updates registration FAILED: ${it.message}") }
 
-    @SuppressLint("MissingPermission")
+    /** Disarm: drop the live registration, if this installation ever made one. */
     fun stop() {
-        DebugLog.i(TAG, "removing transition updates")
-        val pi = transitionPendingIntent()
+        synchronized(opLock) { Settings.arRequestCode(context)?.let(::removeRegistration) }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun removeRegistration(requestCode: Int) {
+        DebugLog.i(TAG, "removing transition updates on $requestCode")
+        val pi = transitionPendingIntent(requestCode)
         chain { client.removeActivityTransitionUpdates(pi) }
         // The documented deregistration recipe cancels the PendingIntent after removal; a cancel
         // makes the next getBroadcast(FLAG_UPDATE_CURRENT) mint a fresh token instead of reusing
@@ -99,17 +124,52 @@ class ActivityRecognitionManager(private val context: Context) {
     }
 
     /**
-     * Full re-registration on a fresh PendingIntent token: remove + cancel ([stop]), settle, then
-     * register. A package update leaves GMS's record for the old token registered-but-dead —
-     * replays and snapshots still flow, live transitions never do — and re-requesting on the same
-     * token (FLAG_UPDATE_CURRENT) can never revive it; only a token minted after [PendingIntent.cancel]
-     * delivers again (verified in the field 2026-07-15). The settle mirrors the manual
-     * disarm/arm timing the fix was verified with.
+     * Full re-registration on a request code no registration has used before: remove + cancel the
+     * retiring one, settle, then register.
+     *
+     * A registration can stop delivering live transitions while still reporting success, answering
+     * snapshots and replaying on re-registration, so there is no client-side tell — inferring it is
+     * what the service's deafness oracle is for. Advancing the code keeps a re-registration from
+     * resolving to whatever GMS still holds for an older one, since it keys its entry by (request
+     * code, intent identity).
+     *
+     * Treat that as hygiene, not a cure. A fresh code is not known to revive a registration that
+     * has stopped delivering — one has been seen registering successfully and receiving nothing
+     * while a second install recovered on a code it had reused — and the state responsible appears
+     * to sit in Play Services rather than in anything this app owns. Re-registration is not a
+     * reliable recovery path, and nothing here should be built as though it were.
+     *
+     * The settle only spaces consecutive GMS calls; nothing depends on its duration.
      */
-    fun restart(): Task<Void> {
-        stop()
+    fun restart(): Task<Void> = synchronized(opLock) {
+        clearLegacyRegistration()
+        // Codes only advance; a stranded entry can be neither repaired nor detected, so reusing one
+        // risks adopting it. No stored code means nothing was ever registered — nothing to retire.
+        val retiring = Settings.arRequestCode(context)
+        val fresh = retiring?.plus(1) ?: mintRequestCode()
+        DebugLog.i(TAG, "re-registering on request code $fresh (retiring $retiring)")
+        retiring?.let(::removeRegistration)
+        Settings.setArRequestCode(context, fresh)
         chain<Void> { delayed(REGISTER_SETTLE_MS) }
-        return start()
+        start(fresh)
+    }
+
+    /**
+     * One-time removal of the registration that builds predating per-installation codes left on
+     * the fixed [REQUEST_TRANSITION_BASE]. Once an install has its own code nothing else names that
+     * one, so it would keep delivering until the app is replaced.
+     *
+     * Runs from [restart] rather than the usual `App.onCreate` slot because only an armed install
+     * can be holding such a registration — a disarm removes and cancels it — and a package
+     * replacement re-arms on its own. Idempotent, so a crash before the flag write only costs a
+     * repeat. Delete this, its flag, and [REQUEST_TRANSITION_BASE]'s legacy role once the installed
+     * base has run it.
+     */
+    private fun clearLegacyRegistration() {
+        if (Settings.isLegacyArCodeClearDone(context)) return
+        DebugLog.i(TAG, "clearing legacy transition registration")
+        removeRegistration(REQUEST_TRANSITION_BASE)
+        Settings.setLegacyArCodeClearDone(context)
     }
 
     /** A Task that completes [delayMs] after being created; spaces chained GMS calls. */
@@ -135,10 +195,25 @@ class ActivityRecognitionManager(private val context: Context) {
     }
 
     companion object {
-        private const val REQUEST_TRANSITION = 4711
+        // Range a fresh installation's first code is drawn from (see [currentRequestCode]); the
+        // ceiling leaves room for a lifetime of advances without overflowing. Doubles as the fixed
+        // code every build predating per-installation codes registered on, which
+        // [clearLegacyRegistration] removes once per install.
+        private const val REQUEST_TRANSITION_BASE = 4711
+        private const val MAX_SEED = Int.MAX_VALUE / 2
+
+        // Shares the range above, harmlessly — a different intent action makes it a different token.
         private const val REQUEST_SNAPSHOT = 4712
         private const val REGISTER_SETTLE_MS = 2_000L
         private const val TAG = "Breadcrumb"
+
+        // Guards each public operation's read-modify-write of the stored code together with the
+        // chain enqueues acting on it. Arm calls [restart] on the main thread while the deafness
+        // oracle calls it from an IO coroutine, and neither holds the service's mutex — interleaved,
+        // both would read the same code and one of the registrations they create would be left with
+        // nothing naming it. Deliberately not the [chain] monitor: this span includes a blocking
+        // settings commit, which would stall every unrelated GMS enqueue behind it.
+        private val opLock = Any()
 
         // The tail of the ordered GMS-call chain. Shared across instances (the receiver creates
         // its own manager for removeSnapshot) — ordering must hold per-package, not per-instance.

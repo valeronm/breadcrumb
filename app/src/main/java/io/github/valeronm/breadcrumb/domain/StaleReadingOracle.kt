@@ -15,10 +15,8 @@ package io.github.valeronm.breadcrumb.domain
  * (`elapsedRealTimeNanos`) but is reconverted to wall-clock time via `currentTimeMillis()` on every
  * delivery, so the *same* replayed event, re-timed 50 minutes later, can pick up a few milliseconds
  * of phantom advance from wall-clock drift over a long stationary stretch — enough to trip a bare
- * `>` and fire a spurious restart (observed in the field 2026-07-15: two installs on one phone got
- * the identical aged STILL replay, one crossed the millisecond edge and restarted, the other did
- * not). A genuinely missed transition advances by seconds, far above the [minAdvanceMs] floor, so
- * a coarse threshold keeps every real catch while rejecting the jitter.
+ * `>` and fire a spurious restart. A genuinely missed transition advances by seconds, far above the
+ * [minAdvanceMs] floor, so a coarse threshold keeps every real catch while rejecting the jitter.
  */
 object StaleReadingOracle {
 

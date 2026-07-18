@@ -22,10 +22,10 @@ import java.util.Locale
  * We hand off to the live service instance directly (same process) rather than re-starting it,
  * which avoids background-start restrictions.
  *
- * Forwarded readings hold the broadcast open ([goAsync]) until the service has applied them:
- * returning from onReceive releases the broadcast's wakelock, and in Doze the apply coroutine
- * then freezes — transitions were observed logged on time but applied minutes later, putting a
- * walking tail on a drive track and stitching through a real stop.
+ * Forwarded readings hold the broadcast open ([goAsync]) until the service has applied them.
+ * Returning from onReceive releases the broadcast's wakelock, and in Doze the apply coroutine then
+ * freezes: the reading is logged on time but applied minutes later, which puts a walking tail on a
+ * drive track and stitches through a real stop.
  */
 class ActivityTransitionReceiver : BroadcastReceiver() {
 

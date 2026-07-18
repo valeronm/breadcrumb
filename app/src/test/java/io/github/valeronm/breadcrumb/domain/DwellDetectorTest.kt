@@ -173,7 +173,7 @@ class DwellDetectorTest {
 
     @Test
     fun `a slow arced walk passing through the corral is a transit, not a dwell`() {
-        // The 2026-07-12 false-positive shape: a winding path swings ±40 m laterally while making
+        // The false-positive shape: a winding path swings ±40 m laterally while making
         // slow but steady net progress (~8 m/min) — it holds the corral past minDwellMs yet never
         // actually stops. The drift gate must reject it.
         val arc = (0 until 14 * 4).map { i ->

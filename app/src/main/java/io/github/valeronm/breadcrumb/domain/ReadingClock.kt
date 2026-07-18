@@ -6,8 +6,8 @@ package io.github.valeronm.breadcrumb.domain
  * Event times let the gate judge resume-vs-new-track by when things actually *happened* rather
  * than when the (possibly Doze-delayed) apply ran: a stop and a return drained together from a
  * frozen queue must not read as a quick return when they were really ten minutes apart. But the
- * stamps can't be trusted blindly — observed values include small negatives (future skew) and a
- * 22.5-hour "ago" on an event delivered live. Rules:
+ * stamps can't be trusted blindly: they range from small negatives (future skew) to a 22.5-hour
+ * "ago" on an event delivered live. Rules:
  *  - missing / future / older than [maxAgeMs] stamps fall back to [nowMs] (garbage in, wall
  *    clock out — an age cap far above any real drain delay, so legitimate replays still count);
  *  - readings never regress: they're clamped monotonically non-decreasing, so a stale stamp can

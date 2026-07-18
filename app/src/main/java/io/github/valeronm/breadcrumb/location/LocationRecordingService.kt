@@ -430,8 +430,8 @@ class LocationRecordingService : Service() {
     }
 
     // --- Registration watchdog ---
-    // The GMS transition registration can die silently (observed: the arm-time replay arrives,
-    // then no live transitions ever again). While armed, an alarm re-registers every interval:
+    // The GMS transition registration can die with no error surfacing — replays keep answering
+    // while live delivery stops. While armed, an alarm re-registers every interval:
     // registration replays the current activity, so a missed transition is recovered within one
     // tick. Alarm-based (not a coroutine delay) because Doze freezes coroutine timers — exactly
     // when transitions go missing.
@@ -476,10 +476,11 @@ class LocationRecordingService : Service() {
         finalizeExpiredPause()
         if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) {
             // Request-only, deliberately not restart(): a plain request refreshes a healthy
-            // registration without touching it (and replays the latest transition, feeding the
-            // stale-reading oracle below), while a restart re-mints the token — observed to lose
-            // a server-side race ~1 time in 4 and come up dead. Restarts happen only at arm and
-            // when the oracle proves the registration deaf.
+            // registration without touching it, and replays the latest transition, which is what
+            // feeds the stale-reading oracle. A restart tears the registration down and rebuilds it
+            // on the other request code — too disruptive to run every tick against a registration
+            // that is probably fine. Restarts happen only at arm and when the oracle proves the
+            // registration deaf.
             activityManager.start().addOnCompleteListener { onDone?.invoke() }
         } else {
             onDone?.invoke()
@@ -527,9 +528,8 @@ class LocationRecordingService : Service() {
     // The source is the platform GPS provider, not Play Services' fused provider: fused
     // HIGH_ACCURACY also drives network location (periodic Wi-Fi scans + GmsCore wakelocks billed
     // to us), batches delivery minutes late in screen-off power saving, and its Wi-Fi/cell/
-    // dead-reckoning fixes are exactly what [isGnssBacked] rejects. A fused mode used to be
-    // selectable for GNSS-opaque venues; the 2026-07-12 field comparison retired it — venue time
-    // should surface as a stay, not a noisy track.
+    // dead-reckoning fixes are exactly what [isGnssBacked] rejects. There is deliberately no fused
+    // fallback for GNSS-opaque venues: venue time should surface as a stay, not a noisy track.
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
         if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) return
@@ -938,7 +938,7 @@ class LocationRecordingService : Service() {
         private const val WATCHDOG_INTERVAL_MS = 15 * 60_000L
 
         // Age cap for trusting an AR event's own timestamp (see [ReadingClock]): far above any
-        // real Doze drain delay, below the garbage stamps observed in the field (22.5 h).
+        // real Doze drain delay, below the garbage stamps GMS can emit (22.5 h).
         private const val READING_MAX_AGE_MS = 6 * 60 * 60_000L
 
         // Stale-reading deafness oracle: live transition deliveries arrive 0–5 s after their
