@@ -21,7 +21,19 @@ class App : Application() {
             description = "Ongoing notification shown while recording GPS tracks"
             setShowBadge(false)
         }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        // Separate from the ongoing tracking notification: this one is rare, actionable, and
+        // must not be silent — it is the only way the user learns recording has stopped working.
+        val alerts = NotificationChannel(
+            ALERT_CHANNEL_ID,
+            "Recording problems",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "Shown when automatic recording stops responding"
+        }
+        // One transaction, not two: onCreate runs on every process start, including the cold
+        // starts a transition broadcast or the watchdog alarm triggers.
+        getSystemService(NotificationManager::class.java)
+            .createNotificationChannels(listOf(channel, alerts))
 
         // Data housekeeping belongs to process start, not to any one screen — the background
         // service can keep the process alive for weeks without the UI ever being opened.
@@ -36,5 +48,6 @@ class App : Application() {
 
     companion object {
         const val CHANNEL_ID = "tracking"
+        const val ALERT_CHANNEL_ID = "alerts"
     }
 }

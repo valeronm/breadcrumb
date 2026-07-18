@@ -58,7 +58,7 @@ fun recordCardState(
 /**
  * The one-line text of the recorder state card: the recording status leads, the blocker or
  * progress fact trails — "Recording walking · positioning ±78 m", "Paused · walking resumes
- * within 1m 40s", "Not recording · waiting for activity · none for 17m".
+ * within 1m 40s", "Idle · nothing to record for 17m".
  * Pure: the UI supplies the clock/duration renderings ([formatClock] as "14:36", [formatDuration]
  * as "17m" / "2h 05m") so this composes phrases without touching Android formatters.
  */
@@ -69,6 +69,7 @@ fun recorderCardTitle(
     pausedActivity: ActivityType?,
     pausedUntilMs: Long?,
     lastReadingAtMs: Long?,
+    deaf: Boolean,
     lastFixAccuracyM: Float?,
     lastFixRejectedByAccuracy: Boolean,
     gpsSuspendedSinceMs: Long?,
@@ -89,25 +90,40 @@ fun recorderCardTitle(
         // Past the deadline nothing resumes into the track — the next activity starts a new
         // one — so it's idle in every way that matters to the user; only the close is pending.
         if (left != null && left <= 0) {
-            idleTitle(nowMs, lastReadingAtMs, formatDuration)
+            idleTitle(nowMs, lastReadingAtMs, deaf, formatDuration)
         } else {
             val label = (pausedActivity ?: activity)?.label?.lowercase() ?: "activity"
             if (left != null) "Paused · $label resumes within ${formatCountdown(left)}"
             else "Paused · $label"
         }
     }
-    RecordCardState.WAITING_FOR_MOVEMENT -> idleTitle(nowMs, lastReadingAtMs, formatDuration)
+    RecordCardState.WAITING_FOR_MOVEMENT -> idleTitle(nowMs, lastReadingAtMs, deaf, formatDuration)
     else -> "Starting…"
 }
 
-/** The reading's age is how long there's been nothing to record; under a minute goes unsaid. */
+/**
+ * The reading's age is how long there's been nothing to record; under a minute goes unsaid. A
+ * stalled detector is not a benign wait, so it says so — reporting it as plain quiet would read as
+ * ordinary idleness while the service is posting a warning about it.
+ *
+ * A stall also drops the "Idle" lead entirely: idleness is a normal state the user chose, and
+ * prefixing the fault with it reads as though nothing were wrong. It carries neither a duration nor
+ * a clock time — the only age available is the last reading's, which measures whichever event a
+ * re-registration replay happened to surface, and the moment the stall was *noticed* would be read
+ * as the moment it began. Both would invite the user to reason about which trips survived.
+ */
 private fun idleTitle(
     nowMs: Long,
     lastReadingAtMs: Long?,
+    deaf: Boolean,
     formatDuration: (Long) -> String,
 ): String {
     val quiet = lastReadingAtMs?.let { nowMs - it }?.takeIf { it >= 60_000 }
-    return "Idle · waiting for activity" + (quiet?.let { " · none for ${formatDuration(it)}" } ?: "")
+    return when {
+        deaf -> "Detection stalled"
+        quiet != null -> "Idle · nothing to record for ${formatDuration(quiet)}"
+        else -> "Idle · nothing to record"
+    }
 }
 
 private fun labelSuffix(activity: ActivityType?): String =

@@ -96,7 +96,8 @@ interpretation), `ReadingClock` (event-time gating of activity readings), `NoFix
 GPS can't get a fix), `KeepRule`, `TrackMerge` (merge short same-activity stays), `StayDeriver` +
 `PlaceClusterer` + `PlaceResolver` (timeline stays and named places), `DwellDetector` (in-track stop
 detection — currently a read-only track-detail overlay; splitting tracks at stops is designed but
-not built), `RecordCard`. New behaviour
+not built), `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
+`DeafnessWarning` (decide when to tell the user about it). New behaviour
 belongs here first, with a test, before wiring into the service or UI.
 
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
@@ -187,6 +188,16 @@ cross-checks it.
 - **Activity recognition needs Google Play Services**, so this is intentionally not a FOSS/F-Droid
   build. A continuous foreground service + persistent notification is mandatory for background location
   — there is no "invisible" mode.
+- **A GMS transition registration can go silently deaf** — it keeps reporting success, answering
+  snapshots and replaying on re-registration while never delivering live. Re-registration has been
+  field-disproven as a cure (a registration on a request code GMS had never seen came up dead while a
+  second install recovered on a reused one); the state sits in Play Services and only a device reboot
+  cleared it. So the app **detects and reports rather than repairs**: `StaleReadingOracle` spots it,
+  `DeafnessWarning` decides when to say so, and the user is told to reboot. Don't build anything that
+  assumes restarting the registration fixes this — that ground has been covered.
+- The `alerts` notification channel is the second channel, separate from the ongoing tracking one:
+  transient, `IMPORTANCE_DEFAULT`, used only for the deafness warning (id 1002). The "persistent
+  notification" rules above are about the foreground service's channel, not this one.
 - Background location requires the user to grant **"Allow all the time"**, which on Android 11+ is only
   grantable from the app's system settings page (the permission UI deep-links there).
 - `applicationId` is permanent once published; the `${applicationId}.fileprovider` authority and

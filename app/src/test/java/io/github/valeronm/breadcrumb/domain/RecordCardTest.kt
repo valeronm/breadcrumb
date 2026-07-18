@@ -82,11 +82,12 @@ class RecordCardTest {
         pausedActivity: ActivityType? = null,
         pausedUntilMs: Long? = null,
         lastReadingAtMs: Long? = null,
+        deaf: Boolean = false,
         lastFixAccuracyM: Float? = null,
         lastFixRejectedByAccuracy: Boolean = false,
         gpsSuspendedSinceMs: Long? = null,
     ) = recorderCardTitle(
-        state, NOW, activity, pausedActivity, pausedUntilMs, lastReadingAtMs,
+        state, NOW, activity, pausedActivity, pausedUntilMs, lastReadingAtMs, deaf,
         lastFixAccuracyM, lastFixRejectedByAccuracy,
         gpsSuspendedSinceMs = gpsSuspendedSinceMs,
         // Renders like the real UI would, but only for the exact inputs the title should pass —
@@ -96,19 +97,33 @@ class RecordCardTest {
     )
 
     @Test fun `idle leads with the recording status`() {
-        assertEquals("Idle · waiting for activity", title(RecordCardState.WAITING_FOR_MOVEMENT))
+        assertEquals("Idle · nothing to record", title(RecordCardState.WAITING_FOR_MOVEMENT))
+    }
+
+    @Test fun `a deaf recorder says so instead of looking like ordinary idleness`() {
+        // The service is posting a warning about this; the card must not meanwhile report a
+        // benign wait, and must not lead with "Idle" — the state is a fault, not a chosen rest.
+        // No time is attached: neither number available means what a reader would take it to mean.
+        assertEquals(
+            "Detection stalled",
+            title(
+                RecordCardState.WAITING_FOR_MOVEMENT,
+                lastReadingAtMs = NOW - 17 * 60_000,
+                deaf = true,
+            ),
+        )
     }
 
     @Test fun `a fresh reading adds nothing — under a minute goes without saying`() {
         assertEquals(
-            "Idle · waiting for activity",
+            "Idle · nothing to record",
             title(RecordCardState.WAITING_FOR_MOVEMENT, lastReadingAtMs = NOW - 30_000),
         )
     }
 
     @Test fun `an aged reading shows how long there has been nothing to record`() {
         assertEquals(
-            "Idle · waiting for activity · none for 17m",
+            "Idle · nothing to record for 17m",
             title(RecordCardState.WAITING_FOR_MOVEMENT, lastReadingAtMs = NOW - 17 * 60_000),
         )
     }
@@ -129,7 +144,7 @@ class RecordCardTest {
         // so promising a resume — or showing "0s" while a Doze-deferred timer catches up — would
         // be a lie.
         assertEquals(
-            "Idle · waiting for activity",
+            "Idle · nothing to record",
             title(
                 RecordCardState.PAUSED,
                 pausedActivity = ActivityType.WALKING,
@@ -137,7 +152,7 @@ class RecordCardTest {
             ),
         )
         assertEquals(
-            "Idle · waiting for activity · none for 17m",
+            "Idle · nothing to record for 17m",
             title(
                 RecordCardState.PAUSED,
                 pausedActivity = ActivityType.WALKING,

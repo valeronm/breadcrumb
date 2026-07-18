@@ -1105,6 +1105,7 @@ private fun RecorderStateCard(state: RecordCardState, status: TrackingStatus.Sta
         pausedActivity = status.pausedActivity,
         pausedUntilMs = status.pausedUntilMillis,
         lastReadingAtMs = status.lastReadingAtMillis,
+        deaf = status.deaf,
         lastFixAccuracyM = status.lastFixAccuracyM,
         lastFixRejectedByAccuracy = status.lastFixRejectedByAccuracy,
         gpsSuspendedSinceMs = status.gpsSuspendedSinceMillis,

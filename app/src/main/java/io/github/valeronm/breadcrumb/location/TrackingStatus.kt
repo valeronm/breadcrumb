@@ -30,6 +30,8 @@ object TrackingStatus {
         val pausedUntilMillis: Long? = null,
         /** When the latest raw activity reading arrived — proof detection is alive. */
         val lastReadingAtMillis: Long? = null,
+        /** Activity detection has stopped responding and isn't recovering — see DeafnessWarning. */
+        val deaf: Boolean = false,
         /** Last fix's accuracy radius (m) and whether the accuracy gate rejected it — feedback
          *  for the "waiting for GPS" card when fixes arrive but aren't good enough. */
         val lastFixAccuracyM: Float? = null,

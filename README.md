@@ -120,7 +120,7 @@ single-module.
 
 Activity recognition needs **real movement** (or a route played through an emulator's extended
 controls → Location → Routes) to fire transitions. While stationary the app shows
-*"Idle · waiting for activity"*; start walking or driving and a track begins automatically. You
+*"Idle · nothing to record"*; start walking or driving and a track begins automatically. You
 can also import a `.gpx` file to populate tracks, places, and the map without moving.
 
 ## Notes & limitations

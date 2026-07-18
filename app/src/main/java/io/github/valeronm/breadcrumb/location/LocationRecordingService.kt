@@ -39,6 +39,7 @@ import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.TrackStats
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityGate
+import io.github.valeronm.breadcrumb.domain.DeafnessWarning
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ReadingClock
 import io.github.valeronm.breadcrumb.domain.StaleReadingOracle
@@ -100,6 +101,14 @@ class LocationRecordingService : Service() {
     // re-registration — see the deafness check in [applyActivity].
     @Volatile private var armedAtMs = 0L
     private var lastStaleRestartMs = 0L
+
+    // Warns the user when activity detection stops responding; see [DeafnessWarning] for why it
+    // takes two detections. Its replay window is timed against the manager's registration stamp,
+    // since a re-registration's replay is indistinguishable from a live delivery.
+    private val deafnessWarning = DeafnessWarning(
+        liveMaxAgeMs = STALE_READING_RESTART_MS,
+        replayWindowMs = REGISTRATION_REPLAY_WINDOW_MS,
+    )
 
     // True once any transition reading has been applied since the last arm. Read by
     // [ActivityTransitionReceiver] to drop the arm-time snapshot once the transition stream has
@@ -204,7 +213,7 @@ class LocationRecordingService : Service() {
         armedAtMs = now()
         transitionSinceArm = false
         DebugLog.i(TAG, "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)})")
-        startForegroundWithNotification("Standing by", "Waiting for movement")
+        startForegroundWithNotification("Idle", "Nothing to record")
         scheduleWatchdog()
         TrackingStatus.update { it.copy(tracking = true) }
 
@@ -228,6 +237,7 @@ class LocationRecordingService : Service() {
                 gate.onArmed()
                 publishStatus()
             }
+            clearDeafnessWarning()
             // Arm activity recognition only after the paused state is established. Doing it before
             // lets the one-shot snapshot's applyActivity() race this block on the mutex; if the
             // snapshot won, it would open a track that finalizeDangling then deleted and onArmed()
@@ -249,6 +259,7 @@ class LocationRecordingService : Service() {
         armed = false
         DebugLog.i(TAG, "handleStop: disarming")
         cancelWatchdog()
+        clearDeafnessWarning()
         activityManager.stop()
         scope.launch {
             mutex.withLock {
@@ -304,23 +315,38 @@ class LocationRecordingService : Service() {
         val readingMs = readingClock.sanitize(eventTimeMs, nowMs, READING_MAX_AGE_MS)
         // Deafness oracle: a stale-yet-clock-advancing reading applied while armed can only have
         // arrived via replay of a transition GMS never delivered live — proof the registration is
-        // deaf (a package update or a GMS restart kills it silently). Re-register on a fresh
-        // PendingIntent token, the only revive that works; the advance must clear
+        // deaf (a package update or a GMS restart kills it silently). The advance must clear
         // STALE_READING_ADVANCE_MS so a repeat of an already-applied event can't fire a spurious
-        // restart (see [StaleReadingOracle]). Rate-limited: the re-mint itself can lose a GMS
-        // server-side race, and the next detection retries it.
+        // restart (see [StaleReadingOracle]).
         if (StaleReadingOracle.provesDeaf(
                 eventTimeMs, readingMs, lastReadingMs, armedAtMs, nowMs,
                 STALE_READING_RESTART_MS, STALE_READING_ADVANCE_MS,
-            ) && nowMs - lastStaleRestartMs > STALE_RESTART_MIN_GAP_MS
-        ) {
-            lastStaleRestartMs = nowMs
-            DebugLog.w(
-                TAG,
-                "reading ${(nowMs - readingMs) / 1000}s late (advanced ${readingMs - lastReadingMs}ms) " +
-                    "— registration deaf, re-registering",
             )
-            activityManager.restart()
+        ) {
+            // The restart is rate-limited; the detection is not. A detection that arrives while a
+            // restart is still within its cooldown is the interesting one — it means the last
+            // restart didn't take, which is what the user needs telling about.
+            if (nowMs - lastStaleRestartMs > STALE_RESTART_MIN_GAP_MS) {
+                lastStaleRestartMs = nowMs
+                DebugLog.w(
+                    TAG,
+                    "reading ${(nowMs - readingMs) / 1000}s late " +
+                        "(advanced ${readingMs - lastReadingMs}ms) — registration deaf, re-registering",
+                )
+                activityManager.restart()
+            }
+            if (deafnessWarning.onDeafDetected()) {
+                showDeafnessWarning()
+                publishStatus()
+            }
+        } else if (
+            deafnessWarning.onReading(
+                nowMs - readingMs, nowMs - ActivityRecognitionManager.lastRegisteredAtMs,
+            )
+        ) {
+            DebugLog.i(TAG, "live delivery resumed — withdrawing the detection warning")
+            clearDeafnessWarning()
+            publishStatus()
         }
         // Every delivery — even a NoChange — proves activity detection is alive; the Record
         // tab's standing-by card surfaces this.
@@ -823,6 +849,7 @@ class LocationRecordingService : Service() {
                 startedAtMillis = if (rec && trackStartedAt > 0) trackStartedAt else null,
                 speedMps = if (rec) accumulator.lastGood?.speed else null,
                 altitudeM = if (rec) accumulator.lastGood?.altitude else null,
+                deaf = deafnessWarning.warned,
                 gpsSuspended = suspended,
                 gpsSuspendedSinceMillis = when {
                     !suspended -> null
@@ -837,14 +864,15 @@ class LocationRecordingService : Service() {
         }
         // State only — no live distance. The notification re-posts only on activity/pause
         // transitions (a per-fix post costs a wakelock + IPC every second while recording).
-        // Same "recording"/"standing by" vocabulary as the Record tab's state card.
+        // Same vocabulary as the Record tab's state card — one name per state, or the two
+        // surfaces describe the same thing differently.
         val (title, detail) = when {
             activity.recording && noFixGuard.suspended ->
                 "Recording · ${activity.label}" to "No GPS signal — waiting for one"
             activity.recording -> "Recording · ${activity.label}" to "Track in progress"
             pausedActivity != null ->
                 "Paused · ${pausedActivity.label}" to "Continues if you move soon"
-            else -> "Standing by" to "Waiting for movement"
+            else -> "Idle" to "Nothing to record"
         }
         updateNotification(title, detail)
     }
@@ -867,8 +895,11 @@ class LocationRecordingService : Service() {
     private fun updateNotification(title: String, text: String) {
         if (lastNotified == title to text) return
         lastNotified = title to text
-        val manager = ContextCompat.getSystemService(this, android.app.NotificationManager::class.java)
-        manager?.notify(NOTIFICATION_ID, buildNotification(title, text))
+        notificationManager?.notify(NOTIFICATION_ID, buildNotification(title, text))
+    }
+
+    private val notificationManager by lazy {
+        ContextCompat.getSystemService(this, android.app.NotificationManager::class.java)
     }
 
     // The notification's PendingIntents never change, so build them once and reuse across
@@ -888,6 +919,31 @@ class LocationRecordingService : Service() {
             Intent(this, LocationRecordingService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+    }
+
+    /** Escalate the deafness the Record card already shows, for when the app isn't open. */
+    private fun showDeafnessWarning() {
+        DebugLog.w(TAG, "activity detection not responding — notifying the user")
+        val text = "Trips may be missed or start late. Restarting the phone usually fixes it."
+        notificationManager?.notify(
+            ALERT_NOTIFICATION_ID,
+            NotificationCompat.Builder(this, App.ALERT_CHANNEL_ID)
+                .setContentTitle("Activity detection stalled")
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setSmallIcon(R.drawable.ic_notification)
+                .setCategory(NotificationCompat.CATEGORY_ERROR)
+                // Deliberately not auto-cancelling: the condition outlives the tap, and dismissing
+                // it must not be the only way to make the warning go away.
+                .setContentIntent(openIntent)
+                .build(),
+        )
+    }
+
+    /** Withdraw the warning and forget the episode. Cheap no-op when nothing was ever posted. */
+    private fun clearDeafnessWarning() {
+        if (deafnessWarning.warned) notificationManager?.cancel(ALERT_NOTIFICATION_ID)
+        deafnessWarning.reset()
     }
 
     private fun buildNotification(title: String, text: String): Notification {
@@ -933,6 +989,11 @@ class LocationRecordingService : Service() {
         const val ACTION_START = "io.github.valeronm.breadcrumb.START"
         const val ACTION_STOP = "io.github.valeronm.breadcrumb.STOP"
         private const val NOTIFICATION_ID = 1001
+        private const val ALERT_NOTIFICATION_ID = 1002
+
+        // A reading this soon after a registration is its replay. Comfortably over the settle
+        // ActivityRecognitionManager waits before re-requesting.
+        private const val REGISTRATION_REPLAY_WINDOW_MS = 5_000L
         private const val TAG = "Breadcrumb"
         private const val HEARTBEAT_INTERVAL_MS = 15 * 60_000L
         private const val WATCHDOG_INTERVAL_MS = 15 * 60_000L

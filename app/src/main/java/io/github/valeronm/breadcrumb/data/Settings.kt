@@ -21,8 +21,6 @@ object Settings {
     private const val KEY_PLACES_SHOW_RARE_UNNAMED = "places_show_rare_unnamed"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
-    private const val KEY_AR_REQUEST_CODE = "ar_transition_request_code"
-    private const val KEY_LEGACY_AR_CODE_CLEARED = "legacy_ar_code_cleared"
 
     const val DEFAULT_SAMPLING_MIN_INTERVAL_SEC = 5
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
@@ -168,33 +166,6 @@ object Settings {
 
     fun setPlacesShowRareUnnamed(context: Context, enabled: Boolean) {
         prefs(context).edit { putBoolean(KEY_PLACES_SHOW_RARE_UNNAMED, enabled) }
-    }
-
-    // --- Activity-Recognition registration token ------------------------------
-
-    /**
-     * Request code the live transition registration's PendingIntent sits on; null when nothing has
-     * been registered yet, so callers tearing a registration down can tell there is nothing to
-     * remove. See ActivityRecognitionManager.
-     */
-    fun arRequestCode(context: Context): Int? =
-        prefs(context).getInt(KEY_AR_REQUEST_CODE, 0).takeIf { it != 0 }
-
-    fun setArRequestCode(context: Context, value: Int) {
-        // Committed, not applied, and always before the registration it names is issued: a write
-        // lost to a process kill would leave GMS holding a code nothing can name again to remove
-        // it. One int, once per re-registration.
-        prefs(context).edit(commit = true) { putInt(KEY_AR_REQUEST_CODE, value) }
-    }
-
-    // --- One-time backfill flags — see "Backfills" in CLAUDE.md ---------------
-
-    /** Whether the registration older builds left on the fixed request code has been removed. */
-    fun isLegacyArCodeClearDone(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_LEGACY_AR_CODE_CLEARED, false)
-
-    fun setLegacyArCodeClearDone(context: Context) {
-        prefs(context).edit { putBoolean(KEY_LEGACY_AR_CODE_CLEARED, true) }
     }
 
 }
