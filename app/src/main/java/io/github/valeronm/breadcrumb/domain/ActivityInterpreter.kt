@@ -35,9 +35,10 @@ object ActivityInterpreter {
      *
      * The snapshot only exists to cover the gap between arming and the first transition. Once any
      * transition has been applied since arming ([transitionApplied]), the transition stream is
-     * authoritative and the snapshot is dropped: it reports Play Services' *cached* detection,
-     * which can lag reality — a stale STILL arriving moments after a replayed ENTER IN_VEHICLE
-     * would pause (and eventually discard) a genuine drive.
+     * authoritative and the snapshot is dropped: it samples the *raw* classifier with none of the
+     * transition API's smoothing, so a momentary state the transition machinery would ride out —
+     * STILL at a red light, say, arriving moments after a replayed ENTER IN_VEHICLE — would pause
+     * (and eventually discard) a genuine drive.
      */
     fun interpretSnapshot(
         mostProbable: ActivityType,

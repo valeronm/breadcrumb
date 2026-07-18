@@ -81,7 +81,7 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                     transitionApplied,
                 )
                 // Always logged: a snapshot fires once per arm, and a suppressed one once hid a
-                // stale STILL pausing a just-started drive.
+                // momentary STILL pausing a just-started drive.
                 val ranked = result.probableActivities.joinToString {
                     "${detectedName(it.type)}:${it.confidence}"
                 }
