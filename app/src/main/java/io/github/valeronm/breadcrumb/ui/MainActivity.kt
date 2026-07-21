@@ -23,6 +23,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
@@ -105,6 +106,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -410,6 +412,8 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
     // The last summary the key resolved to: keeps the screen stable between re-derivations and
     // re-finds a just-named cluster by centroid (naming moves its key from cluster: to place:).
     var placeDetailSnapshot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
+    // A visit tapped on the place detail: the Timeline scrolls to this stay when it next composes.
+    var timelineVisitTarget by remember { mutableStateOf<StayDeriver.Stay?>(null) }
 
     val overlayLayer = rememberOverlayLayer(
         content = overlay,
@@ -547,6 +551,8 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                         items = timeline,
                         viewModel = viewModel,
                         undo = undo,
+                        visitTarget = timelineVisitTarget,
+                        onVisitTargetShown = { timelineVisitTarget = null },
                         onOpen = { overlay = Overlay.TrackDetail(it) },
                         onOpenPlace = { placeDetailKey = it },
                         onReplay = { track ->
@@ -637,6 +643,12 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
                         neighbors = neighbors,
                         viewModel = viewModel,
                         onBack = { placeDetailKey = null },
+                        onOpenVisit = { stay ->
+                            timelineVisitTarget = stay
+                            placeDetailKey = null
+                            overlay = null
+                            selectedTab = HomeTab.TRACKS
+                        },
                     )
                 }
             }
@@ -1217,6 +1229,8 @@ private fun TracksTab(
     items: List<TimelineItem>,
     viewModel: TrackListViewModel,
     undo: UndoSnackbar,
+    visitTarget: StayDeriver.Stay?,
+    onVisitTargetShown: () -> Unit,
     onOpen: (Long) -> Unit,
     onOpenPlace: (String) -> Unit,
     onReplay: (TrackSummary) -> Unit,
@@ -1243,6 +1257,37 @@ private fun TracksTab(
                 index += dayItems.size + 1
             }
         }
+    }
+    // The just-landed-on stay's row key: its card tints briefly so the eye finds it, then fades.
+    var highlightKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(highlightKey) {
+        if (highlightKey != null) {
+            delay(1800)
+            highlightKey = null
+        }
+    }
+    // Land on a visit tapped on a place's detail screen. Multi-day stays are sliced per day here,
+    // but the first slice keeps the stay's original start, so it matches by identity; if the stay
+    // is gone (re-derivation shifted it), its day header still anchors the jump.
+    LaunchedEffect(visitTarget) {
+        val target = visitTarget ?: return@LaunchedEffect
+        val hit = groups.indices.firstNotNullOfOrNull { g ->
+            val i = groups[g].second.indexOfFirst {
+                it is TimelineItem.StayItem &&
+                    it.stay.afterTrackId == target.afterTrackId && it.stay.start == target.start
+            }
+            if (i >= 0) (dayAnchors[g].second + 1 + i) to groups[g].second[i] else null
+        }
+        if (hit != null) {
+            // One row above the stay so it sits below the sticky day header, not under it.
+            listState.scrollToItem(hit.first - 1)
+            highlightKey = hit.second.rowKey()
+        } else {
+            val zone = ZoneId.systemDefault()
+            val label = dayLabel(target.start.toLocalDate(zone), LocalDate.now(zone))
+            dayAnchors.firstOrNull { it.first == label }?.let { listState.scrollToItem(it.second) }
+        }
+        onVisitTargetShown()
     }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -1283,6 +1328,7 @@ private fun TracksTab(
                         is TimelineItem.StayItem -> StayRow(
                             item = item,
                             shape = shape,
+                            highlighted = item.rowKey() == highlightKey,
                             onMerge = { plan ->
                                 viewModel.mergeTracks(plan) { mergedId ->
                                     undo.show("Tracks merged") { viewModel.unmergeTracks(mergedId, plan) }
@@ -1715,6 +1761,7 @@ private fun PlaceDetailScreen(
     neighbors: List<NeighborPlace>,
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
+    onOpenVisit: (StayDeriver.Stay) -> Unit,
 ) {
     val place = summary.place
     var showNameDialog by remember { mutableStateOf(false) }
@@ -1844,7 +1891,7 @@ private fun PlaceDetailScreen(
                 if (summary.stays.isEmpty()) {
                     EmptyState("No visits yet", Modifier.weight(1f).fillMaxWidth())
                 } else {
-                    PlaceVisitsList(summary.stays, Modifier.weight(1f).fillMaxWidth())
+                    PlaceVisitsList(summary.stays, onOpenVisit, Modifier.weight(1f).fillMaxWidth())
                 }
             }
         }
@@ -1938,7 +1985,11 @@ private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {
 
 /** The place's visit history, newest first, grouped under month headers. */
 @Composable
-private fun PlaceVisitsList(stays: List<StayDeriver.Stay>, modifier: Modifier = Modifier) {
+private fun PlaceVisitsList(
+    stays: List<StayDeriver.Stay>,
+    onOpenVisit: (StayDeriver.Stay) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
     val nowMs = remember { System.currentTimeMillis() }
@@ -1957,7 +2008,12 @@ private fun PlaceVisitsList(stays: List<StayDeriver.Stay>, modifier: Modifier = 
                 )
             }
             itemsIndexed(visits, key = { _, s -> "visit:${s.afterTrackId}:${s.start}" }) { index, stay ->
-                Card(Modifier.fillMaxWidth(), shape = groupedRowShape(index, visits.size)) {
+                // Tap → the Timeline, scrolled to this stay in its day's context.
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = groupedRowShape(index, visits.size),
+                    onClick = { onOpenVisit(stay) },
+                ) {
                     VisitRowContent(stay, zone, nowMs)
                 }
             }
@@ -2840,6 +2896,7 @@ private fun TimelineItem.rowKey(): String = when (this) {
     is TimelineItem.GapItem -> "gap:${gap.start}"
 }
 
+
 private val dayHeaderFormat = DateTimeFormatter.ofPattern("EEEE, d MMM yyyy", Locale.getDefault())
 private val dayHeaderFormatThisYear = DateTimeFormatter.ofPattern("EEEE, d MMM", Locale.getDefault())
 
@@ -3120,12 +3177,13 @@ private const val VISIT_COUNT_BADGE_MIN = 3
 private fun StayRow(
     item: TimelineItem.StayItem,
     shape: RoundedCornerShape,
+    highlighted: Boolean,
     onMerge: (TrackMerge.Plan) -> Unit,
     onClick: () -> Unit,
 ) {
     val place = item.place
     val named = place?.label != null
-    val card = @Composable { StayCard(item, shape, named, onClick) }
+    val card = @Composable { StayCard(item, shape, named, highlighted, onClick) }
     // A short same-activity stay can be swiped to merge its two tracks — the merged track replaces
     // the stay and both originals, and Undo unmerges. Ineligible stays (no plan) aren't swipeable.
     val plan = item.merge
@@ -3148,11 +3206,24 @@ private fun StayCard(
     item: TimelineItem.StayItem,
     shape: RoundedCornerShape,
     named: Boolean,
+    highlighted: Boolean,
     onClick: () -> Unit,
 ) {
     val stay = item.stay
     val place = item.place
-    Card(modifier = Modifier.fillMaxWidth(), shape = shape, onClick = onClick) {
+    // Appears already tinted when a place-visit jump lands on this row, then fades to normal.
+    val containerColor by animateColorAsState(
+        targetValue = if (highlighted) MaterialTheme.colorScheme.primaryContainer
+        else CardDefaults.cardColors().containerColor,
+        animationSpec = tween(durationMillis = 600),
+        label = "stayHighlight",
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = shape,
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+    ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
