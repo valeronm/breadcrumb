@@ -715,7 +715,8 @@ class OverviewPlace(
     val label: String?,
     /** The place-detail key reported on tap. */
     val key: String,
-    /** Only brief stops ever happened here — unnamed dots render orange instead of blue. */
+    /** The place's only stay is a merge-eligible short stop (a likely split-track artifact,
+     *  not a real visit) — unnamed dots render orange instead of blue. */
     val brief: Boolean = false,
 )
 

@@ -1616,9 +1616,6 @@ private const val NEIGHBOR_CONTEXT_M = 1_200.0
 /** Unnamed clusters with fewer visits than this are hidden unless "Rare unnamed stops" is on. */
 private const val RARE_UNNAMED_MIN_VISITS = 3
 
-/** An unnamed cluster with a single stay shorter than this is a brief stop — orange on the map. */
-private const val BRIEF_STAY_MAX_MS = 10 * 60_000L
-
 /** The Places tab: sortable list (tap for detail, swipe to delete) or an all-places map. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1629,6 +1626,10 @@ private fun PlacesTab(
 ) {
     val context = LocalContext.current
     val places by viewModel.places.collectAsStateWithLifecycle()
+    // For the map's orange dots: stays the Timeline offers to merge away (TrackMerge's rules —
+    // short, finished, same activity on both sides). A place that is only such an artifact is
+    // marked rather than re-deciding eligibility here.
+    val timeline by viewModel.timeline.collectAsStateWithLifecycle()
     var view by remember { mutableStateOf(PlacesView.MAP) }
     var showRareUnnamed by remember { mutableStateOf(AppSettings.placesShowRareUnnamed(context)) }
 
@@ -1692,16 +1693,22 @@ private fun PlacesTab(
                     .padding(bottom = 16.dp),
             ) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
-                    val mapPlaces = remember(sorted) {
-                        val now = System.currentTimeMillis()
+                    // Stay identity (afterTrackId + start) survives the timeline's per-day
+                    // slicing — a mergeable stay is short, so its first slice is the whole stay.
+                    val mergeableStays = remember(timeline) {
+                        timeline.filterIsInstance<TimelineItem.StayItem>()
+                            .filter { it.merge != null }
+                            .mapTo(HashSet()) { it.stay.afterTrackId to it.stay.start }
+                    }
+                    val mapPlaces = remember(sorted, mergeableStays) {
                         sorted.map { summary ->
                             OverviewPlace(
                                 location = summary.anchor,
                                 label = summary.place?.label,
                                 key = summary.rowKey(),
-                                brief = summary.stays.singleOrNull()?.let {
-                                    (it.end ?: now) - it.start < BRIEF_STAY_MAX_MS
-                                } ?: false,
+                                brief = summary.stays.singleOrNull()
+                                    ?.let { (it.afterTrackId to it.start) in mergeableStays }
+                                    ?: false,
                             )
                         }
                     }
