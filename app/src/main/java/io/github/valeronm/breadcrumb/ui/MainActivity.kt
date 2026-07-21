@@ -2657,6 +2657,7 @@ private fun discardReasonLabel(reason: String?): String? = when (reason) {
     Track.REASON_DELETED -> "Deleted by you"
     Track.REASON_FILTERED -> "Too short to keep"
     Track.REASON_MERGED -> "Replaced by a merged track"
+    Track.REASON_TRIMMED -> "Stay split from a track"
     else -> null
 }
 

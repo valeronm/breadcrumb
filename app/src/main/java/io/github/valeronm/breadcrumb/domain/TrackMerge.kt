@@ -13,13 +13,19 @@ object TrackMerge {
     /** A stay this short (or shorter) between same-activity tracks is a candidate for merging. */
     const val MAX_STAY_MS = 5 * 60_000L
 
+    /** Below this a "stay" is an artifact, not a visit — the named-place protection doesn't
+     *  apply. A restored edge-stay tail sits a few seconds from its track, and that sliver may
+     *  well fall on a named place (arrivals usually do); merging it back must stay possible. */
+    const val NAMED_STAY_MIN_MS = 60_000L
+
     /** Merge the two tracks bracketing the stay into a new track; [earlierId] precedes [laterId]. */
     data class Plan(val earlierId: Long, val laterId: Long)
 
     /**
      * A plan to merge across the stay between [before] (ends into the stay) and [after] (starts out
      * of it), or null if the stay is too long, still ongoing, on a named place ([stayIsNamedPlace]
-     * — merging would delete a real visit), or the two tracks aren't the same activity.
+     * — merging would delete a real visit, unless the stay is under [NAMED_STAY_MIN_MS] and thus
+     * no visit at all), or the two tracks aren't the same activity.
      */
     fun plan(
         before: TrackSummary,
@@ -28,8 +34,8 @@ object TrackMerge {
         stayEnd: Long?,
         stayIsNamedPlace: Boolean = false,
     ): Plan? {
-        if (stayIsNamedPlace) return null
         if (stayEnd == null || stayEnd - stayStart > MAX_STAY_MS) return null
+        if (stayIsNamedPlace && stayEnd - stayStart >= NAMED_STAY_MIN_MS) return null
         if (before.activityType != after.activityType) return null
         return Plan(earlierId = before.id, laterId = after.id)
     }

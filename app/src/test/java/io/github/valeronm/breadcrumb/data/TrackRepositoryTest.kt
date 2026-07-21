@@ -1,11 +1,14 @@
 package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.data.db.Track
+import io.github.valeronm.breadcrumb.data.export.GpxParser
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -177,5 +180,144 @@ class TrackRepositoryTest {
         assertEquals(5, track.pointCount)
         assertEquals(38.701, track.startLat!!, 1e-9) // the stray is no longer the start
         assertStatsMatchPoints(id)
+    }
+
+    // --- Edge-stay trim -------------------------------------------------------------------------
+
+    /** A fix every 10 s advancing 14 m north at walking Doppler speed. */
+    private fun walkPoints(trackId: Long, fromIndex: Int, count: Int, fromLat: Double) =
+        (0 until count).map { i ->
+            test.point(trackId, fromIndex + i, lat = fromLat + i * 0.000126)
+                .copy(speed = 1.4f)
+        }
+
+    /** A fix every 10 s jittering ±15 m around [lat] at standstill Doppler speed. */
+    private fun lingerPoints(trackId: Long, fromIndex: Int, count: Int, lat: Double) =
+        (0 until count).map { i ->
+            test.point(trackId, fromIndex + i, lat = lat + if (i % 2 == 0) 0.000135 else -0.000135)
+                .copy(speed = 0.1f)
+        }
+
+    private suspend fun discardedTracks(): List<Track> =
+        dao.observeDiscardedSummaries().first().map { dao.track(it.id)!! }
+
+    /** 10 min of walking (840 m) then 6 min lingering where the walk ended — the AR-lag tail.
+     *  Returns the track's raw end time (96 fixes, one per 10 s). */
+    private suspend fun addWalkThenLingerTail(id: Long): Long {
+        repository.addPoints(
+            walkPoints(id, 0, 60, fromLat = 38.7) +
+                lingerPoints(id, 60, 36, lat = 38.7 + 60 * 0.000126),
+        )
+        return TEST_START + 96 * 10_000L
+    }
+
+    @Test fun `finishing a track that ends lingering splits the stay off as a trimmed track`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        val endedAt = addWalkThenLingerTail(id)
+        repository.finishTrack(id, endedAt)
+
+        val head = dao.track(id)!!
+        assertNull("the walk itself is kept", head.discardedAt)
+        // The cut lands at the speed collapse — the walk-to-linger transition, bin-quantized.
+        val walkEndTs = TEST_START + 59 * 10_000L
+        assertTrue(head.endedAt!! in walkEndTs..(walkEndTs + 60_000))
+        assertStatsMatchPoints(id)
+
+        val tail = discardedTracks().single()
+        assertEquals(Track.REASON_TRIMMED, tail.discardReason)
+        // Both tracks bound at the cut: the zero-length seam is what StayDeriver turns into the
+        // stay carrying the merge-back offer if the tail is restored.
+        assertEquals(head.endedAt, tail.startedAt)
+        assertEquals(endedAt, tail.endedAt)
+        // Points moved, not copied: the two tracks partition the original 96.
+        assertEquals(96, head.pointCount + tail.pointCount)
+        assertStatsMatchPoints(tail.id)
+    }
+
+    @Test fun `restoring the trimmed tail and merging it back reconstitutes the track`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.finishTrack(id, addWalkThenLingerTail(id))
+        val tailId = discardedTracks().single().id
+
+        repository.restoreTrack(tailId)
+        val mergedId = repository.mergeTracks(id, tailId)!!
+
+        assertEquals(96, dao.track(mergedId)!!.pointCount)
+        assertStatsMatchPoints(mergedId)
+    }
+
+    @Test fun `a track that starts lingering is trimmed at its start`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        // 6 min lingering before departure, then 10 min of walking.
+        repository.addPoints(
+            lingerPoints(id, 0, 36, lat = 38.7) +
+                walkPoints(id, 36, 60, fromLat = 38.7),
+        )
+        repository.finishTrack(id, TEST_START + 96 * 10_000L)
+
+        val walk = dao.track(id)!!
+        assertNull(walk.discardedAt)
+        // startedAt moved up to the departure — the start of sustained movement.
+        val walkStartTs = TEST_START + 36 * 10_000L
+        assertTrue(walk.startedAt in (walkStartTs - 60_000)..walkStartTs)
+        val stay = discardedTracks().single()
+        assertEquals(Track.REASON_TRIMMED, stay.discardReason)
+        assertEquals(TEST_START, stay.startedAt)
+        assertEquals(walk.startedAt, stay.endedAt)
+        assertStatsMatchPoints(id)
+        assertStatsMatchPoints(stay.id)
+    }
+
+    @Test fun `an imported GPX track ending in a linger is trimmed via derived speed`() = runTest {
+        // GPX carries no Doppler speed — the boundary must come from the displacement lookback.
+        // The linger jitters ±9 m so its 30 s net displacement stays under the moving threshold.
+        val walkEnd = 38.7 + 60 * 0.000126
+        val points = (0 until 60).map { i ->
+            GpxParser.ImportPoint(
+                lat = 38.7 + i * 0.000126, lon = -9.3, ele = null,
+                timeMs = TEST_START + i * 10_000L, speed = null, segmentStart = false,
+            )
+        } + (0 until 36).map { i ->
+            GpxParser.ImportPoint(
+                lat = walkEnd + if (i % 2 == 0) 0.00008 else -0.00008, lon = -9.3, ele = null,
+                timeMs = TEST_START + (60 + i) * 10_000L, speed = null, segmentStart = false,
+            )
+        }
+        val counts = repository.importTracks(
+            listOf(
+                GpxParser.ImportableTrack(
+                    activityTypeName = "WALKING",
+                    startedAt = TEST_START,
+                    endedAt = TEST_START + 96 * 10_000L,
+                    points = points,
+                ),
+            ),
+        )
+
+        assertEquals(1, counts.imported)
+        val tail = discardedTracks().single()
+        assertEquals(Track.REASON_TRIMMED, tail.discardReason)
+        val head = dao.track(dao.allTrackIds().single())!!
+        val walkEndTs = TEST_START + 59 * 10_000L
+        assertTrue(head.endedAt!! in walkEndTs..(walkEndTs + 90_000))
+        assertEquals(head.endedAt, tail.startedAt)
+        assertStatsMatchPoints(head.id)
+        assertStatsMatchPoints(tail.id)
+    }
+
+    @Test fun `the trim backfill is idempotent`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        val endedAt = addWalkThenLingerTail(id)
+        // Close without the trim (as an old build would have): straight to the DAO.
+        dao.closeTrack(id, endedAt)
+
+        repository.trimEdgeStaysBackfill()
+        assertEquals(1, discardedTracks().size) // the trimmed tail
+        val headEnd = dao.track(id)!!.endedAt
+
+        repository.trimEdgeStaysBackfill()
+
+        assertEquals(1, discardedTracks().size)
+        assertEquals(headEnd, dao.track(id)!!.endedAt)
     }
 }

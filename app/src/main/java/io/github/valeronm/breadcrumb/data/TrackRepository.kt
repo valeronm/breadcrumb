@@ -9,6 +9,8 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.DwellDetector
+import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
@@ -85,8 +87,11 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 id
             }
             // Imports bypass live ingest filtering, so drop a drive-start stray up front; the
-            // repair ends by computing the fresh track's aggregates either way.
+            // repair ends by computing the fresh track's aggregates either way. Then trim edge
+            // stays like any finished recording — an import is a foreign recording, not a state
+            // restore (backup restore, by contrast, reproduces the export verbatim).
             repairLeadingPoints(trackId)
+            dao.track(trackId)?.let { trimFinishedTrack(it) }
             imported++
         }
         if (imported > 0) DebugLog.i(TAG, "gpx import: $imported tracks added, $duplicates duplicates skipped")
@@ -119,8 +124,12 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * the denormalized columns, so every path that changes a track's points (finish, merge, import,
      * repair) must end here or the timeline will show stale counts. Returns the stats it wrote.
      */
-    private suspend fun refreshStats(trackId: Long): TrackStats.Stats {
-        val stats = TrackStats.of(dao.allPointsFor(trackId))
+    private suspend fun refreshStats(trackId: Long): TrackStats.Stats =
+        refreshStats(trackId, dao.allPointsFor(trackId))
+
+    /** As above, from points already in memory — the trim paths hold them and must not re-read. */
+    private suspend fun refreshStats(trackId: Long, points: List<TrackPoint>): TrackStats.Stats {
+        val stats = TrackStats.of(points)
         dao.updateStats(
             trackId = trackId,
             distanceMeters = stats.distanceMeters,
@@ -140,8 +149,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * stale by design (the recorder doesn't write it per fix), so judging a crash-recovered track
      * on the row would discard real tracks as zero-length.
      */
-    private fun keepVerdict(track: Track, endedAt: Long, stats: TrackStats.Stats): KeepRule.Verdict {
-        val durationSec = (endedAt - track.startedAt) / 1000
+    private fun keepVerdict(track: Track, startedAt: Long, endedAt: Long, stats: TrackStats.Stats): KeepRule.Verdict {
+        val durationSec = (endedAt - startedAt) / 1000
         val thresholds = KeepRule.Thresholds(
             minDurationSec = Settings.minTrackDurationSec(appContext),
             minLengthM = Settings.minTrackLengthM(appContext),
@@ -173,16 +182,105 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * [KeepRule.PURGE_MAX_POINTS] or fewer points in total (good + ignored), which is hard-deleted
      * outright — empty of information, so nothing to review in Recently deleted either.
      */
-    private suspend fun closeOrDelete(track: Track, endedAt: Long) {
+    private suspend fun closeOrDelete(track: Track, endedAt: Long) = db.withTransaction {
+        // Trim first, so the aggregates and the keep verdict below judge the track without the
+        // stay's points — a walk that is mostly lingering should be filtered on its real legs.
+        val trimmed = trimEdgeStays(track, endedAt)
         // Finishing is where the track's aggregates are computed for the first time — the recorder
         // writes none of them while it records.
-        val stats = refreshStats(track.id)
-        when (keepVerdict(track, endedAt, stats)) {
-            KeepRule.Verdict.KEEP -> dao.closeTrack(track.id, endedAt)
+        val stats = refreshStats(track.id, trimmed.points)
+        when (keepVerdict(track, trimmed.startedAt, trimmed.endedAt, stats)) {
+            KeepRule.Verdict.KEEP -> dao.closeTrack(track.id, trimmed.endedAt)
             KeepRule.Verdict.DISCARD ->
-                dao.discardTrack(track.id, endedAt = endedAt, discardedAt = endedAt, reason = Track.REASON_FILTERED)
+                dao.discardTrack(track.id, endedAt = trimmed.endedAt, discardedAt = trimmed.endedAt, reason = Track.REASON_FILTERED)
             KeepRule.Verdict.PURGE -> dao.purgeTrack(track.id)
         }
+    }
+
+    /** A track's bounds after the edge-stay trim, plus its remaining points (already loaded —
+     *  callers recompute stats from these instead of re-reading the DB). */
+    private class Trimmed(val startedAt: Long, val endedAt: Long, val points: List<TrackPoint>)
+
+    /**
+     * Split off a stay recorded onto the track's edge — Activity Recognition lagged the real
+     * arrival (or departure), so recording ran on inside a venue ([EdgeStayDetector]; position
+     * decides *whether*, speed collapse decides *where*). The stay's points move (not copy) to a
+     * new track that is immediately soft-discarded with [Track.REASON_TRIMMED]: reviewable in
+     * Recently deleted and restorable. Both tracks are bounded at the cut, so a restored stay
+     * meets its track in a zero-length seam — which [StayDeriver]'s agreeing-endpoints rule
+     * derives as a stay carrying the merge-back offer that undoes the trim.
+     *
+     * The stay tracks' rows are fully written here (bounds, stats, discard); the trimmed track's
+     * bounds are written too, but its stats are the caller's to recompute from [Trimmed.points].
+     * Callers wrap the whole trim-and-recompute sequence in one transaction.
+     */
+    private suspend fun trimEdgeStays(track: Track, endedAt: Long): Trimmed {
+        var startedAt = track.startedAt
+        var trimmedEnd = endedAt
+        val params = EdgeStayDetector.Params(
+            dwell = DwellDetector.Params(
+                // The floor tracks the resume window (a longer stop would have split the track),
+                // clamped: "0 = always start a new track" must not mean "trim any edge dwell".
+                minDwellMs = maxOf(Settings.resumeWindowSec(appContext), 180) * 1000L,
+            ),
+            expectedFixIntervalMs = Settings.minIntervalSec(appContext) * 1000L,
+        )
+        var points = dao.allPointsFor(track.id)
+        val stays = EdgeStayDetector.detect(points, params, AndroidDistance)
+        for (stay in stays) {
+            val isEnd = stay.side == EdgeStayDetector.Side.END
+            val (stayPoints, keptPoints) = points.partition {
+                if (isEnd) it.timestamp >= stay.boundaryTs else it.timestamp < stay.boundaryTs
+            }
+            val stayTrackId = dao.insertTrack(
+                Track(
+                    activityType = track.activityType,
+                    startedAt = if (isEnd) stay.boundaryTs else track.startedAt,
+                    endedAt = if (isEnd) endedAt else stay.boundaryTs,
+                ),
+            )
+            if (isEnd) {
+                dao.movePointsFrom(track.id, stayTrackId, stay.boundaryTs)
+                dao.closeTrack(track.id, stay.boundaryTs)
+                trimmedEnd = stay.boundaryTs
+            } else {
+                dao.movePointsBefore(track.id, stayTrackId, stay.boundaryTs)
+                dao.setStartedAt(track.id, stay.boundaryTs)
+                startedAt = stay.boundaryTs
+            }
+            refreshStats(stayTrackId, stayPoints)
+            dao.setDiscarded(stayTrackId, System.currentTimeMillis(), Track.REASON_TRIMMED)
+            points = keptPoints
+            DebugLog.i(
+                TAG,
+                "track ${track.id}: trimmed ${stay.side.name.lowercase()} stay of " +
+                    "${stay.stayMs / 60_000} min into discarded track $stayTrackId",
+            )
+        }
+        return Trimmed(startedAt, trimmedEnd, points)
+    }
+
+    /**
+     * One-time backfill (see "Backfills" in CLAUDE.md): apply the edge-stay trim to kept tracks
+     * recorded before the trim existed. Idempotent — a trimmed track's edges end where movement
+     * was still sustained, so re-detection finds nothing to split.
+     */
+    suspend fun trimEdgeStaysBackfill() {
+        var trimmed = 0
+        for (track in dao.exportTracks()) {
+            if (trimFinishedTrack(track)) trimmed++
+        }
+        DebugLog.i(TAG, "edge-stay backfill: trimmed $trimmed track(s)")
+    }
+
+    /** [trimEdgeStays] for a track that is already closed (an import, or the backfill): trims and
+     *  refreshes the remaining stats. No keep re-verdict — what is kept stays kept, only shorter. */
+    private suspend fun trimFinishedTrack(track: Track): Boolean = db.withTransaction {
+        val endedAt = track.endedAt ?: return@withTransaction false
+        val result = trimEdgeStays(track, endedAt)
+        val changed = result.startedAt != track.startedAt || result.endedAt != endedAt
+        if (changed) refreshStats(track.id, result.points)
+        changed
     }
 
     suspend fun finishTrack(trackId: Long, endedAt: Long) {
@@ -198,7 +296,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         dao.setDiscarded(trackId, System.currentTimeMillis(), Track.REASON_DELETED)
     }
 
-    /** Bring a discarded track back to the timeline (undoes a delete/discard within retention). */
+    /** Bring a discarded track back to the timeline (undoes a delete/discard within retention).
+     *  A restored trimmed stay meets its origin track at the cut; the zero-length seam derives
+     *  as a stay carrying the merge offer that stitches the pair back together. */
     suspend fun restoreTrack(trackId: Long) = dao.restoreTrack(trackId)
 
     /** Hard-delete everything in Recently deleted right now (the user's "clear all"). */

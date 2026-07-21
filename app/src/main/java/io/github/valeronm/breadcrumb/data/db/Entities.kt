@@ -38,14 +38,19 @@ data class Track(
      * retention purge hard-deletes it.
      */
     val discardedAt: Long? = null,
-    /** Why it was discarded — [REASON_DELETED] | [REASON_FILTERED] | [REASON_MERGED]; null on
-     *  rows discarded before reasons were tracked. */
+    /** Why it was discarded — [REASON_DELETED] | [REASON_FILTERED] | [REASON_MERGED] |
+     *  [REASON_TRIMMED]; null on rows discarded before reasons were tracked. */
     val discardReason: String? = null,
 ) {
     companion object {
         const val REASON_DELETED = "deleted"
         const val REASON_FILTERED = "filtered"
         const val REASON_MERGED = "merged"
+
+        /** An edge stay split off a track — recording that ran on past the real arrival (or
+         *  before the real departure) because Activity Recognition lagged the stop. Restoring
+         *  it and merging it back into its track undoes the trim. */
+        const val REASON_TRIMMED = "trimmed"
     }
 }
 

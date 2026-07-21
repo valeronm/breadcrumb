@@ -61,6 +61,12 @@ class StayDeriverTest {
         track(2, start = 240 * MIN, end = 300 * MIN, from = from),
     )
 
+    /** A trim seam: two same-place tracks sharing the boundary instant (0 ms gap). */
+    private fun seamPair(from: Endpoint? = home) = listOf(
+        track(1, start = 60 * MIN, end = 120 * MIN, to = home),
+        track(2, start = 120 * MIN, end = 130 * MIN, from = from),
+    )
+
     // --- The decision table ------------------------------------------------
 
     @Test fun `agreeing endpoints with full liveness is an observed stay`() {
@@ -412,7 +418,7 @@ class StayDeriverTest {
         assertTrue(items[1] is TimelineItem.StayItem)
     }
 
-    @Test fun `on a start-time tie the interval sorts newer than the track`() {
+    @Test fun `on a start-time tie an ongoing interval sorts newer than the track`() {
         val summaries = listOf(summary(1, startedAt = 60 * MIN))
         val stay = Stay(60 * MIN, null, home, Provenance.OBSERVED, 1, clusterId = 0)
         val items = StayDeriver.interleave(summaries, listOf(stay))
@@ -420,8 +426,46 @@ class StayDeriverTest {
         assertTrue(items[1] is TimelineItem.TrackItem)
     }
 
+    @Test fun `a zero-length seam stay sorts between the two tracks it separates`() {
+        // The seam ties with the departing track's start; being closed, it must render
+        // below that track — between the pair — not above it.
+        val summaries = listOf(summary(2, startedAt = 120 * MIN), summary(1, startedAt = 60 * MIN))
+        val seam = Stay(120 * MIN, 120 * MIN, home, Provenance.OBSERVED, 1, clusterId = 0)
+        val items = StayDeriver.interleave(summaries, listOf(seam))
+        assertTrue(items[0] is TimelineItem.TrackItem)
+        assertTrue(items[1] is TimelineItem.StayItem)
+        assertTrue(items[2] is TimelineItem.TrackItem)
+        assertEquals(2L, (items[0] as TimelineItem.TrackItem).summary.id)
+    }
+
     private fun summary(id: Long, startedAt: Long) = TrackSummary(
         id = id, activityType = "WALKING", startedAt = startedAt,
         endedAt = startedAt + 10 * MIN, distanceMeters = 1000.0, pointCount = 100, ignoredCount = 0,
     )
+
+    // --- Zero-length gaps (trim seams) -------------------------------------
+
+    /** The intervals between the two tracks — the ongoing tail stay after the last track always
+     *  derives too and is not what these cases assert about. */
+    private fun betweenTracks(tracks: List<TrackEnd>) =
+        derive(tracks).filter { it.end != null }
+
+    @Test fun `a same-activity same-place zero gap is a zero-length stay - the trim seam`() {
+        val stay = betweenTracks(seamPair()).filterIsInstance<Stay>().single()
+        assertEquals(120 * MIN, stay.start)
+        assertEquals(120 * MIN, stay.end)
+        assertEquals(1L, stay.afterTrackId)
+    }
+
+    @Test fun `a zero gap at different places emits nothing, not a gap`() {
+        assertTrue(betweenTracks(seamPair(from = office)).isEmpty())
+    }
+
+    @Test fun `a negative gap still emits nothing`() {
+        val overlapping = listOf(
+            track(1, start = 60 * MIN, end = 120 * MIN),
+            track(2, start = 119 * MIN, end = 130 * MIN),
+        )
+        assertTrue(betweenTracks(overlapping).isEmpty())
+    }
 }

@@ -90,6 +90,19 @@ interface TrackDao {
     @Query("UPDATE tracks SET discardedAt = :discardedAt, discardReason = :reason WHERE id = :trackId")
     suspend fun setDiscarded(trackId: Long, discardedAt: Long, reason: String)
 
+    // --- Edge-stay trim (split a stay recorded onto a track's edge into its own track) ----------
+
+    /** Reassign the points at/after [fromTs] to [toId] — the end-stay's tail moves, not copies. */
+    @Query("UPDATE track_points SET trackId = :toId WHERE trackId = :fromId AND timestamp >= :fromTs")
+    suspend fun movePointsFrom(fromId: Long, toId: Long, fromTs: Long)
+
+    /** Reassign the points before [beforeTs] to [toId] — the start-stay's head moves, not copies. */
+    @Query("UPDATE track_points SET trackId = :toId WHERE trackId = :fromId AND timestamp < :beforeTs")
+    suspend fun movePointsBefore(fromId: Long, toId: Long, beforeTs: Long)
+
+    @Query("UPDATE tracks SET startedAt = :startedAt WHERE id = :trackId")
+    suspend fun setStartedAt(trackId: Long, startedAt: Long)
+
     /**
      * Hard-delete one track (points cascade). For rows with nothing to review — undoing a merge
      * drops the track the merge created, and a finish with too few points to render skips Recently

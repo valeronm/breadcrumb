@@ -43,4 +43,11 @@ class TrackMergeTest {
     @Test fun `a stay on a named place is not mergeable`() {
         assertNull(TrackMerge.plan(before, after, stayStart = 0, stayEnd = 60_000, stayIsNamedPlace = true))
     }
+
+    @Test fun `a sub-minute stay on a named place is an artifact, not a visit - mergeable`() {
+        // The restored edge-stay tail: seconds from its track, and arrivals usually land on a
+        // named place — the protection must not block merging the tail back.
+        val plan = TrackMerge.plan(before, after, stayStart = 0, stayEnd = 15_000, stayIsNamedPlace = true)
+        assertEquals(TrackMerge.Plan(earlierId = 1, laterId = 2), plan)
+    }
 }
