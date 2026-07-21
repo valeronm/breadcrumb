@@ -112,6 +112,14 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true // Robolectric needs the merged resources/manifest.
+            all {
+                // Full assertion messages and stacks in the console — the default short format
+                // reports a coroutine test's failure at its runTest line with no message, which
+                // is useless from CI where the HTML report isn't reachable.
+                it.testLogging {
+                    exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                }
+            }
         }
     }
 }
