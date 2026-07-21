@@ -631,6 +631,7 @@ private const val PLACE_CIRCLE_LINE = "place-circle-line"
 private const val PLACE_MARKER_SOURCE = "place-marker-src"
 private const val PLACE_MARKER_LAYER = "place-marker-layer"
 private const val IMG_ENDPOINT = "marker-endpoint"
+private const val IMG_ENDPOINT_BRIEF = "marker-endpoint-brief"
 private const val IMG_NEIGHBOR = "marker-neighbor"
 private const val IMG_PLACE = "marker-place"
 private const val CIRCLE_FILL = 0x2E5B9BF0
@@ -714,6 +715,8 @@ class OverviewPlace(
     val label: String?,
     /** The place-detail key reported on tap. */
     val key: String,
+    /** Only brief stops ever happened here — unnamed dots render orange instead of blue. */
+    val brief: Boolean = false,
 )
 
 /**
@@ -762,6 +765,7 @@ private const val OVERVIEW_LAYER = "places-overview-layer"
 
 private fun addOverviewLayers(ctx: Context, style: Style, places: List<OverviewPlace>) {
     style.addImage(IMG_ENDPOINT, drawableBitmap(ctx, R.drawable.ic_marker_endpoint))
+    style.addImage(IMG_ENDPOINT_BRIEF, drawableBitmap(ctx, R.drawable.ic_marker_endpoint_brief))
     style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))
     style.addSource(GeoJsonSource(OVERVIEW_SOURCE, overviewCollection(places)))
     style.addLayer(labelledSymbolLayer(ctx, OVERVIEW_LAYER, OVERVIEW_SOURCE))
@@ -774,7 +778,14 @@ private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
             Feature.fromGeometry(
                 Point.fromLngLat(p.location.lon, p.location.lat),
                 JsonObject().apply {
-                    addProperty("icon", if (p.label != null) IMG_PLACE else IMG_ENDPOINT)
+                    addProperty(
+                        "icon",
+                        when {
+                            p.label != null -> IMG_PLACE
+                            p.brief -> IMG_ENDPOINT_BRIEF
+                            else -> IMG_ENDPOINT
+                        },
+                    )
                     addProperty("label", p.label ?: "")
                     addProperty("key", p.key)
                 },

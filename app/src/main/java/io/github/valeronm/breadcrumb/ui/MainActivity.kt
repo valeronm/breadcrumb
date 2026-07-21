@@ -1616,6 +1616,9 @@ private const val NEIGHBOR_CONTEXT_M = 1_200.0
 /** Unnamed clusters with fewer visits than this are hidden unless "Rare unnamed stops" is on. */
 private const val RARE_UNNAMED_MIN_VISITS = 3
 
+/** An unnamed cluster with a single stay shorter than this is a brief stop — orange on the map. */
+private const val BRIEF_STAY_MAX_MS = 10 * 60_000L
+
 /** The Places tab: sortable list (tap for detail, swipe to delete) or an all-places map. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1690,7 +1693,17 @@ private fun PlacesTab(
             ) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
                     val mapPlaces = remember(sorted) {
-                        sorted.map { OverviewPlace(it.anchor, it.place?.label, it.rowKey()) }
+                        val now = System.currentTimeMillis()
+                        sorted.map { summary ->
+                            OverviewPlace(
+                                location = summary.anchor,
+                                label = summary.place?.label,
+                                key = summary.rowKey(),
+                                brief = summary.stays.singleOrNull()?.let {
+                                    (it.end ?: now) - it.start < BRIEF_STAY_MAX_MS
+                                } ?: false,
+                            )
+                        }
                     }
                     MapLibrePlacesMap(
                         places = mapPlaces,
