@@ -248,20 +248,21 @@ class TrackRepositoryTest {
 
     @Test fun `a track that starts lingering is trimmed at its start`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        // 6 min lingering before departure, then 10 min of walking.
+        // 15 min lingering before departure, then 10 min of walking. The linger must be long:
+        // the departure passes *through* the corral, dragging every dwell window's exit ~40 m
+        // along the walk, and only a long span dilutes that below the drift gate — a short
+        // start-stay followed by walking away is deliberately not detectable (transit-shaped).
         repository.addPoints(
-            lingerPoints(id, 0, 36, lat = 38.7) +
-                walkPoints(id, 36, 60, fromLat = 38.7),
+            lingerPoints(id, 0, 90, lat = 38.7) +
+                walkPoints(id, 90, 60, fromLat = 38.7),
         )
-        repository.finishTrack(id, TEST_START + 96 * 10_000L)
+        repository.finishTrack(id, TEST_START + 150 * 10_000L)
 
         val walk = dao.track(id)!!
         assertNull(walk.discardedAt)
-        // startedAt moved up to the departure — the start of sustained movement. The cut is
-        // bin-quantized and TEST_START is not bin-aligned, so it can land up to one speed bin
-        // after the first walking fix (that fix's bin also holds linger fixes and can miss the
-        // moving threshold).
-        val walkStartTs = TEST_START + 36 * 10_000L
+        // startedAt moved up to the departure — the start of sustained movement, bin-quantized
+        // (TEST_START is not bin-aligned, so up to one speed bin of slop either way).
+        val walkStartTs = TEST_START + 90 * 10_000L
         assertTrue(walk.startedAt in (walkStartTs - 60_000)..(walkStartTs + 30_000))
         val stay = discardedTracks().single()
         assertEquals(Track.REASON_TRIMMED, stay.discardReason)
