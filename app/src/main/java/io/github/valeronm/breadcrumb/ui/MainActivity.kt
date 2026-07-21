@@ -61,6 +61,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.PaddingValues
@@ -133,6 +135,9 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.ElevatedFilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -1603,21 +1608,33 @@ private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () 
     }
 }
 
-private enum class PlacesView(val label: String) {
-    MAP("Map"),
+private enum class PlacesSort(val label: String) {
     LAST_VISIT("Recent"),
-    MOST_VISITS("Visits"),
-    TIME_SPENT("Time"),
+    MOST_VISITS("Most visits"),
+    TIME_SPENT("Time spent"),
+    ;
+
+    companion object {
+        /** Decodes the persisted name; unknown or unset falls back to LAST_VISIT. */
+        fun fromSettings(context: Context): PlacesSort =
+            entries.find { it.name == AppSettings.placesSort(context) } ?: LAST_VISIT
+    }
 }
 
 /** How far around a place the detail map shows neighbouring clusters for radius context. */
 private const val NEIGHBOR_CONTEXT_M = 1_200.0
 
-/** Unnamed clusters with fewer visits than this are hidden unless "Rare unnamed stops" is on. */
+/**
+ * Unnamed clusters with fewer visits than this are "rare stops": hidden on the map unless its
+ * "Rare stops" chip is on, and sorted to the tail of the list view.
+ */
 private const val RARE_UNNAMED_MIN_VISITS = 3
 
+private fun PlaceResolver.PlaceSummary.isRareStop() =
+    !isNamed && visitCount < RARE_UNNAMED_MIN_VISITS
+
 /** The Places tab: sortable list (tap for detail, swipe to delete) or an all-places map. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun PlacesTab(
     viewModel: TrackListViewModel,
@@ -1630,60 +1647,84 @@ private fun PlacesTab(
     // short, finished, same activity on both sides). A place that is only such an artifact is
     // marked rather than re-deciding eligibility here.
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
-    var view by remember { mutableStateOf(PlacesView.MAP) }
+    var showMap by remember { mutableStateOf(AppSettings.placesViewMap(context)) }
+    var sort by remember { mutableStateOf(PlacesSort.fromSettings(context)) }
     var showRareUnnamed by remember { mutableStateOf(AppSettings.placesShowRareUnnamed(context)) }
 
-    val sorted = remember(view, places, showRareUnnamed) {
-        val comparator = when (view) {
-            PlacesView.MOST_VISITS -> compareByDescending<PlaceResolver.PlaceSummary> { it.visitCount }
-            PlacesView.TIME_SPENT -> compareByDescending { it.totalMs }
-            else -> compareByDescending { it.lastSeenMs ?: Long.MIN_VALUE }
+    val sorted = remember(sort, places) {
+        val comparator = when (sort) {
+            PlacesSort.MOST_VISITS -> compareByDescending<PlaceResolver.PlaceSummary> { it.visitCount }
+            PlacesSort.TIME_SPENT -> compareByDescending { it.totalMs }
+            PlacesSort.LAST_VISIT -> compareByDescending { it.lastSeenMs ?: Long.MIN_VALUE }
         }
+        // Zero-visit pass-through clusters exist for gap-side detail pages, never for this tab.
         places
-            // Zero-visit pass-through clusters exist for gap-side detail pages, never for this
-            // tab; the rare-stops chip only reveals *visited* unnamed clusters below the floor.
-            .filter {
-                it.isNamed ||
-                    (it.visitCount > 0 && (showRareUnnamed || it.visitCount >= RARE_UNNAMED_MIN_VISITS))
-            }
+            .filter { it.isNamed || it.visitCount > 0 }
             // Tiebreak: named before unnamed, then by label — stable across recompositions.
             .sortedWith(comparator.thenBy { it.place?.label?.lowercase(Locale.getDefault()) ?: "￿" })
     }
+    // The rare-stops chip declutters the map only. Note the off default also hides the map's
+    // orange brief-stop dots — one-off stops are rare unnamed clusters by definition. The list
+    // never filters: rare stops sort to its tail instead (sortedBy is stable, so the chosen
+    // sort order is preserved within each half).
+    val visible = remember(sorted, showMap, showRareUnnamed) {
+        when {
+            !showMap -> sorted.sortedBy { it.isRareStop() }
+            showRareUnnamed -> sorted
+            else -> sorted.filterNot { it.isRareStop() }
+        }
+    }
+
+    // Chips occupy an invisible touch target (48dp minimum) around their 32dp visual height;
+    // insets that should read from a chip's *visible* edge subtract this overshoot.
+    val chipHalo = ((LocalMinimumInteractiveComponentSize.current - FilterChipDefaults.Height) / 2)
+        .coerceAtLeast(0.dp)
 
     Column(Modifier.fillMaxSize()) {
+        // Chrome beyond the view switch belongs to the view it controls: sort chips pin above
+        // the list, the rare-stops filter rides on the map.
         SingleChoiceSegmentedButtonRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(top = 12.dp, bottom = if (showMap) 12.dp else 12.dp - chipHalo),
         ) {
-            PlacesView.entries.forEachIndexed { index, option ->
+            listOf(true to "Map", false to "List").forEachIndexed { index, (isMap, label) ->
                 SegmentedButton(
-                    selected = view == option,
-                    onClick = { view = option },
-                    shape = SegmentedButtonDefaults.itemShape(index, PlacesView.entries.size),
-                    // No checkmark: four segments need the width for their labels.
-                    icon = {},
-                ) { Text(option.label) }
+                    selected = showMap == isMap,
+                    onClick = {
+                        showMap = isMap
+                        AppSettings.setPlacesViewMap(context, isMap)
+                    },
+                    shape = SegmentedButtonDefaults.itemShape(index, 2),
+                ) { Text(label) }
             }
         }
-        FilterChip(
-            selected = showRareUnnamed,
-            onClick = {
-                showRareUnnamed = !showRareUnnamed
-                AppSettings.setPlacesShowRareUnnamed(context, showRareUnnamed)
-            },
-            label = { Text("Rare unnamed stops") },
-            leadingIcon = if (showRareUnnamed) {
-                { Icon(Icons.Filled.Check, contentDescription = null, Modifier.size(18.dp)) }
-            } else {
-                null
-            },
-            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp),
-        )
-        if (sorted.isEmpty()) {
+        if (!showMap) {
+            // Pinned above the list (not scrolling with it): sort stays visible and reachable
+            // mid-scroll. Default touch-target spacing between wrapped lines is left in place.
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 16.dp),
+            ) {
+                PlacesSort.entries.forEach { option ->
+                    PlacesChip(
+                        selected = sort == option,
+                        label = option.label,
+                        onClick = {
+                            sort = option
+                            AppSettings.setPlacesSort(context, option.name)
+                        },
+                    )
+                }
+            }
+        }
+        if (visible.isEmpty()) {
             EmptyState(
                 "No places yet. Stays and places you name show up here.",
                 Modifier.weight(1f).fillMaxWidth().padding(24.dp),
             )
-        } else if (view == PlacesView.MAP) {
+        } else if (showMap) {
             // Card padding keeps the texture-mode map off the back-gesture edge strips.
             Card(
                 Modifier
@@ -1700,8 +1741,8 @@ private fun PlacesTab(
                             .filter { it.merge != null }
                             .mapTo(HashSet()) { it.stay.afterTrackId to it.stay.start }
                     }
-                    val mapPlaces = remember(sorted, mergeableStays) {
-                        sorted.map { summary ->
+                    val mapPlaces = remember(visible, mergeableStays) {
+                        visible.map { summary ->
                             OverviewPlace(
                                 location = summary.anchor,
                                 label = summary.place?.label,
@@ -1717,6 +1758,23 @@ private fun PlacesTab(
                         onOpen = onOpenPlace,
                         modifier = Modifier.fillMaxSize(),
                     )
+                    // The filter rides on the map it declutters, top-left like the chips row in
+                    // the list view; the halo subtraction keeps the visible gap at 12dp.
+                    Box(
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .padding(start = 12.dp, top = 12.dp - chipHalo),
+                    ) {
+                        PlacesChip(
+                            selected = showRareUnnamed,
+                            label = "Rare stops",
+                            onClick = {
+                                showRareUnnamed = !showRareUnnamed
+                                AppSettings.setPlacesShowRareUnnamed(context, showRareUnnamed)
+                            },
+                            onMap = true,
+                        )
+                    }
                 }
             }
         } else {
@@ -1725,10 +1783,10 @@ private fun PlacesTab(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                itemsIndexed(sorted, key = { _, s -> s.rowKey() }) { index, summary ->
+                itemsIndexed(visible, key = { _, s -> s.rowKey() }) { index, summary ->
                     PlaceRow(
                         summary = summary,
-                        shape = groupedRowShape(index, sorted.size),
+                        shape = groupedRowShape(index, visible.size),
                         onOpen = { onOpenPlace(summary.rowKey()) },
                         // Deleting removes the label, not the stays — they go back to being an
                         // unnamed cluster, and Undo re-pins the place exactly as it was.
@@ -1740,6 +1798,40 @@ private fun PlacesTab(
                 }
             }
         }
+    }
+}
+
+/**
+ * Single-choice/filter chip in the Places header idiom: checkmark when selected. [onMap] switches
+ * to an elevated chip on an opaque surface with a shadow (the track-map legend's recipe) — the
+ * default tones all but vanish against the basemap.
+ */
+@Composable
+private fun PlacesChip(selected: Boolean, label: String, onClick: () -> Unit, onMap: Boolean = false) {
+    val leadingIcon: (@Composable () -> Unit)? = if (selected) {
+        { Icon(Icons.Filled.Check, contentDescription = null, Modifier.size(18.dp)) }
+    } else {
+        null
+    }
+    if (onMap) {
+        ElevatedFilterChip(
+            selected = selected,
+            onClick = onClick,
+            label = { Text(label) },
+            leadingIcon = leadingIcon,
+            colors = FilterChipDefaults.elevatedFilterChipColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+            ),
+            elevation = FilterChipDefaults.elevatedFilterChipElevation(elevation = 3.dp),
+        )
+    } else {
+        FilterChip(
+            selected = selected,
+            onClick = onClick,
+            label = { Text(label) },
+            leadingIcon = leadingIcon,
+        )
     }
 }
 

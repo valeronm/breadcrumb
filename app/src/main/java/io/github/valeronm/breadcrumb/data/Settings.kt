@@ -19,6 +19,8 @@ object Settings {
     private const val KEY_REQUIRE_GNSS_FIX = "require_gnss_fix"
     private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
     private const val KEY_PLACES_SHOW_RARE_UNNAMED = "places_show_rare_unnamed"
+    private const val KEY_PLACES_VIEW_MAP = "places_view_map"
+    private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
     private const val KEY_EDGE_STAY_TRIM_BACKFILL_DONE = "edge_stay_trim_backfill_done"
@@ -167,6 +169,22 @@ object Settings {
 
     fun setPlacesShowRareUnnamed(context: Context, enabled: Boolean) {
         prefs(context).edit { putBoolean(KEY_PLACES_SHOW_RARE_UNNAMED, enabled) }
+    }
+
+    /** Places tab: whether the map view (vs the sorted list) was last selected. */
+    fun placesViewMap(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_PLACES_VIEW_MAP, true)
+
+    fun setPlacesViewMap(context: Context, map: Boolean) {
+        prefs(context).edit { putBoolean(KEY_PLACES_VIEW_MAP, map) }
+    }
+
+    /** Places list sort, stored by enum name (the UI owns the enum; unknown names fall back). */
+    fun placesSort(context: Context): String? =
+        prefs(context).getString(KEY_PLACES_SORT, null)
+
+    fun setPlacesSort(context: Context, name: String) {
+        prefs(context).edit { putString(KEY_PLACES_SORT, name) }
     }
 
     /** One-time edge-stay trim backfill's done flag (see "Backfills" in CLAUDE.md). */
