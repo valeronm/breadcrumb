@@ -257,9 +257,12 @@ class TrackRepositoryTest {
 
         val walk = dao.track(id)!!
         assertNull(walk.discardedAt)
-        // startedAt moved up to the departure — the start of sustained movement.
+        // startedAt moved up to the departure — the start of sustained movement. The cut is
+        // bin-quantized and TEST_START is not bin-aligned, so it can land up to one speed bin
+        // after the first walking fix (that fix's bin also holds linger fixes and can miss the
+        // moving threshold).
         val walkStartTs = TEST_START + 36 * 10_000L
-        assertTrue(walk.startedAt in (walkStartTs - 60_000)..walkStartTs)
+        assertTrue(walk.startedAt in (walkStartTs - 60_000)..(walkStartTs + 30_000))
         val stay = discardedTracks().single()
         assertEquals(Track.REASON_TRIMMED, stay.discardReason)
         assertEquals(TEST_START, stay.startedAt)
