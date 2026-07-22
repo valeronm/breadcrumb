@@ -44,6 +44,18 @@ interface TrackDao {
     @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId")
     suspend fun setActivityType(trackId: Long, activityType: String)
 
+    /** Flag or clear the pending-cut mark ([Track.needsReview]). Written at the same moments as
+     *  the aggregates above — finish, import, repair, trim — never per fix. */
+    @Query("UPDATE tracks SET needsReview = :needsReview WHERE id = :trackId")
+    suspend fun setNeedsReview(trackId: Long, needsReview: Boolean)
+
+    /** Finished, kept tracks the review pass hasn't visited yet — the one-time backfill's input. */
+    @Query(
+        "SELECT id FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL " +
+            "ORDER BY startedAt DESC"
+    )
+    suspend fun keptTrackIds(): List<Long>
+
     /** Soft-delete a keep-threshold-filtered track: finalise it and mark it discarded. */
     @Query(
         "UPDATE tracks SET endedAt = :endedAt, discardedAt = :discardedAt, discardReason = :reason " +
@@ -168,7 +180,8 @@ interface TrackDao {
 
     @Query(
         """
-        SELECT id, activityType, startedAt, endedAt, distanceMeters, pointCount, ignoredCount
+        SELECT id, activityType, startedAt, endedAt, distanceMeters, pointCount, ignoredCount,
+               needsReview
         FROM tracks
         WHERE endedAt IS NOT NULL AND discardedAt IS NULL
         ORDER BY startedAt DESC

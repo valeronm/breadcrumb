@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [Track::class, TrackPoint::class, LivenessEvent::class, Place::class],
-    version = 12,
+    version = 13,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -201,6 +201,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v13 adds `tracks.needsReview`: the recorder found something on this track a cut could
+         * fix — today an edge stay ([io.github.valeronm.breadcrumb.domain.EdgeStayDetector]),
+         * later a mid-track dwell too. Deliberately a plain flag rather than a measurement: it
+         * answers "is there a decision waiting here", and the track screen recomputes the detail
+         * when opened. Existing rows default to 0 and are filled in by the one-time backfill in
+         * App.onCreate, so history is marked without a schema-level scan.
+         */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN needsReview INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -210,7 +224,7 @@ abstract class AppDatabase : RoomDatabase() {
                 ).addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                     MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
-                    MIGRATION_11_12,
+                    MIGRATION_11_12, MIGRATION_12_13,
                 ).build().also { instance = it }
             }
     }

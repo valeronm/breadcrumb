@@ -97,6 +97,7 @@ import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -148,6 +149,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -206,6 +208,7 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.DwellDetector
+import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.RecordCardState
@@ -3272,6 +3275,17 @@ private fun TrackRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // A cut is on offer inside — open the track to see what and decide. Kept to a
+                // metadata-weight glyph: it's an invitation to look, not a problem with the track.
+                if (track.needsReview) {
+                    Spacer(Modifier.width(12.dp))
+                    Icon(
+                        Icons.Filled.ContentCut,
+                        contentDescription = "Has a suggested trim",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }
@@ -3374,7 +3388,9 @@ private fun StayCard(
                     end == null -> "$start – now"
                     startsAtMidnight -> "Until ${timeFormat.format(Date(end))}"
                     endsAtMidnight -> "From $start"
-                    else -> "$start – ${timeFormat.format(Date(end))}"
+                    // A stop the recorder only caught the tail end of lands on one clock minute at
+                    // both bounds; "09:11 – 09:11" reads as a rendering fault rather than a moment.
+                    else -> timeFormat.format(Date(end)).let { if (it == start) start else "$start – $it" }
                 }
                 val visits = place?.visitCount?.takeIf { !named && it >= VISIT_COUNT_BADGE_MIN }
                 Text(
@@ -3382,10 +3398,13 @@ private fun StayCard(
                         append(timePhrase)
                         // A midnight-sliced bound makes the duration both redundant (it restates
                         // the clock time) and misleading (the real stay continues across the
-                        // slice) — only whole stays show one.
-                        if (!startsAtMidnight && !endsAtMidnight) {
+                        // slice) — only whole stays show one. A stay whose bounds span less than
+                        // StayDeriver.REPORTABLE_DURATION_MS shows none either: the stop was
+                        // longer than its bounds say, so "0m" would be worse than silence.
+                        val endOrNow = end ?: System.currentTimeMillis()
+                        if (!startsAtMidnight && !endsAtMidnight && stay.hasReportableDuration(endOrNow)) {
                             append(" · ")
-                            append(formatDurationMs((end ?: System.currentTimeMillis()) - stay.start))
+                            append(formatDurationMs(endOrNow - stay.start))
                         }
                         if (visits != null) {
                             append(" · " + visitCountLabel(visits))
@@ -3496,6 +3515,11 @@ private fun formatDuration(startedAt: Long, endedAt: Long?): String {
     return formatDurationMs(end - startedAt)
 }
 
+/** Minute-rounded like [formatDurationMs], except below a minute, where seconds are the point —
+ *  edge stays start at half a minute and "0m" would say nothing. */
+private fun formatShortDurationMs(durationMs: Long): String =
+    if (durationMs < 60_000L) "${durationMs / 1000}s" else formatDurationMs(durationMs)
+
 private fun formatDurationMs(durationMs: Long): String {
     val minutes = (durationMs / 60000.0).roundToLong()
     // A day or more: minutes stop mattering — round to whole hours and split off days.
@@ -3521,18 +3545,32 @@ private fun TrackMapScreen(
 ) {
     // null = still loading the track's points from the database.
     val context = LocalContext.current
-    val points by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
+    // Bumped after a trim: the points are fetched once, so the screen needs telling to re-fetch.
+    var reload by remember(trackId) { mutableIntStateOf(0) }
+    val points by produceState<List<TrackPoint>?>(initialValue = null, trackId, reload) {
         value = viewModel.getPoints(trackId)
     }
     // Also null while loading: the show-a-map decision needs both lists, or a track whose only
     // points are noisy would flash the "not enough points" placeholder before its markers arrive.
-    val noisyPoints by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
+    val noisyPoints by produceState<List<TrackPoint>?>(initialValue = null, trackId, reload) {
         value = viewModel.getIgnoredPoints(trackId)
     }
     // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
     val dwells by produceState<List<DwellDetector.Dwell>>(initialValue = emptyList(), points) {
         value = points?.let { pts ->
             withContext(Dispatchers.Default) { DwellDetector.detect(pts, distance = AndroidDistance) }
+        } ?: emptyList()
+    }
+    // Recording that ran on past the stop at either edge — greyed on the map, and what the Trim
+    // action cuts. Detected with the very params the trim uses, so the two can't disagree.
+    val edgeParams = remember(context) {
+        EdgeStayDetector.overlayParams(AppSettings.minIntervalSec(context) * 1000L)
+    }
+    val edgeStays by produceState<List<EdgeStayDetector.EdgeStay>>(initialValue = emptyList(), points, edgeParams) {
+        value = points?.let { pts ->
+            withContext(Dispatchers.Default) {
+                EdgeStayDetector.detect(pts, edgeParams, AndroidDistance)
+            }
         } ?: emptyList()
     }
     val activity = remember(summary) {
@@ -3544,11 +3582,10 @@ private fun TrackMapScreen(
     // the default follows the points once they load, until the user says otherwise.
     var showNoisyOverride by remember(trackId) { mutableStateOf<Boolean?>(null) }
     val showNoisy = showNoisyOverride ?: (points?.let { it.size < KeepRule.MIN_LINE_POINTS } == true)
-    // Detected stops default to visible — this screen is the validation tool for the detector.
-    var showStops by remember(trackId) { mutableStateOf(true) }
     // Point picked on the metric graph, highlighted on the map. Index into the good-points list.
     var selectedIndex by remember(trackId) { mutableStateOf<Int?>(null) }
     var showTypeDialog by remember(trackId) { mutableStateOf(false) }
+    var showTrimDialog by remember(trackId) { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -3568,17 +3605,14 @@ private fun TrackMapScreen(
                 },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
-                    if (dwells.isNotEmpty()) {
-                        IconButton(onClick = { showStops = !showStops }) {
+                    // Offered only when there is something to cut; the greyed stretch on the map
+                    // is the preview of exactly what it removes.
+                    if (edgeStays.isNotEmpty()) {
+                        IconButton(onClick = { showTrimDialog = true }) {
                             Icon(
-                                Icons.Filled.Place,
-                                contentDescription =
-                                    if (showStops) "Hide detected stops" else "Show detected stops",
-                                tint = if (showStops) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
+                                Icons.Filled.ContentCut,
+                                contentDescription = "Trim the recording's overrun",
+                                tint = MaterialTheme.colorScheme.primary,
                             )
                         }
                     }
@@ -3655,16 +3689,20 @@ private fun TrackMapScreen(
                                     colorMode = colorMode,
                                     showLegend = true,
                                     selectedPoint = selectedIndex?.let { loaded.getOrNull(it) },
-                                    dwells = if (showStops) dwells else emptyList(),
+                                    dwells = dwells,
+                                    edgeStays = edgeStays,
                                     modifier = Modifier.fillMaxSize(),
                                 )
                                 if (showNoisy) {
                                     // Top-right, clear of the colour-metric legend (bottom-right).
                                     NoisyLegend(noisy, Modifier.align(Alignment.TopEnd).padding(12.dp))
                                 }
-                                if (showStops && dwells.isNotEmpty()) {
+                                if (dwells.isNotEmpty() || edgeStays.isNotEmpty()) {
                                     // Top-left: the noisy legend owns the top-right corner.
-                                    DwellLegend(dwells, Modifier.align(Alignment.TopStart).padding(12.dp))
+                                    DwellLegend(
+                                        dwells, edgeStays,
+                                        Modifier.align(Alignment.TopStart).padding(12.dp),
+                                    )
                                 }
                             }
                         }
@@ -3674,6 +3712,7 @@ private fun TrackMapScreen(
                                     graph = graph,
                                     selectedIndex = selectedIndex,
                                     onSelect = { selectedIndex = it },
+                                    edgeStays = edgeStays,
                                     modifier = Modifier.fillMaxWidth().height(130.dp),
                                 )
                             }
@@ -3729,6 +3768,47 @@ private fun TrackMapScreen(
             },
         )
     }
+
+    if (showTrimDialog && edgeStays.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showTrimDialog = false },
+            icon = { Icon(Icons.Filled.ContentCut, contentDescription = null) },
+            title = { Text("Trim the recording?") },
+            text = {
+                Column {
+                    Text(
+                        "The greyed stretch is recording that ran on after you had already " +
+                            "stopped. Trimming moves it to a separate track in Recently deleted, " +
+                            "where it can be restored and merged back.",
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    for (stay in edgeStays) {
+                        val what = if (stay.side == EdgeStayDetector.Side.START) {
+                            "Before the start"
+                        } else {
+                            "After the arrival at ${timeFormat.format(Date(stay.boundaryTs))}"
+                        }
+                        Text(
+                            "$what · ${formatShortDurationMs(stay.stayMs)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showTrimDialog = false
+                    // The points are loaded once per screen, so the reload key is what makes the
+                    // map, graph and detectors see the shortened track.
+                    viewModel.trimTrack(trackId) { reload++ }
+                }) { Text("Trim") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTrimDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 /** Per-point series for the metric graph: values (null = gap), map-matching colours, and a unit. */
@@ -3768,14 +3848,35 @@ private fun MetricPlot(
     span: Float,
     t0: Long,
     tSpan: Float,
+    edgeStays: List<EdgeStayDetector.EdgeStay>,
     modifier: Modifier,
 ) {
     val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
     val padPx = with(LocalDensity.current) { 8.dp.toPx() }
+    val trimColor = MaterialTheme.colorScheme.onSurfaceVariant
     Spacer(
         modifier.drawWithCache {
             val bitmap = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
             CanvasDrawScope().draw(this, layoutDirection, ComposeCanvas(bitmap), size) {
+                // Where the recorder ran on past the stop: the span is scrimmed and the boundary
+                // ruled, so the graph shows at a glance which part of the trace isn't travel.
+                for (stay in edgeStays) {
+                    val x = ((stay.boundaryTs - t0) / tSpan * size.width).coerceIn(0f, size.width)
+                    val from = if (stay.side == EdgeStayDetector.Side.START) 0f else x
+                    val to = if (stay.side == EdgeStayDetector.Side.START) x else size.width
+                    drawRect(
+                        trimColor.copy(alpha = 0.14f),
+                        topLeft = Offset(from, 0f),
+                        size = Size(to - from, size.height),
+                    )
+                    drawLine(
+                        trimColor.copy(alpha = 0.7f),
+                        Offset(x, 0f),
+                        Offset(x, size.height),
+                        strokeWidth = strokePx / 2,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)),
+                    )
+                }
                 val h = size.height - 2 * padPx
                 var prev: Offset? = null
                 for (i in graph.points.indices) {
@@ -3808,6 +3909,7 @@ private fun MetricGraph(
     graph: MetricGraphData,
     selectedIndex: Int?,
     onSelect: (Int?) -> Unit,
+    edgeStays: List<EdgeStayDetector.EdgeStay>,
     modifier: Modifier,
 ) {
     // Remembered: MetricGraph recomposes per touch event while scrubbing, and the min/max scan
@@ -3872,7 +3974,7 @@ private fun MetricGraph(
                 // Static plot in its own skippable composable: scrubbing recomposes MetricGraph per
                 // touch event, and redrawing the full multi-thousand-segment polyline each time is
                 // what made long tracks feel laggy. Only the cursor overlay below redraws.
-                MetricPlot(graph, minV, span, t0, tSpan, Modifier.fillMaxSize())
+                MetricPlot(graph, minV, span, t0, tSpan, edgeStays, Modifier.fillMaxSize())
                 Canvas(
                     Modifier
                         .fillMaxSize()
@@ -3951,9 +4053,16 @@ private fun noisyLegendEntry(reason: IgnoreReason?): Pair<String, Color> = when 
     IgnoreReason.ACCURACY, null -> "Low accuracy" to Color(0xFFFF8F00)
 }
 
-/** Detected in-track stops: one row per dwell — "14:36 – 16:10 · 1h 34m". */
+/**
+ * Detected stops: one row per in-track dwell — "14:36 – 16:10 · 1h 34m" — then the greyed edges,
+ * named for what they are (recording that outlasted the journey) rather than dated like a visit.
+ */
 @Composable
-private fun DwellLegend(dwells: List<DwellDetector.Dwell>, modifier: Modifier) {
+private fun DwellLegend(
+    dwells: List<DwellDetector.Dwell>,
+    edgeStays: List<EdgeStayDetector.EdgeStay>,
+    modifier: Modifier,
+) {
     LegendSurface(modifier) {
         Text(
             "Stops",
@@ -3965,6 +4074,14 @@ private fun DwellLegend(dwells: List<DwellDetector.Dwell>, modifier: Modifier) {
                 "${timeFormat.format(Date(d.entryTs))} – ${timeFormat.format(Date(d.exitTs))}" +
                     " · ${formatDuration(d.entryTs, d.exitTs)}",
                 style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        for (e in edgeStays) {
+            val side = if (e.side == EdgeStayDetector.Side.START) "Before start" else "After arrival"
+            Text(
+                "$side · ${formatShortDurationMs(e.stayMs)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

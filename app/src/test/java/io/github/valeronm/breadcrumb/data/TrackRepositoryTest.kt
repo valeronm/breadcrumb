@@ -211,10 +211,44 @@ class TrackRepositoryTest {
         return TEST_START + 96 * 10_000L
     }
 
-    @Test fun `finishing a track that ends lingering splits the stay off as a trimmed track`() = runTest {
+    @Test fun `finishing a track leaves its lingering tail on it, marked for review`() = runTest {
+        // Trimming is the user's call from the track screen now; the recorder never splits — it
+        // records that there is a cut on offer, which is what the timeline badges.
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
         val endedAt = addWalkThenLingerTail(id)
         repository.finishTrack(id, endedAt)
+
+        val track = dao.track(id)!!
+        assertEquals(endedAt, track.endedAt)
+        assertEquals(96, track.pointCount)
+        assertTrue("a cuttable tail is a pending decision", track.needsReview)
+        assertTrue(discardedTracks().isEmpty())
+    }
+
+    @Test fun `a track with nothing to cut is not marked`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints(walkPoints(id, 0, 90, fromLat = 38.7))
+        repository.finishTrack(id, TEST_START + 90 * 10_000L)
+
+        assertTrue(!dao.track(id)!!.needsReview)
+    }
+
+    @Test fun `trimming answers the review, marked or not`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.finishTrack(id, addWalkThenLingerTail(id))
+        assertTrue(dao.track(id)!!.needsReview)
+
+        repository.trimTrack(id)
+
+        assertTrue("the cut settles it", !dao.track(id)!!.needsReview)
+    }
+
+    @Test fun `trimming a track that ends lingering splits the stay off as a trimmed track`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        val endedAt = addWalkThenLingerTail(id)
+        repository.finishTrack(id, endedAt)
+
+        assertTrue(repository.trimTrack(id))
 
         val head = dao.track(id)!!
         assertNull("the walk itself is kept", head.discardedAt)
@@ -237,6 +271,7 @@ class TrackRepositoryTest {
     @Test fun `restoring the trimmed tail and merging it back reconstitutes the track`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
         repository.finishTrack(id, addWalkThenLingerTail(id))
+        repository.trimTrack(id)
         val tailId = discardedTracks().single().id
 
         repository.restoreTrack(tailId)
@@ -257,6 +292,7 @@ class TrackRepositoryTest {
                 walkPoints(id, 90, 60, fromLat = 38.7),
         )
         repository.finishTrack(id, TEST_START + 150 * 10_000L)
+        assertTrue(repository.trimTrack(id))
 
         val walk = dao.track(id)!!
         assertNull(walk.discardedAt)
@@ -272,7 +308,7 @@ class TrackRepositoryTest {
         assertStatsMatchPoints(stay.id)
     }
 
-    @Test fun `an imported GPX track ending in a linger is trimmed via derived speed`() = runTest {
+    @Test fun `an imported GPX track ending in a linger trims via derived speed`() = runTest {
         // GPX carries no Doppler speed — the boundary must come from the displacement lookback.
         // The linger jitters ±9 m so its 30 s net displacement stays under the moving threshold.
         val walkEnd = 38.7 + 60 * 0.000126
@@ -299,9 +335,14 @@ class TrackRepositoryTest {
         )
 
         assertEquals(1, counts.imported)
+        // The import lands whole — nothing is split until asked.
+        val importedId = dao.allTrackIds().single()
+        assertTrue(discardedTracks().isEmpty())
+        assertTrue(repository.trimTrack(importedId))
+
         val tail = discardedTracks().single()
         assertEquals(Track.REASON_TRIMMED, tail.discardReason)
-        val head = dao.track(dao.allTrackIds().single())!!
+        val head = dao.track(importedId)!!
         val walkEndTs = TEST_START + 59 * 10_000L
         assertTrue(head.endedAt!! in walkEndTs..(walkEndTs + 90_000))
         assertEquals(head.endedAt, tail.startedAt)
@@ -309,19 +350,4 @@ class TrackRepositoryTest {
         assertStatsMatchPoints(tail.id)
     }
 
-    @Test fun `the trim backfill is idempotent`() = runTest {
-        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        val endedAt = addWalkThenLingerTail(id)
-        // Close without the trim (as an old build would have): straight to the DAO.
-        dao.closeTrack(id, endedAt)
-
-        repository.trimEdgeStaysBackfill()
-        assertEquals(1, discardedTracks().size) // the trimmed tail
-        val headEnd = dao.track(id)!!.endedAt
-
-        repository.trimEdgeStaysBackfill()
-
-        assertEquals(1, discardedTracks().size)
-        assertEquals(headEnd, dao.track(id)!!.endedAt)
-    }
 }

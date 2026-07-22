@@ -87,11 +87,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 id
             }
             // Imports bypass live ingest filtering, so drop a drive-start stray up front; the
-            // repair ends by computing the fresh track's aggregates either way. Then trim edge
-            // stays like any finished recording — an import is a foreign recording, not a state
-            // restore (backup restore, by contrast, reproduces the export verbatim).
+            // repair ends by computing the fresh track's aggregates either way. Edge stays are
+            // left in place — trimming one is the user's call, from the track screen.
             repairLeadingPoints(trackId)
-            dao.track(trackId)?.let { trimFinishedTrack(it) }
+            markForReview(trackId, dao.allPointsFor(trackId))
             imported++
         }
         if (imported > 0) DebugLog.i(TAG, "gpx import: $imported tracks added, $duplicates duplicates skipped")
@@ -183,16 +182,18 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * outright — empty of information, so nothing to review in Recently deleted either.
      */
     private suspend fun closeOrDelete(track: Track, endedAt: Long) = db.withTransaction {
-        // Trim first, so the aggregates and the keep verdict below judge the track without the
-        // stay's points — a walk that is mostly lingering should be filtered on its real legs.
-        val trimmed = trimEdgeStays(track, endedAt)
+        // No edge trim here: splitting a stay off a track is a user decision now, taken on the
+        // track screen against the overlay that shows what would be cut ([trimTrack]). What the
+        // detector finds is recorded as a mark instead, so the timeline can point at it.
         // Finishing is where the track's aggregates are computed for the first time — the recorder
         // writes none of them while it records.
-        val stats = refreshStats(track.id, trimmed.points)
-        when (keepVerdict(track, trimmed.startedAt, trimmed.endedAt, stats)) {
-            KeepRule.Verdict.KEEP -> dao.closeTrack(track.id, trimmed.endedAt)
+        val points = dao.allPointsFor(track.id)
+        val stats = refreshStats(track.id, points)
+        markForReview(track.id, points)
+        when (keepVerdict(track, track.startedAt, endedAt, stats)) {
+            KeepRule.Verdict.KEEP -> dao.closeTrack(track.id, endedAt)
             KeepRule.Verdict.DISCARD ->
-                dao.discardTrack(track.id, endedAt = trimmed.endedAt, discardedAt = trimmed.endedAt, reason = Track.REASON_FILTERED)
+                dao.discardTrack(track.id, endedAt = endedAt, discardedAt = endedAt, reason = Track.REASON_FILTERED)
             KeepRule.Verdict.PURGE -> dao.purgeTrack(track.id)
         }
     }
@@ -217,14 +218,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     private suspend fun trimEdgeStays(track: Track, endedAt: Long): Trimmed {
         var startedAt = track.startedAt
         var trimmedEnd = endedAt
-        val params = EdgeStayDetector.Params(
-            dwell = DwellDetector.Params(
-                // The floor tracks the resume window (a longer stop would have split the track),
-                // clamped: "0 = always start a new track" must not mean "trim any edge dwell".
-                minDwellMs = maxOf(Settings.resumeWindowSec(appContext), 180) * 1000L,
-            ),
-            expectedFixIntervalMs = Settings.minIntervalSec(appContext) * 1000L,
-        )
+        // The same params the track screen drew its greyed edges with, so the user gets the cut
+        // they were shown.
+        val params = EdgeStayDetector.overlayParams(Settings.minIntervalSec(appContext) * 1000L)
         var points = dao.allPointsFor(track.id)
         val stays = EdgeStayDetector.detect(points, params, AndroidDistance)
         for (stay in stays) {
@@ -261,26 +257,49 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /**
-     * One-time backfill (see "Backfills" in CLAUDE.md): apply the edge-stay trim to kept tracks
-     * recorded before the trim existed. Idempotent — a trimmed track's edges end where movement
-     * was still sustained, so re-detection finds nothing to split.
+     * Split the edge stays off a finished track, on the user's say-so from the track screen —
+     * nothing trims by itself. Returns false when there was nothing to cut. No keep re-verdict:
+     * what is kept stays kept, only shorter.
      */
-    suspend fun trimEdgeStaysBackfill() {
-        var trimmed = 0
-        for (track in dao.exportTracks()) {
-            if (trimFinishedTrack(track)) trimmed++
-        }
-        DebugLog.i(TAG, "edge-stay backfill: trimmed $trimmed track(s)")
-    }
-
-    /** [trimEdgeStays] for a track that is already closed (an import, or the backfill): trims and
-     *  refreshes the remaining stats. No keep re-verdict — what is kept stays kept, only shorter. */
-    private suspend fun trimFinishedTrack(track: Track): Boolean = db.withTransaction {
+    suspend fun trimTrack(trackId: Long): Boolean = db.withTransaction {
+        val track = dao.track(trackId) ?: return@withTransaction false
         val endedAt = track.endedAt ?: return@withTransaction false
         val result = trimEdgeStays(track, endedAt)
         val changed = result.startedAt != track.startedAt || result.endedAt != endedAt
         if (changed) refreshStats(track.id, result.points)
+        // The decision has been taken either way: a cut that fired leaves nothing to review, and
+        // one that found nothing was a question already answered.
+        dao.setNeedsReview(track.id, false)
         changed
+    }
+
+    /**
+     * Flag the track if the detector can offer a cut on it ([Track.needsReview]) — the timeline's
+     * badge. Runs off points the caller already holds; nothing here reads or writes point rows.
+     */
+    private suspend fun markForReview(trackId: Long, points: List<TrackPoint>) {
+        val params = EdgeStayDetector.overlayParams(Settings.minIntervalSec(appContext) * 1000L)
+        val cuttable = EdgeStayDetector.detect(points, params, AndroidDistance).isNotEmpty()
+        dao.setNeedsReview(trackId, cuttable)
+    }
+
+    /**
+     * One-time pass (see "Backfills" in CLAUDE.md) marking history the detector can offer a cut
+     * on. Read-only as far as track data goes — it sets a flag and nothing else, so a crash
+     * mid-pass costs only a re-run. Points are loaded one track at a time: the whole history is
+     * over a million rows and must never be resident at once.
+     */
+    suspend fun markReviewBackfill() {
+        var marked = 0
+        for (trackId in dao.keptTrackIds()) {
+            val points = dao.allPointsFor(trackId)
+            val params = EdgeStayDetector.overlayParams(Settings.minIntervalSec(appContext) * 1000L)
+            if (EdgeStayDetector.detect(points, params, AndroidDistance).isNotEmpty()) {
+                dao.setNeedsReview(trackId, true)
+                marked++
+            }
+        }
+        DebugLog.i(TAG, "review backfill: marked $marked track(s)")
     }
 
     suspend fun finishTrack(trackId: Long, endedAt: Long) {

@@ -84,6 +84,21 @@ object StayDeriver {
         val end: Long?
     }
 
+    /**
+     * Below this a stay's length is not worth reporting, because it is not the length of anything
+     * the user did. A stay is measured between two track *bounds*, so it only covers the part of
+     * a stop the recorder noticed: the stationary approach usually sits untrimmed inside the
+     * previous track's tail whenever the stop was shorter than [EdgeStayDetector]'s dwell floor
+     * (measured over the whole history, these short stays sit still for a median of ~2.5 min
+     * around a gap of seconds). Such a stay is still a real stop — it counts as a visit and keeps
+     * its place on the timeline — but any duration derived from its bounds would be fiction, and
+     * rounding one to "0m" reads as a broken value.
+     *
+     * [TrackMerge] uses the same line for the one decision that turns on it: whether a stay on a
+     * named place is substantial enough that merging it away would delete a real visit.
+     */
+    const val REPORTABLE_DURATION_MS = 60_000L
+
     data class Stay(
         override val start: Long,
         /** Null = ongoing (the current stay). */
@@ -94,7 +109,12 @@ object StayDeriver {
         val afterTrackId: Long,
         /** Index into [Derivation.clusters] — the place this stay belongs to. */
         val clusterId: Int,
-    ) : Interval
+    ) : Interval {
+        /** Whether this stay's own bounds are worth reporting as a duration; [nowMs] measures an
+         *  ongoing one. See [REPORTABLE_DURATION_MS]. */
+        fun hasReportableDuration(nowMs: Long): Boolean =
+            (end ?: nowMs) - start >= REPORTABLE_DURATION_MS
+    }
 
     data class Gap(
         override val start: Long,

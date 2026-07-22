@@ -77,17 +77,32 @@ class EdgeStayDetectorTest {
     }
 
     @Test
-    fun `speed places the cut later than the corral would`() {
-        // The field shape (Jun 29 16:42 walk): the last minutes of approach are already inside
-        // the corral, so position alone cuts early — Doppler speed stays at walking pace until
-        // the true 13-minute arrival.
+    fun `phantom Doppler at a standstill cannot move the boundary`() {
+        // The field shape (2026-07-04 16:57 arrival): parked, but the platform keeps reporting
+        // metres per second — three such fixes at the very end used to put the last moving bin
+        // past the real arrival and collapse the stay to nothing. Displacement holds the veto, so
+        // a fixture that never leaves its jitter box is stopped however fast its Doppler reads.
         val stays = detect(
             walk(0.0, 80.0, 0, 10) +
-                linger(850.0, 20.0, 10 * MIN, 3, speedMps = 1.4f) +
-                linger(850.0, 20.0, 13 * MIN, 12),
+                linger(850.0, 20.0, 10 * MIN, 15, speedMps = 3.5f),
         )
         assertEquals(1, stays.size)
-        assertTrue(stays.single().boundaryTs in (13 * MIN - 30_000L)..(13 * MIN + 30_000L))
+        val s = stays.single()
+        assertTrue(s.boundaryTs in (10 * MIN - 30_000L)..(10 * MIN + 30_000L))
+        assertTrue(s.stayMs >= 14 * MIN)
+    }
+
+    @Test
+    fun `a burst of fixes after a quiet stretch cannot vote on jitter`() {
+        // Once parked, min-distance sampling goes quiet for minutes, so the nearest earlier fix
+        // can be far outside the lookback and the window shrinks to an adjacent-fix delta — where
+        // ±20 m of jitter reads as tens of m/s. Those fixes must abstain, not vote the tail away.
+        val burst = (0 until 3).map { i ->
+            pt(850.0 + if (i % 2 == 0) 20.0 else -20.0, 16 * MIN + i * 1_000L, 3.5f)
+        }
+        val stays = detect(walk(0.0, 80.0, 0, 10) + linger(850.0, 20.0, 10 * MIN, 4) + burst)
+        assertEquals(1, stays.size)
+        assertTrue(stays.single().boundaryTs in (10 * MIN - 30_000L)..(10 * MIN + 30_000L))
     }
 
     @Test
@@ -126,13 +141,12 @@ class EdgeStayDetectorTest {
 
     @Test
     fun `an edge dwell whose refined stay is under the floor is dropped`() {
-        // The corral holds for 4.5 min at the end, but speed says the user only truly stopped
-        // for the last minute — too short to be a stay.
+        // The corral holds from 8 min, but the walk goes on until 12 — real ground covered, so
+        // speed keeps voting — leaving only a 1-minute stop, too short to be a stay.
         assertTrue(
             detect(
-                walk(0.0, 80.0, 0, 10) +
-                    linger(850.0, 20.0, 10 * MIN, 3, speedMps = 1.4f) +
-                    linger(850.0, 20.0, 13 * MIN, 1),
+                walk(0.0, 80.0, 0, 12) +
+                    linger(970.0, 20.0, 12 * MIN, 1),
             ).isEmpty(),
         )
     }

@@ -41,6 +41,14 @@ data class Track(
     /** Why it was discarded — [REASON_DELETED] | [REASON_FILTERED] | [REASON_MERGED] |
      *  [REASON_TRIMMED]; null on rows discarded before reasons were tracked. */
     val discardReason: String? = null,
+    /**
+     * There is a cut waiting on this track for the user to accept or ignore: today an edge stay
+     * the recorder ran on through, later a mid-track dwell. Written when the track is finished,
+     * imported or repaired — the same moments the aggregates above are — and cleared once the
+     * track is trimmed. A flag, not a measurement: it says a decision is pending, and the track
+     * screen re-detects the specifics when opened.
+     */
+    val needsReview: Boolean = false,
 ) {
     companion object {
         const val REASON_DELETED = "deleted"
@@ -187,4 +195,6 @@ data class TrackSummary(
     val pointCount: Int,
     /** Number of ignored "bad fix" points — a signal that the track is questionable. */
     val ignoredCount: Int,
+    /** A cut is pending on this track — the timeline badges it. See [Track.needsReview]. */
+    val needsReview: Boolean = false,
 )

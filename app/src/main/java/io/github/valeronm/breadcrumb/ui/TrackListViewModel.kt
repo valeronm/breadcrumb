@@ -198,6 +198,15 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repository.restoreTrack(trackId) }
     }
 
+    /** Split the recorder's overrun off a track's edges; [onTrimmed] fires once the DB is written
+     *  so the screen can reload its points. */
+    fun trimTrack(trackId: Long, onTrimmed: () -> Unit) {
+        viewModelScope.launch {
+            repository.trimTrack(trackId)
+            onTrimmed()
+        }
+    }
+
     /** Permanently delete everything in Recently deleted. */
     fun purgeAllDiscarded() {
         viewModelScope.launch { repository.purgeAllDiscarded() }

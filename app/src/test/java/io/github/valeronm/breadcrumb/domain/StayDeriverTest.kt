@@ -246,6 +246,25 @@ class StayDeriverTest {
         assertEquals(1, intervals.filterIsInstance<Stay>().size)
     }
 
+    private fun stayAt(start: Long, end: Long?) = Stay(
+        start = start, end = end, location = home,
+        provenance = Provenance.OBSERVED, afterTrackId = 1L, clusterId = 0,
+    )
+
+    @Test fun `a stay shorter than its bounds can measure reports no duration`() {
+        // The stop is real — it still derives, still counts as a visit — but its length lives in
+        // the untrimmed tail of the track before it, so the bounds are not worth printing.
+        val seam = stayAt(start = 100 * MIN, end = 100 * MIN + 3_000)
+        assertTrue(!seam.hasReportableDuration(300 * MIN))
+        assertTrue(seam.copy(end = 101 * MIN).hasReportableDuration(300 * MIN))
+    }
+
+    @Test fun `an ongoing stay starts reporting once it passes the threshold`() {
+        val ongoing = stayAt(start = 100 * MIN, end = null)
+        assertTrue(!ongoing.hasReportableDuration(100 * MIN + 30_000))
+        assertTrue(ongoing.hasReportableDuration(102 * MIN))
+    }
+
     @Test fun `a configured minimum stay still suppresses short gaps`() {
         val intervals = StayDeriver.derive(
             listOf(

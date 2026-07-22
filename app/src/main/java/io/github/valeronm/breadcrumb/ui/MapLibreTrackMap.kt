@@ -29,6 +29,7 @@ import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.DwellDetector
+import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import com.google.gson.JsonObject
 import org.maplibre.android.MapLibre
@@ -75,6 +76,8 @@ fun MapLibreTrackMap(
     selectedPoint: TrackPoint? = null,
     // Detected in-track stops, highlighted as place-style capture circles under the line.
     dwells: List<DwellDetector.Dwell> = emptyList(),
+    // Stops the recording ran on through at either edge; their stretch of line is greyed out.
+    edgeStays: List<EdgeStayDetector.EdgeStay> = emptyList(),
     // Live preview: the last point is the current position — a droplet rotated to the movement
     // bearing instead of the finished-track end dot.
     directionalEnd: Boolean = false,
@@ -90,7 +93,7 @@ fun MapLibreTrackMap(
     val framed = remember { booleanArrayOf(false) }
     // What each source/layer was last fed, so unrelated recompositions (e.g. the graph scrubber
     // moving the selection) don't re-serialize the full track geometry into the native map.
-    val applied = remember { arrayOfNulls<Any?>(5) } // points, noisy, paint, selection, dwells
+    val applied = remember { arrayOfNulls<Any?>(6) } // points, noisy, paint, selection, dwells, edges
 
     Box(modifier) {
         MapLibreStyledMap(
@@ -98,6 +101,7 @@ fun MapLibreTrackMap(
             onStyleLoaded = { ctx, map, style ->
                 addDwellLayers(style, dwells) // first, so the circles render under the line
                 addTrackLine(style, points, paint)
+                addEdgeStayLayer(style, points, edgeStays, darkTheme) // over the line it greys out
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
                 addSelectionLayer(ctx, style, selectedPoint)
                 frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
@@ -110,6 +114,8 @@ fun MapLibreTrackMap(
                 if (applied[0] !== points || applied[1] !== noisyPoints) {
                     applied[0] = points
                     applied[1] = noisyPoints
+                    // The greyed edges are built from the points too — force their rebuild below.
+                    applied[5] = null
                     style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points))
                     style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints, directionalEnd))
                     // Live preview: hold the camera (so a pan/zoom survives and the map
@@ -140,6 +146,11 @@ fun MapLibreTrackMap(
                 if (applied[4] !== dwells) {
                     applied[4] = dwells
                     style.getSourceAs<GeoJsonSource>(DWELL_SOURCE)?.setGeoJson(dwellCollection(dwells))
+                }
+                if (applied[5] !== edgeStays) {
+                    applied[5] = edgeStays
+                    style.getSourceAs<GeoJsonSource>(EDGE_STAY_SOURCE)
+                        ?.setGeoJson(edgeStayFeature(points, edgeStays))
                 }
                 if (!framed[0]) {
                     frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
@@ -257,6 +268,53 @@ private const val DEFAULT_LINE = 0xFF5B9BF0.toInt()
 private const val DWELL_SOURCE = "dwell-src"
 private const val DWELL_FILL = "dwell-fill"
 private const val DWELL_LINE = "dwell-line"
+
+private const val EDGE_STAY_SOURCE = "edge-stay-src"
+private const val EDGE_STAY_LAYER = "edge-stay-layer"
+// Greys the coloured line underneath rather than adding a colour of its own: dark theme needs a
+// darker grey than the track to read as receding, light theme a lighter one.
+private const val EDGE_STAY_DIM_DARK = 0xD9424242.toInt()
+private const val EDGE_STAY_DIM_LIGHT = 0xD9BDBDBD.toInt()
+
+/**
+ * The stretch at each track edge the recorder ran on through — from the detected boundary out to
+ * the first/last fix. Drawn over the coloured line so the tail reads as excluded rather than as
+ * part of the journey; the underlying gradient stays put, so switching the colour metric still
+ * recolours everything.
+ */
+private fun edgeStayFeature(
+    points: List<TrackPoint>,
+    stays: List<EdgeStayDetector.EdgeStay>,
+): FeatureCollection = FeatureCollection.fromFeatures(
+    stays.mapNotNull { stay ->
+        val part = when (stay.side) {
+            EdgeStayDetector.Side.START -> points.filter { it.timestamp <= stay.boundaryTs }
+            EdgeStayDetector.Side.END -> points.filter { it.timestamp >= stay.boundaryTs }
+        }
+        if (part.size < 2) null
+        else Feature.fromGeometry(
+            LineString.fromLngLats(part.map { Point.fromLngLat(it.longitude, it.latitude) }),
+        )
+    },
+)
+
+private fun addEdgeStayLayer(
+    style: Style,
+    points: List<TrackPoint>,
+    stays: List<EdgeStayDetector.EdgeStay>,
+    darkTheme: Boolean,
+) {
+    style.addSource(GeoJsonSource(EDGE_STAY_SOURCE, edgeStayFeature(points, stays)))
+    style.addLayer(
+        LineLayer(EDGE_STAY_LAYER, EDGE_STAY_SOURCE).withProperties(
+            // Wider than the 3f track line so no coloured fringe survives along the edges.
+            PropertyFactory.lineWidth(4f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            PropertyFactory.lineColor(if (darkTheme) EDGE_STAY_DIM_DARK else EDGE_STAY_DIM_LIGHT),
+        ),
+    )
+}
 
 /** One place-style capture circle per detected stop, sized at the detector's corral radius. */
 private fun dwellCollection(dwells: List<DwellDetector.Dwell>): FeatureCollection {

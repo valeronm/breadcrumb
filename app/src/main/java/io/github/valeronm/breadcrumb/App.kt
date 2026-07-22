@@ -44,9 +44,9 @@ class App : Application() {
             repository.purgeOldDiscarded()
             // Crash-cleanup of dangling tracks happens in the service's arm path. One-time
             // data backfills also go here when needed — see "Backfills" in CLAUDE.md.
-            if (!Settings.isEdgeStayTrimBackfillDone(this@App)) {
-                repository.trimEdgeStaysBackfill()
-                Settings.setEdgeStayTrimBackfillDone(this@App)
+            if (!Settings.isReviewMarkBackfillDone(this@App)) {
+                repository.markReviewBackfill()
+                Settings.setReviewMarkBackfillDone(this@App)
             }
         }
     }
