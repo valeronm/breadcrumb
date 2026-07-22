@@ -123,7 +123,17 @@ class TrackQualityTest {
         assertArrayEquals(floatArrayOf(0f, 7.2f), TrackQuality.pointSpeedsKmh(negative, gap(10.0)), 1e-3f)
     }
 
-    @Test fun `a non-positive time gap yields zero for the derived point`() {
+    @Test fun `a non-positive time gap carries the previous speed instead of reporting a stop`() {
+        // 50 m over 5 s = 36 km/h, then a fix at the same instant: unmeasurable, not stopped.
+        val pts = listOf(point(0), point(5_000), point(5_000), point(10_000))
+        assertArrayEquals(
+            floatArrayOf(0f, 36f, 36f, 36f),
+            TrackQuality.pointSpeedsKmh(pts, gap(50.0)),
+            1e-3f,
+        )
+    }
+
+    @Test fun `a zero gap on the second point has nothing to carry`() {
         val pts = listOf(point(1_000), point(1_000))
         assertArrayEquals(floatArrayOf(0f, 0f), TrackQuality.pointSpeedsKmh(pts, gap(50.0)), 1e-3f)
     }

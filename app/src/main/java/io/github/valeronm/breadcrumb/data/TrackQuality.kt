@@ -59,8 +59,15 @@ object TrackQuality {
 
     /**
      * Per-point speed in km/h: the GPS-reported speed where present (non-null and non-negative),
-     * else derived from the previous point over [distance], else 0. [distance] is injectable so the
+     * else derived from the previous point over [distance]. [distance] is injectable so the
      * derivation is host-testable. Used to colour the rendered track by speed.
+     *
+     * A fix whose timestamp doesn't advance on its predecessor's is *unmeasurable*, not stationary,
+     * and carries the last speed forward rather than reporting 0 — there is no elapsed time to
+     * divide by, and calling that a standstill draws a stop where the track never stopped. Field
+     * case: an import in which every fix was stored twice, which turned a 130 km/h motorway run
+     * into a per-second sawtooth between real speed and zero on the graph and the map. Only the
+     * first point of a track has nothing to carry, and that one is 0.
      */
     fun pointSpeedsKmh(points: List<TrackPoint>, distance: DistanceFn = AndroidDistance): FloatArray {
         val out = FloatArray(points.size)
@@ -72,7 +79,8 @@ object TrackQuality {
                 reported != null && reported >= 0f -> reported * 3.6f
                 prev != null -> {
                     val dtSec = (p.timestamp - prev.timestamp) / 1000.0
-                    if (dtSec > 0) (distanceMeters(prev, p, distance) / dtSec * 3.6).toFloat() else 0f
+                    if (dtSec > 0) (distanceMeters(prev, p, distance) / dtSec * 3.6).toFloat()
+                    else out[i - 1] // prev != null means there is one
                 }
                 else -> 0f
             }
