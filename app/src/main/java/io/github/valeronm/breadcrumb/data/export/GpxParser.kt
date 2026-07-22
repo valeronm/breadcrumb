@@ -66,12 +66,13 @@ object GpxParser {
 
     /**
      * Converts a parsed track to an insertable one, or null when fewer than two timed points
-     * survive. Untimed points are dropped; points are ordered by time within each segment (and
-     * segments by their first time) so malformed files can't produce a backwards track.
+     * survive. Untimed points are dropped, as are fixes repeating the one before them
+     * ([withoutRepeats]); points are ordered by time within each segment (and segments by their
+     * first time) so malformed files can't produce a backwards track.
      */
     fun toImportable(parsed: ParsedTrack): ImportableTrack? {
         val segments = parsed.segments
-            .map { seg -> seg.filter { it.timeMs != null }.sortedBy { it.timeMs } }
+            .map { seg -> seg.filter { it.timeMs != null }.sortedBy { it.timeMs }.withoutRepeats() }
             .filter { it.isNotEmpty() }
             .sortedBy { it.first().timeMs }
         val total = segments.sumOf { it.size }
@@ -94,6 +95,27 @@ object GpxParser {
             endedAt = points.last().timeMs,
             points = points,
         )
+    }
+
+    /**
+     * Drops each fix that repeats the previous one's instant *and* position — the same fix listed
+     * twice, carrying nothing a track can use. Files in the wild do this: one imported drive
+     * stored every fix of its last twenty minutes twice, and with no reported speed in the file
+     * the derived one has a zero-length gap to divide by on every second sample, so steady
+     * driving renders as a sawtooth between the real speed and the floor. [TrackQuality] carries
+     * the last speed across such a gap rather than calling it a stop, but a fix that says nothing
+     * is better not stored: it inflates the point count, and every walk over the track pays for it.
+     *
+     * Only exact repeats go. Two fixes sharing an instant at *different* positions contradict each
+     * other, and picking a winner would be a guess; they are kept, and the speed derivation's
+     * carry-forward covers them.
+     *
+     * Applied per segment, so a legitimate segment break landing on the same instant survives —
+     * and only to imports: the recorder can't produce these (its sampling gate needs the clock to
+     * advance), and measured over the whole history it never has.
+     */
+    private fun List<ParsedPoint>.withoutRepeats(): List<ParsedPoint> = filterIndexed { i, p ->
+        i == 0 || this[i - 1].let { it.timeMs != p.timeMs || it.lat != p.lat || it.lon != p.lon }
     }
 
     /**

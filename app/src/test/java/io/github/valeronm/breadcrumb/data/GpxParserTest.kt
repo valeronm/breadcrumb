@@ -135,6 +135,68 @@ class GpxParserTest {
         assertNull(parsed[1].type)
     }
 
+    @Test fun `a fix repeating the previous instant and position is dropped`() {
+        // The shape a real file arrived in: every fix of a stretch written twice. Stored, each
+        // repeat gives the derived speed a zero-length gap to divide by.
+        val gpx = """
+            <gpx><trk><trkseg>
+              <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time></trkpt>
+              <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time></trkpt>
+              <trkpt lat="1.001" lon="1"><time>2026-01-01T00:00:01Z</time></trkpt>
+              <trkpt lat="1.001" lon="1"><time>2026-01-01T00:00:01Z</time></trkpt>
+              <trkpt lat="1.001" lon="1"><time>2026-01-01T00:00:01Z</time></trkpt>
+              <trkpt lat="1.002" lon="1"><time>2026-01-01T00:00:02Z</time></trkpt>
+            </trkseg></trk></gpx>
+        """.trimIndent()
+        val importable = GpxParser.toImportable(parse(gpx).single())!!
+        assertEquals(3, importable.points.size)
+        assertEquals(listOf(1.0, 1.001, 1.002), importable.points.map { it.lat })
+    }
+
+    @Test fun `two fixes at one instant in different places are both kept`() {
+        // Contradictory rather than redundant: picking a winner would be a guess, and the speed
+        // derivation carries the last value across the gap either way.
+        val gpx = """
+            <gpx><trk><trkseg>
+              <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time></trkpt>
+              <trkpt lat="1.5" lon="1"><time>2026-01-01T00:00:00Z</time></trkpt>
+              <trkpt lat="1.6" lon="1"><time>2026-01-01T00:00:01Z</time></trkpt>
+            </trkseg></trk></gpx>
+        """.trimIndent()
+        assertEquals(3, GpxParser.toImportable(parse(gpx).single())!!.points.size)
+    }
+
+    @Test fun `a track of nothing but repeats has too little left to import`() {
+        val gpx = """
+            <gpx><trk><trkseg>
+              <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time></trkpt>
+              <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time></trkpt>
+              <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time></trkpt>
+            </trkseg></trk></gpx>
+        """.trimIndent()
+        assertNull(GpxParser.toImportable(parse(gpx).single()))
+    }
+
+    @Test fun `a segment break landing on the previous segment's last instant survives`() {
+        // Dedupe is per segment: the resume fix repeating the pause fix is a real break, not a
+        // repeat, and dropping it would lose the <trkseg> boundary.
+        val gpx = """
+            <gpx><trk>
+              <trkseg>
+                <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time></trkpt>
+                <trkpt lat="1.001" lon="1"><time>2026-01-01T00:00:01Z</time></trkpt>
+              </trkseg>
+              <trkseg>
+                <trkpt lat="1.001" lon="1"><time>2026-01-01T00:00:01Z</time></trkpt>
+                <trkpt lat="1.002" lon="1"><time>2026-01-01T00:00:02Z</time></trkpt>
+              </trkseg>
+            </trk></gpx>
+        """.trimIndent()
+        val importable = GpxParser.toImportable(parse(gpx).single())!!
+        assertEquals(4, importable.points.size)
+        assertEquals(listOf(false, false, true, false), importable.points.map { it.segmentStart })
+    }
+
     @Test fun `a bare local datetime is read as UTC`() {
         val gpx = """
             <gpx><trk><trkseg>
