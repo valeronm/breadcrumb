@@ -32,8 +32,9 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 object EdgeStayDetector {
 
     data class Params(
-        /** Stage-1 sweep, with the venue bar lowered to edge scale — see [BRIEF_STOP] for what
-         *  ships; these defaults are the coarser tuning the detector's own tests pin. */
+        /** Stage-1 sweep, with the venue bar lowered to edge scale. Nothing ships these defaults —
+         *  every production path runs [BRIEF_STOP] or [VEHICLE], and so does the detector's own
+         *  test suite; they remain only for callers that don't turn on the rule's numbers. */
         val dwell: DwellDetector.Params = DwellDetector.Params(minDwellMs = 3 * 60_000L),
         /** A fix at or above this speed votes its bin "moving". */
         val movingSpeedMps: Double = 0.7,

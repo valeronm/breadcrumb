@@ -11,6 +11,10 @@ import org.junit.Test
  * 15 s carrying an explicit Doppler speed, so tests reason in metres/minutes and can steer the
  * two stages independently: position decides *whether* (the corral sweep), speed decides *where*
  * (the moving-bin boundary).
+ *
+ * The params under test are the ones that ship — [EdgeStayDetector.BRIEF_STOP], and
+ * [EdgeStayDetector.VEHICLE] where the activity floor is the point. A suite pinning the
+ * constructor defaults would pass green through any change to the numbers the recorder runs.
  */
 class EdgeStayDetectorTest {
 
@@ -20,9 +24,9 @@ class EdgeStayDetectorTest {
 
     private val MIN = 60_000L
 
-    /** Fixture cadence is 15 s, which the detector measures off the points: one moving fix
-     *  marks its bin. */
-    private val params = EdgeStayDetector.Params()
+    /** The params the recorder actually runs. Fixture cadence is 15 s — coarser than the 10 s
+     *  bin, which the detector measures off the points, so one moving fix marks its bin. */
+    private val params = EdgeStayDetector.BRIEF_STOP
 
     private fun pt(meters: Double, t: Long, speed: Float?, ignored: Boolean = false) = TrackPoint(
         trackId = 1,
@@ -55,8 +59,24 @@ class EdgeStayDetectorTest {
             pt(centerM + if (i % 2 == 0) jitterM else -jitterM, startT + i * 15_000L, speedMps)
         }
 
-    private fun detect(points: List<TrackPoint>) =
-        EdgeStayDetector.detect(points, params, flatDistance)
+    /** An out-and-back excursion of [amplitudeM] on a [periodSec] cycle, sampled every 15 s — a
+     *  parked vehicle's settling drift, which over the 30 s lookback clears the moving bar while
+     *  staying decades below any speed the vehicle itself travels at. */
+    private fun drift(
+        centerM: Double,
+        amplitudeM: Double,
+        periodSec: Int,
+        startT: Long,
+        minutes: Int,
+        speedMps: Float = 1.0f,
+    ): List<TrackPoint> =
+        (0 until minutes * 4).map { i ->
+            val phase = (i * 15.0 % periodSec) / periodSec
+            pt(centerM + amplitudeM * (1 - Math.abs(2 * phase - 1)), startT + i * 15_000L, speedMps)
+        }
+
+    private fun detect(points: List<TrackPoint>, p: EdgeStayDetector.Params = params) =
+        EdgeStayDetector.detect(points, p, flatDistance)
 
     @Test
     fun `a track sampled at bin scale is still detectable`() {
@@ -170,24 +190,74 @@ class EdgeStayDetectorTest {
 
     @Test
     fun `a stop shorter than the floor leaves no edge stay`() {
-        assertTrue(
-            detect(
-                walk(0.0, 80.0, 0, 10) +
-                    linger(850.0, 20.0, 10 * MIN, 2),
-            ).isEmpty(),
-        )
+        // The shipped floor is half a minute. A 15 s stop can only reach it by pulling walk fixes
+        // into the corral, and their net progress reads as transit rather than a stay.
+        val brief = (0 until 2).map { i ->
+            pt(850.0 + if (i == 0) 3.0 else -3.0, 10 * MIN + i * 15_000L, 0.1f)
+        }
+        assertTrue(detect(walk(0.0, 80.0, 0, 10) + brief).isEmpty())
     }
 
     @Test
-    fun `an edge dwell whose refined stay is under the floor is dropped`() {
-        // The corral holds from 8 min, but the walk goes on until 12 — real ground covered, so
-        // speed keeps voting — leaving only a 1-minute stop, too short to be a stay.
-        assertTrue(
-            detect(
-                walk(0.0, 80.0, 0, 12) +
-                    linger(970.0, 20.0, 12 * MIN, 1),
-            ).isEmpty(),
-        )
+    fun `a parked vehicle's own drift hides the arrival until the activity floor rules it out`() {
+        // The regression that hid the arrival tail on 156 drives outright: parked, a car's
+        // settling drift wanders far enough to clear the 0.7 m/s bar, so bins keep voting moving
+        // to the end of the track, the refined stay collapses under the floor, and the stay is
+        // dropped. Nothing about the position evidence changes — only that under 5 km/h a car is
+        // not driving, which is what [VEHICLE] adds.
+        val points = walk(0.0, 600.0, 0, 5) + drift(3000.0, 30.0, periodSec = 60, 5 * MIN, 15)
+
+        assertTrue(detect(points, EdgeStayDetector.BRIEF_STOP).isEmpty())
+
+        val stays = detect(points, EdgeStayDetector.VEHICLE)
+        assertEquals(1, stays.size)
+        val s = stays.single()
+        assertEquals(EdgeStayDetector.Side.END, s.side)
+        assertTrue(s.boundaryTs in (5 * MIN - 30_000L)..(5 * MIN + 30_000L))
+    }
+
+    @Test
+    fun `a lone moving fix carries its bin only when no standstill could explain it`() {
+        // Where a bin normally holds several fixes, one vote means the rest of the bin disagreed —
+        // standstill drift. The exception is a fix moving too fast for drift to explain: settling
+        // GPS covers tens of metres in half a minute, not the 80 m below. Same fixture, same lone
+        // excursion, only its size differs — and that alone decides where the track ends.
+        fun parkedWithExcursion(excursionM: Double): List<TrackPoint> {
+            // 5 s cadence: a 10 s bin holds two fixes, so a single vote is short of the floor.
+            val approach = (0 until 60).map { i -> pt(6.67 * i, i * 5_000L, 1.33f) }
+            val parked = (0 until 120).map { i ->
+                val t = 5 * MIN + i * 5_000L
+                val off = if (i == 60) excursionM else if (i % 2 == 0) 2.0 else -2.0
+                pt(400.0 + off, t, if (i == 60) (excursionM / 30.0).toFloat() else 0.1f)
+            }
+            return approach + parked
+        }
+
+        val drifted = detect(parkedWithExcursion(40.0)).single()
+        assertTrue(drifted.boundaryTs in (5 * MIN - 15_000L)..(5 * MIN + 15_000L))
+
+        // 80 m in half a minute is 2.66 m/s — over the solo bar, so the one fix carries its bin
+        // and the arrival is placed there instead.
+        val carried = detect(parkedWithExcursion(80.0)).single()
+        assertTrue(carried.boundaryTs in (10 * MIN - 15_000L)..(10 * MIN + 15_000L))
+    }
+
+    @Test
+    fun `a late first moving bin retracts the cut to the dwell rather than eating the journey`() {
+        // Two imported drives proposed cutting hundreds of metres of ordinary driving off their
+        // starts, because their bins only reached the moving threshold a minute into the drive.
+        // Here the platform reports a flat zero for the first minute (an import's speed-less
+        // shape), so those bins can't vote — and the span the bin edge would cut ranges far
+        // beyond anything a stop could cover, which pulls the cut back to the dwell's own bound.
+        val blindDrive = walk(120.0, 600.0, 3 * MIN, 8)
+            .mapIndexed { i, p -> if (i < 4) p.copy(speed = 0f) else p }
+        val stays = detect(linger(0.0, 5.0, 0, 3) + blindDrive)
+
+        assertEquals(1, stays.size)
+        val s = stays.single()
+        assertEquals(EdgeStayDetector.Side.START, s.side)
+        // The real departure, not the minute of driving the bins were blind to.
+        assertTrue(s.boundaryTs <= 3 * MIN + 15_000L)
     }
 
     @Test
