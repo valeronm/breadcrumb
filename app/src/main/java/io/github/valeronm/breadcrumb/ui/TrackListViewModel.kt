@@ -222,6 +222,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun getPointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
         repository.pointsAfter(trackId, afterId)
 
+    /** The cuts the trim would make on a loaded track — the repository owns the detector and its
+     *  params, so the greyed preview and the cut can't be computed differently. */
+    fun edgeStays(points: List<TrackPoint>) = repository.edgeStays(points)
+
     /** The ignored "bad fix" points, shown as markers on the track map. */
     suspend fun getIgnoredPoints(trackId: Long): List<TrackPoint> = repository.ignoredPointsFor(trackId)
 

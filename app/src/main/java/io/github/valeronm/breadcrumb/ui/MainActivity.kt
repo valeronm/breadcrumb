@@ -3401,10 +3401,10 @@ private fun StayCard(
                         // slice) — only whole stays show one. A stay whose bounds span less than
                         // StayDeriver.REPORTABLE_DURATION_MS shows none either: the stop was
                         // longer than its bounds say, so "0m" would be worse than silence.
-                        val endOrNow = end ?: System.currentTimeMillis()
-                        if (!startsAtMidnight && !endsAtMidnight && stay.hasReportableDuration(endOrNow)) {
+                        val reportable = stay.reportableDurationMs(System.currentTimeMillis())
+                        if (!startsAtMidnight && !endsAtMidnight && reportable != null) {
                             append(" · ")
-                            append(formatDurationMs(endOrNow - stay.start))
+                            append(formatDurationMs(reportable))
                         }
                         if (visits != null) {
                             append(" · " + visitCountLabel(visits))
@@ -3515,6 +3515,14 @@ private fun formatDuration(startedAt: Long, endedAt: Long?): String {
     return formatDurationMs(end - startedAt)
 }
 
+/** One phrasing for both the trim dialog and the map legend — which side ran on, for how long,
+ *  and (in the dialog, where it is the thing being confirmed) from when. */
+private fun edgeStayLabel(stay: EdgeStayDetector.EdgeStay, withTime: Boolean): String {
+    val side = if (stay.side == EdgeStayDetector.Side.START) "Before the start" else "After the arrival"
+    val at = if (withTime) " at ${timeFormat.format(Date(stay.boundaryTs))}" else ""
+    return "$side$at · ${formatShortDurationMs(stay.stayMs)}"
+}
+
 /** Minute-rounded like [formatDurationMs], except below a minute, where seconds are the point —
  *  edge stays start at half a minute and "0m" would say nothing. */
 private fun formatShortDurationMs(durationMs: Long): String =
@@ -3562,15 +3570,10 @@ private fun TrackMapScreen(
         } ?: emptyList()
     }
     // Recording that ran on past the stop at either edge — greyed on the map, and what the Trim
-    // action cuts. Detected with the very params the trim uses, so the two can't disagree.
-    val edgeParams = remember(context) {
-        EdgeStayDetector.overlayParams(AppSettings.minIntervalSec(context) * 1000L)
-    }
-    val edgeStays by produceState<List<EdgeStayDetector.EdgeStay>>(initialValue = emptyList(), points, edgeParams) {
+    // action cuts. The repository runs the detection, so preview and cut are one computation.
+    val edgeStays by produceState<List<EdgeStayDetector.EdgeStay>>(initialValue = emptyList(), points) {
         value = points?.let { pts ->
-            withContext(Dispatchers.Default) {
-                EdgeStayDetector.detect(pts, edgeParams, AndroidDistance)
-            }
+            withContext(Dispatchers.Default) { viewModel.edgeStays(pts) }
         } ?: emptyList()
     }
     val activity = remember(summary) {
@@ -3783,13 +3786,8 @@ private fun TrackMapScreen(
                     )
                     Spacer(Modifier.height(12.dp))
                     for (stay in edgeStays) {
-                        val what = if (stay.side == EdgeStayDetector.Side.START) {
-                            "Before the start"
-                        } else {
-                            "After the arrival at ${timeFormat.format(Date(stay.boundaryTs))}"
-                        }
                         Text(
-                            "$what · ${formatShortDurationMs(stay.stayMs)}",
+                            edgeStayLabel(stay, withTime = true),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -3862,8 +3860,8 @@ private fun MetricPlot(
                 // ruled, so the graph shows at a glance which part of the trace isn't travel.
                 for (stay in edgeStays) {
                     val x = ((stay.boundaryTs - t0) / tSpan * size.width).coerceIn(0f, size.width)
-                    val from = if (stay.side == EdgeStayDetector.Side.START) 0f else x
-                    val to = if (stay.side == EdgeStayDetector.Side.START) x else size.width
+                    val (from, to) =
+                        if (stay.side == EdgeStayDetector.Side.START) 0f to x else x to size.width
                     drawRect(
                         trimColor.copy(alpha = 0.14f),
                         topLeft = Offset(from, 0f),
@@ -4077,9 +4075,8 @@ private fun DwellLegend(
             )
         }
         for (e in edgeStays) {
-            val side = if (e.side == EdgeStayDetector.Side.START) "Before start" else "After arrival"
             Text(
-                "$side · ${formatShortDurationMs(e.stayMs)}",
+                edgeStayLabel(e, withTime = false),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

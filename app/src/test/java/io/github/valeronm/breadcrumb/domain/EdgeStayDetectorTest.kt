@@ -106,6 +106,28 @@ class EdgeStayDetectorTest {
     }
 
     @Test
+    fun `the boundary is the fix the trimmed track ends at`() {
+        // One value serves the split and the display: a real fix, the last one the surviving
+        // track keeps. The speed-bin edge it derives from falls between fixes, and marking the
+        // first *removed* fix would leave the track ending a leg short of the line shown.
+        for (points in listOf(
+            walk(0.0, 80.0, 0, 10) + linger(850.0, 20.0, 10 * MIN, 15),
+            linger(0.0, 20.0, 0, 15) + walk(50.0, 80.0, 15 * MIN, 20),
+        )) {
+            val stay = detect(points).single()
+            val isEnd = stay.side == EdgeStayDetector.Side.END
+            assertTrue(points.any { it.timestamp == stay.boundaryTs })
+            // The repository's partition: everything strictly beyond the boundary moves.
+            val kept = points.filter {
+                if (isEnd) it.timestamp <= stay.boundaryTs else it.timestamp >= stay.boundaryTs
+            }
+            assertEquals(stay.boundaryTs, if (isEnd) kept.last().timestamp else kept.first().timestamp)
+            val edge = if (isEnd) points.last().timestamp else points.first().timestamp
+            assertEquals(Math.abs(edge - stay.boundaryTs), stay.stayMs)
+        }
+    }
+
+    @Test
     fun `lingering before departure puts a stay at the start`() {
         val stays = detect(
             linger(0.0, 20.0, 0, 15) +

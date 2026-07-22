@@ -110,10 +110,10 @@ object StayDeriver {
         /** Index into [Derivation.clusters] — the place this stay belongs to. */
         val clusterId: Int,
     ) : Interval {
-        /** Whether this stay's own bounds are worth reporting as a duration; [nowMs] measures an
-         *  ongoing one. See [REPORTABLE_DURATION_MS]. */
-        fun hasReportableDuration(nowMs: Long): Boolean =
-            (end ?: nowMs) - start >= REPORTABLE_DURATION_MS
+        /** This stay's length when its own bounds are worth reporting as one, else null;
+         *  [nowMs] measures an ongoing stay. See [REPORTABLE_DURATION_MS]. */
+        fun reportableDurationMs(nowMs: Long): Long? =
+            ((end ?: nowMs) - start).takeIf { it >= REPORTABLE_DURATION_MS }
     }
 
     data class Gap(

@@ -114,8 +114,6 @@ fun MapLibreTrackMap(
                 if (applied[0] !== points || applied[1] !== noisyPoints) {
                     applied[0] = points
                     applied[1] = noisyPoints
-                    // The greyed edges are built from the points too — force their rebuild below.
-                    applied[5] = null
                     style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points))
                     style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints, directionalEnd))
                     // Live preview: hold the camera (so a pan/zoom survives and the map
@@ -147,6 +145,8 @@ fun MapLibreTrackMap(
                     applied[4] = dwells
                     style.getSourceAs<GeoJsonSource>(DWELL_SOURCE)?.setGeoJson(dwellCollection(dwells))
                 }
+                // Keyed on the stays alone: they are re-derived from the points, so a growing
+                // live track that has none (the record screen) never rebuilds this source.
                 if (applied[5] !== edgeStays) {
                     applied[5] = edgeStays
                     style.getSourceAs<GeoJsonSource>(EDGE_STAY_SOURCE)
@@ -286,16 +286,7 @@ private fun edgeStayFeature(
     points: List<TrackPoint>,
     stays: List<EdgeStayDetector.EdgeStay>,
 ): FeatureCollection = FeatureCollection.fromFeatures(
-    stays.mapNotNull { stay ->
-        val part = when (stay.side) {
-            EdgeStayDetector.Side.START -> points.filter { it.timestamp <= stay.boundaryTs }
-            EdgeStayDetector.Side.END -> points.filter { it.timestamp >= stay.boundaryTs }
-        }
-        if (part.size < 2) null
-        else Feature.fromGeometry(
-            LineString.fromLngLats(part.map { Point.fromLngLat(it.longitude, it.latitude) }),
-        )
-    },
+    stays.mapNotNull { stay -> lineFeature(points.filter { stay.spans(it.timestamp) }) },
 )
 
 private fun addEdgeStayLayer(
@@ -362,16 +353,15 @@ private fun addCaptureCircleLayers(
 private fun framePositions(points: List<TrackPoint>, noisyPoints: List<TrackPoint>): List<LatLng> =
     (if (points.size >= 2) points else points + noisyPoints).map { LatLng(it.latitude, it.longitude) }
 
-// A GeoJSON LineString needs at least two positions; with fewer the track renders as markers only.
-private fun trackLineFeature(points: List<TrackPoint>): FeatureCollection =
-    FeatureCollection.fromFeatures(
-        if (points.size < 2) emptyList()
-        else listOf(
-            Feature.fromGeometry(
-                LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) }),
-            ),
-        ),
+/** The points as one polyline, or null below the two positions a GeoJSON LineString needs. */
+private fun lineFeature(points: List<TrackPoint>): Feature? =
+    if (points.size < 2) null
+    else Feature.fromGeometry(
+        LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) }),
     )
+
+private fun trackLineFeature(points: List<TrackPoint>): FeatureCollection =
+    FeatureCollection.fromFeatures(listOfNotNull(lineFeature(points)))
 
 private fun addTrackLine(style: Style, points: List<TrackPoint>, paint: TrackPaint) {
     // lineMetrics is required for line-gradient (line-progress is measured along the rendered line).

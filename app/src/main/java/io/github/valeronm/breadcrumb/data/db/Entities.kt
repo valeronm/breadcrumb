@@ -43,10 +43,12 @@ data class Track(
     val discardReason: String? = null,
     /**
      * There is a cut waiting on this track for the user to accept or ignore: today an edge stay
-     * the recorder ran on through, later a mid-track dwell. Written when the track is finished,
-     * imported or repaired — the same moments the aggregates above are — and cleared once the
-     * track is trimmed. A flag, not a measurement: it says a decision is pending, and the track
-     * screen re-detects the specifics when opened.
+     * the recorder ran on through, later a mid-track dwell. Written when the track is finished or
+     * imported (and re-derived by the leading-stray repair, which moves points), then cleared once
+     * the track is trimmed — a trim settles the question whether or not it cut anything. Merging a
+     * restored tail back deliberately leaves the merged track unmarked: that merge is the user
+     * saying no. A flag, not a measurement: it says a decision is pending, and the track screen
+     * re-detects the specifics when opened.
      */
     val needsReview: Boolean = false,
 ) {

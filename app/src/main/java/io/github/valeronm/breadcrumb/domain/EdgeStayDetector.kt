@@ -8,7 +8,8 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * arrived (or before they truly departed) because Activity Recognition lagged the real stop.
  * A stop longer than the auto-pause resume window would have split the track, so anything
  * left at an edge is bounded by observer lag; the venue-scale 10-minute bar of mid-track
- * dwells doesn't apply, and the floor here is the resume window itself (~3 min).
+ * dwells doesn't apply. What ships is [BRIEF_STOP] — a half-minute floor, small enough to
+ * cover the stops that never split a track at all.
  *
  * Two stages with distinct roles, both required:
  *  1. **Position says whether**: [DwellDetector]'s corral sweep, run with the lowered
@@ -31,13 +32,14 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 object EdgeStayDetector {
 
     data class Params(
-        /** Stage-1 sweep, with the venue bar lowered to the resume-window scale. */
+        /** Stage-1 sweep, with the venue bar lowered to edge scale — see [BRIEF_STOP] for what
+         *  ships; these defaults are the coarser tuning the detector's own tests pin. */
         val dwell: DwellDetector.Params = DwellDetector.Params(minDwellMs = 3 * 60_000L),
         /** A fix at or above this speed votes its bin "moving". */
         val movingSpeedMps: Double = 0.7,
         /** Speed over the ground is measured as displacement over this lookback — long enough
          *  that standstill jitter averages to ~zero, short enough that real movement registers. */
-        val derivedSpeedLookbackMs: Long = 30_000L,
+        val speedLookbackMs: Long = 30_000L,
         val binMs: Long = 30_000L,
         /** Fraction of the nominal per-bin fix count (binMs / [expectedFixIntervalMs]) a bin
          *  needs in moving fixes to count as moving — relative, so sampling settings scale it. */
@@ -49,11 +51,11 @@ object EdgeStayDetector {
         val edgeToleranceMs: Long = 30_000L,
     )
 
-    /** [OVERLAY] with the recorder's actual sampling cadence, which sets the per-bin moving-fix
+    /** [BRIEF_STOP] with the recorder's actual sampling cadence, which sets the per-bin moving-fix
      *  bar. The track screen and the trim it offers must run the *same* params — what the user
      *  sees greyed out is exactly what the trim then cuts. */
-    fun overlayParams(fixIntervalMs: Long): Params =
-        OVERLAY.copy(expectedFixIntervalMs = fixIntervalMs.coerceAtLeast(1L))
+    fun briefStopParams(fixIntervalMs: Long): Params =
+        BRIEF_STOP.copy(expectedFixIntervalMs = fixIntervalMs.coerceAtLeast(1L))
 
     /**
      * The same two-stage rule resolved down to brief-stop scale, for the track screen's overlay
@@ -66,7 +68,7 @@ object EdgeStayDetector {
      * minute. Measured over the recorded history: an end stay on ~30% of tracks, median ~72 s,
      * start stays near-absent (departures barely lag).
      */
-    val OVERLAY = Params(
+    val BRIEF_STOP = Params(
         dwell = DwellDetector.Params(
             minDwellMs = 30_000L,
             decimateMs = 5_000L,
@@ -80,13 +82,32 @@ object EdgeStayDetector {
 
     enum class Side { START, END }
 
-    /** A stay at [side]: the track's real content ends (starts) at [boundaryTs]; the stay runs
-     *  from there to the track edge. */
+    /**
+     * A stay at [side]. [boundaryTs] is the **cut point**: the timestamp of the last good fix the
+     * trimmed track keeps (the first, at a start edge), with the stay running from there to the
+     * track's edge. One value, used by everything — the split moves the points strictly beyond it,
+     * both tracks are bound at it (the zero-length seam [StayDeriver] turns into the merge-back
+     * offer), and the track screen greys from it.
+     *
+     * It is a real fix, not the speed-bin edge the boundary is derived from: a bin edge falls
+     * between fixes (measured: 288 of 387 in gaps up to 94 s), and a polyline needs both its
+     * endpoints, so a display marking the first *removed* fix would leave the trimmed track
+     * ending a leg short of the line the user was shown.
+     */
     data class EdgeStay(
         val side: Side,
         val boundaryTs: Long,
         val stayMs: Long,
-    )
+    ) {
+        /** Whether a fix at [ts] leaves the track when this stay is trimmed. The boundary fix
+         *  itself stays — it is the surviving track's bound. */
+        fun movesOut(ts: Long): Boolean =
+            if (side == Side.END) ts > boundaryTs else ts < boundaryTs
+
+        /** Whether a fix at [ts] belongs to the stay *as drawn* — [movesOut] plus the boundary
+         *  fix, so the greyed polyline includes the leg that disappears with the cut. */
+        fun spans(ts: Long): Boolean = ts == boundaryTs || movesOut(ts)
+    }
 
     /** 0–2 stays: at most one per track edge. */
     fun detect(
@@ -108,27 +129,35 @@ object EdgeStayDetector {
         // passed a car circling at 35 km/h on imported speed-less data). No signal — no trim.
         if (movingBins.isEmpty()) return emptyList()
 
+        // The bin edge is an instant between fixes; the boundary is the fix the surviving track
+        // would keep — everything strictly beyond it goes. A stay is only worth reporting once
+        // that resolved span clears the floor.
+        fun MutableList<EdgeStay>.addStay(side: Side, boundary: TrackPoint?, edgeTs: Long) {
+            val stayMs = Math.abs(edgeTs - (boundary ?: return).timestamp)
+            if (stayMs >= params.dwell.minDwellMs) add(EdgeStay(side, boundary.timestamp, stayMs))
+        }
+
         return buildList {
             if (dwells.first().entryTs - firstTs <= params.edgeToleranceMs) {
-                val boundary = movingBins.first() * params.binMs
-                val stayMs = boundary - firstTs
-                if (stayMs >= params.dwell.minDwellMs) {
-                    add(EdgeStay(Side.START, boundary, stayMs))
-                }
+                addStay(
+                    Side.START,
+                    good.firstOrNull { it.timestamp >= movingBins.first() * params.binMs },
+                    firstTs,
+                )
             }
             if (lastTs - dwells.last().exitTs <= params.edgeToleranceMs) {
-                val boundary = (movingBins.last() + 1) * params.binMs
-                val stayMs = lastTs - boundary
-                if (stayMs >= params.dwell.minDwellMs) {
-                    add(EdgeStay(Side.END, boundary, stayMs))
-                }
+                addStay(
+                    Side.END,
+                    good.lastOrNull { it.timestamp < (movingBins.last() + 1) * params.binMs },
+                    lastTs,
+                )
             }
         }
     }
 
     /**
      * Ascending bin indices (timestamp / binMs) holding enough moving good fixes. A fix counts as
-     * moving only when its **displacement** over [Params.derivedSpeedLookbackMs] says so, and —
+     * moving only when its **displacement** over [Params.speedLookbackMs] says so, and —
      * where the platform reported one — its Doppler speed agrees. Displacement is the veto, not a
      * fallback for Doppler-less imports: a parked phone reports phantom Doppler (field case, a
      * 2026-07-04 arrival: three consecutive fixes at up to 3.5 m/s while sitting 7 m from the
@@ -147,13 +176,13 @@ object EdgeStayDetector {
         // it does once parked, on min-distance sampling — the nearest earlier fix can be minutes
         // old, and the window shrinks to an adjacent-fix delta; those fixes abstain rather than
         // vote on noise.
-        val minBaselineMs = params.derivedSpeedLookbackMs / 3
+        val minBaselineMs = params.speedLookbackMs / 3
         val counts = HashMap<Long, Int>()
         var back = 0
         for ((i, p) in good.withIndex()) {
             // The first fix has no window behind it to measure against, so it never votes.
             if (i == 0) continue
-            while (p.timestamp - good[back].timestamp > params.derivedSpeedLookbackMs) back++
+            while (p.timestamp - good[back].timestamp > params.speedLookbackMs) back++
             val anchor = good[if (back == i) i - 1 else back]
             val dtMs = p.timestamp - anchor.timestamp
             if (dtMs < minBaselineMs) continue

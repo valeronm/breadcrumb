@@ -49,11 +49,14 @@ interface TrackDao {
     @Query("UPDATE tracks SET needsReview = :needsReview WHERE id = :trackId")
     suspend fun setNeedsReview(trackId: Long, needsReview: Boolean)
 
-    /** Finished, kept tracks the review pass hasn't visited yet — the one-time backfill's input. */
-    @Query(
-        "SELECT id FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL " +
-            "ORDER BY startedAt DESC"
-    )
+    /** As above for a whole set at once — one invalidation of the observed queries, not one per
+     *  track. Callers must chunk: SQLite binds at most 999 variables per statement. */
+    @Query("UPDATE tracks SET needsReview = :needsReview WHERE id IN (:trackIds)")
+    suspend fun setNeedsReview(trackIds: List<Long>, needsReview: Boolean)
+
+    /** Every finished, kept track — the one-time review backfill's input. Unordered: the pass
+     *  visits all of them. */
+    @Query("SELECT id FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL")
     suspend fun keptTrackIds(): List<Long>
 
     /** Soft-delete a keep-threshold-filtered track: finalise it and mark it discarded. */
@@ -104,9 +107,10 @@ interface TrackDao {
 
     // --- Edge-stay trim (split a stay recorded onto a track's edge into its own track) ----------
 
-    /** Reassign the points at/after [fromTs] to [toId] — the end-stay's tail moves, not copies. */
-    @Query("UPDATE track_points SET trackId = :toId WHERE trackId = :fromId AND timestamp >= :fromTs")
-    suspend fun movePointsFrom(fromId: Long, toId: Long, fromTs: Long)
+    /** Reassign the points after [afterTs] to [toId] — the end-stay's tail moves, not copies.
+     *  Exclusive: the boundary fix is the last one the trimmed track keeps. */
+    @Query("UPDATE track_points SET trackId = :toId WHERE trackId = :fromId AND timestamp > :afterTs")
+    suspend fun movePointsFrom(fromId: Long, toId: Long, afterTs: Long)
 
     /** Reassign the points before [beforeTs] to [toId] — the start-stay's head moves, not copies. */
     @Query("UPDATE track_points SET trackId = :toId WHERE trackId = :fromId AND timestamp < :beforeTs")
