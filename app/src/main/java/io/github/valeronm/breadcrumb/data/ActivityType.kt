@@ -4,8 +4,10 @@ import com.google.android.gms.location.DetectedActivity
 import java.util.Locale
 
 /**
- * The motion states we care about. Maps Google's [DetectedActivity] constants onto a small set
- * of profiles, each with its own GPS sampling cadence.
+ * The motion states we care about — Google's [DetectedActivity] constants reduced to a small set.
+ * An activity carries only what the recorder decides with: a label, whether it records at all, and
+ * the [TrackGroup] that says which switches split a track. Sampling cadence is deliberately not
+ * here: it is one global setting, so an activity change never re-tunes GPS.
  */
 enum class ActivityType(
     val label: String,

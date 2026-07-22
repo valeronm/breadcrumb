@@ -96,7 +96,7 @@ import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -3307,16 +3307,17 @@ private fun EdgeStaySweepBanner(progress: EdgeStaySweepStatus.Progress, modifier
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Filled.ContentCut,
+                    Icons.Filled.Refresh,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(12.dp))
                 // Short enough to sit beside the count on one line at phone widths; the weight
-                // is the backstop, not the plan.
+                // is the backstop, not the plan. "Updating", not "Trimming": the sweep re-derives
+                // each track's overrun, and hands fixes back as readily as it takes them.
                 Text(
-                    "Trimming recording overruns",
+                    "Updating recording overruns",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),

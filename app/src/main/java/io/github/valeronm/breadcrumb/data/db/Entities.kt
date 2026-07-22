@@ -49,7 +49,9 @@ data class Track(
      * decision, so nothing writes this today. It is reserved for the mid-track dwell split, whose
      * cut *does* need confirming — splitting a track in two is not undone by clearing a flag — and
      * which wants exactly this: one boolean saying a decision is pending here. Don't drop it to
-     * tidy up; the next feature is the reader.
+     * tidy up; the next feature is the reader — and it should re-derive rather than trust what it
+     * finds, since the one release that wrote this left marks on installed devices that no pass
+     * ever cleared.
      */
     val needsReview: Boolean = false,
 ) {

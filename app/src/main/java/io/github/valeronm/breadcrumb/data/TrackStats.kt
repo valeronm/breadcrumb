@@ -23,7 +23,8 @@ object TrackStats {
         val distanceMeters: Double,
         /** Usable (non-ignored) points. */
         val pointCount: Int,
-        /** Ignored "bad fix" points — a signal that the track is questionable. */
+        /** Ignored points: bad fixes — a signal that the track is questionable — plus the
+         *  recorder's overrun at the edges, which is not. The reason on each row separates them. */
         val ignoredCount: Int,
         val startLat: Double?,
         val startLon: Double?,

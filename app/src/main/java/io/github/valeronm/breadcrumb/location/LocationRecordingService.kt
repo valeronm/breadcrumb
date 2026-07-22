@@ -63,8 +63,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * Foreground service that records GPS while the app is in the background. It listens for activity
- * changes (delivered via [ActivityTransitionReceiver]) and adjusts the GPS sampling profile, or
- * pauses recording entirely while the user is stationary.
+ * changes (delivered via [ActivityTransitionReceiver]) and opens, continues or pauses tracks as the
+ * detected activity moves between motion families — GPS runs at one cadence throughout, the
+ * user's, read from [Settings] when each track's request starts.
  */
 class LocationRecordingService : Service() {
 

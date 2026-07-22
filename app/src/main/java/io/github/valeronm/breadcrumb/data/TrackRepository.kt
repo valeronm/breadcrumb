@@ -385,9 +385,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     /**
      * Close the short stay between [earlierId] and [laterId] by building a NEW track that spans both
      * (their points copied in order, a segment break marking the join) and moving the two originals
-     * to discarded — so the merge is a fresh track and the originals are preserved (reviewable in the
-     * debug screen, auto-purged after the retention window) rather than destroyed. The derived stay
-     * disappears because the discarded originals leave the timeline.
+     * to discarded — so the merge is a fresh track and the originals are preserved (reviewable and
+     * restorable from Settings → Recently deleted until the retention purge) rather than destroyed.
+     * The derived stay disappears because the discarded originals leave the timeline.
      *
      * Returns the merged track's id (null if either original is gone), which [unmergeTracks] needs
      * to undo it.

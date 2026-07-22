@@ -59,7 +59,8 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Renders a track on a Protomaps dark vector basemap via MapLibre GL Native. The line is coloured by
+ * Renders a track on a Protomaps vector basemap via MapLibre GL Native, in the dark or light flavour
+ * the app theme calls for. The line is coloured by
  * [colorMode] via a MapLibre `line-gradient` built from [TrackColoring]'s per-point colours; start/end
  * and noisy-fix markers sit on a symbol layer, and the camera fits the track once on open. Switching
  * the colour mode updates the gradient in place without moving the camera; the source is refreshed

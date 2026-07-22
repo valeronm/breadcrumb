@@ -33,14 +33,21 @@ compatible pair, not one alone.
 ## Unit tests
 
 Unit tests live in `app/src/test` and cover the pure logic in `domain/` plus data-layer pieces
-(TrackQuality, TrackStats, GpxExporter/GpxParser) — run them with
+(TrackQuality, TrackStats, GpxExporter/GpxParser, BackupExporter/BackupImporter) — run them with
 `./gradlew :app:testDebugUnitTest`, and note that `assembleDebug` does **not** compile them, so
 run the tests after touching anything they cover. **Room runs in these host tests via Robolectric**
 (in-memory DB, `TestDb` fixture), so the repository's DB rules and the schema migrations are
 covered without a device — see `TrackRepositoryTest`, `Migration10To11Test`, and
 `TimelineInvalidationTest`. Robolectric emulates up to SDK 36 while the app targets 37, so its
 tests are pinned in `app/src/test/resources/robolectric.properties`; raise it when Robolectric
-catches up. There are still no instrumented/UI tests: behaviour above the data layer is verified by
+catches up. **Robolectric's native runtime doesn't support Linux aarch64**, so on an arm64 dev box
+every Room-backed test fails with an architecture assertion, whatever the change — that's the
+environment, not a regression, and CI is where those tests actually run.
+
+A domain rule must be tested through the params that **ship**. `EdgeStayDetectorTest` runs
+`EdgeStayDetector.BRIEF_STOP` (and `VEHICLE` where the activity floor is the point) rather than the
+`Params()` constructor defaults, which no production path uses: a suite pinning the defaults passes
+green through any change to the numbers the recorder actually runs. There are still no instrumented/UI tests: behaviour above the data layer is verified by
 building and driving the app on a device/emulator (activity recognition needs real movement or an
 emulator route).
 
@@ -74,10 +81,21 @@ The pieces below only make sense together — read them as a unit.
   that requests raw platform GPS, owns the current `Track`, and is the single source of
   truth for recording. A `@Volatile companion instance` (plus `activeTrackId`, `isRunning`) lets other
   components talk to the live service **directly within the process** — this deliberately avoids
-  Android 12+ background-FGS-start restrictions (we never re-start the service from a broadcast).
+  Android 12+ background-FGS-start restrictions. A broadcast hands work to the live instance; it
+  never starts one, with a single exception: the watchdog's self-heal below, which is legal only
+  because an alarm carries a temporary power-allowlist window.
 - `ActivityRecognitionManager` registers Activity Transition updates (and a one-shot activity
   *snapshot* on arming). Results arrive at `ActivityTransitionReceiver`, which forwards the detected
   `ActivityType` to `LocationRecordingService.instance` (it does not start the service).
+- `WatchdogReceiver` fires on an alarm every 15 min while armed, and does four things the coroutine
+  timers can't be trusted with in Doze: re-*requests* the transition registration (see the deafness
+  bullet under Conventions — a request, never a restart), stamps a heartbeat, closes a pause whose
+  resume window lapsed while the wake was frozen, and restarts the service if the armed flag is set
+  but the service is dead.
+- **A receiver holds its broadcast open (`goAsync`) until the service has applied the reading.**
+  Returning from `onReceive` releases the broadcast's wakelock, and Doze then freezes the apply
+  coroutine: the reading is logged on time but applied minutes later, which puts a walking tail on a
+  drive track and stitches through a real stop. Both receivers do this; don't "simplify" it away.
 - Lifecycle: arming (`ACTION_START`) puts the service in a **paused** state (no track, GPS off) and
   fires the snapshot; recording only begins on a *moving* activity. Each continuous stretch of
   movement is one `Track`: activities in the same `TrackGroup` (walking ⇄ running)
@@ -95,7 +113,8 @@ pause/resume window), `ActivityGate` (signal filter) / `ActivityInterpreter` (tr
 interpretation), `ReadingClock` (event-time gating of activity readings), `NoFixGuard` (give up when
 GPS can't get a fix), `KeepRule`, `TrackMerge` (merge short same-activity stays), `StayDeriver` +
 `PlaceClusterer` + `PlaceResolver` (timeline stays and named places), `DwellDetector` (in-track stop
-detection — currently a read-only track-detail overlay; splitting tracks at stops is designed but
+detection — a read-only track-detail overlay, *and* stage 1 of the edge-stay rule below, so its
+params are not free to move; splitting tracks at stops is designed but
 not built), `EdgeStayDetector` (the recorder's overrun at a track's edges, where Activity
 Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to the points),
 `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
@@ -105,7 +124,10 @@ belongs here first, with a test, before wiring into the service or UI.
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
 time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
 auto-pause resume window, the GPS give-up timeout, and keep-track
-thresholds (min duration/length/extent). Sampling is read by the service when each track's GPS
+thresholds (min duration/length/extent). It also holds two pieces of recorder bookkeeping that
+aren't user settings at all: the liveness heartbeat timestamp, and the `EdgeStayDetector` rule
+version last swept — the latter is what makes `App.onCreate` re-derive the whole history.
+Sampling is read by the service when each track's GPS
 request starts; thresholds are read by the repository when a track finishes. `ActivityType`
 therefore only carries a label, a `recording` boolean, and a `TrackGroup` — sampling cadence is
 **not** per-activity anymore.
@@ -164,7 +186,8 @@ opening. Make the pass idempotent — a crash between the work and the flag writ
 Delete the pass, its flag, and any DAO queries only it used once the installed base has run it;
 the pre-DB-v5 ignore-reason backfill, the drive-start leading-stray repair (both dropped
 2026-07-13) and the point-starved-track purge (dropped 2026-07-17) followed this pattern —
-see git history for a template.
+see git history for a template. **No backfill is live right now**: `App.onCreate` runs the
+discarded-track retention purge and the versioned edge-stay sweep, neither of which is one.
 
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
@@ -175,7 +198,9 @@ one layer at a time). The track map is `MapLibreTrackMap` (MapLibre GL Native) o
 vector basemap** (dark or light flavour following the app theme): the track is a `line-gradient`
 coloured per point by the selected metric (ramp luminance also theme-dependent), start/end
 and noisy-fix markers sit on a symbol layer, and switching the colour metric recolours in place
-without moving the camera. The map renders in texture mode (a SurfaceView would ignore Compose
+without moving the camera. Two more layers ride on the same map — the detected in-track stops as
+place-style capture circles *under* the line, and the recorder's overrun greyed off the track's
+ends, read back from the stored flags rather than re-detected. The map renders in texture mode (a SurfaceView would ignore Compose
 clipping and bleed over rounded card corners), sits inside padded cards (so it never reaches the
 back-gesture edge strips), and is lifecycle-bound to the composition.
 
@@ -209,7 +234,9 @@ cross-checks it.
   final position". History-wide aggregates are fine while they name no date or place ("an end stay
   on ~30% of tracks, median ~72 s"), and so are generated test fixtures, whose coordinates are
   invented. The repository is the one artifact that leaves the machine; the recorded history stays
-  on it.
+  on it. Fixtures sit at a **neutral origin** and should stay there: the domain tests build metre
+  offsets off latitude 1.0, the data-layer ones off latitude 1.0 / longitude −2.0. Real coordinates
+  in a fixture leak a region even when no trip is named.
 - **Activity recognition needs Google Play Services**, so this is intentionally not a FOSS/F-Droid
   build. A continuous foreground service + persistent notification is mandatory for background location
   — there is no "invisible" mode.
@@ -219,7 +246,11 @@ cross-checks it.
   second install recovered on a reused one); the state sits in Play Services and only a device reboot
   cleared it. So the app **detects and reports rather than repairs**: `StaleReadingOracle` spots it,
   `DeafnessWarning` decides when to say so, and the user is told to reboot. Don't build anything that
-  assumes restarting the registration fixes this — that ground has been covered.
+  assumes restarting the registration fixes this — that ground has been covered. This is *not* a rule
+  against re-registering: the watchdog re-*requests* updates every tick, and the replay that provokes
+  is exactly what feeds the oracle. The distinction is load-bearing — a request refreshes a healthy
+  registration in place, while `restart()` tears it down and rebuilds it on a fresh token, and only
+  arming and a proven-deaf verdict do that.
 - The `alerts` notification channel is the second channel, separate from the ongoing tracking one:
   transient, `IMPORTANCE_DEFAULT`, used only for the deafness warning (id 1002). The "persistent
   notification" rules above are about the foreground service's channel, not this one.

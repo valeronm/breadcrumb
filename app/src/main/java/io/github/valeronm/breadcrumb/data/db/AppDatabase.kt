@@ -202,12 +202,16 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
-         * v13 adds `tracks.needsReview`: the recorder found something on this track a cut could
-         * fix — today an edge stay ([io.github.valeronm.breadcrumb.domain.EdgeStayDetector]),
-         * later a mid-track dwell too. Deliberately a plain flag rather than a measurement: it
-         * answers "is there a decision waiting here", and the track screen recomputes the detail
-         * when opened. Existing rows default to 0 and are filled in by the one-time backfill in
-         * App.onCreate, so history is marked without a schema-level scan.
+         * v13 adds `tracks.needsReview`: one boolean saying a cut on this track is waiting on the
+         * user. Deliberately a plain flag rather than a measurement — it answers "is there a
+         * decision pending here", and the screen recomputes the detail when opened.
+         *
+         * Nothing writes it today: the edge stay it was built for stopped needing confirmation
+         * once the overrun became a flag on the points rather than a destructive cut. The one
+         * release that did write it left marks behind on installed devices, and they were never
+         * cleared — harmless, because nothing reads the column, and the next feature to claim it
+         * derives its own verdict rather than trusting a stored one. Kept for the mid-track dwell
+         * split; [Track.needsReview] carries the full account.
          */
         val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
