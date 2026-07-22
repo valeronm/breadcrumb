@@ -54,11 +54,6 @@ interface TrackDao {
     @Query("UPDATE tracks SET needsReview = :needsReview WHERE id IN (:trackIds)")
     suspend fun setNeedsReview(trackIds: List<Long>, needsReview: Boolean)
 
-    /** Every finished, kept track — the one-time review backfill's input. Unordered: the pass
-     *  visits all of them. */
-    @Query("SELECT id FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL")
-    suspend fun keptTrackIds(): List<Long>
-
     /** Soft-delete a keep-threshold-filtered track: finalise it and mark it discarded. */
     @Query(
         "UPDATE tracks SET endedAt = :endedAt, discardedAt = :discardedAt, discardReason = :reason " +
@@ -171,7 +166,7 @@ interface TrackDao {
     @Query("SELECT id FROM tracks WHERE discardedAt IS NULL ORDER BY startedAt DESC")
     suspend fun allTrackIds(): List<Long>
 
-    /** Finished, kept tracks oldest-first — the backup export's track set. */
+    /** Finished, kept tracks oldest-first — the backup export's set, and the review sweep's. */
     @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt ASC")
     suspend fun exportTracks(): List<Track>
 

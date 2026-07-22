@@ -114,7 +114,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 // flags, or an unmarked one it now would. So restore restores the data and the
                 // logic runs on top, off the points already in memory. (The aggregates are the
                 // opposite case — a fixed function of the points, so the file's copies stand.)
-                val id = dao.insertTrack(track.copy(id = 0, needsReview = edgeStays(points).isNotEmpty()))
+                val id = dao.insertTrack(track.copy(id = 0, needsReview = edgeStays(track.activityType, points).isNotEmpty()))
                 dao.insertPoints(points.map { it.copy(id = 0, trackId = id) })
             }
         }
@@ -195,7 +195,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         // writes none of them while it records.
         val points = dao.allPointsFor(track.id)
         val stats = refreshStats(track.id, points)
-        dao.setNeedsReview(track.id, edgeStays(points).isNotEmpty())
+        dao.setNeedsReview(track.id, edgeStays(track.activityType, points).isNotEmpty())
         when (keepVerdict(track, track.startedAt, endedAt, stats)) {
             KeepRule.Verdict.KEEP -> dao.closeTrack(track.id, endedAt)
             KeepRule.Verdict.DISCARD ->
@@ -221,7 +221,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     private suspend fun trimEdgeStays(track: Track, endedAt: Long): List<TrackPoint>? {
         var cut = false
         var points = dao.allPointsFor(track.id)
-        for (stay in edgeStays(points)) {
+        for (stay in edgeStays(track.activityType, points)) {
             val isEnd = stay.side == EdgeStayDetector.Side.END
             val (stayPoints, keptPoints) = points.partition { stay.movesOut(it.timestamp) }
             val stayTrackId = dao.insertTrack(
@@ -274,31 +274,66 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * the params nor the detector call are reachable from the UI. Pure CPU over points the
      * caller already holds; no I/O.
      */
-    fun edgeStays(points: List<TrackPoint>): List<EdgeStayDetector.EdgeStay> =
-        EdgeStayDetector.detect(
-            points,
-            EdgeStayDetector.briefStopParams(Settings.minIntervalSec(appContext) * 1000L),
-            AndroidDistance,
-        )
+    fun edgeStays(activityTypeName: String, points: List<TrackPoint>): List<EdgeStayDetector.EdgeStay> {
+        // A vehicle's floor for "not moving" is far above GPS drift; on foot there is no such
+        // speed, so those tracks run without one. See EdgeStayDetector.VEHICLE.
+        val params =
+            if (ActivityType.ofName(activityTypeName)?.trackGroup == TrackGroup.VEHICLE) {
+                EdgeStayDetector.VEHICLE
+            } else {
+                EdgeStayDetector.BRIEF_STOP
+            }
+        return EdgeStayDetector.detect(points, params, AndroidDistance)
+    }
 
     /**
-     * One-time pass (see "Backfills" in CLAUDE.md) marking history the detector can offer a cut
-     * on. Read-only as far as track data goes — it sets a flag and nothing else, so a crash
-     * mid-pass costs only a re-run. Points are loaded one track at a time: the whole history is
-     * over a million rows and must never be resident at once.
+     * Re-derive every kept track's review mark against the current rule. Unlike the one-shot
+     * backfills described in CLAUDE.md this is *standing* infrastructure, deliberately: the mark
+     * is a verdict, [EdgeStayDetector.RULE_VERSION] says which rule produced it, and App.onCreate
+     * runs this whenever the version last swept is behind. Don't delete it once it has run —
+     * the next rule change needs it.
      *
-     * The marks are written in one batch at the end, not per track: `tracks` is the table the
-     * timeline's observed queries read, so a write per track would re-run all of them (and the
-     * whole stay derivation behind them) hundreds of times while the pass grinds through the
-     * history — with the UI open, since this runs from App.onCreate.
+     * Read-only as far as track data goes: it writes flags and nothing else, so a crash mid-pass
+     * costs only a re-run (the version is stored after, so an interrupted sweep repeats). Points
+     * are loaded one track at a time — the whole history is over a million rows and must never
+     * be resident at once.
      */
-    suspend fun markReviewBackfill() {
-        val cuttable = dao.keptTrackIds().filter { edgeStays(dao.pointsFor(it)).isNotEmpty() }
+    suspend fun sweepReviewMarks() {
+        val tracks = dao.exportTracks()
+        val toMark = mutableListOf<Long>()
+        val toClear = mutableListOf<Long>()
+        ReviewSweepStatus.start(tracks.size)
+        try {
+            for ((i, track) in tracks.withIndex()) {
+                // Reported every 10 tracks: the point walk is the slow part, and a state emission
+                // per track would recompose the banner far faster than it can be read.
+                if (i % 10 == 0) ReviewSweepStatus.advance(i)
+                val cuttable = edgeStays(track.activityType, dao.pointsFor(track.id)).isNotEmpty()
+                // Only the verdicts that actually moved: the rows are in hand with their stored
+                // value, and rewriting all of them would put the whole table through the WAL to
+                // change a handful of flags.
+                if (cuttable != track.needsReview) (if (cuttable) toMark else toClear) += track.id
+            }
+        } finally {
+            ReviewSweepStatus.finish()
+        }
+        // Both directions, not just the marks to set: a rule that has moved leaves stale badges
+        // on tracks it no longer flags, and a sweep that only ever set them would never clear
+        // those. A track already trimmed under an older rule is flagged again if the new one
+        // finds something — that is a new question, not a repeat of the answered one.
+        //
         // One transaction for the lot: `tracks` is the observed table, so each committed chunk
         // would re-run the timeline's queries and the derivation behind them. Chunked because
         // SQLite binds at most 999 variables per statement.
-        db.withTransaction { cuttable.chunked(500).forEach { dao.setNeedsReview(it, true) } }
-        DebugLog.i(TAG, "review backfill: marked ${cuttable.size} track(s)")
+        db.withTransaction {
+            toMark.chunked(500).forEach { dao.setNeedsReview(it, true) }
+            toClear.chunked(500).forEach { dao.setNeedsReview(it, false) }
+        }
+        DebugLog.i(
+            TAG,
+            "review sweep (rule v${EdgeStayDetector.RULE_VERSION}) over ${tracks.size} tracks: " +
+                "marked ${toMark.size}, cleared ${toClear.size}",
+        )
     }
 
     suspend fun finishTrack(trackId: Long, endedAt: Long) {
@@ -438,7 +473,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // from the same points, so it rides along rather than re-reading them.
             val points = dao.allPointsFor(trackId)
             refreshStats(trackId, points)
-            dao.setNeedsReview(trackId, edgeStays(points).isNotEmpty())
+            dao.track(trackId)?.let {
+                dao.setNeedsReview(trackId, edgeStays(it.activityType, points).isNotEmpty())
+            }
         }
         return dropped
     }

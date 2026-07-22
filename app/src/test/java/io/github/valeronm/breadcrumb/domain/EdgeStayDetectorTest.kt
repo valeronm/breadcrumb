@@ -20,8 +20,9 @@ class EdgeStayDetectorTest {
 
     private val MIN = 60_000L
 
-    /** Fixture cadence is 15 s, so one moving fix marks its bin. */
-    private val params = EdgeStayDetector.Params(expectedFixIntervalMs = 15_000L)
+    /** Fixture cadence is 15 s, which the detector measures off the points: one moving fix
+     *  marks its bin. */
+    private val params = EdgeStayDetector.Params()
 
     private fun pt(meters: Double, t: Long, speed: Float?, ignored: Boolean = false) = TrackPoint(
         trackId = 1,
@@ -56,6 +57,22 @@ class EdgeStayDetectorTest {
 
     private fun detect(points: List<TrackPoint>) =
         EdgeStayDetector.detect(points, params, flatDistance)
+
+    @Test
+    fun `a track sampled at bin scale is still detectable`() {
+        // One fix per bin is normal when the recorder samples slowly (the sampling setting goes
+        // to 30 s) or on an imported file. A vote floor that demanded corroboration regardless
+        // would leave no bin able to be moving, and the detector would abstain on every such
+        // track — the floor scales with the track's own cadence instead.
+        val sparse = (0 until 40).map { i ->
+            pt(80.0 * i, i * 30_000L, 2.66f) // 30 s apart, walking pace, one fix per bin
+        } + (0 until 30).map { i ->
+            pt(3200.0 + if (i % 2 == 0) 15.0 else -15.0, 20 * MIN + i * 30_000L, 0.1f)
+        }
+        val stays = detect(sparse)
+        assertEquals(1, stays.size)
+        assertEquals(EdgeStayDetector.Side.END, stays.single().side)
+    }
 
     @Test
     fun `a steady walk has no edge stays`() {

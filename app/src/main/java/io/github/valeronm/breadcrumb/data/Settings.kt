@@ -23,7 +23,7 @@ object Settings {
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
-    private const val KEY_REVIEW_MARK_BACKFILL_DONE = "review_mark_backfill_done"
+    private const val KEY_REVIEW_MARK_RULE_VERSION = "review_mark_rule_version"
 
     const val DEFAULT_SAMPLING_MIN_INTERVAL_SEC = 5
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
@@ -187,11 +187,12 @@ object Settings {
         prefs(context).edit { putString(KEY_PLACES_SORT, name) }
     }
 
-    /** One-time review-mark backfill's done flag (see "Backfills" in CLAUDE.md). */
-    fun isReviewMarkBackfillDone(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_REVIEW_MARK_BACKFILL_DONE, false)
+    /** Which [io.github.valeronm.breadcrumb.domain.EdgeStayDetector.RULE_VERSION] the stored
+     *  review marks were computed with; 0 = never swept. */
+    fun reviewMarkRuleVersion(context: Context): Int =
+        prefs(context).getInt(KEY_REVIEW_MARK_RULE_VERSION, 0)
 
-    fun setReviewMarkBackfillDone(context: Context) {
-        prefs(context).edit { putBoolean(KEY_REVIEW_MARK_BACKFILL_DONE, true) }
+    fun setReviewMarkRuleVersion(context: Context, version: Int) {
+        prefs(context).edit { putInt(KEY_REVIEW_MARK_RULE_VERSION, version) }
     }
 }

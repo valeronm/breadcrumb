@@ -114,6 +114,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -199,6 +200,7 @@ import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.data.ReviewSweepStatus
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
@@ -1254,6 +1256,10 @@ private fun TracksTab(
         return
     }
 
+    // Badges appear on rows while this runs, so the work says so rather than the list simply
+    // changing under the user. Null except during a sweep.
+    val sweep by ReviewSweepStatus.state.collectAsStateWithLifecycle()
+
     val groups = remember(items) { groupTimelineByDay(items) }
     val listState = rememberLazyListState()
     // Day label -> its header's lazy-item index: the fast scroller jumps between these anchors.
@@ -1298,9 +1304,16 @@ private fun TracksTab(
         onVisitTargetShown()
     }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
+        // Above the list, not inside it: dayAnchors counts lazy indices from zero, so a leading
+        // item would put the fast scroller and the visit jump one row out for the sweep's
+        // duration — and a progress banner that scrolls away is not much of one.
+        Column(Modifier.fillMaxSize()) {
+            sweep?.let {
+                ReviewSweepBanner(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             // Rows within a day sit tight so the group reads as one visual block.
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1350,6 +1363,7 @@ private fun TracksTab(
                     }
                 }
             }
+        }
         }
         TimelineFastScroller(state = listState, dayAnchors = dayAnchors)
     }
@@ -3291,6 +3305,50 @@ private fun TrackRow(
     }
 }
 
+/**
+ * The review sweep, while it runs: rows gain and lose their scissors badge behind it, so it says
+ * so instead of the list quietly rearranging itself. Determinate — the total is known up front —
+ * and it removes itself when the sweep ends.
+ */
+@Composable
+private fun ReviewSweepBanner(progress: ReviewSweepStatus.Progress, modifier: Modifier = Modifier) {
+    Card(modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.ContentCut,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+                // Short enough to sit beside the count on one line at phone widths; the weight
+                // is the backstop, not the plan.
+                Text(
+                    "Checking for suggested trims",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "${progress.done} / ${progress.total}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            LinearProgressIndicator(
+                progress = {
+                    if (progress.total <= 0) 0f else progress.done.toFloat() / progress.total
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
 // Unnamed clusters visited at least this often surface their count as a naming invitation.
 private const val VISIT_COUNT_BADGE_MIN = 3
 
@@ -3571,10 +3629,13 @@ private fun TrackMapScreen(
     }
     // Recording that ran on past the stop at either edge — greyed on the map, and what the Trim
     // action cuts. The repository runs the detection, so preview and cut are one computation.
-    val edgeStays by produceState<List<EdgeStayDetector.EdgeStay>>(initialValue = emptyList(), points) {
-        value = points?.let { pts ->
-            withContext(Dispatchers.Default) { viewModel.edgeStays(pts) }
-        } ?: emptyList()
+    val edgeStays by produceState<List<EdgeStayDetector.EdgeStay>>(
+        initialValue = emptyList(), points, summary?.activityType,
+    ) {
+        val pts = points
+        val type = summary?.activityType
+        value = if (pts == null || type == null) emptyList()
+        else withContext(Dispatchers.Default) { viewModel.edgeStays(type, pts) }
     }
     val activity = remember(summary) {
         summary?.let { ActivityType.ofName(it.activityType) }
