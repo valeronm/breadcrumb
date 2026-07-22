@@ -1,14 +1,9 @@
 package io.github.valeronm.breadcrumb.data.db
 
-import android.content.Context
 import androidx.sqlite.db.SupportSQLiteDatabase
-import androidx.sqlite.db.SupportSQLiteOpenHelper
-import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
-import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -18,46 +13,15 @@ import org.robolectric.RobolectricTestRunner
  * every existing row must come out unmarked and otherwise untouched — the backfill decides who
  * is marked, and a row that migrated to "1" would badge the whole timeline.
  *
- * The v12 schema is written by hand (only the table the migration touches) rather than driven
- * through Room's MigrationTestHelper, which would need exported schema JSON the project doesn't
- * keep.
+ * See [MigrationDb] for why the v12 schema is written by hand.
  */
 @RunWith(RobolectricTestRunner::class)
 class Migration12To13Test {
 
-    private lateinit var helper: SupportSQLiteOpenHelper
-    private lateinit var db: SupportSQLiteDatabase
+    private val fixture = MigrationDb(12, ::createV12Schema)
+    private val db: SupportSQLiteDatabase get() = fixture.db
 
-    @Before fun setUp() {
-        val context: Context = ApplicationProvider.getApplicationContext()
-        helper = FrameworkSQLiteOpenHelperFactory().create(
-            SupportSQLiteOpenHelper.Configuration.builder(context)
-                .name(null) // in-memory
-                .callback(object : SupportSQLiteOpenHelper.Callback(12) {
-                    override fun onCreate(db: SupportSQLiteDatabase) = createV12Schema(db)
-                    override fun onUpgrade(db: SupportSQLiteDatabase, old: Int, new: Int) = Unit
-                })
-                .build(),
-        )
-        db = helper.writableDatabase
-    }
-
-    @After fun tearDown() {
-        helper.close()
-    }
-
-    private fun createV12Schema(db: SupportSQLiteDatabase) {
-        db.execSQL(
-            """
-            CREATE TABLE tracks (
-              id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, activityType TEXT NOT NULL,
-              startedAt INTEGER NOT NULL, endedAt INTEGER, distanceMeters REAL NOT NULL DEFAULT 0,
-              pointCount INTEGER NOT NULL DEFAULT 0, ignoredCount INTEGER NOT NULL DEFAULT 0,
-              startLat REAL, startLon REAL, endLat REAL, endLon REAL,
-              discardedAt INTEGER, discardReason TEXT)
-            """,
-        )
-    }
+    @After fun tearDown() = fixture.close()
 
     @Test fun `existing tracks migrate unmarked, with their other columns intact`() {
         db.execSQL(
@@ -86,4 +50,17 @@ class Migration12To13Test {
             assertTrue("nullable columns stay null", c.isNull(c.getColumnIndexOrThrow("endedAt")))
         }
     }
+}
+
+private fun createV12Schema(db: SupportSQLiteDatabase) {
+    db.execSQL(
+        """
+        CREATE TABLE tracks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, activityType TEXT NOT NULL,
+          startedAt INTEGER NOT NULL, endedAt INTEGER, distanceMeters REAL NOT NULL DEFAULT 0,
+          pointCount INTEGER NOT NULL DEFAULT 0, ignoredCount INTEGER NOT NULL DEFAULT 0,
+          startLat REAL, startLon REAL, endLat REAL, endLon REAL,
+          discardedAt INTEGER, discardReason TEXT)
+        """,
+    )
 }

@@ -25,6 +25,10 @@ object BackupExporter {
 
     const val MIME_TYPE = "application/gzip"
     const val FORMAT = "breadcrumb-export"
+
+    /** Unchanged by *added* fields: the reader skips keys it doesn't know and defaults the ones a
+     *  file predates, so both directions stay readable. Bump only on a breaking change — the
+     *  importer refuses anything newer than it understands. */
     const val VERSION = 1
 
     /** Field order of each per-point array in `tracks[].points`. Append-only across versions. */

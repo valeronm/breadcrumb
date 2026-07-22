@@ -108,7 +108,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun insertBackupTracks(batch: List<Pair<Track, List<TrackPoint>>>) {
         db.withTransaction {
             for ((track, points) in batch) {
-                val id = dao.insertTrack(track.copy(id = 0))
+                // The mark is not a property of the track — it is this code's verdict about it,
+                // and the rule lives here, not in the data. Restoring a stored verdict lets the
+                // two drift apart in both directions: a marked track the detector no longer
+                // flags, or an unmarked one it now would. So restore restores the data and the
+                // logic runs on top, off the points already in memory. (The aggregates are the
+                // opposite case — a fixed function of the points, so the file's copies stand.)
+                val id = dao.insertTrack(track.copy(id = 0, needsReview = edgeStays(points).isNotEmpty()))
                 dao.insertPoints(points.map { it.copy(id = 0, trackId = id) })
             }
         }
