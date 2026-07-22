@@ -29,7 +29,7 @@ import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.DwellDetector
-import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
+import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import com.google.gson.JsonObject
 import org.maplibre.android.MapLibre
@@ -76,8 +76,9 @@ fun MapLibreTrackMap(
     selectedPoint: TrackPoint? = null,
     // Detected in-track stops, highlighted as place-style capture circles under the line.
     dwells: List<DwellDetector.Dwell> = emptyList(),
-    // Stops the recording ran on through at either edge; their stretch of line is greyed out.
-    edgeStays: List<EdgeStayDetector.EdgeStay> = emptyList(),
+    // Stops the recording ran on through at either edge, as stored: one point run per edge,
+    // drawn greyed off the end of the track line.
+    overruns: List<EdgeStayIgnore.Overrun> = emptyList(),
     // Live preview: the last point is the current position — a droplet rotated to the movement
     // bearing instead of the finished-track end dot.
     directionalEnd: Boolean = false,
@@ -101,7 +102,7 @@ fun MapLibreTrackMap(
             onStyleLoaded = { ctx, map, style ->
                 addDwellLayers(style, dwells) // first, so the circles render under the line
                 addTrackLine(style, points, paint)
-                addEdgeStayLayer(style, points, edgeStays, darkTheme) // over the line it greys out
+                addEdgeStayLayer(style, overruns, darkTheme) // over the line, off its ends
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
                 addSelectionLayer(ctx, style, selectedPoint)
                 frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
@@ -145,12 +146,12 @@ fun MapLibreTrackMap(
                     applied[4] = dwells
                     style.getSourceAs<GeoJsonSource>(DWELL_SOURCE)?.setGeoJson(dwellCollection(dwells))
                 }
-                // Keyed on the stays alone: they are re-derived from the points, so a growing
-                // live track that has none (the record screen) never rebuilds this source.
-                if (applied[5] !== edgeStays) {
-                    applied[5] = edgeStays
+                // Keyed on the overruns alone: they are loaded with the track, so a growing live
+                // track that has none (the record screen) never rebuilds this source.
+                if (applied[5] !== overruns) {
+                    applied[5] = overruns
                     style.getSourceAs<GeoJsonSource>(EDGE_STAY_SOURCE)
-                        ?.setGeoJson(edgeStayFeature(points, edgeStays))
+                        ?.setGeoJson(edgeStayFeature(overruns))
                 }
                 if (!framed[0]) {
                     frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
@@ -277,25 +278,20 @@ private const val EDGE_STAY_DIM_DARK = 0xD9424242.toInt()
 private const val EDGE_STAY_DIM_LIGHT = 0xD9BDBDBD.toInt()
 
 /**
- * The stretch at each track edge the recorder ran on through — from the detected boundary out to
- * the first/last fix. Drawn over the coloured line so the tail reads as excluded rather than as
- * part of the journey; the underlying gradient stays put, so switching the colour metric still
- * recolours everything.
+ * The stretch at each track edge the recorder ran on through — the fixes already taken off the
+ * path, each run drawn from the good fix it hangs off so the grey meets the coloured line. Drawn
+ * in its own dim colour rather than by dimming the track underneath: those fixes are not part of
+ * the track line at all any more, so there is nothing under this to recolour.
  */
-private fun edgeStayFeature(
-    points: List<TrackPoint>,
-    stays: List<EdgeStayDetector.EdgeStay>,
-): FeatureCollection = FeatureCollection.fromFeatures(
-    stays.mapNotNull { stay -> lineFeature(points.filter { stay.spans(it.timestamp) }) },
-)
+private fun edgeStayFeature(overruns: List<EdgeStayIgnore.Overrun>): FeatureCollection =
+    FeatureCollection.fromFeatures(overruns.mapNotNull { lineFeature(it.points) })
 
 private fun addEdgeStayLayer(
     style: Style,
-    points: List<TrackPoint>,
-    stays: List<EdgeStayDetector.EdgeStay>,
+    overruns: List<EdgeStayIgnore.Overrun>,
     darkTheme: Boolean,
 ) {
-    style.addSource(GeoJsonSource(EDGE_STAY_SOURCE, edgeStayFeature(points, stays)))
+    style.addSource(GeoJsonSource(EDGE_STAY_SOURCE, edgeStayFeature(overruns)))
     style.addLayer(
         LineLayer(EDGE_STAY_LAYER, EDGE_STAY_SOURCE).withProperties(
             // Wider than the 3f track line so no coloured fringe survives along the edges.
@@ -383,11 +379,12 @@ private fun applyPaint(layer: LineLayer, paint: TrackPaint) {
 }
 
 // Noisy markers are colour-coded by why the fix was rejected; points recorded before reasons
-// were tracked (null) fall back to the generic accuracy colour.
+// were tracked (null) fall back to the generic accuracy colour. EDGE_STAY fixes are not rejects
+// and never reach this layer — they are drawn as the greyed overrun line.
 private fun noisyIcon(p: TrackPoint): String = when (IgnoreReason.fromCode(p.ignoreReason)) {
     IgnoreReason.JUMP -> IMG_NOISY_JUMP
     IgnoreReason.NO_GNSS -> IMG_NOISY_GNSS
-    IgnoreReason.ACCURACY, null -> IMG_NOISY
+    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, null -> IMG_NOISY
 }
 
 private fun markerCollection(

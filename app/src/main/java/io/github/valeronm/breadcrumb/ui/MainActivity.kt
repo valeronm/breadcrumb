@@ -44,7 +44,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -150,7 +149,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -200,7 +198,7 @@ import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.AndroidDistance
-import io.github.valeronm.breadcrumb.data.ReviewSweepStatus
+import io.github.valeronm.breadcrumb.data.EdgeStaySweepStatus
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
@@ -211,6 +209,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
+import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.RecordCardState
@@ -1256,9 +1255,9 @@ private fun TracksTab(
         return
     }
 
-    // Badges appear on rows while this runs, so the work says so rather than the list simply
-    // changing under the user. Null except during a sweep.
-    val sweep by ReviewSweepStatus.state.collectAsStateWithLifecycle()
+    // Rows change under the user while this runs, so the work says so rather than the list
+    // simply rearranging itself. Null except during a sweep.
+    val sweep by EdgeStaySweepStatus.state.collectAsStateWithLifecycle()
 
     val groups = remember(items) { groupTimelineByDay(items) }
     val listState = rememberLazyListState()
@@ -1309,7 +1308,7 @@ private fun TracksTab(
         // duration — and a progress banner that scrolls away is not much of one.
         Column(Modifier.fillMaxSize()) {
             sweep?.let {
-                ReviewSweepBanner(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                EdgeStaySweepBanner(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
             LazyColumn(
                 state = listState,
@@ -3289,29 +3288,18 @@ private fun TrackRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                // A cut is on offer inside — open the track to see what and decide. Kept to a
-                // metadata-weight glyph: it's an invitation to look, not a problem with the track.
-                if (track.needsReview) {
-                    Spacer(Modifier.width(12.dp))
-                    Icon(
-                        Icons.Filled.ContentCut,
-                        contentDescription = "Has a suggested trim",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
             }
         }
     }
 }
 
 /**
- * The review sweep, while it runs: rows gain and lose their scissors badge behind it, so it says
- * so instead of the list quietly rearranging itself. Determinate — the total is known up front —
- * and it removes itself when the sweep ends.
+ * The edge-stay sweep, while it runs: distances and end times shift behind it as the recorder's
+ * overrun comes off each track, so it says so instead of the list quietly rearranging itself.
+ * Determinate — the total is known up front — and it removes itself when the sweep ends.
  */
 @Composable
-private fun ReviewSweepBanner(progress: ReviewSweepStatus.Progress, modifier: Modifier = Modifier) {
+private fun EdgeStaySweepBanner(progress: EdgeStaySweepStatus.Progress, modifier: Modifier = Modifier) {
     Card(modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -3325,7 +3313,7 @@ private fun ReviewSweepBanner(progress: ReviewSweepStatus.Progress, modifier: Mo
                 // Short enough to sit beside the count on one line at phone widths; the weight
                 // is the backstop, not the plan.
                 Text(
-                    "Checking for suggested trims",
+                    "Trimming recording overruns",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
@@ -3573,12 +3561,11 @@ private fun formatDuration(startedAt: Long, endedAt: Long?): String {
     return formatDurationMs(end - startedAt)
 }
 
-/** One phrasing for both the trim dialog and the map legend — which side ran on, for how long,
- *  and (in the dialog, where it is the thing being confirmed) from when. */
-private fun edgeStayLabel(stay: EdgeStayDetector.EdgeStay, withTime: Boolean): String {
-    val side = if (stay.side == EdgeStayDetector.Side.START) "Before the start" else "After the arrival"
-    val at = if (withTime) " at ${timeFormat.format(Date(stay.boundaryTs))}" else ""
-    return "$side$at · ${formatShortDurationMs(stay.stayMs)}"
+/** The map legend's line for a greyed edge: which side ran on, and for how long. */
+private fun overrunLabel(overrun: EdgeStayIgnore.Overrun): String {
+    val side =
+        if (overrun.side == EdgeStayDetector.Side.START) "Before the start" else "After the arrival"
+    return "$side · ${formatShortDurationMs(overrun.stayMs)}"
 }
 
 /** Minute-rounded like [formatDurationMs], except below a minute, where seconds are the point —
@@ -3611,15 +3598,17 @@ private fun TrackMapScreen(
 ) {
     // null = still loading the track's points from the database.
     val context = LocalContext.current
-    // Bumped after a trim: the points are fetched once, so the screen needs telling to re-fetch.
-    var reload by remember(trackId) { mutableIntStateOf(0) }
-    val points by produceState<List<TrackPoint>?>(initialValue = null, trackId, reload) {
+    val points by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
         value = viewModel.getPoints(trackId)
     }
     // Also null while loading: the show-a-map decision needs both lists, or a track whose only
     // points are noisy would flash the "not enough points" placeholder before its markers arrive.
-    val noisyPoints by produceState<List<TrackPoint>?>(initialValue = null, trackId, reload) {
+    val noisyPoints by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
         value = viewModel.getIgnoredPoints(trackId)
+    }
+    // The fixes already taken off the path at the track's edges — read back, not re-detected.
+    val stayPoints by produceState<List<TrackPoint>>(initialValue = emptyList(), trackId) {
+        value = viewModel.getEdgeStayPoints(trackId)
     }
     // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
     val dwells by produceState<List<DwellDetector.Dwell>>(initialValue = emptyList(), points) {
@@ -3627,15 +3616,10 @@ private fun TrackMapScreen(
             withContext(Dispatchers.Default) { DwellDetector.detect(pts, distance = AndroidDistance) }
         } ?: emptyList()
     }
-    // Recording that ran on past the stop at either edge — greyed on the map, and what the Trim
-    // action cuts. The repository runs the detection, so preview and cut are one computation.
-    val edgeStays by produceState<List<EdgeStayDetector.EdgeStay>>(
-        initialValue = emptyList(), points, summary?.activityType,
-    ) {
-        val pts = points
-        val type = summary?.activityType
-        value = if (pts == null || type == null) emptyList()
-        else withContext(Dispatchers.Default) { viewModel.edgeStays(type, pts) }
+    // Recording that ran on past the stop at either edge, greyed on the map: the stored fixes
+    // grouped back into one run per edge, each hanging off the good fix that ends the track.
+    val overruns = remember(points, stayPoints) {
+        EdgeStayIgnore.overruns(points.orEmpty(), stayPoints)
     }
     val activity = remember(summary) {
         summary?.let { ActivityType.ofName(it.activityType) }
@@ -3649,7 +3633,6 @@ private fun TrackMapScreen(
     // Point picked on the metric graph, highlighted on the map. Index into the good-points list.
     var selectedIndex by remember(trackId) { mutableStateOf<Int?>(null) }
     var showTypeDialog by remember(trackId) { mutableStateOf(false) }
-    var showTrimDialog by remember(trackId) { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -3669,17 +3652,6 @@ private fun TrackMapScreen(
                 },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
-                    // Offered only when there is something to cut; the greyed stretch on the map
-                    // is the preview of exactly what it removes.
-                    if (edgeStays.isNotEmpty()) {
-                        IconButton(onClick = { showTrimDialog = true }) {
-                            Icon(
-                                Icons.Filled.ContentCut,
-                                contentDescription = "Trim the recording's overrun",
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
                     if (!noisyPoints.isNullOrEmpty()) {
                         IconButton(onClick = { showNoisyOverride = !showNoisy }) {
                             Icon(
@@ -3754,17 +3726,17 @@ private fun TrackMapScreen(
                                     showLegend = true,
                                     selectedPoint = selectedIndex?.let { loaded.getOrNull(it) },
                                     dwells = dwells,
-                                    edgeStays = edgeStays,
+                                    overruns = overruns,
                                     modifier = Modifier.fillMaxSize(),
                                 )
                                 if (showNoisy) {
                                     // Top-right, clear of the colour-metric legend (bottom-right).
                                     NoisyLegend(noisy, Modifier.align(Alignment.TopEnd).padding(12.dp))
                                 }
-                                if (dwells.isNotEmpty() || edgeStays.isNotEmpty()) {
+                                if (dwells.isNotEmpty() || overruns.isNotEmpty()) {
                                     // Top-left: the noisy legend owns the top-right corner.
                                     DwellLegend(
-                                        dwells, edgeStays,
+                                        dwells, overruns,
                                         Modifier.align(Alignment.TopStart).padding(12.dp),
                                     )
                                 }
@@ -3776,7 +3748,6 @@ private fun TrackMapScreen(
                                     graph = graph,
                                     selectedIndex = selectedIndex,
                                     onSelect = { selectedIndex = it },
-                                    edgeStays = edgeStays,
                                     modifier = Modifier.fillMaxWidth().height(130.dp),
                                 )
                             }
@@ -3832,42 +3803,6 @@ private fun TrackMapScreen(
             },
         )
     }
-
-    if (showTrimDialog && edgeStays.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { showTrimDialog = false },
-            icon = { Icon(Icons.Filled.ContentCut, contentDescription = null) },
-            title = { Text("Trim the recording?") },
-            text = {
-                Column {
-                    Text(
-                        "The greyed stretch is recording that ran on after you had already " +
-                            "stopped. Trimming moves it to a separate track in Recently deleted, " +
-                            "where it can be restored and merged back.",
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    for (stay in edgeStays) {
-                        Text(
-                            edgeStayLabel(stay, withTime = true),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showTrimDialog = false
-                    // The points are loaded once per screen, so the reload key is what makes the
-                    // map, graph and detectors see the shortened track.
-                    viewModel.trimTrack(trackId) { reload++ }
-                }) { Text("Trim") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTrimDialog = false }) { Text("Cancel") }
-            },
-        )
-    }
 }
 
 /** Per-point series for the metric graph: values (null = gap), map-matching colours, and a unit. */
@@ -3907,35 +3842,14 @@ private fun MetricPlot(
     span: Float,
     t0: Long,
     tSpan: Float,
-    edgeStays: List<EdgeStayDetector.EdgeStay>,
     modifier: Modifier,
 ) {
     val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
     val padPx = with(LocalDensity.current) { 8.dp.toPx() }
-    val trimColor = MaterialTheme.colorScheme.onSurfaceVariant
     Spacer(
         modifier.drawWithCache {
             val bitmap = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
             CanvasDrawScope().draw(this, layoutDirection, ComposeCanvas(bitmap), size) {
-                // Where the recorder ran on past the stop: the span is scrimmed and the boundary
-                // ruled, so the graph shows at a glance which part of the trace isn't travel.
-                for (stay in edgeStays) {
-                    val x = ((stay.boundaryTs - t0) / tSpan * size.width).coerceIn(0f, size.width)
-                    val (from, to) =
-                        if (stay.side == EdgeStayDetector.Side.START) 0f to x else x to size.width
-                    drawRect(
-                        trimColor.copy(alpha = 0.14f),
-                        topLeft = Offset(from, 0f),
-                        size = Size(to - from, size.height),
-                    )
-                    drawLine(
-                        trimColor.copy(alpha = 0.7f),
-                        Offset(x, 0f),
-                        Offset(x, size.height),
-                        strokeWidth = strokePx / 2,
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)),
-                    )
-                }
                 val h = size.height - 2 * padPx
                 var prev: Offset? = null
                 for (i in graph.points.indices) {
@@ -3968,7 +3882,6 @@ private fun MetricGraph(
     graph: MetricGraphData,
     selectedIndex: Int?,
     onSelect: (Int?) -> Unit,
-    edgeStays: List<EdgeStayDetector.EdgeStay>,
     modifier: Modifier,
 ) {
     // Remembered: MetricGraph recomposes per touch event while scrubbing, and the min/max scan
@@ -4033,7 +3946,7 @@ private fun MetricGraph(
                 // Static plot in its own skippable composable: scrubbing recomposes MetricGraph per
                 // touch event, and redrawing the full multi-thousand-segment polyline each time is
                 // what made long tracks feel laggy. Only the cursor overlay below redraws.
-                MetricPlot(graph, minV, span, t0, tSpan, edgeStays, Modifier.fillMaxSize())
+                MetricPlot(graph, minV, span, t0, tSpan, Modifier.fillMaxSize())
                 Canvas(
                     Modifier
                         .fillMaxSize()
@@ -4109,7 +4022,9 @@ private fun MetricGraph(
 private fun noisyLegendEntry(reason: IgnoreReason?): Pair<String, Color> = when (reason) {
     IgnoreReason.JUMP -> "Speed jump" to Color(0xFFE53935)
     IgnoreReason.NO_GNSS -> "No satellite fix" to Color(0xFFAB47BC)
-    IgnoreReason.ACCURACY, null -> "Low accuracy" to Color(0xFFFF8F00)
+    // EDGE_STAY never reaches here (it is loaded separately and drawn as the greyed overrun);
+    // it shares the default marker rather than adding a legend row for an impossible case.
+    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, null -> "Low accuracy" to Color(0xFFFF8F00)
 }
 
 /**
@@ -4119,7 +4034,7 @@ private fun noisyLegendEntry(reason: IgnoreReason?): Pair<String, Color> = when 
 @Composable
 private fun DwellLegend(
     dwells: List<DwellDetector.Dwell>,
-    edgeStays: List<EdgeStayDetector.EdgeStay>,
+    overruns: List<EdgeStayIgnore.Overrun>,
     modifier: Modifier,
 ) {
     LegendSurface(modifier) {
@@ -4135,9 +4050,9 @@ private fun DwellLegend(
                 style = MaterialTheme.typography.labelSmall,
             )
         }
-        for (e in edgeStays) {
+        for (o in overruns) {
             Text(
-                edgeStayLabel(e, withTime = false),
+                overrunLabel(o),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

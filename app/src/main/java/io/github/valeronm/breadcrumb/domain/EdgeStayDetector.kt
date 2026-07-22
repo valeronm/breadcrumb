@@ -62,15 +62,14 @@ object EdgeStayDetector {
     )
 
     /**
-     * The same two-stage rule resolved down to brief-stop scale, for the track screen's overlay
-     * and the manual trim it offers — it shows what the recorder ran on through, including the
-     * short stops the old automatic trim's resume-window floor left alone. Every sub-parameter that is sized for a
-     * 10-minute venue has to come down with the floor: 15 s decimation leaves a half-minute dwell
-     * three samples, a 2-minute exit grace outlasts the dwell itself, 30 s bins can't place a boundary
-     * inside a 30 s stay, and the 4 m/min drift gate — calibrated on venue stops that creep
-     * 1.7–1.9 m/min — rejects a genuine standstill whose own jitter nets a few metres over half a
-     * minute. Measured over the recorded history: an end stay on ~30% of tracks, median ~72 s,
-     * start stays near-absent (departures barely lag).
+     * The same two-stage rule resolved down to brief-stop scale — it covers what the recorder ran
+     * on through, including the short stops a resume-window-sized floor leaves alone. Every
+     * sub-parameter that is sized for a 10-minute venue has to come down with the floor: 15 s
+     * decimation leaves a half-minute dwell three samples, a 2-minute exit grace outlasts the dwell
+     * itself, 30 s bins can't place a boundary inside a 30 s stay, and the 4 m/min drift gate —
+     * calibrated on venue stops that creep 1.7–1.9 m/min — rejects a genuine standstill whose own
+     * jitter nets a few metres over half a minute. Measured over the recorded history: an end stay
+     * on ~30% of tracks, median ~72 s, start stays near-absent (departures barely lag).
      */
     val BRIEF_STOP = Params(
         dwell = DwellDetector.Params(
@@ -94,10 +93,10 @@ object EdgeStayDetector {
 
     /**
      * Bumped whenever detection changes what it would find — a new stage, a moved threshold, a
-     * different boundary. Stored track marks ([io.github.valeronm.breadcrumb.data.db.Track.needsReview])
-     * are this code's verdicts, so a rule that has moved leaves them stale in both directions;
-     * the app re-sweeps its history when the version it last swept is behind this one. Bumping is
-     * therefore part of changing the rule, not a follow-up chore.
+     * different boundary. The [IgnoreReason.EDGE_STAY][io.github.valeronm.breadcrumb.data.IgnoreReason.EDGE_STAY]
+     * flags on stored points are this code's verdicts, so a rule that has moved leaves them stale
+     * in both directions; the app re-sweeps its history when the version it last swept is behind
+     * this one. Bumping is therefore part of changing the rule, not a follow-up chore.
      *
      * 1 — the original half-minute edge-stay sweep.
      * 2 — displacement vetoes Doppler, boundary resolved to a real fix, span retracted to the
@@ -105,17 +104,20 @@ object EdgeStayDetector {
      * 3 — no rule change (a bump taken to watch the sweep run).
      * 4 — the per-bin vote floor scales with the track's own cadence, so a track sampled at bin
      *     scale is detectable at all.
+     * 5 — no rule change: the verdict moved from a review mark to the points themselves
+     *     ([io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]), so history has to be swept once
+     *     more to acquire it.
      */
-    const val RULE_VERSION = 4
+    const val RULE_VERSION = 5
 
     enum class Side { START, END }
 
     /**
      * A stay at [side]. [boundaryTs] is the **cut point**: the timestamp of the last good fix the
-     * trimmed track keeps (the first, at a start edge), with the stay running from there to the
-     * track's edge. One value, used by everything — the split moves the points strictly beyond it,
-     * both tracks are bound at it (the zero-length seam [StayDeriver] turns into the merge-back
-     * offer), and the track screen greys from it.
+     * track keeps (the first, at a start edge), with the stay running from there to the track's
+     * edge. One value, used by everything — the fixes strictly beyond it are the ones flagged
+     * [io.github.valeronm.breadcrumb.data.IgnoreReason.EDGE_STAY], the track's clock is pulled in
+     * to it, and the track screen greys from it.
      *
      * It is a real fix, not the speed-bin edge the boundary is derived from: a bin edge falls
      * between fixes (measured: 288 of 387 in gaps up to 94 s), and a polyline needs both its
@@ -127,14 +129,10 @@ object EdgeStayDetector {
         val boundaryTs: Long,
         val stayMs: Long,
     ) {
-        /** Whether a fix at [ts] leaves the track when this stay is trimmed. The boundary fix
-         *  itself stays — it is the surviving track's bound. */
+        /** Whether a fix at [ts] is part of the overrun — strictly beyond the boundary fix, which
+         *  itself stays on the path as the track's bound. */
         fun movesOut(ts: Long): Boolean =
             if (side == Side.END) ts > boundaryTs else ts < boundaryTs
-
-        /** Whether a fix at [ts] belongs to the stay *as drawn* — [movesOut] plus the boundary
-         *  fix, so the greyed polyline includes the leg that disappears with the cut. */
-        fun spans(ts: Long): Boolean = ts == boundaryTs || movesOut(ts)
     }
 
     /** 0–2 stays: at most one per track edge. */

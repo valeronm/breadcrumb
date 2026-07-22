@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -106,17 +107,22 @@ class BackupRestoreTest {
         assertEquals(2, targetDb.trackDao().observeSummaries().first().size)
     }
 
-    @Test fun `restore re-derives the pending-cut mark instead of trusting the file`() = runTest {
-        // The mark isn't in the file at all: the rule behind it grows, so a restore asks the
-        // current detector rather than replaying an old verdict. This track has no cuttable
-        // edge, so it must come back unmarked however it was flagged before the export.
-        val marked = source.dao.insertTrack(Track(activityType = "WALKING", startedAt = TEST_START))
-        source.dao.insertPoints((0..4).map { source.point(marked, it) })
-        source.repository.finishTrack(marked, TEST_START + 40_000L)
-        source.dao.setNeedsReview(marked, true)
+    @Test fun `restore re-derives the edge stay instead of trusting the file`() = runTest {
+        // A file written by an older rule can carry flags the current one wouldn't set, so a
+        // restore asks the current detector rather than replaying an old verdict. This track has
+        // no edge stay at all, so its flagged fix must come back on the path — and the aggregates
+        // with it, or the row would describe points it no longer has.
+        val id = source.dao.insertTrack(Track(activityType = "WALKING", startedAt = TEST_START))
+        source.dao.insertPoints((0..4).map { source.point(id, it) })
+        source.repository.finishTrack(id, TEST_START + 40_000L)
+        val last = source.dao.allPointsFor(id).last()
+        source.dao.setIgnored(last.id, IgnoreReason.EDGE_STAY.code)
 
         roundTrip()
 
-        assertEquals(false, target.repository.exportTracks().single().needsReview)
+        val restored = target.repository.exportTracks().single()
+        assertEquals(5, restored.pointCount)
+        assertEquals(0, restored.ignoredCount)
+        assertTrue(target.repository.edgeStayPointsFor(restored.id).isEmpty())
     }
 }

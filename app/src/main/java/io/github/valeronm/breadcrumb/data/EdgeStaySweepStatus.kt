@@ -4,14 +4,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Process-wide progress of the review-mark sweep, observed by the timeline — the same bridge
+ * Process-wide progress of the edge-stay sweep, observed by the timeline — the same bridge
  * pattern as `TrackingStatus`, and for the same reason: the sweep runs from `App.onCreate`, long
  * before any ViewModel exists, and outlives whatever screen happens to be open.
  *
  * It exists because the sweep is otherwise invisible work that changes what the user sees: it
- * walks the whole point history for half a minute and badges start appearing on rows behind them.
+ * walks the whole point history for half a minute, and distances and end times shift behind it
+ * as the recorder's overrun comes off each track.
  */
-object ReviewSweepStatus {
+object EdgeStaySweepStatus {
 
     data class Progress(val done: Int, val total: Int)
 

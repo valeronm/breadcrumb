@@ -45,11 +45,12 @@ class App : Application() {
             repository.purgeOldDiscarded()
             // Crash-cleanup of dangling tracks happens in the service's arm path. One-time
             // data backfills also go here when needed — see "Backfills" in CLAUDE.md.
-            // The review marks are verdicts of a rule that keeps moving, so they are re-derived
-            // whenever the detector's version outruns the one they were computed with — not once.
-            if (Settings.reviewMarkRuleVersion(this@App) < EdgeStayDetector.RULE_VERSION) {
-                repository.sweepReviewMarks()
-                Settings.setReviewMarkRuleVersion(this@App, EdgeStayDetector.RULE_VERSION)
+            // The ignored edge stays are verdicts of a rule that keeps moving, so they are
+            // re-derived whenever the detector's version outruns the one they were computed
+            // with — not once.
+            if (Settings.edgeStayRuleVersion(this@App) < EdgeStayDetector.RULE_VERSION) {
+                repository.sweepEdgeStays()
+                Settings.setEdgeStayRuleVersion(this@App, EdgeStayDetector.RULE_VERSION)
             }
         }
     }

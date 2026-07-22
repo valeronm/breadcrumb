@@ -96,7 +96,9 @@ interpretation), `ReadingClock` (event-time gating of activity readings), `NoFix
 GPS can't get a fix), `KeepRule`, `TrackMerge` (merge short same-activity stays), `StayDeriver` +
 `PlaceClusterer` + `PlaceResolver` (timeline stays and named places), `DwellDetector` (in-track stop
 detection — currently a read-only track-detail overlay; splitting tracks at stops is designed but
-not built), `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
+not built), `EdgeStayDetector` (the recorder's overrun at a track's edges, where Activity
+Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to the points),
+`RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
 `DeafnessWarning` (decide when to tell the user about it). New behaviour
 belongs here first, with a test, before wiring into the service or UI.
 
@@ -124,6 +126,20 @@ streamed both ways (one track's points in memory at a time), point rows as array
 `pointFields` header so future exports stay restorable. Restore is offered only on the Timeline's
 empty state, deliberately: with existing tracks it would have to merge. The format also feeds the
 planned web companion viewer. `PlaceRepository` backs the Places tab.
+
+**An ignored point is one that isn't part of the path — for either of two reasons.** The recorder's
+bad-fix rule (`TrackQuality`: accuracy, jump, no-GNSS) rejects fixes it doesn't trust; `EdgeStayIgnore`
+flags the good fixes recorded past the stop at a track's edges (`IgnoreReason.EDGE_STAY`), applied
+automatically when a track is finished, imported, merged or restored, and the track's `startedAt`/
+`endedAt` pulled in to the boundary fix with it. Both drop out of distance, endpoints, the drawn
+line and GPX export while keeping their rows, so the operation destroys nothing and is undone by
+clearing a flag. Two invariants hold it together: detection runs on the points with the edge flags
+*cleared* (never on its own output, or the track walks backwards one sweep at a time), and only
+flags outside the first/last good fix may be withdrawn (a merge puts the earlier track's overrun
+mid-track, where no edge rule will re-derive it). `TrackRepository.sweepEdgeStays` re-derives the
+whole history whenever `EdgeStayDetector.RULE_VERSION` outruns the version last swept — standing
+infrastructure, not one of the one-shot backfills below, so bumping that version is part of
+changing the rule.
 
 **The track row carries its points' aggregates, and the recorder must never write it.** Distance,
 point/ignored counts and the first/last good coordinates live as columns on `tracks`, written only

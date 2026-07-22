@@ -44,16 +44,6 @@ interface TrackDao {
     @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId")
     suspend fun setActivityType(trackId: Long, activityType: String)
 
-    /** Flag or clear the pending-cut mark ([Track.needsReview]). Written at the same moments as
-     *  the aggregates above — finish, import, repair, trim — never per fix. */
-    @Query("UPDATE tracks SET needsReview = :needsReview WHERE id = :trackId")
-    suspend fun setNeedsReview(trackId: Long, needsReview: Boolean)
-
-    /** As above for a whole set at once — one invalidation of the observed queries, not one per
-     *  track. Callers must chunk: SQLite binds at most 999 variables per statement. */
-    @Query("UPDATE tracks SET needsReview = :needsReview WHERE id IN (:trackIds)")
-    suspend fun setNeedsReview(trackIds: List<Long>, needsReview: Boolean)
-
     /** Soft-delete a keep-threshold-filtered track: finalise it and mark it discarded. */
     @Query(
         "UPDATE tracks SET endedAt = :endedAt, discardedAt = :discardedAt, discardReason = :reason " +
@@ -100,17 +90,6 @@ interface TrackDao {
     @Query("UPDATE tracks SET discardedAt = :discardedAt, discardReason = :reason WHERE id = :trackId")
     suspend fun setDiscarded(trackId: Long, discardedAt: Long, reason: String)
 
-    // --- Edge-stay trim (split a stay recorded onto a track's edge into its own track) ----------
-
-    /** Reassign the points after [afterTs] to [toId] — the end-stay's tail moves, not copies.
-     *  Exclusive: the boundary fix is the last one the trimmed track keeps. */
-    @Query("UPDATE track_points SET trackId = :toId WHERE trackId = :fromId AND timestamp > :afterTs")
-    suspend fun movePointsFrom(fromId: Long, toId: Long, afterTs: Long)
-
-    /** Reassign the points before [beforeTs] to [toId] — the start-stay's head moves, not copies. */
-    @Query("UPDATE track_points SET trackId = :toId WHERE trackId = :fromId AND timestamp < :beforeTs")
-    suspend fun movePointsBefore(fromId: Long, toId: Long, beforeTs: Long)
-
     @Query("UPDATE tracks SET startedAt = :startedAt WHERE id = :trackId")
     suspend fun setStartedAt(trackId: Long, startedAt: Long)
 
@@ -138,20 +117,58 @@ interface TrackDao {
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 AND id > :afterId ORDER BY timestamp ASC, id ASC")
     suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint>
 
-    /** Only the ignored "bad fix" points, for marking them on the map. */
-    @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 1 ORDER BY timestamp ASC, id ASC")
-    suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint>
+    /** Only the ignored *bad fix* points, for marking them on the map — the edge-stay ones are
+     *  not rejects and are drawn as the greyed overrun instead ([edgeStayPointsFor]).
+     *
+     *  [edgeStay] is bound rather than written into the SQL so the reason has one spelling, the
+     *  enum's; an annotation can only name a compile-time constant, which would be a second one. */
+    @Query(
+        "SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 1 " +
+            "AND (ignoreReason IS NULL OR ignoreReason != :edgeStay) " +
+            "ORDER BY timestamp ASC, id ASC"
+    )
+    suspend fun ignoredPointsFor(trackId: Long, edgeStay: String): List<TrackPoint>
+
+    /** The fixes the recorder ran on past the stop for, flagged by
+     *  [io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]. */
+    @Query(
+        "SELECT * FROM track_points WHERE trackId = :trackId " +
+            "AND ignoreReason = :edgeStay ORDER BY timestamp ASC, id ASC"
+    )
+    suspend fun edgeStayPointsFor(trackId: Long, edgeStay: String): List<TrackPoint>
 
     /** Flag one point as an ignored bad fix, with the reason. */
     @Query("UPDATE track_points SET ignored = 1, ignoreReason = :reason WHERE id = :pointId")
     suspend fun setIgnored(pointId: Long, reason: String)
 
+    /** As above for a whole set at once. Callers must chunk: SQLite binds at most 999 variables
+     *  per statement. */
+    @Query("UPDATE track_points SET ignored = 1, ignoreReason = :reason WHERE id IN (:pointIds)")
+    suspend fun setIgnored(pointIds: List<Long>, reason: String)
+
+    /** Hand a set of points back to the track — the undo of [setIgnored], used when a moved rule
+     *  withdraws an edge stay it once found. */
+    @Query("UPDATE track_points SET ignored = 0, ignoreReason = NULL WHERE id IN (:pointIds)")
+    suspend fun clearIgnored(pointIds: List<Long>)
+
     /**
-     * Duplicate check for GPX import: a track with the exact same time span already exists.
+     * Duplicate check for GPX import: some track already holds fixes at both ends of the file's
+     * span (which the parser takes from its first and last point). Asked of the points rather than
+     * of `tracks.startedAt`/`endedAt` because a track's bounds are pulled in when the recorder's
+     * overrun comes off its edges, while its points stay where they are — so a row no longer
+     * answers to the span of the file it was imported from. A one-shot query, not an observed one:
+     * it may read `track_points` (see the observed queries below for why they may not).
+     *
      * Deliberately does NOT filter `discardedAt` — a soft-deleted track still blocks re-importing
      * the same span (it was judged not worth keeping; an import shouldn't resurrect it).
      */
-    @Query("SELECT COUNT(*) FROM tracks WHERE startedAt = :startedAt AND endedAt = :endedAt")
+    @Query(
+        """
+        SELECT COUNT(*) FROM tracks t
+        WHERE EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp = :startedAt)
+          AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp = :endedAt)
+        """
+    )
     suspend fun countTracksSpanning(startedAt: Long, endedAt: Long): Int
 
     @Query("SELECT * FROM tracks WHERE endedAt IS NULL")
@@ -179,8 +196,7 @@ interface TrackDao {
 
     @Query(
         """
-        SELECT id, activityType, startedAt, endedAt, distanceMeters, pointCount, ignoredCount,
-               needsReview
+        SELECT id, activityType, startedAt, endedAt, distanceMeters, pointCount, ignoredCount
         FROM tracks
         WHERE endedAt IS NOT NULL AND discardedAt IS NULL
         ORDER BY startedAt DESC

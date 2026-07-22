@@ -23,7 +23,9 @@ object Settings {
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
-    private const val KEY_REVIEW_MARK_RULE_VERSION = "review_mark_rule_version"
+    // The stored name predates the verdict moving onto the points; it stays as it is, because a
+    // renamed key reads back 0 on every installed device and re-walks the whole history for nothing.
+    private const val KEY_EDGE_STAY_RULE_VERSION = "review_mark_rule_version"
 
     const val DEFAULT_SAMPLING_MIN_INTERVAL_SEC = 5
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
@@ -188,11 +190,11 @@ object Settings {
     }
 
     /** Which [io.github.valeronm.breadcrumb.domain.EdgeStayDetector.RULE_VERSION] the stored
-     *  review marks were computed with; 0 = never swept. */
-    fun reviewMarkRuleVersion(context: Context): Int =
-        prefs(context).getInt(KEY_REVIEW_MARK_RULE_VERSION, 0)
+     *  edge-stay ignores were computed with; 0 = never swept. */
+    fun edgeStayRuleVersion(context: Context): Int =
+        prefs(context).getInt(KEY_EDGE_STAY_RULE_VERSION, 0)
 
-    fun setReviewMarkRuleVersion(context: Context, version: Int) {
-        prefs(context).edit { putInt(KEY_REVIEW_MARK_RULE_VERSION, version) }
+    fun setEdgeStayRuleVersion(context: Context, version: Int) {
+        prefs(context).edit { putInt(KEY_EDGE_STAY_RULE_VERSION, version) }
     }
 }

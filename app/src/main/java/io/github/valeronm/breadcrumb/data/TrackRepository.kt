@@ -11,6 +11,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
+import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
@@ -22,6 +23,12 @@ const val DISCARDED_RETENTION_DAYS = 14
 
 /** Safety bound on leading-stray removal per track (real runs are 1, rarely 2). */
 private const val MAX_LEADING_REPAIRS = 5
+
+/** Tracks per transaction in the edge-stay sweep — see [TrackRepository.sweepEdgeStays]. */
+private const val SWEEP_BATCH_TRACKS = 100
+
+/** Point ids per `WHERE id IN (…)` statement: SQLite binds at most 999 variables per statement. */
+private const val POINT_ID_CHUNK = 500
 
 /**
  * Thin wrapper around the DAO so callers don't touch Room directly. [db] is a seam: production
@@ -48,8 +55,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     /**
      * Inserts parsed GPX tracks. Keep thresholds do NOT apply — an explicit import is kept as-is.
-     * A track whose exact time span already exists is skipped as a duplicate (re-importing the
-     * same file, or importing our own export back). Each track inserts in its own transaction.
+     * A track already holding fixes at both ends of the file's span is skipped as a duplicate
+     * (re-importing the same file, or importing our own export back). Each track inserts in its
+     * own transaction.
      */
     suspend fun importTracks(tracks: List<GpxParser.ImportableTrack>): GpxImportCounts {
         var imported = 0
@@ -87,9 +95,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 id
             }
             // Imports bypass live ingest filtering, so drop a drive-start stray up front; the
-            // repair ends by computing the fresh track's aggregates and its review mark either
-            // way. Edge stays are left in place — trimming one is the user's call, from the
-            // track screen.
+            // repair ends by computing the fresh track's aggregates and taking its overrun off
+            // the path either way.
             repairLeadingPoints(trackId)
             imported++
         }
@@ -98,24 +105,56 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /**
-     * Inserts a batch of backup tracks verbatim, points and all, under fresh ids — one
-     * transaction for the whole batch, so a 3000-track restore commits (and wakes the observed
-     * timeline queries) dozens of times, not thousands. The rows' aggregates come from the file —
-     * they were written by [refreshStats] over these same points before the export, so re-walking
-     * them here would only recompute the same numbers. No keep thresholds, no duplicate check:
-     * restore targets an empty app (the UI only offers it there).
+     * Inserts a batch of backup tracks, points and all, under fresh ids — one transaction for the
+     * whole batch, so a 3000-track restore commits (and wakes the observed timeline queries)
+     * dozens of times, not thousands. The rows' aggregates come from the file unless the edge-stay
+     * plan below moves a point: they were written by [refreshStats] over these same points before
+     * the export, so re-walking unchanged ones would only recompute the same numbers. No keep
+     * thresholds, no duplicate check: restore targets an empty app (the UI only offers it there).
      */
     suspend fun insertBackupTracks(batch: List<Pair<Track, List<TrackPoint>>>) {
         db.withTransaction {
             for ((track, points) in batch) {
-                // The mark is not a property of the track — it is this code's verdict about it,
-                // and the rule lives here, not in the data. Restoring a stored verdict lets the
-                // two drift apart in both directions: a marked track the detector no longer
-                // flags, or an unmarked one it now would. So restore restores the data and the
-                // logic runs on top, off the points already in memory. (The aggregates are the
-                // opposite case — a fixed function of the points, so the file's copies stand.)
-                val id = dao.insertTrack(track.copy(id = 0, needsReview = edgeStays(track.activityType, points).isNotEmpty()))
-                dao.insertPoints(points.map { it.copy(id = 0, trackId = id) })
+                // Which fixes are the recorder's overrun is not a property of the track — it is
+                // this code's verdict about it, and the rule lives here, not in the file. A file
+                // written by an older rule (or before the rule existed) would otherwise restore
+                // as-is and stay that way until the next version bump swept it, so the plan is
+                // re-derived off the points already in memory and applied before they are stored.
+                // The aggregates are the opposite case — a fixed function of the points — but they
+                // have to follow the flags, so they are recomputed here too. The plan names points
+                // by position, which is the only handle a restore has: the backup format stores no
+                // point ids, so every point parsed out of it carries id 0.
+                val plan = EdgeStayIgnore.plan(
+                    points = points,
+                    startedAt = track.startedAt,
+                    endedAt = track.endedAt ?: track.startedAt,
+                    params = edgeStayParams(track.activityType),
+                    distance = AndroidDistance,
+                )
+                if (!plan.movesPoints) {
+                    // The file already agrees with the current rule — the common case, and the
+                    // one where its aggregates are exactly what a recompute would produce.
+                    val id = dao.insertTrack(track.copy(id = 0))
+                    dao.insertPoints(points.map { it.copy(id = 0, trackId = id) })
+                    continue
+                }
+                val applied = EdgeStayIgnore.applied(points, plan)
+                val stats = TrackStats.of(applied)
+                val id = dao.insertTrack(
+                    track.copy(
+                        id = 0,
+                        startedAt = plan.startedAt,
+                        endedAt = if (track.endedAt == null) null else plan.endedAt,
+                        distanceMeters = stats.distanceMeters,
+                        pointCount = stats.pointCount,
+                        ignoredCount = stats.ignoredCount,
+                        startLat = stats.startLat,
+                        startLon = stats.startLon,
+                        endLat = stats.endLat,
+                        endLon = stats.endLon,
+                    ),
+                )
+                dao.insertPoints(applied.map { it.copy(id = 0, trackId = id) })
             }
         }
     }
@@ -128,11 +167,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * Recompute a track's aggregates from its points and store them on its row — the only writer of
      * the denormalized columns, so every path that changes a track's points (finish, merge, import,
      * repair) must end here or the timeline will show stale counts. Returns the stats it wrote.
+     *
+     * [points] is *all* of the track's points, ignored ones included, and comes from the caller:
+     * every path that ends here has just walked or rewritten them, and none may re-read.
      */
-    private suspend fun refreshStats(trackId: Long): TrackStats.Stats =
-        refreshStats(trackId, dao.allPointsFor(trackId))
-
-    /** As above, from points already in memory — the trim paths hold them and must not re-read. */
     private suspend fun refreshStats(trackId: Long, points: List<TrackPoint>): TrackStats.Stats {
         val stats = TrackStats.of(points)
         dao.updateStats(
@@ -188,151 +226,137 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * outright — empty of information, so nothing to review in Recently deleted either.
      */
     private suspend fun closeOrDelete(track: Track, endedAt: Long) = db.withTransaction {
-        // No edge trim here: splitting a stay off a track is a user decision now, taken on the
-        // track screen against the overlay that shows what would be cut ([trimTrack]). What the
-        // detector finds is recorded as a mark instead, so the timeline can point at it.
         // Finishing is where the track's aggregates are computed for the first time — the recorder
-        // writes none of them while it records.
-        val points = dao.allPointsFor(track.id)
-        val stats = refreshStats(track.id, points)
-        dao.setNeedsReview(track.id, edgeStays(track.activityType, points).isNotEmpty())
-        when (keepVerdict(track, track.startedAt, endedAt, stats)) {
-            KeepRule.Verdict.KEEP -> dao.closeTrack(track.id, endedAt)
-            KeepRule.Verdict.DISCARD ->
-                dao.discardTrack(track.id, endedAt = endedAt, discardedAt = endedAt, reason = Track.REASON_FILTERED)
+        // writes none of them while it records — and where the recorder's overrun is taken off the
+        // path. The overrun comes off *before* the keep verdict deliberately: a track is judged on
+        // the journey it recorded, not on the minutes it spent parked at the end of it.
+        val applied = applyEdgeStays(track, endedAt, dao.allPointsFor(track.id))
+        val stats = refreshStats(track.id, applied.points)
+        when (keepVerdict(track, applied.startedAt, applied.endedAt, stats)) {
+            KeepRule.Verdict.KEEP -> dao.closeTrack(track.id, applied.endedAt)
+            KeepRule.Verdict.DISCARD -> dao.discardTrack(
+                track.id,
+                endedAt = applied.endedAt,
+                discardedAt = endedAt,
+                reason = Track.REASON_FILTERED,
+            )
             KeepRule.Verdict.PURGE -> dao.purgeTrack(track.id)
         }
     }
 
+    /** A track's points and bounds as [applyEdgeStays] left them. */
+    private class Applied(
+        val points: List<TrackPoint>,
+        val startedAt: Long,
+        val endedAt: Long,
+        /** Whether the rule moved anything — a flag or either bound. False on the re-runs that
+         *  agree with the stored rows, which is what lets a re-sweep cost no writes. */
+        val changed: Boolean,
+    )
+
     /**
-     * Split off a stay recorded onto the track's edge — Activity Recognition lagged the real
-     * arrival (or departure), so recording ran on inside a venue ([EdgeStayDetector]; position
-     * decides *whether*, speed collapse decides *where*). The stay's points move (not copy) to a
-     * new track that is immediately soft-discarded with [Track.REASON_TRIMMED]: reviewable in
-     * Recently deleted and restorable. Both tracks are bounded at the cut, so a restored stay
-     * meets its track in a zero-length seam — which [StayDeriver]'s agreeing-endpoints rule
-     * derives as a stay carrying the merge-back offer that undoes the trim.
+     * Take the recorder's overrun off this track's path: the stay's fixes are flagged
+     * [IgnoreReason.EDGE_STAY] and the track's clock is pulled in to the boundary fix, so the
+     * journey ends where it ended rather than where Activity Recognition noticed
+     * ([EdgeStayDetector]: position decides *whether*, speed collapse decides *where*;
+     * [EdgeStayIgnore]: what that means for the rows).
      *
-     * The stay tracks' rows are fully written here (bounds, stats, discard); the trimmed track's
-     * bounds are written too, but its stats are the caller's to recompute from the points
-     * returned — null when there was nothing to cut. Callers wrap the whole trim-and-recompute
-     * sequence in one transaction.
+     * Nothing is destroyed — the points stay on the track, and a rule that later withdraws a stay
+     * hands them straight back. Idempotent, which is what lets every path that changes a track's
+     * points end here. The point flags and both bounds are written — except on a track whose row
+     * is still open ([endedAt] is then the end time proposed for it), where the caller is in the
+     * middle of finishing it and writes its end itself. The stats are the caller's to recompute
+     * from the points returned. Callers wrap the sequence in one transaction.
      */
-    private suspend fun trimEdgeStays(track: Track, endedAt: Long): List<TrackPoint>? {
-        var cut = false
-        var points = dao.allPointsFor(track.id)
-        for (stay in edgeStays(track.activityType, points)) {
-            val isEnd = stay.side == EdgeStayDetector.Side.END
-            val (stayPoints, keptPoints) = points.partition { stay.movesOut(it.timestamp) }
-            val stayTrackId = dao.insertTrack(
-                Track(
-                    activityType = track.activityType,
-                    startedAt = if (isEnd) stay.boundaryTs else track.startedAt,
-                    endedAt = if (isEnd) endedAt else stay.boundaryTs,
-                ),
-            )
-            if (isEnd) {
-                dao.movePointsFrom(track.id, stayTrackId, stay.boundaryTs)
-                dao.closeTrack(track.id, stay.boundaryTs)
-            } else {
-                dao.movePointsBefore(track.id, stayTrackId, stay.boundaryTs)
-                dao.setStartedAt(track.id, stay.boundaryTs)
-            }
-            cut = true
-            refreshStats(stayTrackId, stayPoints)
-            dao.setDiscarded(stayTrackId, System.currentTimeMillis(), Track.REASON_TRIMMED)
-            points = keptPoints
+    private suspend fun applyEdgeStays(track: Track, endedAt: Long, points: List<TrackPoint>): Applied {
+        val plan = EdgeStayIgnore.plan(
+            points = points,
+            startedAt = track.startedAt,
+            endedAt = endedAt,
+            params = edgeStayParams(track.activityType),
+            distance = AndroidDistance,
+        )
+        // The plan names points by position; these ones came out of the database, so each has a
+        // row id to write against.
+        plan.ignore.map { points[it].id }.chunked(POINT_ID_CHUNK)
+            .forEach { dao.setIgnored(it, IgnoreReason.EDGE_STAY.code) }
+        plan.restore.map { points[it].id }.chunked(POINT_ID_CHUNK).forEach { dao.clearIgnored(it) }
+        if (plan.startedAt != track.startedAt) dao.setStartedAt(track.id, plan.startedAt)
+        if (track.endedAt != null && plan.endedAt != endedAt) dao.closeTrack(track.id, plan.endedAt)
+        if (plan.movesPoints) {
+            val what = plan.stays
+                .joinToString { "${it.side.name.lowercase()} overrun of ${it.stayMs / 1000}s" }
+                .ifEmpty { "no overrun" }
             DebugLog.i(
                 TAG,
-                "track ${track.id}: trimmed ${stay.side.name.lowercase()} stay of " +
-                    "${stay.stayMs / 60_000} min into discarded track $stayTrackId",
+                "track ${track.id}: $what " +
+                    "(${plan.ignore.size} points ignored, ${plan.restore.size} restored)",
             )
         }
-        return points.takeIf { cut }
+        return Applied(
+            points = EdgeStayIgnore.applied(points, plan),
+            startedAt = plan.startedAt,
+            endedAt = plan.endedAt,
+            changed = plan.movesPoints ||
+                plan.startedAt != track.startedAt || plan.endedAt != endedAt,
+        )
     }
 
     /**
-     * Split the edge stays off a finished track, on the user's say-so from the track screen —
-     * nothing trims by itself. Returns false when there was nothing to cut. No keep re-verdict:
-     * what is kept stays kept, only shorter.
+     * The detector's tuning for a track, built here and nowhere else: two callers deriving the
+     * same track's overrun through different parameters is the failure this guards against.
+     * A vehicle's floor for "not moving" is far above GPS drift; on foot there is no such speed,
+     * so those tracks run without one. See [EdgeStayDetector.VEHICLE].
      */
-    suspend fun trimTrack(trackId: Long): Boolean = db.withTransaction {
-        val track = dao.track(trackId) ?: return@withTransaction false
-        val endedAt = track.endedAt ?: return@withTransaction false
-        val remaining = trimEdgeStays(track, endedAt)
-        remaining?.let { refreshStats(track.id, it) }
-        // The decision has been taken either way: a cut that fired leaves nothing to review, and
-        // one that found nothing was a question already answered.
-        dao.setNeedsReview(track.id, false)
-        remaining != null
-    }
+    private fun edgeStayParams(activityTypeName: String): EdgeStayDetector.Params =
+        if (ActivityType.ofName(activityTypeName)?.trackGroup == TrackGroup.VEHICLE) {
+            EdgeStayDetector.VEHICLE
+        } else {
+            EdgeStayDetector.BRIEF_STOP
+        }
 
     /**
-     * The cuts [trimTrack] would make on these points — and the track screen's preview of them,
-     * which is why this is the *only* place the detector's params are built. The screen showing
-     * one boundary while the trim used another is the failure this guards against, so neither
-     * the params nor the detector call are reachable from the UI. Pure CPU over points the
-     * caller already holds; no I/O.
-     */
-    fun edgeStays(activityTypeName: String, points: List<TrackPoint>): List<EdgeStayDetector.EdgeStay> {
-        // A vehicle's floor for "not moving" is far above GPS drift; on foot there is no such
-        // speed, so those tracks run without one. See EdgeStayDetector.VEHICLE.
-        val params =
-            if (ActivityType.ofName(activityTypeName)?.trackGroup == TrackGroup.VEHICLE) {
-                EdgeStayDetector.VEHICLE
-            } else {
-                EdgeStayDetector.BRIEF_STOP
-            }
-        return EdgeStayDetector.detect(points, params, AndroidDistance)
-    }
-
-    /**
-     * Re-derive every kept track's review mark against the current rule. Unlike the one-shot
-     * backfills described in CLAUDE.md this is *standing* infrastructure, deliberately: the mark
-     * is a verdict, [EdgeStayDetector.RULE_VERSION] says which rule produced it, and App.onCreate
-     * runs this whenever the version last swept is behind. Don't delete it once it has run —
-     * the next rule change needs it.
+     * Re-derive every kept track's overrun against the current rule. Unlike the one-shot backfills
+     * described in CLAUDE.md this is *standing* infrastructure, deliberately: the ignored fixes are
+     * a verdict, [EdgeStayDetector.RULE_VERSION] says which rule produced it, and App.onCreate runs
+     * this whenever the version last swept is behind. Don't delete it once it has run — the next
+     * rule change needs it.
      *
-     * Read-only as far as track data goes: it writes flags and nothing else, so a crash mid-pass
-     * costs only a re-run (the version is stored after, so an interrupted sweep repeats). Points
-     * are loaded one track at a time — the whole history is over a million rows and must never
-     * be resident at once.
+     * Self-correcting in both directions, because the plan is computed from the raw recording: a
+     * rule that now finds less hands the points back, and one that finds more takes them. A crash
+     * mid-pass costs only a re-run (the version is stored after, so an interrupted sweep repeats).
+     * Points are loaded one track at a time — the whole history is over a million rows and must
+     * never be resident at once — and tracks are committed in batches: `tracks` is an observed
+     * table, so a commit per track would re-run the timeline's queries and the derivation behind
+     * them thousands of times, while one transaction for the lot would hold every rewritten point
+     * row in the journal at once.
      */
-    suspend fun sweepReviewMarks() {
+    suspend fun sweepEdgeStays() {
         val tracks = dao.exportTracks()
-        val toMark = mutableListOf<Long>()
-        val toClear = mutableListOf<Long>()
-        ReviewSweepStatus.start(tracks.size)
+        var changed = 0
+        EdgeStaySweepStatus.start(tracks.size)
         try {
-            for ((i, track) in tracks.withIndex()) {
-                // Reported every 10 tracks: the point walk is the slow part, and a state emission
-                // per track would recompose the banner far faster than it can be read.
-                if (i % 10 == 0) ReviewSweepStatus.advance(i)
-                val cuttable = edgeStays(track.activityType, dao.pointsFor(track.id)).isNotEmpty()
-                // Only the verdicts that actually moved: the rows are in hand with their stored
-                // value, and rewriting all of them would put the whole table through the WAL to
-                // change a handful of flags.
-                if (cuttable != track.needsReview) (if (cuttable) toMark else toClear) += track.id
+            for ((batch, chunk) in tracks.chunked(SWEEP_BATCH_TRACKS).withIndex()) {
+                db.withTransaction {
+                    for ((i, track) in chunk.withIndex()) {
+                        // Reported every 10 tracks: the point walk is the slow part, and a state
+                        // emission per track would recompose the banner faster than it can be read.
+                        if (i % 10 == 0) EdgeStaySweepStatus.advance(batch * SWEEP_BATCH_TRACKS + i)
+                        val endedAt = track.endedAt ?: continue
+                        val applied = applyEdgeStays(track, endedAt, dao.allPointsFor(track.id))
+                        if (!applied.changed) continue
+                        refreshStats(track.id, applied.points)
+                        changed++
+                    }
+                }
             }
         } finally {
-            ReviewSweepStatus.finish()
-        }
-        // Both directions, not just the marks to set: a rule that has moved leaves stale badges
-        // on tracks it no longer flags, and a sweep that only ever set them would never clear
-        // those. A track already trimmed under an older rule is flagged again if the new one
-        // finds something — that is a new question, not a repeat of the answered one.
-        //
-        // One transaction for the lot: `tracks` is the observed table, so each committed chunk
-        // would re-run the timeline's queries and the derivation behind them. Chunked because
-        // SQLite binds at most 999 variables per statement.
-        db.withTransaction {
-            toMark.chunked(500).forEach { dao.setNeedsReview(it, true) }
-            toClear.chunked(500).forEach { dao.setNeedsReview(it, false) }
+            EdgeStaySweepStatus.finish()
         }
         DebugLog.i(
             TAG,
-            "review sweep (rule v${EdgeStayDetector.RULE_VERSION}) over ${tracks.size} tracks: " +
-                "marked ${toMark.size}, cleared ${toClear.size}",
+            "edge-stay sweep (rule v${EdgeStayDetector.RULE_VERSION}) over ${tracks.size} " +
+                "tracks: $changed rewritten",
         )
     }
 
@@ -349,9 +373,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         dao.setDiscarded(trackId, System.currentTimeMillis(), Track.REASON_DELETED)
     }
 
-    /** Bring a discarded track back to the timeline (undoes a delete/discard within retention).
-     *  A restored trimmed stay meets its origin track at the cut; the zero-length seam derives
-     *  as a stay carrying the merge offer that stitches the pair back together. */
+    /** Bring a discarded track back to the timeline (undoes a delete/discard within retention). */
     suspend fun restoreTrack(trackId: Long) = dao.restoreTrack(trackId)
 
     /** Hard-delete everything in Recently deleted right now (the user's "clear all"). */
@@ -384,10 +406,16 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.copyPointsInto(mergedId, earlierId)
             dao.copyPointsInto(mergedId, laterId)
             dao.firstPointAtOrAfter(mergedId, later.startedAt)?.let { dao.markSegmentStart(it) }
+            // The originals' flags come along with their points, and the earlier track's overrun
+            // is now mid-track — a stop the merged track genuinely paused at, which is why
+            // [EdgeStayIgnore] only ever reconsiders the flags at the edges. The outer edges are
+            // reconsidered, since the merged track is a track like any other.
+            val merged = dao.track(mergedId)!!
+            val applied = applyEdgeStays(merged, merged.endedAt!!, dao.allPointsFor(mergedId))
             // Recomputed, not summed: the segment break at the join detaches the two halves, which
             // is exactly what the walk over the merged points does — and it keeps the one writer
             // of the denormalized columns in charge.
-            refreshStats(mergedId)
+            refreshStats(mergedId, applied.points)
             val now = System.currentTimeMillis()
             dao.setDiscarded(earlierId, now, Track.REASON_MERGED)
             dao.setDiscarded(laterId, now, Track.REASON_MERGED)
@@ -447,14 +475,19 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         dao.pointsAfter(trackId, afterId)
 
     /** The ignored "bad fix" points, for marking them on the map. */
-    suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint> = dao.ignoredPointsFor(trackId)
+    suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint> =
+        dao.ignoredPointsFor(trackId, IgnoreReason.EDGE_STAY.code)
+
+    /** The fixes taken off the path as the recorder's overrun, for greying them on the map. */
+    suspend fun edgeStayPointsFor(trackId: Long): List<TrackPoint> =
+        dao.edgeStayPointsFor(trackId, IgnoreReason.EDGE_STAY.code)
 
     /**
      * Repairs a track's stray leading point(s) ([TrackQuality.leadingPointIsJump] — the drive-start
      * cold-start artifact imports let through): marks each as an ignored JUMP fix and recomputes the
      * stored distance over the remaining good points. Loops in case more than one stray leads the
-     * track. The track's time span is deliberately left unchanged so the exact-span duplicate check
-     * still recognises a re-import of the same file. Returns how many points were dropped.
+     * track. Ends by taking the recorder's overrun off the edges, which is what makes an imported
+     * track look like a recorded one. Returns how many points were dropped.
      */
     suspend fun repairLeadingPoints(trackId: Long): Int {
         var dropped = 0
@@ -469,12 +502,15 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             }
             // Unconditional, and inside the transaction: the repair is a point-mutating path, so it
             // ends in a recompute — its caller (import, whose fresh rows have no aggregates yet)
-            // relies on this being the one point walk either way. The pending-cut mark is derived
-            // from the same points, so it rides along rather than re-reading them.
+            // relies on this being the one point walk either way. The overrun is derived from the
+            // same points, so it rides along rather than re-reading them.
+            val track = dao.track(trackId)
             val points = dao.allPointsFor(trackId)
-            refreshStats(trackId, points)
-            dao.track(trackId)?.let {
-                dao.setNeedsReview(trackId, edgeStays(it.activityType, points).isNotEmpty())
+            if (track?.endedAt == null) {
+                // Still open: its edges aren't settled yet, and finishing it applies the rule.
+                refreshStats(trackId, points)
+            } else {
+                refreshStats(trackId, applyEdgeStays(track, track.endedAt, points).points)
             }
         }
         return dropped

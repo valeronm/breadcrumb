@@ -198,15 +198,6 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repository.restoreTrack(trackId) }
     }
 
-    /** Split the recorder's overrun off a track's edges; [onTrimmed] fires once the DB is written
-     *  so the screen can reload its points. */
-    fun trimTrack(trackId: Long, onTrimmed: () -> Unit) {
-        viewModelScope.launch {
-            repository.trimTrack(trackId)
-            onTrimmed()
-        }
-    }
-
     /** Permanently delete everything in Recently deleted. */
     fun purgeAllDiscarded() {
         viewModelScope.launch { repository.purgeAllDiscarded() }
@@ -222,13 +213,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun getPointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
         repository.pointsAfter(trackId, afterId)
 
-    /** The cuts the trim would make on a loaded track — the repository owns the detector and its
-     *  params, so the greyed preview and the cut can't be computed differently. */
-    fun edgeStays(activityTypeName: String, points: List<TrackPoint>) =
-        repository.edgeStays(activityTypeName, points)
-
     /** The ignored "bad fix" points, shown as markers on the track map. */
     suspend fun getIgnoredPoints(trackId: Long): List<TrackPoint> = repository.ignoredPointsFor(trackId)
+
+    /** The fixes already taken off the path as the recorder's overrun — greyed on the track map.
+     *  Read back from the rows, never re-detected: the screen shows what the track says it is. */
+    suspend fun getEdgeStayPoints(trackId: Long): List<TrackPoint> =
+        repository.edgeStayPointsFor(trackId)
 
     /** Track progress of a long-running export/restore-style operation. */
     class OpProgress(val tracksDone: Int, val tracksTotal: Int?)

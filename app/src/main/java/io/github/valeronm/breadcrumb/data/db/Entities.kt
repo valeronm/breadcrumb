@@ -25,7 +25,8 @@ data class Track(
     val distanceMeters: Double = 0.0,
     /** Usable (non-ignored) points. */
     val pointCount: Int = 0,
-    /** Ignored "bad fix" points — a signal that the track is questionable. */
+    /** Ignored points: bad fixes — a signal that the track is questionable — plus the recorder's
+     *  overrun at the edges, which is not. [ignoreReason][TrackPoint.ignoreReason] separates them. */
     val ignoredCount: Int = 0,
     /** First/last good point — the stay deriver's endpoints. Null for a track with no good points. */
     val startLat: Double? = null,
@@ -42,13 +43,13 @@ data class Track(
      *  [REASON_TRIMMED]; null on rows discarded before reasons were tracked. */
     val discardReason: String? = null,
     /**
-     * There is a cut waiting on this track for the user to accept or ignore: today an edge stay
-     * the recorder ran on through, later a mid-track dwell. Written when the track is finished or
-     * imported (and re-derived by the leading-stray repair, which moves points), then cleared once
-     * the track is trimmed — a trim settles the question whether or not it cut anything. Merging a
-     * restored tail back deliberately leaves the merged track unmarked: that merge is the user
-     * saying no. A flag, not a measurement: it says a decision is pending, and the track screen
-     * re-detects the specifics when opened.
+     * Dormant, and kept on purpose. It marked a track whose edge stay was waiting on the user to
+     * accept or reject; the recorder's overrun is now flagged on the points themselves as it is
+     * found ([io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]), which needs no pending
+     * decision, so nothing writes this today. It is reserved for the mid-track dwell split, whose
+     * cut *does* need confirming — splitting a track in two is not undone by clearing a flag — and
+     * which wants exactly this: one boolean saying a decision is pending here. Don't drop it to
+     * tidy up; the next feature is the reader.
      */
     val needsReview: Boolean = false,
 ) {
@@ -57,9 +58,10 @@ data class Track(
         const val REASON_FILTERED = "filtered"
         const val REASON_MERGED = "merged"
 
-        /** An edge stay split off a track — recording that ran on past the real arrival (or
-         *  before the real departure) because Activity Recognition lagged the stop. Restoring
-         *  it and merging it back into its track undoes the trim. */
+        /** An edge stay split off a track, back when trimming moved the stay's points to their
+         *  own discarded track. Nothing writes it any more — the overrun stays on its track as
+         *  ignored points — but rows discarded under the old scheme still carry it until the
+         *  retention purge takes them. */
         const val REASON_TRIMMED = "trimmed"
     }
 }
@@ -98,9 +100,11 @@ data class TrackPoint(
     /** Average C/N0 (dB-Hz) of the 4 strongest satellites used in the fix — signal strength. */
     val cn0: Float? = null,
     /**
-     * True for a fix judged unreliable by [io.github.valeronm.breadcrumb.data.TrackQuality]
-     * (too-coarse accuracy or an implausible jump). Stored but excluded from distance, the
-     * rendered track line, and exports.
+     * True for a fix that isn't part of the track's path: one judged unreliable by
+     * [io.github.valeronm.breadcrumb.data.TrackQuality] (too-coarse accuracy or an implausible
+     * jump), or one recorded past the stop at a track edge
+     * ([io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]). Stored but excluded from distance,
+     * the rendered track line, the endpoints, and exports.
      */
     val ignored: Boolean = false,
     /**
@@ -195,8 +199,6 @@ data class TrackSummary(
     val distanceMeters: Double,
     /** Number of usable (non-ignored) points. */
     val pointCount: Int,
-    /** Number of ignored "bad fix" points — a signal that the track is questionable. */
+    /** Number of ignored points — bad fixes, plus any the recorder ran on past the stop for. */
     val ignoredCount: Int,
-    /** A cut is pending on this track — the timeline badges it. See [Track.needsReview]. */
-    val needsReview: Boolean = false,
 )
