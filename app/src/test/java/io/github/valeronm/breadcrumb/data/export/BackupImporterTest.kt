@@ -47,13 +47,13 @@ class BackupImporterTest {
         )
         val points = listOf(
             TrackPoint(
-                id = 10, trackId = 3, latitude = 38.75, longitude = -9.25, altitude = 55.5,
+                id = 10, trackId = 3, latitude = 1.05, longitude = -2.05, altitude = 55.5,
                 accuracy = 4.5f, speed = 1.25f, bearing = 270.5f, timestamp = 1_000L,
                 verticalAccuracy = 2.5f, speedAccuracy = 0.5f, bearingAccuracy = 10.25f,
                 satellitesInFix = 17, cn0 = 33.75f, segmentStart = true,
             ),
             TrackPoint(
-                id = 11, trackId = 3, latitude = 38.76, longitude = -9.26, altitude = null,
+                id = 11, trackId = 3, latitude = 1.06, longitude = -2.06, altitude = null,
                 accuracy = null, speed = null, bearing = null, timestamp = 2_000L,
                 ignored = true, ignoreReason = "JUMP",
             ),
@@ -87,13 +87,13 @@ class BackupImporterTest {
             {"format":"breadcrumb-export","version":1,"exportedAt":1,
              "pointFields":["newThing","lon","lat","timestamp"],
              "tracks":[{"id":1,"activityType":"WALKING","startedAt":1,"endedAt":2,
-                        "futureFlag":true,"points":[[99,-9.25,38.75,1000]]}],
+                        "futureFlag":true,"points":[[99,-2.05,1.05,1000]]}],
              "places":[],"liveness":[]}
         """.trimIndent()
         val (_, points) = parse(json).tracks.single()
         val p = points.single()
-        assertEquals(38.75, p.latitude, 0.0)
-        assertEquals(-9.25, p.longitude, 0.0)
+        assertEquals(1.05, p.latitude, 0.0)
+        assertEquals(-2.05, p.longitude, 0.0)
         assertEquals(1_000L, p.timestamp)
         assertNull(p.altitude) // absent field -> null, not a crash
     }

@@ -73,7 +73,7 @@ class BackupRestoreTest {
         source.repository.deleteTrack(discarded)
         source.dao.insertTrack(Track(activityType = "WALKING", startedAt = TEST_START + 300_000L)) // open
 
-        source.db.placeDao().insert(Place(label = "Home", lat = 38.7, lon = -9.3, createdAt = TEST_START))
+        source.db.placeDao().insert(Place(label = "Home", lat = 1.0, lon = -2.0, createdAt = TEST_START))
         source.db.livenessDao().insert(LivenessEvent(type = "ARMED", at = TEST_START))
         source.db.livenessDao().insert(LivenessEvent(type = "OUTAGE", at = TEST_START + 1_000L, until = TEST_START + 2_000L))
 

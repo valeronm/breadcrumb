@@ -32,11 +32,11 @@ class TestDb {
         index: Int,
         ignored: Boolean = false,
         segmentStart: Boolean = false,
-        lat: Double = 38.7 + index * 0.001,
+        lat: Double = 1.0 + index * 0.001,
     ) = TrackPoint(
         trackId = trackId,
         latitude = lat,
-        longitude = -9.3,
+        longitude = -2.0,
         altitude = null,
         accuracy = 5f,
         speed = null,

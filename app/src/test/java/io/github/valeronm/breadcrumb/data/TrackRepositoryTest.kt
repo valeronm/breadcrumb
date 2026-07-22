@@ -73,7 +73,7 @@ class TrackRepositoryTest {
         val track = dao.track(id)!!
         assertEquals(4, track.pointCount)
         assertEquals(1, track.ignoredCount)
-        assertEquals(38.701, track.startLat!!, 1e-9) // the first *good* point, not the stray
+        assertEquals(1.001, track.startLat!!, 1e-9) // the first *good* point, not the stray
         assertStatsMatchPoints(id)
     }
 
@@ -109,9 +109,9 @@ class TrackRepositoryTest {
         // every keep threshold.
         repository.addPoints(
             listOf(
-                test.point(id, 0, lat = 38.7),
-                test.point(id, 1, lat = 38.700009),
-                test.point(id, 2, lat = 38.700018),
+                test.point(id, 0, lat = 1.0),
+                test.point(id, 1, lat = 1.000009),
+                test.point(id, 2, lat = 1.000018),
             ),
         )
 
@@ -168,7 +168,7 @@ class TrackRepositoryTest {
         val id = repository.startTrack(ActivityType.DRIVING, TEST_START)
         // A cold-start fix 20 km away, then a normal drive — the stray the repair is for.
         repository.addPoints(
-            listOf(test.point(id, 0, lat = 38.9)) + (1..5).map { test.point(id, it) },
+            listOf(test.point(id, 0, lat = 1.2)) + (1..5).map { test.point(id, it) },
         )
         repository.finishTrack(id, TEST_START + 60_000)
 
@@ -178,7 +178,7 @@ class TrackRepositoryTest {
         val track = dao.track(id)!!
         assertEquals(1, track.ignoredCount)
         assertEquals(5, track.pointCount)
-        assertEquals(38.701, track.startLat!!, 1e-9) // the stray is no longer the start
+        assertEquals(1.001, track.startLat!!, 1e-9) // the stray is no longer the start
         assertStatsMatchPoints(id)
     }
 
@@ -205,8 +205,8 @@ class TrackRepositoryTest {
      *  Returns the track's raw end time (96 fixes, one per 10 s). */
     private suspend fun addWalkThenLingerTail(id: Long): Long {
         repository.addPoints(
-            walkPoints(id, 0, 60, fromLat = 38.7) +
-                lingerPoints(id, 60, 36, lat = 38.7 + 60 * 0.000126),
+            walkPoints(id, 0, 60, fromLat = 1.0) +
+                lingerPoints(id, 60, 36, lat = 1.0 + 60 * 0.000126),
         )
         return TEST_START + 96 * 10_000L
     }
@@ -236,7 +236,7 @@ class TrackRepositoryTest {
 
     @Test fun `a track with nothing to cut keeps every fix`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.addPoints(walkPoints(id, 0, 90, fromLat = 38.7))
+        repository.addPoints(walkPoints(id, 0, 90, fromLat = 1.0))
         val endedAt = TEST_START + 90 * 10_000L
         repository.finishTrack(id, endedAt)
 
@@ -253,8 +253,8 @@ class TrackRepositoryTest {
         // along the walk, and only a long span dilutes that below the drift gate — a short
         // start-stay followed by walking away is deliberately not detectable (transit-shaped).
         repository.addPoints(
-            lingerPoints(id, 0, 90, lat = 38.7) +
-                walkPoints(id, 90, 60, fromLat = 38.7),
+            lingerPoints(id, 0, 90, lat = 1.0) +
+                walkPoints(id, 90, 60, fromLat = 1.0),
         )
         repository.finishTrack(id, TEST_START + 150 * 10_000L)
 
@@ -271,7 +271,7 @@ class TrackRepositoryTest {
 
     @Test fun `the sweep hands back fixes the current rule does not flag`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.addPoints(walkPoints(id, 0, 90, fromLat = 38.7))
+        repository.addPoints(walkPoints(id, 0, 90, fromLat = 1.0))
         repository.finishTrack(id, TEST_START + 90 * 10_000L)
         // A verdict from a rule that has since moved: a tail flagged on a track that walks end to
         // end, with the clock pulled in to match, exactly as the older rule would have left it.
@@ -296,7 +296,7 @@ class TrackRepositoryTest {
         assertTrue(trimmed > 0)
         val secondStart = TEST_START + 200 * 10_000L
         val second = repository.startTrack(ActivityType.WALKING, secondStart)
-        repository.addPoints(walkPoints(second, 200, 60, fromLat = 38.71))
+        repository.addPoints(walkPoints(second, 200, 60, fromLat = 1.01))
         repository.finishTrack(second, secondStart + 60 * 10_000L)
 
         val mergedId = repository.mergeTracks(first, second)!!
@@ -311,15 +311,15 @@ class TrackRepositoryTest {
     @Test fun `an imported GPX track ending in a linger is trimmed via derived speed`() = runTest {
         // GPX carries no Doppler speed — the boundary must come from the displacement lookback.
         // The linger jitters ±9 m so its 30 s net displacement stays under the moving threshold.
-        val walkEnd = 38.7 + 60 * 0.000126
+        val walkEnd = 1.0 + 60 * 0.000126
         val points = (0 until 60).map { i ->
             GpxParser.ImportPoint(
-                lat = 38.7 + i * 0.000126, lon = -9.3, ele = null,
+                lat = 1.0 + i * 0.000126, lon = -2.0, ele = null,
                 timeMs = TEST_START + i * 10_000L, speed = null, segmentStart = false,
             )
         } + (0 until 36).map { i ->
             GpxParser.ImportPoint(
-                lat = walkEnd + if (i % 2 == 0) 0.00008 else -0.00008, lon = -9.3, ele = null,
+                lat = walkEnd + if (i % 2 == 0) 0.00008 else -0.00008, lon = -2.0, ele = null,
                 timeMs = TEST_START + (60 + i) * 10_000L, speed = null, segmentStart = false,
             )
         }

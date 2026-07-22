@@ -39,8 +39,8 @@ class BackupExporterTest {
         segmentStart: Boolean = false,
     ) = TrackPoint(
         trackId = 1,
-        latitude = 38.75,
-        longitude = -9.25,
+        latitude = 1.05,
+        longitude = -2.05,
         altitude = null,
         accuracy = 5.5f,
         speed = null,
@@ -113,8 +113,8 @@ class BackupExporterTest {
         val p = points[0].arr()
         assertEquals(BackupExporter.POINT_FIELDS.size, p.size)
         assertEquals(1_000L, p[0]) // timestamp
-        assertEquals(38.75, p[1]) // lat
-        assertEquals(-9.25, p[2]) // lon
+        assertEquals(1.05, p[1]) // lat
+        assertEquals(-2.05, p[2]) // lon
         assertNull(p[3]) // altitude was null
         assertEquals(5.5, p[4]) // accuracy
         assertEquals(12L, p[10]) // satellitesInFix

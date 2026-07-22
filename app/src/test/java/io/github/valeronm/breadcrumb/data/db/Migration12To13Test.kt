@@ -27,7 +27,7 @@ class Migration12To13Test {
         db.execSQL(
             "INSERT INTO tracks (id, activityType, startedAt, endedAt, distanceMeters, " +
                 "pointCount, ignoredCount, startLat, startLon, endLat, endLon) " +
-                "VALUES (7, 'WALKING', 1000, 2000, 840.5, 96, 3, 38.70, -9.30, 38.71, -9.31)",
+                "VALUES (7, 'WALKING', 1000, 2000, 840.5, 96, 3, 1.00, -2.00, 1.01, -2.01)",
         )
         db.execSQL(
             "INSERT INTO tracks (id, activityType, startedAt, discardedAt, discardReason) " +
@@ -42,8 +42,8 @@ class Migration12To13Test {
             assertEquals(840.5, c.getDouble(c.getColumnIndexOrThrow("distanceMeters")), 1e-9)
             assertEquals(96, c.getInt(c.getColumnIndexOrThrow("pointCount")))
             assertEquals(3, c.getInt(c.getColumnIndexOrThrow("ignoredCount")))
-            assertEquals(38.70, c.getDouble(c.getColumnIndexOrThrow("startLat")), 1e-9)
-            assertEquals(-9.31, c.getDouble(c.getColumnIndexOrThrow("endLon")), 1e-9)
+            assertEquals(1.00, c.getDouble(c.getColumnIndexOrThrow("startLat")), 1e-9)
+            assertEquals(-2.01, c.getDouble(c.getColumnIndexOrThrow("endLon")), 1e-9)
             assertTrue(c.moveToNext())
             assertEquals(0, c.getInt(c.getColumnIndexOrThrow("needsReview")))
             assertEquals("filtered", c.getString(c.getColumnIndexOrThrow("discardReason")))

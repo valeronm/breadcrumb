@@ -55,8 +55,8 @@ class GpxParserTest {
                 <name>Morning hike</name>
                 <type>hiking</type>
                 <trkseg>
-                  <trkpt lat="38.7" lon="-9.3"><time>2026-07-01T10:00:00.500Z</time></trkpt>
-                  <trkpt lat="38.701" lon="-9.3">
+                  <trkpt lat="1.0" lon="-2.0"><time>2026-07-01T10:00:00.500Z</time></trkpt>
+                  <trkpt lat="1.001" lon="-2.0">
                     <ele>25.5</ele>
                     <time>2026-07-01T12:00:00+01:00</time>
                     <extensions><speed>1.5</speed></extensions>

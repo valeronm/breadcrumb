@@ -28,11 +28,11 @@ class Migration11To12Test {
         db.execSQL(
             "INSERT INTO track_points (id, trackId, latitude, longitude, altitude, accuracy, " +
                 "timestamp, satellitesInFix, cn0, provider, ignored, ignoreReason, segmentStart) " +
-                "VALUES (42, 7, 38.70, -9.30, 55.5, 4.5, 1000, 11, 33.5, 'gps', 1, 'jump', 1)",
+                "VALUES (42, 7, 1.00, -2.00, 55.5, 4.5, 1000, 11, 33.5, 'gps', 1, 'jump', 1)",
         )
         db.execSQL(
             "INSERT INTO track_points (id, trackId, latitude, longitude, timestamp, provider) " +
-                "VALUES (43, 7, 38.71, -9.31, 2000, 'fused')",
+                "VALUES (43, 7, 1.01, -2.01, 2000, 'fused')",
         )
 
         AppDatabase.MIGRATION_11_12.migrate(db)
@@ -42,8 +42,8 @@ class Migration11To12Test {
             assertTrue(c.moveToFirst())
             assertEquals(42, c.getLong(c.getColumnIndexOrThrow("id")))
             assertEquals(7, c.getLong(c.getColumnIndexOrThrow("trackId")))
-            assertEquals(38.70, c.getDouble(c.getColumnIndexOrThrow("latitude")), 1e-9)
-            assertEquals(-9.30, c.getDouble(c.getColumnIndexOrThrow("longitude")), 1e-9)
+            assertEquals(1.00, c.getDouble(c.getColumnIndexOrThrow("latitude")), 1e-9)
+            assertEquals(-2.00, c.getDouble(c.getColumnIndexOrThrow("longitude")), 1e-9)
             assertEquals(55.5, c.getDouble(c.getColumnIndexOrThrow("altitude")), 1e-9)
             assertEquals(4.5f, c.getFloat(c.getColumnIndexOrThrow("accuracy")), 1e-6f)
             assertEquals(1000, c.getLong(c.getColumnIndexOrThrow("timestamp")))

@@ -37,10 +37,10 @@ class Migration10To11Test {
                 "VALUES (1, 'WALKING', 1000, 9000, 123.5)",
         )
         // Out of insertion order on purpose: the endpoints follow timestamp, not rowid.
-        insertPoint(1, timestamp = 3000, lat = 38.72, lon = -9.32, ignored = 0)
-        insertPoint(1, timestamp = 1000, lat = 38.70, lon = -9.30, ignored = 0)
+        insertPoint(1, timestamp = 3000, lat = 1.02, lon = -2.02, ignored = 0)
+        insertPoint(1, timestamp = 1000, lat = 1.00, lon = -2.00, ignored = 0)
         insertPoint(1, timestamp = 2000, lat = 0.0, lon = 0.0, ignored = 1) // a bad fix, mid-track
-        insertPoint(1, timestamp = 500, lat = 1.0, lon = 1.0, ignored = 1) // an ignored *first* fix
+        insertPoint(1, timestamp = 500, lat = 5.0, lon = 5.0, ignored = 1) // an ignored *first* fix
 
         AppDatabase.MIGRATION_10_11.migrate(db)
 
@@ -49,10 +49,10 @@ class Migration10To11Test {
             assertEquals(2, c.getInt(c.getColumnIndexOrThrow("pointCount")))
             assertEquals(2, c.getInt(c.getColumnIndexOrThrow("ignoredCount")))
             // The endpoints are the first and last *good* fixes, ignoring the strays entirely.
-            assertEquals(38.70, c.getDouble(c.getColumnIndexOrThrow("startLat")), 1e-9)
-            assertEquals(-9.30, c.getDouble(c.getColumnIndexOrThrow("startLon")), 1e-9)
-            assertEquals(38.72, c.getDouble(c.getColumnIndexOrThrow("endLat")), 1e-9)
-            assertEquals(-9.32, c.getDouble(c.getColumnIndexOrThrow("endLon")), 1e-9)
+            assertEquals(1.00, c.getDouble(c.getColumnIndexOrThrow("startLat")), 1e-9)
+            assertEquals(-2.00, c.getDouble(c.getColumnIndexOrThrow("startLon")), 1e-9)
+            assertEquals(1.02, c.getDouble(c.getColumnIndexOrThrow("endLat")), 1e-9)
+            assertEquals(-2.02, c.getDouble(c.getColumnIndexOrThrow("endLon")), 1e-9)
             // Distance was already stored per track; the migration must not touch it.
             assertEquals(123.5, c.getDouble(c.getColumnIndexOrThrow("distanceMeters")), 1e-9)
         }
