@@ -2791,7 +2791,10 @@ private fun DiscardedTracksScreen(
                             Text(
                                 "${t.pointCount} pts · ${formatKm(t.distanceMeters)} · " +
                                     formatDurationMs((t.endedAt ?: t.startedAt) - t.startedAt) +
-                                    (if (t.ignoredCount > 0) " · ${t.ignoredCount} noisy" else ""),
+                                    // "excluded", not "noisy": the count covers both species —
+                                    // bad fixes and the recorder's overrun at the edges — and what
+                                    // they have in common is being left out of the path.
+                                    (if (t.ignoredCount > 0) " · ${t.ignoredCount} excluded" else ""),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
