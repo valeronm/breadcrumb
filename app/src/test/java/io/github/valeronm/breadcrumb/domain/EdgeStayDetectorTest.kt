@@ -95,7 +95,7 @@ class EdgeStayDetectorTest {
 
     @Test
     fun `phantom Doppler at a standstill cannot move the boundary`() {
-        // The field shape (2026-07-04 16:57 arrival): parked, but the platform keeps reporting
+        // The field shape at an arrival: parked, but the platform keeps reporting
         // metres per second — three such fixes at the very end used to put the last moving bin
         // past the real arrival and collapse the stay to nothing. Displacement holds the veto, so
         // a fixture that never leaves its jitter box is stopped however fast its Doppler reads.
@@ -192,7 +192,7 @@ class EdgeStayDetectorTest {
 
     @Test
     fun `ignored multipath fixes cannot fake movement past the arrival`() {
-        // The field shape (Jun 29 19:21 walk): indoors, quality-flagged fixes read 1.7–2.7 m/s.
+        // The field shape at the end of a walk: indoors, quality-flagged fixes read 1.7–2.7 m/s.
         val phantom = (0 until 8).map { i ->
             pt(850.0 + if (i % 2 == 0) 30.0 else -30.0, 10 * MIN + i * 15_000L, 2.0f, ignored = true)
         }

@@ -21,9 +21,8 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  *     [Params.movingBinFraction] of *its own* fixes moving is itself "moving", and the boundary
  *     is the end of the last moving bin (the start of the first, at a start edge) — pulled back
  *     to the dwell's own bound if the span it would cut ranges beyond a standstill.
- *     Field data (Jun 29 + Jul 18 walks) showed the corral cuts 2–4 min early — it swallows
- *     the tail of the approach — while speed collapse matched the user-recalled arrival in
- *     all three ground-truth stays. Multipath at a standstill *can* fake Doppler, which is why
+ *     Field data showed the corral cuts 2–4 min early — it swallows the tail of the approach —
+ *     while speed collapse matched the recalled arrival in all three ground-truth stays. Multipath at a standstill *can* fake Doppler, which is why
  *     displacement holds the veto. The corral alone must never decide — it is speed-blind (its
  *     exit hysteresis and net-drift gate both passed a car circling a parking lot at 35 km/h),
  *     so when no speed evidence exists at all, nothing is trimmed.
@@ -178,8 +177,8 @@ object EdgeStayDetector {
          * Stage 1 says a stop touches this edge; stage 2 says where travel stopped. When they
          * disagree — the bin boundary lands outside the stop, so the span covers ground a stop
          * never could — the span is pulled back to the dwell's own bound, which is stationary by
-         * construction. Two imported drives (2025-02-15, 2025-05-01) proposed cutting 347 m and
-         * 246 m of ordinary driving off their starts because the bins, counted against the
+         * construction. Two imported drives proposed cutting 347 m and 246 m of ordinary
+         * driving off their starts because the bins, counted against the
          * *recorder's* sampling rate rather than the file's, only reached the moving threshold
          * a minute late. Retracting is the fix rather than abstaining: those tracks do open with
          * a real stop, just a shorter one than the bins claimed. If even the dwell's bound ranges
@@ -219,9 +218,9 @@ object EdgeStayDetector {
      * Ascending bin indices (timestamp / binMs) holding enough moving good fixes. A fix counts as
      * moving only when its **displacement** over [Params.speedLookbackMs] says so, and —
      * where the platform reported one — its Doppler speed agrees. Displacement is the veto, not a
-     * fallback for Doppler-less imports: a parked phone reports phantom Doppler (field case, a
-     * 2026-07-04 arrival: three consecutive fixes at up to 3.5 m/s while sitting 7 m from the
-     * track's final position), and a handful of those at the very end of a track is enough to put
+     * fallback for Doppler-less imports: a parked phone reports phantom Doppler (field case:
+     * three consecutive fixes at up to 3.5 m/s while the phone sat 7 m from the track's final
+     * position), and a handful of those at the very end of a track is enough to put
      * the last moving bin past the real arrival and collapse the detected stay to nothing. You
      * cannot travel at 3.5 m/s and stay 7 m from where you stop; over the lookback window jitter
      * averages to ~zero while genuine travel — a queue creep, a parking-lot loop — still shows.
@@ -229,7 +228,7 @@ object EdgeStayDetector {
      * "Enough" is a fraction of the fixes the bin *actually holds*, floored at one. A bar drawn
      * from a nominal count instead — what the recorder's sampling rate says a bin should hold —
      * measures sparseness rather than evidence, and sparseness is exactly what a stop produces:
-     * a 2025-09-15 arrival crossed 85 m between two fixes 27 s apart, and that lone unambiguous
+     * an arrival crossed 85 m between two fixes 27 s apart, and that lone unambiguous
      * fix was outvoted by the emptiness around it, so two stops 85 m apart read as one. Counting
      * within the bin costs nothing in confidence now that displacement holds the veto — a fix
      * that qualifies has already been checked against its own 10-second baseline.

@@ -201,6 +201,15 @@ cross-checks it.
 
 ## Conventions & constraints
 
+- **Never put the author's own trip data in the repo.** Most of the tuning here rests on field
+  evidence, and citing it is right — but comments, KDoc, commit messages and `docs/` must carry
+  what the data *showed*, never which trip showed it: no recording dates or times, no place names
+  or real coordinates, no per-trip distances, durations, point counts or quality figures. "A parked
+  phone can report phantom Doppler up to 3.5 m/s" — not "a 2026-07-04 arrival, 7 m from the track's
+  final position". History-wide aggregates are fine while they name no date or place ("an end stay
+  on ~30% of tracks, median ~72 s"), and so are generated test fixtures, whose coordinates are
+  invented. The repository is the one artifact that leaves the machine; the recorded history stays
+  on it.
 - **Activity recognition needs Google Play Services**, so this is intentionally not a FOSS/F-Droid
   build. A continuous foreground service + persistent notification is mandatory for background location
   — there is no "invisible" mode.
