@@ -194,7 +194,12 @@ with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `S
 stacked layers for place detail, the Settings sub-pages (sampling, point quality, auto-pause, GPS
 search, track filtering, Recently deleted, Logs), and discarded-track detail — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
-one layer at a time). The track map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps
+one layer at a time). The Compose code is split one file per screen, all in the `ui` package:
+`MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in
+`RecordScreen`/`TimelineScreen`/`PlacesScreens`/`TrackDetailScreen`/`SettingsScreens`/
+`DiscardedScreens`, with shared widgets and formatters in `Components.kt` and the colour-ramp/
+legend code in `TrackColoring.kt` (cross-file symbols are `internal`, not `private`). The track
+map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps
 vector basemap** (dark or light flavour following the app theme): the track is a `line-gradient`
 coloured per point by the selected metric (ramp luminance also theme-dependent), start/end
 and noisy-fix markers sit on a symbol layer, and switching the colour metric recolours in place
