@@ -253,7 +253,8 @@ private fun MainScreen(
     // the service isn't running (e.g. after a reinstall or being killed), restart it so the UI
     // doesn't get stuck on "Starting…".
     LaunchedEffect(foregroundOk, backgroundOk) {
-        if (autoOn && foregroundOk && backgroundOk && !LocationRecordingService.isRunning) {
+        val armedAndPermitted = autoOn && foregroundOk && backgroundOk
+        if (armedAndPermitted && !LocationRecordingService.isRunning) {
             LocationRecordingService.start(context)
         }
     }
@@ -628,8 +629,8 @@ private fun <T : Any> rememberOverlayLayer(
                 state.backProgress.snapTo(event.progress)
             }
             onDismiss() // gesture committed -> dismiss
-        } catch (cancelled: CancellationException) {
-            // Gesture cancelled -> spring back to place.
+        } catch (_: CancellationException) {
+            // Gesture canceled -> spring back to place.
             coroutineScope {
                 launch { state.backProgress.animateTo(0f, tween(200)) }
                 launch { state.backOffsetY.animateTo(0f, tween(200)) }

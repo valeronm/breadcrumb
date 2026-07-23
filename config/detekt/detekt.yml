@@ -17,7 +17,20 @@ performance:
   SpreadOperator:
     active: false # idiomatic vararg pass-through (e.g. GroupedRows(*rows)); no hot-path arrays
 
+exceptions:
+  SwallowedException:
+    # The defaults, plus CancellationException: in coroutine code cancellation IS the signal —
+    # catching it to run a compensating animation (predictive back) swallows nothing.
+    ignoredExceptionTypes:
+      - InterruptedException
+      - MalformedURLException
+      - NumberFormatException
+      - ParseException
+      - CancellationException
+
 naming:
+  MatchingDeclarationName:
+    active: false # feature files are named for their contents, not their (single) enum
   FunctionNaming:
     ignoreAnnotated: ['Composable'] # composables are PascalCase by convention
   VariableNaming:
@@ -26,6 +39,7 @@ naming:
 complexity:
   LongParameterList:
     ignoreAnnotated: ['Composable'] # composables take many params by design
+    excludes: ['**/test/**'] # fixture builders: many defaulted params so tests name only what varies
   LongMethod:
     active: false
   CyclomaticComplexMethod:

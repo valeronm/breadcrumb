@@ -2,29 +2,18 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>ComplexCondition:MainActivity.kt$autoOn &amp;&amp; foregroundOk &amp;&amp; backgroundOk &amp;&amp; !LocationRecordingService.isRunning</ID>
-    <ID>ComplexCondition:TimelineScreen.kt$ThrottledTick$key != null &amp;&amp; key != last &amp;&amp; (last != null || tickOnFirst)</ID>
     <ID>LongParameterList:BackupExporter.kt$BackupExporter$( context: Context, trackRepository: TrackRepository, placeRepository: PlaceRepository, livenessRepository: LivenessRepository, uri: Uri, exportedAt: Long, onProgress: (tracksDone: Int, tracksTotal: Int) -&gt; Unit, )</ID>
     <ID>LongParameterList:BackupExporter.kt$BackupExporter$( out: Appendable, exportedAt: Long, tracks: List&lt;Track&gt;, pointsFor: suspend (Long) -&gt; List&lt;TrackPoint&gt;, places: List&lt;Place&gt;, liveness: List&lt;LivenessEvent&gt;, onTrackWritten: (done: Int) -&gt; Unit = {}, )</ID>
     <ID>LongParameterList:BackupImporter.kt$BackupImporter$( context: Context, trackRepository: TrackRepository, placeRepository: PlaceRepository, livenessRepository: LivenessRepository, uri: Uri, onProgress: (tracksDone: Int, tracksTotal: Int?) -&gt; Unit, )</ID>
-    <ID>LongParameterList:EdgeStayDetectorTest.kt$EdgeStayDetectorTest$( centerM: Double, amplitudeM: Double, periodSec: Int, startT: Long, minutes: Int, speedMps: Float = 1.0f, )</ID>
-    <ID>LongParameterList:GpxExporterTest.kt$GpxExporterTest$( timestamp: Long, lat: Double = 1.0, lon: Double = 2.0, altitude: Double? = null, speed: Float? = null, segmentStart: Boolean = false, )</ID>
     <ID>LongParameterList:KeepRule.kt$KeepRule$( pointCount: Int, ignoredCount: Int, durationSec: Long, distanceMeters: Double, thresholds: Thresholds, extent: () -&gt; Double, )</ID>
-    <ID>LongParameterList:KeepRuleTest.kt$KeepRuleTest$( pointCount: Int = 10, ignoredCount: Int = 0, durationSec: Long = 120, distanceMeters: Double = 500.0, thresholds: KeepRule.Thresholds = this.thresholds, extent: () -&gt; Double = { 200.0 }, )</ID>
     <ID>LongParameterList:MapLibreTrackMap.kt$( ctx: Context, style: Style, center: StayDeriver.Endpoint, radiusM: Double, endpoints: List&lt;StayDeriver.Endpoint&gt;, neighbors: List&lt;NeighborPlace&gt;, showInternals: Boolean, )</ID>
     <ID>LongParameterList:RecordCard.kt$( armed: Boolean, tracking: Boolean, recording: Boolean, paused: Boolean, gpsSuspended: Boolean, points: Int, hasOpenTrack: Boolean, )</ID>
     <ID>LongParameterList:RecordCard.kt$( state: RecordCardState, nowMs: Long, activity: ActivityType?, pausedActivity: ActivityType?, pausedUntilMs: Long?, lastReadingAtMs: Long?, deaf: Boolean, lastFixAccuracyM: Float?, lastFixRejectedByAccuracy: Boolean, gpsSuspendedSinceMs: Long?, formatClock: (Long) -&gt; String, formatDuration: (Long) -&gt; String, )</ID>
-    <ID>LongParameterList:RecordCardTest.kt$RecordCardTest$( armed: Boolean = true, tracking: Boolean = true, recording: Boolean = true, paused: Boolean = false, gpsSuspended: Boolean = false, points: Int = 10, hasOpenTrack: Boolean = true, )</ID>
-    <ID>LongParameterList:RecordCardTest.kt$RecordCardTest$( state: RecordCardState, activity: ActivityType? = null, pausedActivity: ActivityType? = null, pausedUntilMs: Long? = null, lastReadingAtMs: Long? = null, deaf: Boolean = false, lastFixAccuracyM: Float? = null, lastFixRejectedByAccuracy: Boolean = false, gpsSuspendedSinceMs: Long? = null, )</ID>
     <ID>LongParameterList:StaleReadingOracle.kt$StaleReadingOracle$( eventTimeMs: Long?, readingMs: Long, lastReadingMs: Long, armedAtMs: Long, nowMs: Long, staleMs: Long, minAdvanceMs: Long, )</ID>
     <ID>LongParameterList:StayDeriver.kt$StayDeriver$( last: TrackEnd?, evidence: LivenessSummary, nowMs: Long, activeTrack: ActiveTrack?, params: Params, clusterOf: Map&lt;Endpoint, Int&gt;, samePlace: (Endpoint, Endpoint) -&gt; Boolean, )</ID>
     <ID>LongParameterList:StayDeriver.kt$StayDeriver$( tracks: List&lt;TrackEnd&gt;, liveness: List&lt;Liveness&gt;, nowMs: Long, activeTrack: ActiveTrack?, params: Params = Params(), distance: DistanceFn, /** Named-place pins with their per-place capture radii: seed the endpoint clustering * (in pin order — [PlaceResolver] maps [PlaceClusterer.Cluster.seedIndex] back to the * same places list) and drive the same-nearest-pin agreement override. */ placePins: List&lt;PlaceClusterer.Seed&gt; = emptyList(), )</ID>
     <ID>LongParameterList:TrackColoring.kt$( points: List&lt;TrackPoint&gt;, speedsKmh: FloatArray, mode: ColorMode, activity: ActivityType?, dark: Boolean, units: UnitSystem, )</ID>
     <ID>LongParameterList:TrackColoring.kt$( values: List&lt;Float?&gt;, redAt: Float, blueAt: Float, unit: String, emptyMsg: String, dark: Boolean, )</ID>
     <ID>LongParameterList:TrackDao.kt$TrackDao$( trackId: Long, distanceMeters: Double, pointCount: Int, ignoredCount: Int, startLat: Double?, startLon: Double?, endLat: Double?, endLon: Double?, )</ID>
-    <ID>MatchingDeclarationName:RecordCard.kt$RecordCardState</ID>
-    <ID>MatchingDeclarationName:SettingsScreens.kt$SettingsPage</ID>
-    <ID>SwallowedException:MainActivity.kt$cancelled: CancellationException</ID>
-    <ID>TooGenericExceptionCaught:TrackListViewModel.kt$TrackListViewModel$e: Exception</ID>
   </CurrentIssues>
 </SmellBaseline>

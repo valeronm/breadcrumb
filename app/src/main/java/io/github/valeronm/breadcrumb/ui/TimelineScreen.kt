@@ -246,7 +246,9 @@ internal class ThrottledTick(private val view: View, private val tickOnFirst: Bo
     private var lastTickAt = 0L
 
     fun onChange(key: Any?) {
-        if (key != null && key != last && (last != null || tickOnFirst)) {
+        val changedKey = key != null && key != last
+        val firstKeyTicks = last != null || tickOnFirst
+        if (changedKey && firstKeyTicks) {
             val now = SystemClock.uptimeMillis()
             if (now - lastTickAt >= 30) {
                 lastTickAt = now

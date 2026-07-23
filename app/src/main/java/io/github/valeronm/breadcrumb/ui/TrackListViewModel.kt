@@ -255,7 +255,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             val result = withContext(Dispatchers.IO) {
                 try {
                     op { done, total -> progress.value = OpProgress(done, total) }
-                } catch (e: Exception) {
+                    // Boundary catch: whatever an export/import throws, the user gets the failure
+                    // toast instead of a crash.
+                } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
                     DebugLog.w("Breadcrumb", "$logLabel failed: ${e.message}")
                     null
                 }
@@ -326,7 +328,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                         val counts = repository.importTracks(importable)
                         imported += counts.imported
                         duplicates += counts.duplicates
-                    } catch (e: Exception) {
+                        // Boundary catch: one unreadable file counts as failed, the rest import.
+                    } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
                         DebugLog.w("Breadcrumb", "gpx import failed for $uri: ${e.message}")
                         failed++
                     }
