@@ -22,6 +22,7 @@ object Settings {
     private const val KEY_PLACES_VIEW_MAP = "places_view_map"
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
+    private const val KEY_UNIT_CHOICE = "unit_choice"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
     // The stored name predates the verdict moving onto the points; it stays as it is, because a
     // renamed key reads back 0 on every installed device and re-walks the whole history for nothing.
@@ -163,6 +164,15 @@ object Settings {
 
     fun setGpsGiveUpSec(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_GPS_GIVE_UP_SEC, value) }
+    }
+
+    /** Display units, stored by [io.github.valeronm.breadcrumb.util.UnitChoice] name (the UI owns
+     *  the enum; unknown names fall back to following the locale). */
+    fun unitChoice(context: Context): String? =
+        prefs(context).getString(KEY_UNIT_CHOICE, null)
+
+    fun setUnitChoice(context: Context, name: String) {
+        prefs(context).edit { putString(KEY_UNIT_CHOICE, name) }
     }
 
     /** Places tab: also show unnamed clusters with fewer than 3 visits (hidden by default). */

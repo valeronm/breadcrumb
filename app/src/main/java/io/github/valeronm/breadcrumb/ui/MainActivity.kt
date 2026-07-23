@@ -143,6 +143,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.LaunchedEffect
@@ -153,6 +154,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -222,10 +224,13 @@ import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.DebugLog
+import io.github.valeronm.breadcrumb.util.DistanceSliderScale
+import io.github.valeronm.breadcrumb.util.SliderStops
+import io.github.valeronm.breadcrumb.util.UnitChoice
+import io.github.valeronm.breadcrumb.util.UnitSystem
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
-import io.github.valeronm.breadcrumb.util.formatKm
-import io.github.valeronm.breadcrumb.util.formatKmh
 import io.github.valeronm.breadcrumb.util.isGranted
+import io.github.valeronm.breadcrumb.util.snapToStep
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -257,7 +262,17 @@ class MainActivity : ComponentActivity() {
         consumeGpxIntent(intent)
         setContent {
             AppTheme {
-                MainScreen(pendingGpxImport)
+                var unitChoice by remember {
+                    mutableStateOf(UnitChoice.fromName(AppSettings.unitChoice(this)))
+                }
+                CompositionLocalProvider(
+                    LocalUnits provides unitChoice.resolve(Locale.getDefault().country),
+                ) {
+                    MainScreen(pendingGpxImport, unitChoice) {
+                        unitChoice = it
+                        AppSettings.setUnitChoice(this, it.name)
+                    }
+                }
             }
         }
     }
@@ -319,6 +334,9 @@ private fun Context.requestIgnoreBatteryOptimization() {
     }
 }
 
+/** The resolved display-unit system; all distance/speed rendering below reads this. */
+internal val LocalUnits = staticCompositionLocalOf { UnitSystem.METRIC }
+
 private enum class HomeTab { RECORD, TRACKS, PLACES }
 
 /** A full-screen page shown over the tabs, animated with predictive back. */
@@ -334,7 +352,11 @@ private enum class SettingsPage {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
+private fun MainScreen(
+    pendingGpxImport: MutableState<List<Uri>?>,
+    unitChoice: UnitChoice,
+    onUnitChoice: (UnitChoice) -> Unit,
+) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
@@ -601,6 +623,8 @@ private fun MainScreen(pendingGpxImport: MutableState<List<Uri>?>) {
 
                     Overlay.Settings -> SettingsScreen(
                         viewModel = viewModel,
+                        unitChoice = unitChoice,
+                        onUnitChoice = onUnitChoice,
                         onBack = { overlay = null },
                         onOpenPage = { settingsPage = it },
                     )
@@ -996,6 +1020,7 @@ private fun PeriodStats(title: String, tracks: List<TrackSummary>) {
         )
     } else {
         val totals = remember(tracks) { dayActivityTotals(tracks) }
+        val units = LocalUnits.current
         for (total in totals) {
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1013,7 +1038,7 @@ private fun PeriodStats(title: String, tracks: List<TrackSummary>) {
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    "${formatKm(total.meters)} · ${formatDurationMs(total.durationMs)}",
+                    "${units.distance(total.meters)} · ${formatDurationMs(total.durationMs)}",
                     style = MaterialTheme.typography.titleSmall,
                 )
             }
@@ -1092,15 +1117,16 @@ private fun CurrentTrackPreview(
                 val startedAt = status.startedAtMillis
                 val durationS = startedAt?.let { (System.currentTimeMillis() - it) / 1000.0 } ?: 0.0
                 val avgKmh = avgSpeedKmh(status.distanceMeters, durationS)
+                val units = LocalUnits.current
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    StatItem("Distance", formatKm(status.distanceMeters))
+                    StatItem("Distance", units.distance(status.distanceMeters))
                     StatItem(
                         "Duration",
                         startedAt?.let { formatDuration(it, System.currentTimeMillis()) } ?: "—",
                     )
-                    StatItem("Speed", status.speedMps?.let { formatKmh(it * 3.6) } ?: "—")
-                    StatItem("Avg", if (avgKmh > 0) formatKmh(avgKmh) else "—")
-                    StatItem("Elevation", status.altitudeM?.let { "%.0f m".format(it) } ?: "—")
+                    StatItem("Speed", status.speedMps?.let { units.speedFromKmh(it * 3.6) } ?: "—")
+                    StatItem("Avg", if (avgKmh > 0) units.speedFromKmh(avgKmh) else "—")
+                    StatItem("Elevation", status.altitudeM?.let { units.shortDistance(it) } ?: "—")
                 }
             }
         }
@@ -1604,6 +1630,7 @@ private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () 
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            val units = LocalUnits.current
             for (total in totals) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -1614,7 +1641,7 @@ private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () 
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        "${formatKm(total.meters)} · ${formatDurationMs(total.durationMs)}",
+                        "${units.distance(total.meters)} · ${formatDurationMs(total.durationMs)}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1974,27 +2001,11 @@ private fun PlaceDetailScreen(
             } else if (place != null) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text("Place radius", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "${radiusM.roundToInt()} m",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                        Slider(
-                            value = radiusM,
-                            valueRange = 50f..500f,
-                            onValueChange = { raw ->
-                                radiusM = ((raw / 25f).roundToInt() * 25f).coerceIn(50f, 500f)
-                            },
-                            onValueChangeFinished = {
-                                viewModel.setPlaceRadius(place.id, radiusM.toDouble())
-                            },
-                        )
+                        val scale = rememberDistanceScale(SliderStops(50, 500, 25), SliderStops(150, 1650, 75))
+                        SliderSetting(
+                            "Place radius", radiusM.roundToInt(), scale,
+                            onDragEnd = { viewModel.setPlaceRadius(place.id, radiusM.toDouble()) },
+                        ) { radiusM = it.toFloat() }
                     }
                 }
             }
@@ -2300,6 +2311,8 @@ private val monthOfYearFormat = DateTimeFormatter.ofPattern("MMM yyyy")
 @Composable
 private fun SettingsScreen(
     viewModel: TrackListViewModel,
+    unitChoice: UnitChoice,
+    onUnitChoice: (UnitChoice) -> Unit,
     onBack: () -> Unit,
     onOpenPage: (SettingsPage) -> Unit,
 ) {
@@ -2351,6 +2364,28 @@ private fun SettingsScreen(
                         "Track filtering",
                         subtitle = "Limits below which finished tracks are discarded",
                     ) { onOpenPage(SettingsPage.TrackFiltering) }
+                },
+            )
+            Spacer(Modifier.height(24.dp))
+            Text("Display", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            GroupedRows(
+                {
+                    Column {
+                        Text("Units", style = MaterialTheme.typography.bodyLarge)
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            for (choice in UnitChoice.entries) {
+                                FilterChip(
+                                    selected = choice == unitChoice,
+                                    onClick = { onUnitChoice(choice) },
+                                    label = { Text(choice.label) },
+                                )
+                            }
+                        }
+                    }
                 },
             )
             Spacer(Modifier.height(24.dp))
@@ -2448,8 +2483,9 @@ private fun SamplingSettingsScreen(onBack: () -> Unit) {
                 }
             },
             {
-                SliderSetting("Distance between points", distanceM.value.toFloat(), 1f..50f, 1, { "${it.toInt()} m" }) {
-                    distanceM.set(it.toInt())
+                val scale = rememberDistanceScale(SliderStops(1, 50, 1), SliderStops(5, 165, 5))
+                SliderSetting("Distance between points", distanceM.value, scale) {
+                    distanceM.set(it)
                 }
             },
         )
@@ -2481,8 +2517,9 @@ private fun PointQualitySettingsScreen(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-                SliderSetting("Max accuracy radius", accuracyGateM.value.toFloat(), 10f..150f, 10, { "${it.toInt()} m" }) {
-                    accuracyGateM.set(it.toInt())
+                val scale = rememberDistanceScale(SliderStops(10, 150, 10), SliderStops(25, 500, 25))
+                SliderSetting("Max accuracy radius", accuracyGateM.value, scale) {
+                    accuracyGateM.set(it)
                 }
             },
         )
@@ -2538,6 +2575,9 @@ private fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
         { AppSettings.minTrackLengthM(context) }) { AppSettings.setMinTrackLengthM(context, it) }
     val minExtentM = rememberPref(AppSettings.DEFAULT_TRACK_MIN_EXTENT_M,
         { AppSettings.minTrackExtentM(context) }) { AppSettings.setMinTrackExtentM(context, it) }
+    // Min length and min extent share one scale: both are "how far did the track get" thresholds.
+    val lengthScale =
+        rememberDistanceScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), zeroIsOff = true)
     SettingsSubPage("Track filtering", onBack, listOf(minDurationSec, minLengthM, minExtentM)) {
         SettingsPageDescription(
             "Tracks under these limits are moved to Recently deleted when they finish.",
@@ -2549,8 +2589,8 @@ private fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
                 }
             },
             {
-                SliderSetting("Min length", minLengthM.value.toFloat(), 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
-                    minLengthM.set(it.toInt())
+                SliderSetting("Min length", minLengthM.value, lengthScale) {
+                    minLengthM.set(it)
                 }
             },
             {
@@ -2561,8 +2601,8 @@ private fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-                SliderSetting("Min extent", minExtentM.value.toFloat(), 0f..500f, 50, { lengthSettingLabel(it.toInt()) }) {
-                    minExtentM.set(it.toInt())
+                SliderSetting("Min extent", minExtentM.value, lengthScale) {
+                    minExtentM.set(it)
                 }
             },
         )
@@ -2789,7 +2829,7 @@ private fun DiscardedTracksScreen(
                                 style = MaterialTheme.typography.bodyLarge,
                             )
                             Text(
-                                "${t.pointCount} pts · ${formatKm(t.distanceMeters)} · " +
+                                "${t.pointCount} pts · ${LocalUnits.current.distance(t.distanceMeters)} · " +
                                     formatDurationMs((t.endedAt ?: t.startedAt) - t.startedAt) +
                                     // "excluded", not "noisy": the count covers both species —
                                     // bad fixes and the recorder's overrun at the edges — and what
@@ -2969,6 +3009,49 @@ private fun SliderSetting(
     step: Int,
     valueText: (Float) -> String,
     onChange: (Float) -> Unit,
+) = LabeledSlider(label, valueText(value), value, range) { raw ->
+    // Snap to the nearest step so values land on round numbers.
+    onChange(snapToStep(raw, step, range))
+}
+
+/** The current unit system's scale for a distance slider, cached until the units change. */
+@Composable
+private fun rememberDistanceScale(
+    metric: SliderStops,
+    feet: SliderStops,
+    zeroIsOff: Boolean = false,
+): DistanceSliderScale {
+    val units = LocalUnits.current
+    return remember(units) { units.sliderScale(metric, feet, zeroIsOff) }
+}
+
+/**
+ * A distance slider riding a [DistanceSliderScale]: it drags and labels in the scale's display
+ * unit (round feet for imperial users), storing metres only on commit.
+ */
+@Composable
+private fun SliderSetting(
+    label: String,
+    meters: Int,
+    scale: DistanceSliderScale,
+    onDragEnd: (() -> Unit)? = null,
+    onChange: (Int) -> Unit,
+) {
+    val display = scale.displayOf(meters)
+    LabeledSlider(label, scale.label(display), display, scale.range, onDragEnd) { raw ->
+        onChange(scale.metersOf(scale.snap(raw)))
+    }
+}
+
+/** The one label-row-plus-slider layout every slider setting renders. */
+@Composable
+private fun LabeledSlider(
+    label: String,
+    valueText: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onDragEnd: (() -> Unit)? = null,
+    onChange: (Float) -> Unit,
 ) {
     Column {
         Row(
@@ -2977,20 +3060,16 @@ private fun SliderSetting(
         ) {
             Text(label, style = MaterialTheme.typography.bodyLarge)
             Text(
-                valueText(value),
+                valueText,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.primary,
             )
         }
         Slider(
             value = value,
-            onValueChange = { raw ->
-                // Snap to the nearest step so values land on round numbers.
-                val snapped = ((raw / step).roundToInt() * step).toFloat()
-                    .coerceIn(range.start, range.endInclusive)
-                onChange(snapped)
-            },
+            onValueChange = onChange,
             valueRange = range,
+            onValueChangeFinished = onDragEnd,
         )
     }
 }
@@ -3000,12 +3079,6 @@ private fun durationSettingLabel(sec: Int): String = when {
     sec < 60 -> "$sec s"
     sec % 60 == 0 -> "${sec / 60} min"
     else -> "${sec / 60}m ${sec % 60}s"
-}
-
-private fun lengthSettingLabel(m: Int): String = when {
-    m <= 0 -> "Off"
-    m < 1000 -> "$m m"
-    else -> formatKm(m.toDouble())
 }
 
 private fun groupTimelineByDay(items: List<TimelineItem>): List<Pair<String, List<TimelineItem>>> {
@@ -3277,7 +3350,8 @@ private fun TrackRow(
                 Column(Modifier.weight(1f)) {
                     // What happened leads; when it happened is the metadata line.
                     Text(
-                        "${ActivityType.labelFor(track.activityType)} · ${formatKm(track.distanceMeters)}",
+                        "${ActivityType.labelFor(track.activityType)} · " +
+                            LocalUnits.current.distance(track.distanceMeters),
                         style = MaterialTheme.typography.titleMedium,
                         // Explicit: the inherited card colour dims to onSurfaceVariant under
                         // dynamic colour (contentColorFor matches surfaceVariant first).
@@ -3706,8 +3780,9 @@ private fun TrackMapScreen(
                         Card(Modifier.fillMaxWidth()) { TrackStatsHeader(summary) }
                     }
                     val darkTheme = isSystemInDarkTheme()
-                    val graph = remember(loaded, colorMode, activity, darkTheme) {
-                        metricGraphData(loaded, colorMode, activity, darkTheme)
+                    val units = LocalUnits.current
+                    val graph = remember(loaded, colorMode, activity, darkTheme, units) {
+                        metricGraphData(loaded, colorMode, activity, darkTheme, units)
                     }
                     // Metric chips, map, and scrubber read as one group: small gaps, small
                     // corners between neighbours.
@@ -3824,12 +3899,13 @@ internal fun metricGraphData(
     mode: ColorMode,
     activity: ActivityType?,
     dark: Boolean,
+    units: UnitSystem,
 ): MetricGraphData? {
     // Computed unconditionally: trackColoring below needs it whatever the mode.
     val speeds = TrackQuality.pointSpeedsKmh(points)
-    val (values, unit) = metricSeries(points, mode, speeds)
+    val (values, unit) = metricSeries(points, mode, speeds, units)
     if (values.all { it == null }) return null
-    val colors = trackColoring(points, speeds, mode, activity, dark).colors
+    val colors = trackColoring(points, speeds, mode, activity, dark, units).colors
     return MetricGraphData(points, values, colors, unit)
 }
 
@@ -4085,10 +4161,11 @@ private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
 private fun TrackStatsHeader(summary: TrackSummary) {
     val durationS = summary.endedAt?.let { (it - summary.startedAt) / 1000.0 } ?: 0.0
     val avgKmh = avgSpeedKmh(summary.distanceMeters, durationS)
+    val units = LocalUnits.current
     Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-        HeaderStat("Distance", formatKm(summary.distanceMeters), Modifier.weight(1f))
+        HeaderStat("Distance", units.distance(summary.distanceMeters), Modifier.weight(1f))
         HeaderStat("Duration", formatDuration(summary.startedAt, summary.endedAt), Modifier.weight(1f))
-        HeaderStat("Avg speed", if (avgKmh > 0) formatKmh(avgKmh) else "—", Modifier.weight(1f))
+        HeaderStat("Avg speed", if (avgKmh > 0) units.speedFromKmh(avgKmh) else "—", Modifier.weight(1f))
     }
 }
 
@@ -4148,14 +4225,24 @@ private const val SPEED_SATURATION = 0.9f
 // the ramp) on the pale light basemap — deeper colours there.
 private fun rampLuminance(dark: Boolean) = if (dark) 0.5f else 0.33f
 
-/** Speed thresholds (km/h) anchoring the red / green / blue points of the colour ramp per activity. */
-private data class SpeedScale(val minKmh: Float, val midKmh: Float, val maxKmh: Float)
+/**
+ * Speed thresholds (in the display system's speed unit) anchoring the red and blue ends of the
+ * colour ramp per activity. Hand-rounded per system like the slider ladders — the legend must
+ * read "20 / 55 / 90 mph", not the converted "19 / 56 / 93" — so min/max are picked evenly
+ * spaced around a round midpoint (the legend's middle label is their average, and lands on
+ * green). The anchors therefore sit a hair apart between systems; a user only sees one.
+ */
+private data class SpeedScale(val min: Float, val max: Float)
 
-private fun speedScaleFor(activity: ActivityType): SpeedScale = when (activity) {
-    ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN -> SpeedScale(30f, 90f, 150f)
-    ActivityType.CYCLING -> SpeedScale(10f, 22f, 34f)
-    ActivityType.RUNNING -> SpeedScale(6f, 11f, 16f)
-    ActivityType.WALKING, ActivityType.STILL -> SpeedScale(2f, 5f, 8f)
+private fun speedScaleFor(activity: ActivityType, units: UnitSystem): SpeedScale = when (activity) {
+    ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN ->
+        units.bySpeedUnit(kmh = SpeedScale(30f, 150f), mph = SpeedScale(20f, 90f))
+    ActivityType.CYCLING ->
+        units.bySpeedUnit(kmh = SpeedScale(10f, 34f), mph = SpeedScale(6f, 22f))
+    ActivityType.RUNNING ->
+        units.bySpeedUnit(kmh = SpeedScale(6f, 16f), mph = SpeedScale(4f, 10f))
+    ActivityType.WALKING, ActivityType.STILL ->
+        units.bySpeedUnit(kmh = SpeedScale(2f, 8f), mph = SpeedScale(1f, 5f))
 }
 
 // --- Track line colouring by metric ------------------------------------------------------------
@@ -4211,11 +4298,11 @@ private fun rampColoring(
  * unit — the single mode→series/unit mapping, feeding both the graph and the map colouring.
  */
 private fun metricSeries(
-    points: List<TrackPoint>, mode: ColorMode, speedsKmh: FloatArray,
+    points: List<TrackPoint>, mode: ColorMode, speedsKmh: FloatArray, units: UnitSystem,
 ): Pair<List<Float?>, String> = when (mode) {
-    ColorMode.SPEED -> List(points.size) { speedsKmh[it] } to "km/h"
-    ColorMode.ELEVATION -> points.map { it.altitude?.toFloat() } to "m"
-    ColorMode.ACCURACY -> points.map { it.accuracy } to "m"
+    ColorMode.SPEED -> List(points.size) { units.fromKmh(speedsKmh[it]) } to units.speedUnit
+    ColorMode.ELEVATION -> points.map { it.altitude?.toFloat()?.let(units::fromMeters) } to units.shortUnit
+    ColorMode.ACCURACY -> points.map { it.accuracy?.let(units::fromMeters) } to units.shortUnit
     ColorMode.SATELLITES -> points.map { it.satellitesInFix?.toFloat() } to "sat"
     ColorMode.CN0 -> points.map { it.cn0 } to "dB"
 }
@@ -4227,13 +4314,15 @@ private fun metricSeries(
  */
 internal fun trackColoring(
     points: List<TrackPoint>, speedsKmh: FloatArray, mode: ColorMode, activity: ActivityType?,
-    dark: Boolean,
+    dark: Boolean, units: UnitSystem,
 ): TrackColoring {
-    val (values, unit) = metricSeries(points, mode, speedsKmh)
+    // Anchors are hand-rounded in the display unit (see SpeedScale), so the legend reads round
+    // numbers in every system; the colours may sit a hair apart between systems as a result.
+    val (values, unit) = metricSeries(points, mode, speedsKmh, units)
     return when (mode) {
         ColorMode.SPEED -> {
-            val s = speedScaleFor(activity ?: ActivityType.UNKNOWN)
-            rampColoring(values, s.minKmh, s.maxKmh, unit, "No speed data", dark)
+            val s = speedScaleFor(activity ?: ActivityType.UNKNOWN, units)
+            rampColoring(values, s.min, s.max, unit, "No speed data", dark)
         }
         ColorMode.ELEVATION -> {
             val present = values.filterNotNull()
@@ -4247,8 +4336,10 @@ internal fun trackColoring(
                 rampColoring(values, lo, lo + span, unit, "No elevation data", dark)
             }
         }
-        // Lower accuracy radius is better, so 0 m sits at the blue (good) end.
-        ColorMode.ACCURACY -> rampColoring(values, 50f, 0f, unit, "No accuracy data", dark)
+        // Lower accuracy radius is better, so zero sits at the blue (good) end. The red anchor is
+        // hand-rounded per display unit like the speed scales: 150 ft, not the converted 164.
+        ColorMode.ACCURACY ->
+            rampColoring(values, units.byShortUnit(metres = 50f, feet = 150f), 0f, unit, "No accuracy data", dark)
         ColorMode.SATELLITES -> rampColoring(values, 0f, 12f, unit, "No satellite data", dark)
         ColorMode.CN0 -> rampColoring(values, 15f, 45f, unit, "No signal data", dark)
     }

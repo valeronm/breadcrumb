@@ -86,8 +86,9 @@ fun MapLibreTrackMap(
     modifier: Modifier = Modifier,
 ) {
     val darkTheme = isSystemInDarkTheme()
-    val coloring = remember(points, colorMode, activity, darkTheme) {
-        trackColoring(points, TrackQuality.pointSpeedsKmh(points), colorMode, activity, darkTheme)
+    val units = LocalUnits.current
+    val coloring = remember(points, colorMode, activity, darkTheme, units) {
+        trackColoring(points, TrackQuality.pointSpeedsKmh(points), colorMode, activity, darkTheme, units)
     }
     val paint = remember(points, coloring) { buildTrackPaint(points, coloring.colors) }
     // Frame once per map; later updates (colour switches, live point growth) must not move the
