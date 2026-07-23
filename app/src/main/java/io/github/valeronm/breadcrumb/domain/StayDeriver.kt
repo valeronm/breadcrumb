@@ -63,7 +63,7 @@ object StayDeriver {
     data class Outage(override val at: Long, val until: Long) : Liveness
 
     data class Params(
-        /** Fallback: endpoints at most this far apart (metres) agree even across cluster lines. */
+        /** Fallback: endpoints at most this far apart (meters) agree even across cluster lines. */
         val agreementRadiusM: Double = 100.0,
         /** Radius for clustering track endpoints into places. */
         val placeRadiusM: Double = PlaceClusterer.DEFAULT_RADIUS_M,
@@ -152,14 +152,14 @@ object StayDeriver {
         val out = mutableListOf<Interval>()
 
         fun nearestPin(e: Endpoint): Int? = placePins.indices
-            .map { it to distance.metres(placePins[it].anchor.lat, placePins[it].anchor.lon, e.lat, e.lon) }
+            .map { it to distance.meters(placePins[it].anchor.lat, placePins[it].anchor.lon, e.lat, e.lon) }
             .filter { (i, d) -> d <= placePins[i].radiusM }
             .minByOrNull { (_, d) -> d }
             ?.first
 
         fun samePlace(a: Endpoint, b: Endpoint): Boolean =
             clusterOf.getValue(a) == clusterOf.getValue(b) ||
-                distance.metres(a.lat, a.lon, b.lat, b.lon) <= params.agreementRadiusM ||
+                distance.meters(a.lat, a.lon, b.lat, b.lon) <= params.agreementRadiusM ||
                 (nearestPin(a)?.let { it == nearestPin(b) } ?: false)
 
         for (i in 0 until tracks.size - 1) {

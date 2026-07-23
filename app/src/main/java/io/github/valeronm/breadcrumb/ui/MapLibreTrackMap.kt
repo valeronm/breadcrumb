@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.createBitmap
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -59,17 +60,18 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Renders a track on a Protomaps vector basemap via MapLibre GL Native, in the dark or light flavour
- * the app theme calls for. The line is coloured by
- * [colorMode] via a MapLibre `line-gradient` built from [TrackColoring]'s per-point colours; start/end
+ * Renders a track on a Protomaps vector basemap via MapLibre GL Native, in the dark or light flavor
+ * the app theme calls for. The line is colored by
+ * [colorMode] via a MapLibre `line-gradient` built from [TrackColoring]'s per-point colors; start/end
  * and noisy-fix markers sit on a symbol layer, and the camera fits the track once on open. Switching
- * the colour mode updates the gradient in place without moving the camera; the source is refreshed
+ * the color mode updates the gradient in place without moving the camera; the source is refreshed
  * when the point list grows (the live "current track" preview), which re-frames only when the
  * current position nears the viewport edge — user pan/zoom survives otherwise.
  */
 @Composable
 fun MapLibreTrackMap(
     points: List<TrackPoint>,
+    modifier: Modifier = Modifier,
     noisyPoints: List<TrackPoint> = emptyList(),
     activity: ActivityType? = null,
     colorMode: ColorMode = ColorMode.SPEED,
@@ -78,12 +80,11 @@ fun MapLibreTrackMap(
     // Detected in-track stops, highlighted as place-style capture circles under the line.
     dwells: List<DwellDetector.Dwell> = emptyList(),
     // Stops the recording ran on through at either edge, as stored: one point run per edge,
-    // drawn greyed off the end of the track line.
+    // drawn grayed off the end of the track line.
     overruns: List<EdgeStayIgnore.Overrun> = emptyList(),
     // Live preview: the last point is the current position — a droplet rotated to the movement
     // bearing instead of the finished-track end dot.
     directionalEnd: Boolean = false,
-    modifier: Modifier = Modifier,
 ) {
     val darkTheme = isSystemInDarkTheme()
     val units = LocalUnits.current
@@ -91,7 +92,7 @@ fun MapLibreTrackMap(
         trackColoring(points, TrackQuality.pointSpeedsKmh(points), colorMode, activity, darkTheme, units)
     }
     val paint = remember(points, coloring) { buildTrackPaint(points, coloring.colors) }
-    // Frame once per map; later updates (colour switches, live point growth) must not move the
+    // Frame once per map; later updates (color switches, live point growth) must not move the
     // camera — the live preview re-frames only when the current position nears the viewport edge.
     val framed = remember { booleanArrayOf(false) }
     // What each source/layer was last fed, so unrelated recompositions (e.g. the graph scrubber
@@ -111,9 +112,9 @@ fun MapLibreTrackMap(
                 framed[0] = true
             },
             onUpdate = { map, style ->
-                // Recolour on colour-mode change; also refresh geometry when the track grows (the
+                // Recolor on color-mode change; also refresh geometry when the track grows (the
                 // live "current track" preview). Re-frame only when the points changed (not on a
-                // colour switch), so a colour change keeps the user's pan/zoom.
+                // color switch), so a color change keeps the user's pan/zoom.
                 if (applied[0] !== points || applied[1] !== noisyPoints) {
                     applied[0] = points
                     applied[1] = noisyPoints
@@ -211,7 +212,7 @@ private fun MapLibreStyledMap(
     )
 }
 
-/** A MapLibre [MapView] whose lifecycle follows the composition's [LifecycleOwner]. */
+/** A MapLibre [MapView] whose lifecycle follows the composition's [LocalLifecycleOwner]. */
 @Composable
 private fun rememberMapLibreMapView(): MapView {
     val ctx = LocalContext.current
@@ -275,16 +276,16 @@ private const val DWELL_LINE = "dwell-line"
 private const val EDGE_STAY_SOURCE = "edge-stay-src"
 private const val EDGE_STAY_LAYER = "edge-stay-layer"
 
-// Greys the coloured line underneath rather than adding a colour of its own: dark theme needs a
-// darker grey than the track to read as receding, light theme a lighter one.
+// Grays the colored line underneath rather than adding a color of its own: dark theme needs a
+// darker gray than the track to read as receding, light theme a lighter one.
 private const val EDGE_STAY_DIM_DARK = 0xD9424242.toInt()
 private const val EDGE_STAY_DIM_LIGHT = 0xD9BDBDBD.toInt()
 
 /**
  * The stretch at each track edge the recorder ran on through — the fixes already taken off the
- * path, each run drawn from the good fix it hangs off so the grey meets the coloured line. Drawn
- * in its own dim colour rather than by dimming the track underneath: those fixes are not part of
- * the track line at all any more, so there is nothing under this to recolour.
+ * path, each run drawn from the good fix it hangs off so the gray meets the colored line. Drawn
+ * in its own dim color rather than by dimming the track underneath: those fixes are not part of
+ * the track line at all anymore, so there is nothing under this to recolor.
  */
 private fun edgeStayFeature(overruns: List<EdgeStayIgnore.Overrun>): FeatureCollection =
     FeatureCollection.fromFeatures(overruns.mapNotNull { lineFeature(it.points) })
@@ -297,7 +298,7 @@ private fun addEdgeStayLayer(
     style.addSource(GeoJsonSource(EDGE_STAY_SOURCE, edgeStayFeature(overruns)))
     style.addLayer(
         LineLayer(EDGE_STAY_LAYER, EDGE_STAY_SOURCE).withProperties(
-            // Wider than the 3f track line so no coloured fringe survives along the edges.
+            // Wider than the 3f track line so no colored fringe survives along the edges.
             PropertyFactory.lineWidth(4f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -384,9 +385,9 @@ private fun applyPaint(layer: LineLayer, paint: TrackPaint) {
     }
 }
 
-// Noisy markers are colour-coded by why the fix was rejected; points recorded before reasons
-// were tracked (null) fall back to the generic accuracy colour. EDGE_STAY fixes are not rejects
-// and never reach this layer — they are drawn as the greyed overrun line.
+// Noisy markers are color-coded by why the fix was rejected; points recorded before reasons
+// were tracked (null) fall back to the generic accuracy color. EDGE_STAY fixes are not rejects
+// and never reach this layer — they are drawn as the grayed overrun line.
 private fun noisyIcon(p: TrackPoint): String = when (IgnoreReason.fromCode(p.ignoreReason)) {
     IgnoreReason.JUMP -> IMG_NOISY_JUMP
     IgnoreReason.NO_GNSS -> IMG_NOISY_GNSS
@@ -443,8 +444,8 @@ private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
         PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
     )
 
-/** Labelled pin layer shared by the place and overview maps: icon plus a label under it. */
-private fun labelledSymbolLayer(ctx: Context, id: String, source: String): SymbolLayer {
+/** Labeled pin layer shared by the place and overview maps: icon plus a label under it. */
+private fun labeledSymbolLayer(ctx: Context, id: String, source: String): SymbolLayer {
     val dark = isDarkUi(ctx)
     return SymbolLayer(id, source).withProperties(
         PropertyFactory.iconImage(Expression.get("icon")),
@@ -498,7 +499,7 @@ private fun markerFeature(p: TrackPoint, icon: String, bearing: Float = 0f): Fea
         },
     )
 
-/** These bounds with their half-spans scaled by [factor] around the centre. */
+/** These bounds with their half-spans scaled by [factor] around the center. */
 private fun LatLngBounds.scaled(factor: Double): LatLngBounds {
     val centerLat = (latitudeNorth + latitudeSouth) / 2
     val centerLon = (longitudeEast + longitudeWest) / 2
@@ -518,7 +519,7 @@ private fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction: 
 
 /**
  * Fits the camera to [positions]: ≥2 → bounds fit with 96px padding, exactly 1 → [singlePointZoom].
- * [headroom] > 1 zooms out beyond the exact fit (half-spans scaled around the centre). The live
+ * [headroom] > 1 zooms out beyond the exact fit (half-spans scaled around the center). The live
  * re-fit needs it: a tight fit puts the current position right back at the viewport edge, so the
  * very next fix would trigger another re-frame.
  */
@@ -537,22 +538,22 @@ private fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom: 
     }
 }
 
-/** The line's paint for the current colour mode: a per-distance gradient, or a solid fallback. */
+/** The line's paint for the current color mode: a per-distance gradient, or a solid fallback. */
 private sealed interface TrackPaint {
     data class Gradient(val expression: Expression) : TrackPaint
     data class Solid(val color: Int) : TrackPaint
 }
 
 /**
- * Builds a MapLibre `line-gradient` from per-point [colors] by placing each point's colour at its
+ * Builds a MapLibre `line-gradient` from per-point [colors] by placing each point's color at its
  * cumulative-distance fraction along the line (0..1) — the parity port of osmdroid's per-vertex
- * paint list. Falls back to a solid colour for a track with no length.
+ * paint list. Falls back to a solid color for a track with no length.
  */
 private fun buildTrackPaint(points: List<TrackPoint>, colors: IntArray): TrackPaint {
     if (points.size < 2 || colors.isEmpty()) return TrackPaint.Solid(colors.firstOrNull() ?: DEFAULT_LINE)
     val cumulative = DoubleArray(points.size)
     for (i in 1 until points.size) {
-        cumulative[i] = cumulative[i - 1] + AndroidDistance.metres(
+        cumulative[i] = cumulative[i - 1] + AndroidDistance.meters(
             points[i - 1].latitude, points[i - 1].longitude, points[i].latitude, points[i].longitude,
         )
     }
@@ -582,18 +583,18 @@ private fun drawableBitmap(ctx: Context, resId: Int): Bitmap {
     val d = AppCompatResources.getDrawable(ctx, resId)!!
     val w = d.intrinsicWidth.coerceAtLeast(1)
     val h = d.intrinsicHeight.coerceAtLeast(1)
-    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val bmp = createBitmap(w, h)
     d.setBounds(0, 0, w, h)
     d.draw(Canvas(bmp))
     return bmp
 }
 
-/** Whether the UI is in dark mode — the single switch for basemap flavour and map ink colours. */
+/** Whether the UI is in dark mode — the single switch for basemap flavor and map ink colors. */
 private fun isDarkUi(ctx: Context): Boolean =
     (ctx.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
         Configuration.UI_MODE_NIGHT_YES
 
-/** The current flavour's style JSON, cached (asset name → json) — read for every map creation. */
+/** The current flavor's style JSON, cached (asset name → JSON) — read for every map creation. */
 private var cachedStyleJson: Pair<String, String>? = null
 
 /**
@@ -610,7 +611,7 @@ private fun loadProtomapsStyle(ctx: Context): String {
 }
 
 /**
- * The style's own `background` layer colour — used as the pre-render placeholder so a style
+ * The style's own `background` layer color — used as the pre-render placeholder so a style
  * refresh can't desync the load flash from the basemap.
  */
 private fun styleBackgroundColor(ctx: Context): Int =
@@ -620,17 +621,17 @@ private fun styleBackgroundColor(ctx: Context): Int =
 
 // --- Place map ----------------------------------------------------------------------------------
 
-/** A neighbouring cluster shown for context on the place map. */
+/** A neighboring cluster shown for context on the place map. */
 class NeighborPlace(
     val location: StayDeriver.Endpoint,
-    /** Named neighbours render as a labelled pin; null = a plain neighbour endpoint dot. */
+    /** Named neighbors render as a labeled pin; null = a plain neighbor endpoint dot. */
     val label: String? = null,
 )
 
 /**
  * Renders one place on the dark basemap. With [showInternals] the cluster's capture circle
- * (metre-true polygon around [center]) is drawn with every captured track endpoint as small dots
- * plus [neighbors] — surrounding clusters' endpoints (grey dots) and named pins (labelled) — so
+ * (meter-true polygon around [center]) is drawn with every captured track endpoint as small dots
+ * plus [neighbors] — surrounding clusters' endpoints (gray dots) and named pins (labeled) — so
  * the radius can be judged against what a wider circle would swallow; without it only the pin
  * marker shows. Toggling the flag restyles in place without moving the camera. The camera fits
  * the circle once on open; the place data is a snapshot, so there is no live update path beyond
@@ -641,9 +642,9 @@ fun MapLibrePlaceMap(
     center: StayDeriver.Endpoint,
     radiusM: Double,
     endpoints: List<StayDeriver.Endpoint>,
+    modifier: Modifier = Modifier,
     neighbors: List<NeighborPlace> = emptyList(),
     showInternals: Boolean = true,
-    modifier: Modifier = Modifier,
 ) {
     val applied = remember { arrayOfNulls<Any?>(3) } // circle (center+radius), markers, internals
     MapLibreStyledMap(
@@ -709,11 +710,11 @@ private fun addPlaceLayers(
     style.addSource(
         GeoJsonSource(PLACE_MARKER_SOURCE, placeMarkerCollection(center, endpoints, neighbors, showInternals)),
     )
-    style.addLayer(labelledSymbolLayer(ctx, PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE))
+    style.addLayer(labeledSymbolLayer(ctx, PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE))
 }
 
 /**
- * Neighbour context first (visually underneath), then the place's own endpoint dots, then the
+ * Neighbor context first (visually underneath), then the place's own endpoint dots, then the
  * pin marker last so it draws on top. Without [showInternals] only the pin is emitted.
  */
 private fun placeMarkerCollection(
@@ -743,7 +744,7 @@ private fun endpointFeature(e: StayDeriver.Endpoint, icon: String, label: String
         },
     )
 
-/** A metre-true circle approximated by a 72-gon (fine at place zoom levels). */
+/** A meter-true circle approximated by a 72-gon (fine at place zoom levels). */
 private fun circleFeature(center: StayDeriver.Endpoint, radiusM: Double): Feature {
     val ring = (0..72).map { i ->
         val theta = 2 * Math.PI * i / 72
@@ -753,7 +754,7 @@ private fun circleFeature(center: StayDeriver.Endpoint, radiusM: Double): Featur
     return Feature.fromGeometry(Polygon.fromLngLats(listOf(ring)))
 }
 
-/** ([lat], [lon]) displaced by metres north/east — flat-earth, fine at circle scale. */
+/** [e] displaced by meters north/east into a (lat, lon) pair — flat-earth, fine at circle scale. */
 private fun offsetMeters(e: StayDeriver.Endpoint, northM: Double, eastM: Double): Pair<Double, Double> {
     val lat = e.lat + northM / 111_320.0
     val lon = e.lon + eastM / (111_320.0 * cos(Math.toRadians(e.lat)))
@@ -765,7 +766,7 @@ private fun offsetMeters(e: StayDeriver.Endpoint, northM: Double, eastM: Double)
 /** One place on the overview map; tapping its marker reports [key] back. */
 class OverviewPlace(
     val location: StayDeriver.Endpoint,
-    /** Named places render as labelled pins; null = an unnamed cluster dot. */
+    /** Named places render as labeled pins; null = an unnamed cluster dot. */
     val label: String?,
     /** The place-detail key reported on tap. */
     val key: String,
@@ -775,7 +776,7 @@ class OverviewPlace(
 )
 
 /**
- * Every place on one map: labelled amber pins for named places, small dots for unnamed clusters,
+ * Every place on one map: labeled amber pins for named places, small dots for unnamed clusters,
  * framed to fit them all once on open. Tapping a marker reports its key via [onOpen].
  */
 @Composable
@@ -823,7 +824,7 @@ private fun addOverviewLayers(ctx: Context, style: Style, places: List<OverviewP
     style.addImage(IMG_ENDPOINT_BRIEF, drawableBitmap(ctx, R.drawable.ic_marker_endpoint_brief))
     style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))
     style.addSource(GeoJsonSource(OVERVIEW_SOURCE, overviewCollection(places)))
-    style.addLayer(labelledSymbolLayer(ctx, OVERVIEW_LAYER, OVERVIEW_SOURCE))
+    style.addLayer(labeledSymbolLayer(ctx, OVERVIEW_LAYER, OVERVIEW_SOURCE))
 }
 
 private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =

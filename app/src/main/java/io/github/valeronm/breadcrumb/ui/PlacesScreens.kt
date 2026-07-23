@@ -64,6 +64,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.SliderStops
 import java.time.Instant
 import java.time.LocalDate
@@ -89,7 +90,7 @@ private enum class PlacesSort(val label: String) {
     }
 }
 
-/** How far around a place the detail map shows neighbouring clusters for radius context. */
+/** How far around a place the detail map shows neighboring clusters for radius context. */
 internal const val NEIGHBOR_CONTEXT_M = 1_200.0
 
 /**
@@ -346,8 +347,8 @@ internal fun PlaceDetailScreen(
     val place = summary.place
     var showNameDialog by remember { mutableStateOf(false) }
     var showRecenterDialog by remember { mutableStateOf(false) }
-    // Edit mode reveals the cluster internals (capture circle, endpoints, neighbours) plus the
-    // radius slider and re-centre action; view mode leads with stats, a clean map and visits.
+    // Edit mode reveals the cluster internals (capture circle, endpoints, neighbors) plus the
+    // radius slider and re-center action; view mode leads with stats, a clean map and visits.
     var editing by remember(place?.id) { mutableStateOf(false) }
     // Local while dragging; summary.radiusM catches up after the persisted value re-derives.
     var radiusM by remember(place?.id) { mutableFloatStateOf(summary.radiusM.toFloat()) }
@@ -382,7 +383,7 @@ internal fun PlaceDetailScreen(
                             IconButton(onClick = { showRecenterDialog = true }) {
                                 Icon(
                                     Icons.Filled.FilterCenterFocus,
-                                    contentDescription = "Re-centre pin",
+                                    contentDescription = "Re-center pin",
                                 )
                             }
                         }
@@ -467,7 +468,7 @@ internal fun PlaceDetailScreen(
     if (showRecenterDialog && place != null && endpointCentroid != null) {
         ConfirmDialog(
             icon = Icons.Filled.FilterCenterFocus,
-            title = "Re-centre pin?",
+            title = "Re-center pin?",
             text = "Moves \"${place.label}\" to the middle of where your visits actually landed. " +
                 "Visits and stats recalculate around the new spot.",
             confirmLabel = "Move",
@@ -637,11 +638,11 @@ private fun visitTimeRange(stay: StayDeriver.Stay, zone: ZoneId): String {
     return "$start – ${timeFormat.format(Date(end))}$rollover"
 }
 
-private val visitDayFormat = DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())
+private val visitDayFormat by PerLocale { DateTimeFormatter.ofPattern("EEE d", it) }
 
-private val monthFormat = DateTimeFormatter.ofPattern("MMMM", Locale.getDefault())
+private val monthFormat by PerLocale { DateTimeFormatter.ofPattern("MMMM", it) }
 
-private val monthYearFormat = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())
+private val monthYearFormat by PerLocale { DateTimeFormatter.ofPattern("MMMM yyyy", it) }
 
 internal fun monthLabel(month: YearMonth, today: LocalDate): String =
     if (month.year == today.year) month.format(monthFormat) else month.format(monthYearFormat)
@@ -683,9 +684,9 @@ private fun PlaceRowCard(
 }
 
 /**
- * Title colour for anything place-like (Places list rows, stay cards, gap sides): named reads
- * at full onSurface, unnamed at the variant. Explicit because the inherited card colour dims
- * to onSurfaceVariant under dynamic colour (contentColorFor matches surfaceVariant first).
+ * Title color for anything place-like (Places list rows, stay cards, gap sides): named reads
+ * at full onSurface, unnamed at the variant. Explicit because the inherited card color dims
+ * to onSurfaceVariant under dynamic color (contentColorFor matches surfaceVariant first).
  */
 @Composable
 internal fun placeTitleColor(named: Boolean) =

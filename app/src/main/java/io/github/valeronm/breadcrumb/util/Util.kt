@@ -4,7 +4,26 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import java.util.Locale
 import kotlin.math.roundToInt
+import kotlin.reflect.KProperty
+
+/**
+ * Delegate for a locale-derived value (typically a date formatter) that follows the *current*
+ * default locale. A plain `val` captures the locale at class-load, and this process outlives the
+ * UI by weeks (the recording service holds it) — a user switching language would otherwise keep
+ * seeing dates in the old locale until the process finally dies. Cached per locale, so the value
+ * is only rebuilt on an actual switch.
+ */
+class PerLocale<T>(private val make: (Locale) -> T) {
+    @Volatile private var cached: Pair<Locale, T>? = null
+
+    operator fun getValue(thisRef: Any?, property: KProperty<*>): T {
+        val locale = Locale.getDefault()
+        cached?.let { (cachedLocale, value) -> if (cachedLocale == locale) return value }
+        return make(locale).also { cached = locale to it }
+    }
+}
 
 /** [raw] rounded to the nearest multiple of [step] and clamped into [range] — slider snapping. */
 fun snapToStep(raw: Float, step: Int, range: ClosedFloatingPointRange<Float>): Float =

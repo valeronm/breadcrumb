@@ -26,19 +26,19 @@ class UnitsTest {
     }
 
     @Test
-    fun `the UK system mixes miles with metres`() {
+    fun `the UK system mixes miles with meters`() {
         assertEquals("1 mi", UnitSystem.UK.distance(1_609.344))
         assertEquals("60 mph", UnitSystem.UK.speedFromKmh(96.56))
         assertEquals("35 m", UnitSystem.UK.shortDistance(35.0))
         assertEquals("mph", UnitSystem.UK.speedUnit)
         assertEquals("m", UnitSystem.UK.shortUnit)
         assertEquals(50f, UnitSystem.UK.fromMeters(50f), 0f)
-        // The display-table selectors derive from the units above: UK is mph but metres.
+        // The display-table selectors derive from the units above: UK is mph but meters.
         assertEquals("mph table", UnitSystem.UK.bySpeedUnit(kmh = "kmh table", mph = "mph table"))
-        assertEquals("m table", UnitSystem.UK.byShortUnit(metres = "m table", feet = "ft table"))
-        assertEquals("ft table", UnitSystem.IMPERIAL.byShortUnit(metres = "m table", feet = "ft table"))
+        assertEquals("m table", UnitSystem.UK.byShortUnit(meters = "m table", feet = "ft table"))
+        assertEquals("ft table", UnitSystem.IMPERIAL.byShortUnit(meters = "m table", feet = "ft table"))
         assertEquals("kmh table", UnitSystem.METRIC.bySpeedUnit(kmh = "kmh table", mph = "mph table"))
-        // Its sliders are the metric ones: short-range settings stay in metres.
+        // Its sliders are the metric ones: short-range settings stay in meters.
         val scale = UnitSystem.UK.sliderScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), zeroIsOff = true)
         assertEquals(500f, scale.range.endInclusive, 0f)
         assertEquals("50 m", scale.label(50f))
@@ -81,7 +81,7 @@ class UnitsTest {
     // --- Short distance ------------------------------------------------------
 
     @Test
-    fun `short distance is whole metres or feet`() {
+    fun `short distance is whole meters or feet`() {
         assertEquals("35 m", UnitSystem.METRIC.shortDistance(35.0))
         assertEquals("164 ft", UnitSystem.IMPERIAL.shortDistance(50.0))
         assertEquals("3 ft", UnitSystem.IMPERIAL.shortDistance(1.0))
@@ -101,7 +101,7 @@ class UnitsTest {
     }
 
     @Test
-    fun `imperial slider scale has round-feet stops storing converted metres`() {
+    fun `imperial slider scale has round-feet stops storing converted meters`() {
         val scale = UnitSystem.IMPERIAL.sliderScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), zeroIsOff = true)
         assertEquals(1650f, scale.range.endInclusive, 0f)
         // The metric default (50 m) lands on the nearest round-feet stop.

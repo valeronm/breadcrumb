@@ -19,7 +19,7 @@ class TrackQualityTest {
     private val WALKING = ActivityType.WALKING
     private val DRIVING = ActivityType.DRIVING
 
-    /** A fixed gap in metres, regardless of the coordinates passed. */
+    /** A fixed gap in meters, regardless of the coordinates passed. */
     private fun gap(meters: Double) = DistanceFn { _, _, _, _ -> meters }
 
     private fun point(
@@ -100,7 +100,7 @@ class TrackQualityTest {
         assertEquals(42.0, TrackQuality.distanceMeters(point(0), point(1_000), gap(42.0)), 0.0)
     }
 
-    // --- pointSpeedsKmh (map speed colouring) ---------------------------
+    // --- pointSpeedsKmh (map speed coloring) ---------------------------
     // Derived-speed cases inject a fixed gap() so the derivation runs on the host without the
     // Android Location distance (there's no unitTests.returnDefaultValues, so the default would throw).
 
@@ -151,9 +151,9 @@ class TrackQualityTest {
     // The rule is relative, not an absolute ceiling: the first seam is a stray when it's much
     // faster than the real pace that follows (a car pulling out does a few km/h, not 180 in the
     // opening second). Per-seam distance is keyed by the from-point's latitude, and every point is
-    // one second apart unless a test says otherwise, so seam speed (km/h) = gap-metres × 3.6.
+    // one second apart unless a test says otherwise, so seam speed (km/h) = gap-meters × 3.6.
 
-    /** Per-seam gaps keyed by the from-point's latitude: lat n -> gaps[n] metres to the next. */
+    /** Per-seam gaps keyed by the from-point's latitude: lat n -> gaps[n] meters to the next. */
     private fun seamGaps(vararg gaps: Double) = DistanceFn { la1, _, la2, _ ->
         gaps[minOf(la1, la2).toInt()]
     }

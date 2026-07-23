@@ -9,7 +9,7 @@ import org.junit.Test
 
 /**
  * Anchor-based greedy leader clustering. The flat-earth stub maps 0.001° ≈ 100 m, so tests
- * place points by "degrees" and reason in metres (same convention as StayDeriverTest).
+ * place points by "degrees" and reason in meters (same convention as StayDeriverTest).
  */
 class PlaceClustererTest {
 
@@ -100,7 +100,7 @@ class PlaceClustererTest {
         assertEquals(listOf(0), c.memberIndices)
     }
 
-    @Test fun `a memberless seed is still listed, centred on its pin`() {
+    @Test fun `a memberless seed is still listed, centerd on its pin`() {
         val clusters = clusterSeeded(listOf(seed(0.0)), at(1000.0))
         assertEquals(2, clusters.size)
         assertEquals(0, clusters[0].seedIndex)

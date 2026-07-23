@@ -28,7 +28,7 @@ class PlaceRepository(context: Context, db: AppDatabase = AppDatabase.get(contex
 
     suspend fun setRadius(id: Long, radiusM: Double) = dao.setRadius(id, radiusM)
 
-    /** Explicit pin move (the re-centre action) — the only path that ever changes a pin. */
+    /** Explicit pin move (the re-center action) — the only path that ever changes a pin. */
     suspend fun setPin(id: Long, lat: Double, lon: Double) = dao.setPin(id, lat, lon)
 
     suspend fun delete(id: Long) = dao.delete(id)

@@ -21,7 +21,7 @@ data class Track(
     // repaired) — never per fix, which is what keeps the observed queries off `track_points`; see
     // [TrackDao]. Meaningless while a track is open: nothing reads an open track's row, and
     // finishing it — including `finalizeDangling` after a crash — recomputes them from the points.
-    /** Total distance in metres over the good points, segment gaps excluded. */
+    /** Total distance in meters over the good points, segment gaps excluded. */
     val distanceMeters: Double = 0.0,
     /** Usable (non-ignored) points. */
     val pointCount: Int = 0,
@@ -157,7 +157,7 @@ data class Place(
     val lat: Double,
     val lon: Double,
     val createdAt: Long,
-    /** Capture radius (metres): endpoints within it cluster to this place. User-tunable per
+    /** Capture radius (meters): endpoints within it cluster to this place. User-tunable per
      *  place — widen for big venues (malls, garages) whose GPS scatter exceeds the default. */
     val radiusM: Double = DEFAULT_RADIUS_M,
 ) {

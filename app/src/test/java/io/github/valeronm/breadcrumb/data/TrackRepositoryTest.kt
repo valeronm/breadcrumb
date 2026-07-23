@@ -105,7 +105,7 @@ class TrackRepositoryTest {
 
     @Test fun `a track too short to keep is discarded, with its aggregates still written`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        // Three points a metre apart over 20 s: enough points to escape the purge floor, but under
+        // Three points a meter apart over 20 s: enough points to escape the purge floor, but under
         // every keep threshold.
         repository.addPoints(
             listOf(

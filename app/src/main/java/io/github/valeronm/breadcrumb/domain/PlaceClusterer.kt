@@ -7,7 +7,7 @@ import io.github.valeronm.breadcrumb.data.DistanceFn
  * persisted — clusters re-derive on read, in chronological input order, which makes them
  * deterministic *and* stable: a cluster's anchor is its first-ever member's location, so
  * appending new stays can never re-shuffle the clusters older stays belong to. Every member is
- * within [radius] of its anchor, so a cluster can't chain-walk across a neighbourhood.
+ * within [radius] of its anchor, so a cluster can't chain-walk across a neighborhood.
  *
  * The user's named-place pins enter as [Seed]s: pre-existing anchors, each with its own (venue-
  * scale) capture radius, that outrank chronology. A seeded cluster's identity *is* its place
@@ -60,7 +60,7 @@ object PlaceClusterer {
             var nearest = -1
             var nearestD = Double.MAX_VALUE
             for (ci in anchors.indices) {
-                val d = distance.metres(anchors[ci].lat, anchors[ci].lon, location.lat, location.lon)
+                val d = distance.meters(anchors[ci].lat, anchors[ci].lon, location.lat, location.lon)
                 if (d <= radii[ci] && d < nearestD) {
                     nearest = ci
                     nearestD = d

@@ -12,9 +12,9 @@ private const val FT_PER_M = 1.0 / M_PER_FT
  */
 enum class UnitChoice(val label: String) {
     SYSTEM("Automatic"),
-    METRIC("Kilometres"),
+    METRIC("Kilometers"),
     IMPERIAL("Miles"),
-    UK("Miles + metres"),
+    UK("Miles + meters"),
     ;
 
     /** The system to format with; SYSTEM resolves by [country] (ISO 3166, `Locale.country`). */
@@ -49,7 +49,7 @@ enum class UnitSystem(
     METRIC(1000.0, "km", 1.0, "m", 1.0, "km/h"),
     IMPERIAL(1000.0 * KM_PER_MI, "mi", FT_PER_M, "ft", KM_PER_MI, "mph"),
 
-    // The British mix: miles and mph on the road, metres for everything short-range.
+    // The British mix: miles and mph on the road, meters for everything short-range.
     UK(1000.0 * KM_PER_MI, "mi", 1.0, "m", KM_PER_MI, "mph"),
     ;
 
@@ -66,7 +66,7 @@ enum class UnitSystem(
     fun shortDistance(meters: Double): String = "%,.0f $shortUnit".format(meters * shortPerMeter)
 
     /**
-     * The scale for a distance slider that stores metres: metric users get the [metric] stops,
+     * The scale for a distance slider that stores meters: metric users get the [metric] stops,
      * imperial users the round-feet [feet] ones. The two should span roughly the same range;
      * they need not (and round numbers mean they can't) match stop for stop.
      */
@@ -82,7 +82,7 @@ enum class UnitSystem(
      * and anchors are authored once per unit, and every selection derives from the unit the
      * system already declares — so a new system needs no call-site edits.
      */
-    fun <T> byShortUnit(metres: T, feet: T): T = if (shortUnit == "m") metres else feet
+    fun <T> byShortUnit(meters: T, feet: T): T = if (shortUnit == "m") meters else feet
 
     /** Picks the hand-rounded display table for this system's speed unit; see [byShortUnit]. */
     fun <T> bySpeedUnit(kmh: T, mph: T): T = if (speedUnit == "km/h") kmh else mph
@@ -90,7 +90,7 @@ enum class UnitSystem(
     /** A km/h value as this system's speed number — for graph series and ramp anchors. */
     fun fromKmh(kmh: Float): Float = (kmh / kmhPerSpeedUnit).toFloat()
 
-    /** A metres value as this system's short-distance number — for graph series and ramp anchors. */
+    /** A meters value as this system's short-distance number — for graph series and ramp anchors. */
     fun fromMeters(m: Float): Float = (m * shortPerMeter).toFloat()
 
     private fun bigFormat(value: Double, unit: String): String {
@@ -105,11 +105,11 @@ enum class UnitSystem(
 data class SliderStops(val min: Int, val max: Int, val step: Int)
 
 /**
- * A distance slider's stops in the display system's own unit — round metres for metric users,
- * round feet for imperial ones — mapped to and from the stored metres. The slider drags in
+ * A distance slider's stops in the display system's own unit — round meters for metric users,
+ * round feet for imperial ones — mapped to and from the stored meters. The slider drags in
  * display units and the label comes from the display value directly (never round-tripped
- * through metres, which would drift: 50 ft → 15 m → "49 ft"); only the committed value is
- * converted. Switching systems snaps the stored metres to the nearest stop of the new scale.
+ * through meters, which would drift: 50 ft → 15 m → "49 ft"); only the committed value is
+ * converted. Switching systems snaps the stored meters to the nearest stop of the new scale.
  */
 class DistanceSliderScale internal constructor(
     private val stops: SliderStops,
@@ -122,10 +122,10 @@ class DistanceSliderScale internal constructor(
     /** The nearest stop to a raw drag position (display units). */
     fun snap(raw: Float): Float = snapToStep(raw, stops.step, range)
 
-    /** The stop a stored metres value lands on. */
+    /** The stop a stored meters value lands on. */
     fun displayOf(meters: Int): Float = snap((meters / metersPerUnit).toFloat())
 
-    /** The metres to store for a display-unit stop. */
+    /** The meters to store for a display-unit stop. */
     fun metersOf(display: Float): Int = (display * metersPerUnit).roundToInt()
 
     /** The stop's label: "Off" where zero means off, else a grouped whole number + unit. */

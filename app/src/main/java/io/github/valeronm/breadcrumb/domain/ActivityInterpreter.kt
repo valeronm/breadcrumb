@@ -20,7 +20,7 @@ object ActivityInterpreter {
     /**
      * Interpret the latest transition event. ENTER sets the activity directly; EXIT of a moving
      * activity is an early "stopped" hint mapped to STILL; EXIT of anything else is uninformative.
-     * Honoured at any age — transitions are the only signal, so even a laggy one is worth acting on.
+     * Honored at any age — transitions are the only signal, so even a laggy one is worth acting on.
      */
     fun interpretTransition(detected: ActivityType, isExit: Boolean): TransitionDecision = when {
         !isExit -> TransitionDecision.Forward(detected)

@@ -46,7 +46,7 @@ object KeepRule {
      *  - at least [MIN_LINE_POINTS] good points (a hard floor — one point is never a line with any
      *    length),
      *  - runs at least [Thresholds.minDurationSec] seconds,
-     *  - is at least [Thresholds.minLengthM] metres long,
+     *  - is at least [Thresholds.minLengthM] meters long,
      *  - and, when the extent gate is enabled ([Thresholds.minExtentM] > 0), spread at least that
      *    far ([extent]) — guarding against a stationary "walk" whose accumulated length is only GPS
      *    jitter.

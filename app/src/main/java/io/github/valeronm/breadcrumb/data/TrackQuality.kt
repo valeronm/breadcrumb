@@ -46,7 +46,7 @@ enum class IgnoreReason(val code: String) {
 
 object TrackQuality {
 
-    /** A position delta below this (metres) over a zero/negative time gap isn't a real jump. */
+    /** A position delta below this (meters) over a zero/negative time gap isn't a real jump. */
     private const val MIN_JUMP_M = 10.0
 
     /** Plausible upper-bound ground speed (km/h) per activity, used to reject teleport fixes. */
@@ -58,12 +58,12 @@ object TrackQuality {
     }
 
     fun distanceMeters(a: TrackPoint, b: TrackPoint, distance: DistanceFn = AndroidDistance): Double =
-        distance.metres(a.latitude, a.longitude, b.latitude, b.longitude)
+        distance.meters(a.latitude, a.longitude, b.latitude, b.longitude)
 
     /**
      * Per-point speed in km/h: the GPS-reported speed where present (non-null and non-negative),
      * else derived from the previous point over [distance]. [distance] is injectable so the
-     * derivation is host-testable. Used to colour the rendered track by speed.
+     * derivation is host-testable. Used to color the rendered track by speed.
      *
      * A fix whose timestamp doesn't advance on its predecessor's is *unmeasurable*, not stationary,
      * and carries the last speed forward rather than reporting 0 — there is no elapsed time to

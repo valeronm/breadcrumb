@@ -155,7 +155,7 @@ class EdgeStayIgnoreTest {
 
         assertEquals(EdgeStayDetector.Side.END, overrun.side)
         assertEquals(points.last().timestamp - good.last().timestamp, overrun.stayMs)
-        // The good fix the track ends on leads the greyed line, so it meets what was drawn.
+        // The good fix the track ends on leads the grayed line, so it meets what was drawn.
         assertEquals(good.last().id, overrun.points.first().id)
         assertEquals(stay.size + 1, overrun.points.size)
     }

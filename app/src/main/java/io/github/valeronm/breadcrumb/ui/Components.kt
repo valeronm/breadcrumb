@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.util.DistanceSliderScale
+import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.snapToStep
 import kotlinx.coroutines.CoroutineScope
@@ -73,7 +74,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import java.util.Locale
 import kotlin.math.roundToLong
 
 /** Settings-style switch with a check/cross icon in the thumb mirroring its state. */
@@ -99,7 +99,7 @@ internal fun IconSwitch(
 
 /**
  * Corner shape for a row in a day group: large outer corners on the group's first/last edge,
- * small inner corners between neighbours — the rows read as one grouped block.
+ * small inner corners between neighbors — the rows read as one grouped block.
  */
 internal fun groupedRowShape(index: Int, count: Int): RoundedCornerShape {
     val outer = 12.dp
@@ -135,15 +135,15 @@ internal fun relativeDay(epochMs: Long, compact: Boolean): String {
     }
 }
 
-private val compactDayFormat = DateTimeFormatter.ofPattern("d MMM")
+private val compactDayFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM", it) }
 
-private val compactDayYearFormat = DateTimeFormatter.ofPattern("d MMM yyyy")
+private val compactDayYearFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM yyyy", it) }
 
-private val monthOfYearFormat = DateTimeFormatter.ofPattern("MMM yyyy")
+private val monthOfYearFormat by PerLocale { DateTimeFormatter.ofPattern("MMM yyyy", it) }
 
 /**
  * Android-settings-style group: each row is its own card, large corners on the group's outer
- * edges and small ones between neighbours (same look as the track list's day groups).
+ * edges and small ones between neighbors (same look as the track list's day groups).
  */
 @Composable
 internal fun GroupedRows(vararg rows: @Composable () -> Unit) {
@@ -264,7 +264,7 @@ internal fun rememberDistanceScale(
 
 /**
  * A distance slider riding a [DistanceSliderScale]: it drags and labels in the scale's display
- * unit (round feet for imperial users), storing metres only on commit.
+ * unit (round feet for imperial users), storing meters only on commit.
  */
 @Composable
 internal fun SliderSetting(
@@ -318,9 +318,9 @@ internal fun durationSettingLabel(sec: Int): String = when {
     else -> "${sec / 60}m ${sec % 60}s"
 }
 
-internal val dateFormat = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
+internal val dateFormat by PerLocale { SimpleDateFormat("MMM d, HH:mm", it) }
 
-internal val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+internal val timeFormat by PerLocale { SimpleDateFormat("HH:mm", it) }
 
 /** The screens' shared top-bar back arrow. */
 @Composable
@@ -352,7 +352,7 @@ internal fun EmptyState(
     }
 }
 
-/** The list rows' category token: a glyph on a soft tonal disc of the same colour (M3 "tonal"). */
+/** The list rows' category token: a glyph on a soft tonal disc of the same color (M3 "tonal"). */
 @Composable
 internal fun TonalIconDisc(
     icon: ImageVector,
@@ -375,7 +375,7 @@ internal fun TonalIconDisc(
     }
 }
 
-/** Confirm-style dialog: icon, message, a confirm action and a Cancel button. */
+/** Confirm-style dialog: icon, message, a confirmation action and a Cancel button. */
 @Composable
 internal fun ConfirmDialog(
     icon: ImageVector,
@@ -527,7 +527,7 @@ internal fun activityIcon(activity: ActivityType?): ImageVector = when (activity
 // derived set: one fixed saturation + lightness, only the hue rotates, so every category carries
 // equal visual weight. It's a calmer sibling of the map's speed ramp (lower saturation) so the list
 // stays quiet. Green is nudged toward teal to avoid colliding with the app's green theme accent.
-// STILL/UNKNOWN fall back to the neutral scheme colour.
+// STILL/UNKNOWN fall back to the neutral scheme color.
 private const val ACTIVITY_SAT = 0.5f
 
 private const val ACTIVITY_LUM = 0.62f

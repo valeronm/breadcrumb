@@ -18,7 +18,7 @@ Breadcrumb is on Google Play in closed testing. Join the test track, then instal
 <p align="center">
   <img src="docs/screenshots/record.png" alt="Record tab with auto recording armed" width="30%">
   <img src="docs/screenshots/timeline.png" alt="Timeline of trips and stays" width="30%">
-  <img src="docs/screenshots/track-detail.png" alt="Track detail with speed-coloured route" width="30%">
+  <img src="docs/screenshots/track-detail.png" alt="Track detail with speed-colored route" width="30%">
 </p>
 
 *Demo data — the bundled `tools/demo-data` GPX tracks imported on an emulator.*
@@ -28,7 +28,7 @@ Breadcrumb is on Google Play in closed testing. Join the test track, then instal
 - **Activity-aware recording** — uses on-device activity recognition to start a track when you
   start moving, switch tracks when your activity changes (e.g. walking → driving), and pause when
   you're stationary. A brief stop stitches back into the same track instead of splitting it (the
-  resume window is configurable). Recognised modes: walking, running, cycling, and driving; a
+  resume window is configurable). Recognized modes: walking, running, cycling, and driving; a
   recorded track can be manually reclassified as taxi (passenger) afterwards.
 - **Truly autonomous** — flip *Auto recording* on once; it keeps working with the screen off or
   the app closed, survives reboots, and resumes after the system kills it.
@@ -40,7 +40,7 @@ Breadcrumb is on Google Play in closed testing. Join the test track, then instal
 - **Places** — recurring stays cluster into places you can name (home, work, the gym). A dedicated
   Places tab shows them all on a map and as a sortable list, each with visit stats and an
   adjustable capture radius.
-- **Rich track map** — tap a track to see its route on a dark vector map, coloured per point by
+- **Rich track map** — tap a track to see its route on a dark vector map, colored per point by
   speed, elevation, GPS accuracy, or satellite count, with start/end markers, noisy-fix markers,
   a metric chart, and distance / duration / average-speed stats.
 - **GPX import & export** — import `.gpx` files (via the picker, a share target, or opening a
@@ -71,7 +71,7 @@ Breadcrumb is on Google Play in closed testing. Join the test track, then instal
   log that distinguishes real stays from gaps where the app wasn't recording. Named places persist
   and label the timeline.
 - The map is **MapLibre GL Native** on a bundled **Protomaps dark vector basemap**; the track is a
-  colour-gradient line recoloured in place when you switch the metric.
+  color-gradient line recolored in place when you switch the metric.
 - **GpxExporter / GpxParser** write and read GPX; exports share via `FileProvider` or bulk-write to
   a folder you pick via the Storage Access Framework.
 

@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * DEBUG: replays a stored track through the live "current track" view at accelerated speed, so the
@@ -75,11 +76,11 @@ object TrackReplayer {
                 if (i < points.lastIndex) {
                     // Cap huge recorded gaps (pauses) so a replay never stalls.
                     val gapMs = (points[i + 1].timestamp - point.timestamp).coerceIn(0, 60_000)
-                    delay(gapMs / speedX)
+                    delay((gapMs / speedX).milliseconds)
                 }
             }
             // Hold the finished state briefly, then dismiss.
-            delay(3_000)
+            delay(3_000.milliseconds)
             _state.value = null
         }
     }

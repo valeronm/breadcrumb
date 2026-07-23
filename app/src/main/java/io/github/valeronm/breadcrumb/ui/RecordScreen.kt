@@ -45,6 +45,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Date
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 internal fun RecordTab(
@@ -317,7 +318,7 @@ private fun RecorderStateCard(state: RecordCardState, status: TrackingStatus.Sta
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state) {
         while (true) {
-            delay(1_000)
+            delay(1_000.milliseconds)
             nowMs = System.currentTimeMillis()
         }
     }
@@ -345,7 +346,7 @@ private fun RecorderStateCard(state: RecordCardState, status: TrackingStatus.Sta
 }
 
 /**
- * Keep-screen-on toggle; only actionable on the charger (car-mount use), greyed out on battery.
+ * Keep-screen-on toggle; only actionable on the charger (car-mount use), grayed out on battery.
  * Deliberately card-less and small — a utility, not a peer of the main recording control.
  */
 @Composable

@@ -123,7 +123,7 @@ class NoFixGuardTest {
         assertEquals(120_000, g.onGaveUp(2_240_000)) // fresh track → base gate again
     }
 
-    @Test fun `custom base and cap are honoured`() {
+    @Test fun `custom base and cap are honored`() {
         val g = NoFixGuard(retryBaseMs = 1_000, retryCapMs = 3_000)
         g.onProbeStarted(0)
         assertEquals(1_000, g.onGaveUp(0))

@@ -8,8 +8,8 @@ import org.junit.Test
 
 /**
  * Dwells are detected from a track's good points with the flat-earth distance stub used across
- * the domain tests: 0.001° ≈ 100 m, so tests place points by metres east of an origin and reason
- * in metres/minutes directly.
+ * the domain tests: 0.001° ≈ 100 m, so tests place points by meters east of an origin and reason
+ * in meters/minutes directly.
  */
 class DwellDetectorTest {
 

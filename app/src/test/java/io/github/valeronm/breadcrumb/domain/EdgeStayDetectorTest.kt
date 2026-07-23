@@ -8,7 +8,7 @@ import org.junit.Test
 
 /**
  * Edge stays are asserted with the flat-earth distance stub (0.001° ≈ 100 m) and fixtures every
- * 15 s carrying an explicit Doppler speed, so tests reason in metres/minutes and can steer the
+ * 15 s carrying an explicit Doppler speed, so tests reason in meters/minutes and can steer the
  * two stages independently: position decides *whether* (the corral sweep), speed decides *where*
  * (the moving-bin boundary).
  *
@@ -116,7 +116,7 @@ class EdgeStayDetectorTest {
     @Test
     fun `phantom Doppler at a standstill cannot move the boundary`() {
         // The field shape at an arrival: parked, but the platform keeps reporting
-        // metres per second — three such fixes at the very end used to put the last moving bin
+        // meters per second — three such fixes at the very end used to put the last moving bin
         // past the real arrival and collapse the stay to nothing. Displacement holds the veto, so
         // a fixture that never leaves its jitter box is stopped however fast its Doppler reads.
         val stays = detect(
@@ -220,7 +220,7 @@ class EdgeStayDetectorTest {
     fun `a lone moving fix carries its bin only when no standstill could explain it`() {
         // Where a bin normally holds several fixes, one vote means the rest of the bin disagreed —
         // standstill drift. The exception is a fix moving too fast for drift to explain: settling
-        // GPS covers tens of metres in half a minute, not the 80 m below. Same fixture, same lone
+        // GPS covers tens of meters in half a minute, not the 80 m below. Same fixture, same lone
         // excursion, only its size differs — and that alone decides where the track ends.
         fun parkedWithExcursion(excursionM: Double): List<TrackPoint> {
             // 5 s cadence: a 10 s bin holds two fixes, so a single vote is short of the floor.
@@ -250,7 +250,7 @@ class EdgeStayDetectorTest {
 
     @Test
     fun `a late first moving bin retracts the cut to the dwell rather than eating the journey`() {
-        // Two imported drives proposed cutting hundreds of metres of ordinary driving off their
+        // Two imported drives proposed cutting hundreds of meters of ordinary driving off their
         // starts, because their bins only reached the moving threshold a minute into the drive.
         // Here the platform reports a flat zero for the first minute (an import's speed-less
         // shape), so those bins can't vote — and the span the bin edge would cut ranges far

@@ -7,7 +7,7 @@ import org.junit.Test
 
 /**
  * The one point walk: distance, counts, endpoints, extent. A flat-earth [DistanceFn] (1 degree =
- * 1 metre in each axis, summed) keeps the expected distances readable — the geodesy itself belongs
+ * 1 meter in each axis, summed) keeps the expected distances readable — the geodesy itself belongs
  * to [AndroidDistance], not here.
  */
 class TrackStatsTest {
@@ -96,7 +96,7 @@ class TrackStatsTest {
             listOf(
                 point(lat = 0.0),
                 point(lat = 1.0),
-                // Recording resumed a kilometre away after an auto-pause.
+                // Recording resumed a kilometer away after an auto-pause.
                 point(lat = 1000.0, segmentStart = true),
                 point(lat = 1002.0),
             ),
@@ -105,7 +105,7 @@ class TrackStatsTest {
 
         assertEquals(1.0 + 2.0, stats.distanceMeters, 0.0)
         assertEquals(4, stats.pointCount)
-        // The gap is not travelled, but it *is* spanned — extent covers the whole track.
+        // The gap is not traveled, but it *is* spanned — extent covers the whole track.
         assertEquals(1002.0, stats.extentMeters, 0.0)
     }
 

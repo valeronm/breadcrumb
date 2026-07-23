@@ -68,7 +68,7 @@ object EdgeStayDetector {
      * decimation leaves a half-minute dwell three samples, a 2-minute exit grace outlasts the dwell
      * itself, 30 s bins can't place a boundary inside a 30 s stay, and the 4 m/min drift gate —
      * calibrated on venue stops that creep 1.7–1.9 m/min — rejects a genuine standstill whose own
-     * jitter nets a few metres over half a minute. Measured over the recorded history: an end stay
+     * jitter nets a few meters over half a minute. Measured over the recorded history: an end stay
      * on ~30% of tracks, median ~72 s, start stays near-absent (departures barely lag).
      */
     val BRIEF_STOP = Params(
@@ -117,7 +117,7 @@ object EdgeStayDetector {
      * track keeps (the first, at a start edge), with the stay running from there to the track's
      * edge. One value, used by everything — the fixes strictly beyond it are the ones flagged
      * [io.github.valeronm.breadcrumb.data.IgnoreReason.EDGE_STAY], the track's clock is pulled in
-     * to it, and the track screen greys from it.
+     * to it, and the track screen grays from it.
      *
      * It is a real fix, not the speed-bin edge the boundary is derived from: a bin edge falls
      * between fixes (measured: 288 of 387 in gaps up to 94 s), and a polyline needs both its
@@ -176,7 +176,7 @@ object EdgeStayDetector {
             }
             val anchor = span.first()
             return span.maxOf {
-                distance.metres(anchor.latitude, anchor.longitude, it.latitude, it.longitude)
+                distance.meters(anchor.latitude, anchor.longitude, it.latitude, it.longitude)
             }
         }
 
@@ -252,7 +252,7 @@ object EdgeStayDetector {
 
     private fun movingBins(good: List<TrackPoint>, params: Params, distance: DistanceFn): List<Long> {
         // Displacement is only evidence over a long enough baseline: across a second or two,
-        // standstill jitter alone reads as metres per second. Where the recorder went quiet — as
+        // standstill jitter alone reads as meters per second. Where the recorder went quiet — as
         // it does once parked, on min-distance sampling — the nearest earlier fix can be minutes
         // old, and the window shrinks to an adjacent-fix delta; those fixes abstain rather than
         // vote on noise.
@@ -276,7 +276,7 @@ object EdgeStayDetector {
             val anchor = good[if (back == i) i - 1 else back]
             val dtMs = p.timestamp - anchor.timestamp
             if (dtMs < minBaselineMs) continue
-            val overGround = distance.metres(anchor.latitude, anchor.longitude, p.latitude, p.longitude) /
+            val overGround = distance.meters(anchor.latitude, anchor.longitude, p.latitude, p.longitude) /
                 (dtMs / 1000.0)
             if (overGround < params.movingSpeedMps) continue
             val doppler = p.speed?.toDouble()

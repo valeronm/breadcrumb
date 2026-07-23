@@ -73,7 +73,7 @@ import kotlinx.coroutines.withContext
 import java.util.Date
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 
-/** The map legend's line for a greyed edge: which side ran on, and for how long. */
+/** The map legend's line for a grayed edge: which side ran on, and for how long. */
 private fun overrunLabel(overrun: EdgeStayIgnore.Overrun): String {
     val side =
         if (overrun.side == EdgeStayDetector.Side.START) "Before the start" else "After the arrival"
@@ -99,16 +99,16 @@ internal fun TrackMapScreen(
         value = viewModel.getIgnoredPoints(trackId)
     }
     // The fixes already taken off the path at the track's edges — read back, not re-detected.
-    val stayPoints by produceState<List<TrackPoint>>(initialValue = emptyList(), trackId) {
+    val stayPoints by produceState(initialValue = emptyList(), trackId) {
         value = viewModel.getEdgeStayPoints(trackId)
     }
     // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
-    val dwells by produceState<List<DwellDetector.Dwell>>(initialValue = emptyList(), points) {
+    val dwells by produceState(initialValue = emptyList(), points) {
         value = points?.let { pts ->
             withContext(Dispatchers.Default) { DwellDetector.detect(pts, distance = AndroidDistance) }
         } ?: emptyList()
     }
-    // Recording that ran on past the stop at either edge, greyed on the map: the stored fixes
+    // Recording that ran on past the stop at either edge, grayed on the map: the stored fixes
     // grouped back into one run per edge, each hanging off the good fix that ends the track.
     val overruns = remember(points, stayPoints) {
         EdgeStayIgnore.overruns(points.orEmpty(), stayPoints)
@@ -199,7 +199,7 @@ internal fun TrackMapScreen(
                         metricGraphData(loaded, colorMode, activity, darkTheme, units)
                     }
                     // Metric chips, map, and scrubber read as one group: small gaps, small
-                    // corners between neighbours.
+                    // corners between neighbors.
                     Column(
                         Modifier.weight(1f).fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -223,7 +223,7 @@ internal fun TrackMapScreen(
                                     modifier = Modifier.fillMaxSize(),
                                 )
                                 if (showNoisy) {
-                                    // Top-right, clear of the colour-metric legend (bottom-right).
+                                    // Top-right, clear of the color-metric legend (bottom-right).
                                     NoisyLegend(noisy, Modifier.align(Alignment.TopEnd).padding(12.dp))
                                 }
                                 if (dwells.isNotEmpty() || overruns.isNotEmpty()) {
@@ -259,7 +259,7 @@ internal fun TrackMapScreen(
             text = {
                 Column {
                     // Selecting applies immediately: the summary flow re-emits and the title,
-                    // icon, colours and speed scale all follow.
+                    // icon, colors and speed scale all follow.
                     for (option in ActivityType.entries.filter { it.recording && it != ActivityType.UNKNOWN }) {
                         Row(
                             modifier = Modifier
@@ -298,7 +298,7 @@ internal fun TrackMapScreen(
     }
 }
 
-/** Per-point series for the metric graph: values (null = gap), map-matching colours, and a unit. */
+/** Per-point series for the metric graph: values (null = gap), map-matching colors, and a unit. */
 @Immutable
 internal class MetricGraphData(
     val points: List<TrackPoint>,
@@ -366,7 +366,7 @@ private fun MetricPlot(
 }
 
 /**
- * The selected colour metric over the track's time span, stroked point-to-point in the same colours
+ * The selected color metric over the track's time span, stroked point-to-point in the same colors
  * as the map's track line, with a time axis. Missing values and segment starts break the line.
  * Tapping or dragging picks the nearest point ([onSelect]); the selection is drawn as a cursor with
  * a value/time readout, and the caller highlights the same point on the map.
@@ -512,17 +512,17 @@ private fun MetricGraph(
     }
 }
 
-// Chip colours match the marker drawables (ic_marker_noisy / _jump / _gnss).
+// Chip colors match the marker drawables (ic_marker_noisy / _jump / _gnss).
 private fun noisyLegendEntry(reason: IgnoreReason?): Pair<String, Color> = when (reason) {
     IgnoreReason.JUMP -> "Speed jump" to Color(0xFFE53935)
     IgnoreReason.NO_GNSS -> "No satellite fix" to Color(0xFFAB47BC)
-    // EDGE_STAY never reaches here (it is loaded separately and drawn as the greyed overrun);
+    // EDGE_STAY never reaches here (it is loaded separately and drawn as the grayed overrun);
     // it shares the default marker rather than adding a legend row for an impossible case.
     IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, null -> "Low accuracy" to Color(0xFFFF8F00)
 }
 
 /**
- * Detected stops: one row per in-track dwell — "14:36 – 16:10 · 1h 34m" — then the greyed edges,
+ * Detected stops: one row per in-track dwell — "14:36 – 16:10 · 1h 34m" — then the grayed edges,
  * named for what they are (recording that outlasted the journey) rather than dated like a visit.
  */
 @Composable

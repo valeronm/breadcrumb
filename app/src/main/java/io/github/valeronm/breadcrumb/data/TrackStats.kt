@@ -33,7 +33,7 @@ object TrackStats {
         val endLat: Double?,
         val endLon: Double?,
         /**
-         * Diagonal of the good points' bounding box (metres): a real trip's spread, which GPS jitter
+         * Diagonal of the good points' bounding box (meters): a real trip's spread, which GPS jitter
          * can't inflate the way it inflates accumulated distance. The keep rule's extent gate reads
          * it; unlike the rest, it isn't stored on the track row — it's only needed at the moment the
          * track finishes. 0 for fewer than two points.
@@ -78,7 +78,7 @@ object TrackStats {
                 ignoredCount++
                 return
             }
-            // A segment start detaches from the previous point: the paused gap wasn't travelled.
+            // A segment start detaches from the previous point: the paused gap wasn't traveled.
             if (!point.segmentStart) {
                 lastGood?.let { distanceMeters += TrackQuality.distanceMeters(it, point, distance) }
             }
@@ -99,7 +99,7 @@ object TrackStats {
             startLon = first?.longitude,
             endLat = lastGood?.latitude,
             endLon = lastGood?.longitude,
-            extentMeters = if (pointCount < 2) 0.0 else distance.metres(minLat, minLon, maxLat, maxLon),
+            extentMeters = if (pointCount < 2) 0.0 else distance.meters(minLat, minLon, maxLat, maxLon),
         )
     }
 

@@ -87,6 +87,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
+import io.github.valeronm.breadcrumb.util.PerLocale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -94,8 +95,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Date
-import java.util.Locale
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -140,7 +141,7 @@ internal fun TracksTab(
     var highlightKey by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(highlightKey) {
         if (highlightKey != null) {
-            delay(1800)
+            delay(1800.milliseconds)
             highlightKey = null
         }
     }
@@ -284,7 +285,7 @@ private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List
         if (active) {
             shown = true
         } else {
-            delay(1_500)
+            delay(1_500.milliseconds)
             shown = false
         }
     }
@@ -351,8 +352,8 @@ private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List
                         try {
                             drag(down.id) { change ->
                                 change.consume()
-                                val centre = trackY(change.position.y) + grabDelta
-                                applyFraction((centre - thumbPx / 2) / trackPx)
+                                val center = trackY(change.position.y) + grabDelta
+                                applyFraction((center - thumbPx / 2) / trackPx)
                             }
                         } finally {
                             dragging = false
@@ -506,9 +507,9 @@ internal fun TimelineItem.rowKey(): String = when (this) {
     is TimelineItem.GapItem -> "gap:${gap.start}"
 }
 
-private val dayHeaderFormat = DateTimeFormatter.ofPattern("EEEE, d MMM yyyy", Locale.getDefault())
+private val dayHeaderFormat by PerLocale { DateTimeFormatter.ofPattern("EEEE, d MMM yyyy", it) }
 
-private val dayHeaderFormatThisYear = DateTimeFormatter.ofPattern("EEEE, d MMM", Locale.getDefault())
+private val dayHeaderFormatThisYear by PerLocale { DateTimeFormatter.ofPattern("EEEE, d MMM", it) }
 
 private fun dayLabel(date: LocalDate, today: LocalDate): String = when {
     date == today -> "Today"
@@ -611,8 +612,8 @@ private fun TrackRow(
                         "${ActivityType.labelFor(track.activityType)} · " +
                             LocalUnits.current.distance(track.distanceMeters),
                         style = MaterialTheme.typography.titleMedium,
-                        // Explicit: the inherited card colour dims to onSurfaceVariant under
-                        // dynamic colour (contentColorFor matches surfaceVariant first).
+                        // Explicit: the inherited card color dims to onSurfaceVariant under
+                        // dynamic color (contentColorFor matches surfaceVariant first).
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     val start = timeFormat.format(Date(track.startedAt))
@@ -804,7 +805,7 @@ private fun StayCard(
 }
 
 /**
- * Movement the recorder missed: neighbouring track endpoints disagree. Deliberately subdued.
+ * Movement the recorder missed: neighboring track endpoints disagree. Deliberately subdued.
  * Most such gaps are really one place misclustered as two, so the card names both sides as
  * full-width tappable lines — the app's row-tap language, not inline links — each opening its
  * place, where re-pinning or widening the radius fixes the split. Two pin glyphs joined by a

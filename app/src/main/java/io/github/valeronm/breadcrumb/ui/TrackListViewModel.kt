@@ -171,7 +171,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { placeRepository.setRadius(id, radiusM) }
     }
 
-    /** Move a place's pin (re-centre action); clustering and stays re-derive around it. */
+    /** Move a place's pin (re-center action); clustering and stays re-derive around it. */
     fun setPlacePin(id: Long, lat: Double, lon: Double) {
         viewModelScope.launch { placeRepository.setPin(id, lat, lon) }
     }
@@ -220,7 +220,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     /** The ignored "bad fix" points, shown as markers on the track map. */
     suspend fun getIgnoredPoints(trackId: Long): List<TrackPoint> = repository.ignoredPointsFor(trackId)
 
-    /** The fixes already taken off the path as the recorder's overrun — greyed on the track map.
+    /** The fixes already taken off the path as the recorder's overrun — grayed on the track map.
      *  Read back from the rows, never re-detected: the screen shows what the track says it is. */
     suspend fun getEdgeStayPoints(trackId: Long): List<TrackPoint> =
         repository.edgeStayPointsFor(trackId)
@@ -232,7 +232,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private val _gpxExportProgress = MutableStateFlow<OpProgress?>(null)
     val gpxExportProgress: StateFlow<OpProgress?> = _gpxExportProgress
 
-    /** Non-null while a backup export runs — drives the Back up everything row; survives navigation. */
+    /** Non-null while a backup export runs — drives the "Back up everything" row; survives navigation. */
     private val _exportProgress = MutableStateFlow<OpProgress?>(null)
     val exportProgress: StateFlow<OpProgress?> = _exportProgress
 
@@ -304,9 +304,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     val importProgress: StateFlow<GpxImportProgress?> = _importProgress
 
     /**
-     * Imports the picked GPX files, one file at a time with [importProgress] updates. [failed]
-     * counts unreadable/unparseable files plus tracks without enough timestamped points to place
-     * on the timeline. A second call while one runs is ignored.
+     * Imports the picked GPX files, one file at a time with [importProgress] updates.
+     * [GpxImportSummary.failed] counts unreadable/unparseable files plus tracks without enough
+     * timestamped points to place on the timeline. A second call while one runs is ignored.
      */
     fun importGpx(uris: List<Uri>, onDone: (GpxImportSummary) -> Unit) {
         if (_importProgress.value != null) return

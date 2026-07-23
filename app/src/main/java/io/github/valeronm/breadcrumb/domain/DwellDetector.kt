@@ -18,7 +18,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * in-corral fix (the user left during the pause).
  *
  * Adjacent dwells closer than [Params.mergeGapMs] and [Params.mergeDistM] coalesce into one —
- * a large venue often reads as two or three neighbouring corrals with short strolls between.
+ * a large venue often reads as two or three neighboring corrals with short strolls between.
  *
  * Pure and Android-free; nothing is persisted. Detection re-runs from stored points on demand.
  */
@@ -94,7 +94,7 @@ object DwellDetector {
             var j = i + 1
             while (j < pts.size) {
                 val p = pts[j]
-                val d = distance.metres(p.latitude, p.longitude, cLat, cLon)
+                val d = distance.meters(p.latitude, p.longitude, cLat, cLon)
                 when {
                     d <= params.corralRadiusM -> {
                         cLat += (p.latitude - cLat) / (members + 1)
@@ -110,7 +110,7 @@ object DwellDetector {
             val span = pts[lastInside].timestamp - pts[i].timestamp
             // A slow curved walk can hold the corral past minDwellMs while steadily passing
             // through it; steady net progress separates that transit from a genuine stay.
-            val netM = distance.metres(
+            val netM = distance.meters(
                 pts[i].latitude, pts[i].longitude,
                 pts[lastInside].latitude, pts[lastInside].longitude,
             )
@@ -134,7 +134,7 @@ object DwellDetector {
         var cur = dwells.first()
         for (next in dwells.drop(1)) {
             val closeInTime = next.entryTs - cur.exitTs <= params.mergeGapMs
-            val closeInSpace = distance.metres(
+            val closeInSpace = distance.meters(
                 cur.centroid.lat, cur.centroid.lon, next.centroid.lat, next.centroid.lon,
             ) <= params.mergeDistM
             cur = if (closeInTime && closeInSpace) {

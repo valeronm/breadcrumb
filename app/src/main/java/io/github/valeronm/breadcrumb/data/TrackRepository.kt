@@ -469,7 +469,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint> =
         dao.ignoredPointsFor(trackId, IgnoreReason.EDGE_STAY.code)
 
-    /** The fixes taken off the path as the recorder's overrun, for greying them on the map. */
+    /** The fixes taken off the path as the recorder's overrun, for graying them on the map. */
     suspend fun edgeStayPointsFor(trackId: Long): List<TrackPoint> =
         dao.edgeStayPointsFor(trackId, IgnoreReason.EDGE_STAY.code)
 

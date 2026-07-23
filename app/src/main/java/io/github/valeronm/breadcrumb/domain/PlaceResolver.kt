@@ -38,9 +38,9 @@ object PlaceResolver {
         val lastSeenMs: Long?,
         /** Summed stay durations (ongoing → now). */
         val totalMs: Long,
-        /** Cluster anchor — the pin for a named place; the capture circle's centre on a map. */
+        /** Cluster anchor — the pin for a named place; the capture circle's center on a map. */
         val anchor: StayDeriver.Endpoint,
-        /** The cluster's capture radius (metres). */
+        /** The cluster's capture radius (meters). */
         val radiusM: Double,
         /** Every track endpoint captured by the cluster, for showing the scatter on a map. */
         val endpoints: List<StayDeriver.Endpoint>,
@@ -78,7 +78,7 @@ object PlaceResolver {
      * place are aggregated into one row; unnamed clusters get a row each, *including* zero-visit
      * pass-through clusters — gap sides land in exactly those (a stray endpoint cluster only
      * ever produces disagreements, so it never earns a stay), and the detail screen needs a row
-     * to open so the stray can be named or swallowed by widening a neighbour. Keeping
+     * to open so the stray can be named or swallowed by widening a neighbor. Keeping
      * pass-throughs off the Places tab is that screen's presentation filter, not this layer's.
      * Runs over the unsliced stays so counts and durations are exact. Order: named places
      * (input order) first, then unnamed clusters (chronological); the UI applies its own sort.

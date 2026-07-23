@@ -118,7 +118,7 @@ interface TrackDao {
     suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint>
 
     /** Only the ignored *bad fix* points, for marking them on the map — the edge-stay ones are
-     *  not rejects and are drawn as the greyed overrun instead ([edgeStayPointsFor]).
+     *  not rejects and are drawn as the grayed overrun instead ([edgeStayPointsFor]).
      *
      *  [edgeStay] is bound rather than written into the SQL so the reason has one spelling, the
      *  enum's; an annotation can only name a compile-time constant, which would be a second one. */

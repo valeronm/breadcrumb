@@ -10,7 +10,7 @@ import java.time.ZoneOffset
 
 /**
  * Parses GPX 1.0/1.1 track data for import — the inverse of [GpxExporter], but tolerant of
- * foreign files: unknown elements (waypoints, routes, unrecognised extensions) are skipped,
+ * foreign files: unknown elements (waypoints, routes, unrecognized extensions) are skipped,
  * per-point speed is read from a `<speed>` element or extension where present, `<type>` maps to
  * an [ActivityType] through a few aliases, and points without a `<time>` are dropped (the
  * timeline can't place them). Pure and stream-based; the Room insertion lives in TrackRepository.
@@ -120,7 +120,7 @@ object GpxParser {
 
     /**
      * Our own exports round-trip via the enum name; common foreign type strings map loosely.
-     * Missing or unrecognised types default to DRIVING — imported archives are overwhelmingly
+     * Missing or unrecognized types default to DRIVING — imported archives are overwhelmingly
      * car trips, and the track page can reassign the odd exception.
      */
     private fun activityTypeFor(type: String?): ActivityType {

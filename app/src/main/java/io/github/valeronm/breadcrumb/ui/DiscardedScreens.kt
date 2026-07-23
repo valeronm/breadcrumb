@@ -36,6 +36,7 @@ import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.util.PerLocale
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -187,4 +188,4 @@ internal fun DiscardedSummary.toTrackSummary() = TrackSummary(
     distanceMeters = distanceMeters, pointCount = pointCount, ignoredCount = ignoredCount,
 )
 
-private val discardedWhenFormat = DateTimeFormatter.ofPattern("d MMM HH:mm")
+private val discardedWhenFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM HH:mm", it) }

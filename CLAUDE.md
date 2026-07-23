@@ -61,7 +61,7 @@ environment, not a regression, and CI is where those tests actually run.
 A domain rule must be tested through the params that **ship**. `EdgeStayDetectorTest` runs
 `EdgeStayDetector.BRIEF_STOP` (and `VEHICLE` where the activity floor is the point) rather than the
 `Params()` constructor defaults, which no production path uses: a suite pinning the defaults passes
-green through any change to the numbers the recorder actually runs. There are still no instrumented/UI tests: behaviour above the data layer is verified by
+green through any change to the numbers the recorder actually runs. There are still no instrumented/UI tests: behavior above the data layer is verified by
 building and driving the app on a device/emulator (activity recognition needs real movement or an
 emulator route).
 
@@ -132,7 +132,7 @@ params are not free to move; splitting tracks at stops is designed but
 not built), `EdgeStayDetector` (the recorder's overrun at a track's edges, where Activity
 Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to the points),
 `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
-`DeafnessWarning` (decide when to tell the user about it). New behaviour
+`DeafnessWarning` (decide when to tell the user about it). New behavior
 belongs here first, with a test, before wiring into the service or UI.
 
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
@@ -211,14 +211,14 @@ animated by a `PredictiveBackHandler` (scale/shift previewing the layer undernea
 one layer at a time). The Compose code is split one file per screen, all in the `ui` package:
 `MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in
 `RecordScreen`/`TimelineScreen`/`PlacesScreens`/`TrackDetailScreen`/`SettingsScreens`/
-`DiscardedScreens`, with shared widgets and formatters in `Components.kt` and the colour-ramp/
+`DiscardedScreens`, with shared widgets and formatters in `Components.kt` and the color-ramp/
 legend code in `TrackColoring.kt` (cross-file symbols are `internal`, not `private`). The track
 map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps
-vector basemap** (dark or light flavour following the app theme): the track is a `line-gradient`
-coloured per point by the selected metric (ramp luminance also theme-dependent), start/end
-and noisy-fix markers sit on a symbol layer, and switching the colour metric recolours in place
+vector basemap** (dark or light flavor following the app theme): the track is a `line-gradient`
+colored per point by the selected metric (ramp luminance also theme-dependent), start/end
+and noisy-fix markers sit on a symbol layer, and switching the color metric recolors in place
 without moving the camera. Two more layers ride on the same map — the detected in-track stops as
-place-style capture circles *under* the line, and the recorder's overrun greyed off the track's
+place-style capture circles *under* the line, and the recorder's overrun grayed off the track's
 ends, read back from the stored flags rather than re-detected. The map renders in texture mode (a SurfaceView would ignore Compose
 clipping and bleed over rounded card corners), sits inside padded cards (so it never reaches the
 back-gesture edge strips), and is lifecycle-bound to the composition.
@@ -253,7 +253,7 @@ cross-checks it.
   final position". History-wide aggregates are fine while they name no date or place ("an end stay
   on ~30% of tracks, median ~72 s"), and so are generated test fixtures, whose coordinates are
   invented. The repository is the one artifact that leaves the machine; the recorded history stays
-  on it. Fixtures sit at a **neutral origin** and should stay there: the domain tests build metre
+  on it. Fixtures sit at a **neutral origin** and should stay there: the domain tests build meter
   offsets off latitude 1.0, the data-layer ones off latitude 1.0 / longitude −2.0. Real coordinates
   in a fixture leak a region even when no trip is named.
 - **Activity recognition needs Google Play Services**, so this is intentionally not a FOSS/F-Droid
@@ -285,12 +285,12 @@ cross-checks it.
   bundled style at load time (`{PROTOMAPS_KEY}` placeholder in `assets/protomaps-{dark,light}.json`).
   A fresh checkout needs that line added or the basemap won't load.
 - **The basemap styles are bundled assets** (`assets/protomaps-dark.json` / `protomaps-light.json`,
-  picked by theme) — the official flavours as served by the hosted API's style endpoint
+  picked by theme) — the official flavors as served by the hosted API's style endpoint
   (`https://api.protomaps.com/styles/v5/{dark,light}/en.json?key=…`), verbatim except the API key
   in the tiles URL replaced with the `{PROTOMAPS_KEY}` placeholder. To refresh, re-fetch from that
   endpoint and re-apply the placeholder swap.
 - **Frame the map with `moveCamera`, not `easeCamera`** — the track view should open already fitted,
   with no zoom-in animation. Framing runs once per map instance (guarded by a `BooleanArray`) so
-  switching the colour metric recolours without re-centring; the live preview refreshes the source
+  switching the color metric recolors without re-centring; the live preview refreshes the source
   geometry on point-list growth but re-frames only when the current position leaves the central 80%
   of the viewport, so a user pan/zoom survives. See `MapLibreTrackMap`.

@@ -22,7 +22,7 @@ import java.time.ZoneId
 
 /**
  * Stays derive from inter-track gaps + liveness evidence. Distance is stubbed as the flat-earth
- * metric scaled so 0.001 lat ≈ 100 m — tests place endpoints by "degrees" and reason in metres.
+ * metric scaled so 0.001 lat ≈ 100 m — tests place endpoints by "degrees" and reason in meters.
  */
 class StayDeriverTest {
 
@@ -193,7 +193,7 @@ class StayDeriverTest {
         assertEquals(GapReason.MOVED_UNRECORDED, (intervals.first { it is Gap } as Gap).reason)
     }
 
-    @Test fun `agreement honours each pin's own radius`() {
+    @Test fun `agreement honors each pin's own radius`() {
         // 300 m apart with a default-radius (150 m) pin between them: neither endpoint is captured
         // (both are ~150 m out but the near one clusters organically first at 0), and no shared
         // nearest pin within radius — a gap. The same layout with a widened pin is a stay above.
@@ -211,7 +211,7 @@ class StayDeriverTest {
         )
         val stay = derivation.intervals.filterIsInstance<Stay>().first()
         val anchor = derivation.clusters[stay.clusterId].anchor
-        assertTrue(flatDistance.metres(anchor.lat, anchor.lon, home.lat, home.lon) <= 150.0)
+        assertTrue(flatDistance.meters(anchor.lat, anchor.lon, home.lat, home.lon) <= 150.0)
     }
 
     @Test fun `a pinned venue's stay indexes into the pin's seeded cluster`() {

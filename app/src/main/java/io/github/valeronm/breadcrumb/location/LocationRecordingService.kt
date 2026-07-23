@@ -302,7 +302,7 @@ class LocationRecordingService : Service() {
 
     private fun applyActivityAsync(activity: ActivityType, eventTimeMs: Long?, onApplied: (() -> Unit)?) {
         // invokeOnCompletion (not try/finally in the body): it also fires when the scope was
-        // already cancelled and the body never ran — otherwise a dying service would leak the
+        // already canceled and the body never ran — otherwise a dying service would leak the
         // receiver's goAsync and pin the broadcast until the system times it out.
         scope.launch { mutex.withLock { applyActivity(activity, eventTimeMs) } }
             .invokeOnCompletion { onApplied?.invoke() }

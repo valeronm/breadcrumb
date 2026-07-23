@@ -31,7 +31,7 @@ import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.util.UnitSystem
 
-// Static, per-activity speed→colour scale so tracks are visually comparable across the whole list:
+// Static, per-activity speed→color scale so tracks are visually comparable across the whole list:
 // red (slow) → green (a good cruising pace) → blue (fast). Hue runs 0°(red)→240°(blue), so with an
 // evenly-spaced min/mid/max the midpoint speed lands exactly on green.
 private const val HUE_RED = 0f
@@ -41,12 +41,12 @@ private const val HUE_BLUE = 240f
 private const val SPEED_SATURATION = 0.9f
 
 // L=0.5 glows against the dark basemap but washes out (especially the green/yellow middle of
-// the ramp) on the pale light basemap — deeper colours there.
+// the ramp) on the pale light basemap — deeper colors there.
 private fun rampLuminance(dark: Boolean) = if (dark) 0.5f else 0.33f
 
 /**
  * Speed thresholds (in the display system's speed unit) anchoring the red and blue ends of the
- * colour ramp per activity. Hand-rounded per system like the slider ladders — the legend must
+ * color ramp per activity. Hand-rounded per system like the slider ladders — the legend must
  * read "20 / 55 / 90 mph", not the converted "19 / 56 / 93" — so min/max are picked evenly
  * spaced around a round midpoint (the legend's middle label is their average, and lands on
  * green). The anchors therefore sit a hair apart between systems; a user only sees one.
@@ -64,9 +64,9 @@ private fun speedScaleFor(activity: ActivityType, units: UnitSystem): SpeedScale
         units.bySpeedUnit(kmh = SpeedScale(2f, 8f), mph = SpeedScale(1f, 5f))
 }
 
-// --- Track line colouring by metric ------------------------------------------------------------
+// --- Track line coloring by metric ------------------------------------------------------------
 
-/** Which per-point metric the track line is coloured by. */
+/** Which per-point metric the track line is colored by. */
 enum class ColorMode(val label: String) {
     SPEED("Speed"),
     ELEVATION("Elevation"),
@@ -75,10 +75,10 @@ enum class ColorMode(val label: String) {
     CN0("Signal"),
 }
 
-/** Grey for points the metric has no value for; darker on the light basemap. */
+/** Gray for points the metric has no value for; darker on the light basemap. */
 private fun noDataArgb(dark: Boolean) = Color.hsl(0f, 0f, if (dark) 0.6f else 0.45f).toArgb()
 
-/** Legend content for the current colour mode. */
+/** Legend content for the current color mode. */
 internal sealed interface Legend {
     /** Continuous red→green→blue ramp with anchor labels. */
     data class Ramp(val left: String, val mid: String, val right: String) : Legend
@@ -120,7 +120,7 @@ private fun rampColoring(
 
 /**
  * The per-point value series for [mode] (null where a point lacks the metric) and its display
- * unit — the single mode→series/unit mapping, feeding both the graph and the map colouring.
+ * unit — the single mode→series/unit mapping, feeding both the graph and the map coloring.
  */
 internal fun metricSeries(
     points: List<TrackPoint>,
@@ -136,9 +136,9 @@ internal fun metricSeries(
 }
 
 /**
- * Per-point colours + legend for [mode]. Ramps go red→green→blue between two anchor values; where an
+ * Per-point colors + legend for [mode]. Ramps go red→green→blue between two anchor values; where an
  * anchor is "worse" it's placed at red (e.g. accuracy: 50 m = red, 0 m = blue). Points missing the
- * metric are grey.
+ * metric are gray.
  */
 internal fun trackColoring(
     points: List<TrackPoint>,
@@ -149,7 +149,7 @@ internal fun trackColoring(
     units: UnitSystem,
 ): TrackColoring {
     // Anchors are hand-rounded in the display unit (see SpeedScale), so the legend reads round
-    // numbers in every system; the colours may sit a hair apart between systems as a result.
+    // numbers in every system; the colors may sit a hair apart between systems as a result.
     val (values, unit) = metricSeries(points, mode, speedsKmh, units)
     return when (mode) {
         ColorMode.SPEED -> {
@@ -171,13 +171,13 @@ internal fun trackColoring(
         // Lower accuracy radius is better, so zero sits at the blue (good) end. The red anchor is
         // hand-rounded per display unit like the speed scales: 150 ft, not the converted 164.
         ColorMode.ACCURACY ->
-            rampColoring(values, units.byShortUnit(metres = 50f, feet = 150f), 0f, unit, "No accuracy data", dark)
+            rampColoring(values, units.byShortUnit(meters = 50f, feet = 150f), 0f, unit, "No accuracy data", dark)
         ColorMode.SATELLITES -> rampColoring(values, 0f, 12f, unit, "No satellite data", dark)
         ColorMode.CN0 -> rampColoring(values, 15f, 45f, unit, "No signal data", dark)
     }
 }
 
-/** Horizontally-scrollable chips to pick how the track line is coloured. */
+/** Horizontally-scrollable chips to pick how the track line is colored. */
 @Composable
 internal fun ColorModeSelector(selected: ColorMode, onSelect: (ColorMode) -> Unit) {
     Row(
@@ -208,8 +208,8 @@ internal fun TrackLegend(legend: Legend, modifier: Modifier) {
             LegendSurface(modifier) {
                 val luminance = rampLuminance(isSystemInDarkTheme())
                 // Dense stops along the same HSL ramp the track uses: the brush blends
-                // neighbours in RGB, and RGB midpoints of red/green and green/blue are muddy
-                // brown/grey — 30° hue steps stay on-hue.
+                // neighbors in RGB, and RGB midpoints of red/green and green/blue are muddy
+                // brown/gray — 30° hue steps stay on-hue.
                 val rampBrush = remember(luminance) {
                     Brush.horizontalGradient(
                         (0..8).map {

@@ -36,14 +36,14 @@ object Settings {
 
     // Minimum spatial extent (bounding-box diagonal) for a track to be kept. Unlike length, which
     // accumulates GPS jitter while stationary, extent measures how far the track actually spread —
-    // so a "walk" that never left a small blob (AR mislabelled standing still) is discarded. 0 = off.
+    // so a "walk" that never left a small blob (AR mislabeled standing still) is discarded. 0 = off.
     const val DEFAULT_TRACK_MIN_EXTENT_M = 50
 
     // Auto-pause/stitch: a brief stop keeps the track open and resumes into it when the same
     // activity returns within this time gap (the resumed run is a new GPX segment).
     const val DEFAULT_STITCH_RESUME_WINDOW_SEC = 180 // 0 = always start a new track
 
-    // Fixes whose reported accuracy radius is at least this (metres) are flagged noisy and excluded.
+    // Fixes whose reported accuracy radius is at least this (meters) are flagged noisy and excluded.
     const val DEFAULT_ACCURACY_GATE_M = 50
 
     // Reject fixes with no recent satellite backing (dead-reckoning fabrications, e.g. in a
@@ -99,7 +99,7 @@ object Settings {
         prefs(context).edit { putInt(KEY_SAMPLING_MIN_INTERVAL_SEC, value) }
     }
 
-    /** Minimum displacement between recorded points, in metres. */
+    /** Minimum displacement between recorded points, in meters. */
     fun minDistanceM(context: Context): Int =
         prefs(context).getInt(KEY_SAMPLING_MIN_DISTANCE_M, DEFAULT_SAMPLING_MIN_DISTANCE_M)
 
@@ -117,7 +117,7 @@ object Settings {
         prefs(context).edit { putInt(KEY_TRACK_MIN_DURATION_SEC, value) }
     }
 
-    /** Tracks shorter than this distance (metres) are discarded. 0 = no limit. */
+    /** Tracks shorter than this distance (meters) are discarded. 0 = no limit. */
     fun minTrackLengthM(context: Context): Int =
         prefs(context).getInt(KEY_TRACK_MIN_LENGTH_M, DEFAULT_TRACK_MIN_LENGTH_M)
 
@@ -125,7 +125,7 @@ object Settings {
         prefs(context).edit { putInt(KEY_TRACK_MIN_LENGTH_M, value) }
     }
 
-    /** Tracks whose bounding-box diagonal is under this (metres) are discarded. 0 = no limit. */
+    /** Tracks whose bounding-box diagonal is under this (meters) are discarded. 0 = no limit. */
     fun minTrackExtentM(context: Context): Int =
         prefs(context).getInt(KEY_TRACK_MIN_EXTENT_M, DEFAULT_TRACK_MIN_EXTENT_M)
 
@@ -143,7 +143,7 @@ object Settings {
         prefs(context).edit { putInt(KEY_STITCH_RESUME_WINDOW_SEC, value) }
     }
 
-    /** Accuracy radius (metres) at/above which a fix is flagged noisy and excluded from new tracks. */
+    /** Accuracy radius (meters) at/above which a fix is flagged noisy and excluded from new tracks. */
     fun accuracyGateM(context: Context): Int =
         prefs(context).getInt(KEY_ACCURACY_GATE_M, DEFAULT_ACCURACY_GATE_M)
 

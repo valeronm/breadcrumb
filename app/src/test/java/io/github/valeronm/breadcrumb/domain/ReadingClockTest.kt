@@ -30,7 +30,7 @@ class ReadingClockTest {
         assertEquals(now, sanitize(eventMs = 50_000, nowMs = now))
     }
 
-    @Test fun `age exactly at the cap is still honoured`() {
+    @Test fun `age exactly at the cap is still honored`() {
         assertEquals(1_000L, sanitize(eventMs = 1_000, nowMs = 1_000 + maxAge))
     }
 

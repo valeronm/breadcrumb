@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
@@ -83,12 +84,11 @@ import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import java.util.Locale
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 class MainActivity : ComponentActivity() {
 
-    /** GPX uris handed to us via share/open-with, waiting for the UI to import them. */
+    /** GPX URIs handed to us via share/open-with, waiting for the UI to import them. */
     private val pendingGpxImport = mutableStateOf<List<Uri>?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -100,8 +100,11 @@ class MainActivity : ComponentActivity() {
                 var unitChoice by remember {
                     mutableStateOf(UnitChoice.fromName(AppSettings.unitChoice(this)))
                 }
+                // The configuration locale, not Locale.getDefault(): composition observes it, so a
+                // mid-process language switch re-resolves the Automatic units choice.
+                val locale = LocalConfiguration.current.locales[0]
                 CompositionLocalProvider(
-                    LocalUnits provides unitChoice.resolve(Locale.getDefault().country),
+                    LocalUnits provides unitChoice.resolve(locale.country),
                 ) {
                     MainScreen(pendingGpxImport, unitChoice) {
                         unitChoice = it
@@ -250,7 +253,7 @@ private fun MainScreen(
         backgroundOk = context.backgroundGranted()
     }
     // Reconcile persisted "armed" state with the actual service: if auto-recording is on but
-    // the service isn't running (e.g. after a reinstall or being killed), restart it so the UI
+    // the service isn't running (e.g. after a reinstallation or being killed), restart it so the UI
     // doesn't get stuck on "Starting…".
     LaunchedEffect(foregroundOk, backgroundOk) {
         val armedAndPermitted = autoOn && foregroundOk && backgroundOk
@@ -471,7 +474,7 @@ private fun MainScreen(
         if (placeLayer.rendered != null) {
             // Includes zero-visit pass-through clusters (summarize emits every cluster), so gap
             // sides open even when their cluster never earned a stay — and their endpoints show
-            // as neighbour context on adjacent places' maps.
+            // as neighbor context on adjacent places' maps.
             val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
             val summary = remember(placeSummaries, placeDetailKey, placeDetailSnapshot) {
                 placeSummaries.firstOrNull { it.rowKey() == placeDetailKey }
@@ -484,13 +487,13 @@ private fun MainScreen(
                 if (placeDetailKey != null && placeDetailKey != s.rowKey()) placeDetailKey = s.rowKey()
             }
             summary?.let { detail ->
-                // Surrounding clusters for radius context: their endpoints as grey dots, named
-                // neighbours as labelled pins.
+                // Surrounding clusters for radius context: their endpoints as gray dots, named
+                // neighbors as labeled pins.
                 val neighbors = remember(placeSummaries, detail) {
                     placeSummaries
                         .filter { other ->
                             other.rowKey() != detail.rowKey() &&
-                                AndroidDistance.metres(
+                                AndroidDistance.meters(
                                     other.anchor.lat, other.anchor.lon,
                                     detail.anchor.lat, detail.anchor.lon,
                                 ) <= NEIGHBOR_CONTEXT_M
@@ -656,7 +659,7 @@ private fun Modifier.overlayTransform(layer: OverlayLayerState<*>): Modifier =
         scaleX = scale
         scaleY = scale
         translationX = (1f - enter) * size.width * 0.25f + edgeSign * eased * 48.dp.toPx()
-        // The receding card follows the finger vertically at a damped rate (another system-
+        // The receding card follows the finger vertically at a damped rate (another system
         // animation trait), fading in with the gesture so a near-full-screen card stays put.
         translationY = eased * (backOffsetY / 3f).coerceIn(-96.dp.toPx(), 96.dp.toPx())
         // Opaque through the back gesture (M3 predictive-back spec); only open/close fades.
