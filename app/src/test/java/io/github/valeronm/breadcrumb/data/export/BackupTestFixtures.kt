@@ -15,7 +15,11 @@ internal fun exportJson(
 ): String {
     val out = StringBuilder()
     runTest {
-        BackupExporter.writeJson(out, 5_000L, tracks, { points[it].orEmpty() }, places, liveness)
+        BackupExporter.writeJson(
+            out,
+            5_000L,
+            BackupExporter.Content(tracks, { points[it].orEmpty() }, places, liveness),
+        )
     }
     return out.toString()
 }

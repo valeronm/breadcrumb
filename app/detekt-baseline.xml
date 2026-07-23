@@ -2,9 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>LongParameterList:BackupExporter.kt$BackupExporter$( context: Context, trackRepository: TrackRepository, placeRepository: PlaceRepository, livenessRepository: LivenessRepository, uri: Uri, exportedAt: Long, onProgress: (tracksDone: Int, tracksTotal: Int) -&gt; Unit, )</ID>
-    <ID>LongParameterList:BackupExporter.kt$BackupExporter$( out: Appendable, exportedAt: Long, tracks: List&lt;Track&gt;, pointsFor: suspend (Long) -&gt; List&lt;TrackPoint&gt;, places: List&lt;Place&gt;, liveness: List&lt;LivenessEvent&gt;, onTrackWritten: (done: Int) -&gt; Unit = {}, )</ID>
-    <ID>LongParameterList:BackupImporter.kt$BackupImporter$( context: Context, trackRepository: TrackRepository, placeRepository: PlaceRepository, livenessRepository: LivenessRepository, uri: Uri, onProgress: (tracksDone: Int, tracksTotal: Int?) -&gt; Unit, )</ID>
     <ID>LongParameterList:KeepRule.kt$KeepRule$( pointCount: Int, ignoredCount: Int, durationSec: Long, distanceMeters: Double, thresholds: Thresholds, extent: () -&gt; Double, )</ID>
     <ID>LongParameterList:MapLibreTrackMap.kt$( ctx: Context, style: Style, center: StayDeriver.Endpoint, radiusM: Double, endpoints: List&lt;StayDeriver.Endpoint&gt;, neighbors: List&lt;NeighborPlace&gt;, showInternals: Boolean, )</ID>
     <ID>LongParameterList:RecordCard.kt$( armed: Boolean, tracking: Boolean, recording: Boolean, paused: Boolean, gpsSuspended: Boolean, points: Int, hasOpenTrack: Boolean, )</ID>
@@ -14,6 +11,5 @@
     <ID>LongParameterList:StayDeriver.kt$StayDeriver$( tracks: List&lt;TrackEnd&gt;, liveness: List&lt;Liveness&gt;, nowMs: Long, activeTrack: ActiveTrack?, params: Params = Params(), distance: DistanceFn, /** Named-place pins with their per-place capture radii: seed the endpoint clustering * (in pin order — [PlaceResolver] maps [PlaceClusterer.Cluster.seedIndex] back to the * same places list) and drive the same-nearest-pin agreement override. */ placePins: List&lt;PlaceClusterer.Seed&gt; = emptyList(), )</ID>
     <ID>LongParameterList:TrackColoring.kt$( points: List&lt;TrackPoint&gt;, speedsKmh: FloatArray, mode: ColorMode, activity: ActivityType?, dark: Boolean, units: UnitSystem, )</ID>
     <ID>LongParameterList:TrackColoring.kt$( values: List&lt;Float?&gt;, redAt: Float, blueAt: Float, unit: String, emptyMsg: String, dark: Boolean, )</ID>
-    <ID>LongParameterList:TrackDao.kt$TrackDao$( trackId: Long, distanceMeters: Double, pointCount: Int, ignoredCount: Int, startLat: Double?, startLon: Double?, endLat: Double?, endLon: Double?, )</ID>
   </CurrentIssues>
 </SmellBaseline>

@@ -8,6 +8,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.BackupImporter
+import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -44,16 +45,20 @@ class BackupRestoreTest {
         BackupExporter.writeJson(
             json,
             5_000L,
-            source.repository.exportTracks(),
-            { source.repository.allPointsFor(it) },
-            source.db.placeDao().allPlaces(),
-            source.db.livenessDao().allEvents(),
+            BackupExporter.Content(
+                tracks = source.repository.exportTracks(),
+                pointsFor = { source.repository.allPointsFor(it) },
+                places = source.db.placeDao().allPlaces(),
+                liveness = source.db.livenessDao().allEvents(),
+            ),
         )
         return BackupImporter.restore(
             java.io.StringReader(json.toString()),
-            target.repository,
-            PlaceRepository(context, target.db),
-            LivenessRepository(context, target.db),
+            BackupRepositories(
+                tracks = target.repository,
+                places = PlaceRepository(context, target.db),
+                liveness = LivenessRepository(context, target.db),
+            ),
         )
     }
 

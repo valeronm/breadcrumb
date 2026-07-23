@@ -18,6 +18,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.BackupImporter
+import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.data.export.GpxExporter
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
@@ -47,6 +48,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private val repository = TrackRepository(app)
     private val livenessRepository = LivenessRepository(app)
     private val placeRepository = PlaceRepository(app)
+    private val backupRepositories = BackupRepositories(repository, placeRepository, livenessRepository)
 
     // These read `tracks` only, so a live recording's points can't wake them (see TrackDao) — the
     // distinctUntilChanged calls are for the writes that do: opening a track re-emits a list that
@@ -280,8 +282,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     fun exportBackup(uri: Uri, onDone: (Int?) -> Unit) =
         runExclusiveOp(_exportProgress, "backup export", onDone) { onProgress ->
             BackupExporter.exportTo(
-                getApplication(), repository, placeRepository, livenessRepository,
-                uri, System.currentTimeMillis(), onProgress,
+                getApplication(), backupRepositories, uri, System.currentTimeMillis(), onProgress,
             )
         }
 
@@ -291,9 +292,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun restoreBackup(uri: Uri, onDone: (BackupImporter.Summary?) -> Unit) =
         runExclusiveOp(_restoreProgress, "backup restore", onDone) { onProgress ->
-            BackupImporter.importFrom(
-                getApplication(), repository, placeRepository, livenessRepository, uri, onProgress,
-            )
+            BackupImporter.importFrom(getApplication(), backupRepositories, uri, onProgress)
         }
 
     class GpxImportSummary(val imported: Int, val duplicates: Int, val failed: Int)

@@ -2,9 +2,6 @@ package io.github.valeronm.breadcrumb.data.export
 
 import android.content.Context
 import android.net.Uri
-import io.github.valeronm.breadcrumb.data.LivenessRepository
-import io.github.valeronm.breadcrumb.data.PlaceRepository
-import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
@@ -37,9 +34,7 @@ object BackupImporter {
      */
     suspend fun importFrom(
         context: Context,
-        trackRepository: TrackRepository,
-        placeRepository: PlaceRepository,
-        livenessRepository: LivenessRepository,
+        repositories: BackupRepositories,
         uri: Uri,
         onProgress: (tracksDone: Int, tracksTotal: Int?) -> Unit,
     ): Summary? {
@@ -47,7 +42,7 @@ object BackupImporter {
         // The large inflater buffer keeps reads off the SAF stream from degrading into the
         // default 512-byte chunks — each one a Binder round-trip to the documents provider.
         return GZIPInputStream(input, STREAM_BUFFER).bufferedReader().use { reader ->
-            restore(reader, trackRepository, placeRepository, livenessRepository, onProgress)
+            restore(reader, repositories, onProgress)
         }
     }
 
@@ -58,9 +53,7 @@ object BackupImporter {
      */
     internal suspend fun restore(
         reader: Reader,
-        trackRepository: TrackRepository,
-        placeRepository: PlaceRepository,
-        livenessRepository: LivenessRepository,
+        repositories: BackupRepositories,
         onProgress: (tracksDone: Int, tracksTotal: Int?) -> Unit = { _, _ -> },
     ): Summary {
         var tracks = 0
@@ -71,7 +64,7 @@ object BackupImporter {
         val batch = mutableListOf<Pair<Track, List<TrackPoint>>>()
         suspend fun flush() {
             if (batch.isEmpty()) return
-            trackRepository.insertBackupTracks(batch)
+            repositories.tracks.insertBackupTracks(batch)
             tracks += batch.size
             points += batch.sumOf { it.second.size }
             batch.clear()
@@ -88,11 +81,11 @@ object BackupImporter {
                 if (batch.size >= INSERT_BATCH) flush()
             },
             onPlaces = {
-                placeRepository.restorePlaces(it)
+                repositories.places.restorePlaces(it)
                 places = it.size
             },
             onLiveness = {
-                livenessRepository.restoreEvents(it)
+                repositories.liveness.restoreEvents(it)
                 events = it.size
             },
         )

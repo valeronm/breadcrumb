@@ -172,16 +172,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     private suspend fun refreshStats(trackId: Long, points: List<TrackPoint>): TrackStats.Stats {
         val stats = TrackStats.of(points)
-        dao.updateStats(
-            trackId = trackId,
-            distanceMeters = stats.distanceMeters,
-            pointCount = stats.pointCount,
-            ignoredCount = stats.ignoredCount,
-            startLat = stats.startLat,
-            startLon = stats.startLon,
-            endLat = stats.endLat,
-            endLon = stats.endLon,
-        )
+        dao.updateStats(stats.toUpdate(trackId))
         return stats
     }
 

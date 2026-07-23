@@ -2,9 +2,6 @@ package io.github.valeronm.breadcrumb.data.export
 
 import android.content.Context
 import android.net.Uri
-import io.github.valeronm.breadcrumb.data.LivenessRepository
-import io.github.valeronm.breadcrumb.data.PlaceRepository
-import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
@@ -40,31 +37,39 @@ object BackupExporter {
 
     fun fileName(now: Long): String = "breadcrumb-${exportFileStamp(now)}.json.gz"
 
+    /** Everything one backup document contains; points stream per track via [pointsFor]. */
+    internal class Content(
+        val tracks: List<Track>,
+        val pointsFor: suspend (Long) -> List<TrackPoint>,
+        val places: List<Place>,
+        val liveness: List<LivenessEvent>,
+    )
+
     /**
      * Loads everything and streams it gzipped to [uri] (from the system create-document picker).
      * Returns the number of tracks written, or null if the stream couldn't be opened.
      */
     suspend fun exportTo(
         context: Context,
-        trackRepository: TrackRepository,
-        placeRepository: PlaceRepository,
-        livenessRepository: LivenessRepository,
+        repositories: BackupRepositories,
         uri: Uri,
         exportedAt: Long,
         onProgress: (tracksDone: Int, tracksTotal: Int) -> Unit,
     ): Int? {
         val out = context.contentResolver.openOutputStream(uri) ?: return null
-        val tracks = trackRepository.exportTracks()
+        val tracks = repositories.tracks.exportTracks()
         // The large deflater buffer keeps writes to the SAF stream from degrading into the
         // default 512-byte chunks — each one a Binder round-trip to the documents provider.
         GZIPOutputStream(out, 64 * 1024).bufferedWriter().use { writer ->
             writeJson(
                 writer,
                 exportedAt,
-                tracks,
-                { trackRepository.allPointsFor(it) },
-                placeRepository.allPlaces(),
-                livenessRepository.allEvents(),
+                Content(
+                    tracks = tracks,
+                    pointsFor = { repositories.tracks.allPointsFor(it) },
+                    places = repositories.places.allPlaces(),
+                    liveness = repositories.liveness.allEvents(),
+                ),
                 onTrackWritten = { done -> onProgress(done, tracks.size) },
             )
         }
@@ -74,21 +79,18 @@ object BackupExporter {
     internal suspend fun writeJson(
         out: Appendable,
         exportedAt: Long,
-        tracks: List<Track>,
-        pointsFor: suspend (Long) -> List<TrackPoint>,
-        places: List<Place>,
-        liveness: List<LivenessEvent>,
+        content: Content,
         onTrackWritten: (done: Int) -> Unit = {},
     ) {
         out.append("""{"format":${str(FORMAT)},"version":$VERSION,"exportedAt":$exportedAt""")
-        out.append(""","trackCount":${tracks.size}""")
+        out.append(""","trackCount":${content.tracks.size}""")
         out.append(""","pointFields":[${POINT_FIELDS.joinToString(",") { str(it) }}]""")
 
         out.append(""","tracks":[""")
-        for ((i, track) in tracks.withIndex()) {
+        for ((i, track) in content.tracks.withIndex()) {
             if (i > 0) out.append(',')
             out.append(trackHeader(track))
-            for ((j, point) in pointsFor(track.id).withIndex()) {
+            for ((j, point) in content.pointsFor(track.id).withIndex()) {
                 if (j > 0) out.append(',')
                 appendPoint(out, point)
             }
@@ -98,11 +100,11 @@ object BackupExporter {
         out.append(']')
 
         out.append(""","places":[""")
-        places.joinTo(out, ",") { placeObject(it) }
+        content.places.joinTo(out, ",") { placeObject(it) }
         out.append(']')
 
         out.append(""","liveness":[""")
-        liveness.joinTo(out, ",") { livenessObject(it) }
+        content.liveness.joinTo(out, ",") { livenessObject(it) }
         out.append("]}")
     }
 

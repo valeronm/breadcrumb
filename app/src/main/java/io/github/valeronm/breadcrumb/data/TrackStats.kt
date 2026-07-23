@@ -1,6 +1,8 @@
 package io.github.valeronm.breadcrumb.data
 
+import io.github.valeronm.breadcrumb.data.db.TrackDao
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.data.db.TrackStatsUpdate
 
 /**
  * The one implementation of a track's point walk: distance, counts, endpoints and extent.
@@ -37,7 +39,19 @@ object TrackStats {
          * track finishes. 0 for fewer than two points.
          */
         val extentMeters: Double,
-    )
+    ) {
+        /** The row-shaped projection [TrackDao.updateStats] writes: these stats onto [trackId]. */
+        fun toUpdate(trackId: Long): TrackStatsUpdate = TrackStatsUpdate(
+            id = trackId,
+            distanceMeters = distanceMeters,
+            pointCount = pointCount,
+            ignoredCount = ignoredCount,
+            startLat = startLat,
+            startLon = startLon,
+            endLat = endLat,
+            endLon = endLon,
+        )
+    }
 
     /** Feeds points in track order, one at a time — the shape the recorder ingests them in. */
     class Accumulator(private val distance: DistanceFn = AndroidDistance) {

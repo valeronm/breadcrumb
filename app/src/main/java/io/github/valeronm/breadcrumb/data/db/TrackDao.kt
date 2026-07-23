@@ -3,7 +3,23 @@ package io.github.valeronm.breadcrumb.data.db
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+
+/**
+ * Row-shaped projection of [io.github.valeronm.breadcrumb.data.TrackStats.Stats] for
+ * [TrackDao.updateStats]: the aggregate columns plus the key, nothing else touched.
+ */
+data class TrackStatsUpdate(
+    val id: Long,
+    val distanceMeters: Double,
+    val pointCount: Int,
+    val ignoredCount: Int,
+    val startLat: Double?,
+    val startLon: Double?,
+    val endLat: Double?,
+    val endLon: Double?,
+)
 
 @Dao
 interface TrackDao {
@@ -22,24 +38,8 @@ interface TrackDao {
      * when it's finished, merged, imported or repaired, never per fix (see the observed queries
      * below: `tracks` is the table they read, so a per-fix write here would wake them all).
      */
-    @Query(
-        """
-        UPDATE tracks SET distanceMeters = :distanceMeters, pointCount = :pointCount,
-               ignoredCount = :ignoredCount, startLat = :startLat, startLon = :startLon,
-               endLat = :endLat, endLon = :endLon
-        WHERE id = :trackId
-        """,
-    )
-    suspend fun updateStats(
-        trackId: Long,
-        distanceMeters: Double,
-        pointCount: Int,
-        ignoredCount: Int,
-        startLat: Double?,
-        startLon: Double?,
-        endLat: Double?,
-        endLon: Double?,
-    )
+    @Update(entity = Track::class)
+    suspend fun updateStats(stats: TrackStatsUpdate)
 
     @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId")
     suspend fun setActivityType(trackId: Long, activityType: String)
