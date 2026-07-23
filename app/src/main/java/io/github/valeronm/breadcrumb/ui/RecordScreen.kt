@@ -30,7 +30,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
@@ -314,7 +313,6 @@ private fun CurrentTrackPreview(
 /** Recorder state while there's no track to draw: starting, idle, paused or waiting for GPS. */
 @Composable
 private fun RecorderStateCard(state: RecordCardState, status: TrackingStatus.State) {
-    val context = LocalContext.current
     // A 1 Hz tick drives the pause countdown and the "last signal" age.
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state) {

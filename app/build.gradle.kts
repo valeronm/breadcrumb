@@ -6,6 +6,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
     id("org.jlleitschuh.gradle.ktlint")
+    id("io.gitlab.arturbosch.detekt")
+}
+
+// Rules are the detekt defaults minus the style-preference ones (config/detekt/detekt.yml);
+// the committed baseline grandfathers findings that predate adoption, so only new findings
+// fail. Regenerate after fixing baselined ones: ./gradlew :app:detektBaseline
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom(rootProject.file("config/detekt/detekt.yml"))
+    baseline = file("detekt-baseline.xml")
 }
 
 // Release signing credentials live in keystore.properties (gitignored). Absent on machines that

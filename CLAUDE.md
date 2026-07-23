@@ -37,6 +37,13 @@ rules disabled deliberately (argument wrapping, one-line signatures, UPPER_CASE 
 column-aligned fixture comments). The disables are choices, not oversights — re-enabling one
 is a style decision to raise with the user, not a cleanup.
 
+Code smells are checked by **detekt** (`./gradlew :app:detekt`; CI runs it): default rules
+minus the style-preference ones (`config/detekt/detekt.yml` — magic numbers, size thresholds
+and composable naming/params are off, for the same reasons as the ktlint disables), with
+`app/detekt-baseline.xml` grandfathering the findings that predate adoption — only new
+findings fail. After fixing a baselined finding, regenerate with `:app:detektBaseline`;
+a refactor that moves baselined code can resurface its entry as new, which is intended.
+
 ## Unit tests
 
 Unit tests live in `app/src/test` and cover the pure logic in `domain/` plus data-layer pieces

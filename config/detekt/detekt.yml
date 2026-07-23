@@ -1,0 +1,34 @@
+# Overrides applied on top of detekt's default ruleset (buildUponDefaultConfig = true).
+# Same spirit as the ktlint config in .editorconfig: rules that fight the codebase's
+# established style are off, everything else is enforced — with app/detekt-baseline.xml
+# grandfathering the findings that predate adoption, so only new findings fail.
+
+style:
+  MagicNumber:
+    active: false # tuned, commented constants are the domain here
+  MaxLineLength:
+    active: false # line length is reviewed, not enforced (matches the ktlint config)
+  ReturnCount:
+    active: false # guard-clause style is idiomatic in this codebase
+  LoopWithTooManyJumpStatements:
+    active: false # the point-walk algorithms lean on continue/break guards
+
+performance:
+  SpreadOperator:
+    active: false # idiomatic vararg pass-through (e.g. GroupedRows(*rows)); no hot-path arrays
+
+naming:
+  FunctionNaming:
+    ignoreAnnotated: ['Composable'] # composables are PascalCase by convention
+  VariableNaming:
+    excludes: ['**/test/**'] # test fixtures use UPPER_CASE vals deliberately
+
+complexity:
+  LongParameterList:
+    ignoreAnnotated: ['Composable'] # composables take many params by design
+  LongMethod:
+    active: false
+  CyclomaticComplexMethod:
+    active: false
+  TooManyFunctions:
+    active: false
