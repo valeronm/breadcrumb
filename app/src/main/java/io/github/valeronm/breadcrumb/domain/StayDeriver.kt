@@ -176,8 +176,11 @@ object StayDeriver {
                 // meaningless — whereas a zero-length *agreeing* gap below is a split seam (an
                 // edge-stay trim's cut), and its stay carries the merge-back offer.
                 if (gapEnd == gapStart) continue
-                val reason = if (a == null || b == null) GapReason.UNKNOWN_ENDPOINT
-                else GapReason.MOVED_UNRECORDED
+                val reason = if (a == null || b == null) {
+                    GapReason.UNKNOWN_ENDPOINT
+                } else {
+                    GapReason.MOVED_UNRECORDED
+                }
                 out += Gap(
                     gapStart, gapEnd, reason,
                     fromClusterId = a?.let(clusterOf::getValue),

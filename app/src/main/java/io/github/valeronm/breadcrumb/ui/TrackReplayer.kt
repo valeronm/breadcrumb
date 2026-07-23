@@ -31,6 +31,7 @@ object TrackReplayer {
     )
 
     private val _state = MutableStateFlow<Replay?>(null)
+
     /** Non-null while a replay is running; the Record tab renders it instead of the live state. */
     val state: StateFlow<Replay?> = _state
 

@@ -87,8 +87,14 @@ object BackupImporter {
                 onProgress(tracks + batch.size, total)
                 if (batch.size >= INSERT_BATCH) flush()
             },
-            onPlaces = { placeRepository.restorePlaces(it); places = it.size },
-            onLiveness = { livenessRepository.restoreEvents(it); events = it.size },
+            onPlaces = {
+                placeRepository.restorePlaces(it)
+                places = it.size
+            },
+            onLiveness = {
+                livenessRepository.restoreEvents(it)
+                events = it.size
+            },
         )
         flush()
         return Summary(tracks, points, places, events)
@@ -368,7 +374,10 @@ internal class JsonPullReader(private val reader: Reader) {
                     }
                     else -> error("bad escape '\\$e'")
                 }
-                else -> { check(c >= ' ') { "raw control char in string" }; token.append(c) }
+                else -> {
+                    check(c >= ' ') { "raw control char in string" }
+                    token.append(c)
+                }
             }
         }
     }
@@ -395,7 +404,10 @@ internal class JsonPullReader(private val reader: Reader) {
         when (peekChar()) {
             '{' -> {
                 beginObject()
-                while (hasNext()) { nextName(); skipValue() }
+                while (hasNext()) {
+                    nextName()
+                    skipValue()
+                }
                 endObject()
             }
             '[' -> {

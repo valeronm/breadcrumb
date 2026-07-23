@@ -28,7 +28,7 @@ interface TrackDao {
                ignoredCount = :ignoredCount, startLat = :startLat, startLon = :startLon,
                endLat = :endLat, endLon = :endLon
         WHERE id = :trackId
-        """
+        """,
     )
     suspend fun updateStats(
         trackId: Long,
@@ -47,7 +47,7 @@ interface TrackDao {
     /** Soft-delete a keep-threshold-filtered track: finalise it and mark it discarded. */
     @Query(
         "UPDATE tracks SET endedAt = :endedAt, discardedAt = :discardedAt, discardReason = :reason " +
-            "WHERE id = :trackId"
+            "WHERE id = :trackId",
     )
     suspend fun discardTrack(trackId: Long, endedAt: Long, discardedAt: Long, reason: String)
 
@@ -76,7 +76,7 @@ interface TrackDao {
                verticalAccuracy, speedAccuracy, bearingAccuracy, satellitesInFix, cn0,
                ignored, ignoreReason, segmentStart
         FROM track_points WHERE trackId = :srcId
-        """
+        """,
     )
     suspend fun copyPointsInto(newId: Long, srcId: Long)
 
@@ -125,7 +125,7 @@ interface TrackDao {
     @Query(
         "SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 1 " +
             "AND (ignoreReason IS NULL OR ignoreReason != :edgeStay) " +
-            "ORDER BY timestamp ASC, id ASC"
+            "ORDER BY timestamp ASC, id ASC",
     )
     suspend fun ignoredPointsFor(trackId: Long, edgeStay: String): List<TrackPoint>
 
@@ -133,7 +133,7 @@ interface TrackDao {
      *  [io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]. */
     @Query(
         "SELECT * FROM track_points WHERE trackId = :trackId " +
-            "AND ignoreReason = :edgeStay ORDER BY timestamp ASC, id ASC"
+            "AND ignoreReason = :edgeStay ORDER BY timestamp ASC, id ASC",
     )
     suspend fun edgeStayPointsFor(trackId: Long, edgeStay: String): List<TrackPoint>
 
@@ -167,7 +167,7 @@ interface TrackDao {
         SELECT COUNT(*) FROM tracks t
         WHERE EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp = :startedAt)
           AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp = :endedAt)
-        """
+        """,
     )
     suspend fun countTracksSpanning(startedAt: Long, endedAt: Long): Int
 
@@ -200,7 +200,7 @@ interface TrackDao {
         FROM tracks
         WHERE endedAt IS NOT NULL AND discardedAt IS NULL
         ORDER BY startedAt DESC
-        """
+        """,
     )
     fun observeSummaries(): Flow<List<TrackSummary>>
 
@@ -213,7 +213,7 @@ interface TrackDao {
         FROM tracks
         WHERE discardedAt IS NOT NULL
         ORDER BY startedAt DESC
-        """
+        """,
     )
     fun observeDiscardedSummaries(): Flow<List<DiscardedSummary>>
 
@@ -224,7 +224,7 @@ interface TrackDao {
         FROM tracks
         WHERE endedAt IS NOT NULL AND discardedAt IS NULL
         ORDER BY startedAt ASC
-        """
+        """,
     )
     fun observeEndpoints(): Flow<List<TrackEndpoints>>
 }

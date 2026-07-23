@@ -79,10 +79,14 @@ object PlaceClusterer {
             Cluster(
                 anchor = anchor,
                 // A seed with no members keeps its pin as the centroid.
-                centroid = if (locs.isEmpty()) anchor else StayDeriver.Endpoint(
-                    lat = locs.sumOf { it.lat } / locs.size,
-                    lon = locs.sumOf { it.lon } / locs.size,
-                ),
+                centroid = if (locs.isEmpty()) {
+                    anchor
+                } else {
+                    StayDeriver.Endpoint(
+                        lat = locs.sumOf { it.lat } / locs.size,
+                        lon = locs.sumOf { it.lon } / locs.size,
+                    )
+                },
                 memberIndices = members[ci],
                 members = locs,
                 radiusM = radii[ci],

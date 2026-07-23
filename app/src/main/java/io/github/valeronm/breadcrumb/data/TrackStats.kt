@@ -52,6 +52,7 @@ object TrackStats {
 
         private var ignoredCount = 0
         private var first: TrackPoint? = null
+
         // Seeded so the first good point clamps them; stats() zeroes the extent below two points.
         private var minLat = Double.POSITIVE_INFINITY
         private var maxLat = Double.NEGATIVE_INFINITY

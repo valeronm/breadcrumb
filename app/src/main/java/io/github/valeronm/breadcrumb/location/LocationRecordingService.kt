@@ -20,7 +20,6 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
-import io.github.valeronm.breadcrumb.util.DebugLog
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -42,11 +41,12 @@ import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.DeafnessWarning
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ReadingClock
-import io.github.valeronm.breadcrumb.domain.StaleReadingOracle
 import io.github.valeronm.breadcrumb.domain.RecordingAction
+import io.github.valeronm.breadcrumb.domain.StaleReadingOracle
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackController
 import io.github.valeronm.breadcrumb.ui.MainActivity
+import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.hasLocationPermission
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CoroutineScope
@@ -145,8 +145,10 @@ class LocationRecordingService : Service() {
     // satellite backing (see [isGnssBacked]).
     @Volatile private var lastGnssFixElapsedMs = 0L
     private var gnssCallback: GnssStatusCompat.Callback? = null
+
     // Latest GnssStatus-derived quality, snapshotted for the next fix's metadata (null until seen).
     @Volatile private var lastGnssSatsInFix: Int? = null
+
     @Volatile private var lastGnssCn0Top4: Float? = null
 
     // --- Auto-pause / stitch resources (all touched only under [mutex]) ---
@@ -722,13 +724,17 @@ class LocationRecordingService : Service() {
                     if (cn0 <= 0f) continue
                     for (j in 0 until topCount) {
                         if (cn0 > top[j]) {
-                            val t = top[j]; top[j] = cn0; cn0 = t
+                            val t = top[j]
+                            top[j] = cn0
+                            cn0 = t
                         }
                     }
                     if (topCount < top.size) top[topCount++] = cn0
                 }
                 lastGnssSatsInFix = used
-                lastGnssCn0Top4 = if (topCount == 0) null else {
+                lastGnssCn0Top4 = if (topCount == 0) {
+                    null
+                } else {
                     var sum = 0f
                     for (j in 0 until topCount) sum += top[j]
                     sum / topCount
@@ -947,18 +953,15 @@ class LocationRecordingService : Service() {
         deafnessWarning.reset()
     }
 
-    private fun buildNotification(title: String, text: String): Notification {
-        return NotificationCompat.Builder(this, App.CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setContentIntent(openIntent)
-            .addAction(0, "Stop", stopIntent)
-            .build()
-    }
-
+    private fun buildNotification(title: String, text: String): Notification = NotificationCompat.Builder(this, App.CHANNEL_ID)
+        .setContentTitle(title)
+        .setContentText(text)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        .setContentIntent(openIntent)
+        .addAction(0, "Stop", stopIntent)
+        .build()
 
     private fun now() = System.currentTimeMillis()
 
@@ -1006,6 +1009,7 @@ class LocationRecordingService : Service() {
         // Stale-reading deafness oracle: live transition deliveries arrive 0–5 s after their
         // event; one this late while armed could only have come from a registration replay.
         private const val STALE_READING_RESTART_MS = 60_000L
+
         // The reading must advance the clock by at least this much to count — a bare > lets a repeat
         // of an already-applied event, whose wall-clock stamp drifts a few ms across a long still
         // stretch, fire a spurious restart; a real missed transition advances by seconds. See

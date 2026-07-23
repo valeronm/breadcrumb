@@ -2,14 +2,13 @@ package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
 import androidx.room.withTransaction
-import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
-import io.github.valeronm.breadcrumb.domain.DwellDetector
+import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.KeepRule
@@ -298,7 +297,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             startedAt = plan.startedAt,
             endedAt = plan.endedAt,
             changed = plan.movesPoints ||
-                plan.startedAt != track.startedAt || plan.endedAt != endedAt,
+                plan.startedAt != track.startedAt ||
+                plan.endedAt != endedAt,
         )
     }
 
@@ -515,5 +515,4 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         }
         return dropped
     }
-
 }

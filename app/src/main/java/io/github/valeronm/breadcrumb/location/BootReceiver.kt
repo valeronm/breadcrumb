@@ -16,7 +16,9 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
             intent.action != Intent.ACTION_MY_PACKAGE_REPLACED
-        ) return
+        ) {
+            return
+        }
         if (!Settings.isAutoRecord(context)) return
         DebugLog.i(TAG, "boot receiver: re-arming (${intent.action})")
         runCatching { LocationRecordingService.start(context) }

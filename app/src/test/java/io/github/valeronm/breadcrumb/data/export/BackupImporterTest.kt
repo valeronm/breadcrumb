@@ -31,7 +31,10 @@ class BackupImporterTest {
         runTest {
             BackupImporter.parse(
                 StringReader(json),
-                onTrack = { t, p, total -> out.tracks.add(t to p); out.totals.add(total) },
+                onTrack = { t, p, total ->
+                    out.tracks.add(t to p)
+                    out.totals.add(total)
+                },
                 onPlaces = { out.places = it },
                 onLiveness = { out.liveness = it },
             )

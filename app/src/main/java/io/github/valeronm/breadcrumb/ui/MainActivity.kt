@@ -5,12 +5,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.BatteryManager
-import android.view.WindowManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
@@ -21,22 +21,17 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.ui.draw.alpha
-import kotlinx.coroutines.launch
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -52,8 +47,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,25 +58,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.TileMode
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.runtime.DisposableEffect
-import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.data.AndroidDistance
-import io.github.valeronm.breadcrumb.data.Settings as AppSettings
-import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -91,7 +82,9 @@ import io.github.valeronm.breadcrumb.util.UnitSystem
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import java.util.Locale
+import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 class MainActivity : ComponentActivity() {
 
@@ -138,7 +131,6 @@ class MainActivity : ComponentActivity() {
         if (uris.isNotEmpty()) pendingGpxImport.value = uris
     }
 }
-
 
 // --- Permission helpers ------------------------------------------------------
 
@@ -410,8 +402,11 @@ private fun MainScreen(
                         },
                         onToggleAuto = { enabled ->
                             autoOn = enabled
-                            if (enabled) LocationRecordingService.start(context)
-                            else LocationRecordingService.stop(context)
+                            if (enabled) {
+                                LocationRecordingService.start(context)
+                            } else {
+                                LocationRecordingService.stop(context)
+                            }
                         },
                         onRequestBattery = { context.requestIgnoreBatteryOptimization() },
                     )
@@ -466,7 +461,6 @@ private fun MainScreen(
                         onBack = { overlay = null },
                         onOpenPage = { settingsPage = it },
                     )
-
                 }
             }
         }
@@ -494,10 +488,11 @@ private fun MainScreen(
                 val neighbors = remember(placeSummaries, detail) {
                     placeSummaries
                         .filter { other ->
-                            other.rowKey() != detail.rowKey() && AndroidDistance.metres(
-                                other.anchor.lat, other.anchor.lon,
-                                detail.anchor.lat, detail.anchor.lon,
-                            ) <= NEIGHBOR_CONTEXT_M
+                            other.rowKey() != detail.rowKey() &&
+                                AndroidDistance.metres(
+                                    other.anchor.lat, other.anchor.lon,
+                                    detail.anchor.lat, detail.anchor.lon,
+                                ) <= NEIGHBOR_CONTEXT_M
                         }
                         .flatMap { other ->
                             other.endpoints.map { NeighborPlace(it) } +
@@ -590,7 +585,6 @@ private class OverlayLayerState<T : Any> {
     val backdropBlurDp: Float
         get() = presence.value * (1f - 0.7f * easeOutBack(backProgress.value)) * 12f
 }
-
 
 // Ease-out on the gesture progress: like the system's cross-activity animation, most of the
 // reveal happens right at gesture start, then the surface tracks the finger gently.

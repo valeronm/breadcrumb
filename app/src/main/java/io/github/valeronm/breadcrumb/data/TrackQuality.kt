@@ -22,8 +22,10 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 enum class IgnoreReason(val code: String) {
     /** Accuracy radius at or beyond the configured gate. */
     ACCURACY("accuracy"),
+
     /** Reaching the fix from the last good point would need an implausible speed (GPS teleport). */
     JUMP("jump"),
+
     /** No recent satellite fix backing it (provider fabrication — tunnel dead-reckoning etc.). */
     NO_GNSS("no_gnss"),
 
@@ -34,7 +36,8 @@ enum class IgnoreReason(val code: String) {
      * [io.github.valeronm.breadcrumb.domain.EdgeStayIgnore] once a track is finished, and
      * re-derived whenever the rule moves.
      */
-    EDGE_STAY("edge_stay");
+    EDGE_STAY("edge_stay"),
+    ;
 
     companion object {
         fun fromCode(code: String?): IgnoreReason? = entries.firstOrNull { it.code == code }
@@ -79,8 +82,11 @@ object TrackQuality {
                 reported != null && reported >= 0f -> reported * 3.6f
                 prev != null -> {
                     val dtSec = (p.timestamp - prev.timestamp) / 1000.0
-                    if (dtSec > 0) (distanceMeters(prev, p, distance) / dtSec * 3.6).toFloat()
-                    else out[i - 1] // prev != null means there is one
+                    if (dtSec > 0) {
+                        (distanceMeters(prev, p, distance) / dtSec * 3.6).toFloat()
+                    } else {
+                        out[i - 1] // prev != null means there is one
+                    }
                 }
                 else -> 0f
             }

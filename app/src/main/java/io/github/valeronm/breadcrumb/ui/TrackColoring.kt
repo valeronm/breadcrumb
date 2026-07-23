@@ -1,30 +1,26 @@
 package io.github.valeronm.breadcrumb.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -32,10 +28,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.data.ActivityType
-import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.util.UnitSystem
-
 
 // Static, per-activity speed→colour scale so tracks are visually comparable across the whole list:
 // red (slow) → green (a good cruising pace) → blue (fast). Hue runs 0°(red)→240°(blue), so with an
@@ -45,7 +39,6 @@ private const val HUE_RED = 0f
 private const val HUE_BLUE = 240f
 
 private const val SPEED_SATURATION = 0.9f
-
 
 // L=0.5 glows against the dark basemap but washes out (especially the green/yellow middle of
 // the ramp) on the pale light basemap — deeper colours there.
@@ -71,7 +64,6 @@ private fun speedScaleFor(activity: ActivityType, units: UnitSystem): SpeedScale
         units.bySpeedUnit(kmh = SpeedScale(2f, 8f), mph = SpeedScale(1f, 5f))
 }
 
-
 // --- Track line colouring by metric ------------------------------------------------------------
 
 /** Which per-point metric the track line is coloured by. */
@@ -90,6 +82,7 @@ private fun noDataArgb(dark: Boolean) = Color.hsl(0f, 0f, if (dark) 0.6f else 0.
 internal sealed interface Legend {
     /** Continuous red→green→blue ramp with anchor labels. */
     data class Ramp(val left: String, val mid: String, val right: String) : Legend
+
     /** No point in the track carries this metric. */
     data class None(val message: String) : Legend
 }
@@ -105,7 +98,12 @@ private fun rampColor(value: Float?, redAt: Float, blueAt: Float, luminance: Flo
 }
 
 private fun rampColoring(
-    values: List<Float?>, redAt: Float, blueAt: Float, unit: String, emptyMsg: String, dark: Boolean,
+    values: List<Float?>,
+    redAt: Float,
+    blueAt: Float,
+    unit: String,
+    emptyMsg: String,
+    dark: Boolean,
 ): TrackColoring {
     // Resolved once per coloring, not per point — Color.hsl is a real conversion.
     val noData = noDataArgb(dark)
@@ -125,7 +123,10 @@ private fun rampColoring(
  * unit — the single mode→series/unit mapping, feeding both the graph and the map colouring.
  */
 internal fun metricSeries(
-    points: List<TrackPoint>, mode: ColorMode, speedsKmh: FloatArray, units: UnitSystem,
+    points: List<TrackPoint>,
+    mode: ColorMode,
+    speedsKmh: FloatArray,
+    units: UnitSystem,
 ): Pair<List<Float?>, String> = when (mode) {
     ColorMode.SPEED -> List(points.size) { units.fromKmh(speedsKmh[it]) } to units.speedUnit
     ColorMode.ELEVATION -> points.map { it.altitude?.toFloat()?.let(units::fromMeters) } to units.shortUnit
@@ -140,8 +141,12 @@ internal fun metricSeries(
  * metric are grey.
  */
 internal fun trackColoring(
-    points: List<TrackPoint>, speedsKmh: FloatArray, mode: ColorMode, activity: ActivityType?,
-    dark: Boolean, units: UnitSystem,
+    points: List<TrackPoint>,
+    speedsKmh: FloatArray,
+    mode: ColorMode,
+    activity: ActivityType?,
+    dark: Boolean,
+    units: UnitSystem,
 ): TrackColoring {
     // Anchors are hand-rounded in the display unit (see SpeedScale), so the legend reads round
     // numbers in every system; the colours may sit a hair apart between systems as a result.

@@ -344,5 +344,4 @@ class TrackRepositoryTest {
         // off the points — or the same file would import again as a second copy.
         assertEquals(0, repository.importTracks(file).imported)
     }
-
 }

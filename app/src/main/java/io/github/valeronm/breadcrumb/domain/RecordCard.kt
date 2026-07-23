@@ -93,8 +93,11 @@ fun recorderCardTitle(
             idleTitle(nowMs, lastReadingAtMs, deaf, formatDuration)
         } else {
             val label = (pausedActivity ?: activity)?.label?.lowercase() ?: "activity"
-            if (left != null) "Paused · $label resumes within ${formatCountdown(left)}"
-            else "Paused · $label"
+            if (left != null) {
+                "Paused · $label resumes within ${formatCountdown(left)}"
+            } else {
+                "Paused · $label"
+            }
         }
     }
     RecordCardState.WAITING_FOR_MOVEMENT -> idleTitle(nowMs, lastReadingAtMs, deaf, formatDuration)

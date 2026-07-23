@@ -1,14 +1,11 @@
 package io.github.valeronm.breadcrumb.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.gestures.drag
-import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,7 +48,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
@@ -60,12 +56,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
-import io.github.valeronm.breadcrumb.data.AndroidDistance
-import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.DwellDetector
@@ -77,6 +71,7 @@ import io.github.valeronm.breadcrumb.util.avgSpeedKmh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Date
+import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 
 /** The map legend's line for a greyed edge: which side ran on, and for how long. */
 private fun overrunLabel(overrun: EdgeStayIgnore.Overrun): String {
@@ -154,7 +149,7 @@ internal fun TrackMapScreen(
                             Icon(
                                 Icons.Filled.Warning,
                                 contentDescription =
-                                    if (showNoisy) "Hide noisy fixes" else "Show noisy fixes",
+                                if (showNoisy) "Hide noisy fixes" else "Show noisy fixes",
                                 tint = if (showNoisy) {
                                     MaterialTheme.colorScheme.error
                                 } else {
@@ -516,7 +511,6 @@ private fun MetricGraph(
         }
     }
 }
-
 
 // Chip colours match the marker drawables (ic_marker_noisy / _jump / _gnss).
 private fun noisyLegendEntry(reason: IgnoreReason?): Pair<String, Color> = when (reason) {

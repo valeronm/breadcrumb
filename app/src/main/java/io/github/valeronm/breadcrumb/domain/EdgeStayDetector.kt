@@ -158,15 +158,21 @@ object EdgeStayDetector {
         // A bin edge is an instant between fixes; the boundary is the fix the surviving track
         // would keep — everything strictly beyond it goes.
         fun boundaryAt(side: Side, instant: Long): TrackPoint? =
-            if (side == Side.END) good.lastOrNull { it.timestamp < instant }
-            else good.firstOrNull { it.timestamp >= instant }
+            if (side == Side.END) {
+                good.lastOrNull { it.timestamp < instant }
+            } else {
+                good.firstOrNull { it.timestamp >= instant }
+            }
 
         // How far the span being cut ranges from where the journey ends (starts): a stop barely
         // moves, so this is the check that the two stages agree about the same stretch.
         fun spreadOf(side: Side, boundary: TrackPoint): Double {
             val span = good.filter {
-                if (side == Side.END) it.timestamp >= boundary.timestamp
-                else it.timestamp <= boundary.timestamp
+                if (side == Side.END) {
+                    it.timestamp >= boundary.timestamp
+                } else {
+                    it.timestamp <= boundary.timestamp
+                }
             }
             val anchor = span.first()
             return span.maxOf {

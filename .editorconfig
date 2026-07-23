@@ -1,0 +1,22 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+[*.{kt,kts}]
+indent_size = 4
+# The codebase is hand-formatted in Android Studio; intellij_idea is the ktlint style that
+# matches it (ktlint_official would mass-reformat). Line length is reviewed, not enforced.
+max_line_length = off
+ktlint_code_style = intellij_idea
+# Composables are PascalCase by convention; don't flag them as misnamed functions.
+ktlint_function_naming_ignore_when_annotated_with = Composable
+# Layout-preference rules that fight the codebase's hand formatting:
+# argument wrapping and one-line signatures are chosen per call for readability,
+# test fixtures use UPPER_CASE vals and column-aligned trailing comments.
+ktlint_standard_argument-list-wrapping = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_property-naming = disabled
+ktlint_standard_no-multi-spaces = disabled

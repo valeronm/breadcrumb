@@ -103,11 +103,15 @@ object EdgeStayIgnore {
     /** [plan] applied to the points in memory — what the rows will read after the writes, and the
      *  only form available to a backup restore, whose points have no rows yet. */
     fun applied(points: List<TrackPoint>, plan: Plan): List<TrackPoint> =
-        if (!plan.movesPoints) points else points.mapIndexed { i, p ->
-            when (i) {
-                in plan.ignore -> p.copy(ignored = true, ignoreReason = IgnoreReason.EDGE_STAY.code)
-                in plan.restore -> p.copy(ignored = false, ignoreReason = null)
-                else -> p
+        if (!plan.movesPoints) {
+            points
+        } else {
+            points.mapIndexed { i, p ->
+                when (i) {
+                    in plan.ignore -> p.copy(ignored = true, ignoreReason = IgnoreReason.EDGE_STAY.code)
+                    in plan.restore -> p.copy(ignored = false, ignoreReason = null)
+                    else -> p
+                }
             }
         }
 

@@ -14,7 +14,8 @@ enum class UnitChoice(val label: String) {
     SYSTEM("Automatic"),
     METRIC("Kilometres"),
     IMPERIAL("Miles"),
-    UK("Miles + metres");
+    UK("Miles + metres"),
+    ;
 
     /** The system to format with; SYSTEM resolves by [country] (ISO 3166, `Locale.country`). */
     fun resolve(country: String): UnitSystem = when (this) {
@@ -49,7 +50,8 @@ enum class UnitSystem(
     IMPERIAL(1000.0 * KM_PER_MI, "mi", FT_PER_M, "ft", KM_PER_MI, "mph"),
 
     // The British mix: miles and mph on the road, metres for everything short-range.
-    UK(1000.0 * KM_PER_MI, "mi", 1.0, "m", KM_PER_MI, "mph");
+    UK(1000.0 * KM_PER_MI, "mi", 1.0, "m", KM_PER_MI, "mph"),
+    ;
 
     /**
      * A track-length distance in the big unit (km or mi). One decimal below 100 (dropped when it's

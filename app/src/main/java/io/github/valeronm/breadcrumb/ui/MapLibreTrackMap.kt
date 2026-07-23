@@ -21,6 +21,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.ActivityType
@@ -31,7 +32,6 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.StayDeriver
-import com.google.gson.JsonObject
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -274,6 +274,7 @@ private const val DWELL_LINE = "dwell-line"
 
 private const val EDGE_STAY_SOURCE = "edge-stay-src"
 private const val EDGE_STAY_LAYER = "edge-stay-layer"
+
 // Greys the coloured line underneath rather than adding a colour of its own: dark theme needs a
 // darker grey than the track to read as receding, light theme a lighter one.
 private const val EDGE_STAY_DIM_DARK = 0xD9424242.toInt()
@@ -353,10 +354,13 @@ private fun framePositions(points: List<TrackPoint>, noisyPoints: List<TrackPoin
 
 /** The points as one polyline, or null below the two positions a GeoJSON LineString needs. */
 private fun lineFeature(points: List<TrackPoint>): Feature? =
-    if (points.size < 2) null
-    else Feature.fromGeometry(
-        LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) }),
-    )
+    if (points.size < 2) {
+        null
+    } else {
+        Feature.fromGeometry(
+            LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) }),
+        )
+    }
 
 private fun trackLineFeature(points: List<TrackPoint>): FeatureCollection =
     FeatureCollection.fromFeatures(listOfNotNull(lineFeature(points)))
@@ -469,8 +473,11 @@ private fun selectionCollection(p: TrackPoint?): FeatureCollection =
         listOfNotNull(
             p?.let {
                 val bearing = it.bearing
-                if (bearing != null) markerFeature(it, IMG_POINTER, bearing)
-                else markerFeature(it, IMG_SELECTED)
+                if (bearing != null) {
+                    markerFeature(it, IMG_POINTER, bearing)
+                } else {
+                    markerFeature(it, IMG_SELECTED)
+                }
             },
         ),
     )

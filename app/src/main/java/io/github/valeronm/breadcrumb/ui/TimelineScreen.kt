@@ -7,92 +7,88 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.drag
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.offset
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.unit.IntOffset
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.EdgeStaySweepStatus
-import io.github.valeronm.breadcrumb.data.db.Place
-import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -156,7 +152,8 @@ internal fun TracksTab(
         val hit = groups.indices.firstNotNullOfOrNull { g ->
             val i = groups[g].second.indexOfFirst {
                 it is TimelineItem.StayItem &&
-                    it.stay.afterTrackId == target.afterTrackId && it.stay.start == target.start
+                    it.stay.afterTrackId == target.afterTrackId &&
+                    it.stay.start == target.start
             }
             if (i >= 0) (dayAnchors[g].second + 1 + i) to groups[g].second[i] else null
         }
@@ -182,56 +179,56 @@ internal fun TracksTab(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            // Rows within a day sit tight so the group reads as one visual block.
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            groups.forEach { (label, dayItems) ->
-                val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
-                stickyHeader(key = "header:$label") {
-                    DayHeader(label, dayTracks) {
-                        viewModel.shareTracks(dayTracks.map { it.id }) { intent ->
-                            if (intent != null) context.startActivity(intent)
+                contentPadding = PaddingValues(16.dp),
+                // Rows within a day sit tight so the group reads as one visual block.
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                groups.forEach { (label, dayItems) ->
+                    val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
+                    stickyHeader(key = "header:$label") {
+                        DayHeader(label, dayTracks) {
+                            viewModel.shareTracks(dayTracks.map { it.id }) { intent ->
+                                if (intent != null) context.startActivity(intent)
+                            }
+                        }
+                    }
+                    itemsIndexed(dayItems, key = { _, item -> item.rowKey() }) { index, item ->
+                        val shape = groupedRowShape(index, dayItems.size)
+                        when (item) {
+                            is TimelineItem.TrackItem -> TrackRow(
+                                track = item.summary,
+                                shape = shape,
+                                onOpen = { onOpen(item.summary.id) },
+                                onDelete = {
+                                    val id = item.summary.id
+                                    viewModel.delete(id)
+                                    undo.show("Track deleted") { viewModel.restoreTrack(id) }
+                                },
+                                // DEBUG: long-press replays the track through the Record tab's live view.
+                                onReplay = if (BuildConfig.DEBUG) {
+                                    { onReplay(item.summary) }
+                                } else {
+                                    null
+                                },
+                            )
+                            is TimelineItem.StayItem -> StayRow(
+                                item = item,
+                                shape = shape,
+                                highlighted = item.rowKey() == highlightKey,
+                                onMerge = { plan ->
+                                    viewModel.mergeTracks(plan) { mergedId ->
+                                        undo.show("Tracks merged") { viewModel.unmergeTracks(mergedId, plan) }
+                                    }
+                                },
+                                onClick = {
+                                    item.place?.let { onOpenPlace(placeDetailKeyOf(it.placeId, it.centroid)) }
+                                },
+                            )
+                            is TimelineItem.GapItem -> GapRow(item, shape, onOpenPlace)
                         }
                     }
                 }
-                itemsIndexed(dayItems, key = { _, item -> item.rowKey() }) { index, item ->
-                    val shape = groupedRowShape(index, dayItems.size)
-                    when (item) {
-                        is TimelineItem.TrackItem -> TrackRow(
-                            track = item.summary,
-                            shape = shape,
-                            onOpen = { onOpen(item.summary.id) },
-                            onDelete = {
-                                val id = item.summary.id
-                                viewModel.delete(id)
-                                undo.show("Track deleted") { viewModel.restoreTrack(id) }
-                            },
-                            // DEBUG: long-press replays the track through the Record tab's live view.
-                            onReplay = if (BuildConfig.DEBUG) {
-                                { onReplay(item.summary) }
-                            } else {
-                                null
-                            },
-                        )
-                        is TimelineItem.StayItem -> StayRow(
-                            item = item,
-                            shape = shape,
-                            highlighted = item.rowKey() == highlightKey,
-                            onMerge = { plan ->
-                                viewModel.mergeTracks(plan) { mergedId ->
-                                    undo.show("Tracks merged") { viewModel.unmergeTracks(mergedId, plan) }
-                                }
-                            },
-                            onClick = {
-                                item.place?.let { onOpenPlace(placeDetailKeyOf(it.placeId, it.centroid)) }
-                            },
-                        )
-                        is TimelineItem.GapItem -> GapRow(item, shape, onOpenPlace)
-                    }
-                }
             }
-        }
         }
         TimelineFastScroller(state = listState, dayAnchors = dayAnchors)
     }
@@ -365,8 +362,11 @@ private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List
             Surface(
                 modifier = Modifier.size(width = thumbWidth, height = thumbHeight).alpha(alpha),
                 shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
-                color = if (dragging) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.secondaryContainer,
+                color = if (dragging) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.secondaryContainer
+                },
                 tonalElevation = 3.dp,
                 shadowElevation = 3.dp,
             ) {
@@ -374,8 +374,11 @@ private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List
                     Icon(
                         Icons.Filled.UnfoldMore,
                         contentDescription = "Scroll to a day",
-                        tint = if (dragging) MaterialTheme.colorScheme.onPrimaryContainer
-                        else MaterialTheme.colorScheme.onSecondaryContainer,
+                        tint = if (dragging) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        },
                         modifier = Modifier.size(22.dp),
                     )
                 }
@@ -668,7 +671,6 @@ private fun EdgeStaySweepBanner(progress: EdgeStaySweepStatus.Progress, modifier
     }
 }
 
-
 // Unnamed clusters visited at least this often surface their count as a naming invitation.
 private const val VISIT_COUNT_BADGE_MIN = 3
 
@@ -717,8 +719,11 @@ private fun StayCard(
     val place = item.place
     // Appears already tinted when a place-visit jump lands on this row, then fades to normal.
     val containerColor by animateColorAsState(
-        targetValue = if (highlighted) MaterialTheme.colorScheme.primaryContainer
-        else CardDefaults.cardColors().containerColor,
+        targetValue = if (highlighted) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            CardDefaults.cardColors().containerColor
+        },
         animationSpec = tween(durationMillis = 600),
         label = "stayHighlight",
     )

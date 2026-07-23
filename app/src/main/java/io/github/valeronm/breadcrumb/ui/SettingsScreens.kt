@@ -5,56 +5,56 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import kotlinx.coroutines.launch
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.BuildConfig
-import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
-import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.UnitChoice
+import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /** A Settings sub-page stacked above the Settings hub (shares one overlay slot in MainScreen). */
 internal enum class SettingsPage {
-    Sampling, PointQuality, AutoPause, GpsSearch, TrackFiltering, RecentlyDeleted, Logs,
+    Sampling,
+    PointQuality,
+    AutoPause,
+    GpsSearch,
+    TrackFiltering,
+    RecentlyDeleted,
+    Logs,
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -218,10 +218,14 @@ private fun SettingsPageDescription(text: String) {
 @Composable
 internal fun SamplingSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val intervalSec = rememberPref(AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC,
-        { AppSettings.minIntervalSec(context) }) { AppSettings.setMinIntervalSec(context, it) }
-    val distanceM = rememberPref(AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
-        { AppSettings.minDistanceM(context) }) { AppSettings.setMinDistanceM(context, it) }
+    val intervalSec = rememberPref(
+        AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC,
+        { AppSettings.minIntervalSec(context) },
+    ) { AppSettings.setMinIntervalSec(context, it) }
+    val distanceM = rememberPref(
+        AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
+        { AppSettings.minDistanceM(context) },
+    ) { AppSettings.setMinDistanceM(context, it) }
     SettingsSubPage("Sampling", onBack, listOf(intervalSec, distanceM)) {
         SettingsPageDescription(
             "How densely points are recorded while moving.",
@@ -245,10 +249,14 @@ internal fun SamplingSettingsScreen(onBack: () -> Unit) {
 @Composable
 internal fun PointQualitySettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val accuracyGateM = rememberPref(AppSettings.DEFAULT_ACCURACY_GATE_M,
-        { AppSettings.accuracyGateM(context) }) { AppSettings.setAccuracyGateM(context, it) }
-    val requireGnssFix = rememberPref(AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
-        { AppSettings.requireGnssFix(context) }) { AppSettings.setRequireGnssFix(context, it) }
+    val accuracyGateM = rememberPref(
+        AppSettings.DEFAULT_ACCURACY_GATE_M,
+        { AppSettings.accuracyGateM(context) },
+    ) { AppSettings.setAccuracyGateM(context, it) }
+    val requireGnssFix = rememberPref(
+        AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
+        { AppSettings.requireGnssFix(context) },
+    ) { AppSettings.setRequireGnssFix(context, it) }
     SettingsSubPage("Point quality", onBack, listOf(accuracyGateM, requireGnssFix)) {
         SettingsPageDescription("Which recorded points count as good.")
         GroupedRows(
@@ -279,8 +287,10 @@ internal fun PointQualitySettingsScreen(onBack: () -> Unit) {
 @Composable
 internal fun AutoPauseSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val resumeWindowSec = rememberPref(AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
-        { AppSettings.resumeWindowSec(context) }) { AppSettings.setResumeWindowSec(context, it) }
+    val resumeWindowSec = rememberPref(
+        AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
+        { AppSettings.resumeWindowSec(context) },
+    ) { AppSettings.setResumeWindowSec(context, it) }
     SettingsSubPage("Auto-pause", onBack, listOf(resumeWindowSec)) {
         SettingsPageDescription(
             "A stop shorter than this keeps the track open — moving again continues the same " +
@@ -299,8 +309,10 @@ internal fun AutoPauseSettingsScreen(onBack: () -> Unit) {
 @Composable
 internal fun GpsSearchSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val gpsGiveUpSec = rememberPref(AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
-        { AppSettings.gpsGiveUpSec(context) }) { AppSettings.setGpsGiveUpSec(context, it) }
+    val gpsGiveUpSec = rememberPref(
+        AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
+        { AppSettings.gpsGiveUpSec(context) },
+    ) { AppSettings.setGpsGiveUpSec(context, it) }
     SettingsSubPage("GPS search", onBack, listOf(gpsGiveUpSec)) {
         SettingsPageDescription(
             "If no good position arrives for this long, GPS pauses and retries when you move " +
@@ -319,12 +331,18 @@ internal fun GpsSearchSettingsScreen(onBack: () -> Unit) {
 @Composable
 internal fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val minDurationSec = rememberPref(AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC,
-        { AppSettings.minTrackDurationSec(context) }) { AppSettings.setMinTrackDurationSec(context, it) }
-    val minLengthM = rememberPref(AppSettings.DEFAULT_TRACK_MIN_LENGTH_M,
-        { AppSettings.minTrackLengthM(context) }) { AppSettings.setMinTrackLengthM(context, it) }
-    val minExtentM = rememberPref(AppSettings.DEFAULT_TRACK_MIN_EXTENT_M,
-        { AppSettings.minTrackExtentM(context) }) { AppSettings.setMinTrackExtentM(context, it) }
+    val minDurationSec = rememberPref(
+        AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC,
+        { AppSettings.minTrackDurationSec(context) },
+    ) { AppSettings.setMinTrackDurationSec(context, it) }
+    val minLengthM = rememberPref(
+        AppSettings.DEFAULT_TRACK_MIN_LENGTH_M,
+        { AppSettings.minTrackLengthM(context) },
+    ) { AppSettings.setMinTrackLengthM(context, it) }
+    val minExtentM = rememberPref(
+        AppSettings.DEFAULT_TRACK_MIN_EXTENT_M,
+        { AppSettings.minTrackExtentM(context) },
+    ) { AppSettings.setMinTrackExtentM(context, it) }
     // Min length and min extent share one scale: both are "how far did the track get" thresholds.
     val lengthScale =
         rememberDistanceScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), zeroIsOff = true)

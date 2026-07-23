@@ -20,13 +20,13 @@ import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.BackupImporter
 import io.github.valeronm.breadcrumb.data.export.GpxExporter
 import io.github.valeronm.breadcrumb.data.export.GpxParser
-import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.location.TrackingStatus
+import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,7 +122,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                             before, after, item.stay.start, item.stay.end,
                             stayIsNamedPlace = resolution?.label != null,
                         )
-                    } else null
+                    } else {
+                        null
+                    }
                     item.copy(place = resolution, merge = merge)
                 }
             }
@@ -350,8 +352,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             val single = uris.size == 1
             val intent = Intent(if (single) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
                 type = GpxExporter.MIME_TYPE
-                if (single) putExtra(Intent.EXTRA_STREAM, uris.first())
-                else putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                if (single) {
+                    putExtra(Intent.EXTRA_STREAM, uris.first())
+                } else {
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                }
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             onReady(Intent.createChooser(intent, if (single) "Share GPX track" else "Share GPX tracks"))

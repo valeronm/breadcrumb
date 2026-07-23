@@ -380,8 +380,10 @@ class StayDeriverTest {
     private val DAY = 24 * 60 * MIN
 
     @Test fun `a midnight-spanning stay splits into per-day slices with clamped bounds`() {
-        val stay = Stay(start = 20 * 60 * MIN, end = DAY + 9 * 60 * MIN, location = home,
-            provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0)
+        val stay = Stay(
+            start = 20 * 60 * MIN, end = DAY + 9 * 60 * MIN, location = home,
+            provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0,
+        )
         val slices = StayDeriver.slicePerDay(listOf(stay), utc, nowMs = 2 * DAY)
         assertEquals(2, slices.size)
         assertEquals(20 * 60 * MIN, slices[0].start)
@@ -392,8 +394,10 @@ class StayDeriverTest {
     }
 
     @Test fun `an ongoing stay keeps its null end on the final slice only`() {
-        val stay = Stay(start = 20 * 60 * MIN, end = null, location = home,
-            provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0)
+        val stay = Stay(
+            start = 20 * 60 * MIN, end = null, location = home,
+            provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0,
+        )
         val slices = StayDeriver.slicePerDay(listOf(stay), utc, nowMs = DAY + 9 * 60 * MIN)
         assertEquals(2, slices.size)
         assertEquals(DAY, slices[0].end)

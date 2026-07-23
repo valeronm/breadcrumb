@@ -26,10 +26,14 @@ fun AppTheme(
         // while filled cards sit on the darker surfaceContainerHighest. The platform look
         // (system Settings, Google apps) is the opposite — a dipped canvas with near-white
         // content cards — so remap those two roles. Dark already stacks the right way.
-        if (darkTheme) it else it.copy(
-            background = it.surfaceContainer,
-            surfaceContainerHighest = it.surfaceContainerLowest,
-        )
+        if (darkTheme) {
+            it
+        } else {
+            it.copy(
+                background = it.surfaceContainer,
+                surfaceContainerHighest = it.surfaceContainerLowest,
+            )
+        }
     }
     MaterialTheme(colorScheme = colorScheme, typography = AppTypography, content = content)
 }

@@ -50,15 +50,21 @@ class TrackController {
         // A switch within the same motion family keeps the live track, with a segment break at
         // the boundary; a cross-family change splits.
         is Phase.Recording ->
-            if (p.activity.sharesTrackWith(activity)) RecordingAction.ContinueSameTrack(activity)
-            else RecordingAction.StartNew(activity)
+            if (p.activity.sharesTrackWith(activity)) {
+                RecordingAction.ContinueSameTrack(activity)
+            } else {
+                RecordingAction.StartNew(activity)
+            }
 
         // Back before the deadline, in the same family: the same outing continues. Otherwise the
         // window has lapsed (or this is a different kind of movement) and it's a new track —
         // strictly before, so a zero window never resumes.
         is Phase.Paused ->
-            if (atMs < p.resumeDeadlineMs && p.activity.sharesTrackWith(activity)) RecordingAction.Resume
-            else RecordingAction.StartNew(activity)
+            if (atMs < p.resumeDeadlineMs && p.activity.sharesTrackWith(activity)) {
+                RecordingAction.Resume
+            } else {
+                RecordingAction.StartNew(activity)
+            }
 
         Phase.Idle -> RecordingAction.StartNew(activity)
     }

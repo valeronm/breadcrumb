@@ -57,5 +57,4 @@ class DeafnessWarning(
         detections = 0
         warned = false
     }
-
 }

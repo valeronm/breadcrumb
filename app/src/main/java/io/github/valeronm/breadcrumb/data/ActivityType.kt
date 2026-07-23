@@ -24,11 +24,13 @@ enum class ActivityType(
     RUNNING("Running", true, TrackGroup.FOOT),
     CYCLING("Cycling", true, TrackGroup.BICYCLE),
     DRIVING("Driving", true, TrackGroup.VEHICLE),
+
     /** Never detected (activity recognition only sees IN_VEHICLE) — assigned by hand on the
      *  track page to mark rides where the user was a passenger. */
     TAXI("Taxi", true, TrackGroup.VEHICLE),
     STILL("Stationary", false, TrackGroup.STILL),
-    UNKNOWN("Moving", true, TrackGroup.UNKNOWN);
+    UNKNOWN("Moving", true, TrackGroup.UNKNOWN),
+    ;
 
     /** Whether [other] belongs in the same track as this activity when detection switches between them. */
     fun sharesTrackWith(other: ActivityType): Boolean = trackGroup == other.trackGroup

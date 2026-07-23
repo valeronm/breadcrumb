@@ -155,16 +155,20 @@ class PlaceResolverTest {
     }
 
     @Test fun `an ongoing stay counts up to now`() {
-        val s = summarize(listOf(stayAt(at(0.0), start = 40_000, end = null)),
-            listOf(place(7, "Home", at(0.0)))).single()
+        val s = summarize(
+            listOf(stayAt(at(0.0), start = 40_000, end = null)),
+            listOf(place(7, "Home", at(0.0))),
+        ).single()
         assertEquals(NOW, s.lastSeenMs)
         assertEquals(NOW - 40_000, s.totalMs)
     }
 
     @Test fun `a named place with no stays is still listed with zero`() {
         // The lone stay forms its own unnamed cluster; the distant named place is a zero orphan.
-        val summaries = summarize(listOf(stayAt(at(0.0), 1_000, 2_000)),
-            listOf(place(7, "Faraway", at(500.0))))
+        val summaries = summarize(
+            listOf(stayAt(at(0.0), 1_000, 2_000)),
+            listOf(place(7, "Faraway", at(500.0))),
+        )
         val faraway = summaries.single { it.place?.label == "Faraway" }
         assertEquals(0, faraway.visitCount)
         assertNull(faraway.lastSeenMs)

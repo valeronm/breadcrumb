@@ -24,6 +24,7 @@ object Settings {
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_UNIT_CHOICE = "unit_choice"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
+
     // The stored name predates the verdict moving onto the points; it stays as it is, because a
     // renamed key reads back 0 on every installed device and re-walks the whole history for nothing.
     private const val KEY_EDGE_STAY_RULE_VERSION = "review_mark_rule_version"

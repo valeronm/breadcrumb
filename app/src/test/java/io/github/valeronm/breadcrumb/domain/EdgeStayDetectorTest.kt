@@ -227,7 +227,13 @@ class EdgeStayDetectorTest {
             val approach = (0 until 60).map { i -> pt(6.67 * i, i * 5_000L, 1.33f) }
             val parked = (0 until 120).map { i ->
                 val t = 5 * MIN + i * 5_000L
-                val off = if (i == 60) excursionM else if (i % 2 == 0) 2.0 else -2.0
+                val off = if (i == 60) {
+                    excursionM
+                } else if (i % 2 == 0) {
+                    2.0
+                } else {
+                    -2.0
+                }
                 pt(400.0 + off, t, if (i == 60) (excursionM / 30.0).toFloat() else 0.1f)
             }
             return approach + parked

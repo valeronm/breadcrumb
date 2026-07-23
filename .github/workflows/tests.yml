@@ -34,6 +34,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      - name: Check code style
+        run: ./gradlew :app:ktlintCheck
+
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest
 

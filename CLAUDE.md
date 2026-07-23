@@ -30,6 +30,13 @@ adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png   # screenshot to
 The Gradle and AGP versions are pinned and coupled — if you upgrade one, move the other to a
 compatible pair, not one alone.
 
+Code style is enforced by **ktlint** (`./gradlew :app:ktlintCheck`, auto-fix with
+`:app:ktlintFormat`; CI runs the check). The config lives in `.editorconfig`: `intellij_idea`
+code style to match the hand formatting, line length unenforced, and a few layout-preference
+rules disabled deliberately (argument wrapping, one-line signatures, UPPER_CASE fixture vals,
+column-aligned fixture comments). The disables are choices, not oversights — re-enabling one
+is a style decision to raise with the user, not a cleanup.
+
 ## Unit tests
 
 Unit tests live in `app/src/test` and cover the pure logic in `domain/` plus data-layer pieces
@@ -219,7 +226,7 @@ how to derive them from commits since the last *uploaded* build, and the version
 Every build uploaded to Play is marked with a lightweight tag `v1.0-vc<N>` (N = versionCode) on
 the commit it was built from — so "commits since the last uploaded build" is just
 `git log v1.0-vc<N>..`. GitHub Actions automates the pipeline (`.github/workflows/`):
-`tests.yml` runs the unit tests on every push/PR; `release.yml` fires on pushing a `v1.0-vc<N>`
+`tests.yml` runs ktlint and the unit tests on every push/PR; `release.yml` fires on pushing a `v1.0-vc<N>`
 tag — it fails unless N matches `versionCode` in `app/build.gradle.kts`, builds the signed
 bundle (upload keystore + Protomaps key come from repo secrets), and attaches the `.aab` to a
 GitHub Release. Release flow: commit the `versionCode` bump → tag it `v1.0-vc<N>` → push the
