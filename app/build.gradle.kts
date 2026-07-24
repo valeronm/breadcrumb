@@ -172,7 +172,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.4.0")
 
     // MapLibre GL Native renders the recorded tracks on a Protomaps dark vector basemap.
-    implementation("org.maplibre.gl:android-sdk:11.8.0")
+    implementation("org.maplibre.gl:android-sdk:13.4.1")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
@@ -183,7 +183,7 @@ dependencies {
     // database rules — the denormalized track aggregates, and which writes invalidate which
     // observed query — are covered by the normal `testDebugUnitTest` run rather than needing a
     // device. Everything above the data layer still has no automated coverage.
-    testImplementation("org.robolectric:robolectric:4.16")
+    testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("androidx.test:core:1.7.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }
