@@ -1,6 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.DistanceFn
+import io.github.valeronm.breadcrumb.domain.DistanceFn
 
 /**
  * Groups stay locations into *places* by anchor-based greedy leader clustering. Nothing is

@@ -56,15 +56,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.AndroidDistance
-import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
+import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
@@ -164,7 +164,7 @@ internal fun TrackMapScreen(
                         }
                     }
                     IconButton(onClick = {
-                        viewModel.shareTracks(listOf(trackId)) { intent ->
+                        viewModel.importExport.shareTracks(listOf(trackId)) { intent ->
                             if (intent != null) context.startActivity(intent)
                         }
                     }) {
@@ -220,6 +220,7 @@ internal fun TrackMapScreen(
                                     selectedPoint = selectedIndex?.let { loaded.getOrNull(it) },
                                     dwells = dwells,
                                     overruns = overruns,
+                                    precomputedColoring = graph?.coloring,
                                     modifier = Modifier.fillMaxSize(),
                                 )
                                 if (showNoisy) {
@@ -298,14 +299,17 @@ internal fun TrackMapScreen(
     }
 }
 
-/** Per-point series for the metric graph: values (null = gap), map-matching colors, and a unit. */
+/** Per-point series for the metric graph: values (null = gap), the map's coloring, and a unit. */
 @Immutable
 internal class MetricGraphData(
     val points: List<TrackPoint>,
     val values: List<Float?>,
-    val colors: IntArray,
+    /** Shared with the map (via `precomputedColoring`) so the O(points) pass runs once. */
+    val coloring: TrackColoring,
     val unit: String,
-)
+) {
+    val colors: IntArray get() = coloring.colors
+}
 
 /** Null when no point carries the metric. */
 internal fun metricGraphData(
@@ -319,8 +323,8 @@ internal fun metricGraphData(
     val speeds = TrackQuality.pointSpeedsKmh(points)
     val (values, unit) = metricSeries(points, mode, speeds, units)
     if (values.all { it == null }) return null
-    val colors = trackColoring(points, speeds, mode, activity, dark, units).colors
-    return MetricGraphData(points, values, colors, unit)
+    val coloring = trackColoring(points, speeds, mode, activity, dark, units)
+    return MetricGraphData(points, values, coloring, unit)
 }
 
 /**
@@ -576,9 +580,9 @@ private fun TrackStatsHeader(summary: TrackSummary) {
     val durationS = summary.endedAt?.let { (it - summary.startedAt) / 1000.0 } ?: 0.0
     val avgKmh = avgSpeedKmh(summary.distanceMeters, durationS)
     val units = LocalUnits.current
-    Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-        HeaderStat("Distance", units.distance(summary.distanceMeters), Modifier.weight(1f))
-        HeaderStat("Duration", formatDuration(summary.startedAt, summary.endedAt), Modifier.weight(1f))
-        HeaderStat("Avg speed", if (avgKmh > 0) units.speedFromKmh(avgKmh) else "—", Modifier.weight(1f))
-    }
+    StatHeaderRow(
+        "Distance" to units.distance(summary.distanceMeters),
+        "Duration" to formatDuration(summary.startedAt, summary.endedAt),
+        "Avg speed" to if (avgKmh > 0) units.speedFromKmh(avgKmh) else "—",
+    )
 }

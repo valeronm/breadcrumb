@@ -9,6 +9,8 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.BackupImporter
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
+import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -78,7 +80,12 @@ class BackupRestoreTest {
         source.repository.deleteTrack(discarded)
         source.dao.insertTrack(Track(activityType = "WALKING", startedAt = TEST_START + 300_000L)) // open
 
-        source.db.placeDao().insert(Place(label = "Home", lat = 1.0, lon = -2.0, createdAt = TEST_START))
+        source.db.placeDao().insert(
+            Place(
+                label = "Home", lat = 1.0, lon = -2.0, createdAt = TEST_START,
+                radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
+            ),
+        )
         source.db.livenessDao().insert(LivenessEvent(type = "ARMED", at = TEST_START))
         source.db.livenessDao().insert(LivenessEvent(type = "OUTAGE", at = TEST_START + 1_000L, until = TEST_START + 2_000L))
 

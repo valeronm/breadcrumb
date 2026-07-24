@@ -1,6 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.domain.ActivityType
 
 /**
  * The decision logic behind [ActivityTransitionReceiver]: given an already-unpacked Activity-

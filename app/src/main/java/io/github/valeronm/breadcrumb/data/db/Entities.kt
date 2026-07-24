@@ -4,7 +4,6 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 
 /**
  * A single continuous recording session for one activity type (e.g. one drive, one walk).
@@ -110,7 +109,7 @@ data class TrackPoint(
      */
     val ignored: Boolean = false,
     /**
-     * Why the fix was ignored — an [io.github.valeronm.breadcrumb.data.IgnoreReason.code] string,
+     * Why the fix was ignored — an [io.github.valeronm.breadcrumb.domain.IgnoreReason.code] string,
      * null for good points and for ignored points recorded before reasons were tracked.
      */
     val ignoreReason: String? = null,
@@ -158,14 +157,11 @@ data class Place(
     val lon: Double,
     val createdAt: Long,
     /** Capture radius (meters): endpoints within it cluster to this place. User-tunable per
-     *  place — widen for big venues (malls, garages) whose GPS scatter exceeds the default. */
-    val radiusM: Double = DEFAULT_RADIUS_M,
-) {
-    companion object {
-        /** Matches the organic cluster radius. */
-        const val DEFAULT_RADIUS_M = PlaceClusterer.DEFAULT_RADIUS_M
-    }
-}
+     *  place — widen for big venues (malls, garages) whose GPS scatter exceeds the default
+     *  (PlaceClusterer.DEFAULT_RADIUS_M — callers pass it; the entity carries no default so the
+     *  db package stays free of domain imports). */
+    val radiusM: Double,
+)
 
 /** A finished track projected to what stay derivation needs: interval + endpoint coordinates. */
 data class TrackEndpoints(

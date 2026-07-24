@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardColors
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,10 +59,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.util.DistanceSliderScale
 import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.SliderStops
@@ -352,6 +355,59 @@ internal fun EmptyState(
     }
 }
 
+/**
+ * The lists' shared row skeleton: a category disc, a title and a subtitle line, on a card. Used
+ * by the Timeline's track and stay rows and the Places list, so their padding, disc placement and
+ * type scale can't drift apart. Pass [onClick] for a plain tap target; for anything richer (long
+ * press), leave it null and put the click modifier in [modifier]. The title color is explicit
+ * because the inherited card color dims to onSurfaceVariant under dynamic color
+ * (contentColorFor matches surfaceVariant first).
+ */
+@Composable
+internal fun ListRowCard(
+    shape: RoundedCornerShape,
+    icon: ImageVector,
+    tint: Color,
+    title: String,
+    titleColor: Color,
+    subtitle: AnnotatedString,
+    modifier: Modifier = Modifier,
+    iconDescription: String? = null,
+    discAlpha: Float = 0.22f,
+    colors: CardColors? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    val cardColors = colors ?: CardDefaults.cardColors()
+    val rowContent: @Composable ColumnScope.() -> Unit = {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TonalIconDisc(icon, tint, contentDescription = iconDescription, discAlpha = discAlpha)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+    if (onClick != null) {
+        Card(
+            onClick = onClick,
+            modifier = modifier.fillMaxWidth(),
+            shape = shape,
+            colors = cardColors,
+            content = rowContent,
+        )
+    } else {
+        Card(modifier = modifier.fillMaxWidth(), shape = shape, colors = cardColors, content = rowContent)
+    }
+}
+
 /** The list rows' category token: a glyph on a soft tonal disc of the same color (M3 "tonal"). */
 @Composable
 internal fun TonalIconDisc(
@@ -509,6 +565,14 @@ internal fun HeaderStat(label: String, value: String, modifier: Modifier = Modif
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, style = MaterialTheme.typography.titleLarge)
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** The detail screens' stats header: equal-width label→value cells in one padded row. */
+@Composable
+internal fun StatHeaderRow(vararg stats: Pair<String, String>) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+        for ((label, value) in stats) HeaderStat(label, value, Modifier.weight(1f))
     }
 }
 

@@ -27,8 +27,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
-import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.util.UnitSystem
 
 // Static, per-activity speed→color scale so tracks are visually comparable across the whole list:

@@ -1,6 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.domain.ActivityType
 
 /** What the Record tab's main area shows. Decided by [recordCardState]. */
 enum class RecordCardState {

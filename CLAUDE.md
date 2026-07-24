@@ -133,7 +133,14 @@ not built), `EdgeStayDetector` (the recorder's overrun at a track's edges, where
 Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to the points),
 `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
 `DeafnessWarning` (decide when to tell the user about it). New behavior
-belongs here first, with a test, before wiring into the service or UI.
+belongs here first, with a test, before wiring into the service or UI. The shared vocabulary lives
+here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, and the `DistanceFn` seam (production
+implementation `data/AndroidDistance`; the GMS `DetectedActivity` mapping is
+`location/DetectedActivities`). One deliberate impurity: domain functions take the Room entities
+(`TrackPoint`, `TrackSummary`, `Place`) directly rather than a mapped domain model — the point walk
+runs over millions of rows, and a per-row mapping allocation buys nothing but layering purity. The
+`db` package must not import `domain` back (that would make the two one unit); entities carry no
+domain defaults for the same reason.
 
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
 time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
@@ -233,7 +240,7 @@ how to derive them from commits since the last *uploaded* build, and the version
 Every build uploaded to Play is marked with a lightweight tag `v1.0-vc<N>` (N = versionCode) on
 the commit it was built from — so "commits since the last uploaded build" is just
 `git log v1.0-vc<N>..`. GitHub Actions automates the pipeline (`.github/workflows/`):
-`tests.yml` runs ktlint and the unit tests on every push/PR; `release.yml` fires on pushing a `v1.0-vc<N>`
+`tests.yml` runs ktlint, detekt, Android Lint and the unit tests on every push/PR; `release.yml` fires on pushing a `v1.0-vc<N>`
 tag — it fails unless N matches `versionCode` in `app/build.gradle.kts`, builds the signed
 bundle (upload keystore + Protomaps key come from repo secrets), and attaches the `.aab` to a
 GitHub Release. Release flow: commit the `versionCode` bump → tag it `v1.0-vc<N>` → push the

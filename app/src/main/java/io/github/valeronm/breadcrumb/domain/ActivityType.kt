@@ -1,10 +1,10 @@
-package io.github.valeronm.breadcrumb.data
+package io.github.valeronm.breadcrumb.domain
 
-import com.google.android.gms.location.DetectedActivity
 import java.util.Locale
 
 /**
- * The motion states we care about — Google's [DetectedActivity] constants reduced to a small set.
+ * The motion states we care about — Google's detected-activity constants reduced to a small set
+ * (the GMS mapping itself lives in the `location` package, keeping this enum platform-free).
  * An activity carries only what the recorder decides with: a label, whether it records at all, and
  * the [TrackGroup] that says which switches split a track. Sampling cadence is deliberately not
  * here: it is one global setting, so an activity change never re-tunes GPS.
@@ -36,16 +36,6 @@ enum class ActivityType(
     fun sharesTrackWith(other: ActivityType): Boolean = trackGroup == other.trackGroup
 
     companion object {
-        /** The activity transition types we ask Google Play Services to report. */
-        val TRACKED_DETECTED_ACTIVITIES = intArrayOf(
-            DetectedActivity.IN_VEHICLE,
-            DetectedActivity.ON_BICYCLE,
-            DetectedActivity.ON_FOOT,
-            DetectedActivity.WALKING,
-            DetectedActivity.RUNNING,
-            DetectedActivity.STILL,
-        )
-
         /** The [ActivityType] for a persisted `activityType` string (an [ActivityType.name]), or null. */
         fun ofName(stored: String): ActivityType? = entries.firstOrNull { it.name == stored }
 
@@ -56,15 +46,6 @@ enum class ActivityType(
         fun labelFor(stored: String): String =
             ofName(stored)?.label
                 ?: stored.lowercase(Locale.US).replaceFirstChar { it.uppercase() }
-
-        fun fromDetectedActivity(type: Int): ActivityType = when (type) {
-            DetectedActivity.IN_VEHICLE -> DRIVING
-            DetectedActivity.ON_BICYCLE -> CYCLING
-            DetectedActivity.RUNNING -> RUNNING
-            DetectedActivity.WALKING, DetectedActivity.ON_FOOT -> WALKING
-            DetectedActivity.STILL -> STILL
-            else -> UNKNOWN
-        }
     }
 }
 

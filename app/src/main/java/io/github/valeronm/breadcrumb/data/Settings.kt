@@ -86,7 +86,11 @@ object Settings {
         prefs(context).getBoolean(KEY_AUTO_RECORD, false)
 
     fun setAutoRecord(context: Context, enabled: Boolean) {
-        prefs(context).edit { putBoolean(KEY_AUTO_RECORD, enabled) }
+        // Synchronous commit: this is the flag BootReceiver and the watchdog consult to decide
+        // whether a dead service should be resurrected. An async apply() lost to a process kill
+        // silently drops the user's arm (recording never resumes) or their disarm (recording
+        // comes back from the dead). It changes on a user tap, so the disk write is rare.
+        prefs(context).edit(commit = true) { putBoolean(KEY_AUTO_RECORD, enabled) }
     }
 
     // --- Sampling (between points) ------------------------------------------

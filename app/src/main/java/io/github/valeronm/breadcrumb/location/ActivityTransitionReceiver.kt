@@ -8,7 +8,6 @@ import com.google.android.gms.location.ActivityRecognitionResult
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
-import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.domain.ActivityInterpreter
 import io.github.valeronm.breadcrumb.util.DebugLog
 import java.util.Locale
@@ -47,7 +46,7 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                 }
                 // The last event is the current state; interpret it (see [ActivityInterpreter]).
                 val latest = result.transitionEvents.lastOrNull() ?: return
-                val detected = ActivityType.fromDetectedActivity(latest.activityType)
+                val detected = activityTypeOfDetected(latest.activityType)
                 val isExit = latest.transitionType == ActivityTransition.ACTIVITY_TRANSITION_EXIT
                 when (val decision = ActivityInterpreter.interpretTransition(detected, isExit)) {
                     ActivityInterpreter.TransitionDecision.Ignore -> Unit
@@ -72,7 +71,7 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
                 ActivityRecognitionManager(context).removeSnapshot()
 
                 val probable = result.mostProbableActivity
-                val activity = ActivityType.fromDetectedActivity(probable.type)
+                val activity = activityTypeOfDetected(probable.type)
                 val transitionApplied = service?.transitionSinceArm ?: false
                 val forward = ActivityInterpreter.interpretSnapshot(
                     activity,

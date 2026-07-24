@@ -25,13 +25,13 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.AndroidDistance
-import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
+import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -69,7 +69,7 @@ import kotlin.math.sin
  * current position nears the viewport edge — user pan/zoom survives otherwise.
  */
 @Composable
-fun MapLibreTrackMap(
+internal fun MapLibreTrackMap(
     points: List<TrackPoint>,
     modifier: Modifier = Modifier,
     noisyPoints: List<TrackPoint> = emptyList(),
@@ -85,19 +85,18 @@ fun MapLibreTrackMap(
     // Live preview: the last point is the current position — a droplet rotated to the movement
     // bearing instead of the finished-track end dot.
     directionalEnd: Boolean = false,
+    // A coloring the caller already computed for the same inputs (the track-detail screen builds
+    // one for its metric graph) — the O(points) pass then runs once, not twice.
+    precomputedColoring: TrackColoring? = null,
 ) {
     val darkTheme = isSystemInDarkTheme()
     val units = LocalUnits.current
-    val coloring = remember(points, colorMode, activity, darkTheme, units) {
-        trackColoring(points, TrackQuality.pointSpeedsKmh(points), colorMode, activity, darkTheme, units)
+    val coloring = remember(precomputedColoring, points, colorMode, activity, darkTheme, units) {
+        precomputedColoring
+            ?: trackColoring(points, TrackQuality.pointSpeedsKmh(points), colorMode, activity, darkTheme, units)
     }
     val paint = remember(points, coloring) { buildTrackPaint(points, coloring.colors) }
-    // Frame once per map; later updates (color switches, live point growth) must not move the
-    // camera — the live preview re-frames only when the current position nears the viewport edge.
-    val framed = remember { booleanArrayOf(false) }
-    // What each source/layer was last fed, so unrelated recompositions (e.g. the graph scrubber
-    // moving the selection) don't re-serialize the full track geometry into the native map.
-    val applied = remember { arrayOfNulls<Any?>(6) } // points, noisy, paint, selection, dwells, edges
+    val applied = remember { AppliedTrackInputs() }
 
     Box(modifier) {
         MapLibreStyledMap(
@@ -109,21 +108,21 @@ fun MapLibreTrackMap(
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
                 addSelectionLayer(ctx, style, selectedPoint)
                 frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
-                framed[0] = true
+                applied.framed = true
             },
             onUpdate = { map, style ->
                 // Recolor on color-mode change; also refresh geometry when the track grows (the
                 // live "current track" preview). Re-frame only when the points changed (not on a
                 // color switch), so a color change keeps the user's pan/zoom.
-                if (applied[0] !== points || applied[1] !== noisyPoints) {
-                    applied[0] = points
-                    applied[1] = noisyPoints
+                if (applied.points !== points || applied.noisy !== noisyPoints) {
+                    applied.points = points
+                    applied.noisy = noisyPoints
                     style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points))
                     style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints, directionalEnd))
                     // Live preview: hold the camera (so a pan/zoom survives and the map
                     // isn't re-rendered every fix); re-fit only when the current position
                     // drifts out of the middle 80% of the viewport.
-                    if (framed[0] && directionalEnd) {
+                    if (applied.framed && directionalEnd) {
                         points.lastOrNull()?.let { last ->
                             if (!map.projection.visibleRegion.latLngBounds
                                     .containsWithMargin(last.latitude, last.longitude)
@@ -137,28 +136,28 @@ fun MapLibreTrackMap(
                         }
                     }
                 }
-                if (applied[2] !== paint) {
-                    applied[2] = paint
+                if (applied.paint !== paint) {
+                    applied.paint = paint
                     style.getLayerAs<LineLayer>(TRACK_LAYER)?.let { applyPaint(it, paint) }
                 }
-                if (applied[3] !== selectedPoint) {
-                    applied[3] = selectedPoint
+                if (applied.selection !== selectedPoint) {
+                    applied.selection = selectedPoint
                     style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(selectedPoint))
                 }
-                if (applied[4] !== dwells) {
-                    applied[4] = dwells
+                if (applied.dwells !== dwells) {
+                    applied.dwells = dwells
                     style.getSourceAs<GeoJsonSource>(DWELL_SOURCE)?.setGeoJson(dwellCollection(dwells))
                 }
                 // Keyed on the overruns alone: they are loaded with the track, so a growing live
                 // track that has none (the record screen) never rebuilds this source.
-                if (applied[5] !== overruns) {
-                    applied[5] = overruns
+                if (applied.overruns !== overruns) {
+                    applied.overruns = overruns
                     style.getSourceAs<GeoJsonSource>(EDGE_STAY_SOURCE)
                         ?.setGeoJson(edgeStayFeature(overruns))
                 }
-                if (!framed[0]) {
+                if (!applied.framed) {
                     frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
-                    framed[0] = true
+                    applied.framed = true
                 }
             },
         )
@@ -167,6 +166,24 @@ fun MapLibreTrackMap(
             TrackLegend(coloring.legend, Modifier.align(Alignment.BottomEnd).padding(12.dp))
         }
     }
+}
+
+/**
+ * What each source/layer of the track map was last fed, so unrelated recompositions (e.g. the
+ * graph scrubber moving the selection) don't re-serialize the full track geometry into the
+ * native map. Identity comparisons, matching the stability of the remembered inputs.
+ */
+private class AppliedTrackInputs {
+    var points: List<TrackPoint>? = null
+    var noisy: List<TrackPoint>? = null
+    var paint: TrackPaint? = null
+    var selection: TrackPoint? = null
+    var dwells: List<DwellDetector.Dwell>? = null
+    var overruns: List<EdgeStayIgnore.Overrun>? = null
+
+    /** Frame once per map; later updates must not move the camera (the live preview re-frames
+     *  only when the current position nears the viewport edge). */
+    var framed = false
 }
 
 /**
@@ -638,7 +655,7 @@ class NeighborPlace(
  * a full refresh when the inputs change.
  */
 @Composable
-fun MapLibrePlaceMap(
+internal fun MapLibrePlaceMap(
     center: StayDeriver.Endpoint,
     radiusM: Double,
     endpoints: List<StayDeriver.Endpoint>,
@@ -646,30 +663,30 @@ fun MapLibrePlaceMap(
     neighbors: List<NeighborPlace> = emptyList(),
     showInternals: Boolean = true,
 ) {
-    val applied = remember { arrayOfNulls<Any?>(3) } // circle (center+radius), markers, internals
+    val applied = remember { AppliedPlaceInputs() }
     MapLibreStyledMap(
         modifier = modifier,
         onStyleLoaded = { ctx, map, style ->
-            applied[0] = center to radiusM
-            applied[1] = Triple(endpoints, neighbors, showInternals)
-            applied[2] = showInternals
+            applied.circle = center to radiusM
+            applied.markers = Triple(endpoints, neighbors, showInternals)
+            applied.internals = showInternals
             addPlaceLayers(ctx, style, center, radiusM, endpoints, neighbors, showInternals)
             framePlace(map, center, radiusM)
         },
         onUpdate = { map, style ->
-            if (applied[0] != center to radiusM) {
-                applied[0] = center to radiusM
+            if (applied.circle != center to radiusM) {
+                applied.circle = center to radiusM
                 style.getSourceAs<GeoJsonSource>(PLACE_CIRCLE_SOURCE)
                     ?.setGeoJson(circleFeature(center, radiusM))
                 framePlace(map, center, radiusM)
             }
-            if (applied[1] != Triple(endpoints, neighbors, showInternals)) {
-                applied[1] = Triple(endpoints, neighbors, showInternals)
+            if (applied.markers != Triple(endpoints, neighbors, showInternals)) {
+                applied.markers = Triple(endpoints, neighbors, showInternals)
                 style.getSourceAs<GeoJsonSource>(PLACE_MARKER_SOURCE)
                     ?.setGeoJson(placeMarkerCollection(center, endpoints, neighbors, showInternals))
             }
-            if (applied[2] != showInternals) {
-                applied[2] = showInternals
+            if (applied.internals != showInternals) {
+                applied.internals = showInternals
                 val visibility = PropertyFactory.visibility(
                     if (showInternals) Property.VISIBLE else Property.NONE,
                 )
@@ -678,6 +695,13 @@ fun MapLibrePlaceMap(
             }
         },
     )
+}
+
+/** Last-applied inputs of the place map — value comparisons, the inputs are rebuilt lists. */
+private class AppliedPlaceInputs {
+    var circle: Pair<StayDeriver.Endpoint, Double>? = null
+    var markers: Triple<List<StayDeriver.Endpoint>, List<NeighborPlace>, Boolean>? = null
+    var internals: Boolean? = null
 }
 
 private const val PLACE_CIRCLE_SOURCE = "place-circle-src"
@@ -780,12 +804,12 @@ class OverviewPlace(
  * framed to fit them all once on open. Tapping a marker reports its key via [onOpen].
  */
 @Composable
-fun MapLibrePlacesMap(
+internal fun MapLibrePlacesMap(
     places: List<OverviewPlace>,
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val applied = remember { arrayOfNulls<Any?>(1) }
+    val applied = remember { AppliedOverviewInputs() }
     // The click listener is registered once; route through a ref so it never goes stale.
     val onOpenRef = remember { arrayOf(onOpen) }
     onOpenRef[0] = onOpen
@@ -802,18 +826,23 @@ fun MapLibrePlacesMap(
             }
         },
         onStyleLoaded = { ctx, map, style ->
-            applied[0] = places
+            applied.places = places
             addOverviewLayers(ctx, style, places)
             frameTo(map, places.map { LatLng(it.location.lat, it.location.lon) }, singlePointZoom = 13.0)
         },
         onUpdate = { _, style ->
-            if (applied[0] !== places) {
-                applied[0] = places
+            if (applied.places !== places) {
+                applied.places = places
                 style.getSourceAs<GeoJsonSource>(OVERVIEW_SOURCE)
                     ?.setGeoJson(overviewCollection(places))
             }
         },
     )
+}
+
+/** Last-applied input of the all-places overview map. */
+private class AppliedOverviewInputs {
+    var places: List<OverviewPlace>? = null
 }
 
 private const val OVERVIEW_SOURCE = "places-overview-src"

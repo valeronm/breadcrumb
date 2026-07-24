@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -22,7 +23,12 @@ class PlaceRepository(context: Context, db: AppDatabase = AppDatabase.get(contex
     suspend fun restorePlaces(places: List<Place>) = dao.insertAll(places.map { it.copy(id = 0) })
 
     suspend fun create(label: String, lat: Double, lon: Double, now: Long): Long =
-        dao.insert(Place(label = label, lat = lat, lon = lon, createdAt = now))
+        dao.insert(
+            Place(
+                label = label, lat = lat, lon = lon, createdAt = now,
+                radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
+            ),
+        )
 
     suspend fun rename(id: Long, label: String) = dao.rename(id, label)
 

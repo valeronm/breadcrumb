@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -93,14 +93,10 @@ private enum class PlacesSort(val label: String) {
 /** How far around a place the detail map shows neighboring clusters for radius context. */
 internal const val NEIGHBOR_CONTEXT_M = 1_200.0
 
-/**
- * Unnamed clusters with fewer visits than this are "rare stops": hidden on the map unless its
- * "Rare stops" chip is on, and sorted to the tail of the list view.
- */
-private const val RARE_UNNAMED_MIN_VISITS = 3
-
+// Unnamed clusters below the notable-visit floor are "rare stops": hidden on the map unless its
+// "Rare stops" chip is on, and sorted to the tail of the list view.
 private fun PlaceResolver.PlaceSummary.isRareStop() =
-    !isNamed && visitCount < RARE_UNNAMED_MIN_VISITS
+    !isNamed && visitCount < PlaceResolver.NOTABLE_VISIT_MIN
 
 /** The Places tab: sortable list (tap for detail, swipe to delete) or an all-places map. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -532,23 +528,11 @@ internal fun PlaceDetailScreen(
 
 @Composable
 private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-        HeaderStat(
-            "Visits",
-            if (summary.visitCount > 0) "${summary.visitCount}" else "—",
-            Modifier.weight(1f),
-        )
-        HeaderStat(
-            "Time there",
-            if (summary.totalMs > 0) formatDurationMs(summary.totalMs) else "—",
-            Modifier.weight(1f),
-        )
-        HeaderStat(
-            "Last visit",
-            summary.lastSeenMs?.let { relativeDayCompact(it) } ?: "—",
-            Modifier.weight(1f),
-        )
-    }
+    StatHeaderRow(
+        "Visits" to if (summary.visitCount > 0) "${summary.visitCount}" else "—",
+        "Time there" to if (summary.totalMs > 0) formatDurationMs(summary.totalMs) else "—",
+        "Last visit" to (summary.lastSeenMs?.let { relativeDayCompact(it) } ?: "—"),
+    )
 }
 
 /** The place's visit history, newest first, grouped under month headers. */
@@ -655,32 +639,16 @@ private fun PlaceRowCard(
     onClick: () -> Unit,
 ) {
     val named = summary.isNamed
-    Card(modifier = Modifier.fillMaxWidth(), shape = shape, onClick = onClick) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val tint = if (named) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            }
-            TonalIconDisc(Icons.Filled.Place, tint, contentDescription = null, discAlpha = 0.16f)
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    summary.place?.label ?: "Unnamed place",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = placeTitleColor(named),
-                )
-                Text(
-                    placeSubtitle(summary),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
+    ListRowCard(
+        shape = shape,
+        onClick = onClick,
+        icon = Icons.Filled.Place,
+        tint = if (named) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        discAlpha = 0.16f,
+        title = summary.place?.label ?: "Unnamed place",
+        titleColor = placeTitleColor(named),
+        subtitle = AnnotatedString(placeSubtitle(summary)),
+    )
 }
 
 /**

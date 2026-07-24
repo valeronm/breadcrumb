@@ -1,6 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.domain.ActivityType
 
 /**
  * Owns the track lifecycle: it turns trusted activity changes (from [ActivityGate]) into

@@ -15,6 +15,13 @@ import io.github.valeronm.breadcrumb.data.db.Place
  */
 object PlaceResolver {
 
+    /**
+     * Visits at which an unnamed cluster becomes notable: the timeline starts surfacing its visit
+     * count as a naming invitation, and the Places screens stop treating it as a rare stop. One
+     * constant so the two screens can't disagree about which clusters matter.
+     */
+    const val NOTABLE_VISIT_MIN = 3
+
     class ResolvedStay(
         /** The matched place's label, or null for an unnamed cluster. */
         val label: String?,

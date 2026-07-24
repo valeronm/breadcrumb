@@ -1,7 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.DistanceFn
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Provenance
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
@@ -28,7 +28,7 @@ class PlaceResolverTest {
     )
 
     private fun place(id: Long, label: String, location: Endpoint) =
-        Place(id = id, label = label, lat = location.lat, lon = location.lon, createdAt = 0L)
+        Place(id = id, label = label, lat = location.lat, lon = location.lon, createdAt = 0L, radiusM = PlaceClusterer.DEFAULT_RADIUS_M)
 
     /**
      * Clusters the stay locations — seeded by the places' pins, as in production — and stamps

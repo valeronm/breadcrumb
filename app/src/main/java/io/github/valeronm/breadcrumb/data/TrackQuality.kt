@@ -1,6 +1,9 @@
 package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.DistanceFn
+import io.github.valeronm.breadcrumb.domain.IgnoreReason
 
 /**
  * Pure track geometry and fix-quality math over recorded [TrackPoint]s — distance, bounding extent,
@@ -11,39 +14,8 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * the count of ignored points is itself a signal that a track is questionable. It's the single
  * source of truth for that rule, applied by live recording
  * ([io.github.valeronm.breadcrumb.location.LocationRecordingService]) as each fix is ingested.
+ * The reasons themselves are [IgnoreReason], shared with the domain's edge-stay rule.
  */
-/**
- * Why a fix was flagged [TrackPoint.ignored]. [code] is the stable string stored in the DB
- * (and null for points recorded before reasons were tracked).
- *
- * The first three are the recorder's bad-fix rule below. [EDGE_STAY] is the odd one out and
- * deliberately shares the mechanism: the fix is fine, it just isn't part of the journey.
- */
-enum class IgnoreReason(val code: String) {
-    /** Accuracy radius at or beyond the configured gate. */
-    ACCURACY("accuracy"),
-
-    /** Reaching the fix from the last good point would need an implausible speed (GPS teleport). */
-    JUMP("jump"),
-
-    /** No recent satellite fix backing it (provider fabrication — tunnel dead-reckoning etc.). */
-    NO_GNSS("no_gnss"),
-
-    /**
-     * Recorded at a track's edge after the user had already arrived (or before they truly left):
-     * Activity Recognition lagged the stop and the recorder ran on. Not a quality rejection — a
-     * good fix of somewhere the journey isn't. Applied by
-     * [io.github.valeronm.breadcrumb.domain.EdgeStayIgnore] once a track is finished, and
-     * re-derived whenever the rule moves.
-     */
-    EDGE_STAY("edge_stay"),
-    ;
-
-    companion object {
-        fun fromCode(code: String?): IgnoreReason? = entries.firstOrNull { it.code == code }
-    }
-}
-
 object TrackQuality {
 
     /** A position delta below this (meters) over a zero/negative time gap isn't a real jump. */

@@ -153,7 +153,7 @@ class BackupExporterTest {
 
     @Test fun `labels with quotes and backslashes survive escaping`() {
         val doc = export(
-            places = listOf(Place(id = 1, label = """Joe's "Bar" \ Grill""", lat = 0.0, lon = 0.0, createdAt = 0L)),
+            places = listOf(Place(id = 1, label = """Joe's "Bar" \ Grill""", lat = 0.0, lon = 0.0, createdAt = 0L, radiusM = 150.0)),
         )
         assertEquals("""Joe's "Bar" \ Grill""", doc["places"].arr().single().obj()["label"])
     }

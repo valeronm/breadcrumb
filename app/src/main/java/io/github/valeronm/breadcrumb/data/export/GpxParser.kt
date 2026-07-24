@@ -1,6 +1,6 @@
 package io.github.valeronm.breadcrumb.data.export
 
-import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.InputStream

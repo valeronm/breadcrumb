@@ -56,22 +56,26 @@ object BackupExporter {
         exportedAt: Long,
         onProgress: (tracksDone: Int, tracksTotal: Int) -> Unit,
     ): Int? {
-        val out = context.contentResolver.openOutputStream(uri) ?: return null
         val tracks = repositories.tracks.exportTracks()
-        // The large deflater buffer keeps writes to the SAF stream from degrading into the
-        // default 512-byte chunks — each one a Binder round-trip to the documents provider.
-        GZIPOutputStream(out, 64 * 1024).bufferedWriter().use { writer ->
-            writeJson(
-                writer,
-                exportedAt,
-                Content(
-                    tracks = tracks,
-                    pointsFor = { repositories.tracks.allPointsFor(it) },
-                    places = repositories.places.allPlaces(),
-                    liveness = repositories.liveness.allEvents(),
-                ),
-                onTrackWritten = { done -> onProgress(done, tracks.size) },
-            )
+        val out = context.contentResolver.openOutputStream(uri) ?: return null
+        // The outer use owns the raw stream so it closes even if the gzip wrapper's constructor
+        // (which writes the header) or the export body throws before the inner use takes over.
+        out.use { raw ->
+            // The large deflater buffer keeps writes to the SAF stream from degrading into the
+            // default 512-byte chunks — each one a Binder round-trip to the documents provider.
+            GZIPOutputStream(raw, 64 * 1024).bufferedWriter().use { writer ->
+                writeJson(
+                    writer,
+                    exportedAt,
+                    Content(
+                        tracks = tracks,
+                        pointsFor = { repositories.tracks.allPointsFor(it) },
+                        places = repositories.places.allPlaces(),
+                        liveness = repositories.liveness.allEvents(),
+                    ),
+                    onTrackWritten = { done -> onProgress(done, tracks.size) },
+                )
+            }
         }
         return tracks.size
     }

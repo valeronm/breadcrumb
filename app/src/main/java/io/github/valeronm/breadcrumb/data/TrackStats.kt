@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import io.github.valeronm.breadcrumb.data.db.TrackDao
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackStatsUpdate
+import io.github.valeronm.breadcrumb.domain.DistanceFn
 
 /**
  * The one implementation of a track's point walk: distance, counts, endpoints and extent.

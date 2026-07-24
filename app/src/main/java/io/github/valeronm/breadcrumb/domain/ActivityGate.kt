@@ -1,6 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.domain.ActivityType
 
 /**
  * Turns the jittery Activity-Recognition stream into a *trusted* activity signal: the raw readings

@@ -9,18 +9,13 @@ import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,17 +46,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.BlurEffect
-import androidx.compose.ui.graphics.TileMode
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -80,9 +70,11 @@ import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.UnitChoice
 import io.github.valeronm.breadcrumb.util.UnitSystem
-import io.github.valeronm.breadcrumb.util.isGranted
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.coroutineScope
+import io.github.valeronm.breadcrumb.util.backgroundGranted
+import io.github.valeronm.breadcrumb.util.foregroundGranted
+import io.github.valeronm.breadcrumb.util.foregroundPermissions
+import io.github.valeronm.breadcrumb.util.isBatteryOptimizationIgnored
+import io.github.valeronm.breadcrumb.util.requestIgnoreBatteryOptimization
 import kotlinx.coroutines.launch
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
@@ -135,43 +127,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// --- Permission helpers ------------------------------------------------------
-
-private fun foregroundPermissions(): List<String> = buildList {
-    add(Manifest.permission.ACCESS_FINE_LOCATION)
-    add(Manifest.permission.ACCESS_COARSE_LOCATION)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(Manifest.permission.ACTIVITY_RECOGNITION)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
-}
-
-private fun Context.foregroundGranted(): Boolean = foregroundPermissions().all { isGranted(it) }
-
-private fun Context.backgroundGranted(): Boolean =
-    Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-        isGranted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-
-private fun Context.isBatteryOptimizationIgnored(): Boolean {
-    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-    return pm.isIgnoringBatteryOptimizations(packageName)
-}
-
-@Suppress("BatteryLife")
-private fun Context.requestIgnoreBatteryOptimization() {
-    runCatching {
-        startActivity(
-            Intent(
-                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                Uri.fromParts("package", packageName, null),
-            ),
-        )
-    }.onFailure {
-        // Some OEMs don't expose the direct dialog; fall back to the settings list.
-        runCatching {
-            startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        }
-    }
-}
-
 /** The resolved display-unit system; all distance/speed rendering below reads this. */
 internal val LocalUnits = staticCompositionLocalOf { UnitSystem.METRIC }
 
@@ -198,7 +153,7 @@ private fun MainScreen(
     LaunchedEffect(pendingGpxImport.value) {
         val uris = pendingGpxImport.value ?: return@LaunchedEffect
         pendingGpxImport.value = null
-        viewModel.importGpx(uris) { result ->
+        viewModel.importExport.importGpx(uris) { result ->
             Toast.makeText(context, gpxImportMessage(result), Toast.LENGTH_LONG).show()
         }
     }
@@ -438,252 +393,218 @@ private fun MainScreen(
             }
         }
 
-        // Overlay (track detail or settings): animates in on open and scales/shifts with the
-        // predictive-back gesture, previewing the tabs underneath.
-        val rendered = overlayLayer.rendered
-        if (rendered != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .overlayTransform(overlayLayer)
-                    .underlayBlur(settingsPageLayer),
-            ) {
-                when (rendered) {
-                    is Overlay.TrackDetail -> TrackMapScreen(
-                        trackId = rendered.id,
-                        summary = timeline.firstNotNullOfOrNull {
-                            (it as? TimelineItem.TrackItem)?.summary?.takeIf { s -> s.id == rendered.id }
-                        },
-                        viewModel = viewModel,
-                        onBack = { overlay = null },
-                    )
+        // The stacked full-screen layers, bottom to top; each animates in on open and scales/
+        // shifts with the predictive-back gesture, previewing the layer underneath.
+        MainOverlay(
+            layer = overlayLayer,
+            underlay = settingsPageLayer,
+            timeline = timeline,
+            viewModel = viewModel,
+            unitChoice = unitChoice,
+            onUnitChoice = onUnitChoice,
+            onClose = { overlay = null },
+            onOpenPage = { settingsPage = it },
+        )
 
-                    Overlay.Settings -> SettingsScreen(
-                        viewModel = viewModel,
-                        unitChoice = unitChoice,
-                        onUnitChoice = onUnitChoice,
-                        onBack = { overlay = null },
-                        onOpenPage = { settingsPage = it },
-                    )
-                }
-            }
-        }
-
-        // Place detail: stacked above whatever opened it (the Places overlay or the Tracks tab),
-        // with the same open/close and predictive-back treatment.
-        if (placeLayer.rendered != null) {
-            // Includes zero-visit pass-through clusters (summarize emits every cluster), so gap
-            // sides open even when their cluster never earned a stay — and their endpoints show
-            // as neighbor context on adjacent places' maps.
-            val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
-            val summary = remember(placeSummaries, placeDetailKey, placeDetailSnapshot) {
-                placeSummaries.firstOrNull { it.rowKey() == placeDetailKey }
-                    ?: placeDetailSnapshot?.let { snap -> placeSummaries.firstOrNull { it.centroid == snap.centroid } }
-                    ?: placeDetailSnapshot
-            }
-            LaunchedEffect(summary) {
-                val s = summary ?: return@LaunchedEffect
+        PlaceDetailOverlay(
+            layer = placeLayer,
+            viewModel = viewModel,
+            detailKey = placeDetailKey,
+            snapshot = placeDetailSnapshot,
+            onResolved = { s ->
                 placeDetailSnapshot = s
                 if (placeDetailKey != null && placeDetailKey != s.rowKey()) placeDetailKey = s.rowKey()
-            }
-            summary?.let { detail ->
-                // Surrounding clusters for radius context: their endpoints as gray dots, named
-                // neighbors as labeled pins.
-                val neighbors = remember(placeSummaries, detail) {
-                    placeSummaries
-                        .filter { other ->
-                            other.rowKey() != detail.rowKey() &&
-                                AndroidDistance.meters(
-                                    other.anchor.lat, other.anchor.lon,
-                                    detail.anchor.lat, detail.anchor.lon,
-                                ) <= NEIGHBOR_CONTEXT_M
-                        }
-                        .flatMap { other ->
-                            other.endpoints.map { NeighborPlace(it) } +
-                                listOfNotNull(other.place?.let { NeighborPlace(other.anchor, it.label) })
-                        }
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .overlayTransform(placeLayer),
-                ) {
-                    PlaceDetailScreen(
-                        summary = detail,
-                        neighbors = neighbors,
-                        viewModel = viewModel,
-                        onBack = { placeDetailKey = null },
-                        onOpenVisit = { stay ->
-                            timelineVisitTarget = stay
-                            placeDetailKey = null
-                            overlay = null
-                            selectedTab = HomeTab.TRACKS
-                        },
-                    )
-                }
-            }
-        }
+            },
+            onClose = { placeDetailKey = null },
+            onOpenVisit = { stay ->
+                timelineVisitTarget = stay
+                placeDetailKey = null
+                overlay = null
+                selectedTab = HomeTab.TRACKS
+            },
+        )
 
-        // Settings sub-pages: a second overlay layer above the hub, same open/close and
-        // predictive-back treatment — the gesture previews the hub underneath, where back lands.
-        settingsPageLayer.rendered?.let { page ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .overlayTransform(settingsPageLayer)
-                    .underlayBlur(discardedLayer),
-            ) {
-                val closePage = { settingsPage = null }
-                when (page) {
-                    SettingsPage.Sampling -> SamplingSettingsScreen(onBack = closePage)
-                    SettingsPage.PointQuality -> PointQualitySettingsScreen(onBack = closePage)
-                    SettingsPage.AutoPause -> AutoPauseSettingsScreen(onBack = closePage)
-                    SettingsPage.GpsSearch -> GpsSearchSettingsScreen(onBack = closePage)
-                    SettingsPage.TrackFiltering -> TrackFilteringSettingsScreen(onBack = closePage)
-                    SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
-                        viewModel = viewModel,
-                        onBack = closePage,
-                        onOpenTrack = { discardedTrackId = it },
-                    )
-                    SettingsPage.Logs -> LogsScreen(onBack = closePage)
-                }
-            }
-        }
+        SettingsPagesOverlay(
+            layer = settingsPageLayer,
+            underlay = discardedLayer,
+            viewModel = viewModel,
+            onClose = { settingsPage = null },
+            onOpenTrack = { discardedTrackId = it },
+        )
 
-        // A deleted track's full detail: stacked above the Recently deleted list — back (and the
-        // predictive-back preview) returns to the list, not the tabs.
-        discardedLayer.rendered?.let { trackId ->
-            // Collected here, not at MainScreen level: the aggregate query only stays live
-            // while this rarely-open layer exists.
-            val discardedTracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .overlayTransform(discardedLayer),
-            ) {
-                TrackMapScreen(
-                    trackId = trackId,
-                    summary = discardedTracks.firstOrNull { it.id == trackId }?.toTrackSummary(),
-                    viewModel = viewModel,
-                    onBack = { discardedTrackId = null },
-                )
-            }
-        }
+        DiscardedTrackOverlay(
+            layer = discardedLayer,
+            viewModel = viewModel,
+            onClose = { discardedTrackId = null },
+        )
     }
 }
 
 /**
- * Animation state for one stacked overlay layer: open/close presence plus the predictive-back
- * gesture. [rendered] holds the layer's content from open until the close animation finishes —
- * keep the layer composed (with that content) while it's non-null, so the page doesn't blank
- * or flip while receding.
- */
-private class OverlayLayerState<T : Any> {
-    val presence = Animatable(0f)      // 0 = underneath shown, 1 = layer fully shown
-    val backProgress = Animatable(0f)  // predictive back gesture progress, 0..1
-    val backOffsetY = Animatable(0f)   // finger's vertical travel (px) since the gesture started
-    var backEdgeSign by mutableFloatStateOf(1f)
-    var rendered by mutableStateOf<T?>(null)
-
-    /** Blur radius (dp) for content underneath: full while covered, sharpening with the gesture. */
-    val backdropBlurDp: Float
-        get() = presence.value * (1f - 0.7f * easeOutBack(backProgress.value)) * 12f
-}
-
-// Ease-out on the gesture progress: like the system's cross-activity animation, most of the
-// reveal happens right at gesture start, then the surface tracks the finger gently.
-private fun easeOutBack(back: Float): Float = 1f - (1f - back) * (1f - back)
-
-/**
- * One stacked overlay layer: animates in while [content] is non-null, out when it goes null, and
- * wires the predictive back gesture ([backEnabled] gates it — a layer yields to one stacked above).
- * [onDismiss] fires when the gesture commits; [onClosed] after the close animation finishes.
+ * A deleted track's full detail: stacked above the Recently deleted list — back (and the
+ * predictive-back preview) returns to the list, not the tabs.
  */
 @Composable
-private fun <T : Any> rememberOverlayLayer(
-    content: T?,
-    backEnabled: Boolean = content != null,
-    onDismiss: () -> Unit,
-    onClosed: () -> Unit = {},
-): OverlayLayerState<T> {
-    val state = remember { OverlayLayerState<T>() }
-    // Snapshot the content while present; held stable through the close animation.
-    if (content != null) state.rendered = content
-    LaunchedEffect(content != null) {
-        if (content != null) {
-            state.backProgress.snapTo(0f)
-            state.backOffsetY.snapTo(0f)
-            state.presence.animateTo(1f, tween(300))
-        } else if (state.rendered != null) {
-            state.presence.animateTo(0f, tween(300))
-            state.rendered = null
-            state.backProgress.snapTo(0f)
-            state.backOffsetY.snapTo(0f)
-            onClosed()
-        }
-    }
-    PredictiveBackHandler(enabled = backEnabled) { events ->
-        var startTouchY = Float.NaN
-        try {
-            events.collect { event ->
-                if (startTouchY.isNaN()) startTouchY = event.touchY
-                state.backEdgeSign = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
-                state.backOffsetY.snapTo(event.touchY - startTouchY)
-                state.backProgress.snapTo(event.progress)
-            }
-            onDismiss() // gesture committed -> dismiss
-        } catch (_: CancellationException) {
-            // Gesture canceled -> spring back to place.
-            coroutineScope {
-                launch { state.backProgress.animateTo(0f, tween(200)) }
-                launch { state.backOffsetY.animateTo(0f, tween(200)) }
-            }
-        }
-    }
-    return state
-}
-
-/**
- * The overlay open/close + predictive-back transform: slide/scale in, recede toward the edge.
- * The animated values are read inside the graphicsLayer block (like [underlayBlur]) so animation
- * frames re-run only this draw-time block, not the composition that applied the modifier.
- */
-private fun Modifier.overlayTransform(layer: OverlayLayerState<*>): Modifier =
-    graphicsLayer {
-        val enter = layer.presence.value
-        val back = layer.backProgress.value
-        val edgeSign = layer.backEdgeSign
-        val backOffsetY = layer.backOffsetY.value
-        val eased = easeOutBack(back)
-        val scale = (0.92f + 0.08f * enter) * (1f - 0.10f * eased)
-        scaleX = scale
-        scaleY = scale
-        translationX = (1f - enter) * size.width * 0.25f + edgeSign * eased * 48.dp.toPx()
-        // The receding card follows the finger vertically at a damped rate (another system
-        // animation trait), fading in with the gesture so a near-full-screen card stays put.
-        translationY = eased * (backOffsetY / 3f).coerceIn(-96.dp.toPx(), 96.dp.toPx())
-        // Opaque through the back gesture (M3 predictive-back spec); only open/close fades.
-        alpha = enter
-        transformOrigin = TransformOrigin(if (edgeSign > 0f) 1f else 0f, 0.5f)
-        shape = RoundedCornerShape(eased * 48f)
-        clip = back > 0f
-    }
-
-/**
- * Blurs this content while any of [layers] sits above it — the system blurs the background
- * activity the same way during predictive back. Strongest when fully covered, sharpening as the
- * gesture reveals it. No-op below Android 12 (no RenderEffect there).
- */
-private fun Modifier.underlayBlur(vararg layers: OverlayLayerState<*>): Modifier {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return this
-    return graphicsLayer {
-        val radius = layers.maxOf { it.backdropBlurDp }.dp.toPx()
-        renderEffect = if (radius > 0.5f) BlurEffect(radius, radius, TileMode.Clamp) else null
-        clip = renderEffect != null
+private fun DiscardedTrackOverlay(
+    layer: OverlayLayerState<Long>,
+    viewModel: TrackListViewModel,
+    onClose: () -> Unit,
+) {
+    val trackId = layer.rendered ?: return
+    // Collected here, not at MainScreen level: the aggregate query only stays live
+    // while this rarely-open layer exists.
+    val discardedTracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .overlayTransform(layer),
+    ) {
+        TrackMapScreen(
+            trackId = trackId,
+            summary = discardedTracks.firstOrNull { it.id == trackId }?.toTrackSummary(),
+            viewModel = viewModel,
+            onBack = onClose,
+        )
     }
 }
 
-internal fun gpxImportMessage(result: TrackListViewModel.GpxImportSummary): String = buildList {
+/** Track detail or the Settings hub — the first overlay layer, previewing the tabs underneath. */
+@Composable
+private fun MainOverlay(
+    layer: OverlayLayerState<Overlay>,
+    underlay: OverlayLayerState<SettingsPage>,
+    timeline: List<TimelineItem>,
+    viewModel: TrackListViewModel,
+    unitChoice: UnitChoice,
+    onUnitChoice: (UnitChoice) -> Unit,
+    onClose: () -> Unit,
+    onOpenPage: (SettingsPage) -> Unit,
+) {
+    val rendered = layer.rendered ?: return
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .overlayTransform(layer)
+            .underlayBlur(underlay),
+    ) {
+        when (rendered) {
+            is Overlay.TrackDetail -> TrackMapScreen(
+                trackId = rendered.id,
+                summary = timeline.firstNotNullOfOrNull {
+                    (it as? TimelineItem.TrackItem)?.summary?.takeIf { s -> s.id == rendered.id }
+                },
+                viewModel = viewModel,
+                onBack = onClose,
+            )
+
+            Overlay.Settings -> SettingsScreen(
+                viewModel = viewModel,
+                unitChoice = unitChoice,
+                onUnitChoice = onUnitChoice,
+                onBack = onClose,
+                onOpenPage = onOpenPage,
+            )
+        }
+    }
+}
+
+/**
+ * Place detail: stacked above whatever opened it (the Places overlay or the Tracks tab). The live
+ * summary is re-found by [detailKey] each derivation; [onResolved] reports what it resolved to so
+ * the caller can keep its snapshot (and key) tracking a renamed cluster.
+ */
+@Composable
+private fun PlaceDetailOverlay(
+    layer: OverlayLayerState<String>,
+    viewModel: TrackListViewModel,
+    detailKey: String?,
+    snapshot: PlaceResolver.PlaceSummary?,
+    onResolved: (PlaceResolver.PlaceSummary) -> Unit,
+    onClose: () -> Unit,
+    onOpenVisit: (StayDeriver.Stay) -> Unit,
+) {
+    if (layer.rendered == null) return
+    // Includes zero-visit pass-through clusters (summarize emits every cluster), so gap
+    // sides open even when their cluster never earned a stay — and their endpoints show
+    // as neighbor context on adjacent places' maps.
+    val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
+    val summary = remember(placeSummaries, detailKey, snapshot) {
+        placeSummaries.firstOrNull { it.rowKey() == detailKey }
+            ?: snapshot?.let { snap -> placeSummaries.firstOrNull { it.centroid == snap.centroid } }
+            ?: snapshot
+    }
+    LaunchedEffect(summary) {
+        summary?.let(onResolved)
+    }
+    summary?.let { detail ->
+        // Surrounding clusters for radius context: their endpoints as gray dots, named
+        // neighbors as labeled pins.
+        val neighbors = remember(placeSummaries, detail) {
+            placeSummaries
+                .filter { other ->
+                    other.rowKey() != detail.rowKey() &&
+                        AndroidDistance.meters(
+                            other.anchor.lat, other.anchor.lon,
+                            detail.anchor.lat, detail.anchor.lon,
+                        ) <= NEIGHBOR_CONTEXT_M
+                }
+                .flatMap { other ->
+                    other.endpoints.map { NeighborPlace(it) } +
+                        listOfNotNull(other.place?.let { NeighborPlace(other.anchor, it.label) })
+                }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .overlayTransform(layer),
+        ) {
+            PlaceDetailScreen(
+                summary = detail,
+                neighbors = neighbors,
+                viewModel = viewModel,
+                onBack = onClose,
+                onOpenVisit = onOpenVisit,
+            )
+        }
+    }
+}
+
+/**
+ * Settings sub-pages: a second overlay layer above the hub — the gesture previews the hub
+ * underneath, where back lands.
+ */
+@Composable
+private fun SettingsPagesOverlay(
+    layer: OverlayLayerState<SettingsPage>,
+    underlay: OverlayLayerState<Long>,
+    viewModel: TrackListViewModel,
+    onClose: () -> Unit,
+    onOpenTrack: (Long) -> Unit,
+) {
+    val page = layer.rendered ?: return
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .overlayTransform(layer)
+            .underlayBlur(underlay),
+    ) {
+        when (page) {
+            SettingsPage.Sampling -> SamplingSettingsScreen(onBack = onClose)
+            SettingsPage.PointQuality -> PointQualitySettingsScreen(onBack = onClose)
+            SettingsPage.AutoPause -> AutoPauseSettingsScreen(onBack = onClose)
+            SettingsPage.GpsSearch -> GpsSearchSettingsScreen(onBack = onClose)
+            SettingsPage.TrackFiltering -> TrackFilteringSettingsScreen(onBack = onClose)
+            SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
+                viewModel = viewModel,
+                onBack = onClose,
+                onOpenTrack = onOpenTrack,
+            )
+            SettingsPage.Logs -> LogsScreen(onBack = onClose)
+        }
+    }
+}
+
+internal fun gpxImportMessage(result: ImportExportController.GpxImportSummary): String = buildList {
     add("Imported ${result.imported} tracks")
     if (result.duplicates > 0) add("${result.duplicates} duplicates skipped")
     if (result.failed > 0) add("${result.failed} failed")

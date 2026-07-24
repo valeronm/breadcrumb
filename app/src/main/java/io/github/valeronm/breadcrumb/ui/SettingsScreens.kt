@@ -382,13 +382,13 @@ internal fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
 private fun ImportTracksRow(viewModel: TrackListViewModel) {
     val context = LocalContext.current
     // Progress lives in the ViewModel, so it survives leaving Settings mid-import.
-    val importProgress by viewModel.importProgress.collectAsStateWithLifecycle()
+    val importProgress by viewModel.importExport.importProgress.collectAsStateWithLifecycle()
     val appContext = context.applicationContext
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        viewModel.importGpx(uris) { result ->
+        viewModel.importExport.importGpx(uris) { result ->
             Toast.makeText(appContext, gpxImportMessage(result), Toast.LENGTH_LONG).show()
         }
     }
@@ -413,7 +413,7 @@ private fun ImportTracksRow(viewModel: TrackListViewModel) {
 }
 
 /** The busy subtitle shared by the export rows: "<verb> <noun> N of M" once the total is known. */
-private fun exportSubtitle(progress: TrackListViewModel.OpProgress?, idle: String, verb: String, noun: String): String =
+private fun exportSubtitle(progress: ImportExportController.OpProgress?, idle: String, verb: String, noun: String): String =
     when {
         progress == null -> idle
         progress.tracksTotal != null -> "$verb $noun ${progress.tracksDone} of ${progress.tracksTotal}"
@@ -430,12 +430,12 @@ private fun exportResultToast(context: Context, count: Int?) {
 private fun ExportTracksRow(viewModel: TrackListViewModel) {
     val appContext = LocalContext.current.applicationContext
     // Progress lives in the ViewModel, so it survives leaving Settings mid-export.
-    val progress by viewModel.gpxExportProgress.collectAsStateWithLifecycle()
+    val progress by viewModel.importExport.gpxExportProgress.collectAsStateWithLifecycle()
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.exportAll(uri) { count -> exportResultToast(appContext, count) }
+        viewModel.importExport.exportAll(uri) { count -> exportResultToast(appContext, count) }
     }
     NavRow(
         "Export tracks",
@@ -457,12 +457,12 @@ private fun ExportTracksRow(viewModel: TrackListViewModel) {
 @Composable
 private fun ExportBackupRow(viewModel: TrackListViewModel) {
     val appContext = LocalContext.current.applicationContext
-    val progress by viewModel.exportProgress.collectAsStateWithLifecycle()
+    val progress by viewModel.importExport.exportProgress.collectAsStateWithLifecycle()
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(BackupExporter.MIME_TYPE),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.exportBackup(uri) { count -> exportResultToast(appContext, count) }
+        viewModel.importExport.exportBackup(uri) { count -> exportResultToast(appContext, count) }
     }
     NavRow(
         "Back up everything",

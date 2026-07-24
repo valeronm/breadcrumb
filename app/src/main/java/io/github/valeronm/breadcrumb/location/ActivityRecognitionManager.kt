@@ -14,7 +14,6 @@ import com.google.android.gms.location.DetectedActivity
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
-import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.util.DebugLog
 
 /**
@@ -49,7 +48,7 @@ class ActivityRecognitionManager(private val context: Context) {
 
     private fun buildRequest(): ActivityTransitionRequest {
         val transitions = ArrayList<ActivityTransition>()
-        for (activity in ActivityType.TRACKED_DETECTED_ACTIVITIES) {
+        for (activity in TRACKED_DETECTED_ACTIVITIES) {
             transitions.add(
                 ActivityTransition.Builder()
                     .setActivityType(activity)

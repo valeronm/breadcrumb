@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.data
 
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay

@@ -1,7 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.DistanceFn
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Armed
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Disarmed
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint

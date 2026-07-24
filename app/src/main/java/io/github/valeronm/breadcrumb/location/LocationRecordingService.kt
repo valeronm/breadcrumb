@@ -29,8 +29,6 @@ import androidx.core.location.LocationManagerCompat
 import androidx.core.location.LocationRequestCompat
 import io.github.valeronm.breadcrumb.App
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.data.ActivityType
-import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackQuality
@@ -38,7 +36,10 @@ import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.TrackStats
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityGate
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DeafnessWarning
+import io.github.valeronm.breadcrumb.domain.GnssSnapshot
+import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ReadingClock
 import io.github.valeronm.breadcrumb.domain.RecordingAction
@@ -49,6 +50,7 @@ import io.github.valeronm.breadcrumb.ui.MainActivity
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.hasLocationPermission
 import io.github.valeronm.breadcrumb.util.isGranted
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -69,7 +71,15 @@ import kotlinx.coroutines.withContext
  */
 class LocationRecordingService : Service() {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // The handler is what keeps a failed child from killing the process — SupervisorJob only
+    // shields siblings, an uncaught exception still reaches the default handler. Recording must
+    // degrade, not die: a transient DB/disk error on the ingest path costs one batch of fixes,
+    // not the whole armed session (crashing would loop — START_STICKY restarts into the same
+    // condition).
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO +
+            CoroutineExceptionHandler { _, e -> DebugLog.e(TAG, "recording coroutine failed", e) },
+    )
     private val mutex = Mutex()
 
     private lateinit var repository: TrackRepository
@@ -589,6 +599,10 @@ class LocationRecordingService : Service() {
         registerGnssStatus()
     }
 
+    // MissingPermission suppressed for removeUpdates: it performs no permission check (the compat
+    // annotation is over-broad), and gating teardown on isGranted would leak the listener exactly
+    // when the permission was just revoked.
+    @SuppressLint("MissingPermission")
     private fun stopLocationUpdates() {
         val lm = locationManager
         val listener = gpsListener
@@ -649,6 +663,9 @@ class LocationRecordingService : Service() {
         armPassiveListener()
     }
 
+    // MissingPermission suppressed for the same reason as [stopLocationUpdates]: removeUpdates
+    // checks nothing, and teardown must run whatever the grant state.
+    @SuppressLint("MissingPermission")
     private fun disarmResumeSignals() {
         motionListener?.let { listener ->
             motionListener = null
@@ -712,34 +729,20 @@ class LocationRecordingService : Service() {
         if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) return
         val lm = locationManager ?: return
         val callback = object : GnssStatusCompat.Callback() {
+            // Reused across callbacks — the reduction must stay allocation-free at ~1/s. Safe to
+            // share: the main executor delivers status updates one at a time.
+            private val snapshot = GnssSnapshot()
+
             override fun onSatelliteStatusChanged(status: GnssStatusCompat) {
-                // Single pass, no allocations — this ticks ~1/s for the whole recording.
-                var used = 0
-                val top = FloatArray(4) // strongest C/N0s seen, descending
-                var topCount = 0
+                snapshot.reset()
                 for (i in 0 until status.satelliteCount) {
-                    if (!status.usedInFix(i)) continue
-                    used++
-                    var cn0 = status.getCn0DbHz(i)
-                    if (cn0 <= 0f) continue
-                    for (j in 0 until topCount) {
-                        if (cn0 > top[j]) {
-                            val t = top[j]
-                            top[j] = cn0
-                            cn0 = t
-                        }
-                    }
-                    if (topCount < top.size) top[topCount++] = cn0
+                    snapshot.add(status.usedInFix(i), status.getCn0DbHz(i))
                 }
-                lastGnssSatsInFix = used
-                lastGnssCn0Top4 = if (topCount == 0) {
-                    null
-                } else {
-                    var sum = 0f
-                    for (j in 0 until topCount) sum += top[j]
-                    sum / topCount
+                lastGnssSatsInFix = snapshot.usedInFix
+                lastGnssCn0Top4 = snapshot.topCn0Mean()
+                if (snapshot.usedInFix >= GNSS_MIN_SATELLITES_IN_FIX) {
+                    lastGnssFixElapsedMs = SystemClock.elapsedRealtime()
                 }
-                if (used >= GNSS_MIN_SATELLITES_IN_FIX) lastGnssFixElapsedMs = SystemClock.elapsedRealtime()
                 maybeGiveUpOnNoFix()
             }
         }
@@ -756,19 +759,9 @@ class LocationRecordingService : Service() {
         lastGnssCn0Top4 = null
     }
 
-    /**
-     * Whether [loc] is backed by a recent real satellite fix. Fails open until the receiver first
-     * locks this session (so a device/spot where GNSS never contributes still records rather than
-     * emptying the track); once it has locked, a fix whose elapsed timestamp is more than
-     * [GNSS_FIX_MAX_AGE_MS] past the last satellite fix is treated as a network/dead-reckoning
-     * fabrication.
-     */
-    private fun isGnssBacked(loc: Location): Boolean {
-        val lastGnss = lastGnssFixElapsedMs
-        if (lastGnss == 0L) return true
-        val fixElapsedMs = loc.elapsedRealtimeNanos / 1_000_000L
-        return fixElapsedMs - lastGnss <= GNSS_FIX_MAX_AGE_MS
-    }
+    /** Whether [loc] is backed by a recent real satellite fix — see [GnssSnapshot.backed]. */
+    private fun isGnssBacked(loc: Location): Boolean =
+        GnssSnapshot.backed(lastGnssFixElapsedMs, loc.elapsedRealtimeNanos / 1_000_000L, GNSS_FIX_MAX_AGE_MS)
 
     // Fixes are ingested under [mutex] so they serialize with activity changes (which retarget the
     // current track) instead of racing them.

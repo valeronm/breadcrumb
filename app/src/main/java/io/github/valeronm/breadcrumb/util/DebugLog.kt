@@ -32,20 +32,22 @@ object DebugLog {
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
     @Synchronized
-    private fun add(level: Char, tag: String, message: String) {
+    private fun add(level: Char, tag: String, message: String, tr: Throwable?) {
         when (level) {
-            'E' -> Log.e(tag, message)
-            'W' -> Log.w(tag, message)
-            else -> Log.i(tag, message)
+            'E' -> Log.e(tag, message, tr)
+            'W' -> Log.w(tag, message, tr)
+            else -> Log.i(tag, message, tr)
         }
-        buffer.addLast(Entry(System.currentTimeMillis(), level, message))
+        // The buffer line carries only the throwable's one-line form; the full stack goes to logcat.
+        val line = if (tr == null) message else "$message: $tr"
+        buffer.addLast(Entry(System.currentTimeMillis(), level, line))
         while (buffer.size > MAX_ENTRIES) buffer.removeFirst()
         version.value++
     }
 
-    fun i(tag: String, message: String) = add('I', tag, message)
-    fun w(tag: String, message: String) = add('W', tag, message)
-    fun e(tag: String, message: String) = add('E', tag, message)
+    fun i(tag: String, message: String) = add('I', tag, message, null)
+    fun w(tag: String, message: String) = add('W', tag, message, null)
+    fun e(tag: String, message: String, tr: Throwable? = null) = add('E', tag, message, tr)
 
     @Synchronized
     fun clear() {

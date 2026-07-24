@@ -1,7 +1,11 @@
 package io.github.valeronm.breadcrumb.data
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.export.GpxParser
+import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -343,5 +347,135 @@ class TrackRepositoryTest {
         // The file's own span no longer matches the track's, so the duplicate check has to work
         // off the points — or the same file would import again as a second copy.
         assertEquals(0, repository.importTracks(file).imported)
+    }
+
+    // --- Delete, restore, purge, unmerge --------------------------------------------------------
+
+    /** A finished, kept 6-point walk; [fromIndex] spaces it out from other tracks in the test. */
+    private suspend fun finishedWalk(fromIndex: Int): Long {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START + fromIndex * 10_000L)
+        repository.addPoints((fromIndex..fromIndex + 5).map { test.point(id, it) })
+        repository.finishTrack(id, TEST_START + (fromIndex + 6) * 10_000L)
+        return id
+    }
+
+    @Test fun `unmerging drops the copy and returns both originals to the timeline`() = runTest {
+        val first = finishedWalk(0)
+        val second = finishedWalk(12)
+        val mergedId = repository.mergeTracks(first, second)!!
+
+        repository.unmergeTracks(mergedId, first, second)
+
+        assertNull("the merged copy is gone", dao.track(mergedId))
+        assertEquals("its copied points cascade away with it", 0, dao.allPointsFor(mergedId).size)
+        for (id in listOf(first, second)) {
+            val track = dao.track(id)!!
+            assertNull("back on the timeline", track.discardedAt)
+            assertNull(track.discardReason)
+            assertStatsMatchPoints(id)
+        }
+    }
+
+    @Test fun `a user delete is soft, and restore undoes it`() = runTest {
+        val id = finishedWalk(0)
+
+        repository.deleteTrack(id)
+        assertEquals(Track.REASON_DELETED, dao.track(id)!!.discardReason)
+
+        repository.restoreTrack(id)
+        val restored = dao.track(id)!!
+        assertNull(restored.discardedAt)
+        assertNull(restored.discardReason)
+        assertStatsMatchPoints(id)
+    }
+
+    @Test fun `the retention purge deletes only tracks discarded before the window`() = runTest {
+        val old = finishedWalk(0)
+        val recent = finishedWalk(12)
+        val now = System.currentTimeMillis()
+        dao.setDiscarded(old, now - 15 * 86_400_000L, Track.REASON_DELETED)
+        dao.setDiscarded(recent, now - 86_400_000L, Track.REASON_DELETED)
+
+        repository.purgeOldDiscarded()
+
+        assertNull("past the 14-day window", dao.track(old))
+        assertEquals("its points cascade away", 0, dao.allPointsFor(old).size)
+        assertNotNull("still inside the window, still restorable", dao.track(recent))
+    }
+
+    @Test fun `clear all purges every discarded track and nothing kept`() = runTest {
+        val kept = finishedWalk(0)
+        val deleted = finishedWalk(12)
+        repository.deleteTrack(deleted)
+
+        repository.purgeAllDiscarded()
+
+        assertNull(dao.track(deleted))
+        assertNull("the kept track is untouched", dao.track(kept)!!.discardedAt)
+    }
+
+    @Test fun `reassigning the activity changes the stored name and nothing else`() = runTest {
+        val id = finishedWalk(0)
+        val before = dao.track(id)!!
+
+        repository.setActivityType(id, ActivityType.TAXI)
+
+        val after = dao.track(id)!!
+        assertEquals("TAXI", after.activityType)
+        assertEquals(before.pointCount, after.pointCount)
+        assertEquals(before.distanceMeters, after.distanceMeters, 0.0)
+        assertStatsMatchPoints(id)
+    }
+
+    // --- Leading-stray repair: the loop and its bound -------------------------------------------
+
+    @Test fun `repair drops a run of leading strays one by one`() = runTest {
+        val id = repository.startTrack(ActivityType.DRIVING, TEST_START)
+        repository.addPoints(
+            listOf(
+                test.point(id, 0, lat = 3.0), // ~217 km from the next fix
+                test.point(id, 1, lat = 1.05), // still ~5 km from the drive it precedes
+            ) + (2..7).map { test.point(id, it) },
+        )
+        repository.finishTrack(id, TEST_START + 80_000)
+
+        assertEquals(2, repository.repairLeadingPoints(id))
+
+        val track = dao.track(id)!!
+        assertEquals(2, track.ignoredCount)
+        assertEquals(6, track.pointCount)
+        assertEquals(1.002, track.startLat!!, 1e-9) // the first real fix is the start now
+        assertStatsMatchPoints(id)
+    }
+
+    @Test fun `repair stops at its safety bound even when more strays lead the track`() = runTest {
+        val id = repository.startTrack(ActivityType.DRIVING, TEST_START)
+        // Six strays, each seam ~4.4x the next, so every head check fires — but the loop is
+        // bounded, and only five may be repaired.
+        val strayLats = listOf(21.035, 5.535, 2.035, 1.235, 1.055, 1.015)
+        repository.addPoints(
+            strayLats.mapIndexed { i, lat -> test.point(id, i, lat = lat) } +
+                (6..11).map { test.point(id, it) },
+        )
+        repository.finishTrack(id, TEST_START + 120_000)
+
+        assertEquals(5, repository.repairLeadingPoints(id))
+
+        assertEquals(5, dao.track(id)!!.ignoredCount)
+        assertStatsMatchPoints(id)
+    }
+
+    // --- Keep thresholds: the extent gate -------------------------------------------------------
+
+    @Test fun `the extent threshold reaches the keep verdict`() = runTest {
+        // A 6-point walk spreads ~550 m — clears duration and length, fails only the raised
+        // extent gate.
+        Settings.setMinTrackExtentM(ApplicationProvider.getApplicationContext<Context>(), 10_000)
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints((0..5).map { test.point(id, it) })
+
+        repository.finishTrack(id, TEST_START + 60_000)
+
+        assertEquals(Track.REASON_FILTERED, dao.track(id)!!.discardReason)
     }
 }

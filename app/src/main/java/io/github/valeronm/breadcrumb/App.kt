@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
+import io.github.valeronm.breadcrumb.util.DebugLog
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,7 +41,11 @@ class App : Application() {
 
         // Data housekeeping belongs to process start, not to any one screen — the background
         // service can keep the process alive for weeks without the UI ever being opened.
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+        // The handler keeps a failed pass from crashing the process: this block runs on every
+        // start, so an uncaught throw here wouldn't just lose one sweep — it would crash every
+        // launch until the data or rule changed.
+        val logCrash = CoroutineExceptionHandler { _, e -> DebugLog.e("App", "housekeeping failed", e) }
+        CoroutineScope(SupervisorJob() + Dispatchers.IO + logCrash).launch {
             val repository = TrackRepository(this@App)
             // Drop soft-deleted tracks past the retention window (kept only for tuning).
             repository.purgeOldDiscarded()

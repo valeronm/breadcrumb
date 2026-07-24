@@ -74,15 +74,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
-import io.github.valeronm.breadcrumb.data.ActivityType
 import io.github.valeronm.breadcrumb.data.EdgeStaySweepStatus
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -115,7 +116,7 @@ internal fun TracksTab(
     // Held on the empty/progress screen for the whole restore, not just while the list is empty:
     // the first inserted batch would otherwise replace this screen (and its progress text) with a
     // timeline that keeps re-deriving as tracks pour in. The finished timeline appears at once.
-    val restoreProgress by viewModel.restoreProgress.collectAsStateWithLifecycle()
+    val restoreProgress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     if (restoreProgress != null || items.none { it is TimelineItem.TrackItem }) {
         EmptyTracksState(viewModel)
         return
@@ -188,7 +189,7 @@ internal fun TracksTab(
                     val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
                     stickyHeader(key = "header:$label") {
                         DayHeader(label, dayTracks) {
-                            viewModel.shareTracks(dayTracks.map { it.id }) { intent ->
+                            viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
                                 if (intent != null) context.startActivity(intent)
                             }
                         }
@@ -528,12 +529,12 @@ private fun dayLabel(date: LocalDate, today: LocalDate): String = when {
 private fun EmptyTracksState(viewModel: TrackListViewModel) {
     val context = LocalContext.current
     val appContext = context.applicationContext
-    val progress by viewModel.restoreProgress.collectAsStateWithLifecycle()
+    val progress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     val restoreLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.restoreBackup(uri) { summary ->
+        viewModel.importExport.restoreBackup(uri) { summary ->
             val message = if (summary == null) {
                 "Restore failed — not a Breadcrumb backup?"
             } else {
@@ -588,44 +589,23 @@ private fun TrackRow(
         iconDescription = "Delete",
         onDismiss = onDelete,
     ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .combinedClickable(onClick = onOpen, onLongClick = onReplay),
+        val activity = ActivityType.ofName(track.activityType)
+        val start = timeFormat.format(Date(track.startedAt))
+        val timeLine = track.endedAt?.let { "$start – ${timeFormat.format(Date(it))}" } ?: start
+        ListRowCard(
+            // Long-press replays the track, which Card's own onClick can't express.
+            modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
             shape = shape,
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val activity = ActivityType.ofName(track.activityType)
-                // Activity token: a clear category cue that stays quiet.
-                TonalIconDisc(
-                    icon = activityIcon(activity),
-                    tint = activityColor(activity),
-                    contentDescription = ActivityType.labelFor(track.activityType),
-                )
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f)) {
-                    // What happened leads; when it happened is the metadata line.
-                    Text(
-                        "${ActivityType.labelFor(track.activityType)} · " +
-                            LocalUnits.current.distance(track.distanceMeters),
-                        style = MaterialTheme.typography.titleMedium,
-                        // Explicit: the inherited card color dims to onSurfaceVariant under
-                        // dynamic color (contentColorFor matches surfaceVariant first).
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    val start = timeFormat.format(Date(track.startedAt))
-                    val timeLine = track.endedAt?.let { "$start – ${timeFormat.format(Date(it))}" } ?: start
-                    Text(
-                        "$timeLine · ${formatDuration(track.startedAt, track.endedAt)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
+            // Activity token: a clear category cue that stays quiet.
+            icon = activityIcon(activity),
+            tint = activityColor(activity),
+            iconDescription = ActivityType.labelFor(track.activityType),
+            // What happened leads; when it happened is the metadata line.
+            title = "${ActivityType.labelFor(track.activityType)} · " +
+                LocalUnits.current.distance(track.distanceMeters),
+            titleColor = MaterialTheme.colorScheme.onSurface,
+            subtitle = AnnotatedString("$timeLine · ${formatDuration(track.startedAt, track.endedAt)}"),
+        )
     }
 }
 
@@ -673,9 +653,6 @@ private fun EdgeStaySweepBanner(progress: EdgeStaySweepStatus.Progress, modifier
         }
     }
 }
-
-// Unnamed clusters visited at least this often surface their count as a naming invitation.
-private const val VISIT_COUNT_BADGE_MIN = 3
 
 /**
  * A derived stationary period between two tracks. A resolved place shows its label, an unnamed
@@ -730,78 +707,59 @@ private fun StayCard(
         animationSpec = tween(durationMillis = 600),
         label = "stayHighlight",
     )
-    Card(
-        modifier = Modifier.fillMaxWidth(),
+    // A merge-eligible short stop is its own species: tertiary accent (matching the
+    // swipe-to-merge hint) and a pause glyph instead of the place pin.
+    val mergeable = item.merge != null
+    val tint = when {
+        mergeable -> MaterialTheme.colorScheme.tertiary
+        named -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val start = timeFormat.format(Date(stay.start))
+    val end = stay.end
+    val startsAtMidnight = isLocalMidnight(stay.start)
+    val endsAtMidnight = end != null && isLocalMidnight(end)
+    val timePhrase = when {
+        // Ongoing from midnight = all of today so far; completed midnight-to-midnight
+        // slices of a multi-day stay read the same.
+        startsAtMidnight && (end == null || endsAtMidnight) -> "All day"
+        end == null -> "$start – now"
+        startsAtMidnight -> "Until ${timeFormat.format(Date(end))}"
+        endsAtMidnight -> "From $start"
+        // A stop the recorder only caught the tail end of lands on one clock minute at
+        // both bounds; "09:11 – 09:11" reads as a rendering fault rather than a moment.
+        else -> timeFormat.format(Date(end)).let { if (it == start) start else "$start – $it" }
+    }
+    val visits = place?.visitCount?.takeIf { !named && it >= PlaceResolver.NOTABLE_VISIT_MIN }
+    ListRowCard(
         shape = shape,
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = containerColor),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // A merge-eligible short stop is its own species: tertiary accent (matching the
-            // swipe-to-merge hint) and a pause glyph instead of the place pin.
-            val mergeable = item.merge != null
-            val tint = when {
-                mergeable -> MaterialTheme.colorScheme.tertiary
-                named -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
+        icon = if (mergeable) Icons.Filled.Pause else Icons.Filled.Place,
+        tint = tint,
+        iconDescription = if (mergeable) "Short stop" else "Stay",
+        discAlpha = 0.16f,
+        // The place leads; when (with midnight slices phrased humanly) is the metadata line.
+        // Merge-eligible stays (always unnamed) name the situation instead.
+        title = place?.label ?: if (mergeable) "Short stop" else "Stayed",
+        titleColor = placeTitleColor(named),
+        subtitle = buildAnnotatedString {
+            append(timePhrase)
+            // A midnight-sliced bound makes the duration both redundant (it restates
+            // the clock time) and misleading (the real stay continues across the
+            // slice) — only whole stays show one. A stay whose bounds span less than
+            // StayDeriver.REPORTABLE_DURATION_MS shows none either: the stop was
+            // longer than its bounds say, so "0m" would be worse than silence.
+            val reportable = stay.reportableDurationMs(System.currentTimeMillis())
+            if (!startsAtMidnight && !endsAtMidnight && reportable != null) {
+                append(" · ")
+                append(formatDurationMs(reportable))
             }
-            TonalIconDisc(
-                icon = if (mergeable) Icons.Filled.Pause else Icons.Filled.Place,
-                tint = tint,
-                contentDescription = if (mergeable) "Short stop" else "Stay",
-                discAlpha = 0.16f,
-            )
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                // The place leads; when (with midnight slices phrased humanly) is the metadata line.
-                // Merge-eligible stays (always unnamed) name the situation instead.
-                Text(
-                    place?.label ?: if (mergeable) "Short stop" else "Stayed",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = placeTitleColor(named),
-                )
-                val start = timeFormat.format(Date(stay.start))
-                val end = stay.end
-                val startsAtMidnight = isLocalMidnight(stay.start)
-                val endsAtMidnight = end != null && isLocalMidnight(end)
-                val timePhrase = when {
-                    // Ongoing from midnight = all of today so far; completed midnight-to-midnight
-                    // slices of a multi-day stay read the same.
-                    startsAtMidnight && (end == null || endsAtMidnight) -> "All day"
-                    end == null -> "$start – now"
-                    startsAtMidnight -> "Until ${timeFormat.format(Date(end))}"
-                    endsAtMidnight -> "From $start"
-                    // A stop the recorder only caught the tail end of lands on one clock minute at
-                    // both bounds; "09:11 – 09:11" reads as a rendering fault rather than a moment.
-                    else -> timeFormat.format(Date(end)).let { if (it == start) start else "$start – $it" }
-                }
-                val visits = place?.visitCount?.takeIf { !named && it >= VISIT_COUNT_BADGE_MIN }
-                Text(
-                    buildAnnotatedString {
-                        append(timePhrase)
-                        // A midnight-sliced bound makes the duration both redundant (it restates
-                        // the clock time) and misleading (the real stay continues across the
-                        // slice) — only whole stays show one. A stay whose bounds span less than
-                        // StayDeriver.REPORTABLE_DURATION_MS shows none either: the stop was
-                        // longer than its bounds say, so "0m" would be worse than silence.
-                        val reportable = stay.reportableDurationMs(System.currentTimeMillis())
-                        if (!startsAtMidnight && !endsAtMidnight && reportable != null) {
-                            append(" · ")
-                            append(formatDurationMs(reportable))
-                        }
-                        if (visits != null) {
-                            append(" · " + visitCountLabel(visits))
-                        }
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (visits != null) {
+                append(" · " + visitCountLabel(visits))
             }
-        }
-    }
+        },
+    )
 }
 
 /**

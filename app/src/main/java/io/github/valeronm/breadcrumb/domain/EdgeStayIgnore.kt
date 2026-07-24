@@ -1,8 +1,8 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.DistanceFn
-import io.github.valeronm.breadcrumb.data.IgnoreReason
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.DistanceFn
+import io.github.valeronm.breadcrumb.domain.IgnoreReason
 
 /**
  * How [EdgeStayDetector]'s verdict is recorded: the overrun's fixes are flagged

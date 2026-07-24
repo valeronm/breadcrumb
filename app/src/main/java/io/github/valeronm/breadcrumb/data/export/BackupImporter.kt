@@ -6,6 +6,7 @@ import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import java.io.Reader
 import java.util.zip.GZIPInputStream
 
@@ -39,10 +40,14 @@ object BackupImporter {
         onProgress: (tracksDone: Int, tracksTotal: Int?) -> Unit,
     ): Summary? {
         val input = context.contentResolver.openInputStream(uri) ?: return null
-        // The large inflater buffer keeps reads off the SAF stream from degrading into the
-        // default 512-byte chunks — each one a Binder round-trip to the documents provider.
-        return GZIPInputStream(input, STREAM_BUFFER).bufferedReader().use { reader ->
-            restore(reader, repositories, onProgress)
+        // The outer use owns the raw stream: the gzip wrapper's constructor eagerly reads and
+        // validates the header, so on a wrong-file pick it throws before the inner use exists.
+        return input.use { raw ->
+            // The large inflater buffer keeps reads off the SAF stream from degrading into the
+            // default 512-byte chunks — each one a Binder round-trip to the documents provider.
+            GZIPInputStream(raw, STREAM_BUFFER).bufferedReader().use { reader ->
+                restore(reader, repositories, onProgress)
+            }
         }
     }
 
@@ -277,7 +282,7 @@ object BackupImporter {
         var lat = 0.0
         var lon = 0.0
         var createdAt = 0L
-        var radiusM = Place.DEFAULT_RADIUS_M
+        var radiusM = PlaceClusterer.DEFAULT_RADIUS_M
         json.beginObject()
         while (json.hasNext()) {
             when (json.nextName()) {

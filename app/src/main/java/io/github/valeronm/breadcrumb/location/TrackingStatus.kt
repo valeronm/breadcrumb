@@ -1,8 +1,9 @@
 package io.github.valeronm.breadcrumb.location
 
-import io.github.valeronm.breadcrumb.data.ActivityType
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 
 /** Process-wide snapshot of the recorder, observed by the UI. */
 object TrackingStatus {
@@ -42,7 +43,10 @@ object TrackingStatus {
     val state: StateFlow<State> = _state
 
     internal fun update(transform: (State) -> State) {
-        _state.value = transform(_state.value)
+        // CAS loop, not a bare read-modify-write: callers race across the main thread and the
+        // service's IO coroutines, and a lost update would leave a stale field until the next
+        // publish.
+        _state.update(transform)
     }
 
     internal fun reset() {

@@ -1,7 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.DistanceFn
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.DistanceFn
 
 /**
  * Finds a stay at the *edge* of a track — recording that ran on after the user had already
