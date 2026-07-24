@@ -159,17 +159,36 @@ interface TrackDao {
      * answers to the span of the file it was imported from. A one-shot query, not an observed one:
      * it may read `track_points` (see the observed queries below for why they may not).
      *
-     * Deliberately does NOT filter `discardedAt` — a soft-deleted track still blocks re-importing
-     * the same span (it was judged not worth keeping; an import shouldn't resurrect it).
+     * Soft-deleted tracks are excluded, here and in [countTracksOverlapping]: Recently deleted is a
+     * holding pen for tracks on their way out, not a record of what the app has already seen, so a
+     * span covered only by discarded rows imports.
      */
     @Query(
         """
         SELECT COUNT(*) FROM tracks t
-        WHERE EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp = :startedAt)
+        WHERE t.discardedAt IS NULL
+          AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp = :startedAt)
           AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp = :endedAt)
         """,
     )
     suspend fun countTracksSpanning(startedAt: Long, endedAt: Long): Int
+
+    /**
+     * Overlap check for GPX import, asked once [countTracksSpanning] has ruled out an exact
+     * duplicate: some track's own point span intersects the file's, so importing it would lay a
+     * second path over a period already covered. Both ends are compared strictly — two tracks that
+     * merely touch at one instant do not overlap, or a file split into back-to-back legs would
+     * import its first leg and reject the rest.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM tracks t
+        WHERE t.discardedAt IS NULL
+          AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp < :endedAt)
+          AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp > :startedAt)
+        """,
+    )
+    suspend fun countTracksOverlapping(startedAt: Long, endedAt: Long): Int
 
     @Query("SELECT * FROM tracks WHERE endedAt IS NULL")
     suspend fun openTracks(): List<Track>

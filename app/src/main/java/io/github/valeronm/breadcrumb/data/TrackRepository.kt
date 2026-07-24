@@ -53,20 +53,28 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     suspend fun addPoints(points: List<TrackPoint>) = dao.insertPoints(points)
 
-    class GpxImportCounts(val imported: Int, val duplicates: Int)
+    class GpxImportCounts(val imported: Int, val duplicates: Int, val overlapping: Int)
 
     /**
      * Inserts parsed GPX tracks. Keep thresholds do NOT apply — an explicit import is kept as-is.
      * A track already holding fixes at both ends of the file's span is skipped as a duplicate
-     * (re-importing the same file, or importing our own export back). Each track inserts in its
-     * own transaction.
+     * (re-importing the same file, or importing our own export back), and one that merely
+     * intersects an existing track's span is skipped as overlapping: two paths over one period
+     * double-count its stats and leave stay derivation reconciling parallel journeys. Each track
+     * inserts in its own transaction, so tracks later in the same file are checked against the
+     * ones before them.
      */
     suspend fun importTracks(tracks: List<GpxParser.ImportableTrack>): GpxImportCounts {
         var imported = 0
         var duplicates = 0
+        var overlapping = 0
         for (track in tracks) {
             if (dao.countTracksSpanning(track.startedAt, track.endedAt) > 0) {
                 duplicates++
+                continue
+            }
+            if (dao.countTracksOverlapping(track.startedAt, track.endedAt) > 0) {
+                overlapping++
                 continue
             }
             val trackId = db.withTransaction {
@@ -102,8 +110,14 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             repairLeadingPoints(trackId)
             imported++
         }
-        if (imported > 0) DebugLog.i(TAG, "gpx import: $imported tracks added, $duplicates duplicates skipped")
-        return GpxImportCounts(imported, duplicates)
+        if (tracks.isNotEmpty()) {
+            DebugLog.i(
+                TAG,
+                "gpx import: $imported tracks added, $duplicates duplicates skipped, " +
+                    "$overlapping overlapping skipped",
+            )
+        }
+        return GpxImportCounts(imported, duplicates, overlapping)
     }
 
     /**

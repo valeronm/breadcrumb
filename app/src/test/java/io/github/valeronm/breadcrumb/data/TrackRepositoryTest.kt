@@ -349,6 +349,57 @@ class TrackRepositoryTest {
         assertEquals(0, repository.importTracks(file).imported)
     }
 
+    /** A file holding one straight walk: [count] fixes from [fromIndex], on the same line the
+     *  recorded-track tests walk, so an imported journey and a recorded one are the same shape. */
+    private fun importableWalk(fromIndex: Int, count: Int) = GpxParser.ImportableTrack(
+        activityTypeName = "WALKING",
+        startedAt = TEST_START + fromIndex * 10_000L,
+        endedAt = TEST_START + (fromIndex + count - 1) * 10_000L,
+        // A file has no track to belong to yet, hence the placeholder id.
+        points = walkPoints(0, fromIndex, count, fromLat = 1.0 + fromIndex * 0.000126).map {
+            GpxParser.ImportPoint(
+                lat = it.latitude, lon = it.longitude, ele = it.altitude,
+                timeMs = it.timestamp, speed = it.speed, segmentStart = it.segmentStart,
+            )
+        },
+    )
+
+    @Test fun `a file overlapping an existing track is skipped, not laid over it`() = runTest {
+        assertEquals(1, repository.importTracks(listOf(importableWalk(0, 60))).imported)
+
+        // The same journey cut differently: a span of its own, sharing 30 fixes with the first.
+        val counts = repository.importTracks(listOf(importableWalk(30, 60)))
+
+        assertEquals(0, counts.imported)
+        assertEquals("not an exact duplicate — the spans differ", 0, counts.duplicates)
+        assertEquals(1, counts.overlapping)
+        assertEquals(1, dao.allTrackIds().size)
+    }
+
+    @Test fun `back-to-back legs touching at one instant both import`() = runTest {
+        // The second leg starts at the exact timestamp the first ends. Touching is not overlapping,
+        // or a file split into legs would import the first and reject every one after it.
+        val counts = repository.importTracks(listOf(importableWalk(0, 60), importableWalk(59, 60)))
+
+        assertEquals(2, counts.imported)
+        assertEquals(0, counts.overlapping)
+    }
+
+    @Test fun `a span held only by a deleted track imports`() = runTest {
+        val recorded = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints(walkPoints(recorded, 0, 60, fromLat = 1.0))
+        repository.finishTrack(recorded, TEST_START + 60 * 10_000L)
+        repository.deleteTrack(recorded)
+
+        // Same span, so this is refused by both checks while the track is live — Recently deleted
+        // holds tracks on their way out, and must not keep the period reserved against an import.
+        val counts = repository.importTracks(listOf(importableWalk(0, 60)))
+
+        assertEquals(1, counts.imported)
+        assertEquals(0, counts.duplicates)
+        assertEquals(0, counts.overlapping)
+    }
+
     // --- Delete, restore, purge, unmerge --------------------------------------------------------
 
     /** A finished, kept 6-point walk; [fromIndex] spaces it out from other tracks in the test. */

@@ -102,7 +102,12 @@ internal class ImportExportController(
             BackupImporter.importFrom(app, backupRepositories, uri, onProgress)
         }
 
-    class GpxImportSummary(val imported: Int, val duplicates: Int, val failed: Int)
+    class GpxImportSummary(
+        val imported: Int,
+        val duplicates: Int,
+        val overlapping: Int,
+        val failed: Int,
+    )
 
     class GpxImportProgress(val filesDone: Int, val filesTotal: Int, val imported: Int)
 
@@ -121,6 +126,7 @@ internal class ImportExportController(
         scope.launch {
             var imported = 0
             var duplicates = 0
+            var overlapping = 0
             var failed = 0
             withContext(Dispatchers.IO) {
                 val resolver = app.contentResolver
@@ -134,6 +140,7 @@ internal class ImportExportController(
                         val counts = repository.importTracks(importable)
                         imported += counts.imported
                         duplicates += counts.duplicates
+                        overlapping += counts.overlapping
                         // Boundary catch: one unreadable file counts as failed, the rest import.
                         // Cancellation isn't a failed file — rethrow instead of counting it.
                     } catch (e: CancellationException) {
@@ -146,7 +153,7 @@ internal class ImportExportController(
                 }
             }
             _importProgress.value = null
-            onDone(GpxImportSummary(imported, duplicates, failed))
+            onDone(GpxImportSummary(imported, duplicates, overlapping, failed))
         }
     }
 

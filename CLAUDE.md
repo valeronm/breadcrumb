@@ -157,12 +157,17 @@ therefore only carries a label, a `recording` boolean, and a `TrackGroup` — sa
 `KeepRule`) decides whether a finished track is kept, soft-deleted as *discarded*, or — with 2 or
 fewer points in total, good and ignored counted together, so truly nothing to review — hard-deleted
 outright. Discarded (and user-deleted)
-tracks are reviewable and restorable from Settings → Recently deleted, auto-purged after 14 days,
-and deliberately block GPX re-import; the check runs
+tracks are reviewable and restorable from Settings → Recently deleted, auto-purged after 14 days;
+the keep check runs
 both on normal finish and via `finalizeDangling`, which also cleans up tracks left open by a crash
 (it skips `LocationRecordingService.activeTrackId`). `GpxExporter` (`data/export/`) builds GPX for
 share intents (`FileProvider`) or bulk-writes to a user-picked folder (Storage Access Framework);
-`GpxParser` imports GPX files shared/opened into the app. `BackupExporter`/`BackupImporter`
+`GpxParser` imports GPX files shared/opened into the app. **An import is refused whenever the
+period is already taken**: `importTracks` skips a file's track as a *duplicate* when a track holds
+fixes at both exact ends of its span, and as *overlapping* when the spans merely intersect (a
+second path over one period double-counts its stats and hands stay derivation parallel journeys).
+Both checks read the points, not the track row's bounds — the row's move when the overrun comes off
+its edges — and both ignore soft-deleted rows, so a span covered only by Recently deleted imports. `BackupExporter`/`BackupImporter`
 (`data/export/`) are the full backup: one gzipped JSON file with every kept track's points
 (ignored ones and quality metadata included), places and liveness events — written from Settings,
 streamed both ways (one track's points in memory at a time), point rows as arrays keyed by a

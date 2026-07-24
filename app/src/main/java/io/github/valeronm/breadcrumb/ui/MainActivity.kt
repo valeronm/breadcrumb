@@ -607,6 +607,7 @@ private fun SettingsPagesOverlay(
 internal fun gpxImportMessage(result: ImportExportController.GpxImportSummary): String = buildList {
     add("Imported ${result.imported} tracks")
     if (result.duplicates > 0) add("${result.duplicates} duplicates skipped")
+    if (result.overlapping > 0) add("${result.overlapping} overlapping skipped")
     if (result.failed > 0) add("${result.failed} failed")
 }.joinToString(" · ")
 
