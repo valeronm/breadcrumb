@@ -247,7 +247,7 @@ class TrackRepositoryTest {
         assertEquals(track.endedAt, dao.pointsFor(id).last().timestamp)
         assertStatsMatchPoints(id)
         assertEquals(
-            repository.edgeStayPointsFor(id).map { it.id },
+            repository.trackPointsFor(id).edgeStay.map { it.id },
             dao.allPointsFor(id).filter { it.timestamp > track.endedAt!! }.map { it.id },
         )
     }
@@ -283,7 +283,7 @@ class TrackRepositoryTest {
         val walkStartTs = TEST_START + 90 * 10_000L
         assertTrue(walk.startedAt in (walkStartTs - 60_000)..(walkStartTs + 30_000))
         assertEquals(walk.startedAt, dao.pointsFor(id).first().timestamp)
-        assertTrue(repository.edgeStayPointsFor(id).all { it.timestamp < walk.startedAt })
+        assertTrue(repository.trackPointsFor(id).edgeStay.all { it.timestamp < walk.startedAt })
         assertStatsMatchPoints(id)
     }
 
@@ -350,6 +350,28 @@ class TrackRepositoryTest {
         assertEquals(before.endedAt, after.endedAt)
     }
 
+    @Test fun `the track screen's load splits a track's points three ways`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        val rawEnd = addWalkThenLingerTail(id)
+        // A rejected fix among the good ones — a bad reading, which the map marks, as against the
+        // overrun, which it grays. The two must not land in the same slice.
+        repository.addPoints(
+            listOf(
+                test.point(id, 20, ignored = true, lat = 0.0)
+                    .copy(ignoreReason = IgnoreReason.JUMP.code),
+            ),
+        )
+        repository.finishTrack(id, rawEnd)
+
+        val split = repository.trackPointsFor(id)
+        val all = dao.allPointsFor(id)
+        assertEquals("the three slices are the whole track", all.size, split.good.size + split.noisy.size + split.edgeStay.size)
+        assertTrue("the path holds no ignored fix", split.good.none { it.ignored })
+        assertEquals(listOf(IgnoreReason.JUMP.code), split.noisy.map { it.ignoreReason })
+        assertTrue("the tail is its own slice", split.edgeStay.isNotEmpty())
+        assertTrue(split.edgeStay.all { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
+    }
+
     @Test fun `merging keeps the overrun the earlier track lost in the middle`() = runTest {
         val first = repository.startTrack(ActivityType.WALKING, TEST_START)
         repository.finishTrack(first, addWalkThenLingerTail(first))
@@ -399,7 +421,7 @@ class TrackRepositoryTest {
         val head = dao.track(importedId)!!
         val walkEndTs = TEST_START + 59 * 10_000L
         assertTrue(head.endedAt!! in walkEndTs..(walkEndTs + 90_000))
-        assertTrue(repository.edgeStayPointsFor(importedId).isNotEmpty())
+        assertTrue(repository.trackPointsFor(importedId).edgeStay.isNotEmpty())
         assertStatsMatchPoints(importedId)
         // The file's own span no longer matches the track's, so the duplicate check has to work
         // off the points — or the same file would import again as a second copy.

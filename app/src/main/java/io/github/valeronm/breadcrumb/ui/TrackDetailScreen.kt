@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -88,28 +89,22 @@ internal fun TrackMapScreen(
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
 ) {
-    // null = still loading the track's points from the database.
     val context = LocalContext.current
-    // The points are read on the row as well as the id. Nothing observes `track_points` — a query
-    // that did would re-run on every GPS fix (see CLAUDE.md) — so the row standing in for them is
-    // what lets the screen notice a re-derivation it didn't ask for. Retyping across the
-    // foot/vehicle line is the case that made this necessary: it re-runs the overrun rule
-    // (`TrackRepository.setActivityType`), and until this key moved, the header updated from the
-    // summary flow while the line and the grayed edges kept the pre-retype shape until the screen
-    // was reopened. A same-tuning retype re-reads for nothing, which is a rare tap and invisible —
-    // produceState keeps what it has while the new query runs.
-    val points by produceState<List<TrackPoint>?>(initialValue = null, trackId, summary) {
-        value = viewModel.getPoints(trackId)
+    // One load of everything the screen draws (null = still reading it), keyed on the row as well
+    // as the id. Nothing observes `track_points` — a query that did would re-run on every GPS fix
+    // (see CLAUDE.md) — so the row standing in for them is what lets the screen notice a
+    // re-derivation it didn't ask for. Retyping across the foot/vehicle line is the case that made
+    // this necessary: it re-runs the overrun rule (`TrackRepository.setActivityType`), and until
+    // this key moved, the header updated from the summary flow while the line and the grayed edges
+    // kept the pre-retype shape until the screen was reopened. A same-tuning retype re-reads for
+    // nothing, which is a rare tap and invisible — produceState keeps what it has while the new
+    // query runs.
+    val trackPoints by produceState<TrackPoints?>(initialValue = null, trackId, summary) {
+        value = viewModel.getTrackPoints(trackId)
     }
-    // Also null while loading: the show-a-map decision needs both lists, or a track whose only
-    // points are noisy would flash the "not enough points" placeholder before its markers arrive.
-    val noisyPoints by produceState<List<TrackPoint>?>(initialValue = null, trackId, summary) {
-        value = viewModel.getIgnoredPoints(trackId)
-    }
-    // The fixes already taken off the path at the track's edges — read back, not re-detected.
-    val stayPoints by produceState(initialValue = emptyList(), trackId, summary) {
-        value = viewModel.getEdgeStayPoints(trackId)
-    }
+    val points = trackPoints?.good
+    val noisyPoints = trackPoints?.noisy
+    val stayPoints = trackPoints?.edgeStay.orEmpty()
     // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
     val dwells by produceState(initialValue = emptyList(), points) {
         value = points?.let { pts ->
@@ -184,13 +179,12 @@ internal fun TrackMapScreen(
         },
     ) { inner ->
         Box(modifier = Modifier.padding(inner).fillMaxSize().clipToBounds()) {
-            val loaded = points
-            val noisy = noisyPoints
+            val load = trackPoints
             when {
-                loaded == null || noisy == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                load == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 // A track without a drawable line still gets the map when it has noisy fixes to
                 // mark — a bad-points-only track is exactly what the noisy overlay is for.
-                loaded.size < KeepRule.MIN_LINE_POINTS && noisy.isEmpty() -> Text(
+                load.good.size < KeepRule.MIN_LINE_POINTS && load.noisy.isEmpty() -> Text(
                     "Not enough points to draw this track on a map.",
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
@@ -204,8 +198,8 @@ internal fun TrackMapScreen(
                     }
                     val darkTheme = isSystemInDarkTheme()
                     val units = LocalUnits.current
-                    val graph = remember(loaded, colorMode, activity, darkTheme, units) {
-                        metricGraphData(loaded, colorMode, activity, darkTheme, units)
+                    val graph = remember(load.good, colorMode, activity, darkTheme, units) {
+                        metricGraphData(load.good, colorMode, activity, darkTheme, units)
                     }
                     // Metric chips, map, and scrubber read as one group: small gaps, small
                     // corners between neighbors.
@@ -221,12 +215,12 @@ internal fun TrackMapScreen(
                         Card(Modifier.weight(1f).fillMaxWidth(), shape = groupedRowShape(1, blocks)) {
                             Box(Modifier.fillMaxSize().clipToBounds()) {
                                 MapLibreTrackMap(
-                                    points = loaded,
-                                    noisyPoints = if (showNoisy) noisy else emptyList(),
+                                    points = load.good,
+                                    noisyPoints = if (showNoisy) load.noisy else emptyList(),
                                     activity = activity,
                                     colorMode = colorMode,
                                     showLegend = true,
-                                    selectedPoint = selectedIndex?.let { loaded.getOrNull(it) },
+                                    selectedPoint = selectedIndex?.let { load.good.getOrNull(it) },
                                     dwells = dwells,
                                     overruns = overruns,
                                     precomputedColoring = graph?.coloring,
@@ -234,7 +228,7 @@ internal fun TrackMapScreen(
                                 )
                                 if (showNoisy) {
                                     // Top-right, clear of the color-metric legend (bottom-right).
-                                    NoisyLegend(noisy, Modifier.align(Alignment.TopEnd).padding(12.dp))
+                                    NoisyLegend(load.noisy, Modifier.align(Alignment.TopEnd).padding(12.dp))
                                 }
                                 if (dwells.isNotEmpty() || overruns.isNotEmpty()) {
                                     // Top-left: the noisy legend owns the top-right corner.
@@ -270,7 +264,7 @@ internal fun TrackMapScreen(
                 Column {
                     // Selecting applies immediately: the summary flow re-emits and the title,
                     // icon, colors and speed scale all follow — and so does the drawn path, on a
-                    // choice that re-derives the overrun (see the point queries above).
+                    // choice that re-derives the overrun (see the point load above).
                     for (option in ActivityType.entries.filter { it.recording && it != ActivityType.UNKNOWN }) {
                         Row(
                             modifier = Modifier

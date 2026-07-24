@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.PlaceRepository
+import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.LivenessEvent
@@ -211,13 +212,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun getPointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
         repository.pointsAfter(trackId, afterId)
 
-    /** The ignored "bad fix" points, shown as markers on the track map. */
-    suspend fun getIgnoredPoints(trackId: Long): List<TrackPoint> = repository.ignoredPointsFor(trackId)
-
-    /** The fixes already taken off the path as the recorder's overrun — grayed on the track map.
-     *  Read back from the rows, never re-detected: the screen shows what the track says it is. */
-    suspend fun getEdgeStayPoints(trackId: Long): List<TrackPoint> =
-        repository.edgeStayPointsFor(trackId)
+    /** Everything the track screen draws — the path, the bad fixes marked on it, and the overrun
+     *  grayed off its ends. The overrun is read back from the rows, never re-detected: the screen
+     *  shows what the track says it is. */
+    suspend fun getTrackPoints(trackId: Long): TrackPoints = repository.trackPointsFor(trackId)
 }
 
 private fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(

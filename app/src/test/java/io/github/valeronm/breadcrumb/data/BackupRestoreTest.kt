@@ -135,6 +135,6 @@ class BackupRestoreTest {
         val restored = target.repository.exportTracks().single()
         assertEquals(5, restored.pointCount)
         assertEquals(0, restored.ignoredCount)
-        assertTrue(target.repository.edgeStayPointsFor(restored.id).isEmpty())
+        assertTrue(target.repository.trackPointsFor(restored.id).edgeStay.isEmpty())
     }
 }

@@ -32,6 +32,19 @@ private const val SWEEP_BATCH_TRACKS = 100
 private const val POINT_ID_CHUNK = 500
 
 /**
+ * A track's points split the three ways the track screen draws them — see
+ * [TrackRepository.trackPointsFor], which is the only thing that builds one.
+ */
+class TrackPoints(
+    /** The path itself: the fixes that are part of the journey. */
+    val good: List<TrackPoint>,
+    /** Bad fixes the recorder rejected ([TrackQuality]), drawn as markers with a legend. */
+    val noisy: List<TrackPoint>,
+    /** The recorder's overrun at the track's edges, grayed off the ends of the path. */
+    val edgeStay: List<TrackPoint>,
+)
+
+/**
  * Thin wrapper around the DAO so callers don't touch Room directly. [db] is a seam: production
  * passes nothing and gets the app's singleton database, tests pass an in-memory one.
  */
@@ -500,13 +513,18 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
         dao.pointsAfter(trackId, afterId)
 
-    /** The ignored "bad fix" points, for marking them on the map. */
-    suspend fun ignoredPointsFor(trackId: Long): List<TrackPoint> =
-        dao.ignoredPointsFor(trackId, IgnoreReason.EDGE_STAY.code)
-
-    /** The fixes taken off the path as the recorder's overrun, for graying them on the map. */
-    suspend fun edgeStayPointsFor(trackId: Long): List<TrackPoint> =
-        dao.edgeStayPointsFor(trackId, IgnoreReason.EDGE_STAY.code)
+    /**
+     * One load of a track's points, split rather than queried three times. The three slices are
+     * disjoint parts of the same ordered list, and reading them separately lets a re-derivation
+     * land between two of the reads — the new path drawn against the old overrun. Which slice a
+     * given reason belongs to is decided here rather than in the screen; [EdgeStayIgnore] owns the
+     * one that isn't a rejection.
+     */
+    suspend fun trackPointsFor(trackId: Long): TrackPoints {
+        val (ignored, good) = dao.allPointsFor(trackId).partition { it.ignored }
+        val (edgeStay, noisy) = ignored.partition(EdgeStayIgnore::isEdgeStay)
+        return TrackPoints(good = good, noisy = noisy, edgeStay = edgeStay)
+    }
 
     /**
      * Repairs a track's stray leading point(s) ([TrackQuality.leadingPointIsJump] — the drive-start

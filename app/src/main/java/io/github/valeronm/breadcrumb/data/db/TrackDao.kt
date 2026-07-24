@@ -117,26 +117,6 @@ interface TrackDao {
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 AND id > :afterId ORDER BY timestamp ASC, id ASC")
     suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint>
 
-    /** Only the ignored *bad fix* points, for marking them on the map — the edge-stay ones are
-     *  not rejects and are drawn as the grayed overrun instead ([edgeStayPointsFor]).
-     *
-     *  [edgeStay] is bound rather than written into the SQL so the reason has one spelling, the
-     *  enum's; an annotation can only name a compile-time constant, which would be a second one. */
-    @Query(
-        "SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 1 " +
-            "AND (ignoreReason IS NULL OR ignoreReason != :edgeStay) " +
-            "ORDER BY timestamp ASC, id ASC",
-    )
-    suspend fun ignoredPointsFor(trackId: Long, edgeStay: String): List<TrackPoint>
-
-    /** The fixes the recorder ran on past the stop for, flagged by
-     *  [io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]. */
-    @Query(
-        "SELECT * FROM track_points WHERE trackId = :trackId " +
-            "AND ignoreReason = :edgeStay ORDER BY timestamp ASC, id ASC",
-    )
-    suspend fun edgeStayPointsFor(trackId: Long, edgeStay: String): List<TrackPoint>
-
     /** Flag one point as an ignored bad fix, with the reason. */
     @Query("UPDATE track_points SET ignored = 1, ignoreReason = :reason WHERE id = :pointId")
     suspend fun setIgnored(pointId: Long, reason: String)
