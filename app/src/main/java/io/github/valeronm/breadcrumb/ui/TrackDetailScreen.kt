@@ -90,16 +90,24 @@ internal fun TrackMapScreen(
 ) {
     // null = still loading the track's points from the database.
     val context = LocalContext.current
-    val points by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
+    // The points are read on the row as well as the id. Nothing observes `track_points` — a query
+    // that did would re-run on every GPS fix (see CLAUDE.md) — so the row standing in for them is
+    // what lets the screen notice a re-derivation it didn't ask for. Retyping across the
+    // foot/vehicle line is the case that made this necessary: it re-runs the overrun rule
+    // (`TrackRepository.setActivityType`), and until this key moved, the header updated from the
+    // summary flow while the line and the grayed edges kept the pre-retype shape until the screen
+    // was reopened. A same-tuning retype re-reads for nothing, which is a rare tap and invisible —
+    // produceState keeps what it has while the new query runs.
+    val points by produceState<List<TrackPoint>?>(initialValue = null, trackId, summary) {
         value = viewModel.getPoints(trackId)
     }
     // Also null while loading: the show-a-map decision needs both lists, or a track whose only
     // points are noisy would flash the "not enough points" placeholder before its markers arrive.
-    val noisyPoints by produceState<List<TrackPoint>?>(initialValue = null, trackId) {
+    val noisyPoints by produceState<List<TrackPoint>?>(initialValue = null, trackId, summary) {
         value = viewModel.getIgnoredPoints(trackId)
     }
     // The fixes already taken off the path at the track's edges — read back, not re-detected.
-    val stayPoints by produceState(initialValue = emptyList(), trackId) {
+    val stayPoints by produceState(initialValue = emptyList(), trackId, summary) {
         value = viewModel.getEdgeStayPoints(trackId)
     }
     // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
@@ -122,8 +130,9 @@ internal fun TrackMapScreen(
     // the default follows the points once they load, until the user says otherwise.
     var showNoisyOverride by remember(trackId) { mutableStateOf<Boolean?>(null) }
     val showNoisy = showNoisyOverride ?: (points?.let { it.size < KeepRule.MIN_LINE_POINTS } == true)
-    // Point picked on the metric graph, highlighted on the map. Index into the good-points list.
-    var selectedIndex by remember(trackId) { mutableStateOf<Int?>(null) }
+    // Point picked on the metric graph, highlighted on the map. An index into the list above, so it
+    // is keyed on that list: one kept across a reload names a different fix than the user tapped.
+    var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
     var showTypeDialog by remember(trackId) { mutableStateOf(false) }
     Scaffold(
         topBar = {
@@ -260,7 +269,8 @@ internal fun TrackMapScreen(
             text = {
                 Column {
                     // Selecting applies immediately: the summary flow re-emits and the title,
-                    // icon, colors and speed scale all follow.
+                    // icon, colors and speed scale all follow — and so does the drawn path, on a
+                    // choice that re-derives the overrun (see the point queries above).
                     for (option in ActivityType.entries.filter { it.recording && it != ActivityType.UNKNOWN }) {
                         Row(
                             modifier = Modifier

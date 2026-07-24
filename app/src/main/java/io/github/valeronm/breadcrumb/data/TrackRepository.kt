@@ -14,7 +14,6 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
-import io.github.valeronm.breadcrumb.domain.TrackGroup
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
 
@@ -144,7 +143,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                     points = points,
                     startedAt = track.startedAt,
                     endedAt = track.endedAt ?: track.startedAt,
-                    params = edgeStayParams(track.activityType),
+                    params = EdgeStayDetector.paramsFor(track.activityType),
                     distance = AndroidDistance,
                 )
                 if (!plan.movesPoints) {
@@ -175,14 +174,32 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         }
     }
 
-    /** Reassign a finished track's activity (misdetected, or an imported GPX without a type). */
-    suspend fun setActivityType(trackId: Long, activityType: ActivityType) =
-        dao.setActivityType(trackId, activityType.name)
+    /**
+     * Reassign a finished track's activity (misdetected, or an imported GPX without a type).
+     *
+     * The activity chooses the detector's tuning ([EdgeStayDetector.paramsFor]), so a reassignment
+     * that crosses into or out of a vehicle leaves the stored overrun as the *other* rule found it
+     * — until the next [EdgeStayDetector.RULE_VERSION] sweep, which may be releases away. The
+     * track's overrun is therefore re-derived here, exactly when the tuning changes: a retype
+     * within a group (walking → running) is the plain column write it always was.
+     */
+    suspend fun setActivityType(trackId: Long, activityType: ActivityType) {
+        val track = dao.track(trackId) ?: return
+        // Asked of the tuning rather than the group, so a third set of params (a bicycle floor,
+        // say) needs no edit here — and the whole point walk is skipped when nothing would move.
+        val retuned =
+            EdgeStayDetector.paramsFor(activityType.name) != EdgeStayDetector.paramsFor(track.activityType)
+        db.withTransaction {
+            dao.setActivityType(trackId, activityType.name)
+            if (retuned) rederiveEdgeStays(track.copy(activityType = activityType.name))
+        }
+    }
 
     /**
      * Recompute a track's aggregates from its points and store them on its row — the only writer of
      * the denormalized columns, so every path that changes a track's points (finish, merge, import,
-     * repair) must end here or the timeline will show stale counts. Returns the stats it wrote.
+     * repair, retype) must end here or the timeline will show stale counts. Returns the stats it
+     * wrote.
      *
      * [points] is *all* of the track's points, ignored ones included, and comes from the caller:
      * every path that ends here has just walked or rewritten them, and none may re-read.
@@ -280,7 +297,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             points = points,
             startedAt = track.startedAt,
             endedAt = endedAt,
-            params = edgeStayParams(track.activityType),
+            params = EdgeStayDetector.paramsFor(track.activityType),
             distance = AndroidDistance,
         )
         // The plan names points by position; these ones came out of the database, so each has a
@@ -311,17 +328,22 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /**
-     * The detector's tuning for a track, built here and nowhere else: two callers deriving the
-     * same track's overrun through different parameters is the failure this guards against.
-     * A vehicle's floor for "not moving" is far above GPS drift; on foot there is no such speed,
-     * so those tracks run without one. See [EdgeStayDetector.VEHICLE].
+     * Re-derive one finished track's overrun and, when anything moved, recompute the aggregates
+     * that follow it — the whole of what a stored track needs when the rule, or the tuning the
+     * activity selects, has changed under it. Returns whether it wrote anything.
+     *
+     * An open track is skipped: the recorder is still adding to the edge the rule would cut, and
+     * finishing it runs this sequence itself. The caller supplies the transaction, and the [track]
+     * it passes is the row as it should now read — a retype hands in the new activity, since the
+     * tuning is derived from it.
      */
-    private fun edgeStayParams(activityTypeName: String): EdgeStayDetector.Params =
-        if (ActivityType.ofName(activityTypeName)?.trackGroup == TrackGroup.VEHICLE) {
-            EdgeStayDetector.VEHICLE
-        } else {
-            EdgeStayDetector.BRIEF_STOP
-        }
+    private suspend fun rederiveEdgeStays(track: Track): Boolean {
+        val endedAt = track.endedAt ?: return false
+        val applied = applyEdgeStays(track, endedAt, dao.allPointsFor(track.id))
+        if (!applied.changed) return false
+        refreshStats(track.id, applied.points)
+        return true
+    }
 
     /**
      * Re-derive every kept track's overrun against the current rule. Unlike the one-shot backfills
@@ -350,11 +372,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                         // Reported every 10 tracks: the point walk is the slow part, and a state
                         // emission per track would recompose the banner faster than it can be read.
                         if (i % 10 == 0) EdgeStaySweepStatus.advance(batch * SWEEP_BATCH_TRACKS + i)
-                        val endedAt = track.endedAt ?: continue
-                        val applied = applyEdgeStays(track, endedAt, dao.allPointsFor(track.id))
-                        if (!applied.changed) continue
-                        refreshStats(track.id, applied.points)
-                        changed++
+                        if (rederiveEdgeStays(track)) changed++
                     }
                 }
             }

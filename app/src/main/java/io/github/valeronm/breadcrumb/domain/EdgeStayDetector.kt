@@ -92,6 +92,16 @@ object EdgeStayDetector {
     val VEHICLE = BRIEF_STOP.copy(activityFloorMps = 1.4)
 
     /**
+     * The one place a track's tuning is chosen: two callers deriving the same track's overrun
+     * through different parameters is the failure this exists to prevent.
+     *
+     * Takes the stored activity *name* — the value a track row carries — so a row naming a type
+     * this build no longer has falls to [BRIEF_STOP] rather than needing a caller to handle it.
+     */
+    fun paramsFor(activityTypeName: String): Params =
+        if (ActivityType.ofName(activityTypeName)?.trackGroup == TrackGroup.VEHICLE) VEHICLE else BRIEF_STOP
+
+    /**
      * Bumped whenever detection changes what it would find — a new stage, a moved threshold, a
      * different boundary. The [IgnoreReason.EDGE_STAY][io.github.valeronm.breadcrumb.data.IgnoreReason.EDGE_STAY]
      * flags on stored points are this code's verdicts, so a rule that has moved leaves them stale

@@ -321,4 +321,31 @@ class EdgeStayDetectorTest {
         assertEquals(EdgeStayDetector.Side.START, stays[0].side)
         assertEquals(EdgeStayDetector.Side.END, stays[1].side)
     }
+
+    @Test
+    fun `every activity is detected with the params named here, and nothing is left unnamed`() {
+        // Spelled out rather than derived from trackGroup: an expectation computed the way the
+        // production branch computes it moves with any change to the discriminator and pins
+        // nothing. A new activity type fails the size check, so its tuning is a decision, not a
+        // default.
+        val expected = mapOf(
+            ActivityType.WALKING to EdgeStayDetector.BRIEF_STOP,
+            ActivityType.RUNNING to EdgeStayDetector.BRIEF_STOP,
+            ActivityType.CYCLING to EdgeStayDetector.BRIEF_STOP,
+            ActivityType.DRIVING to EdgeStayDetector.VEHICLE,
+            ActivityType.TAXI to EdgeStayDetector.VEHICLE,
+            ActivityType.STILL to EdgeStayDetector.BRIEF_STOP,
+            ActivityType.UNKNOWN to EdgeStayDetector.BRIEF_STOP,
+        )
+        assertEquals(ActivityType.entries.size, expected.size)
+        expected.forEach { (type, params) ->
+            assertEquals(type.name, params, EdgeStayDetector.paramsFor(type.name))
+        }
+    }
+
+    @Test
+    fun `a track naming an activity this build doesn't have runs without the floor`() {
+        // A stored row can name anything — an old build's type, or a GPX <type> we no longer map.
+        assertEquals(EdgeStayDetector.BRIEF_STOP, EdgeStayDetector.paramsFor("HANG_GLIDING"))
+    }
 }

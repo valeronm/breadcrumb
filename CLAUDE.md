@@ -178,7 +178,9 @@ planned web companion viewer. `PlaceRepository` backs the Places tab.
 **An ignored point is one that isn't part of the path — for either of two reasons.** The recorder's
 bad-fix rule (`TrackQuality`: accuracy, jump, no-GNSS) rejects fixes it doesn't trust; `EdgeStayIgnore`
 flags the good fixes recorded past the stop at a track's edges (`IgnoreReason.EDGE_STAY`), applied
-automatically when a track is finished, imported, merged or restored, and the track's `startedAt`/
+automatically when a track is finished, imported, merged, restored, or retyped across the
+foot/vehicle line (the activity picks the detector's tuning — `EdgeStayDetector.paramsFor` — so a
+retype that changes it re-derives the track), and the track's `startedAt`/
 `endedAt` pulled in to the boundary fix with it. Both drop out of distance, endpoints, the drawn
 line and GPX export while keeping their rows, so the operation destroys nothing and is undone by
 clearing a flag. Two invariants hold it together: detection runs on the points with the edge flags

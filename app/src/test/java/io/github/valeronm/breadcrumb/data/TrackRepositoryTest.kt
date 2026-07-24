@@ -16,6 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import kotlin.math.abs
 
 /**
  * The aggregates denormalized onto the track row must never drift from the points they summarize —
@@ -188,12 +189,25 @@ class TrackRepositoryTest {
 
     // --- Edge stays -----------------------------------------------------------------------------
 
-    /** A fix every 10 s advancing 14 m north at walking Doppler speed. */
+    /** A fix every 10 s advancing [stepLat] north, carrying the Doppler [speed] that pace implies. */
+    private fun linePoints(
+        trackId: Long,
+        fromIndex: Int,
+        count: Int,
+        fromLat: Double,
+        stepLat: Double,
+        speed: Float,
+    ) = (0 until count).map { i ->
+        test.point(trackId, fromIndex + i, lat = fromLat + i * stepLat).copy(speed = speed)
+    }
+
+    /** 14 m per fix — walking pace. */
     private fun walkPoints(trackId: Long, fromIndex: Int, count: Int, fromLat: Double) =
-        (0 until count).map { i ->
-            test.point(trackId, fromIndex + i, lat = fromLat + i * 0.000126)
-                .copy(speed = 1.4f)
-        }
+        linePoints(trackId, fromIndex, count, fromLat, stepLat = 0.000126, speed = 1.4f)
+
+    /** 90 m per fix — vehicle pace, fast enough that one fix carries its speed bin alone. */
+    private fun drivePoints(trackId: Long, fromIndex: Int, count: Int, fromLat: Double) =
+        linePoints(trackId, fromIndex, count, fromLat, stepLat = 0.000809, speed = 9f)
 
     /** A fix every 10 s jittering ±15 m around [lat] at standstill Doppler speed. */
     private fun lingerPoints(trackId: Long, fromIndex: Int, count: Int, lat: Double) =
@@ -291,6 +305,49 @@ class TrackRepositoryTest {
         // The raw end time is gone with the old cut, so the clock goes back to the last fix.
         assertEquals(TEST_START + 89 * 10_000L, restored.endedAt)
         assertStatsMatchPoints(id)
+    }
+
+    /** A parked vehicle's settling drift: a 30 m excursion out and back on a 60 s cycle, at the
+     *  fixture's 10 s cadence, so displacement over the detector's 30 s lookback reads ~1 m/s —
+     *  over the moving bar, under the floor a vehicle's own speed allows. */
+    private fun parkedDriftPoints(trackId: Long, fromIndex: Int, count: Int, lat: Double) =
+        (0 until count).map { i ->
+            val phase = (i * 10 % 60) / 60.0
+            test.point(trackId, fromIndex + i, lat = lat + 0.00027 * (1 - abs(2 * phase - 1)))
+                .copy(speed = 1.0f)
+        }
+
+    @Test fun `retyping a track to a vehicle re-derives its overrun under the vehicle floor`() = runTest {
+        // 5 min of driving, then 15 min parked. On foot there is no speed that rules out drift, so
+        // the drift keeps voting "moving" and nothing is trimmed; a vehicle's floor calls the same
+        // fixes a standstill. The verdict has to follow the retype that changed the tuning.
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        val drive = drivePoints(id, 0, 30, fromLat = 1.0)
+        repository.addPoints(drive + parkedDriftPoints(id, 30, 90, lat = drive.last().latitude))
+        repository.finishTrack(id, TEST_START + 120 * 10_000L)
+        assertEquals("nothing to trim under the foot rule", 0, dao.track(id)!!.ignoredCount)
+
+        repository.setActivityType(id, ActivityType.TAXI)
+
+        val after = dao.track(id)!!
+        assertEquals("TAXI", after.activityType)
+        assertTrue("the parked tail is off the path", after.ignoredCount > 60)
+        // The clock ends where the drive did, and the row's aggregates followed the flags.
+        assertTrue(after.endedAt!! < TEST_START + 40 * 10_000L)
+        assertStatsMatchPoints(id)
+    }
+
+    @Test fun `retyping within the same tuning leaves the stored verdict alone`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.finishTrack(id, addWalkThenLingerTail(id))
+        val before = dao.track(id)!!
+
+        repository.setActivityType(id, ActivityType.RUNNING)
+
+        val after = dao.track(id)!!
+        assertEquals("RUNNING", after.activityType)
+        assertEquals(before.ignoredCount, after.ignoredCount)
+        assertEquals(before.endedAt, after.endedAt)
     }
 
     @Test fun `merging keeps the overrun the earlier track lost in the middle`() = runTest {
@@ -465,7 +522,9 @@ class TrackRepositoryTest {
         assertNull("the kept track is untouched", dao.track(kept)!!.discardedAt)
     }
 
-    @Test fun `reassigning the activity changes the stored name and nothing else`() = runTest {
+    @Test fun `a retype with no overrun to find writes the name and leaves the row alone`() = runTest {
+        // WALKING → TAXI crosses the tuning boundary, so the re-derivation runs — on a track with
+        // no stay to detect, which must come back with the row untouched rather than reshaped.
         val id = finishedWalk(0)
         val before = dao.track(id)!!
 
