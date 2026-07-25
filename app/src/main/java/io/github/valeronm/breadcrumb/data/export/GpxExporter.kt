@@ -28,20 +28,20 @@ object GpxExporter {
             timeZone = TimeZone.getTimeZone("UTC")
         }
 
-    /** Loads a track and renders its GPX document, or null if the track is missing/empty. */
-    private suspend fun gpxFor(repository: TrackRepository, trackId: Long): Pair<Track, String>? {
+    /** Loads a track with its points, or null if the track is missing/empty. */
+    private suspend fun loadTrack(repository: TrackRepository, trackId: Long): Pair<Track, List<TrackPoint>>? {
         val track = repository.track(trackId) ?: return null
         val points = repository.pointsFor(trackId)
         if (points.isEmpty()) return null
-        return track to buildGpx(track, points)
+        return track to points
     }
 
     suspend fun export(context: Context, repository: TrackRepository, trackId: Long): Uri? {
-        val (track, gpx) = gpxFor(repository, trackId) ?: return null
+        val (track, points) = loadTrack(repository, trackId) ?: return null
 
         val dir = File(context.filesDir, "exports").apply { mkdirs() }
         val file = File(dir, fileName(track))
-        file.writeText(gpx)
+        file.bufferedWriter().use { writeGpx(it, track, points) }
 
         return FileProvider.getUriForFile(
             context,
@@ -78,10 +78,10 @@ object GpxExporter {
         repository: TrackRepository,
         trackId: Long,
     ): Boolean {
-        val (track, gpx) = gpxFor(repository, trackId) ?: return false
+        val (track, points) = loadTrack(repository, trackId) ?: return false
         val file = dir.createFile(MIME_TYPE, fileName(track)) ?: return false
         context.contentResolver.openOutputStream(file.uri)?.use { out ->
-            out.write(gpx.toByteArray())
+            out.bufferedWriter().use { writeGpx(it, track, points) }
         } ?: return false
         return true
     }
@@ -89,9 +89,18 @@ object GpxExporter {
     private fun fileName(track: Track): String =
         "${track.activityType.lowercase(Locale.US)}-${exportFileStamp(track.startedAt)}.gpx"
 
-    internal fun buildGpx(track: Track, points: List<TrackPoint>): String {
+    /**
+     * The document as one String. Kept for the tests, which assert on the whole output; the export
+     * paths stream through [writeGpx] instead — a long track is ~1.5 MB of text, and holding it as
+     * a String plus its byte copy churned several MB per track through the all-tracks export.
+     */
+    internal fun buildGpx(track: Track, points: List<TrackPoint>): String =
+        StringBuilder().also { writeGpx(it, track, points) }.toString()
+
+    /** Streams [track]'s GPX 1.1 document into [out]. */
+    internal fun writeGpx(out: Appendable, track: Track, points: List<TrackPoint>) {
         val iso = isoFormatter()
-        return buildString {
+        with(out) {
             appendLine("""<?xml version="1.0" encoding="UTF-8"?>""")
             appendLine(
                 """<gpx version="1.1" creator="Breadcrumb" """ +
