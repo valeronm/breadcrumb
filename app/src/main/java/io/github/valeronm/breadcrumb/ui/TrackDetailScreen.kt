@@ -108,7 +108,9 @@ internal fun TrackMapScreen(
     // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
     val dwells by produceState(initialValue = emptyList(), points) {
         value = points?.let { pts ->
-            withContext(Dispatchers.Default) { DwellDetector.detect(pts, distance = AndroidDistance) }
+            withContext(Dispatchers.Default) {
+                DwellDetector.detect(pts, DwellDetector.TRACK_OVERLAY, AndroidDistance)
+            }
         } ?: emptyList()
     }
     // Recording that ran on past the stop at either edge, grayed on the map: the stored fixes

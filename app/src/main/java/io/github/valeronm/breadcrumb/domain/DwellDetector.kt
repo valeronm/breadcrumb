@@ -45,6 +45,15 @@ object DwellDetector {
         val decimateMs: Long = 15_000L,
     )
 
+    /**
+     * The tuning the track-detail overlay ships with — the constructor defaults, named so this
+     * choice has an owner. [EdgeStayDetector.paramsFor] exists for the same reason on the other
+     * consumer of this detector: two callers sizing the same dwell through different parameters is
+     * the failure a named set prevents. (The edge rule's stage 1 uses
+     * [EdgeStayDetector.BRIEF_STOP]'s own `dwell` params, deliberately tighter.)
+     */
+    val TRACK_OVERLAY = Params()
+
     /** One embedded stay: [entryTs]..[exitTs] are real fix timestamps bounding the in-corral run. */
     data class Dwell(
         val entryTs: Long,
@@ -52,6 +61,9 @@ object DwellDetector {
         val centroid: StayDeriver.Endpoint,
         /** Decimated samples inside the corral — the merge pass weights centroids by it. */
         val sampleCount: Int,
+        /** The corral this was found with, so anything drawing the dwell asks the result for its
+         *  size instead of re-reading the params and hoping it picked the same tuning. */
+        val corralRadiusM: Double,
     )
 
     fun detect(
@@ -115,7 +127,12 @@ object DwellDetector {
             )
             val transit = span > 0 && netM / (span / 60_000.0) > params.maxDriftMPerMin
             if (span >= params.minDwellMs && !transit) {
-                out.add(Dwell(pts[i].timestamp, pts[lastInside].timestamp, StayDeriver.Endpoint(cLat, cLon), members))
+                out.add(
+                    Dwell(
+                        pts[i].timestamp, pts[lastInside].timestamp,
+                        StayDeriver.Endpoint(cLat, cLon), members, params.corralRadiusM,
+                    ),
+                )
                 i = lastInside + 1
             } else {
                 // Not a dwell from this anchor. Advancing one sample (not to the break point) is
@@ -146,6 +163,7 @@ object DwellDetector {
                         (cur.centroid.lon * cur.sampleCount + next.centroid.lon * next.sampleCount) / total,
                     ),
                     sampleCount = total,
+                    corralRadiusM = cur.corralRadiusM,
                 )
             } else {
                 out.add(cur)

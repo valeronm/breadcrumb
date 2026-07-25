@@ -332,11 +332,9 @@ private fun addEdgeStayLayer(
     )
 }
 
-/** One place-style capture circle per detected stop, sized at the detector's corral radius. */
-private fun dwellCollection(dwells: List<DwellDetector.Dwell>): FeatureCollection {
-    val radiusM = DwellDetector.Params().corralRadiusM
-    return FeatureCollection.fromFeatures(dwells.map { circleFeature(it.centroid, radiusM) })
-}
+/** One place-style capture circle per detected stop, each sized at the corral it was found with. */
+private fun dwellCollection(dwells: List<DwellDetector.Dwell>): FeatureCollection =
+    FeatureCollection.fromFeatures(dwells.map { circleFeature(it.centroid, it.corralRadiusM) })
 
 private fun addDwellLayers(style: Style, dwells: List<DwellDetector.Dwell>) {
     style.addSource(GeoJsonSource(DWELL_SOURCE, dwellCollection(dwells)))
