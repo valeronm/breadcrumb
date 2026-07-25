@@ -87,14 +87,22 @@ internal fun MapLibreTrackMap(
     // A coloring the caller already computed for the same inputs (the track-detail screen builds
     // one for its metric graph) — the O(points) pass then runs once, not twice.
     precomputedColoring: TrackColoring? = null,
+    // …and the seam walk that coloring was built from ([TrackQuality.Seams]), which the gradient
+    // below needs too. Null = walk it here (the live preview, which has no graph).
+    precomputedSeams: TrackQuality.Seams? = null,
 ) {
     val darkTheme = isSystemInDarkTheme()
     val units = LocalUnits.current
-    val coloring = remember(precomputedColoring, points, colorMode, activity, darkTheme, units) {
-        precomputedColoring
-            ?: trackColoring(points, TrackQuality.pointSpeedsKmh(points), colorMode, activity, darkTheme, units)
+    // Keyed on the points alone, unlike the coloring: seam distances don't depend on the metric,
+    // so switching it must not re-walk them.
+    val seams = remember(precomputedSeams, points) {
+        precomputedSeams ?: TrackQuality.seams(points)
     }
-    val paint = remember(points, coloring) { buildTrackPaint(points, coloring.colors) }
+    val coloring = remember(precomputedColoring, seams, colorMode, activity, darkTheme, units) {
+        precomputedColoring
+            ?: trackColoring(points, TrackQuality.pointSpeedsKmh(seams), colorMode, activity, darkTheme, units)
+    }
+    val paint = remember(seams, coloring) { buildTrackPaint(coloring.colors, seams) }
     val applied = remember { AppliedTrackInputs() }
 
     Box(modifier) {
@@ -572,11 +580,12 @@ private sealed interface TrackPaint {
  * cumulative-distance fraction along the line (0..1) — the parity port of osmdroid's per-vertex
  * paint list. Falls back to a solid color for a track with no length.
  */
-private fun buildTrackPaint(points: List<TrackPoint>, colors: IntArray): TrackPaint {
+private fun buildTrackPaint(colors: IntArray, seams: TrackQuality.Seams): TrackPaint {
+    val points = seams.points
     if (points.size < 2 || colors.isEmpty()) return TrackPaint.Solid(colors.firstOrNull() ?: DEFAULT_LINE)
     val cumulative = DoubleArray(points.size)
     for (i in 1 until points.size) {
-        cumulative[i] = cumulative[i - 1] + TrackQuality.distanceMeters(points[i - 1], points[i])
+        cumulative[i] = cumulative[i - 1] + seams.meters[i]
     }
     val total = cumulative.last()
     if (total <= 0.0) return TrackPaint.Solid(colors.first())

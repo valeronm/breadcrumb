@@ -200,8 +200,13 @@ internal fun TrackMapScreen(
                     }
                     val darkTheme = isSystemInDarkTheme()
                     val units = LocalUnits.current
-                    val graph = remember(load.good, colorMode, activity, darkTheme, units) {
-                        metricGraphData(load.good, colorMode, activity, darkTheme, units)
+                    // The one seam walk this screen's derived series come from, keyed on the
+                    // points alone — it is the same distances whatever metric is displayed, and
+                    // both the graph below and the map's gradient are built from it. Switching the
+                    // metric then re-runs only the ramp, not an ellipsoidal distance per point.
+                    val seams = remember(load.good) { TrackQuality.seams(load.good) }
+                    val graph = remember(seams, colorMode, activity, darkTheme, units) {
+                        metricGraphData(seams, colorMode, activity, darkTheme, units)
                     }
                     // Metric chips, map, and scrubber read as one group: small gaps, small
                     // corners between neighbors.
@@ -226,6 +231,7 @@ internal fun TrackMapScreen(
                                     dwells = dwells,
                                     overruns = overruns,
                                     precomputedColoring = graph?.coloring,
+                                    precomputedSeams = seams,
                                     modifier = Modifier.fillMaxSize(),
                                 )
                                 if (showNoisy) {
@@ -319,14 +325,15 @@ internal class MetricGraphData(
 
 /** Null when no point carries the metric. */
 internal fun metricGraphData(
-    points: List<TrackPoint>,
+    seams: TrackQuality.Seams,
     mode: ColorMode,
     activity: ActivityType?,
     dark: Boolean,
     units: UnitSystem,
 ): MetricGraphData? {
+    val points = seams.points
     // Computed unconditionally: trackColoring below needs it whatever the mode.
-    val speeds = TrackQuality.pointSpeedsKmh(points)
+    val speeds = TrackQuality.pointSpeedsKmh(seams)
     val (values, unit) = metricSeries(points, mode, speeds, units)
     if (values.all { it == null }) return null
     val coloring = trackColoring(points, speeds, mode, activity, dark, units)

@@ -33,9 +33,35 @@ object TrackQuality {
         distance.meters(a.latitude, a.longitude, b.latitude, b.longitude)
 
     /**
+     * A point list with the distance across each of its seams already walked: [meters] index 0 is
+     * 0 (nothing precedes the first fix), index i is the metres from `points[i - 1]` to
+     * `points[i]`.
+     *
+     * **The one walk the track screen's per-point series are built from.** Per-point speed and the
+     * map line's gradient stops need exactly these numbers, and the ellipsoidal distance per seam
+     * is the most expensive thing either does — each walked the whole track on its own before, and
+     * most fixes carry no GPS speed, so the speed series really does need every seam. Sharing the
+     * walk also takes it off the colour-metric tap: seam distances don't depend on the metric being
+     * displayed, while the series drawn from them do.
+     *
+     * Not a data class on purpose: an array field would give it identity equality wearing value
+     * clothes, and its one use as a Compose `remember` key wants identity anyway.
+     */
+    class Seams(val points: List<TrackPoint>, val meters: DoubleArray)
+
+    /** Walks [points] into [Seams]; [distance] is injectable so the derivation is host-testable. */
+    fun seams(points: List<TrackPoint>, distance: DistanceFn = AndroidDistance): Seams {
+        val out = DoubleArray(points.size)
+        for (i in 1 until points.size) {
+            out[i] = distanceMeters(points[i - 1], points[i], distance)
+        }
+        return Seams(points, out)
+    }
+
+    /**
      * Per-point speed in km/h: the GPS-reported speed where present (non-null and non-negative),
-     * else derived from the previous point over [distance]. [distance] is injectable so the
-     * derivation is host-testable. Used to color the rendered track by speed.
+     * else derived from the previous point over the [Seams] walk. Used to color the rendered track
+     * by speed.
      *
      * A fix whose timestamp doesn't advance on its predecessor's is *unmeasurable*, not stationary,
      * and carries the last speed forward rather than reporting 0 — there is no elapsed time to
@@ -44,7 +70,8 @@ object TrackQuality {
      * into a per-second sawtooth between real speed and zero on the graph and the map. Only the
      * first point of a track has nothing to carry, and that one is 0.
      */
-    fun pointSpeedsKmh(points: List<TrackPoint>, distance: DistanceFn = AndroidDistance): FloatArray {
+    fun pointSpeedsKmh(seams: Seams): FloatArray {
+        val points = seams.points
         val out = FloatArray(points.size)
         var prev: TrackPoint? = null
         for (i in points.indices) {
@@ -53,13 +80,17 @@ object TrackQuality {
             out[i] = when {
                 reported != null && reported >= 0f -> reported * 3.6f
                 // A non-positive gap is unmeasurable, not stationary: carry the last speed forward.
-                prev != null -> seamSpeedKmh(prev, p, distance)?.toFloat() ?: out[i - 1]
+                prev != null -> seamSpeedKmh(prev, p, seams.meters[i])?.toFloat() ?: out[i - 1]
                 else -> 0f
             }
             prev = p
         }
         return out
     }
+
+    /** [pointSpeedsKmh] for a caller with no seam walk to share — it does its own. */
+    fun pointSpeedsKmh(points: List<TrackPoint>, distance: DistanceFn = AndroidDistance): FloatArray =
+        pointSpeedsKmh(seams(points, distance))
 
     /** First seam at least this fast (km/h) to be a candidate stray — an implausible launch from
      *  a drive start (40 km/h in a ~1 s opening seam is ~1 g of acceleration from standstill). */
@@ -75,11 +106,12 @@ object TrackQuality {
     /** How many leading points [leadingPointIsJump] inspects — a prefix this long decides it. */
     const val LEADING_CHECK_POINT_COUNT = LEADING_STRAY_LOOKAHEAD + 1
 
-    /** Speed (km/h) across a seam, or null when its time gap is non-positive (can't derive). */
-    private fun seamSpeedKmh(a: TrackPoint, b: TrackPoint, distance: DistanceFn): Double? {
+    /** Speed (km/h) across a seam of [meters], or null when its time gap is non-positive (can't
+     *  derive). */
+    private fun seamSpeedKmh(a: TrackPoint, b: TrackPoint, meters: Double): Double? {
         val dtSec = (b.timestamp - a.timestamp) / 1000.0
         if (dtSec <= 0) return null
-        return distanceMeters(a, b, distance) / dtSec * 3.6
+        return meters / dtSec * 3.6
     }
 
     /**
@@ -99,10 +131,11 @@ object TrackQuality {
         distance: DistanceFn = AndroidDistance,
     ): Boolean {
         if (points.size < 3) return false
-        val firstSeam = seamSpeedKmh(points[0], points[1], distance) ?: return false
+        fun seam(i: Int) = seamSpeedKmh(points[i - 1], points[i], distanceMeters(points[i - 1], points[i], distance))
+        val firstSeam = seam(1) ?: return false
         if (firstSeam < LEADING_STRAY_MIN_KMH) return false
         val followPace = (2..LEADING_STRAY_LOOKAHEAD.coerceAtMost(points.size - 1))
-            .mapNotNull { seamSpeedKmh(points[it - 1], points[it], distance) }
+            .mapNotNull { seam(it) }
             .maxOrNull() ?: return false
         return firstSeam >= LEADING_STRAY_FACTOR * followPace
     }

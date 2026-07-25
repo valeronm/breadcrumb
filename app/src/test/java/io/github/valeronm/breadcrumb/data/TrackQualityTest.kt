@@ -195,6 +195,39 @@ class TrackQualityTest {
         assertArrayEquals(floatArrayOf(), TrackQuality.pointSpeedsKmh(emptyList(), gap(1.0)), 1e-3f)
     }
 
+    // --- Seams (the one walk the track screen's series share) ---------------
+    // The cases above all inject a *constant* gap, which is exactly what cannot catch a seam array
+    // read one index off. These vary the distance per seam so a shift shows up.
+
+    /** Distance = the metres between the two longitudes, so every seam differs. */
+    private val perSeam = DistanceFn { _, aLon, _, bLon -> bLon - aLon }
+
+    @Test fun `a seam's distance sits at the index of the point it arrives at`() {
+        val pts = listOf(point(0, lon = 0.0), point(1_000, lon = 10.0), point(2_000, lon = 110.0))
+        // Nothing precedes the first fix, then 0→10 m and 10→110 m.
+        assertArrayEquals(doubleArrayOf(0.0, 10.0, 100.0), TrackQuality.seams(pts, perSeam).meters, 1e-9)
+    }
+
+    @Test fun `speeds off a shared walk match the ones off a walk of their own`() {
+        // 10 m in 1 s = 36 km/h, then 100 m in 1 s = 360 km/h — distinct per seam, so reading the
+        // wrong index changes the answer.
+        val pts = listOf(point(0, lon = 0.0), point(1_000, lon = 10.0), point(2_000, lon = 110.0))
+        assertArrayEquals(
+            floatArrayOf(0f, 36f, 360f),
+            TrackQuality.pointSpeedsKmh(TrackQuality.seams(pts, perSeam)),
+            1e-3f,
+        )
+        assertArrayEquals(
+            TrackQuality.pointSpeedsKmh(pts, perSeam),
+            TrackQuality.pointSpeedsKmh(TrackQuality.seams(pts, perSeam)),
+            1e-3f,
+        )
+    }
+
+    @Test fun `an empty track has no seams`() {
+        assertArrayEquals(doubleArrayOf(), TrackQuality.seams(emptyList(), perSeam).meters, 1e-9)
+    }
+
     // --- Stray leading point (drive-start cold-start artifact in imports) -----
     //
     // The rule is relative, not an absolute ceiling: the first seam is a stray when it's much
