@@ -195,7 +195,8 @@ changing the rule.
 point/ignored counts and the first/last good coordinates live as columns on `tracks`, written only
 by `TrackRepository.refreshStats` (from `TrackStats`, the one point walk — the recorder accumulates
 through the same code, so live and stored totals can't drift) when a track is *finished, merged,
-imported or repaired*. This is a performance invariant, not a convenience: Room invalidates per
+imported, retyped, or has its overrun re-derived*. This is a performance invariant, not a
+convenience: Room invalidates per
 table, so an observed query that reads `track_points` — or a per-fix write to `tracks` — is re-run
 on **every GPS fix**, scanning the whole point history once a second for a result that can't have
 changed (open tracks have no `endedAt` and are in none of these queries). The observed queries must

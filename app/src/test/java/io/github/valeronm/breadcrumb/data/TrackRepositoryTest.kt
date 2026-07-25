@@ -169,15 +169,15 @@ class TrackRepositoryTest {
         assertEquals(Track.REASON_MERGED, dao.track(second)!!.discardReason)
     }
 
-    @Test fun `repairing a leading stray updates the counts and the distance together`() = runTest {
+    @Test fun `dropping a leading stray updates the counts and the distance together`() = runTest {
         val id = repository.startTrack(ActivityType.DRIVING, TEST_START)
-        // A cold-start fix 20 km away, then a normal drive — the stray the repair is for.
+        // A cold-start fix 20 km away, then a normal drive — the stray the finalize is for.
         repository.addPoints(
             listOf(test.point(id, 0, lat = 1.2)) + (1..5).map { test.point(id, it) },
         )
         repository.finishTrack(id, TEST_START + 60_000)
 
-        val dropped = repository.repairLeadingPoints(id)
+        val dropped = repository.finalizeImportedTrack(id)
 
         assertEquals(1, dropped)
         val track = dao.track(id)!!
@@ -559,9 +559,9 @@ class TrackRepositoryTest {
         assertStatsMatchPoints(id)
     }
 
-    // --- Leading-stray repair: the loop and its bound -------------------------------------------
+    // --- Import finalize, leading strays: the loop and its bound ---------------------------------
 
-    @Test fun `repair drops a run of leading strays one by one`() = runTest {
+    @Test fun `finalize drops a run of leading strays one by one`() = runTest {
         val id = repository.startTrack(ActivityType.DRIVING, TEST_START)
         repository.addPoints(
             listOf(
@@ -571,7 +571,7 @@ class TrackRepositoryTest {
         )
         repository.finishTrack(id, TEST_START + 80_000)
 
-        assertEquals(2, repository.repairLeadingPoints(id))
+        assertEquals(2, repository.finalizeImportedTrack(id))
 
         val track = dao.track(id)!!
         assertEquals(2, track.ignoredCount)
@@ -580,10 +580,10 @@ class TrackRepositoryTest {
         assertStatsMatchPoints(id)
     }
 
-    @Test fun `repair stops at its safety bound even when more strays lead the track`() = runTest {
+    @Test fun `finalize stops at its safety bound even when more strays lead the track`() = runTest {
         val id = repository.startTrack(ActivityType.DRIVING, TEST_START)
         // Six strays, each seam ~4.4x the next, so every head check fires — but the loop is
-        // bounded, and only five may be repaired.
+        // bounded, and only five may be dropped.
         val strayLats = listOf(21.035, 5.535, 2.035, 1.235, 1.055, 1.015)
         repository.addPoints(
             strayLats.mapIndexed { i, lat -> test.point(id, i, lat = lat) } +
@@ -591,7 +591,7 @@ class TrackRepositoryTest {
         )
         repository.finishTrack(id, TEST_START + 120_000)
 
-        assertEquals(5, repository.repairLeadingPoints(id))
+        assertEquals(5, repository.finalizeImportedTrack(id))
 
         assertEquals(5, dao.track(id)!!.ignoredCount)
         assertStatsMatchPoints(id)

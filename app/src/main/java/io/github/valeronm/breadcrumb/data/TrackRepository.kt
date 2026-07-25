@@ -23,7 +23,7 @@ private const val TAG = "Breadcrumb"
 const val DISCARDED_RETENTION_DAYS = 14
 
 /** Safety bound on leading-stray removal per track (real runs are 1, rarely 2). */
-private const val MAX_LEADING_REPAIRS = 5
+private const val MAX_LEADING_STRAYS_DROPPED = 5
 
 /** Tracks per transaction in the edge-stay sweep — see [TrackRepository.sweepEdgeStays]. */
 private const val SWEEP_BATCH_TRACKS = 100
@@ -116,10 +116,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 // agree for our own exports, and for a foreign file the points are the truth.
                 id
             }
-            // Imports bypass live ingest filtering, so drop a drive-start stray up front; the
-            // repair ends by computing the fresh track's aggregates and taking its overrun off
-            // the path either way.
-            repairLeadingPoints(trackId)
+            finalizeImportedTrack(trackId)
             imported++
         }
         if (tracks.isNotEmpty()) {
@@ -211,8 +208,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     /**
      * Recompute a track's aggregates from its points and store them on its row — the only writer of
      * the denormalized columns, so every path that changes a track's points (finish, merge, import,
-     * repair, retype) must end here or the timeline will show stale counts. Returns the stats it
-     * wrote.
+     * retype, re-derived overrun) must end here or the timeline will show stale counts. Returns the
+     * stats it wrote.
      *
      * [points] is *all* of the track's points, ignored ones included, and comes from the caller:
      * every path that ends here has just walked or rewritten them, and none may re-read.
@@ -527,27 +524,28 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /**
-     * Repairs a track's stray leading point(s) ([TrackQuality.leadingPointIsJump] — the drive-start
-     * cold-start artifact imports let through): marks each as an ignored JUMP fix and recomputes the
-     * stored distance over the remaining good points. Loops in case more than one stray leads the
-     * track. Ends by taking the recorder's overrun off the edges, which is what makes an imported
-     * track look like a recorded one. Returns how many points were dropped.
+     * Brings a freshly imported track to the state a recorded one finishes in — the import's whole
+     * finalize, not one repair among several. An import bypasses live ingest filtering, so it starts
+     * by marking each stray leading point ([TrackQuality.leadingPointIsJump] — the drive-start
+     * cold-start artifact) as an ignored JUMP fix, looping in case more than one leads the track.
+     * Then it takes the recorder's overrun off the edges and computes the aggregates the imported
+     * rows don't have yet. Returns how many leading points were dropped.
      */
-    suspend fun repairLeadingPoints(trackId: Long): Int {
+    suspend fun finalizeImportedTrack(trackId: Long): Int {
         var dropped = 0
         db.withTransaction {
             // Bounded: each pass ignores one leading point, so a handful covers any real run of
             // strays. The check reads only the leading prefix, so the loop is cheap.
-            while (dropped < MAX_LEADING_REPAIRS) {
+            while (dropped < MAX_LEADING_STRAYS_DROPPED) {
                 val head = dao.firstPointsFor(trackId, TrackQuality.LEADING_CHECK_POINT_COUNT)
                 if (!TrackQuality.leadingPointIsJump(head)) break
                 dao.setIgnored(head.first().id, IgnoreReason.JUMP.code)
                 dropped++
             }
-            // Unconditional, and inside the transaction: the repair is a point-mutating path, so it
-            // ends in a recompute — its caller (import, whose fresh rows have no aggregates yet)
-            // relies on this being the one point walk either way. The overrun is derived from the
-            // same points, so it rides along rather than re-reading them.
+            // Unconditional, and inside the transaction: the imported rows have no aggregates yet,
+            // so this runs whether or not a stray was dropped, and is the one point walk either
+            // way. The overrun is derived from the same points, so it rides along rather than
+            // re-reading them.
             val track = dao.track(trackId)
             val points = dao.allPointsFor(trackId)
             if (track?.endedAt == null) {
