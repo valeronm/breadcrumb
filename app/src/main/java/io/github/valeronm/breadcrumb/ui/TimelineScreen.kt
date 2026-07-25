@@ -207,7 +207,7 @@ internal fun TracksTab(
                                     undo.show("Track deleted") { viewModel.restoreTrack(id) }
                                 },
                                 // DEBUG: long-press replays the track through the Record tab's live view.
-                                onReplay = if (BuildConfig.DEBUG) {
+                                onReplay = if (BuildConfig.DEV_TOOLS) {
                                     { onReplay(item.summary) }
                                 } else {
                                     null

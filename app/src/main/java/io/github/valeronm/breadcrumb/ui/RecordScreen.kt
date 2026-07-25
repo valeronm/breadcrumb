@@ -98,7 +98,7 @@ internal fun RecordTab(
                 }
                 // The middle stretches so the keep-screen-on row is anchored at the bottom; while
                 // recording (or replaying, debug), the track preview card fills all of it.
-                val replay = if (BuildConfig.DEBUG) {
+                val replay = if (BuildConfig.DEV_TOOLS) {
                     TrackReplayer.state.collectAsStateWithLifecycle().value
                 } else {
                     null

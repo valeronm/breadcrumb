@@ -11,6 +11,7 @@ Outputs (paths relative to the repo root):
   app/src/main/res/drawable/ic_launcher_background.xml  - radial "home glow"
   app/src/main/res/drawable/ic_launcher_foreground.xml  - crumbs + gap + pin
   app/src/main/res/drawable/ic_notification.xml         - 24dp tinted silhouette
+  app/src/{debug,perf}/res/drawable/ic_launcher_background.xml - blueprint grid, dev builds
   tools/play-icon.svg                                    - 512px Play listing source
 
 Run from anywhere:  python3 tools/generate_icon.py
@@ -58,8 +59,8 @@ BG_CX, BG_CY, BG_RADIUS = 54.0, 78.0, 108.0  # glow centred on the pin
 CRUMB_COLOR = "#A8E6C8"
 PIN_COLOR = "#FFFFFF"
 
-# Debug launcher background: a blueprint grid, so the debug install is obvious in
-# the launcher. Overrides ic_launcher_background.xml in the debug source set only;
+# Dev launcher background: a blueprint grid, so a dev install is obvious in the
+# launcher. Overrides ic_launcher_background.xml in the debug and perf source sets;
 # the foreground/monochrome stay shared with release.
 DBG_INNER, DBG_OUTER = "#12324A", "#0A1622"  # diagonal blueprint gradient
 DBG_GRID = "#2E5F86"
@@ -289,10 +290,13 @@ def main() -> None:
     write(res / "drawable/ic_launcher_background.xml", launcher_background())
     write(res / "drawable/ic_launcher_foreground.xml", launcher_foreground())
     write(res / "drawable/ic_notification.xml", notification_icon())
-    # Debug-only background override (blueprint grid); foreground/monochrome shared.
-    dbg = REPO / "app/src/debug/res/drawable"
-    dbg.mkdir(parents=True, exist_ok=True)
-    write(dbg / "ic_launcher_background.xml", debug_launcher_background())
+    # Background override for the two dev builds (blueprint grid); foreground/monochrome shared.
+    # Both get it: perf is debug without `debuggable`, so it installs over the same app and should
+    # look like the same dev install. Their launcher *labels* differ, which is what tells them apart.
+    for build_type in ("debug", "perf"):
+        out = REPO / f"app/src/{build_type}/res/drawable"
+        out.mkdir(parents=True, exist_ok=True)
+        write(out / "ic_launcher_background.xml", debug_launcher_background())
     write(REPO / "tools/play-icon.svg", play_icon_svg())
     rasterize_play_icon()
 

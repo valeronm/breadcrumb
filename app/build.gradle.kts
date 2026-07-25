@@ -49,6 +49,12 @@ android {
             if (f.exists()) f.inputStream().use { load(it) }
         }
         buildConfigField("String", "PROTOMAPS_API_KEY", "\"${localProps.getProperty("protomapsApiKey", "")}\"")
+
+        // The developer affordances (track replay) and the build badge the UI reads. Gated on
+        // these rather than on BuildConfig.DEBUG, which AGP derives from `debuggable` — so the
+        // perf build, whose whole point is not being debuggable, would otherwise lose them.
+        buildConfigField("boolean", "DEV_TOOLS", "false")
+        buildConfigField("String", "BUILD_LABEL", "\"\"")
     }
 
     signingConfigs {
@@ -109,6 +115,8 @@ android {
             applicationIdSuffix = ".debug"
             // JaCoCo coverage for host unit tests: `./gradlew :app:createDebugUnitTestCoverageReport`.
             enableUnitTestCoverage = true
+            buildConfigField("boolean", "DEV_TOOLS", "true")
+            buildConfigField("String", "BUILD_LABEL", "\"debug\"")
         }
         /**
          * The build to measure on. Identical to debug except that it isn't debuggable, which is
@@ -131,6 +139,13 @@ android {
             applicationIdSuffix = ".debug"
             enableUnitTestCoverage = false
             signingConfig = signingConfigs.getByName("debug")
+            // It is indistinguishable from a release build on the device — same speed, and with
+            // BuildConfig.DEBUG false it would have dropped the dev tools too. So it says which
+            // build it is in all three places one can be read: the launcher, the bar badge, and
+            // the version row in Settings.
+            versionNameSuffix = "-perf"
+            buildConfigField("boolean", "DEV_TOOLS", "true")
+            buildConfigField("String", "BUILD_LABEL", "\"perf\"")
         }
     }
 

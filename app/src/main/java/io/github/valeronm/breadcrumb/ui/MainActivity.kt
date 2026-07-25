@@ -281,14 +281,15 @@ private fun MainScreen(
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(selectedTab.title)
-                            if (BuildConfig.DEBUG) {
+                            // Which build this is — empty on release, so the badge is absent there.
+                            if (BuildConfig.BUILD_LABEL.isNotEmpty()) {
                                 Spacer(Modifier.width(8.dp))
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = MaterialTheme.colorScheme.tertiaryContainer,
                                 ) {
                                     Text(
-                                        "debug",
+                                        BuildConfig.BUILD_LABEL,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onTertiaryContainer,

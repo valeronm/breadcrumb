@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The perf build installs over the debug one, and is otherwise indistinguishable from a
+         release build on the device — so it says so in the launcher, as debug does. -->
+    <string name="app_name">Breadcrumb (perf)</string>
+</resources>
