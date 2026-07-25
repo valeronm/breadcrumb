@@ -5,6 +5,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.asin
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * Anchor-based greedy leader clustering. The flat-earth stub maps 0.001° ≈ 100 m, so tests
@@ -116,5 +121,118 @@ class PlaceClustererTest {
         val clusters = clusterSeeded(listOf(seed(0.0)), at(400.0), at(300.0))
         assertTrue(clusters[0].memberIndices.isEmpty())
         assertEquals(listOf(0, 1), clusters[1].memberIndices)
+    }
+
+    // --- Reach-box pruning ------------------------------------------------------
+    //
+    // The scan rejects most anchors on their coordinates ([ReachBound]) instead of on a distance
+    // call. That is only sound if it never rejects an anchor the distance would have accepted, so
+    // these run against an unpruned reference scan — under a real-Earth distance rather than the
+    // flat stub above, since the bound's whole risk is spherical (a degree of longitude shortens
+    // toward the pole, and the box is probed at one point).
+
+    /** Spherical distance, so the pruning cases meet the geometry the bound is exposed to. */
+    private val sphere = DistanceFn { aLat, aLon, bLat, bLon ->
+        val r = 6_371_008.8
+        val dLat = Math.toRadians(bLat - aLat)
+        val dLon = Math.toRadians(bLon - aLon)
+        val h = sin(dLat / 2) * sin(dLat / 2) +
+            cos(Math.toRadians(aLat)) * cos(Math.toRadians(bLat)) * sin(dLon / 2) * sin(dLon / 2)
+        2 * r * asin(min(1.0, sqrt(h)))
+    }
+
+    /** Metres per degree of latitude on [sphere]. */
+    private val degreeM = 2 * Math.PI * 6_371_008.8 / 360.0
+
+    /** The clustering as an unpruned scan of every anchor would assign it. */
+    private fun referenceAssignments(
+        locations: List<Endpoint>,
+        radiusM: Double,
+        distance: DistanceFn,
+        seeds: List<PlaceClusterer.Seed>,
+    ): List<List<Int>> {
+        val anchors = seeds.map { it.anchor }.toMutableList()
+        val radii = seeds.map { it.radiusM }.toMutableList()
+        val members = MutableList(seeds.size) { mutableListOf<Int>() }
+        locations.forEachIndexed { index, location ->
+            var nearest = -1
+            var nearestD = Double.MAX_VALUE
+            for (ci in anchors.indices) {
+                val d = distance.meters(anchors[ci].lat, anchors[ci].lon, location.lat, location.lon)
+                if (d <= radii[ci] && d < nearestD) {
+                    nearest = ci
+                    nearestD = d
+                }
+            }
+            if (nearest >= 0) {
+                members[nearest] += index
+            } else {
+                anchors += location
+                radii += radiusM
+                members += mutableListOf(index)
+            }
+        }
+        return members
+    }
+
+    /** A generated history around [lat]: 400 endpoints over a few hundred distinct locations,
+     *  spread ~40 km east-west and [latSpread] × that north-south (0.02 = a linear city). */
+    private fun generatedHistory(lat: Double, latSpread: Double): Pair<List<Endpoint>, List<PlaceClusterer.Seed>> {
+        val rnd = java.util.Random(20260725L)
+        val lonScale = 1.0 / cos(Math.toRadians(lat))
+        val locations = List(60) {
+            Endpoint(
+                lat = lat + (rnd.nextDouble() - 0.5) * 0.36 * latSpread,
+                lon = (rnd.nextDouble() - 0.5) * 0.36 * lonScale,
+            )
+        }
+        // Revisits with GPS scatter, so anchors and near-misses of every radius occur.
+        val endpoints = List(400) {
+            val base = locations[rnd.nextInt(locations.size)]
+            Endpoint(
+                lat = base.lat + (rnd.nextDouble() - 0.5) * 0.004,
+                lon = base.lon + (rnd.nextDouble() - 0.5) * 0.004 * lonScale,
+            )
+        }
+        // Pins at the widest radius the UI offers, where the box has the most to admit.
+        val seeds = endpoints.take(6).map { PlaceClusterer.Seed(it, 500.0) }
+        return endpoints to seeds
+    }
+
+    @Test fun `pruning assigns exactly as an unpruned scan does, at every latitude`() {
+        for (lat in listOf(0.0, 1.0, 23.5, 45.0, 60.0, 84.0, -45.0)) {
+            for (latSpread in listOf(1.0, 0.02)) {
+                val (endpoints, seeds) = generatedHistory(lat, latSpread)
+                val pruned = PlaceClusterer.cluster(endpoints, 150.0, sphere, seeds).map { it.memberIndices }
+                assertEquals(
+                    "lat=$lat latSpread=$latSpread",
+                    referenceAssignments(endpoints, 150.0, sphere, seeds),
+                    pruned,
+                )
+            }
+        }
+    }
+
+    @Test fun `an anchor at the very edge of its radius is still reached`() {
+        // A pin's own radius, approached from the compass points the box is weakest on: due east
+        // (the longitude bound), due north (the latitude bound), and the diagonal between them.
+        for (lat in listOf(0.0, 45.0, 84.0)) {
+            val radius = 500.0
+            val pin = Endpoint(lat, 0.0)
+            val inside = 0.9999 * radius
+            val east = Endpoint(lat, inside / (degreeM * cos(Math.toRadians(lat))))
+            val north = Endpoint(lat + inside / degreeM, 0.0)
+            val diagonal = Endpoint(
+                lat + inside / degreeM / sqrt(2.0),
+                inside / (degreeM * cos(Math.toRadians(lat))) / sqrt(2.0),
+            )
+            val clusters = PlaceClusterer.cluster(
+                listOf(east, north, diagonal),
+                radiusM = 150.0,
+                distance = sphere,
+                seeds = listOf(PlaceClusterer.Seed(pin, radius)),
+            )
+            assertEquals("lat=$lat", listOf(0, 1, 2), clusters[0].memberIndices)
+        }
     }
 }

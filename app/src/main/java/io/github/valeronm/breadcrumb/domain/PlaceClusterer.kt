@@ -54,11 +54,16 @@ object PlaceClusterer {
             members += mutableListOf<Int>()
         }
         locations.forEachIndexed { index, location ->
-            // Nearest qualifying anchor, scanned inline — this runs per endpoint on every derivation.
+            // Nearest qualifying anchor, scanned inline — this runs per endpoint on every
+            // derivation, so all but the handful of anchors in reach are rejected on their
+            // coordinates ([ReachBound]) rather than on a distance call.
+            val reach = ReachBound.around(location.lat, location.lon, distance)
             var nearest = -1
             var nearestD = Double.MAX_VALUE
             for (ci in anchors.indices) {
-                val d = distance.meters(anchors[ci].lat, anchors[ci].lon, location.lat, location.lon)
+                val anchor = anchors[ci]
+                if (reach.outOfReach(anchor.lat, anchor.lon, radii[ci])) continue
+                val d = distance.meters(anchor.lat, anchor.lon, location.lat, location.lon)
                 if (d <= radii[ci] && d < nearestD) {
                     nearest = ci
                     nearestD = d
