@@ -796,12 +796,10 @@ class LocationRecordingService : Service() {
             val segStart = pendingSegmentStart
             val baseline = if (segStart) null else accumulator.lastGood
             // Bad fixes are still stored (with the reason), just excluded from distance and the
-            // good-point baseline. A fix with no recent satellite backing is treated the same way.
-            val reason = if (requireGnss && !isGnssBacked(loc)) {
-                IgnoreReason.NO_GNSS
-            } else {
-                TrackQuality.badFixReason(baseline, candidate, gate.confirmed, maxAccuracyM)
-            }
+            // good-point baseline. The rule weighs all three reasons and their order; this reports
+            // the platform evidence for one of them (null = the cross-check is off).
+            val gates = TrackQuality.Gates(maxAccuracyM, if (requireGnss) isGnssBacked(loc) else null)
+            val reason = TrackQuality.badFixReason(baseline, candidate, gate.confirmed, gates)
             if (reason == IgnoreReason.NO_GNSS) {
                 DebugLog.i(TAG, "fix dropped — no recent GNSS backing (acc=${candidate.accuracy})")
             }

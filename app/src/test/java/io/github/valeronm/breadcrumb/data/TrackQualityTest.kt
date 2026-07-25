@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
+import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,6 +24,10 @@ class TrackQualityTest {
 
     /** A fixed gap in meters, regardless of the coordinates passed. */
     private fun gap(meters: Double) = DistanceFn { _, _, _, _ -> meters }
+
+    /** The gates as configured, 50 m accuracy and the GNSS cross-check off, unless a case varies one. */
+    private fun gates(maxAccuracyM: Float = 50f, gnssBacked: Boolean? = null) =
+        TrackQuality.Gates(maxAccuracyM, gnssBacked)
 
     private fun point(
         timestamp: Long,
@@ -45,55 +50,97 @@ class TrackQualityTest {
 
     @Test fun `a fix at or past the accuracy radius is bad`() {
         val bad = point(timestamp = 1_000, accuracy = 50f)
-        assertNotNull(TrackQuality.badFixReason(point(0), bad, WALKING, maxAccuracyM = 50f, distance = gap(1.0)))
+        assertNotNull(TrackQuality.badFixReason(point(0), bad, WALKING, gates(), distance = gap(1.0)))
     }
 
     @Test fun `a fix inside the accuracy radius is not gated on accuracy`() {
         val ok = point(timestamp = 1_000, accuracy = 49f)
-        assertNull(TrackQuality.badFixReason(point(0), ok, WALKING, maxAccuracyM = 50f, distance = gap(1.0)))
+        assertNull(TrackQuality.badFixReason(point(0), ok, WALKING, gates(), distance = gap(1.0)))
     }
 
     @Test fun `a fix with unknown accuracy skips the accuracy gate`() {
         val ok = point(timestamp = 5_000, accuracy = null)
-        assertNull(TrackQuality.badFixReason(point(0), ok, WALKING, maxAccuracyM = 50f, distance = gap(5.0)))
+        assertNull(TrackQuality.badFixReason(point(0), ok, WALKING, gates(), distance = gap(5.0)))
     }
 
     // --- First point of a track / segment -------------------------------
 
     @Test fun `the first point of a segment is never a bad fix`() {
-        assertNull(TrackQuality.badFixReason(null, point(0), WALKING, maxAccuracyM = 50f, distance = gap(9_999.0)))
+        assertNull(TrackQuality.badFixReason(null, point(0), WALKING, gates(), distance = gap(9_999.0)))
     }
 
     // --- Implausible-speed teleport (per activity) ----------------------
 
     @Test fun `a walking teleport beyond plausible speed is bad`() {
         // 100 m in 1 s = 360 km/h, well past walking's 12 km/h ceiling.
-        assertNotNull(TrackQuality.badFixReason(point(0), point(1_000), WALKING, 50f, distance = gap(100.0)))
+        assertNotNull(TrackQuality.badFixReason(point(0), point(1_000), WALKING, gates(), distance = gap(100.0)))
     }
 
     @Test fun `a normal walking step is kept`() {
         // 8 m in 5 s ≈ 5.8 km/h, under 12 km/h.
-        assertNull(TrackQuality.badFixReason(point(0), point(5_000), WALKING, 50f, distance = gap(8.0)))
+        assertNull(TrackQuality.badFixReason(point(0), point(5_000), WALKING, gates(), distance = gap(8.0)))
     }
 
     @Test fun `the speed ceiling is per activity`() {
         // 300 m in 5 s = 216 km/h: implausible on foot, fine in a vehicle (ceiling 220).
         val prev = point(0)
         val next = point(5_000)
-        assertNotNull(TrackQuality.badFixReason(prev, next, WALKING, 50f, distance = gap(300.0)))
-        assertNull(TrackQuality.badFixReason(prev, next, DRIVING, 50f, distance = gap(300.0)))
+        assertNotNull(TrackQuality.badFixReason(prev, next, WALKING, gates(), distance = gap(300.0)))
+        assertNull(TrackQuality.badFixReason(prev, next, DRIVING, gates(), distance = gap(300.0)))
     }
 
     // --- Zero / negative time gap ---------------------------------------
 
     @Test fun `a large jump over a non-positive time gap is bad`() {
         // Same timestamp, > MIN_JUMP_M apart → treated as an infinite-speed teleport.
-        assertNotNull(TrackQuality.badFixReason(point(1_000), point(1_000), DRIVING, 50f, distance = gap(11.0)))
+        assertNotNull(TrackQuality.badFixReason(point(1_000), point(1_000), DRIVING, gates(), distance = gap(11.0)))
     }
 
     @Test fun `a tiny jump over a non-positive time gap is not bad`() {
         // Same timestamp but within MIN_JUMP_M → jitter, not a teleport.
-        assertNull(TrackQuality.badFixReason(point(1_000), point(1_000), WALKING, 50f, distance = gap(9.0)))
+        assertNull(TrackQuality.badFixReason(point(1_000), point(1_000), WALKING, gates(), distance = gap(9.0)))
+    }
+
+    // --- GNSS cross-check, and its precedence over the other two reasons ---
+    // The service used to decide this ahead of the rule, so nothing could pin the ordering; these
+    // are the rows that were unreachable from a host test.
+
+    @Test fun `an unbacked fix is NO_GNSS`() {
+        assertEquals(
+            IgnoreReason.NO_GNSS,
+            TrackQuality.badFixReason(point(0), point(1_000), WALKING, gates(gnssBacked = false), gap(1.0)),
+        )
+    }
+
+    @Test fun `a backed fix is judged on its own merits`() {
+        assertNull(TrackQuality.badFixReason(point(0), point(1_000), WALKING, gates(gnssBacked = true), gap(1.0)))
+        assertEquals(
+            IgnoreReason.JUMP,
+            TrackQuality.badFixReason(point(0), point(1_000), WALKING, gates(gnssBacked = true), gap(300.0)),
+        )
+    }
+
+    @Test fun `the cross-check switched off is not the same as unbacked`() {
+        // null = don't ask. A fix that would be NO_GNSS with the setting on must come back good.
+        assertNull(TrackQuality.badFixReason(point(0), point(1_000), WALKING, gates(gnssBacked = null), gap(1.0)))
+    }
+
+    @Test fun `unbacked outranks a bad accuracy radius and a teleport`() {
+        // A fabricated position's other numbers say nothing, so the reason reported is the one that
+        // explains the fix — not whichever gate happens to be checked first.
+        val fabricated = point(1_000, accuracy = 999f)
+        assertEquals(
+            IgnoreReason.NO_GNSS,
+            TrackQuality.badFixReason(point(0), fabricated, WALKING, gates(gnssBacked = false), gap(9_999.0)),
+        )
+    }
+
+    @Test fun `accuracy still outranks a teleport when the fix is backed`() {
+        val imprecise = point(1_000, accuracy = 999f)
+        assertEquals(
+            IgnoreReason.ACCURACY,
+            TrackQuality.badFixReason(point(0), imprecise, WALKING, gates(gnssBacked = true), gap(9_999.0)),
+        )
     }
 
     // --- distanceMeters just delegates to the DistanceFn ----------------

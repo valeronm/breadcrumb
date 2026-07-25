@@ -108,22 +108,41 @@ object TrackQuality {
     }
 
     /**
-     * Whether [point] is a bad fix relative to the last accepted ("good") point, and why —
-     * [IgnoreReason.ACCURACY] or [IgnoreReason.JUMP] — or null for a good fix. A fix is bad if its
-     * accuracy radius is at least [maxAccuracyM], or if reaching it from [lastGood] would require an
-     * implausible speed for [activity] (a GPS teleport — these can have good reported accuracy, so
-     * the speed check is independent of the accuracy gate). [lastGood] is null for the first point
-     * of a track (or a segment). [distance] is injectable so the speed logic is host-testable.
+     * What the point-quality gates have to say about one fix: the configured accuracy limit, and
+     * the GNSS cross-check's verdict for this fix — null when the cross-check is switched off,
+     * which is not the same as false (see [badFixReason]).
+     */
+    data class Gates(val maxAccuracyM: Float, val gnssBacked: Boolean? = null)
+
+    /**
+     * Whether [point] is a bad fix relative to the last accepted ("good") point, and why — or null
+     * for a good fix. The whole rule lives here, all three reasons and the order between them:
+     *
+     *  1. [IgnoreReason.NO_GNSS] — [Gates.gnssBacked] is false, i.e. no recent real satellite fix
+     *     stands behind this position. Null means the cross-check is off, which is not the same as
+     *     false: off means "don't ask", false means "asked, and it isn't backed".
+     *     Unbacked wins over the rest because a fabricated position's *other* numbers say nothing —
+     *     a fused fix invented in a tunnel can report a tight accuracy radius and a plausible step.
+     *  2. [IgnoreReason.ACCURACY] — the accuracy radius is at least [Gates.maxAccuracyM].
+     *  3. [IgnoreReason.JUMP] — reaching [point] from [lastGood] needs an implausible speed for
+     *     [activity] (a GPS teleport; these can have good reported accuracy, so the speed check is
+     *     independent of the accuracy gate).
+     *
+     * [lastGood] is null for the first point of a track (or a segment). [distance] is injectable so
+     * the speed logic is host-testable. The GNSS evidence arrives as a plain Boolean because
+     * deciding it is `GnssSnapshot.backed`'s job — the caller reads two platform timestamps and
+     * nothing more.
      */
     fun badFixReason(
         lastGood: TrackPoint?,
         point: TrackPoint,
         activity: ActivityType,
-        maxAccuracyM: Float,
+        gates: Gates,
         distance: DistanceFn = AndroidDistance,
     ): IgnoreReason? {
+        if (gates.gnssBacked == false) return IgnoreReason.NO_GNSS
         val accuracy = point.accuracy
-        if (accuracy != null && accuracy >= maxAccuracyM) return IgnoreReason.ACCURACY
+        if (accuracy != null && accuracy >= gates.maxAccuracyM) return IgnoreReason.ACCURACY
         if (lastGood == null) return null
         val gapMeters = distanceMeters(lastGood, point, distance)
         val dtSec = (point.timestamp - lastGood.timestamp) / 1000.0
