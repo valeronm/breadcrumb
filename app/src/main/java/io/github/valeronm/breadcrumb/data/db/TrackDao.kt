@@ -219,7 +219,7 @@ interface TrackDao {
     /** Finished tracks with first/last good-point coordinates, oldest first — the stay deriver's input. */
     @Query(
         """
-        SELECT id, activityType, startedAt, endedAt, startLat, startLon, endLat, endLon
+        SELECT id, startedAt, endedAt, startLat, startLon, endLat, endLon
         FROM tracks
         WHERE endedAt IS NOT NULL AND discardedAt IS NULL
         ORDER BY startedAt ASC

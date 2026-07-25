@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
-import io.github.valeronm.breadcrumb.domain.DistanceFn
 
 /**
  * Finds a stay at the *edge* of a track — recording that ran on after the user had already
@@ -232,6 +231,16 @@ object EdgeStayDetector {
     }
 
     /**
+     * How fast this track samples when the recorder is actually sampling — the lower quartile of
+     * its own inter-fix gaps, not the mean, which the minutes of silence a stop produces would
+     * drag out. Only used to ask whether a bin holding a single fix is *unusual* for this track.
+     */
+    private fun cadenceMs(good: List<TrackPoint>): Long {
+        val gaps = good.zipWithNext { a, b -> b.timestamp - a.timestamp }.sorted()
+        return gaps.getOrNull(gaps.size / 4)?.coerceAtLeast(1L) ?: 1L
+    }
+
+    /**
      * Ascending bin indices (timestamp / binMs) holding enough moving good fixes. A fix counts as
      * moving only when its **displacement** over [Params.speedLookbackMs] says so, and —
      * where the platform reported one — its Doppler speed agrees. Displacement is the veto, not a
@@ -250,16 +259,6 @@ object EdgeStayDetector {
      * within the bin costs nothing in confidence now that displacement holds the veto — a fix
      * that qualifies has already been checked against its own 10-second baseline.
      */
-    /**
-     * How fast this track samples when the recorder is actually sampling — the lower quartile of
-     * its own inter-fix gaps, not the mean, which the minutes of silence a stop produces would
-     * drag out. Only used to ask whether a bin holding a single fix is *unusual* for this track.
-     */
-    private fun cadenceMs(good: List<TrackPoint>): Long {
-        val gaps = good.zipWithNext { a, b -> b.timestamp - a.timestamp }.sorted()
-        return gaps.getOrNull(gaps.size / 4)?.coerceAtLeast(1L) ?: 1L
-    }
-
     private fun movingBins(good: List<TrackPoint>, params: Params, distance: DistanceFn): List<Long> {
         // Displacement is only evidence over a long enough baseline: across a second or two,
         // standstill jitter alone reads as meters per second. Where the recorder went quiet — as

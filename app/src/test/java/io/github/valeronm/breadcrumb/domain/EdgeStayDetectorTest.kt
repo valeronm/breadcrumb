@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
-import io.github.valeronm.breadcrumb.domain.DistanceFn
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,20 +17,14 @@ import org.junit.Test
  */
 class EdgeStayDetectorTest {
 
-    private val flatDistance = DistanceFn { aLat, aLon, bLat, bLon ->
-        maxOf(Math.abs(aLat - bLat), Math.abs(aLon - bLon)) * 100_000.0
-    }
-
-    private val MIN = 60_000L
-
     /** The params the recorder actually runs. Fixture cadence is 15 s — coarser than the 10 s
      *  bin, which the detector measures off the points, so one moving fix marks its bin. */
     private val params = EdgeStayDetector.BRIEF_STOP
 
     private fun pt(meters: Double, t: Long, speed: Float?, ignored: Boolean = false) = TrackPoint(
         trackId = 1,
-        latitude = 1.0,
-        longitude = 1.0 + meters / 100_000.0,
+        latitude = ORIGIN_LAT,
+        longitude = lonAt(meters),
         altitude = null,
         accuracy = null,
         speed = speed,

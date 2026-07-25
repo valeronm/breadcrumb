@@ -1,7 +1,5 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.domain.ActivityType
-
 /**
  * Turns the jittery Activity-Recognition stream into a *trusted* activity signal: the raw readings
  * arrive as transitions and snapshots, out of order and repeated, and this reports only when the

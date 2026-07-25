@@ -166,7 +166,6 @@ data class Place(
 /** A finished track projected to what stay derivation needs: interval + endpoint coordinates. */
 data class TrackEndpoints(
     val id: Long,
-    val activityType: String,
     val startedAt: Long,
     val endedAt: Long,
     val startLat: Double?,

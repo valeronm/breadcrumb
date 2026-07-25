@@ -98,7 +98,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places)
         // Each track's chronological successor, for merging a short same-activity stay's two tracks.
         val byId = summaries.associateBy { it.id }
-        val nextTrack = summaries.sortedBy { it.startedAt }.zipWithNext()
+        // observeSummaries returns newest first, so chronological order is a reversed *view* — no
+        // re-sort of the whole history on every emission.
+        val nextTrack = summaries.asReversed().zipWithNext()
             .associate { (a, b) -> a.id to b }
         StayDeriver.interleave(
             summaries,

@@ -114,7 +114,7 @@ internal fun DiscardedTracksScreen(
                             )
                             Text(
                                 "${t.pointCount} pts · ${LocalUnits.current.distance(t.distanceMeters)} · " +
-                                    formatDurationMs((t.endedAt ?: t.startedAt) - t.startedAt) +
+                                    formatDuration(t.startedAt, t.endedAt) +
                                     // "excluded", not "noisy": the count covers both species —
                                     // bad fixes and the recorder's overrun at the edges — and what
                                     // they have in common is being left out of the path.

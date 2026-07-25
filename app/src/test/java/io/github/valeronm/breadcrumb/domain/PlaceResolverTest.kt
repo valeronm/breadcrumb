@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.Place
-import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Provenance
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
@@ -13,13 +12,7 @@ import org.junit.Test
 /** Cluster → place matching goes through seed identity; results key by afterTrackId. */
 class PlaceResolverTest {
 
-    private val flatDistance = DistanceFn { aLat, aLon, bLat, bLon ->
-        maxOf(Math.abs(aLat - bLat), Math.abs(aLon - bLon)) * 100_000.0
-    }
-
     private val PIN_RADIUS = 350.0
-
-    private fun at(meters: Double) = Endpoint(1.0, 1.0 + meters / 100_000.0)
 
     private var nextTrackId = 0L
     private fun stay(location: Endpoint, end: Long? = 2_000L) = Stay(
@@ -30,6 +23,13 @@ class PlaceResolverTest {
     private fun place(id: Long, label: String, location: Endpoint) =
         Place(id = id, label = label, lat = location.lat, lon = location.lon, createdAt = 0L, radiusM = PlaceClusterer.DEFAULT_RADIUS_M)
 
+    /** [locations] clustered against [places]' pins — the seeding production does. */
+    private fun clusterAt(locations: List<Endpoint>, places: List<Place>) =
+        PlaceClusterer.cluster(
+            locations, distance = flatDistance,
+            seeds = places.map { PlaceClusterer.Seed(Endpoint(it.lat, it.lon), PIN_RADIUS) },
+        )
+
     /**
      * Clusters the stay locations — seeded by the places' pins, as in production — and stamps
      * each stay with its cluster id: the shape [StayDeriver.derive] hands to the resolver.
@@ -38,11 +38,7 @@ class PlaceResolverTest {
         stays: List<Stay>,
         places: List<Place>,
     ): Pair<List<Stay>, List<PlaceClusterer.Cluster>> {
-        val locations = stays.map { it.location }
-        val clusters = PlaceClusterer.cluster(
-            locations, distance = flatDistance,
-            seeds = places.map { PlaceClusterer.Seed(Endpoint(it.lat, it.lon), PIN_RADIUS) },
-        )
+        val clusters = clusterAt(stays.map { it.location }, places)
         val clusterIdByStay = IntArray(stays.size)
         clusters.forEachIndexed { ci, cluster ->
             for (index in cluster.memberIndices) clusterIdByStay[index] = ci
@@ -114,10 +110,7 @@ class PlaceResolverTest {
         val stays = listOf(stay(at(0.0)))
         val places = listOf(place(7, "Home", at(0.0)))
         val (stamped, _) = withClusters(stays, places)
-        val clusters = PlaceClusterer.cluster(
-            listOf(at(0.0), at(500.0)), distance = flatDistance,
-            seeds = places.map { PlaceClusterer.Seed(Endpoint(it.lat, it.lon), PIN_RADIUS) },
-        )
+        val clusters = clusterAt(listOf(at(0.0), at(500.0)), places)
         val resolved = PlaceResolver.resolveClusters(stamped, clusters, places)
         assertEquals(clusters.size, resolved.size)
         assertEquals("Home", resolved[0].label)
@@ -179,10 +172,7 @@ class PlaceResolverTest {
         // A pass-through endpoint (e.g. a gap side) forms a cluster no stay belongs to; it must
         // still summarize so the gap card can open its detail page.
         val places = listOf(place(7, "Home", at(600.0)))
-        val clusters = PlaceClusterer.cluster(
-            listOf(at(0.0), at(1200.0)), distance = flatDistance,
-            seeds = places.map { PlaceClusterer.Seed(Endpoint(it.lat, it.lon), PIN_RADIUS) },
-        )
+        val clusters = clusterAt(listOf(at(0.0), at(1200.0)), places)
         val stayClusterId = clusters.indexOfFirst { 0 in it.memberIndices }
         val stays = listOf(stay(at(0.0)).copy(clusterId = stayClusterId))
         val summaries = PlaceResolver.summarize(stays, clusters, places, NOW)

@@ -52,14 +52,8 @@ object TrackQuality {
             val reported = p.speed
             out[i] = when {
                 reported != null && reported >= 0f -> reported * 3.6f
-                prev != null -> {
-                    val dtSec = (p.timestamp - prev.timestamp) / 1000.0
-                    if (dtSec > 0) {
-                        (distanceMeters(prev, p, distance) / dtSec * 3.6).toFloat()
-                    } else {
-                        out[i - 1] // prev != null means there is one
-                    }
-                }
+                // A non-positive gap is unmeasurable, not stationary: carry the last speed forward.
+                prev != null -> seamSpeedKmh(prev, p, distance)?.toFloat() ?: out[i - 1]
                 else -> 0f
             }
             prev = p

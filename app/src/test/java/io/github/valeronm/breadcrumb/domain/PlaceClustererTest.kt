@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -12,13 +11,6 @@ import org.junit.Test
  * place points by "degrees" and reason in meters (same convention as StayDeriverTest).
  */
 class PlaceClustererTest {
-
-    private val flatDistance = DistanceFn { aLat, aLon, bLat, bLon ->
-        maxOf(Math.abs(aLat - bLat), Math.abs(aLon - bLon)) * 100_000.0
-    }
-
-    /** A point [meters] east of lat/lon origin (1.0, 1.0). */
-    private fun at(meters: Double) = Endpoint(1.0, 1.0 + meters / 100_000.0)
 
     private fun cluster(vararg locations: Endpoint) =
         PlaceClusterer.cluster(locations.toList(), distance = flatDistance)

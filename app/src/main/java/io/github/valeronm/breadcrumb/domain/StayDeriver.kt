@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
-import io.github.valeronm.breadcrumb.domain.DistanceFn
 import java.time.Instant
 import java.time.ZoneId
 
@@ -151,11 +150,22 @@ object StayDeriver {
         val (clusters, clusterOf) = clusterEndpoints(tracks, activeTrack?.start, placePins, params, distance)
         val out = mutableListOf<Interval>()
 
-        fun nearestPin(e: Endpoint): Int? = placePins.indices
-            .map { it to distance.meters(placePins[it].anchor.lat, placePins[it].anchor.lon, e.lat, e.lon) }
-            .filter { (i, d) -> d <= placePins[i].radiusM }
-            .minByOrNull { (_, d) -> d }
-            ?.first
+        // Nearest pin whose own radius captures [e], scanned in one allocation-free pass: this runs
+        // twice per adjacent track pair over the whole history, and the pair-list form it replaced
+        // boxed a Double per pin per call.
+        fun nearestPin(e: Endpoint): Int? {
+            var best = -1
+            var bestD = Double.MAX_VALUE
+            for (i in placePins.indices) {
+                val pin = placePins[i]
+                val d = distance.meters(pin.anchor.lat, pin.anchor.lon, e.lat, e.lon)
+                if (d <= pin.radiusM && d < bestD) {
+                    best = i
+                    bestD = d
+                }
+            }
+            return best.takeIf { it >= 0 }
+        }
 
         fun samePlace(a: Endpoint, b: Endpoint): Boolean =
             clusterOf.getValue(a) == clusterOf.getValue(b) ||

@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
-import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Armed
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Disarmed
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint
@@ -26,22 +25,13 @@ import java.time.ZoneId
  */
 class StayDeriverTest {
 
-    // 0.001° of latitude → 100 m; longitude treated the same (flat, fine for tests).
-    private val flatDistance = DistanceFn { aLat, aLon, bLat, bLon ->
-        maxOf(Math.abs(aLat - bLat), Math.abs(aLon - bLon)) * 100_000.0
-    }
-
     private val home = Endpoint(1.0, 1.0)
     private val nearHome = Endpoint(1.0005, 1.0) // 50 m away — agrees
     private val office = Endpoint(2.0, 2.0)
 
-    /** An endpoint `meters` east of `home`. */
-    private fun at(meters: Double) = Endpoint(1.0, 1.0 + meters / 100_000.0)
-
     /** A named-place pin at venue scale (the default place radius is 150 m; venues get widened). */
     private fun pin(meters: Double, radiusM: Double = 350.0) = PlaceClusterer.Seed(at(meters), radiusM)
 
-    private val MIN = 60_000L
     private val NOW = 1_000 * MIN
 
     private fun track(id: Long, start: Long, end: Long, from: Endpoint? = home, to: Endpoint? = home) =

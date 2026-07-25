@@ -157,16 +157,13 @@ internal fun trackColoring(
             rampColoring(values, s.min, s.max, unit, "No speed data", dark)
         }
         ColorMode.ELEVATION -> {
+            // Anchors come from the track's own range; a zero-width span would make a flat track a
+            // single hue. With no elevation at all the anchors go unread — rampColoring returns the
+            // all-gray Legend.None for an all-null series.
             val present = values.filterNotNull()
-            if (present.isEmpty()) {
-                val noData = noDataArgb(dark)
-                TrackColoring(IntArray(points.size) { noData }, Legend.None("No elevation data"))
-            } else {
-                val lo = present.min()
-                val hi = present.max()
-                val span = if (hi - lo < 1f) 1f else hi - lo // avoid a zero-width ramp on a flat track
-                rampColoring(values, lo, lo + span, unit, "No elevation data", dark)
-            }
+            val lo = present.minOrNull() ?: 0f
+            val span = ((present.maxOrNull() ?: 0f) - lo).coerceAtLeast(1f)
+            rampColoring(values, lo, lo + span, unit, "No elevation data", dark)
         }
         // Lower accuracy radius is better, so zero sits at the blue (good) end. The red anchor is
         // hand-rounded per display unit like the speed scales: 150 ft, not the converted 164.

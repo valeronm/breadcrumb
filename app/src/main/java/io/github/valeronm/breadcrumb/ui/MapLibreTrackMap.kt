@@ -25,7 +25,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -200,33 +199,42 @@ private fun MapLibreStyledMap(
     onUpdate: (MapLibreMap, Style) -> Unit,
 ) {
     val mapView = rememberMapLibreMapView()
-    val mapRef = remember(mapView) { arrayOfNulls<MapLibreMap>(1) }
-    val inited = remember(mapView) { booleanArrayOf(false) }
+    val host = remember(mapView) { MapHost() }
     // The style loads asynchronously; inputs that arrive in the meantime recompose while the
-    // style is still null, so their update is skipped. Route the callback through a ref so the
+    // style is still null, so their update is skipped. Route the callback through the host so the
     // load applies the *latest* composition's data, not what the first composition captured.
-    val styleLoadedRef = remember(mapView) { arrayOf(onStyleLoaded) }
-    styleLoadedRef[0] = onStyleLoaded
+    host.onStyleLoaded = onStyleLoaded
     AndroidView(
         modifier = modifier,
         factory = { mapView },
         update = { view ->
-            if (!inited[0]) {
-                inited[0] = true
+            if (!host.inited) {
+                host.inited = true
                 view.getMapAsync { map ->
-                    mapRef[0] = map
+                    host.map = map
                     onMapReady(map)
                     map.setStyle(Style.Builder().fromJson(loadProtomapsStyle(view.context))) { style ->
-                        styleLoadedRef[0](view.context, map, style)
+                        host.onStyleLoaded(view.context, map, style)
                     }
                 }
             } else {
-                val map = mapRef[0]
+                val map = host.map
                 val style = map?.style ?: return@AndroidView
                 onUpdate(map, style)
             }
         },
     )
+}
+
+/**
+ * Per-[MapView] mutable state held outside Compose's snapshot system — the map and its one-shot
+ * init flag, plus the latest style-loaded callback. Same role as the `Applied*Inputs` holders
+ * below: a remembered plain object, not a snapshot state, so writing it never recomposes.
+ */
+private class MapHost {
+    var map: MapLibreMap? = null
+    var inited = false
+    var onStyleLoaded: (Context, MapLibreMap, Style) -> Unit = { _, _, _ -> }
 }
 
 /** A MapLibre [MapView] whose lifecycle follows the composition's [LocalLifecycleOwner]. */
@@ -570,9 +578,7 @@ private fun buildTrackPaint(points: List<TrackPoint>, colors: IntArray): TrackPa
     if (points.size < 2 || colors.isEmpty()) return TrackPaint.Solid(colors.firstOrNull() ?: DEFAULT_LINE)
     val cumulative = DoubleArray(points.size)
     for (i in 1 until points.size) {
-        cumulative[i] = cumulative[i - 1] + AndroidDistance.meters(
-            points[i - 1].latitude, points[i - 1].longitude, points[i].latitude, points[i].longitude,
-        )
+        cumulative[i] = cumulative[i - 1] + TrackQuality.distanceMeters(points[i - 1], points[i])
     }
     val total = cumulative.last()
     if (total <= 0.0) return TrackPaint.Solid(colors.first())
@@ -611,30 +617,37 @@ private fun isDarkUi(ctx: Context): Boolean =
     (ctx.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
         Configuration.UI_MODE_NIGHT_YES
 
-/** The current flavor's style JSON, cached (asset name → JSON) — read for every map creation. */
-private var cachedStyleJson: Pair<String, String>? = null
+private val BACKGROUND_COLOR_RE = Regex("\"background-color\":\\s*\"(#[0-9a-fA-F]{6})\"")
+
+/** One flavor's resolved style: the key-injected JSON and its own background color. */
+private class StyleFlavor(val asset: String, val json: String, val backgroundColor: Int)
+
+/** The current flavor's resolved style, cached by asset name — read for every map creation. */
+private var cachedStyle: StyleFlavor? = null
 
 /**
  * The bundled official Protomaps style for the current theme (assets/protomaps-{dark,light}.json)
- * with the hosted-API key injected.
+ * with the hosted-API key injected. The background color is scanned out on the same cache miss:
+ * it is a constant of the flavor, and the document is ~268 KB — far too big to re-scan per map.
  */
-private fun loadProtomapsStyle(ctx: Context): String {
+private fun styleFlavor(ctx: Context): StyleFlavor {
     val asset = if (isDarkUi(ctx)) "protomaps-dark.json" else "protomaps-light.json"
-    cachedStyleJson?.let { (name, json) -> if (name == asset) return json }
+    cachedStyle?.let { if (it.asset == asset) return it }
     val json = ctx.assets.open(asset).bufferedReader().use { it.readText() }
         .replace("{PROTOMAPS_KEY}", BuildConfig.PROTOMAPS_API_KEY)
-    cachedStyleJson = asset to json
-    return json
+    val background = BACKGROUND_COLOR_RE.find(json)
+        ?.groupValues?.get(1)?.let(android.graphics.Color::parseColor)
+        ?: android.graphics.Color.DKGRAY
+    return StyleFlavor(asset, json, background).also { cachedStyle = it }
 }
+
+private fun loadProtomapsStyle(ctx: Context): String = styleFlavor(ctx).json
 
 /**
  * The style's own `background` layer color — used as the pre-render placeholder so a style
  * refresh can't desync the load flash from the basemap.
  */
-private fun styleBackgroundColor(ctx: Context): Int =
-    Regex("\"background-color\":\\s*\"(#[0-9a-fA-F]{6})\"").find(loadProtomapsStyle(ctx))
-        ?.groupValues?.get(1)?.let(android.graphics.Color::parseColor)
-        ?: android.graphics.Color.DKGRAY
+private fun styleBackgroundColor(ctx: Context): Int = styleFlavor(ctx).backgroundColor
 
 // --- Place map ----------------------------------------------------------------------------------
 
@@ -810,9 +823,7 @@ internal fun MapLibrePlacesMap(
     modifier: Modifier = Modifier,
 ) {
     val applied = remember { AppliedOverviewInputs() }
-    // The click listener is registered once; route through a ref so it never goes stale.
-    val onOpenRef = remember { arrayOf(onOpen) }
-    onOpenRef[0] = onOpen
+    applied.onOpen = onOpen
     MapLibreStyledMap(
         modifier = modifier,
         onMapReady = { map ->
@@ -821,7 +832,7 @@ internal fun MapLibrePlacesMap(
                 val touch = RectF(screen.x - 36, screen.y - 36, screen.x + 36, screen.y + 36)
                 val key = map.queryRenderedFeatures(touch, OVERVIEW_LAYER)
                     .firstOrNull()?.getStringProperty("key")
-                if (key != null) onOpenRef[0](key)
+                if (key != null) applied.onOpen(key)
                 key != null
             }
         },
@@ -843,6 +854,9 @@ internal fun MapLibrePlacesMap(
 /** Last-applied input of the all-places overview map. */
 private class AppliedOverviewInputs {
     var places: List<OverviewPlace>? = null
+
+    /** The click listener is registered once, so it reads the handler from here to never go stale. */
+    var onOpen: (String) -> Unit = {}
 }
 
 private const val OVERVIEW_SOURCE = "places-overview-src"

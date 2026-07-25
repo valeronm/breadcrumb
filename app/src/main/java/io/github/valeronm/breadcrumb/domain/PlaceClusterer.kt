@@ -1,7 +1,5 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.domain.DistanceFn
-
 /**
  * Groups stay locations into *places* by anchor-based greedy leader clustering. Nothing is
  * persisted — clusters re-derive on read, in chronological input order, which makes them

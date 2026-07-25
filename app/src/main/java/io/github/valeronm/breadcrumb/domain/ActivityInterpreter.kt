@@ -1,7 +1,5 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.domain.ActivityType
-
 /**
  * The decision logic behind [ActivityTransitionReceiver]: given an already-unpacked Activity-
  * Recognition reading, decide what (if anything) to forward to the recorder. Pure and Android-free —

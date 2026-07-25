@@ -52,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -130,7 +131,12 @@ class MainActivity : ComponentActivity() {
 /** The resolved display-unit system; all distance/speed rendering below reads this. */
 internal val LocalUnits = staticCompositionLocalOf { UnitSystem.METRIC }
 
-private enum class HomeTab { RECORD, TRACKS, PLACES }
+/** A bottom-nav destination, carrying its own bar title, nav label and icon. */
+private enum class HomeTab(val title: String, val label: String, val icon: ImageVector) {
+    RECORD("Breadcrumb", "Record", Icons.Filled.MyLocation),
+    TRACKS("Timeline", "Timeline", Icons.Filled.Route),
+    PLACES("Places", "Places", Icons.Filled.Place),
+}
 
 /** A full-screen page shown over the tabs, animated with predictive back. */
 private sealed interface Overlay {
@@ -274,13 +280,7 @@ private fun MainScreen(
                     colors = canvasTopBarColors(),
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                when (selectedTab) {
-                                    HomeTab.RECORD -> "Breadcrumb"
-                                    HomeTab.TRACKS -> "Timeline"
-                                    HomeTab.PLACES -> "Places"
-                                },
-                            )
+                            Text(selectedTab.title)
                             if (BuildConfig.DEBUG) {
                                 Spacer(Modifier.width(8.dp))
                                 Surface(
@@ -308,24 +308,14 @@ private fun MainScreen(
                 // One container step below the canvas: the default surfaceContainer became the
                 // light theme's canvas tone, which made the bar invisible against it.
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                    NavigationBarItem(
-                        selected = selectedTab == HomeTab.RECORD,
-                        onClick = { selectedTab = HomeTab.RECORD },
-                        icon = { Icon(Icons.Filled.MyLocation, contentDescription = null) },
-                        label = { Text("Record") },
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == HomeTab.TRACKS,
-                        onClick = { selectedTab = HomeTab.TRACKS },
-                        icon = { Icon(Icons.Filled.Route, contentDescription = null) },
-                        label = { Text("Timeline") },
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == HomeTab.PLACES,
-                        onClick = { selectedTab = HomeTab.PLACES },
-                        icon = { Icon(Icons.Filled.Place, contentDescription = null) },
-                        label = { Text("Places") },
-                    )
+                    for (tab in HomeTab.entries) {
+                        NavigationBarItem(
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            icon = { Icon(tab.icon, contentDescription = null) },
+                            label = { Text(tab.label) },
+                        )
+                    }
                 }
             },
         ) { inner ->

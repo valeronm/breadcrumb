@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
-import io.github.valeronm.breadcrumb.domain.DistanceFn
 
 /**
  * Finds *embedded stays* inside a recorded track — stretches where the user lingered within a

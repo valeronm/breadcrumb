@@ -131,7 +131,10 @@ object PlaceResolver {
             val agg = namedAgg[place.id]
             // The place's seeded cluster — carries the pin's capture radius and every endpoint it
             // captured (including pass-throughs, which have no stays but still show on the map).
-            val cluster = clusters.firstOrNull { it.seedIndex == index }
+            // Seeded clusters come first, in seed order (PlaceClusterer.cluster), and the seeds are
+            // this same `places` list — so the place's cluster is at its own index. The `takeIf`
+            // keeps a broken alignment fail-safe (no cluster) rather than silently mismatched.
+            val cluster = clusters.getOrNull(index)?.takeIf { it.seedIndex == index }
             PlaceSummary(
                 place = place,
                 centroid = StayDeriver.Endpoint(place.lat, place.lon),
