@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -66,6 +67,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.SliderStops
+import io.github.valeronm.breadcrumb.util.openInMaps
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -350,6 +352,7 @@ internal fun PlaceDetailScreen(
     onBack: () -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
 ) {
+    val context = LocalContext.current
     val place = summary.place
     var showNameDialog by remember { mutableStateOf(false) }
     var showRecenterDialog by remember { mutableStateOf(false) }
@@ -396,13 +399,25 @@ internal fun PlaceDetailScreen(
                         IconButton(onClick = { editing = false }) {
                             Icon(Icons.Filled.Check, contentDescription = "Done")
                         }
-                    } else if (place != null) {
-                        // Unnamed places get no top-bar actions: naming has the header CTA.
-                        IconButton(onClick = { showNameDialog = true }) {
-                            Icon(Icons.Filled.Edit, contentDescription = "Rename place")
+                    } else {
+                        // Handing the pin to a maps app is offered for unnamed clusters too — the
+                        // point is there to look up whether or not it has a name.
+                        IconButton(
+                            onClick = { context.openInMaps(summary.anchor.lat, summary.anchor.lon, place?.label) },
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = "Open in maps app",
+                            )
                         }
-                        IconButton(onClick = { editing = true }) {
-                            Icon(Icons.Filled.Tune, contentDescription = "Adjust area")
+                        // The rest are a named place's: naming itself has the header CTA.
+                        if (place != null) {
+                            IconButton(onClick = { showNameDialog = true }) {
+                                Icon(Icons.Filled.Edit, contentDescription = "Rename place")
+                            }
+                            IconButton(onClick = { editing = true }) {
+                                Icon(Icons.Filled.Tune, contentDescription = "Adjust area")
+                            }
                         }
                     }
                 },
