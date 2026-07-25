@@ -46,6 +46,8 @@ import io.github.valeronm.breadcrumb.domain.RecordingAction
 import io.github.valeronm.breadcrumb.domain.StaleReadingOracle
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackController
+import io.github.valeronm.breadcrumb.domain.recordCardState
+import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.ui.MainActivity
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.hasLocationPermission
@@ -165,7 +167,6 @@ class LocationRecordingService : Service() {
     // While paused, [activeTrackId] stays open (GPS off) so a brief stop can be stitched back into
     // the same track when the same activity resumes within the configured window.
     private var pendingSegmentStart = false           // mark the first good fix after a resume as a new segment
-    private var pauseDeadlineMs: Long? = null         // resume-window end, for the Record tab's countdown
 
     // Last fix's accuracy and whether the gate rejected it — the "waiting for GPS" card's feedback.
     private var lastFixAccuracyM: Float? = null
@@ -420,7 +421,6 @@ class LocationRecordingService : Service() {
 
     /** Stop GPS but keep the track open; a wake at [resumeDeadlineMs] finalizes it if unresumed. */
     private suspend fun pauseTrack(trackActivity: ActivityType, resumeDeadlineMs: Long) {
-        pauseDeadlineMs = resumeDeadlineMs
         withContext(Dispatchers.Main) { stopLocationUpdates() }
         noFixGuard.onStopped()
         controller.onPaused(trackActivity, resumeDeadlineMs)
@@ -448,7 +448,6 @@ class LocationRecordingService : Service() {
 
     /** Continue the paused track: GPS back on, accumulators kept; the first fix begins a new segment. */
     private suspend fun resumeTrack(activity: ActivityType) {
-        pauseDeadlineMs = null
         controller.onRecording(activity)
         pendingSegmentStart = true
         withContext(Dispatchers.Main) { startLocationUpdates() }
@@ -457,7 +456,6 @@ class LocationRecordingService : Service() {
     private suspend fun openTrack(activity: ActivityType) {
         accumulator = TrackStats.Accumulator()
         pendingSegmentStart = false
-        pauseDeadlineMs = null
         lastFixAccuracyM = null
         lastFixRejectedByAccuracy = false
         noFixGuard.onTrackOpened()
@@ -836,8 +834,14 @@ class LocationRecordingService : Service() {
     private fun publishStatus() {
         val activity = gate.confirmed
         val rec = activity.recording
-        val pausedActivity = (controller.phase as? TrackController.Phase.Paused)?.activity
+        // The controller's phase is the one record of a pause, deadline included — read both off it
+        // rather than mirroring the deadline in a field the pause/resume paths must keep in step.
+        val paused = controller.phase as? TrackController.Phase.Paused
         val suspended = rec && noFixGuard.suspended
+        // Held in locals because the notification below is classified from the very same values the
+        // UI receives — two surfaces reading one set of inputs, not each sampling its own.
+        val points = if (rec) accumulator.pointCount else 0
+        val deaf = deafnessWarning.warned
         TrackingStatus.update {
             it.copy(
                 tracking = true,
@@ -845,36 +849,47 @@ class LocationRecordingService : Service() {
                 recording = rec,
                 activeTrackId = activeTrackId,
                 distanceMeters = if (rec) accumulator.distanceMeters else 0.0,
-                points = if (rec) accumulator.pointCount else 0,
+                points = points,
                 startedAtMillis = if (rec && trackStartedAt > 0) trackStartedAt else null,
                 speedMps = if (rec) accumulator.lastGood?.speed else null,
                 altitudeM = if (rec) accumulator.lastGood?.altitude else null,
-                deaf = deafnessWarning.warned,
+                deaf = deaf,
                 gpsSuspended = suspended,
                 gpsSuspendedSinceMillis = when {
                     !suspended -> null
                     it.gpsSuspendedSinceMillis != null -> it.gpsSuspendedSinceMillis
                     else -> now()
                 },
-                pausedActivity = pausedActivity,
-                pausedUntilMillis = if (pausedActivity != null) pauseDeadlineMs else null,
+                pausedActivity = paused?.activity,
+                pausedUntilMillis = paused?.resumeDeadlineMs,
                 lastFixAccuracyM = if (rec) lastFixAccuracyM else null,
                 lastFixRejectedByAccuracy = rec && lastFixRejectedByAccuracy,
             )
         }
-        // State only — no live distance. The notification re-posts only on activity/pause
-        // transitions (a per-fix post costs a wakelock + IPC every second while recording).
-        // Same vocabulary as the Record tab's state card — one name per state, or the two
-        // surfaces describe the same thing differently.
-        val (title, detail) = when {
-            activity.recording && noFixGuard.suspended ->
-                "Recording · ${activity.label}" to "No GPS signal — waiting for one"
-            activity.recording -> "Recording · ${activity.label}" to "Track in progress"
-            pausedActivity != null ->
-                "Paused · ${pausedActivity.label}" to "Continues if you move soon"
-            else -> "Idle" to "Nothing to record"
-        }
-        updateNotification(title, detail)
+        // One classification, shared with the Record tab's card: the state is decided by the pure
+        // [recordCardState] and worded by [notificationText], so a new or renamed state cannot mean
+        // one thing on the card and another in the notification. State only — no live distance, so
+        // the notification re-posts only when the pair below changes (a per-fix post would cost a
+        // wakelock + IPC every second while recording). `tracking` is true by construction: this
+        // runs in the live service, which is what the flag reports to the UI.
+        val text = recorderText(
+            state = recordCardState(
+                armed = Settings.isAutoRecord(this),
+                tracking = true,
+                recording = rec,
+                paused = paused != null,
+                gpsSuspended = suspended,
+                points = points,
+                hasOpenTrack = activeTrackId != null,
+            ),
+            activity = activity,
+            pausedActivity = paused?.activity,
+            deaf = deaf,
+            // No live figures: see [LiveFigures] — a moving detail would re-post this notification
+            // every second, since [lastNotified] dedupes on the text itself.
+            live = null,
+        )
+        updateNotification(text.title, text.detailLine())
     }
 
     // --- Notifications -------------------------------------------------------
@@ -1030,6 +1045,17 @@ class LocationRecordingService : Service() {
             Settings.setAutoRecord(context, true)
             val intent = Intent(context, LocationRecordingService::class.java).setAction(ACTION_START)
             ContextCompat.startForegroundService(context, intent)
+        }
+
+        /**
+         * [start] with the crash guard the receiver re-arm paths need: a broadcast receiver that
+         * throws takes the process down, and neither the boot/update re-arm nor the watchdog's
+         * self-heal has anything better to do with a failed launch than log it. [reason] names the
+         * caller in that log line.
+         */
+        fun startSafely(context: Context, reason: String) {
+            runCatching { start(context) }
+                .onFailure { DebugLog.e(TAG, "$reason FAILED: ${it.message}") }
         }
 
         fun stop(context: Context) {

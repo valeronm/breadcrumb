@@ -1,7 +1,8 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.domain.ActivityType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -71,7 +72,7 @@ class RecordCardTest {
         assertEquals(RecordCardState.WAITING_FOR_GPS, state(points = 10, hasOpenTrack = false))
     }
 
-    // --- recorderCardTitle -----------------------------------------------------
+    // --- recorderText, as the Record card renders it: live figures, joined to one line ---------
 
     private val NOW = 1_000_000L
     private val SUSPENDED_AT = 900_000L
@@ -86,15 +87,22 @@ class RecordCardTest {
         lastFixAccuracyM: Float? = null,
         lastFixRejectedByAccuracy: Boolean = false,
         gpsSuspendedSinceMs: Long? = null,
-    ) = recorderCardTitle(
-        state, NOW, activity, pausedActivity, pausedUntilMs, lastReadingAtMs, deaf,
-        lastFixAccuracyM, lastFixRejectedByAccuracy,
-        gpsSuspendedSinceMs = gpsSuspendedSinceMs,
-        // Renders like the real UI would, but only for the exact inputs the title should pass —
-        // anything else fails loudly instead of producing a plausible string.
-        formatClock = { at -> if (at == SUSPENDED_AT) "14:36" else error("unexpected clock($at)") },
-        formatDuration = { "${it / 60_000}m" },
-    )
+    ) = recorderText(
+        state, activity, pausedActivity, deaf,
+        live = LiveFigures(
+            nowMs = NOW,
+            // Renders like the real UI would, but only for the exact inputs the title should pass —
+            // anything else fails loudly instead of producing a plausible string.
+            render = TimeRenderer(
+                clock = { at -> if (at == SUSPENDED_AT) "14:36" else error("unexpected clock($at)") },
+                duration = { "${it / 60_000}m" },
+            ),
+            pausedUntilMs = pausedUntilMs,
+            lastReadingAtMs = lastReadingAtMs,
+            rejectedAccuracyM = lastFixAccuracyM?.takeIf { lastFixRejectedByAccuracy },
+            gpsSuspendedSinceMs = gpsSuspendedSinceMs,
+        ),
+    ).oneLine()
 
     @Test fun `idle leads with the recording status`() {
         assertEquals("Idle · nothing to record", title(RecordCardState.WAITING_FOR_MOVEMENT))
@@ -105,7 +113,7 @@ class RecordCardTest {
         // benign wait, and must not lead with "Idle" — the state is a fault, not a chosen rest.
         // No time is attached: neither number available means what a reader would take it to mean.
         assertEquals(
-            "Detection stalled",
+            "Detection stalled · restarting the phone usually fixes it",
             title(
                 RecordCardState.WAITING_FOR_MOVEMENT,
                 lastReadingAtMs = NOW - 17 * 60_000,
@@ -229,5 +237,115 @@ class RecordCardTest {
         assertEquals("1m 0s", formatCountdown(60_000))
         assertEquals("1m 40s", formatCountdown(100_000))
         assertEquals("0s", formatCountdown(0))
+    }
+
+    // --- recorderText, as the notification renders it: no live figures, detail on its own line ---
+    // Same function and same states as the card above — that is the point. These rows pin the
+    // state-only wording, and that the moving figures are absent rather than merely unused: a
+    // detail that changed every second would re-post the notification every second.
+
+    private fun notif(
+        state: RecordCardState,
+        activity: ActivityType? = ActivityType.WALKING,
+        pausedActivity: ActivityType? = null,
+        deaf: Boolean = false,
+    ) = recorderText(state, activity, pausedActivity, deaf, live = null)
+        .let { it.title to it.detailLine() }
+
+    @Test fun `a drawable track reports plain progress`() {
+        assertEquals(
+            "Recording walking" to "Track in progress",
+            notif(RecordCardState.LIVE_MAP),
+        )
+    }
+
+    @Test fun `a track still waiting for its first fix does not claim to be in progress`() {
+        // The distinction the notification used to collapse: no fix yet is not a track underway.
+        assertEquals(
+            "Recording walking" to "Waiting for a GPS fix",
+            notif(RecordCardState.WAITING_FOR_GPS),
+        )
+        assertNotEquals(
+            notif(RecordCardState.LIVE_MAP),
+            notif(RecordCardState.WAITING_FOR_GPS),
+        )
+    }
+
+    @Test fun `a suspended guard names the missing signal`() {
+        assertEquals(
+            "Recording driving" to "No GPS signal — waiting for one",
+            notif(RecordCardState.NO_GPS_SIGNAL, activity = ActivityType.DRIVING),
+        )
+    }
+
+    @Test fun `a pause names the paused activity, not the current reading`() {
+        // Pausing sets the reading to STILL while the track belongs to the activity that opened it,
+        // so the remembered activity is the one worth naming — "Stationary continues" says nothing.
+        assertEquals(
+            "Paused" to "Walking continues if you move soon",
+            notif(RecordCardState.PAUSED, activity = ActivityType.STILL, pausedActivity = ActivityType.WALKING),
+        )
+    }
+
+    @Test fun `a pause falls back to the current reading when none was remembered`() {
+        assertEquals(
+            "Paused" to "Stationary continues if you move soon",
+            notif(RecordCardState.PAUSED, activity = ActivityType.STILL),
+        )
+    }
+
+    @Test fun `idle says there is nothing to record`() {
+        assertEquals(
+            "Idle" to "Nothing to record",
+            notif(RecordCardState.WAITING_FOR_MOVEMENT, activity = ActivityType.STILL),
+        )
+    }
+
+    @Test fun `a stalled detector is not reported as idleness`() {
+        // The card already refuses to call this a benign wait; the notification now agrees, and
+        // carries the same remedy as the alerts notification for the same condition.
+        assertEquals(
+            "Detection stalled" to "Restarting the phone usually fixes it",
+            notif(RecordCardState.WAITING_FOR_MOVEMENT, activity = ActivityType.STILL, deaf = true),
+        )
+    }
+
+    @Test fun `deafness never overrides an open track's own report`() {
+        // A stall is about what happens next; a track in hand is still being recorded.
+        for (state in listOf(
+            RecordCardState.LIVE_MAP,
+            RecordCardState.WAITING_FOR_GPS,
+            RecordCardState.NO_GPS_SIGNAL,
+        )) {
+            assertEquals(notif(state), notif(state, deaf = true))
+        }
+    }
+
+    @Test fun `every state is worded for both surfaces`() {
+        // Totality is the point: a state added to the enum must be worded here, not defaulted into
+        // whichever branch happened to be last. STARTING is the one state with no detail to add.
+        for (state in RecordCardState.entries) {
+            val (title, detail) = notif(state)
+            assertTrue("blank title for $state", title.isNotBlank())
+            assertTrue("blank card line for $state", title(state).isNotBlank())
+            if (state != RecordCardState.STARTING) {
+                assertTrue("blank detail for $state", detail.isNotBlank())
+            }
+        }
+    }
+
+    @Test fun `the notification never carries a figure that would re-post it`() {
+        // Every state-only detail must be constant for a given state: no clock, no countdown, no
+        // radius. Rendered twice with different live inputs available, the text must be identical —
+        // which it is by construction, since live = null cannot reach them.
+        for (state in RecordCardState.entries) {
+            assertEquals(notif(state), notif(state))
+        }
+        // And the state-only pause detail is settled wording, not the card's countdown — it names
+        // what would resume without saying when.
+        assertEquals(
+            "Paused" to "Walking continues if you move soon",
+            notif(RecordCardState.PAUSED, pausedActivity = ActivityType.WALKING),
+        )
     }
 }

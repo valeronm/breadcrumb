@@ -27,8 +27,7 @@ class WatchdogReceiver : BroadcastReceiver() {
             }
             Settings.isAutoRecord(context) -> {
                 DebugLog.w(TAG, "watchdog: armed but service dead — restarting")
-                runCatching { LocationRecordingService.start(context) }
-                    .onFailure { DebugLog.e(TAG, "watchdog restart FAILED: ${it.message}") }
+                LocationRecordingService.startSafely(context, "watchdog restart")
             }
             else -> DebugLog.w(TAG, "watchdog fired while disarmed — ignoring")
         }

@@ -35,9 +35,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.LiveFigures
 import io.github.valeronm.breadcrumb.domain.RecordCardState
+import io.github.valeronm.breadcrumb.domain.TimeRenderer
 import io.github.valeronm.breadcrumb.domain.recordCardState
-import io.github.valeronm.breadcrumb.domain.recorderCardTitle
+import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
 import kotlinx.coroutines.delay
@@ -322,23 +324,26 @@ private fun RecorderStateCard(state: RecordCardState, status: TrackingStatus.Sta
             nowMs = System.currentTimeMillis()
         }
     }
-    val title = recorderCardTitle(
+    // Remembered: this composable re-runs on every 1 Hz tick.
+    val render = remember { TimeRenderer(clock = { timeFormat.format(Date(it)) }, duration = ::formatDurationMs) }
+    // The live surface: the detail counts down and quotes figures, joined onto the title as one line.
+    val text = recorderText(
         state = state,
-        nowMs = nowMs,
         activity = status.activity,
         pausedActivity = status.pausedActivity,
-        pausedUntilMs = status.pausedUntilMillis,
-        lastReadingAtMs = status.lastReadingAtMillis,
         deaf = status.deaf,
-        lastFixAccuracyM = status.lastFixAccuracyM,
-        lastFixRejectedByAccuracy = status.lastFixRejectedByAccuracy,
-        gpsSuspendedSinceMs = status.gpsSuspendedSinceMillis,
-        formatClock = { timeFormat.format(Date(it)) },
-        formatDuration = ::formatDurationMs,
+        live = LiveFigures(
+            nowMs = nowMs,
+            render = render,
+            pausedUntilMs = status.pausedUntilMillis,
+            lastReadingAtMs = status.lastReadingAtMillis,
+            rejectedAccuracyM = status.lastFixAccuracyM?.takeIf { status.lastFixRejectedByAccuracy },
+            gpsSuspendedSinceMs = status.gpsSuspendedSinceMillis,
+        ),
     )
     Card(modifier = Modifier.fillMaxWidth()) {
         Text(
-            title,
+            text.oneLine(),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         )

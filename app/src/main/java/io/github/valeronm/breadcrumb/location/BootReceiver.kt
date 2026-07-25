@@ -21,8 +21,7 @@ class BootReceiver : BroadcastReceiver() {
         }
         if (!Settings.isAutoRecord(context)) return
         DebugLog.i(TAG, "boot receiver: re-arming (${intent.action})")
-        runCatching { LocationRecordingService.start(context) }
-            .onFailure { DebugLog.e(TAG, "boot receiver re-arm FAILED: ${it.message}") }
+        LocationRecordingService.startSafely(context, "boot receiver re-arm")
     }
 
     private companion object {
