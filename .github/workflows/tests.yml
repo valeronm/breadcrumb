@@ -11,6 +11,7 @@ on:
       - '.gitignore'
       - '.worktreeinclude'
       - '.github/workflows/release.yml'
+      - '.github/workflows/dependency-graph.yml'
   pull_request:
     paths-ignore:
       - 'docs/**'
@@ -20,6 +21,7 @@ on:
       - '.gitignore'
       - '.worktreeinclude'
       - '.github/workflows/release.yml'
+      - '.github/workflows/dependency-graph.yml'
 
 jobs:
   unit-tests:
