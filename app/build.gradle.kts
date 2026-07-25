@@ -208,7 +208,14 @@ dependencies {
     // Location + Activity Recognition (Google Play Services)
     implementation("com.google.android.gms:play-services-location:21.4.0")
 
-    // MapLibre GL Native renders the recorded tracks on a Protomaps dark vector basemap.
+    // MapLibre GL Native renders the recorded tracks on a Protomaps vector basemap (dark or light,
+    // following the app theme).
+    //
+    // The artifact picks the rendering backend, and the backend decides which devices Play will
+    // offer the app to: this one merges in a required `android.hardware.vulkan.version` feature,
+    // while the `android-sdk-opengl` sibling requires OpenGL ES 3.0 instead. Both are hard
+    // filters, so swapping the artifact silently widens or narrows the supported device set —
+    // it is a distribution decision, not just a rendering one.
     implementation("org.maplibre.gl:android-sdk:13.4.1")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
