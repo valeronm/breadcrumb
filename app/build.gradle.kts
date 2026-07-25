@@ -110,6 +110,28 @@ android {
             // JaCoCo coverage for host unit tests: `./gradlew :app:createDebugUnitTestCoverageReport`.
             enableUnitTestCoverage = true
         }
+        /**
+         * The build to measure on. Identical to debug except that it isn't debuggable, which is
+         * the whole point: `debuggable = true` holds ART's optimizer back, and on the same commit
+         * it tripled the track screen's open (~250 ms and 32 dropped frames, against ~80 ms and
+         * none) — enough to read as a regression that wasn't there. A debug build cannot answer
+         * "is this slow"; this one can.
+         *
+         * It keeps debug's `.debug` suffix and signing, so `installPerf` replaces the debug app in
+         * place with its recorded history intact, and `installDebug` puts the debuggable one back.
+         * `adb run-as` and the Compose tooling stop working while it is installed — that is the
+         * trade, and it is why this is a separate build type rather than a flag flipped on debug.
+         *
+         * R8 stays off, so it builds fast and stack traces still map to source. That leaves it a
+         * little slower than a real release build, which is the safe direction for a measurement.
+         */
+        create("perf") {
+            initWith(getByName("debug"))
+            isDebuggable = false
+            applicationIdSuffix = ".debug"
+            enableUnitTestCoverage = false
+            signingConfig = signingConfigs.getByName("debug")
+        }
     }
 
     compileOptions {
