@@ -18,7 +18,7 @@ object Settings {
     private const val KEY_ACCURACY_GATE_M = "accuracy_gate_m"
     private const val KEY_REQUIRE_GNSS_FIX = "require_gnss_fix"
     private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
-    private const val KEY_PLACES_SHOW_RARE_UNNAMED = "places_show_rare_unnamed"
+    private const val KEY_PLACES_SHOW_RARE_STOPS = "places_show_rare_stops"
     private const val KEY_PLACES_VIEW_MAP = "places_view_map"
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
@@ -180,12 +180,12 @@ object Settings {
         prefs(context).edit { putString(KEY_UNIT_CHOICE, name) }
     }
 
-    /** Places tab: also show unnamed clusters with fewer than 3 visits (hidden by default). */
-    fun placesShowRareUnnamed(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_PLACES_SHOW_RARE_UNNAMED, false)
+    /** Places map: also show clusters with fewer than 3 visits, named or not (hidden by default). */
+    fun placesShowRareStops(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_PLACES_SHOW_RARE_STOPS, false)
 
-    fun setPlacesShowRareUnnamed(context: Context, enabled: Boolean) {
-        prefs(context).edit { putBoolean(KEY_PLACES_SHOW_RARE_UNNAMED, enabled) }
+    fun setPlacesShowRareStops(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_PLACES_SHOW_RARE_STOPS, enabled) }
     }
 
     /** Places tab: whether the map view (vs the sorted list) was last selected. */

@@ -93,10 +93,15 @@ private enum class PlacesSort(val label: String) {
 /** How far around a place the detail map shows neighboring clusters for radius context. */
 internal const val NEIGHBOR_CONTEXT_M = 1_200.0
 
-// Unnamed clusters below the notable-visit floor are "rare stops": hidden on the map unless its
-// "Rare stops" chip is on, and sorted to the tail of the list view.
+/** Label of the map's filter chip — the empty state below names it, so both read from here. */
+private const val RARE_STOPS_LABEL = "Rare stops"
+
+// Clusters below the notable-visit floor are "rare stops": hidden on the map unless its chip is
+// on. A label doesn't exempt one — a place named on the strength of a single visit is exactly the
+// clutter the chip is asked to clear, and a named cluster with no visits at all (a dropped pin, or
+// one whose stays were deleted) is rarer still.
 private fun PlaceResolver.PlaceSummary.isRareStop() =
-    !isNamed && visitCount < PlaceResolver.NOTABLE_VISIT_MIN
+    visitCount < PlaceResolver.NOTABLE_VISIT_MIN
 
 /** The Places tab: sortable list (tap for detail, swipe to delete) or an all-places map. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -114,7 +119,7 @@ internal fun PlacesTab(
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
     var showMap by remember { mutableStateOf(AppSettings.placesViewMap(context)) }
     var sort by remember { mutableStateOf(PlacesSort.fromSettings(context)) }
-    var showRareUnnamed by remember { mutableStateOf(AppSettings.placesShowRareUnnamed(context)) }
+    var showRareStops by remember { mutableStateOf(AppSettings.placesShowRareStops(context)) }
 
     val sorted = remember(sort, places) {
         val comparator = when (sort) {
@@ -128,16 +133,12 @@ internal fun PlacesTab(
             // Tiebreak: named before unnamed, then by label — stable across recompositions.
             .sortedWith(comparator.thenBy { it.place?.label?.lowercase(Locale.getDefault()) ?: "￿" })
     }
-    // The rare-stops chip declutters the map only. Note the off default also hides the map's
-    // orange brief-stop dots — one-off stops are rare unnamed clusters by definition. The list
-    // never filters: rare stops sort to its tail instead (sortedBy is stable, so the chosen
-    // sort order is preserved within each half).
-    val visible = remember(sorted, showMap, showRareUnnamed) {
-        when {
-            !showMap -> sorted.sortedBy { it.isRareStop() }
-            showRareUnnamed -> sorted
-            else -> sorted.filterNot { it.isRareStop() }
-        }
+    // What the map draws — the list below shows `sorted` whole, since it has no chip and demoting
+    // rows there would bury places under a rule the screen gives no way to see or turn off. Note
+    // the chip's off default also hides the map's orange brief-stop dots: a one-off stop is a rare
+    // cluster by definition.
+    val mapVisible = remember(sorted, showRareStops) {
+        if (showRareStops) sorted else sorted.filterNot { it.isRareStop() }
     }
 
     // Chips occupy an invisible touch target (48dp minimum) around their 32dp visual height;
@@ -184,7 +185,7 @@ internal fun PlacesTab(
                 }
             }
         }
-        if (visible.isEmpty()) {
+        if (sorted.isEmpty()) {
             EmptyState(
                 "No places yet. Stays and places you name show up here.",
                 Modifier.weight(1f).fillMaxWidth().padding(24.dp),
@@ -206,8 +207,8 @@ internal fun PlacesTab(
                             .filter { it.merge != null }
                             .mapTo(HashSet()) { it.stay.afterTrackId to it.stay.start }
                     }
-                    val mapPlaces = remember(visible, mergeableStays) {
-                        visible.map { summary ->
+                    val mapPlaces = remember(mapVisible, mergeableStays) {
+                        mapVisible.map { summary ->
                             OverviewPlace(
                                 location = summary.anchor,
                                 label = summary.place?.label,
@@ -218,11 +219,20 @@ internal fun PlacesTab(
                             )
                         }
                     }
-                    MapLibrePlacesMap(
-                        places = mapPlaces,
-                        onOpen = onOpenPlace,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    if (mapPlaces.isEmpty()) {
+                        // The filter, not the history, emptied this view — a bare basemap would
+                        // read as "no places". The chip below stays on top of this message.
+                        EmptyState(
+                            "Every place here is a rare stop. Turn on $RARE_STOPS_LABEL to see them.",
+                            Modifier.fillMaxSize().padding(24.dp),
+                        )
+                    } else {
+                        MapLibrePlacesMap(
+                            places = mapPlaces,
+                            onOpen = onOpenPlace,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                     // The filter rides on the map it declutters, top-left like the chips row in
                     // the list view; the halo subtraction keeps the visible gap at 12dp.
                     Box(
@@ -231,11 +241,11 @@ internal fun PlacesTab(
                             .padding(start = 12.dp, top = 12.dp - chipHalo),
                     ) {
                         PlacesChip(
-                            selected = showRareUnnamed,
-                            label = "Rare stops",
+                            selected = showRareStops,
+                            label = RARE_STOPS_LABEL,
                             onClick = {
-                                showRareUnnamed = !showRareUnnamed
-                                AppSettings.setPlacesShowRareUnnamed(context, showRareUnnamed)
+                                showRareStops = !showRareStops
+                                AppSettings.setPlacesShowRareStops(context, showRareStops)
                             },
                             onMap = true,
                         )
@@ -248,10 +258,10 @@ internal fun PlacesTab(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                itemsIndexed(visible, key = { _, s -> s.rowKey() }) { index, summary ->
+                itemsIndexed(sorted, key = { _, s -> s.rowKey() }) { index, summary ->
                     PlaceRow(
                         summary = summary,
-                        shape = groupedRowShape(index, visible.size),
+                        shape = groupedRowShape(index, sorted.size),
                         onOpen = { onOpenPlace(summary.rowKey()) },
                         // Deleting removes the label, not the stays — they go back to being an
                         // unnamed cluster, and Undo re-pins the place exactly as it was.
