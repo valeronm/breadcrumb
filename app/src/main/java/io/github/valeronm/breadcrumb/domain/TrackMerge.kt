@@ -49,18 +49,18 @@ object TrackMerge {
      * tracks across the whole stop. Judging the interval whole, once, is what keeps a slice from
      * claiming a duration that isn't its own.
      *
-     * [trackById] resolves the anchor, [nextTrack] its chronological successor; an interval whose
-     * either side is missing (the tail, into a track still recording) yields no plan.
+     * [neighbors] holds each anchor's own summary and its chronological successor, so an anchor with
+     * nothing after it (the tail, into a track still recording) simply isn't in the map and yields
+     * no plan. One map rather than an id-keyed pair of them: two lookups that must agree on what
+     * follows what are two chances to disagree.
      */
     fun plansByAnchor(
         intervals: List<StayDeriver.Interval>,
-        trackById: Map<Long, TrackSummary>,
-        nextTrack: Map<Long, TrackSummary>,
+        neighbors: Map<Long, Pair<TrackSummary, TrackSummary>>,
     ): Map<Long, Plan> = buildMap {
         for (interval in intervals) {
             val anchor = interval.afterTrackId
-            val before = trackById[anchor] ?: continue
-            val after = nextTrack[anchor] ?: continue
+            val (before, after) = neighbors[anchor] ?: continue
             plan(before, after, interval.start, interval.end)?.let { put(anchor, it) }
         }
     }

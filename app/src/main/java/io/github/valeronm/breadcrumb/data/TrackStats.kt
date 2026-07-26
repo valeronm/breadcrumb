@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.data
 
+import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackDao
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackStatsUpdate
@@ -67,6 +68,17 @@ object TrackStats {
          */
         val extentMeters: Double,
     ) {
+        /** Whether [track]'s stored columns already read as these stats — what lets a sweep that
+         *  agrees with the rows cost no writes. */
+        fun matches(track: Track): Boolean =
+            track.distanceMeters == distanceMeters &&
+                track.pointCount == pointCount &&
+                track.ignoredCount == ignoredCount &&
+                track.startLat == startLat &&
+                track.startLon == startLon &&
+                track.endLat == endLat &&
+                track.endLon == endLon
+
         /** The row-shaped projection [TrackDao.updateStats] writes: these stats onto [trackId]. */
         fun toUpdate(trackId: Long): TrackStatsUpdate = TrackStatsUpdate(
             id = trackId,

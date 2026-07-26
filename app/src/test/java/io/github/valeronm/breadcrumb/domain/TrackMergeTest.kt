@@ -46,8 +46,7 @@ class TrackMergeTest {
 
     // --- plansByAnchor: what the timeline actually asks -------------------------------
 
-    private val byId = mapOf(before.id to before)
-    private val nextTrack = mapOf(before.id to after)
+    private val neighbors = mapOf(before.id to (before to after))
 
     private fun stay(start: Long, end: Long) = StayDeriver.Stay(
         start = start, end = end, location = StayDeriver.Endpoint(1.0, 1.0),
@@ -55,7 +54,7 @@ class TrackMergeTest {
     )
 
     @Test fun `a short interval's plan is keyed by the track it follows`() {
-        val plans = TrackMerge.plansByAnchor(listOf(stay(0, 60_000)), byId, nextTrack)
+        val plans = TrackMerge.plansByAnchor(listOf(stay(0, 60_000)), neighbors)
         assertEquals(TrackMerge.Plan(earlierId = 1, laterId = 2), plans[before.id])
     }
 
@@ -68,7 +67,7 @@ class TrackMergeTest {
         assertEquals(2, slices.size)
         assertTrue(slices.any { it.end!! - it.start <= TrackMerge.MAX_INTERVAL_MS })
 
-        val plans = TrackMerge.plansByAnchor(listOf(stay), byId, nextTrack)
+        val plans = TrackMerge.plansByAnchor(listOf(stay), neighbors)
         // Every slice looks its offer up by the same anchor, so the short one gets the same
         // verdict as the stop it belongs to: none.
         assertNull(plans[before.id])
@@ -77,7 +76,7 @@ class TrackMergeTest {
 
     @Test fun `an interval whose later side is missing yields no plan`() {
         // The tail interval, running into a track that is still recording.
-        assertNull(TrackMerge.plansByAnchor(listOf(stay(0, 60_000)), byId, emptyMap())[before.id])
+        assertNull(TrackMerge.plansByAnchor(listOf(stay(0, 60_000)), emptyMap())[before.id])
     }
 
     private companion object {

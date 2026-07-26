@@ -101,10 +101,6 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE id = :trackId")
     suspend fun purgeTrack(trackId: Long)
 
-    /** Usable (non-ignored) points, for rendering and export. */
-    @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC")
-    suspend fun pointsFor(trackId: Long): List<TrackPoint>
-
     /** The first [limit] usable points — enough to check for a stray leading point. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 ORDER BY timestamp ASC, id ASC LIMIT :limit")
     suspend fun firstPointsFor(trackId: Long, limit: Int): List<TrackPoint>
@@ -182,9 +178,10 @@ interface TrackDao {
     @Query("SELECT id FROM tracks WHERE discardedAt IS NULL ORDER BY startedAt DESC")
     suspend fun allTrackIds(): List<Long>
 
-    /** Every finished track oldest-first, discarded ones included — the stats sweep's set. */
-    @Query("SELECT id FROM tracks WHERE endedAt IS NOT NULL ORDER BY startedAt ASC")
-    suspend fun finishedTrackIds(): List<Long>
+    /** Every finished track oldest-first, discarded ones included — the stats sweep's set. Rows,
+     *  not ids: the sweep compares what it computed against what each row holds. */
+    @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL ORDER BY startedAt ASC")
+    suspend fun finishedTracks(): List<Track>
 
     /** Finished, kept tracks oldest-first — the backup export's set, and the review sweep's. */
     @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt ASC")

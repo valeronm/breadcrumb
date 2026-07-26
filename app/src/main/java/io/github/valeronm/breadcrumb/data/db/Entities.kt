@@ -20,7 +20,7 @@ data class Track(
     // repaired) — never per fix, which is what keeps the observed queries off `track_points`; see
     // [TrackDao]. Meaningless while a track is open: nothing reads an open track's row, and
     // finishing it — including `finalizeDangling` after a crash — recomputes them from the points.
-    /** Total distance in meters over the good points, segment gaps excluded. */
+    /** Total distance in meters over the good points, the legs spanning a segment gap included. */
     val distanceMeters: Double = 0.0,
     /** Usable (non-ignored) points. */
     val pointCount: Int = 0,

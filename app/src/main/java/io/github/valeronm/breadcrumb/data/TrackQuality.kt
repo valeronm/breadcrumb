@@ -189,12 +189,8 @@ object TrackQuality {
      */
     private fun stepSpeedKmh(lastGood: TrackPoint, point: TrackPoint, distance: DistanceFn): Double {
         val gapMeters = distanceMeters(lastGood, point, distance)
-        val dtSec = (point.timestamp - lastGood.timestamp) / 1000.0
-        return when {
-            dtSec > 0 -> gapMeters / dtSec * 3.6
-            gapMeters > MIN_JUMP_M -> Double.MAX_VALUE
-            else -> 0.0
-        }
+        return seamSpeedKmh(lastGood, point, gapMeters)
+            ?: if (gapMeters > MIN_JUMP_M) Double.MAX_VALUE else 0.0
     }
 
     /**

@@ -217,26 +217,26 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             if (!retuned && !raised) return@withTransaction
             val retyped = track.copy(activityType = activityType.name)
             val stored = dao.allPointsFor(trackId)
-            val restored = if (raised) restoreJumps(trackId, stored, activityType) else stored
+            val restored = if (raised) restoreJumps(trackId, stored, activityType) else null
             // Run unconditionally once either rule is in play: restoring a fix moves the first or
             // last *good* point, which is where the overrun rule takes its bearings from.
-            val applied = applyEdgeStays(retyped, endedAt, restored)
-            if (restored !== stored || applied.changed) refreshStats(trackId, applied.points)
+            val applied = applyEdgeStays(retyped, endedAt, restored ?: stored)
+            if (restored != null || applied.changed) refreshStats(trackId, applied.points)
         }
     }
 
     /**
      * Hand back the jump-flagged fixes the retyped activity's ceiling accepts ([TrackQuality.jumpRestores]),
-     * and return the points as their rows now read — the same list when nothing moved, so the
-     * caller can tell by identity. The caller supplies the transaction.
+     * and return the points as their rows now read — or null when the ceiling accepted none, which
+     * is how the caller knows nothing moved. The caller supplies the transaction.
      */
     private suspend fun restoreJumps(
         trackId: Long,
         points: List<TrackPoint>,
         activityType: ActivityType,
-    ): List<TrackPoint> {
+    ): List<TrackPoint>? {
         val restores = TrackQuality.jumpRestores(points, activityType, AndroidDistance)
-        if (restores.isEmpty()) return points
+        if (restores.isEmpty()) return null
         restores.map { points[it].id }.chunked(POINT_ID_CHUNK).forEach { dao.clearIgnored(it) }
         DebugLog.i(
             TAG,
@@ -416,27 +416,43 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun sweepEdgeStays() {
         val tracks = dao.exportTracks()
+        val changed = sweep(SweepStatus.Kind.EDGE_STAYS, tracks) { rederiveEdgeStays(it) }
+        DebugLog.i(
+            TAG,
+            "edge-stay sweep (rule v${EdgeStayDetector.RULE_VERSION}) over ${tracks.size} " +
+                "tracks: $changed rewritten",
+        )
+    }
+
+    /**
+     * The walk both sweeps share: [rederive] is applied to every item, and returns whether it wrote
+     * anything (only the count is reported). The batching and the progress cadence are the reasons
+     * this is one function — see [sweepEdgeStays] for why each is shaped as it is, and note that a
+     * sweep which agrees with the stored rows must cost no writes, so a `rederive` decides for
+     * itself whether there is anything to store.
+     */
+    private suspend fun <T> sweep(
+        kind: SweepStatus.Kind,
+        items: List<T>,
+        rederive: suspend (T) -> Boolean,
+    ): Int {
         var changed = 0
-        SweepStatus.start(SweepStatus.Kind.EDGE_STAYS, tracks.size)
+        SweepStatus.start(kind, items.size)
         try {
-            for ((batch, chunk) in tracks.chunked(SWEEP_BATCH_TRACKS).withIndex()) {
+            for ((batch, chunk) in items.chunked(SWEEP_BATCH_TRACKS).withIndex()) {
                 db.withTransaction {
-                    for ((i, track) in chunk.withIndex()) {
-                        // Reported every 10 tracks: the point walk is the slow part, and a state
-                        // emission per track would recompose the banner faster than it can be read.
+                    for ((i, item) in chunk.withIndex()) {
+                        // Reported every 10 items: the point walk is the slow part, and a state
+                        // emission per item would recompose the banner faster than it can be read.
                         if (i % 10 == 0) SweepStatus.advance(batch * SWEEP_BATCH_TRACKS + i)
-                        if (rederiveEdgeStays(track)) changed++
+                        if (rederive(item)) changed++
                     }
                 }
             }
         } finally {
             SweepStatus.finish()
         }
-        DebugLog.i(
-            TAG,
-            "edge-stay sweep (rule v${EdgeStayDetector.RULE_VERSION}) over ${tracks.size} " +
-                "tracks: $changed rewritten",
-        )
+        return changed
     }
 
     /**
@@ -455,24 +471,26 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      *
      * Idempotent: it recomputes from the points, so an interrupted sweep costs a re-run (the
      * version is stored after it). Points are loaded one track at a time and committed in batches,
-     * for the reasons spelled out on [sweepEdgeStays].
+     * for the reasons spelled out on [sweepEdgeStays] — and a track whose stored columns already
+     * agree is left alone, so a walk that changed nothing for most of the history writes nothing
+     * for it either. `tracks` is observed; a needless UPDATE per track re-runs the timeline.
      */
     suspend fun sweepStats() {
-        val ids = dao.finishedTrackIds()
-        SweepStatus.start(SweepStatus.Kind.STATS, ids.size)
-        try {
-            for ((batch, chunk) in ids.chunked(SWEEP_BATCH_TRACKS).withIndex()) {
-                db.withTransaction {
-                    for ((i, id) in chunk.withIndex()) {
-                        if (i % 10 == 0) SweepStatus.advance(batch * SWEEP_BATCH_TRACKS + i)
-                        refreshStats(id, dao.allPointsFor(id))
-                    }
-                }
+        val tracks = dao.finishedTracks()
+        val changed = sweep(SweepStatus.Kind.STATS, tracks) { track ->
+            val stats = TrackStats.of(dao.allPointsFor(track.id))
+            if (stats.matches(track)) {
+                false
+            } else {
+                dao.updateStats(stats.toUpdate(track.id))
+                true
             }
-        } finally {
-            SweepStatus.finish()
         }
-        DebugLog.i(TAG, "stats sweep (rule v${TrackStats.RULE_VERSION}) over ${ids.size} tracks")
+        DebugLog.i(
+            TAG,
+            "stats sweep (rule v${TrackStats.RULE_VERSION}) over ${tracks.size} " +
+                "tracks: $changed rewritten",
+        )
     }
 
     suspend fun finishTrack(trackId: Long, endedAt: Long) {

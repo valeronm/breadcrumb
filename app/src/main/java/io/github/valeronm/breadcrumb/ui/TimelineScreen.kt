@@ -675,10 +675,25 @@ private fun StayRow(
 ) {
     val place = item.place
     val named = place?.label != null
-    val card = @Composable { StayCard(item, shape, named, highlighted, onClick) }
     // A short same-activity stay can be swiped to merge its two tracks — the merged track replaces
     // the stay and both originals, and Undo unmerges. Ineligible stays (no plan) aren't swipeable.
-    val plan = item.merge
+    MergeSwipeable(item.merge, shape, onMerge) {
+        StayCard(item, shape, named, highlighted, onClick)
+    }
+}
+
+/**
+ * Wraps an interval's card in the swipe-to-merge affordance, or hands it back bare when the
+ * interval carries no offer. Both interval rows — stays and short gaps — merge on one rule, so the
+ * gesture, its color, its icon and its label are described once here rather than per row type.
+ */
+@Composable
+private fun MergeSwipeable(
+    plan: TrackMerge.Plan?,
+    shape: RoundedCornerShape,
+    onMerge: (TrackMerge.Plan) -> Unit,
+    card: @Composable () -> Unit,
+) {
     if (plan == null) {
         card()
         return
@@ -783,23 +798,10 @@ private fun GapRow(
     onOpenPlace: (String) -> Unit,
     onMerge: (TrackMerge.Plan) -> Unit,
 ) {
-    val card = @Composable { GapCard(item, shape, onOpenPlace) }
     // A gap short enough to be one outing the recorder split swipes away exactly as a short stop
     // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
     // absences and aren't swipeable.
-    val plan = item.merge
-    if (plan == null) {
-        card()
-        return
-    }
-    SwipeActionRow(
-        shape = shape,
-        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        icon = Icons.AutoMirrored.Filled.CallMerge,
-        iconDescription = "Merge tracks",
-        onDismiss = { onMerge(plan) },
-    ) { card() }
+    MergeSwipeable(item.merge, shape, onMerge) { GapCard(item, shape, onOpenPlace) }
 }
 
 @Composable

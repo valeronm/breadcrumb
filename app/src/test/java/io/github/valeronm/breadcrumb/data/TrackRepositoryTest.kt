@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.Track
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
@@ -32,6 +33,11 @@ class TrackRepositoryTest {
     private val dao get() = test.dao
 
     @After fun tearDown() = test.close()
+
+    /** The track's rows that are on the path, as stored — no segment break carried (see
+     *  [repository.pointsFor] for the reader's view). */
+    private suspend fun goodPoints(trackId: Long): List<TrackPoint> =
+        dao.allPointsFor(trackId).filterNot { it.ignored }
 
     /** What the stored aggregates should be, recomputed from the track's points on the spot. */
     private suspend fun assertStatsMatchPoints(trackId: Long) {
@@ -163,7 +169,8 @@ class TrackRepositoryTest {
 
         val merged = dao.track(mergedId)!!
         assertEquals(8, merged.pointCount)
-        // The join is a segment break, so the stay between the two halves isn't counted as travel.
+        // Recomputed over the whole merged path, the leg across the join included — a sum of the
+        // two originals' distances would leave that out.
         assertStatsMatchPoints(mergedId)
         assertEquals(Track.REASON_MERGED, dao.track(first)!!.discardReason)
         assertEquals(Track.REASON_MERGED, dao.track(second)!!.discardReason)
@@ -244,7 +251,7 @@ class TrackRepositoryTest {
         val walkEndTs = TEST_START + 59 * 10_000L
         assertTrue(track.endedAt!! in walkEndTs..(walkEndTs + 60_000))
         // ...and that is where the last good fix is, so the row and the points agree.
-        assertEquals(track.endedAt, dao.pointsFor(id).last().timestamp)
+        assertEquals(track.endedAt, goodPoints(id).last().timestamp)
         assertStatsMatchPoints(id)
         assertEquals(
             repository.trackPointsFor(id).edgeStay.map { it.id },
@@ -282,7 +289,7 @@ class TrackRepositoryTest {
         // (TEST_START is not bin-aligned, so up to one speed bin of slop either way).
         val walkStartTs = TEST_START + 90 * 10_000L
         assertTrue(walk.startedAt in (walkStartTs - 60_000)..(walkStartTs + 30_000))
-        assertEquals(walk.startedAt, dao.pointsFor(id).first().timestamp)
+        assertEquals(walk.startedAt, goodPoints(id).first().timestamp)
         assertTrue(repository.trackPointsFor(id).edgeStay.all { it.timestamp < walk.startedAt })
         assertStatsMatchPoints(id)
     }

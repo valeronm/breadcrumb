@@ -96,16 +96,16 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
         // as 3 visits. Cluster ids survive the slicing copies, so items look up directly.
         val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places)
-        // Each track's chronological successor, for merging the two tracks around a short interval.
-        val byId = summaries.associateBy { it.id }
-        // observeSummaries returns newest first, so chronological order is a reversed *view* — no
-        // re-sort of the whole history on every emission.
-        val nextTrack = summaries.asReversed().zipWithNext()
-            .associate { (a, b) -> a.id to b }
+        // Each track paired with its chronological successor, keyed by the track an interval
+        // follows — what merging the two tracks around a short interval needs. observeSummaries
+        // returns newest first, so chronological order is a reversed *view*: no re-sort of the
+        // whole history on every emission.
+        val neighbors = summaries.asReversed().zipWithNext()
+            .associate { (a, b) -> a.id to (a to b) }
 
         // Stays and short gaps merge on the same rule, decided over the intervals as derived —
         // the rows below are per-day slices, whose bounds are the display's, not the stop's.
-        val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, byId, nextTrack)
+        val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
         StayDeriver.interleave(
             summaries,
             StayDeriver.slicePerDay(d.derivation.intervals, ZoneId.systemDefault(), d.now),
