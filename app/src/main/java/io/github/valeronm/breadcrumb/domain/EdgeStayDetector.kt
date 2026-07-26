@@ -116,8 +116,10 @@ object EdgeStayDetector {
      * 5 — no rule change: the verdict moved from a review mark to the points themselves
      *     ([io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]), so history has to be swept once
      *     more to acquire it.
+     * 6 — no rule change either, but every flag is now reconsidered wherever it sits: the overrun
+     *     a merge buries mid-track used to be held forever, and the sweep is what hands it back.
      */
-    const val RULE_VERSION = 5
+    const val RULE_VERSION = 6
 
     enum class Side { START, END }
 

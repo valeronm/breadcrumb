@@ -184,9 +184,10 @@ retype that changes it re-derives the track), and the track's `startedAt`/
 `endedAt` pulled in to the boundary fix with it. Both drop out of distance, endpoints, the drawn
 line and GPX export while keeping their rows, so the operation destroys nothing and is undone by
 clearing a flag. Two invariants hold it together: detection runs on the points with the edge flags
-*cleared* (never on its own output, or the track walks backwards one sweep at a time), and only
-flags outside the first/last good fix may be withdrawn (a merge puts the earlier track's overrun
-mid-track, where no edge rule will re-derive it). `TrackRepository.sweepEdgeStays` re-derives the
+*cleared* (never on its own output, or the track walks backwards one sweep at a time), and a flag
+survives only where the rule still re-derives it — every flag is reconsidered wherever it sits, so
+the overrun a merge buries mid-track goes back to the path rather than sitting off it on a verdict
+nothing will re-examine. `TrackRepository.sweepEdgeStays` re-derives the
 whole history whenever `EdgeStayDetector.RULE_VERSION` outruns the version last swept — standing
 infrastructure, not one of the one-shot backfills below, so bumping that version is part of
 changing the rule.

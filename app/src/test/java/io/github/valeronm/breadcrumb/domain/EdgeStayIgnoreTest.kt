@@ -104,19 +104,21 @@ class EdgeStayIgnoreTest {
     }
 
     @Test
-    fun `flags in the middle of a track are left alone`() {
-        // What a merge leaves behind: the earlier track's overrun, now a stop the merged track
-        // paused at. An edge rule will never re-derive it, so it must not be up for withdrawal.
+    fun `flags in the middle of a track are handed back`() {
+        // What a merge leaves behind: the earlier track's overrun, now buried mid-track. No edge
+        // rule reaches it there, so holding it would keep those fixes off the path forever on the
+        // say-so of a rule that has stopped applying — they go back to the line.
         val points = walk(0.0, 0L, 10) + walk(800.0, 11 * 60_000L, 10)
-        val middle = points.subList(38, 42).map { it.id }.toSet()
-        val flagged = points.map {
-            if (it.id in middle) it.asEdgeStay() else it
+        val middle = points.indices.filter { it in 38..41 }.toSet()
+        val flagged = points.mapIndexed { i, p ->
+            if (i in middle) p.asEdgeStay() else p
         }
 
         val plan = plan(flagged, startedAt = 0L, endedAt = points.last().timestamp)
 
-        assertTrue(plan.restore.isEmpty())
+        assertEquals(middle, plan.restore)
         assertTrue(plan.ignore.isEmpty())
+        assertTrue(EdgeStayIgnore.applied(flagged, plan).none { it.ignored })
     }
 
     @Test

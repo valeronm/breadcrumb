@@ -484,10 +484,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.copyPointsInto(mergedId, earlierId)
             dao.copyPointsInto(mergedId, laterId)
             dao.firstPointAtOrAfter(mergedId, later.startedAt)?.let { dao.markSegmentStart(it) }
-            // The originals' flags come along with their points, and the earlier track's overrun
-            // is now mid-track — a stop the merged track genuinely paused at, which is why
-            // [EdgeStayIgnore] only ever reconsiders the flags at the edges. The outer edges are
-            // reconsidered, since the merged track is a track like any other.
+            // The originals' flags come along with their points, and the run through the rule below
+            // settles them: the outer edges are re-derived, and the earlier track's overrun — now
+            // buried mid-track, where no edge rule reaches it — is handed back to the path, which
+            // is the merged track's own way through the stop it drove on from.
             val merged = dao.track(mergedId)!!
             val applied = applyEdgeStays(merged, merged.endedAt!!, dao.allPointsFor(mergedId))
             // Recomputed, not summed: the segment break at the join detaches the two halves, which

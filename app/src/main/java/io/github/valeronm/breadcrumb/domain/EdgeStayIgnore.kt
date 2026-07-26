@@ -16,10 +16,14 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  *     flags cleared, so the overrun is always derived from the raw recording. Feeding it the
  *     already-shortened track instead would let it find a fresh stay inside the remainder each
  *     time and walk the track backwards, one sweep at a time.
- *  2. **Only the edges are this rule's to move.** A flag is a candidate for clearing only when it
- *     sits outside the first/last *good* fix. [TrackMerge] copies two tracks into one, which puts
- *     the earlier track's flagged tail in the middle of the result — a stop the merged track
- *     genuinely drove through, and not something an edge detector will ever re-derive.
+ *  2. **A flag survives only where the rule still re-derives it.** Every flag is reconsidered,
+ *     wherever it sits, and one the detector doesn't find again is withdrawn. [TrackMerge] copies
+ *     two tracks into one, which puts the earlier track's flagged tail in the middle of the
+ *     result — an edge rule will never re-derive it there, so it is handed back: those fixes are
+ *     the merged track's own path through a stop it drove on from, and a track that holds them
+ *     off its line has a gap no screen accounts for. The alternative — holding a buried flag
+ *     because nothing will re-examine it — kept fixes out of the path that no map layer drew and
+ *     no legend named, on the say-so of a rule that had stopped applying.
  *
  * Pure and Android-free.
  */
@@ -70,11 +74,7 @@ object EdgeStayIgnore {
         params: EdgeStayDetector.Params,
         distance: DistanceFn,
     ): Plan {
-        val firstGood = points.indexOfFirst { !it.ignored }
-        val lastGood = points.indexOfLast { !it.ignored }
-        val held = points.indices.filterTo(HashSet()) { i ->
-            isEdgeStay(points[i]) && (firstGood < 0 || i < firstGood || i > lastGood)
-        }
+        val held = points.indices.filterTo(HashSet()) { i -> isEdgeStay(points[i]) }
 
         // Cleared, not filtered out: the detector reads the recording as it arrived.
         val raw = points.mapIndexed { i, p ->

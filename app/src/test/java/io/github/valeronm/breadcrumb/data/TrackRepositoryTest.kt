@@ -414,7 +414,7 @@ class TrackRepositoryTest {
         assertTrue(split.edgeStay.all { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
     }
 
-    @Test fun `merging keeps the overrun the earlier track lost in the middle`() = runTest {
+    @Test fun `merging hands back the overrun the earlier track lost in the middle`() = runTest {
         val first = repository.startTrack(ActivityType.WALKING, TEST_START)
         repository.finishTrack(first, addWalkThenLingerTail(first))
         val trimmed = dao.track(first)!!.ignoredCount
@@ -426,10 +426,13 @@ class TrackRepositoryTest {
 
         val mergedId = repository.mergeTracks(first, second)!!
 
-        // The first track's tail is now mid-track — a stop the merged track paused at, and not
-        // something an edge rule would ever re-derive. It stays off the path.
+        // The first track's tail is buried mid-track, where no edge rule reaches it — so it goes
+        // back to the path instead of sitting off it on a verdict nothing will re-examine. The
+        // merged track's own edges walk end to end, so it finishes with nothing ignored at all.
         val merged = dao.track(mergedId)!!
-        assertEquals(trimmed, merged.ignoredCount)
+        assertEquals("the buried overrun is back on the path", 0, merged.ignoredCount)
+        assertEquals("every copied fix counts", 96 + 60, merged.pointCount)
+        assertTrue(dao.allPointsFor(mergedId).none { it.ignored })
         assertStatsMatchPoints(mergedId)
     }
 
