@@ -25,7 +25,12 @@
     </div>
     <nav id="track-list" hidden></nav>
   </aside>
-  <main id="map"></main>
+  <main id="map-wrap">
+    <div id="map"></div>
+    <!-- What the selected track's off-path fixes are, named where they're drawn. Empty and hidden
+         for a track that has none, which is most of them. -->
+    <div id="legend" hidden></div>
+  </main>
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"
           integrity="sha384-SYKAG6cglRMN0RVvhNeBY0r3FYKNOJtznwA0v7B5Vp9tr31xAHsZC0DqkQ/pZDmj"
           crossorigin="anonymous"></script>

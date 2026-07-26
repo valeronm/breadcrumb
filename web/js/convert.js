@@ -7,9 +7,28 @@ import { simplify } from "./simplify.js";
 // ~11 m of latitude — indistinguishable in the zoomed-out overview, ~10x fewer vertices.
 const OVERVIEW_TOLERANCE_DEG = 1e-4;
 
-// Flags bitmask per point.
-export const FLAG_IGNORED = 1;
-export const FLAG_SEGMENT_START = 2;
+// Flags bitmask per point. Whether a point is ignored is NOT a flag: the reason byte below carries
+// that, and one value of it means "on the path" — two places saying the same thing could disagree.
+export const FLAG_SEGMENT_START = 1;
+
+// Why a point is off the path, mirroring the app's IgnoreReason. The distinction is the whole point
+// of keeping it: a low-accuracy fix is a position not to be trusted, while an edge stay is a
+// perfectly good fix of a phone that had already arrived — drawn as scattered noise it reads as bad
+// GPS instead of the arrival it is.
+export const REASON_NONE = 0;
+export const REASON_ACCURACY = 1;
+export const REASON_JUMP = 2;
+export const REASON_NO_GNSS = 3;
+export const REASON_EDGE_STAY = 4;
+
+// The export carries the app's code string. Anything unrecognised — including the null on points
+// recorded before reasons were tracked — reads as low accuracy, which is how the app labels it too.
+const REASON_BY_CODE = {
+  accuracy: REASON_ACCURACY,
+  jump: REASON_JUMP,
+  no_gnss: REASON_NO_GNSS,
+  edge_stay: REASON_EDGE_STAY,
+};
 
 /**
  * Resolves the header's pointFields list to the positions convert() reads. Mirrors the app
@@ -31,6 +50,7 @@ export function indexFields(names) {
     accuracy: at("accuracy"),
     speed: at("speed"),
     ignored: at("ignored"),
+    ignoreReason: at("ignoreReason"),
     segmentStart: at("segmentStart"),
   };
 }
@@ -44,6 +64,7 @@ export function convertTrack(track, f) {
   const speed = new Float32Array(n);
   const accuracy = new Float32Array(n);
   const flags = new Uint8Array(n);
+  const reasons = new Uint8Array(n);
 
   const good = []; // flat lon/lat of non-ignored points, for the overview geometry and bbox
   let minLon = Infinity;
@@ -61,8 +82,8 @@ export function convertTrack(track, f) {
     speed[i] = p[f.speed] ?? NaN;
     accuracy[i] = p[f.accuracy] ?? NaN;
     const ignored = p[f.ignored] === 1;
-    const segmentStart = p[f.segmentStart] === 1;
-    flags[i] = (ignored ? FLAG_IGNORED : 0) | (segmentStart ? FLAG_SEGMENT_START : 0);
+    flags[i] = p[f.segmentStart] === 1 ? FLAG_SEGMENT_START : 0;
+    reasons[i] = ignored ? (REASON_BY_CODE[p[f.ignoreReason]] ?? REASON_ACCURACY) : REASON_NONE;
     if (!ignored) {
       good.push(lon, lat);
       if (lon < minLon) minLon = lon;
@@ -92,6 +113,7 @@ export function convertTrack(track, f) {
     count: n,
     lonlat: lonlat.buffer,
     flags: flags.buffer,
+    reasons: reasons.buffer,
   };
   const extras = {
     trackId: track.id,

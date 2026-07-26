@@ -1,13 +1,16 @@
 // IndexedDB layer. Four stores:
 //   meta     — key "export": header info, places, liveness, import stamp (one small record)
 //   tracks   — key id: track row + simplified overview geometry + bbox (loaded whole at startup)
-//   geometry — key trackId: lon/lat + flags typed arrays (loaded per selected track)
+//   geometry — key trackId: lon/lat + flags + ignore-reason typed arrays (per selected track)
 //   extras   — key trackId: time/alt/speed/accuracy arrays (only a metric view needs these)
 // Typed arrays go in as ArrayBuffers — structured clone stores them verbatim, and a full
 // history stays a few hundred MB of buffers instead of millions of JS objects.
 
 const DB_NAME = "breadcrumb-viewer";
-const DB_VERSION = 2;
+// Bumped whenever a stored record's shape changes: the upgrade drops the stores, so the backup has
+// to be dropped in again. Cheaper than reading half-populated records — the stores are a cache of
+// the file, and every field here is derived from it. 3 added the per-point ignore reason.
+const DB_VERSION = 3;
 const STORES = ["meta", "tracks", "geometry", "extras"];
 
 function req(request) {

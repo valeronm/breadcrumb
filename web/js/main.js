@@ -5,6 +5,7 @@
 import { openDb, getMeta, getAllTracks, getGeometry } from "./db.js";
 import {
   createMap, setOverview, setPlaces, setPlacesVisible, showTrack, clearSelection, activityColor,
+  REASON_LABELS, REASON_COLORS, OVERRUN_COLOR,
 } from "./map.js";
 
 const $ = (id) => document.getElementById(id);
@@ -102,6 +103,7 @@ function startImport(file) {
       // The imported ids are a fresh set, so a leftover selection would keep its full-resolution
       // line drawn and every other track muted against an id that no longer exists.
       if (map) clearSelection(map);
+      renderLegend(null);
       await refresh();
     } else if (msg.type === "error") {
       $("progress").textContent = `Import failed: ${msg.message}`;
@@ -154,6 +156,7 @@ async function selectTrack(id) {
   if (selectedId === id) {
     selectedId = null;
     if (map) clearSelection(map);
+    renderLegend(null);
     highlightRow(null);
     return;
   }
@@ -161,7 +164,41 @@ async function selectTrack(id) {
   highlightRow(id);
   const track = tracks.find((t) => t.id === id);
   const geometry = await getGeometry(db, id);
-  if (track && geometry && map) showTrack(map, track, geometry);
+  renderLegend(track && geometry && map ? showTrack(map, track, geometry) : null);
+}
+
+// --- legend ------------------------------------------------------------------------------------
+
+/**
+ * Names the off-path fixes drawn for the selected track, one row per category present. Absent
+ * categories get no row: most tracks have neither, and an always-visible legend listing zeroes
+ * teaches the eye to ignore it.
+ */
+function renderLegend(drawn) {
+  const legend = $("legend");
+  legend.textContent = "";
+  const rows = [];
+  if (drawn?.overruns) {
+    rows.push([OVERRUN_COLOR, "Recording overrun", drawn.overruns, true]);
+  }
+  for (const [reason, count] of Object.entries(drawn?.rejected ?? {})) {
+    rows.push([REASON_COLORS[reason], REASON_LABELS[reason], count, false]);
+  }
+  legend.hidden = rows.length === 0;
+  for (const [color, label, count, isLine] of rows) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const swatch = document.createElement("span");
+    swatch.className = isLine ? "swatch line" : "swatch";
+    swatch.style.background = color;
+    const text = document.createElement("span");
+    text.textContent = label;
+    const n = document.createElement("span");
+    n.className = "count";
+    n.textContent = count;
+    row.append(swatch, text, n);
+    legend.appendChild(row);
+  }
 }
 
 let selectedRow = null;

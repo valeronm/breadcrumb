@@ -125,4 +125,36 @@ body {
 .track-row .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-row .stats { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
-#map { flex: 1; }
+#map-wrap { flex: 1; position: relative; }
+#map { position: absolute; inset: 0; }
+
+/* Top-left: MapLibre's own controls own the top-right corner. */
+#legend {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(19, 23, 34, 0.88);
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+#legend .row { display: flex; align-items: center; gap: 8px; }
+#legend .count { color: var(--muted); }
+
+/* A dot for a rejected fix, a short bar for the overrun — the shapes they're drawn as. */
+#legend .swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+#legend .swatch.line {
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+}

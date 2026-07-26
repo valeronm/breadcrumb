@@ -173,7 +173,9 @@ its edges — and both ignore soft-deleted rows, so a span covered only by Recen
 streamed both ways (one track's points in memory at a time), point rows as arrays keyed by a
 `pointFields` header so future exports stay restorable. Restore is offered only on the Timeline's
 empty state, deliberately: with existing tracks it would have to merge. The format also feeds the
-planned web companion viewer. `PlaceRepository` backs the Places tab.
+web companion viewer in `web/` (see its own README) — a change to it is a change to that viewer's
+input, and the viewer draws off-path fixes by the same conventions this app does, so a rule that
+moves here moves there. `PlaceRepository` backs the Places tab.
 
 **An ignored point is one that isn't part of the path — for either of two reasons.** The recorder's
 bad-fix rule (`TrackQuality`: accuracy, jump, no-GNSS) rejects fixes it doesn't trust; `EdgeStayIgnore`
