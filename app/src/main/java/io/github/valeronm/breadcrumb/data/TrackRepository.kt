@@ -596,6 +596,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * Both halves do go through the overrun rule, which is what makes a cut at a stop come out
      * right: each half's new inner edge runs into the stop, and those fixes are flagged
      * [IgnoreReason.EDGE_STAY] there rather than dragging the line across the parked minutes.
+     * How much of the stop each half sheds is the detector's business, and it is not symmetric —
+     * [EdgeStayDetector] finds a stay of about a minute at a track's end but needs several times
+     * that at its start, so a cut through a brief stop comes off the arrival side while the
+     * departure side keeps its parked head on the path.
      *
      * Returns null — writing nothing — if the track is gone, still recording, or [TrackSplit]
      * refuses the cut.

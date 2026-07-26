@@ -226,14 +226,14 @@ class TrackRepositoryTest {
     private suspend fun discardedTracks(): List<Track> =
         dao.observeDiscardedSummaries().first().map { dao.track(it.id)!! }
 
-    /** 10 min of walking (840 m) then 6 min lingering where the walk ended — the AR-lag tail.
-     *  Returns the track's raw end time (96 fixes, one per 10 s). */
-    private suspend fun addWalkThenLingerTail(id: Long): Long {
+    /** 10 min of walking (840 m) then [lingerFixes] × 10 s lingering where the walk ended — the
+     *  AR-lag tail. Returns the track's raw end time (one fix per 10 s throughout). */
+    private suspend fun addWalkThenLingerTail(id: Long, lingerFixes: Int = 36): Long {
         repository.addPoints(
             walkPoints(id, 0, 60, fromLat = 1.0) +
-                lingerPoints(id, 60, 36, lat = 1.0 + 60 * 0.000126),
+                lingerPoints(id, 60, lingerFixes, lat = 1.0 + 60 * 0.000126),
         )
-        return TEST_START + 96 * 10_000L
+        return TEST_START + (60 + lingerFixes) * 10_000L
     }
 
     @Test fun `finishing a track takes its lingering tail off the path`() = runTest {
@@ -587,12 +587,20 @@ class TrackRepositoryTest {
         }
     }
 
-    /** One journey the recorder never broke: [addWalkThenLingerTail]'s walk and stop, walked on out
-     *  of again — so the stop sits mid-track, where no edge rule reaches it. */
+    /**
+     * One journey the recorder never broke: [addWalkThenLingerTail]'s walk and stop, walked on out
+     * of again — so the stop sits mid-track, where no edge rule reaches it.
+     *
+     * The stop is 10 min rather than the tail's 6 so that a cut through its middle leaves an edge
+     * **either** side can see. The rule is markedly less sensitive at a track's start than its end —
+     * a stay of a minute is found at the end, where the start needs several — so a shorter stop cut
+     * in half is detected on the arrival side and missed on the departure side, which is a fact
+     * about the tuning and not about the split. Don't shorten it to match the tail again.
+     */
     private suspend fun addWalkStopWalk(id: Long): Long {
-        addWalkThenLingerTail(id)
-        repository.addPoints(walkPoints(id, 96, 60, fromLat = 1.0 + 60 * 0.000126))
-        return TEST_START + 156 * 10_000L
+        addWalkThenLingerTail(id, lingerFixes = 60)
+        repository.addPoints(walkPoints(id, 120, 60, fromLat = 1.0 + 60 * 0.000126))
+        return TEST_START + 180 * 10_000L
     }
 
     /** A finished walk of [count] fixes at walking pace — unlike [finishedWalk]'s coarse 111 m
@@ -629,7 +637,9 @@ class TrackRepositoryTest {
         // No edge rule reaches a stop sitting mid-track, so the recorder's own track holds none.
         assertTrue(dao.allPointsFor(id).none { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
 
-        val split = repository.splitTrack(id, TEST_START + 78 * 10_000L)!!
+        // Halfway through the stop, so each half keeps 5 min of it — see addWalkStopWalk for why
+        // the arrival side alone would be satisfied by much less.
+        val split = repository.splitTrack(id, TEST_START + 90 * 10_000L)!!
 
         // Cutting inside the stop turns it into an edge on both halves — the end of one journey
         // and the start of the next — which is exactly where the overrun rule applies.
