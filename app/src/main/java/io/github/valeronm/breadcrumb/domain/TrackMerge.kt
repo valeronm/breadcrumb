@@ -38,4 +38,30 @@ object TrackMerge {
         if (before.activityType != after.activityType) return null
         return Plan(earlierId = before.id, laterId = after.id)
     }
+
+    /**
+     * Every mergeable interval's plan, keyed by the track it follows — the handle a timeline row
+     * looks its own offer up by, whatever the row's bounds say.
+     *
+     * That indirection is the point: pass the intervals **as derived**, never the per-day slices
+     * the timeline renders. A stop across local midnight slices into pieces, and the piece before
+     * midnight can be two minutes of a half-hour stay — a merge offered on it would fuse the two
+     * tracks across the whole stop. Judging the interval whole, once, is what keeps a slice from
+     * claiming a duration that isn't its own.
+     *
+     * [trackById] resolves the anchor, [nextTrack] its chronological successor; an interval whose
+     * either side is missing (the tail, into a track still recording) yields no plan.
+     */
+    fun plansByAnchor(
+        intervals: List<StayDeriver.Interval>,
+        trackById: Map<Long, TrackSummary>,
+        nextTrack: Map<Long, TrackSummary>,
+    ): Map<Long, Plan> = buildMap {
+        for (interval in intervals) {
+            val anchor = interval.afterTrackId
+            val before = trackById[anchor] ?: continue
+            val after = nextTrack[anchor] ?: continue
+            plan(before, after, interval.start, interval.end)?.let { put(anchor, it) }
+        }
+    }
 }

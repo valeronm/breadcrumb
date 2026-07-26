@@ -81,6 +81,10 @@ object StayDeriver {
     sealed interface Interval {
         val start: Long
         val end: Long?
+
+        /** The track this interval follows — one interval per track, so it identifies the
+         *  interval itself, and survives the display slicing that rewrites the bounds. */
+        val afterTrackId: Long
     }
 
     /**
@@ -101,8 +105,7 @@ object StayDeriver {
         override val end: Long?,
         val location: Endpoint,
         val provenance: Provenance,
-        /** The track whose end anchors this stay. */
-        val afterTrackId: Long,
+        override val afterTrackId: Long,
         /** Index into [Derivation.clusters] — the place this stay belongs to. */
         val clusterId: Int,
     ) : Interval {
@@ -116,9 +119,7 @@ object StayDeriver {
         override val start: Long,
         override val end: Long,
         val reason: GapReason,
-        /** The track whose end anchors this gap — the same handle [Stay] carries, and what lets
-         *  the UI find both sides when it offers to merge a short one away. */
-        val afterTrackId: Long,
+        override val afterTrackId: Long,
         /** Index into [Derivation.clusters] for each side (null = that endpoint is unknown) —
          *  most gaps are really one place misclustered as two, so the UI links each side to
          *  its place for fixing. */

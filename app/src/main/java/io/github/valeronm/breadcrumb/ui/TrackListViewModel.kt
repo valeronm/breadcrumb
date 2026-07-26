@@ -103,13 +103,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val nextTrack = summaries.asReversed().zipWithNext()
             .associate { (a, b) -> a.id to b }
 
-        // A stay and a short gap merge on the same rule — the interval's two tracks, one of them
-        // the anchor both interval kinds name.
-        fun mergePlan(afterTrackId: Long, start: Long, end: Long?): TrackMerge.Plan? {
-            val before = byId[afterTrackId] ?: return null
-            val after = nextTrack[afterTrackId] ?: return null
-            return TrackMerge.plan(before, after, start, end)
-        }
+        // Stays and short gaps merge on the same rule, decided over the intervals as derived —
+        // the rows below are per-day slices, whose bounds are the display's, not the stop's.
+        val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, byId, nextTrack)
         StayDeriver.interleave(
             summaries,
             StayDeriver.slicePerDay(d.derivation.intervals, ZoneId.systemDefault(), d.now),
@@ -119,11 +115,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 is TimelineItem.GapItem -> item.copy(
                     fromPlace = item.gap.fromClusterId?.let(clusterPlaces::getOrNull),
                     toPlace = item.gap.toClusterId?.let(clusterPlaces::getOrNull),
-                    merge = mergePlan(item.gap.afterTrackId, item.gap.start, item.gap.end),
+                    merge = mergePlans[item.gap.afterTrackId],
                 )
                 is TimelineItem.StayItem -> item.copy(
                     place = clusterPlaces.getOrNull(item.stay.clusterId),
-                    merge = mergePlan(item.stay.afterTrackId, item.stay.start, item.stay.end),
+                    merge = mergePlans[item.stay.afterTrackId],
                 )
             }
         }
