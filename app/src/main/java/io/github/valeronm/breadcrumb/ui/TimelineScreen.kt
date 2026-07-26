@@ -107,6 +107,8 @@ internal fun TracksTab(
     undo: UndoSnackbar,
     visitTarget: StayDeriver.Stay?,
     onVisitTargetShown: () -> Unit,
+    /** Bumped each time the Timeline tab is tapped while already open — send the list to the top. */
+    homeRequest: Int,
     onOpen: (Long) -> Unit,
     onOpenPlace: (String) -> Unit,
     onReplay: (TrackSummary) -> Unit,
@@ -137,6 +139,17 @@ internal fun TracksTab(
                 index += dayItems.size + 1
             }
         }
+    }
+    // Back to today. The value this tab composed with is not a request — only a later bump is, and
+    // the list starts at the top anyway (a tab switch re-composes this from scratch). One immutable
+    // snapshot is enough: the counter only grows, so "differs from the value at entry" and "differs
+    // from the previous value" are the same test.
+    val homeRequestAtEntry = remember { homeRequest }
+    LaunchedEffect(homeRequest) {
+        if (homeRequest == homeRequestAtEntry) return@LaunchedEffect
+        // animateScrollToItem jumps most of the way and animates the last stretch, so this reads as
+        // a fast return from anywhere in a multi-thousand-row history rather than a long fling.
+        listState.animateScrollToItem(0)
     }
     // The just-landed-on stay's row key: its card tints briefly so the eye finds it, then fades.
     var highlightKey by remember { mutableStateOf<String?>(null) }

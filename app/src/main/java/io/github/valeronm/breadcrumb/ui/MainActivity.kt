@@ -46,6 +46,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -240,6 +241,10 @@ private fun MainScreen(
     var placeDetailSnapshot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
     // A visit tapped on the place detail: the Timeline scrolls to this stay when it next composes.
     var timelineVisitTarget by remember { mutableStateOf<StayDeriver.Stay?>(null) }
+    // Tapping the Timeline tab while it is already open sends the list home. A counter, not a
+    // boolean: two taps in a row are two requests, and a flag the receiver has to clear back to
+    // false would swallow the second.
+    var timelineHomeRequest by remember { mutableIntStateOf(0) }
 
     val overlayLayer = rememberOverlayLayer(
         content = overlay,
@@ -312,7 +317,16 @@ private fun MainScreen(
                     for (tab in HomeTab.entries) {
                         NavigationBarItem(
                             selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
+                            onClick = {
+                                // Re-tapping the open tab is the standard "go home" gesture. Only
+                                // the timeline can act on it — it is the one tab that scrolls far
+                                // enough for the trip back to be worth a tap.
+                                if (selectedTab != tab) {
+                                    selectedTab = tab
+                                } else if (tab == HomeTab.TRACKS) {
+                                    timelineHomeRequest++
+                                }
+                            },
                             icon = { Icon(tab.icon, contentDescription = null) },
                             label = { Text(tab.label) },
                         )
@@ -367,6 +381,7 @@ private fun MainScreen(
                         undo = undo,
                         visitTarget = timelineVisitTarget,
                         onVisitTargetShown = { timelineVisitTarget = null },
+                        homeRequest = timelineHomeRequest,
                         onOpen = { overlay = Overlay.TrackDetail(it) },
                         onOpenPlace = { placeDetailKey = it },
                         onReplay = { track ->
