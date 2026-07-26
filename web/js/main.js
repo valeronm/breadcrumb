@@ -3,9 +3,15 @@
 // for the selected track.
 
 import { openDb, getMeta, getAllTracks, getGeometry } from "./db.js";
-import { createMap, setOverview, setPlaces, showTrack, clearSelection, activityColor } from "./map.js";
+import {
+  createMap, setOverview, setPlaces, setPlacesVisible, showTrack, clearSelection, activityColor,
+} from "./map.js";
 
 const $ = (id) => document.getElementById(id);
+
+// Hiding the place pins is a standing preference, not a per-visit one — absent means shown, so a
+// first visit and a cleared storage both start with places on.
+const SHOW_PLACES_KEY = "breadcrumb.showPlaces";
 
 let db;
 let map;
@@ -36,6 +42,13 @@ async function boot() {
     if (file) startImport(file);
   });
   $("import-button").addEventListener("click", () => $("file-input").click());
+  const showPlaces = $("show-places");
+  showPlaces.checked = localStorage.getItem(SHOW_PLACES_KEY) !== "0";
+  if (map) setPlacesVisible(map, showPlaces.checked);
+  showPlaces.addEventListener("change", () => {
+    localStorage.setItem(SHOW_PLACES_KEY, showPlaces.checked ? "1" : "0");
+    if (map) setPlacesVisible(map, showPlaces.checked);
+  });
   // One delegated listener instead of one closure per row (there can be thousands).
   $("track-list").addEventListener("click", (e) => {
     const row = e.target.closest(".track-row");
@@ -86,6 +99,9 @@ function startImport(file) {
       $("progress").hidden = true;
       worker.terminate();
       selectedId = null;
+      // The imported ids are a fresh set, so a leftover selection would keep its full-resolution
+      // line drawn and every other track muted against an id that no longer exists.
+      if (map) clearSelection(map);
       await refresh();
     } else if (msg.type === "error") {
       $("progress").textContent = `Import failed: ${msg.message}`;

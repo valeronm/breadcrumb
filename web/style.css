@@ -57,6 +57,19 @@ body {
 }
 #import-button:hover { border-color: var(--accent); }
 
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.toggle:hover { color: var(--text); }
+.toggle input { accent-color: var(--accent); cursor: pointer; margin: 0; }
+
 #progress {
   margin-top: 8px;
   font-size: 12px;

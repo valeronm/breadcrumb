@@ -17,6 +17,27 @@ export function activityColor(activityType) {
   return ACTIVITY_COLORS[activityType] ?? ACTIVITY_COLORS.UNKNOWN;
 }
 
+// Overview paint, unselected state: every track in its activity color.
+const OVERVIEW_COLOR = ["get", "color"];
+const OVERVIEW_OPACITY = 0.4;
+// …and with one track picked: the rest recede to a neutral gray so the selection is the only
+// colored thing on the map, while the selected track's own overview line drops out entirely —
+// it is a simplified geometry, and leaving it under the full-resolution line shows as a ghost
+// wandering off the corners the simplification cut.
+const MUTED_COLOR = "#6b7280";
+const MUTED_OPACITY = 0.25;
+
+// Places are history-wide, not per-track, so relatedness is geometric: a place is this trip's stop
+// when the trip started or ended at it. Somewhere merely passed en route is not a stop of it. The
+// radius covers a named place's own capture size plus the gap left where the recorder's overrun
+// was trimmed off the track's ends.
+const PLACE_COLOR = "#facc15";
+const RELATED_PLACE_RADIUS_M = 150;
+const RELATED = ["get", "related"];
+// A filled dot and its label read fainter than a line at the same alpha, so the unrelated places
+// sit above the tracks' muted level — still context, still legible as a name.
+const MUTED_PLACE_OPACITY = 0.4;
+
 export function createMap(container, protomapsKey, onTrackClick) {
   const map = new maplibregl.Map({
     container,
@@ -35,9 +56,9 @@ export function createMap(container, protomapsKey, onTrackClick) {
       source: "overview",
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
-        "line-color": ["get", "color"],
+        "line-color": OVERVIEW_COLOR,
         "line-width": 1.6,
-        "line-opacity": 0.55,
+        "line-opacity": OVERVIEW_OPACITY,
       },
     });
     map.addSource("selected", { type: "geojson", data: emptyFc() });
@@ -76,7 +97,8 @@ export function createMap(container, protomapsKey, onTrackClick) {
       source: "places",
       paint: {
         "circle-radius": 4,
-        "circle-color": "#facc15",
+        "circle-color": ["case", RELATED, PLACE_COLOR, MUTED_COLOR],
+        "circle-opacity": ["case", RELATED, 1, MUTED_PLACE_OPACITY],
         "circle-stroke-width": 1.5,
         "circle-stroke-color": "#0b0e14",
       },
@@ -94,7 +116,8 @@ export function createMap(container, protomapsKey, onTrackClick) {
         "text-optional": true,
       },
       paint: {
-        "text-color": "#facc15",
+        "text-color": ["case", RELATED, PLACE_COLOR, MUTED_COLOR],
+        "text-opacity": ["case", RELATED, 1, MUTED_PLACE_OPACITY],
         "text-halo-color": "#0b0e14",
         "text-halo-width": 1.4,
       },
@@ -109,6 +132,42 @@ export function createMap(container, protomapsKey, onTrackClick) {
   });
 
   return map;
+}
+
+// Repaints the overview for the current selection (null = nothing selected). Paint properties
+// survive a setData, so this is state the layer carries, not something setOverview re-applies.
+function paintOverview(map, selectedId) {
+  if (selectedId == null) {
+    map.setPaintProperty("overview-lines", "line-color", OVERVIEW_COLOR);
+    map.setPaintProperty("overview-lines", "line-opacity", OVERVIEW_OPACITY);
+    return;
+  }
+  const isSelected = ["==", ["get", "id"], selectedId];
+  map.setPaintProperty("overview-lines", "line-color", ["case", isSelected, OVERVIEW_COLOR, MUTED_COLOR]);
+  map.setPaintProperty("overview-lines", "line-opacity", ["case", isSelected, 0, MUTED_OPACITY]);
+}
+
+const placesByMap = new WeakMap();
+
+// Rebuilds the place pins, flagging each as related to the selected track's endpoints
+// ([[lon, lat], [lon, lat]], or null when nothing is selected — then every place is related).
+function paintPlaces(map, endpoints) {
+  const places = placesByMap.get(map) ?? [];
+  map.getSource("places").setData(fc(places.map((p) => pointFeature([p.lon, p.lat], {
+    label: p.label,
+    related: endpoints == null || endpoints.some(
+      ([lon, lat]) => metersBetween(p.lon, p.lat, lon, lat) <= RELATED_PLACE_RADIUS_M,
+    ),
+  }))));
+}
+
+// Equirectangular approximation — exact enough either side of a 150 m threshold, and it keeps the
+// viewer free of a geo dependency.
+function metersBetween(lonA, latA, lonB, latB) {
+  const perDegree = 111_320;
+  const dLat = (latA - latB) * perDegree;
+  const dLon = (lonA - lonB) * perDegree * Math.cos(((latA + latB) / 2) * Math.PI / 180);
+  return Math.hypot(dLat, dLon);
 }
 
 function emptyFc() {
@@ -158,10 +217,21 @@ export function setOverview(map, tracks) {
 
 /** Shows the user-named places as labeled pins ({label, lat, lon} rows from the export). */
 export function setPlaces(map, places) {
+  // Held per map because relatedness is recomputed on every selection, and a GeoJSON source
+  // won't hand its data back.
+  placesByMap.set(map, places ?? []);
+  whenLoaded(map, () => paintPlaces(map, null));
+}
+
+/**
+ * Shows or hides the place pins. Layout visibility rather than opacity, so hidden places also
+ * stop competing for label space with anything the basemap wants to put there.
+ */
+export function setPlacesVisible(map, visible) {
   whenLoaded(map, () => {
-    map.getSource("places").setData(
-      fc((places ?? []).map((p) => pointFeature([p.lon, p.lat], { label: p.label }))),
-    );
+    for (const layer of ["place-dots", "place-labels"]) {
+      map.setLayoutProperty(layer, "visibility", visible ? "visible" : "none");
+    }
   });
 }
 
@@ -194,6 +264,13 @@ export function showTrack(map, track, geometry) {
       fc(segments.filter((s) => s.length >= 2).map((coords) => lineFeature(coords, { color }))),
     );
     map.getSource("ignored").setData(fc(ignored.map((c) => pointFeature(c))));
+    paintOverview(map, track.id);
+    // The good fixes the trip ran between — `segments` holds every one of them, including the
+    // single-point ones the line filter above drops. A track with nothing but ignored fixes has
+    // no endpoints to judge places by, so it mutes none of them.
+    const first = segments[0]?.[0];
+    const last = segments.at(-1)?.at(-1);
+    paintPlaces(map, first ? [first, last] : null);
     if (track.bbox) {
       map.fitBounds([[track.bbox[0], track.bbox[1]], [track.bbox[2], track.bbox[3]]], {
         padding: 64,
@@ -208,5 +285,7 @@ export function clearSelection(map) {
   whenLoaded(map, () => {
     map.getSource("selected").setData(emptyFc());
     map.getSource("ignored").setData(emptyFc());
+    paintOverview(map, null);
+    paintPlaces(map, null);
   });
 }

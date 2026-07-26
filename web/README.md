@@ -26,7 +26,9 @@ python3 -m http.server -d web 8000
   geometry → IndexedDB. Import happens once per file; reopening the page is instant.
 - `js/map.js` — MapLibre GL JS on the Protomaps basemap (same provider as the app): all tracks
   as simplified lines colored by activity, click or pick from the list for the full-resolution
-  track with auto-pause segment gaps and ignored fixes marked.
+  track with auto-pause segment gaps and ignored fixes marked. Selecting a track mutes the rest
+  of the history to gray, along with every place the trip didn't start or end at; the sidebar's
+  "Show places" toggle drops the place pins entirely (remembered across visits).
 
 ## Testing
 
