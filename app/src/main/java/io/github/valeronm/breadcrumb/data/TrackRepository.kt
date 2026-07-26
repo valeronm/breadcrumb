@@ -15,6 +15,7 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
+import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
 
@@ -553,6 +554,113 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.setDiscarded(earlierId, now, Track.REASON_MERGED)
             dao.setDiscarded(laterId, now, Track.REASON_MERGED)
             mergedId
+        }
+    }
+
+    /** What a [splitTrack] did, and all [unsplitTracks] needs to take it back. */
+    data class Split(
+        /** The new track that took everything from the cut onwards. The first half is the original
+         *  row, which keeps its id. */
+        val secondId: Long,
+        /**
+         * The original's end before the cut moved it. Carried because it is the one thing undoing a
+         * split cannot re-derive: a track's `endedAt` is the moment the recorder stopped, which sits
+         * a few seconds past its last fix, and nothing stores that gap.
+         */
+        val originalEndedAt: Long,
+    )
+
+    /**
+     * Cut one track in two at [atTs] — the user's own split, for a journey the recorder never broke.
+     * The original row *becomes* the first half: it keeps its id and its start, and its end is
+     * pulled back to the cut. Everything from [atTs] onwards is rehomed onto one new track.
+     *
+     * Deliberately not shaped like [mergeTracks], which copies its points and leaves its originals
+     * in Recently deleted. A merge has to: it turns two rows into one, and the originals are the
+     * only record of the pair. A split has nothing to preserve — the points all survive, on one row
+     * or the other — so copying them would leave a redundant third row in Recently deleted holding
+     * a period two live tracks already cover, and restoring it (which that screen offers for
+     * everything on it) would lay a duplicate journey over both halves. So the fixes are
+     * *reassigned*: no copies, nothing discarded, and [unsplitTracks] hands them straight back.
+     *
+     * Two deliberate choices about what does *not* run:
+     *  - **The keep verdict.** The user chose this cut, so a half below the keep thresholds stays on
+     *    the timeline; silently filing it in Recently deleted would undo half the action behind
+     *    their back. Only the floor below is enforced, and only because a single-point half is not a
+     *    track anyone can look at.
+     *  - **No segment break is marked.** A break says the recorder wasn't watching across a leg
+     *    ([SegmentBreaks]) — but here there is no leg: the two fixes either side of the cut end up
+     *    on different tracks, so what separates them is an inter-track gap, which is exactly what
+     *    puts the stop on the timeline.
+     *
+     * Both halves do go through the overrun rule, which is what makes a cut at a stop come out
+     * right: each half's new inner edge runs into the stop, and those fixes are flagged
+     * [IgnoreReason.EDGE_STAY] there rather than dragging the line across the parked minutes.
+     *
+     * Returns null — writing nothing — if the track is gone, still recording, or [TrackSplit]
+     * refuses the cut.
+     */
+    suspend fun splitTrack(trackId: Long, atTs: Long): Split? {
+        return db.withTransaction {
+            val track = dao.track(trackId) ?: return@withTransaction null
+            // An open track is still growing the edge the rule would cut; finish it first.
+            val endedAt = track.endedAt ?: return@withTransaction null
+            val points = dao.allPointsFor(trackId)
+            val plan = TrackSplit.plan(points, atTs) ?: return@withTransaction null
+            val (before, after) = points.partition { it.timestamp < atTs }
+
+            // Each half keeps the original's outer bound and takes the raw fix at the cut as its
+            // inner one; applyEdgeStays below pulls that in wherever it finds an overrun.
+            val secondId = dao.insertTrack(
+                Track(
+                    activityType = track.activityType,
+                    startedAt = plan.secondStartTs,
+                    endedAt = endedAt,
+                ),
+            )
+            dao.movePointsFrom(secondId, trackId, atTs)
+            dao.closeTrack(trackId, plan.firstEndTs)
+            // The points are the lists already in hand: the move rewrote one column and left every
+            // row id, timestamp and flag alone, so re-reading them would buy nothing (and
+            // refreshStats requires the caller's walk, not a fresh read).
+            val first = track.copy(endedAt = plan.firstEndTs)
+            val second = Track(
+                id = secondId,
+                activityType = track.activityType,
+                startedAt = plan.secondStartTs,
+                endedAt = endedAt,
+            )
+            // Recomputed per half, not divided: each is its own journey now, and this keeps the one
+            // writer of the denormalized columns in charge.
+            refreshStats(trackId, applyEdgeStays(first, plan.firstEndTs, before).points)
+            refreshStats(secondId, applyEdgeStays(second, endedAt, after).points)
+            DebugLog.i(
+                TAG,
+                "track $trackId split at $atTs: kept ${before.size} points, " +
+                    "moved ${after.size} to new track $secondId",
+            )
+            Split(secondId = secondId, originalEndedAt = endedAt)
+        }
+    }
+
+    /**
+     * Undo a [splitTrack]: the second half's fixes go back onto [originalId], its now-empty row is
+     * dropped, and the reunited track is re-derived.
+     *
+     * An exact inverse, because the overrun rule reads the raw recording rather than its own output
+     * — the reunited points re-derive to the flags and bounds the track had before the cut. The one
+     * thing that can't come back that way is the recorder's stop time, so [Split.originalEndedAt]
+     * carries it.
+     */
+    suspend fun unsplitTracks(originalId: Long, split: Split) {
+        db.withTransaction {
+            val original = dao.track(originalId) ?: return@withTransaction
+            // Points first: purging the row while they still hang off it would cascade them away.
+            dao.movePointsFrom(originalId, split.secondId, Long.MIN_VALUE)
+            dao.purgeTrack(split.secondId)
+            dao.closeTrack(originalId, split.originalEndedAt)
+            val applied = applyEdgeStays(original, split.originalEndedAt, dao.allPointsFor(originalId))
+            refreshStats(originalId, applied.points)
         }
     }
 

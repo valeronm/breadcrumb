@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
@@ -37,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -67,6 +69,7 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
+import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +91,12 @@ internal fun TrackMapScreen(
     summary: TrackSummary?,
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
+    /**
+     * Cut this track in two at the given timestamp; the caller performs the split, offers the undo
+     * and closes this screen. Null where splitting doesn't apply, and required rather than
+     * defaulted so that a new caller has to say which it is instead of inheriting silence.
+     */
+    onSplit: ((Long) -> Unit)?,
 ) {
     val context = LocalContext.current
     // One load of everything the screen draws (null = still reading it), keyed on the row as well
@@ -118,6 +127,12 @@ internal fun TrackMapScreen(
     val overruns = remember(points, stayPoints) {
         EdgeStayIgnore.overruns(points.orEmpty(), stayPoints)
     }
+    // The one seam walk this screen's derived series come from, keyed on the points alone — it is
+    // the same distances whatever metric is displayed, and the graph, the map's gradient and the
+    // split preview are all built from it. Switching the metric then re-runs only the ramp, not an
+    // ellipsoidal distance per point. Hoisted this high because the split dialog is a sibling of
+    // the Scaffold, not part of the column that draws the track.
+    val seams = remember(points) { TrackQuality.seams(points.orEmpty()) }
     val activity = remember(summary) {
         summary?.let { ActivityType.ofName(it.activityType) }
     }
@@ -131,6 +146,23 @@ internal fun TrackMapScreen(
     // is keyed on that list: one kept across a reload names a different fix than the user tapped.
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
     var showTypeDialog by remember(trackId) { mutableStateOf(false) }
+    var showSplitDialog by remember(trackId) { mutableStateOf(false) }
+    // Whether the selected point is a cut the repository would accept — false while nothing is
+    // selected, and on a selection too close to either end to leave two drawable tracks, which is
+    // what grays the scissors rather than letting the tap be refused silently.
+    //
+    // Deliberately a derived *Boolean*, and deliberately not read here: the graph writes
+    // selectedIndex on every drag event, so a value read in this scope would recompose the whole
+    // Scaffold per touch move (the scrubber's cost was ground down to 8 ms frames by keeping those
+    // reads inside the two cards — see MetricPlot). A State read inside the actions lambda keeps
+    // topBar memoized, and this only changes when the scissors actually flips.
+    val canSplit by remember(points) {
+        derivedStateOf {
+            val index = selectedIndex ?: return@derivedStateOf false
+            val count = points?.size ?: return@derivedStateOf false
+            TrackSplit.isLegalCut(index, count - index)
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -169,6 +201,17 @@ internal fun TrackMapScreen(
                             Icon(Icons.Filled.Edit, contentDescription = "Change track type")
                         }
                     }
+                    // Splitting needs a point to cut at, so the scissors stays visible but
+                    // disabled until the graph has one — an action that appears and disappears
+                    // under the thumb while scrubbing is worse than one that grays.
+                    if (onSplit != null && summary?.endedAt != null) {
+                        IconButton(
+                            onClick = { showSplitDialog = true },
+                            enabled = canSplit,
+                        ) {
+                            Icon(Icons.Filled.ContentCut, contentDescription = "Split track here")
+                        }
+                    }
                     IconButton(onClick = {
                         viewModel.importExport.shareTracks(listOf(trackId)) { intent ->
                             if (intent != null) context.startActivity(intent)
@@ -200,11 +243,6 @@ internal fun TrackMapScreen(
                     }
                     val darkTheme = isSystemInDarkTheme()
                     val units = LocalUnits.current
-                    // The one seam walk this screen's derived series come from, keyed on the
-                    // points alone — it is the same distances whatever metric is displayed, and
-                    // both the graph below and the map's gradient are built from it. Switching the
-                    // metric then re-runs only the ramp, not an ellipsoidal distance per point.
-                    val seams = remember(load.good) { TrackQuality.seams(load.good) }
                     val graph = remember(seams, colorMode, activity, darkTheme, units) {
                         metricGraphData(seams, colorMode, activity, darkTheme, units)
                     }
@@ -309,6 +347,82 @@ internal fun TrackMapScreen(
             },
         )
     }
+
+    SplitConfirmation(
+        load = trackPoints,
+        seams = seams,
+        summary = summary,
+        // Read only while the dialog is up: a selection read in this scope on every drag event would
+        // put the scrubber's writes back in front of the whole Scaffold, which is what `canSplit`
+        // exists to avoid.
+        cutIndex = if (showSplitDialog) selectedIndex else null,
+        onSplit = onSplit,
+        onDismiss = { showSplitDialog = false },
+    )
+}
+
+/**
+ * Confirm a split, showing both halves as they will read on the timeline. Reversible from the undo
+ * snackbar, but it is still the one action here that turns one track into two, so it asks first.
+ *
+ * Draws nothing until every piece of a legal cut is present, which is why the preconditions live
+ * here rather than at the call site: a non-null [cutIndex] (the dialog is up on a selected point),
+ * a finished track to cut, a caller willing to perform it, and a plan [TrackSplit] accepts.
+ */
+@Composable
+private fun SplitConfirmation(
+    load: TrackPoints?,
+    seams: TrackQuality.Seams,
+    summary: TrackSummary?,
+    cutIndex: Int?,
+    onSplit: ((Long) -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    if (load == null || cutIndex == null || onSplit == null) return
+    if (summary == null) return
+    val trackEnd = summary.endedAt ?: return
+    // The plan runs once per dialog open rather than once per scrub tick. The load holds the points
+    // in three lists and the plan reads only counts and extremes, so concatenating needs no sort.
+    val plan = remember(load, cutIndex) {
+        val cutTs = load.good.getOrNull(cutIndex)?.timestamp ?: return@remember null
+        TrackSplit.plan(load.good + load.noisy + load.edgeStay, cutTs)
+    } ?: return
+    // The legs either side of the cut, off the walk the screen already did. The leg *across* the cut
+    // is in neither, because after the split it stops being a leg at all — it is the gap between two
+    // tracks. A half whose new inner edge turns out to hold an overrun ends up marginally shorter
+    // than this, the fixes still on it but off its path.
+    val firstMeters = remember(seams, cutIndex) { (1 until cutIndex).sumOf { seams.meters[it] } }
+    val secondMeters = remember(seams, cutIndex) {
+        (cutIndex + 1 until seams.points.size).sumOf { seams.meters[it] }
+    }
+    val units = LocalUnits.current
+    fun half(from: Long, to: Long, points: Int, meters: Double) =
+        "${timeFormat.format(Date(from))} – ${timeFormat.format(Date(to))} · " +
+            "${units.distance(meters)} · $points points"
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Filled.ContentCut, contentDescription = null) },
+        title = { Text("Split at ${timeFormat.format(Date(plan.cutTs))}?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(half(summary.startedAt, plan.firstEndTs, plan.firstGoodPoints, firstMeters))
+                Text(half(plan.secondStartTs, trackEnd, plan.secondGoodPoints, secondMeters))
+                Text(
+                    "Both tracks keep every fix, and the stop between them appears on the " +
+                        "timeline. Undo puts the track back.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onDismiss()
+                onSplit(plan.cutTs)
+            }) { Text("Split") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** Per-point series for the metric graph: values (null = gap), the map's coloring, and a unit. */

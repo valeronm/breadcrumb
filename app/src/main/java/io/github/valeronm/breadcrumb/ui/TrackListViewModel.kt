@@ -185,6 +185,24 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Cut a track in two at [atTs] (the point picked on the track screen's graph) — the track keeps
+     * its id as the first half. [onSplit] gets what the undo snackbar needs to reverse it, and is
+     * not called when the cut is refused.
+     */
+    fun splitTrack(trackId: Long, atTs: Long, onSplit: (TrackRepository.Split) -> Unit) {
+        viewModelScope.launch {
+            repository.splitTrack(trackId, atTs)?.let(onSplit)
+        }
+    }
+
+    /** Undo a [splitTrack]: the second half's fixes go back and its row goes away. */
+    fun unsplitTracks(originalId: Long, split: TrackRepository.Split) {
+        viewModelScope.launch {
+            repository.unsplitTracks(originalId, split)
+        }
+    }
+
     fun delete(trackId: Long) {
         viewModelScope.launch { repository.deleteTrack(trackId) }
     }

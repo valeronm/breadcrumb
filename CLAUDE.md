@@ -160,7 +160,13 @@ outright. Discarded (and user-deleted)
 tracks are reviewable and restorable from Settings → Recently deleted, auto-purged after 14 days;
 the keep check runs
 both on normal finish and via `finalizeDangling`, which also cleans up tracks left open by a crash
-(it skips `LocationRecordingService.activeTrackId`). `GpxExporter` (`data/export/`) builds GPX for
+(it skips `LocationRecordingService.activeTrackId`). **Merge copies its points and split reassigns
+them, and the asymmetry is deliberate**: `mergeTracks` turns two rows into one, so the originals are
+the only record of the pair and stay in Recently deleted (restorable, which is how a merge is undone);
+`splitTrack` keeps the original row *as the first half* and rehomes the later fixes onto one new
+track, because nothing needs preserving — every fix survives on one row or the other, and a copied
+original would leave a third row covering a period two live tracks already hold, restorable from a
+screen that offers a restore for everything on it. Don't unify them. `GpxExporter` (`data/export/`) builds GPX for
 share intents (`FileProvider`) or bulk-writes to a user-picked folder (Storage Access Framework);
 `GpxParser` imports GPX files shared/opened into the app. **An import is refused whenever the
 period is already taken**: `importTracks` skips a file's track as a *duplicate* when a track holds
@@ -180,7 +186,7 @@ moves here moves there. `PlaceRepository` backs the Places tab.
 **An ignored point is one that isn't part of the path — for either of two reasons.** The recorder's
 bad-fix rule (`TrackQuality`: accuracy, jump, no-GNSS) rejects fixes it doesn't trust; `EdgeStayIgnore`
 flags the good fixes recorded past the stop at a track's edges (`IgnoreReason.EDGE_STAY`), applied
-automatically when a track is finished, imported, merged, restored, or retyped across the
+automatically when a track is finished, imported, merged, split, restored, or retyped across the
 foot/vehicle line (the activity picks the detector's tuning — `EdgeStayDetector.paramsFor` — so a
 retype that changes it re-derives the track), and the track's `startedAt`/
 `endedAt` pulled in to the boundary fix with it. Both drop out of distance, endpoints, the drawn
@@ -198,7 +204,7 @@ changing the rule.
 point/ignored counts and the first/last good coordinates live as columns on `tracks`, written only
 by `TrackRepository.refreshStats` (from `TrackStats`, the one point walk — the recorder accumulates
 through the same code, so live and stored totals can't drift) when a track is *finished, merged,
-imported, retyped, or has its overrun re-derived*. Those are the only events that change a track's
+split, imported, retyped, or has its overrun re-derived*. Those are the only events that change a track's
 points — so when the *walk* changes instead, `TrackRepository.sweepStats` re-walks the history,
 driven by `TrackStats.RULE_VERSION` exactly as the edge-stay sweep is driven by its detector's.
 Bumping that version is part of changing what the walk counts (currently: the leg spanning a

@@ -587,6 +587,89 @@ class TrackRepositoryTest {
         }
     }
 
+    /** One journey the recorder never broke: [addWalkThenLingerTail]'s walk and stop, walked on out
+     *  of again — so the stop sits mid-track, where no edge rule reaches it. */
+    private suspend fun addWalkStopWalk(id: Long): Long {
+        addWalkThenLingerTail(id)
+        repository.addPoints(walkPoints(id, 96, 60, fromLat = 1.0 + 60 * 0.000126))
+        return TEST_START + 156 * 10_000L
+    }
+
+    /** A finished walk of [count] fixes at walking pace — unlike [finishedWalk]'s coarse 111 m
+     *  steps, the pace is what keeps the overrun rule from finding a stay to flag. */
+    private suspend fun finishedPacedWalk(count: Int): Long {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints(walkPoints(id, 0, count, fromLat = 1.0))
+        repository.finishTrack(id, TEST_START + count * 10_000L)
+        return id
+    }
+
+    @Test fun `splitting keeps the original as the first half and rehomes the rest`() = runTest {
+        val id = finishedPacedWalk(40)
+        val cut = TEST_START + 20 * 10_000L
+
+        val split = repository.splitTrack(id, cut)!!
+
+        // Reassigned, not copied: the 40 fixes are spread over the two rows, not duplicated across
+        // them, and no third row is left holding the period both now cover.
+        assertEquals(20, dao.allPointsFor(id).size)
+        assertEquals(20, dao.allPointsFor(split.secondId).size)
+        assertNull("the original stays on the timeline", dao.track(id)!!.discardedAt)
+        assertEquals("and keeps its start", TEST_START, dao.track(id)!!.startedAt)
+        // The cut fix opens the second track rather than closing the first.
+        assertEquals(cut, dao.track(split.secondId)!!.startedAt)
+        assertTrue(dao.allPointsFor(id).last().timestamp < cut)
+        assertStatsMatchPoints(id)
+        assertStatsMatchPoints(split.secondId)
+    }
+
+    @Test fun `a cut at a stop takes the parked fixes off both halves' paths`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.finishTrack(id, addWalkStopWalk(id))
+        // No edge rule reaches a stop sitting mid-track, so the recorder's own track holds none.
+        assertTrue(dao.allPointsFor(id).none { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
+
+        val split = repository.splitTrack(id, TEST_START + 78 * 10_000L)!!
+
+        // Cutting inside the stop turns it into an edge on both halves — the end of one journey
+        // and the start of the next — which is exactly where the overrun rule applies.
+        for (halfId in listOf(id, split.secondId)) {
+            val ignored = dao.allPointsFor(halfId).filter { it.ignored }
+            assertTrue("the parked fixes come off the path", ignored.isNotEmpty())
+            assertTrue(ignored.all { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
+            assertStatsMatchPoints(halfId)
+        }
+    }
+
+    @Test fun `a cut with too little on one side is refused`() = runTest {
+        val id = finishedPacedWalk(10)
+        val endedAt = dao.track(id)!!.endedAt
+
+        assertNull("one point is not a track", repository.splitTrack(id, TEST_START + 10_000L))
+        assertNull("nor is nothing at all", repository.splitTrack(id, TEST_START))
+        assertEquals("the row is left alone", endedAt, dao.track(id)!!.endedAt)
+        assertEquals(10, dao.allPointsFor(id).size)
+    }
+
+    @Test fun `unsplitting hands the fixes back and drops the second half`() = runTest {
+        val id = finishedPacedWalk(40)
+        val before = dao.track(id)!!
+        val split = repository.splitTrack(id, TEST_START + 20 * 10_000L)!!
+
+        repository.unsplitTracks(id, split)
+
+        assertNull("the second half's row is gone", dao.track(split.secondId))
+        assertEquals("every fix is back on the original", 40, dao.allPointsFor(id).size)
+        val reunited = dao.track(id)!!
+        // The overrun rule reads the raw recording, so the reunited track re-derives to exactly what
+        // it was — and the recorder's stop time comes back with the Split rather than from the rule.
+        assertEquals(before.endedAt, reunited.endedAt)
+        assertEquals(before.startedAt, reunited.startedAt)
+        assertEquals(before.pointCount, reunited.pointCount)
+        assertEquals(before.distanceMeters, reunited.distanceMeters, 0.5)
+        assertStatsMatchPoints(id)
+    }
+
     @Test fun `a user delete is soft, and restore undoes it`() = runTest {
         val id = finishedWalk(0)
 

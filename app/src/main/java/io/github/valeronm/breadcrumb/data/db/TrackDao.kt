@@ -63,7 +63,7 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL")
     suspend fun purgeAllDiscarded(): Int
 
-    // --- Track merge (close a short same-activity stay into a new track) ------------------------
+    // --- Track merge and split (one copies points onto a new track, the other rehomes them) -----
 
     /** Copy every point of [srcId] onto [newId] (the merged track keeps its own copy). */
     @Query(
@@ -79,6 +79,18 @@ interface TrackDao {
         """,
     )
     suspend fun copyPointsInto(newId: Long, srcId: Long)
+
+    /**
+     * Hand every point of [srcId] at or after [fromTs] to [newId] — how a split rehomes its second
+     * half, and (with [fromTs] at the bottom of the range) how undoing one hands it back.
+     *
+     * The rows are *reassigned*, not copied: a fix keeps its id and changes owner, so a split
+     * duplicates nothing and leaves nothing behind to purge. That is the difference from
+     * [copyPointsInto] — a merge has to copy, because its originals stay reviewable in Recently
+     * deleted, while a split's first half *is* the original row.
+     */
+    @Query("UPDATE track_points SET trackId = :newId WHERE trackId = :srcId AND timestamp >= :fromTs")
+    suspend fun movePointsFrom(newId: Long, srcId: Long, fromTs: Long)
 
     /** The merged track's first point at/after [timestamp] — marked as the segment break at the join. */
     @Query("SELECT id FROM track_points WHERE trackId = :trackId AND timestamp >= :timestamp ORDER BY timestamp ASC, id ASC LIMIT 1")

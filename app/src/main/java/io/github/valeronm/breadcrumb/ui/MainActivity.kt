@@ -408,6 +408,7 @@ private fun MainScreen(
             viewModel = viewModel,
             unitChoice = unitChoice,
             onUnitChoice = onUnitChoice,
+            undo = undo,
             onClose = { overlay = null },
             onOpenPage = { settingsPage = it },
         )
@@ -470,6 +471,9 @@ private fun DiscardedTrackOverlay(
             summary = discardedTracks.firstOrNull { it.id == trackId }?.toTrackSummary(),
             viewModel = viewModel,
             onBack = onClose,
+            // No splitting here: these tracks are on their way out of the timeline, not being
+            // organized on it.
+            onSplit = null,
         )
     }
 }
@@ -483,6 +487,7 @@ private fun MainOverlay(
     viewModel: TrackListViewModel,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
+    undo: UndoSnackbar,
     onClose: () -> Unit,
     onOpenPage: (SettingsPage) -> Unit,
 ) {
@@ -501,6 +506,16 @@ private fun MainOverlay(
                 },
                 viewModel = viewModel,
                 onBack = onClose,
+                // The screen closes on the cut. It could stay — this track is the first half now,
+                // id and all — but the undo snackbar lives under the overlay, so keeping the layer
+                // open would hide the one affordance that reverses the split.
+                onSplit = { atTs ->
+                    val trackId = rendered.id
+                    viewModel.splitTrack(trackId, atTs) { split ->
+                        undo.show("Track split") { viewModel.unsplitTracks(trackId, split) }
+                    }
+                    onClose()
+                },
             )
 
             Overlay.Settings -> SettingsScreen(
