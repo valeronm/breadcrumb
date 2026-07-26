@@ -117,7 +117,8 @@ internal fun PlacesTab(
     val places by viewModel.places.collectAsStateWithLifecycle()
     // For the map's orange dots: stays the Timeline offers to merge away (TrackMerge's rules —
     // short, finished, same activity on both sides). A place that is only such an artifact is
-    // marked rather than re-deciding eligibility here.
+    // marked rather than re-deciding eligibility here. Named places are exempt at the dot, not
+    // here: the merge rule stopped sparing them, but a label still says the place is meant.
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
     var showMap by remember { mutableStateOf(AppSettings.placesViewMap(context)) }
     var sort by remember { mutableStateOf(PlacesSort.fromSettings(context)) }
@@ -215,9 +216,12 @@ internal fun PlacesTab(
                                 location = summary.anchor,
                                 label = summary.place?.label,
                                 key = summary.rowKey(),
-                                brief = summary.stays.singleOrNull()
-                                    ?.let { (it.afterTrackId to it.start) in mergeableStays }
-                                    ?: false,
+                                // Never a named place: a merge offer says the split may be an
+                                // artifact, but a label says the user meant this place, and the
+                                // dot claims the opposite.
+                                brief = !summary.isNamed &&
+                                    summary.stays.singleOrNull()
+                                        ?.let { (it.afterTrackId to it.start) in mergeableStays } == true,
                             )
                         }
                     }

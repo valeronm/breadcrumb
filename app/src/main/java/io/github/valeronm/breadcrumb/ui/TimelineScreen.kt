@@ -170,6 +170,13 @@ internal fun TracksTab(
         }
         onVisitTargetShown()
     }
+    // Both interval rows offer the same merge, so they share one handler rather than two copies
+    // of the undo wiring.
+    val onMerge = { plan: TrackMerge.Plan ->
+        viewModel.mergeTracks(plan) { mergedId ->
+            undo.show("Tracks merged") { viewModel.unmergeTracks(mergedId, plan) }
+        }
+    }
     Box(Modifier.fillMaxSize()) {
         // Above the list, not inside it: dayAnchors counts lazy indices from zero, so a leading
         // item would put the fast scroller and the visit jump one row out for the sweep's
@@ -217,16 +224,12 @@ internal fun TracksTab(
                                 item = item,
                                 shape = shape,
                                 highlighted = item.rowKey() == highlightKey,
-                                onMerge = { plan ->
-                                    viewModel.mergeTracks(plan) { mergedId ->
-                                        undo.show("Tracks merged") { viewModel.unmergeTracks(mergedId, plan) }
-                                    }
-                                },
+                                onMerge = onMerge,
                                 onClick = {
                                     item.place?.let { onOpenPlace(placeDetailKeyOf(it.placeId, it.centroid)) }
                                 },
                             )
-                            is TimelineItem.GapItem -> GapRow(item, shape, onOpenPlace)
+                            is TimelineItem.GapItem -> GapRow(item, shape, onOpenPlace, onMerge)
                         }
                     }
                 }
@@ -771,7 +774,33 @@ private fun StayCard(
  * timeline: the destination sits above (adjacent to the later track), the source below.
  */
 @Composable
-private fun GapRow(item: TimelineItem.GapItem, shape: RoundedCornerShape, onOpenPlace: (String) -> Unit) {
+private fun GapRow(
+    item: TimelineItem.GapItem,
+    shape: RoundedCornerShape,
+    onOpenPlace: (String) -> Unit,
+    onMerge: (TrackMerge.Plan) -> Unit,
+) {
+    val card = @Composable { GapCard(item, shape, onOpenPlace) }
+    // A gap short enough to be one outing the recorder split swipes away exactly as a short stop
+    // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
+    // absences and aren't swipeable.
+    val plan = item.merge
+    if (plan == null) {
+        card()
+        return
+    }
+    SwipeActionRow(
+        shape = shape,
+        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        icon = Icons.AutoMirrored.Filled.CallMerge,
+        iconDescription = "Merge tracks",
+        onDismiss = { onMerge(plan) },
+    ) { card() }
+}
+
+@Composable
+private fun GapCard(item: TimelineItem.GapItem, shape: RoundedCornerShape, onOpenPlace: (String) -> Unit) {
     val gap = item.gap
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
@@ -780,7 +809,13 @@ private fun GapRow(item: TimelineItem.GapItem, shape: RoundedCornerShape, onOpen
                 modifier = Modifier.padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val strokeColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                // Tertiary marks a mergeable interval throughout the timeline — the same accent
+                // the short-stop row wears, so the swipe is discoverable in both places.
+                val strokeColor = if (item.merge != null) {
+                    MaterialTheme.colorScheme.tertiary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                }
                 // Built once, not per draw pass — the ripple invalidates the row on every press.
                 val density = LocalDensity.current
                 val dashEffect = remember(density) {

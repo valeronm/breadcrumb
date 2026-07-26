@@ -115,6 +115,19 @@ class StayDeriverTest {
         assertEquals(240 * MIN, gap.end)
     }
 
+    @Test fun `a gap names the track it follows, like a stay`() {
+        // The handle the merge offer needs: from it the UI reaches both tracks around the gap.
+        assertEquals(1L, (derive(homePair(from = office)).first { it is Gap } as Gap).afterTrackId)
+    }
+
+    @Test fun `a tail gap into the active track names the last finished track`() {
+        val gap = derive(
+            listOf(track(7, start = 60 * MIN, end = 120 * MIN)),
+            active = StayDeriver.ActiveTrack(startedAt = 200 * MIN, start = office),
+        ).single() as Gap
+        assertEquals(7L, gap.afterTrackId)
+    }
+
     @Test fun `a moved-unrecorded gap indexes both sides' distinct clusters`() {
         val derivation = StayDeriver.derive(
             homePair(from = office), listOf(Armed(0)), NOW, null, StayDeriver.Params(), flatDistance,
@@ -395,7 +408,10 @@ class StayDeriverTest {
     }
 
     @Test fun `an intra-day interval passes through unchanged`() {
-        val gap = Gap(start = 10 * 60 * MIN, end = 11 * 60 * MIN, reason = GapReason.MOVED_UNRECORDED)
+        val gap = Gap(
+            start = 10 * 60 * MIN, end = 11 * 60 * MIN,
+            reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
+        )
         assertEquals(listOf<StayDeriver.Interval>(gap), StayDeriver.slicePerDay(listOf(gap), utc, 2 * DAY))
     }
 

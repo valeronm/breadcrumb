@@ -92,9 +92,6 @@ object StayDeriver {
      * around a gap of seconds). Such a stay is still a real stop — it counts as a visit and keeps
      * its place on the timeline — but any duration derived from its bounds would be fiction, and
      * rounding one to "0m" reads as a broken value.
-     *
-     * [TrackMerge] uses the same line for the one decision that turns on it: whether a stay on a
-     * named place is substantial enough that merging it away would delete a real visit.
      */
     const val REPORTABLE_DURATION_MS = 60_000L
 
@@ -119,6 +116,9 @@ object StayDeriver {
         override val start: Long,
         override val end: Long,
         val reason: GapReason,
+        /** The track whose end anchors this gap — the same handle [Stay] carries, and what lets
+         *  the UI find both sides when it offers to merge a short one away. */
+        val afterTrackId: Long,
         /** Index into [Derivation.clusters] for each side (null = that endpoint is unknown) —
          *  most gaps are really one place misclustered as two, so the UI links each side to
          *  its place for fixing. */
@@ -197,6 +197,7 @@ object StayDeriver {
                 }
                 out += Gap(
                     gapStart, gapEnd, reason,
+                    afterTrackId = prev.trackId,
                     fromClusterId = a?.let(clusterOf::getValue),
                     toClusterId = b?.let(clusterOf::getValue),
                 )
@@ -275,6 +276,7 @@ object StayDeriver {
             if (b != null && !samePlace(location, b)) {
                 return Gap(
                     start, end, GapReason.MOVED_UNRECORDED,
+                    afterTrackId = last.trackId,
                     fromClusterId = clusterOf.getValue(location),
                     toClusterId = clusterOf.getValue(b),
                 )
@@ -435,6 +437,8 @@ sealed interface TimelineItem {
          *  through to the places whose misclustering usually caused the gap. */
         val fromPlace: PlaceResolver.ResolvedStay? = null,
         val toPlace: PlaceResolver.ResolvedStay? = null,
+        /** Non-null when this short same-activity gap can be closed by merging its two tracks. */
+        val merge: TrackMerge.Plan? = null,
     ) : TimelineItem {
         override val startedAt get() = gap.start
     }

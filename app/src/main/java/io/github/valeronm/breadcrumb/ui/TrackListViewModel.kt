@@ -96,12 +96,20 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
         // as 3 visits. Cluster ids survive the slicing copies, so items look up directly.
         val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places)
-        // Each track's chronological successor, for merging a short same-activity stay's two tracks.
+        // Each track's chronological successor, for merging the two tracks around a short interval.
         val byId = summaries.associateBy { it.id }
         // observeSummaries returns newest first, so chronological order is a reversed *view* — no
         // re-sort of the whole history on every emission.
         val nextTrack = summaries.asReversed().zipWithNext()
             .associate { (a, b) -> a.id to b }
+
+        // A stay and a short gap merge on the same rule — the interval's two tracks, one of them
+        // the anchor both interval kinds name.
+        fun mergePlan(afterTrackId: Long, start: Long, end: Long?): TrackMerge.Plan? {
+            val before = byId[afterTrackId] ?: return null
+            val after = nextTrack[afterTrackId] ?: return null
+            return TrackMerge.plan(before, after, start, end)
+        }
         StayDeriver.interleave(
             summaries,
             StayDeriver.slicePerDay(d.derivation.intervals, ZoneId.systemDefault(), d.now),
@@ -111,21 +119,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 is TimelineItem.GapItem -> item.copy(
                     fromPlace = item.gap.fromClusterId?.let(clusterPlaces::getOrNull),
                     toPlace = item.gap.toClusterId?.let(clusterPlaces::getOrNull),
+                    merge = mergePlan(item.gap.afterTrackId, item.gap.start, item.gap.end),
                 )
-                is TimelineItem.StayItem -> {
-                    val resolution = clusterPlaces.getOrNull(item.stay.clusterId)
-                    val before = byId[item.stay.afterTrackId]
-                    val after = nextTrack[item.stay.afterTrackId]
-                    val merge = if (before != null && after != null) {
-                        TrackMerge.plan(
-                            before, after, item.stay.start, item.stay.end,
-                            stayIsNamedPlace = resolution?.label != null,
-                        )
-                    } else {
-                        null
-                    }
-                    item.copy(place = resolution, merge = merge)
-                }
+                is TimelineItem.StayItem -> item.copy(
+                    place = clusterPlaces.getOrNull(item.stay.clusterId),
+                    merge = mergePlan(item.stay.afterTrackId, item.stay.start, item.stay.end),
+                )
             }
         }
     }.flowOn(Dispatchers.Default)
@@ -174,7 +173,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Merge the two tracks bracketing a short same-activity stay (closes the stay). [onMerged] gets
+     * Merge the two tracks bracketing a short same-activity stay or gap (closing it). [onMerged] gets
      * the new track's id — the undo snackbar needs it to unmerge.
      */
     fun mergeTracks(plan: TrackMerge.Plan, onMerged: (Long) -> Unit) {
