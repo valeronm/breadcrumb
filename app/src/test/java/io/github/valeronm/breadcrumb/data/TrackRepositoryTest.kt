@@ -414,6 +414,35 @@ class TrackRepositoryTest {
         assertTrue(split.edgeStay.all { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
     }
 
+    @Test fun `a segment break stranded on a rejected fix still detaches the path`() = runTest {
+        // The fix a recording resumes on is a cold-start stray often enough that the break lands on
+        // a rejected row — where every reader that walks the path used to skip straight past it and
+        // draw, measure and export a leg across the gap.
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        val resumeLat = 1.02
+        repository.addPoints(walkPoints(id, 0, 30, fromLat = 1.0))
+        repository.addPoints(
+            listOf(
+                test.point(id, 30, lat = resumeLat, ignored = true)
+                    .copy(ignoreReason = IgnoreReason.JUMP.code, segmentStart = true),
+            ),
+        )
+        repository.addPoints(walkPoints(id, 31, 30, fromLat = resumeLat))
+        repository.finishTrack(id, TEST_START + 61 * 10_000L)
+
+        val path = repository.pointsFor(id)
+        assertTrue("the path holds no rejected fix", path.none { it.ignored })
+        val resumed = path.first { it.latitude >= resumeLat }
+        assertTrue("the fix that resumes inherits the break", resumed.segmentStart)
+        assertEquals("and it is the only break on the path", 1, path.count { it.segmentStart })
+        // Two ~400 m walks either side of a ~2 km gap the phone plainly covered — distance counts
+        // the leg, while the break stays on the path for the readers that draw and export it.
+        assertTrue(
+            "the unwatched gap is still travel",
+            dao.track(id)!!.distanceMeters > 2_000.0,
+        )
+    }
+
     @Test fun `merging hands back the overrun the earlier track lost in the middle`() = runTest {
         val first = repository.startTrack(ActivityType.WALKING, TEST_START)
         repository.finishTrack(first, addWalkThenLingerTail(first))

@@ -81,7 +81,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
-import io.github.valeronm.breadcrumb.data.EdgeStaySweepStatus
+import io.github.valeronm.breadcrumb.data.SweepStatus
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
@@ -124,7 +124,7 @@ internal fun TracksTab(
 
     // Rows change under the user while this runs, so the work says so rather than the list
     // simply rearranging itself. Null except during a sweep.
-    val sweep by EdgeStaySweepStatus.state.collectAsStateWithLifecycle()
+    val sweep by SweepStatus.state.collectAsStateWithLifecycle()
 
     val groups = remember(items) { groupTimelineByDay(items) }
     val listState = rememberLazyListState()
@@ -183,7 +183,7 @@ internal fun TracksTab(
         // duration — and a progress banner that scrolls away is not much of one.
         Column(Modifier.fillMaxSize()) {
             sweep?.let {
-                EdgeStaySweepBanner(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                SweepBanner(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
             LazyColumn(
                 state = listState,
@@ -613,12 +613,12 @@ private fun TrackRow(
 }
 
 /**
- * The edge-stay sweep, while it runs: distances and end times shift behind it as the recorder's
- * overrun comes off each track, so it says so instead of the list quietly rearranging itself.
- * Determinate — the total is known up front — and it removes itself when the sweep ends.
+ * A history sweep, while it runs: distances and end times shift behind it as each track is
+ * re-derived, so it says so instead of the list quietly rearranging itself. Determinate — the total
+ * is known up front — and it removes itself when the sweep ends.
  */
 @Composable
-private fun EdgeStaySweepBanner(progress: EdgeStaySweepStatus.Progress, modifier: Modifier = Modifier) {
+private fun SweepBanner(progress: SweepStatus.Progress, modifier: Modifier = Modifier) {
     Card(modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -630,10 +630,13 @@ private fun EdgeStaySweepBanner(progress: EdgeStaySweepStatus.Progress, modifier
                 )
                 Spacer(Modifier.width(12.dp))
                 // Short enough to sit beside the count on one line at phone widths; the weight
-                // is the backstop, not the plan. "Updating", not "Trimming": the sweep re-derives
-                // each track's overrun, and hands fixes back as readily as it takes them.
+                // is the backstop, not the plan. "Updating", not "Trimming" or "Correcting": a
+                // sweep re-derives, and hands back as readily as it takes.
                 Text(
-                    "Updating recording overruns",
+                    when (progress.kind) {
+                        SweepStatus.Kind.EDGE_STAYS -> "Updating recording overruns"
+                        SweepStatus.Kind.STATS -> "Updating track distances"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),

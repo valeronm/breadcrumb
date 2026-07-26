@@ -196,7 +196,12 @@ changing the rule.
 point/ignored counts and the first/last good coordinates live as columns on `tracks`, written only
 by `TrackRepository.refreshStats` (from `TrackStats`, the one point walk — the recorder accumulates
 through the same code, so live and stored totals can't drift) when a track is *finished, merged,
-imported, retyped, or has its overrun re-derived*. This is a performance invariant, not a
+imported, retyped, or has its overrun re-derived*. Those are the only events that change a track's
+points — so when the *walk* changes instead, `TrackRepository.sweepStats` re-walks the history,
+driven by `TrackStats.RULE_VERSION` exactly as the edge-stay sweep is driven by its detector's.
+Bumping that version is part of changing what the walk counts (currently: the leg spanning a
+segment break is travel — nothing teleports, so ground between two trusted fixes was covered
+whether or not the recorder was watching). This is a performance invariant, not a
 convenience: Room invalidates per
 table, so an observed query that reads `track_points` — or a per-fix write to `tracks` — is re-run
 on **every GPS fix**, scanning the whole point history once a second for a result that can't have
@@ -217,7 +222,9 @@ Delete the pass, its flag, and any DAO queries only it used once the installed b
 the pre-DB-v5 ignore-reason backfill, the drive-start leading-stray repair (both dropped
 2026-07-13) and the point-starved-track purge (dropped 2026-07-17) followed this pattern —
 see git history for a template. **No backfill is live right now**: `App.onCreate` runs the
-discarded-track retention purge and the versioned edge-stay sweep, neither of which is one.
+discarded-track retention purge and the two versioned sweeps (edge stays, then track stats), none
+of which is one — a sweep is standing infrastructure that re-runs whenever its rule's version
+moves, not a pass to delete.
 
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus

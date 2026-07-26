@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.TrackStats
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -57,6 +58,13 @@ class App : Application() {
             if (Settings.edgeStayRuleVersion(this@App) < EdgeStayDetector.RULE_VERSION) {
                 repository.sweepEdgeStays()
                 Settings.setEdgeStayRuleVersion(this@App, EdgeStayDetector.RULE_VERSION)
+            }
+            // The aggregates on a track row are the output of a walk that keeps moving too, and
+            // they are re-derived the same way. It runs second: the edge-stay sweep decides which
+            // fixes are on the path, and this one totals whatever that leaves.
+            if (Settings.statsRuleVersion(this@App) < TrackStats.RULE_VERSION) {
+                repository.sweepStats()
+                Settings.setStatsRuleVersion(this@App, TrackStats.RULE_VERSION)
             }
         }
     }

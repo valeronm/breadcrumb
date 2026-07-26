@@ -14,6 +14,7 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
+import io.github.valeronm.breadcrumb.domain.SegmentBreaks
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
 
@@ -416,26 +417,62 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun sweepEdgeStays() {
         val tracks = dao.exportTracks()
         var changed = 0
-        EdgeStaySweepStatus.start(tracks.size)
+        SweepStatus.start(SweepStatus.Kind.EDGE_STAYS, tracks.size)
         try {
             for ((batch, chunk) in tracks.chunked(SWEEP_BATCH_TRACKS).withIndex()) {
                 db.withTransaction {
                     for ((i, track) in chunk.withIndex()) {
                         // Reported every 10 tracks: the point walk is the slow part, and a state
                         // emission per track would recompose the banner faster than it can be read.
-                        if (i % 10 == 0) EdgeStaySweepStatus.advance(batch * SWEEP_BATCH_TRACKS + i)
+                        if (i % 10 == 0) SweepStatus.advance(batch * SWEEP_BATCH_TRACKS + i)
                         if (rederiveEdgeStays(track)) changed++
                     }
                 }
             }
         } finally {
-            EdgeStaySweepStatus.finish()
+            SweepStatus.finish()
         }
         DebugLog.i(
             TAG,
             "edge-stay sweep (rule v${EdgeStayDetector.RULE_VERSION}) over ${tracks.size} " +
                 "tracks: $changed rewritten",
         )
+    }
+
+    /**
+     * Re-walk every finished track's points and rewrite its aggregates — the standing answer to
+     * [TrackStats.RULE_VERSION] moving, in the shape [sweepEdgeStays] uses for its own rule.
+     *
+     * A stored total is the output of a walk that has since changed, and nothing re-walks a track
+     * whose points sat still: the edge-stay sweep skips it, and a track is otherwise re-walked only
+     * when it is finished, merged, imported or retyped. Every track is swept rather than the ones a
+     * particular rule change happened to touch — which tracks a *future* change reaches isn't
+     * knowable here, and a walk that skipped some would quietly leave them behind.
+     *
+     * Discarded tracks are included, unlike the edge-stay sweep's set: Recently deleted shows a
+     * distance, and restoring brings the row back as it stands. Open tracks are skipped — the
+     * recorder owns those columns until it finishes, where the same walk runs anyway.
+     *
+     * Idempotent: it recomputes from the points, so an interrupted sweep costs a re-run (the
+     * version is stored after it). Points are loaded one track at a time and committed in batches,
+     * for the reasons spelled out on [sweepEdgeStays].
+     */
+    suspend fun sweepStats() {
+        val ids = dao.finishedTrackIds()
+        SweepStatus.start(SweepStatus.Kind.STATS, ids.size)
+        try {
+            for ((batch, chunk) in ids.chunked(SWEEP_BATCH_TRACKS).withIndex()) {
+                db.withTransaction {
+                    for ((i, id) in chunk.withIndex()) {
+                        if (i % 10 == 0) SweepStatus.advance(batch * SWEEP_BATCH_TRACKS + i)
+                        refreshStats(id, dao.allPointsFor(id))
+                    }
+                }
+            }
+        } finally {
+            SweepStatus.finish()
+        }
+        DebugLog.i(TAG, "stats sweep (rule v${TrackStats.RULE_VERSION}) over ${ids.size} tracks")
     }
 
     suspend fun finishTrack(trackId: Long, endedAt: Long) {
@@ -490,9 +527,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // is the merged track's own way through the stop it drove on from.
             val merged = dao.track(mergedId)!!
             val applied = applyEdgeStays(merged, merged.endedAt!!, dao.allPointsFor(mergedId))
-            // Recomputed, not summed: the segment break at the join detaches the two halves, which
-            // is exactly what the walk over the merged points does — and it keeps the one writer
-            // of the denormalized columns in charge.
+            // Recomputed, not summed: the merged track is one journey, so the ground between the
+            // two halves counts like any other leg — a sum of the originals would leave it out.
+            // It also keeps the one writer of the denormalized columns in charge.
             refreshStats(mergedId, applied.points)
             val now = System.currentTimeMillis()
             dao.setDiscarded(earlierId, now, Track.REASON_MERGED)
@@ -543,7 +580,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     /** Finished, kept tracks oldest-first — the backup export's track set. */
     suspend fun exportTracks(): List<Track> = dao.exportTracks()
 
-    suspend fun pointsFor(trackId: Long): List<TrackPoint> = dao.pointsFor(trackId)
+    /**
+     * A track's path: the good fixes, with any segment break stranded on an ignored one carried
+     * onto the fix that resumes ([SegmentBreaks]). Loads every row to find those breaks, which the
+     * good-only query can't see — a per-track read, not the recorder's hot path.
+     */
+    suspend fun pointsFor(trackId: Long): List<TrackPoint> =
+        SegmentBreaks.goodWithCarriedBreaks(dao.allPointsFor(trackId))
 
     /** Every point of a track, ignored ones included — the backup export's per-track load. */
     suspend fun allPointsFor(trackId: Long): List<TrackPoint> = dao.allPointsFor(trackId)
@@ -560,9 +603,14 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * one that isn't a rejection.
      */
     suspend fun trackPointsFor(trackId: Long): TrackPoints {
-        val (ignored, good) = dao.allPointsFor(trackId).partition { it.ignored }
+        val all = dao.allPointsFor(trackId)
+        val ignored = all.filter { it.ignored }
         val (edgeStay, noisy) = ignored.partition(EdgeStayIgnore::isEdgeStay)
-        return TrackPoints(good = good, noisy = noisy, edgeStay = edgeStay)
+        return TrackPoints(
+            good = SegmentBreaks.goodWithCarriedBreaks(all),
+            noisy = noisy,
+            edgeStay = edgeStay,
+        )
     }
 
     /**

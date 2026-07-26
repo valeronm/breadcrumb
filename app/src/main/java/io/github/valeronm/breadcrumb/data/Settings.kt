@@ -29,6 +29,8 @@ object Settings {
     // renamed key reads back 0 on every installed device and re-walks the whole history for nothing.
     private const val KEY_EDGE_STAY_RULE_VERSION = "review_mark_rule_version"
 
+    private const val KEY_STATS_RULE_VERSION = "stats_rule_version"
+
     const val DEFAULT_SAMPLING_MIN_INTERVAL_SEC = 5
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
     const val DEFAULT_TRACK_MIN_DURATION_SEC = 30 // 0 = off
@@ -211,5 +213,14 @@ object Settings {
 
     fun setEdgeStayRuleVersion(context: Context, version: Int) {
         prefs(context).edit { putInt(KEY_EDGE_STAY_RULE_VERSION, version) }
+    }
+
+    /** Which [TrackStats.RULE_VERSION] the stored track aggregates were computed with;
+     *  0 = never swept. */
+    fun statsRuleVersion(context: Context): Int =
+        prefs(context).getInt(KEY_STATS_RULE_VERSION, 0)
+
+    fun setStatsRuleVersion(context: Context, version: Int) {
+        prefs(context).edit { putInt(KEY_STATS_RULE_VERSION, version) }
     }
 }

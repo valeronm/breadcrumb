@@ -182,6 +182,10 @@ interface TrackDao {
     @Query("SELECT id FROM tracks WHERE discardedAt IS NULL ORDER BY startedAt DESC")
     suspend fun allTrackIds(): List<Long>
 
+    /** Every finished track oldest-first, discarded ones included — the stats sweep's set. */
+    @Query("SELECT id FROM tracks WHERE endedAt IS NOT NULL ORDER BY startedAt ASC")
+    suspend fun finishedTrackIds(): List<Long>
+
     /** Finished, kept tracks oldest-first — the backup export's set, and the review sweep's. */
     @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt ASC")
     suspend fun exportTracks(): List<Track>

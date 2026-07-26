@@ -92,22 +92,42 @@ class TrackStatsTest {
         assertEquals(2.0, stats.extentMeters, 0.0)
     }
 
-    @Test fun `a segment start detaches from the previous point so the paused gap is not counted`() {
+    @Test fun `the gap a segment start spans is counted - the recorder paused, the journey did not`() {
         val stats = TrackStats.of(
             listOf(
                 point(lat = 0.0),
                 point(lat = 1.0),
-                // Recording resumed a kilometer away after an auto-pause.
+                // Recording resumed a kilometer away after an auto-pause. Nothing teleports, so
+                // that kilometer was covered — unwatched, but covered.
                 point(lat = 1000.0, segmentStart = true),
                 point(lat = 1002.0),
             ),
             flat,
         )
 
-        assertEquals(1.0 + 2.0, stats.distanceMeters, 0.0)
+        assertEquals(1.0 + 999.0 + 2.0, stats.distanceMeters, 0.0)
         assertEquals(4, stats.pointCount)
-        // The gap is not traveled, but it *is* spanned — extent covers the whole track.
         assertEquals(1002.0, stats.extentMeters, 0.0)
+    }
+
+    @Test fun `an ignored fix inside the gap neither adds distance nor breaks the leg`() {
+        // The fix a recording resumes on is the cold-start stray the jump rule rejects, so a break
+        // often lands on a rejected row. The leg runs between the good fixes either side of it, and
+        // the rejected position — the one reason not to trust it — contributes nothing.
+        val stats = TrackStats.of(
+            listOf(
+                point(lat = 0.0),
+                point(lat = 1.0),
+                point(lat = 5000.0, segmentStart = true, ignored = true),
+                point(lat = 1001.0),
+                point(lat = 1003.0),
+            ),
+            flat,
+        )
+
+        assertEquals(1.0 + 1000.0 + 2.0, stats.distanceMeters, 0.0)
+        assertEquals(4, stats.pointCount)
+        assertEquals(1, stats.ignoredCount)
     }
 
     @Test fun `bounds cover every good point, not just the endpoints`() {
