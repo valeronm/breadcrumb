@@ -93,12 +93,12 @@ internal fun TrackMapScreen(
     // One load of everything the screen draws (null = still reading it), keyed on the row as well
     // as the id. Nothing observes `track_points` — a query that did would re-run on every GPS fix
     // (see CLAUDE.md) — so the row standing in for them is what lets the screen notice a
-    // re-derivation it didn't ask for. Retyping across the foot/vehicle line is the case that made
-    // this necessary: it re-runs the overrun rule (`TrackRepository.setActivityType`), and until
-    // this key moved, the header updated from the summary flow while the line and the grayed edges
-    // kept the pre-retype shape until the screen was reopened. A same-tuning retype re-reads for
-    // nothing, which is a rare tap and invisible — produceState keeps what it has while the new
-    // query runs.
+    // re-derivation it didn't ask for. Retyping is the case that made this necessary: it re-runs
+    // the overrun rule and hands back the fixes the new jump ceiling accepts
+    // (`TrackRepository.setActivityType`), and until this key moved, the header updated from the
+    // summary flow while the line and the grayed edges kept the pre-retype shape until the screen
+    // was reopened. A retype that moves neither re-reads for nothing, which is a rare tap and
+    // invisible — produceState keeps what it has while the new query runs.
     val trackPoints by produceState<TrackPoints?>(initialValue = null, trackId, summary) {
         value = viewModel.getTrackPoints(trackId)
     }

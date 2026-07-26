@@ -11,6 +11,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
 
 /**
  * The bad-fix rule, tested purely on how it *handles* a distance — not on how that distance is
@@ -296,5 +297,110 @@ class TrackQualityTest {
     @Test fun `tracks with fewer than three points are never flagged`() {
         assertFalse(TrackQuality.leadingPointIsJump(fivePoints().take(2), seamGaps(50.0)))
         assertFalse(TrackQuality.leadingPointIsJump(emptyList(), seamGaps()))
+    }
+
+    // --- Withdrawing jump flags when a track is retyped ---------------------
+    //
+    // A point's longitude is its position along the path in metres and its index is the second it
+    // was recorded at, so the speed of any step is (Δlon / Δt) × 3.6 km/h — including the steps
+    // that skip a rejected fix, which is what these cases are mostly about.
+
+    /** Distance = the metres between the two longitudes, whichever way the step runs. */
+    private val alongPath = DistanceFn { _, aLon, _, bLon -> abs(bLon - aLon) }
+
+    /** A good fix [meters] along the path, recorded at second [second]. */
+    private fun onPath(second: Int, meters: Double) = point(timestamp = second * 1_000L, lon = meters)
+
+    /** …and the same fix as the recorder rejected it. */
+    private fun flagged(second: Int, meters: Double, reason: IgnoreReason) =
+        onPath(second, meters).copy(ignored = true, ignoreReason = reason.code)
+
+    @Test fun `a jump the corrected ceiling accepts is handed back`() {
+        // 72 km/h steps: teleports on foot, an ordinary road pace in a car.
+        val pts = listOf(
+            onPath(0, 0.0),
+            flagged(1, 20.0, IgnoreReason.JUMP),
+            flagged(2, 40.0, IgnoreReason.JUMP),
+        )
+        assertEquals(setOf(1, 2), TrackQuality.jumpRestores(pts, DRIVING, alongPath))
+    }
+
+    @Test fun `the ceiling the track already had withdraws nothing`() {
+        val pts = listOf(
+            onPath(0, 0.0),
+            flagged(1, 20.0, IgnoreReason.JUMP),
+            flagged(2, 40.0, IgnoreReason.JUMP),
+        )
+        assertTrue(TrackQuality.jumpRestores(pts, WALKING, alongPath).isEmpty())
+    }
+
+    @Test fun `a fix the corrected ceiling still rejects keeps its flag`() {
+        // 360 km/h — past even the vehicle ceiling, so no retype speaks for it.
+        val pts = listOf(onPath(0, 0.0), flagged(1, 100.0, IgnoreReason.JUMP))
+        assertTrue(TrackQuality.jumpRestores(pts, DRIVING, alongPath).isEmpty())
+    }
+
+    @Test fun `a fix that stays rejected is no baseline for the one after it`() {
+        // The teleport keeps its flag, so the fix behind it is measured from the last *good* one:
+        // 5 m over 2 s, which is a walking pace and comes back to the path.
+        val pts = listOf(
+            onPath(0, 0.0),
+            flagged(1, 100.0, IgnoreReason.JUMP),
+            flagged(2, 5.0, IgnoreReason.JUMP),
+        )
+        assertEquals(setOf(2), TrackQuality.jumpRestores(pts, DRIVING, alongPath))
+    }
+
+    @Test fun `a restored fix becomes the next one's baseline`() {
+        // 15 m in the first second (54 km/h) is fine for a bicycle, so that fix returns — and the
+        // 23 m step off it (82.8 km/h) is not, so the next one stays flagged. Measured from the
+        // fix before instead, it would read 68.4 km/h and be handed back with it.
+        val pts = listOf(
+            onPath(0, 0.0),
+            flagged(1, 15.0, IgnoreReason.JUMP),
+            flagged(2, 38.0, IgnoreReason.JUMP),
+        )
+        assertEquals(setOf(1), TrackQuality.jumpRestores(pts, ActivityType.CYCLING, alongPath))
+    }
+
+    @Test fun `a flag with no good fix before it stands`() {
+        // The imported leading stray: its verdict came from the track's own following pace, which
+        // no ceiling is entitled to overturn — and there is no step to re-measure anyway.
+        val pts = listOf(
+            flagged(0, 0.0, IgnoreReason.JUMP),
+            onPath(1, 10.0),
+            onPath(2, 20.0),
+        )
+        assertTrue(TrackQuality.jumpRestores(pts, DRIVING, alongPath).isEmpty())
+    }
+
+    @Test fun `only jump flags are withdrawn`() {
+        // Neither an accuracy radius nor a missing satellite backing depends on the activity, and a
+        // legacy ignored point (no reason stored) could be either.
+        val pts = listOf(
+            onPath(0, 0.0),
+            flagged(1, 10.0, IgnoreReason.ACCURACY),
+            flagged(2, 20.0, IgnoreReason.NO_GNSS),
+            onPath(3, 30.0).copy(ignored = true),
+            flagged(4, 40.0, IgnoreReason.JUMP),
+        )
+        assertEquals(setOf(4), TrackQuality.jumpRestores(pts, DRIVING, alongPath))
+    }
+
+    @Test fun `an edge-stay fix carries the baseline like the good fix it is`() {
+        // The 25 m step off the arrival fix reads 90 km/h, past the bicycle ceiling. Stretching the
+        // gap across the stay instead would read 54 km/h and hand a real teleport back.
+        val pts = listOf(
+            onPath(0, 0.0),
+            flagged(1, 5.0, IgnoreReason.EDGE_STAY),
+            flagged(2, 30.0, IgnoreReason.JUMP),
+        )
+        assertTrue(TrackQuality.jumpRestores(pts, ActivityType.CYCLING, alongPath).isEmpty())
+    }
+
+    @Test fun `a teleport over a non-positive time gap is never handed back`() {
+        // No time to have travelled it in — infinitely fast under any ceiling.
+        val pts = listOf(onPath(0, 0.0), flagged(0, 11.0, IgnoreReason.JUMP))
+        assertTrue(TrackQuality.jumpRestores(pts, DRIVING, alongPath).isEmpty())
     }
 }

@@ -350,6 +350,48 @@ class TrackRepositoryTest {
         assertEquals(before.endedAt, after.endedAt)
     }
 
+    @Test fun `retyping to a faster activity hands back the fixes the old ceiling rejected`() = runTest {
+        // A drive Activity Recognition took for walking. The fixture steps ~110 m per 10 s (~40
+        // km/h): a teleport under walking's 12 km/h ceiling, an ordinary road pace once the track
+        // says driving, so the fixes the recorder rejected belong back on the path.
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints(
+            (0..3).map { test.point(id, it) } +
+                (4..7).map {
+                    test.point(id, it, ignored = true).copy(ignoreReason = IgnoreReason.JUMP.code)
+                },
+        )
+        repository.finishTrack(id, TEST_START + 80_000)
+        assertEquals(4, dao.track(id)!!.ignoredCount)
+        val rejected = dao.track(id)!!.distanceMeters
+
+        repository.setActivityType(id, ActivityType.DRIVING)
+
+        val after = dao.track(id)!!
+        assertEquals("DRIVING", after.activityType)
+        assertEquals("the whole track is back on the path", 0, after.ignoredCount)
+        assertEquals(8, after.pointCount)
+        assertTrue("the restored half counts toward the distance", after.distanceMeters > rejected)
+        assertStatsMatchPoints(id)
+    }
+
+    @Test fun `retyping to a slower activity flags nothing`() = runTest {
+        // The rule only ever withdraws: a drive relabelled as a walk would otherwise have most of
+        // its path called noise on the strength of a label.
+        val id = repository.startTrack(ActivityType.DRIVING, TEST_START)
+        repository.addPoints((0..7).map { test.point(id, it) })
+        repository.finishTrack(id, TEST_START + 80_000)
+        val before = dao.track(id)!!
+
+        repository.setActivityType(id, ActivityType.WALKING)
+
+        val after = dao.track(id)!!
+        assertEquals("WALKING", after.activityType)
+        assertEquals(before.ignoredCount, after.ignoredCount)
+        assertEquals(before.pointCount, after.pointCount)
+        assertEquals(before.distanceMeters, after.distanceMeters, 0.0)
+    }
+
     @Test fun `the track screen's load splits a track's points three ways`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
         val rawEnd = addWalkThenLingerTail(id)

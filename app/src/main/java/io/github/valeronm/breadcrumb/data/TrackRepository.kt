@@ -187,21 +187,63 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     /**
      * Reassign a finished track's activity (misdetected, or an imported GPX without a type).
      *
-     * The activity chooses the detector's tuning ([EdgeStayDetector.paramsFor]), so a reassignment
-     * that crosses into or out of a vehicle leaves the stored overrun as the *other* rule found it
-     * — until the next [EdgeStayDetector.RULE_VERSION] sweep, which may be releases away. The
-     * track's overrun is therefore re-derived here, exactly when the tuning changes: a retype
-     * within a group (walking → running) is the plain column write it always was.
+     * The activity is the input to two stored verdicts, and both are re-derived here rather than
+     * left for a sweep that may be releases away:
+     *  - it chooses the overrun detector's tuning ([EdgeStayDetector.paramsFor]), so a reassignment
+     *    across the foot/vehicle line would otherwise leave the stored overrun as the *other* rule
+     *    found it;
+     *  - it sets the jump ceiling ([TrackQuality.jumpCeilingKmh]), so a drive that Activity
+     *    Recognition took for walking arrives judged against 12 km/h, most of its path rejected as
+     *    teleports. Correcting the activity is what says that ceiling was wrong, and
+     *    [TrackQuality.jumpRestores] hands those fixes back — only ever back, never the reverse.
+     *
+     * Both questions are asked of the derived values rather than of the group, so a third set of
+     * params or ceiling needs no edit here; when neither moved, the retype is the plain column
+     * write it always was. An open track is left to the recorder, which is still gating its fixes
+     * on the activity it detects and settles the edges when it finishes.
      */
     suspend fun setActivityType(trackId: Long, activityType: ActivityType) {
         val track = dao.track(trackId) ?: return
-        // Asked of the tuning rather than the group, so a third set of params (a bicycle floor,
-        // say) needs no edit here — and the whole point walk is skipped when nothing would move.
         val retuned =
             EdgeStayDetector.paramsFor(activityType.name) != EdgeStayDetector.paramsFor(track.activityType)
+        // An unreadable stored activity has no ceiling to compare against, so nothing is withdrawn.
+        val wasType = ActivityType.ofName(track.activityType)
+        val raised = wasType != null &&
+            TrackQuality.jumpCeilingKmh(activityType) > TrackQuality.jumpCeilingKmh(wasType)
         db.withTransaction {
             dao.setActivityType(trackId, activityType.name)
-            if (retuned) rederiveEdgeStays(track.copy(activityType = activityType.name))
+            val endedAt = track.endedAt ?: return@withTransaction
+            if (!retuned && !raised) return@withTransaction
+            val retyped = track.copy(activityType = activityType.name)
+            val stored = dao.allPointsFor(trackId)
+            val restored = if (raised) restoreJumps(trackId, stored, activityType) else stored
+            // Run unconditionally once either rule is in play: restoring a fix moves the first or
+            // last *good* point, which is where the overrun rule takes its bearings from.
+            val applied = applyEdgeStays(retyped, endedAt, restored)
+            if (restored !== stored || applied.changed) refreshStats(trackId, applied.points)
+        }
+    }
+
+    /**
+     * Hand back the jump-flagged fixes the retyped activity's ceiling accepts ([TrackQuality.jumpRestores]),
+     * and return the points as their rows now read — the same list when nothing moved, so the
+     * caller can tell by identity. The caller supplies the transaction.
+     */
+    private suspend fun restoreJumps(
+        trackId: Long,
+        points: List<TrackPoint>,
+        activityType: ActivityType,
+    ): List<TrackPoint> {
+        val restores = TrackQuality.jumpRestores(points, activityType, AndroidDistance)
+        if (restores.isEmpty()) return points
+        restores.map { points[it].id }.chunked(POINT_ID_CHUNK).forEach { dao.clearIgnored(it) }
+        DebugLog.i(
+            TAG,
+            "track $trackId: ${restores.size} jump fixes restored under the " +
+                "${activityType.name.lowercase()} ceiling",
+        )
+        return points.mapIndexed { i, p ->
+            if (i in restores) p.copy(ignored = false, ignoreReason = null) else p
         }
     }
 

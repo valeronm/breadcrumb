@@ -22,7 +22,7 @@ object TrackQuality {
     private const val MIN_JUMP_M = 10.0
 
     /** Plausible upper-bound ground speed (km/h) per activity, used to reject teleport fixes. */
-    private fun maxSpeedKmh(activity: ActivityType): Double = when (activity) {
+    fun jumpCeilingKmh(activity: ActivityType): Double = when (activity) {
         ActivityType.WALKING, ActivityType.STILL -> 12.0
         ActivityType.RUNNING -> 30.0
         ActivityType.CYCLING -> 70.0
@@ -177,13 +177,75 @@ object TrackQuality {
         val accuracy = point.accuracy
         if (accuracy != null && accuracy >= gates.maxAccuracyM) return IgnoreReason.ACCURACY
         if (lastGood == null) return null
+        return if (stepSpeedKmh(lastGood, point, distance) > jumpCeilingKmh(activity)) IgnoreReason.JUMP else null
+    }
+
+    /**
+     * The speed (km/h) the step from [lastGood] to [point] implies — the one number the jump rule
+     * judges, shared by the live check and the re-derivation below so the two can't drift.
+     *
+     * A non-positive time gap can't be divided by: a step longer than [MIN_JUMP_M] over one is
+     * infinitely fast (nowhere to have travelled it in), a shorter one is standing still.
+     */
+    private fun stepSpeedKmh(lastGood: TrackPoint, point: TrackPoint, distance: DistanceFn): Double {
         val gapMeters = distanceMeters(lastGood, point, distance)
         val dtSec = (point.timestamp - lastGood.timestamp) / 1000.0
-        val speedKmh = when {
+        return when {
             dtSec > 0 -> gapMeters / dtSec * 3.6
             gapMeters > MIN_JUMP_M -> Double.MAX_VALUE
             else -> 0.0
         }
-        return if (speedKmh > maxSpeedKmh(activity)) IgnoreReason.JUMP else null
+    }
+
+    /**
+     * Which [IgnoreReason.JUMP] flags in [points] the [activity] ceiling accepts — the indices of
+     * the fixes a retype hands back to the path, by position in the list given (the
+     * [EdgeStayIgnore][io.github.valeronm.breadcrumb.domain.EdgeStayIgnore] convention).
+     *
+     * **Withdraws flags, never adds them.** A track recorded under a misdetected activity was
+     * judged by the wrong ceiling — a drive taken for walking is measured against 12 km/h and
+     * arrives with most of its path rejected — and correcting the activity is what says the
+     * ceiling was wrong. The converse is not the same statement: retyping *down* would flag the
+     * bulk of a real journey as noise on the strength of a label, so the rule stays silent there
+     * and the recorder's verdict stands. A flag therefore only ever comes off, and a track settles
+     * on the most permissive activity it has ever carried.
+     *
+     * Three things the walk gets right that a per-point filter wouldn't:
+     *  - **A rejected fix is no baseline.** Restoring one makes it the next fix's baseline, so a
+     *    run of rejects unwinds from the front — the same cascade the live rule produced going in.
+     *  - **With no preceding good fix there is no step to re-measure**, so the flag stands. That is
+     *    the imported leading stray ([leadingPointIsJump]), whose verdict came from the track's own
+     *    following pace rather than a ceiling — not something a ceiling may overturn.
+     *  - **Edge-stay fixes are good fixes** (a phone that had already arrived, not a bad reading),
+     *    so they carry the baseline like any other rather than stretching the gap across a stop.
+     *
+     * This is the ceiling of the activity the *track* now carries, not a replay of the live pass:
+     * that gated each fix on the activity confirmed at the moment it arrived, which within a group
+     * can differ from fix to fix (a run inside a walking track). Restore-only is what keeps the
+     * difference harmless — the coarser ceiling can hand fixes back, never take them.
+     */
+    fun jumpRestores(
+        points: List<TrackPoint>,
+        activity: ActivityType,
+        distance: DistanceFn = AndroidDistance,
+    ): Set<Int> {
+        val ceiling = jumpCeilingKmh(activity)
+        val restores = mutableSetOf<Int>()
+        var lastGood: TrackPoint? = null
+        for ((i, point) in points.withIndex()) {
+            if (!point.ignored || point.ignoreReason == IgnoreReason.EDGE_STAY.code) {
+                lastGood = point
+                continue
+            }
+            // Accuracy and no-GNSS rejections don't depend on the activity, and a legacy ignored
+            // point (no reason stored) could be either — neither is this rule's to withdraw.
+            if (point.ignoreReason != IgnoreReason.JUMP.code) continue
+            val baseline = lastGood ?: continue
+            if (stepSpeedKmh(baseline, point, distance) <= ceiling) {
+                restores += i
+                lastGood = point
+            }
+        }
+        return restores
     }
 }
