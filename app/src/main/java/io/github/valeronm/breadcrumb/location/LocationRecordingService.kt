@@ -38,6 +38,7 @@ import io.github.valeronm.breadcrumb.data.TrackStats
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.CarrierEvidence
 import io.github.valeronm.breadcrumb.domain.DeafnessWarning
 import io.github.valeronm.breadcrumb.domain.GnssSnapshot
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
@@ -49,6 +50,7 @@ import io.github.valeronm.breadcrumb.domain.RecordingAction
 import io.github.valeronm.breadcrumb.domain.StaleReadingOracle
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackController
+import io.github.valeronm.breadcrumb.domain.TrackGroup
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.ui.MainActivity
@@ -115,6 +117,14 @@ class LocationRecordingService : Service() {
     // [mutex] — every path that feeds it, reads it or restarts it runs there, [startLocationUpdates]
     // included (it is always reached through a withContext from inside the lock).
     private val confirmer = MovementConfirmer(AndroidDistance)
+
+    // The witness's case that the open track's label is wrong ([CarrierEvidence]): fed per fix
+    // alongside the verdict, judged once when the track closes. [openTrackActivity] is the
+    // *track's* label as opened — a same-group activity switch keeps the track's original label,
+    // so neither the evidence bar nor the rename verdict may follow the confirmed activity. Both
+    // touched only under [mutex].
+    private val carrierEvidence = CarrierEvidence()
+    private var openTrackActivity: ActivityType? = null
 
     // Set while the service is armed; duplicate ACTION_STARTs while armed are no-ops.
     @Volatile private var armed = false
@@ -543,6 +553,8 @@ class LocationRecordingService : Service() {
         lastFixAccuracyM = null
         lastFixRejectedByAccuracy = false
         noFixGuard.onTrackOpened()
+        openTrackActivity = activity
+        carrierEvidence.restart(TrackQuality.groupCeilingKmh(activity))
         val startedAt = now()
         trackStartedAt = startedAt
         activeTrackId = repository.startTrack(activity, startedAt)
@@ -648,7 +660,13 @@ class LocationRecordingService : Service() {
         controller.onClosed()
         pendingSegmentStart = false
         noFixGuard.onStopped()
-        repository.finishTrack(id, endedAt)
+        // The evidence verdict travels into the finish transaction: which labels rename, and to
+        // what, is the domain's decision (CarrierEvidence.renameFor) — a proven carried journey on
+        // a foot label finishes as "Moving" with its warm-up jump flags restored. The evidence is
+        // restarted when a track opens, so nothing carries over.
+        val renameTo = openTrackActivity?.let { carrierEvidence.renameFor(it) }
+        openTrackActivity = null
+        repository.finishTrack(id, endedAt, renameTo)
     }
 
     // The source is the platform GPS provider, not Play Services' fused provider: fused
@@ -879,6 +897,10 @@ class LocationRecordingService : Service() {
     private suspend fun ingestLocations(locations: List<Location>) {
         val maxAccuracyM = Settings.accuracyGateM(this).toFloat()
         val requireGnss = Settings.requireGnssFix(this)
+        // The last fix's verdict, handed to the publish below so the display doesn't walk the
+        // confirmer's window a second time per fix — the verdict is O(window), and this path runs
+        // per second.
+        var lastMotion: Motion? = null
         // One insert per batch — the platform listener's List overload can deliver several
         // buffered fixes at once.
         val batch = ArrayList<TrackPoint>(locations.size)
@@ -921,6 +943,9 @@ class LocationRecordingService : Service() {
             if (reason != IgnoreReason.ACCURACY && reason != IgnoreReason.NO_GNSS) {
                 confirmer.onFix(candidate.timestamp, candidate.latitude, candidate.longitude)
             }
+            // The same verdict, folded into the carrier evidence the track is judged by at finish.
+            carrierEvidence.onSample(candidate.timestamp, gates.motion, gate.parked != null)
+            lastMotion = gates.motion
             if (reason == IgnoreReason.NO_GNSS) {
                 DebugLog.i(TAG, "fix dropped — no recent GNSS backing (acc=${candidate.accuracy})")
             }
@@ -947,11 +972,33 @@ class LocationRecordingService : Service() {
         // from these points when the track is finished; the live figures the UI shows come from the
         // accumulator, via [TrackingStatus] below.
         if (batch.isNotEmpty()) repository.addPoints(batch)
-        publishStatus()
+        publishStatus(lastMotion)
     }
 
-    private fun publishStatus() {
-        val activity = gate.confirmed
+    /**
+     * While the verdict overrules a foot label — measured ground speed the label's own ceiling
+     * cannot explain — the Record card and notification say "Moving" ([ActivityType.UNKNOWN])
+     * instead of repeating the label. Display only, and structurally so: computed here, downstream
+     * of every decision, feeding nothing — not the gate, not the controller, not the ceiling — and
+     * it reverts by itself when the verdict drops out, being derived state recomputed at every
+     * publish rather than a mode to exit. With the cross-check off the verdict is [Motion.Unknown]
+     * and the substitution never triggers.
+     *
+     * The parked-STILL stretch is covered by the same test: the *confirmed* activity stays the
+     * foot label while a STILL is parked, which is exactly when the card should say "Moving".
+     */
+    private fun displayActivity(confirmed: ActivityType, motion: Motion): ActivityType {
+        if (confirmed.trackGroup != TrackGroup.FOOT) return confirmed
+        return if (TrackQuality.motionOverrules(confirmed, motion)) ActivityType.UNKNOWN else confirmed
+    }
+
+    /**
+     * [motion] lets a caller that already produced this moment's verdict (the per-fix ingest path)
+     * hand it over instead of paying a second window walk; everyone else leaves it null and the
+     * verdict is produced here.
+     */
+    private fun publishStatus(motion: Motion? = null) {
+        val activity = displayActivity(gate.confirmed, motion ?: motionVerdict(now()))
         val rec = activity.recording
         // The controller's phase is the one record of a pause, deadline included — read both off it
         // rather than mirroring the deadline in a field the pause/resume paths must keep in step.

@@ -12,7 +12,10 @@ package io.github.valeronm.breadcrumb.domain
 sealed interface Motion {
 
     /** The ground is provably moving, at [speedMps] averaged over the window that proved it. */
-    data class Moving(val speedMps: Double) : Motion
+    data class Moving(val speedMps: Double) : Motion {
+        /** [speedMps] in km/h — the unit every ceiling speaks, converted in exactly one place. */
+        val speedKmh: Double get() = speedMps * 3.6
+    }
 
     /**
      * The ground is provably still — every fix in the window sits within a few metres of the rest.
@@ -126,7 +129,7 @@ class MovementConfirmer(
             // calling that infinitely fast would widen the jump ceiling without bound.
             return if (elapsedSec > 0) Motion.Moving(movedM / elapsedSec) else Motion.Unknown
         }
-        return if (spreadM() <= params.stoppedMaxDisplacementM) Motion.Stopped else Motion.Unknown
+        return if (spreadWithin(params.stoppedMaxDisplacementM)) Motion.Stopped else Motion.Unknown
     }
 
     /**
@@ -150,9 +153,8 @@ class MovementConfirmer(
         }
     }
 
-    private class Mean(val timeMs: Long, val lat: Double, val lon: Double)
-
-    private fun mean(from: Int, until: Int): Mean {
+    /** A mean of fixes is itself a synthetic fix — same shape, same fields. */
+    private fun mean(from: Int, until: Int): Fix {
         var time = 0L
         var lat = 0.0
         var lon = 0.0
@@ -163,17 +165,20 @@ class MovementConfirmer(
             lon += fix.lon
         }
         val n = until - from
-        return Mean(time / n, lat / n, lon / n)
+        return Fix(time / n, lat / n, lon / n)
     }
 
-    /** How far the window's fixes spread from its oldest — the standstill test's measure. */
-    private fun spreadM(): Double {
+    /**
+     * Whether every fix stays within [maxM] of the window's oldest — the standstill test. Returns
+     * at the first fix that ranges out: the common non-standstill window fails within a few fixes,
+     * and only the comparison is ever used, never the exact spread.
+     */
+    private fun spreadWithin(maxM: Double): Boolean {
         val first = window.first()
-        var max = 0.0
         for (fix in window) {
-            max = maxOf(max, distance.meters(first.lat, first.lon, fix.lat, fix.lon))
+            if (distance.meters(first.lat, first.lon, fix.lat, fix.lon) > maxM) return false
         }
-        return max
+        return true
     }
 
     companion object {
@@ -196,7 +201,6 @@ class MovementConfirmer(
             val intervalMs = minIntervalSec.coerceAtLeast(1) * 1000L
             val minSpanMs = maxOf(BASE_SPAN_MS, (MIN_FIXES - 1) * intervalMs)
             return Params(
-                minFixes = MIN_FIXES,
                 minSpanMs = minSpanMs,
                 // Headroom over the span the verdict needs, so a window that has just filled isn't
                 // trimmed back under it by fixes the min-update-distance held back.

@@ -68,8 +68,9 @@ class ActivityGate {
     fun onMotion(motion: Motion): ActivityType? {
         val held = parked ?: return null
         if (contradicts(held, motion)) return null
+        // A held reading is never the trusted one: parking requires the reading to differ from
+        // [confirmed], and every path that moves [confirmed] rewrites the slot.
         parked = null
-        if (held == confirmed) return null
         confirmed = held
         return held
     }

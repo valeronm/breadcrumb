@@ -208,6 +208,30 @@ class TrackQualityTest {
         assertTrue("$ceiling should clear the observed 20.2 km/h with room", ceiling > 40.0)
     }
 
+    @Test fun `motion overrules a label only when it outruns that label's ceiling`() {
+        // The one predicate behind the live "Moving" display: a carried pace overrules a walking
+        // label but not a driving one, and anything short of Moving overrules nothing.
+        assertTrue(TrackQuality.motionOverrules(WALKING, CARRIED))
+        assertFalse(TrackQuality.motionOverrules(DRIVING, CARRIED))
+        assertFalse(TrackQuality.motionOverrules(WALKING, Motion.Unknown))
+        assertFalse(TrackQuality.motionOverrules(WALKING, Motion.Stopped))
+    }
+
+    @Test fun `the group ceiling is the most permissive of the group's labels`() {
+        // The carrier-evidence speed channel measures against this: a run inside a walking-labelled
+        // track sustains speeds above WALKING's own ceiling, so the group's is the honest bar.
+        assertEquals(
+            TrackQuality.jumpCeilingKmh(ActivityType.RUNNING),
+            TrackQuality.groupCeilingKmh(WALKING),
+            0.0,
+        )
+        assertEquals(
+            TrackQuality.jumpCeilingKmh(DRIVING),
+            TrackQuality.groupCeilingKmh(DRIVING),
+            0.0,
+        )
+    }
+
     @Test fun `no verdict can lift a fix above what some label already allows`() {
         // A lone teleport is fed to the confirmer like any other fix, so one can carry a window to
         // Moving on its own. The clamp is what bounds the cost: at worst the fix is judged as

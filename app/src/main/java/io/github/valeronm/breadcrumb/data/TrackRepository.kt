@@ -303,12 +303,28 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * [KeepRule.PURGE_MAX_POINTS] or fewer points in total (good + ignored), which is hard-deleted
      * outright — empty of information, so nothing to review in Recently deleted either.
      */
-    private suspend fun closeOrDelete(track: Track, endedAt: Long) = db.withTransaction {
+    private suspend fun closeOrDelete(track: Track, endedAt: Long, renameTo: ActivityType? = null) = db.withTransaction {
+        // The carrier rename happens first, inside the finish transaction, so everything after it —
+        // the jump restores, the edge stays, the stats and the keep verdict — judges the track the
+        // witness proved rather than the label detection guessed. Which labels rename, and to what,
+        // is the domain's decision (CarrierEvidence.renameFor) — this only applies it. A later
+        // manual retype is the last word, as everywhere; this runs before the track is ever
+        // user-visible as finished, so the two cannot fight.
+        val rename = renameTo?.takeIf { it.name != track.activityType }
+        if (rename != null) {
+            dao.setActivityType(track.id, rename.name)
+            DebugLog.i(TAG, "track ${track.id}: carrier evidence proven — finishing as ${rename.name}")
+        }
+        val closing = if (rename != null) track.copy(activityType = rename.name) else track
+        val stored = dao.allPointsFor(track.id)
+        // The rename target's ceiling outranks the foot label's by construction, so the warm-up
+        // fixes rejected before the confirmer had evidence come back here.
+        val points = if (rename != null) restoreJumps(track.id, stored, rename) ?: stored else stored
         // Finishing is where the track's aggregates are computed for the first time — the recorder
         // writes none of them while it records — and where the recorder's overrun is taken off the
         // path. The overrun comes off *before* the keep verdict deliberately: a track is judged on
         // the journey it recorded, not on the minutes it spent parked at the end of it.
-        val applied = applyEdgeStays(track, endedAt, dao.allPointsFor(track.id))
+        val applied = applyEdgeStays(closing, endedAt, points)
         val stats = refreshStats(track.id, applied.points)
         when (keepVerdict(track, applied.startedAt, applied.endedAt, stats)) {
             KeepRule.Verdict.KEEP -> dao.closeTrack(track.id, applied.endedAt)
@@ -494,9 +510,17 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         )
     }
 
-    suspend fun finishTrack(trackId: Long, endedAt: Long) {
+    /**
+     * [renameTo] is the carrier-evidence verdict, already decided in the domain
+     * (`CarrierEvidence.renameFor`: a proven carried journey on a foot label renames to
+     * UNKNOWN, "Moving") — this layer only applies it, inside the finish transaction, with the
+     * warm-up jump flags restored under the new label's ceiling. Defaulted to null, which is also
+     * what every path without evidence passes, so the finish is then exactly what it was before
+     * the evidence existed.
+     */
+    suspend fun finishTrack(trackId: Long, endedAt: Long, renameTo: ActivityType? = null) {
         val track = dao.track(trackId) ?: return
-        closeOrDelete(track, endedAt)
+        closeOrDelete(track, endedAt, renameTo)
     }
 
     /**

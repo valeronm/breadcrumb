@@ -88,6 +88,67 @@ class TrackRepositoryTest {
         assertStatsMatchPoints(id)
     }
 
+    // --- The carrier rename at finish ---------------------------------------
+    // Which labels rename, and to what, is the domain's decision (CarrierEvidence.renameFor,
+    // tested there); this layer applies the verdict inside the finish transaction — before the
+    // jump restores, the edge stays, the stats and the keep verdict, so the track is judged as
+    // what the witness proved, not what the label guessed.
+
+    @Test fun `a proven carried walk finishes as Moving with its jump flags restored`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints(
+            listOf(
+                test.point(id, 0),
+                // The warm-up window: fixes the foot ceiling rejected before the confirmer had
+                // evidence. Their step speed (~40 km/h) sits under UNKNOWN's ceiling.
+                test.point(id, 1, ignored = true).copy(ignoreReason = IgnoreReason.JUMP.code),
+                test.point(id, 2, ignored = true).copy(ignoreReason = IgnoreReason.JUMP.code),
+                test.point(id, 3),
+                test.point(id, 4),
+                test.point(id, 5),
+            ),
+        )
+
+        repository.finishTrack(id, TEST_START + 60_000, renameTo = ActivityType.UNKNOWN)
+
+        val track = dao.track(id)!!
+        assertEquals(ActivityType.UNKNOWN.name, track.activityType)
+        assertNull("a proven carrier is a real journey", track.discardedAt)
+        assertEquals("the warm-up flags came back", 6, goodPoints(id).size)
+        assertStatsMatchPoints(id)
+    }
+
+    @Test fun `a rename to the label the track already carries is the plain finish`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints((0..5).map { test.point(id, it) })
+
+        repository.finishTrack(id, TEST_START + 60_000, renameTo = ActivityType.WALKING)
+
+        val track = dao.track(id)!!
+        assertEquals(ActivityType.WALKING.name, track.activityType)
+        assertStatsMatchPoints(id)
+    }
+
+    @Test fun `a finish without evidence is the finish it always was`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints(
+            listOf(
+                test.point(id, 0),
+                test.point(id, 1, ignored = true).copy(ignoreReason = IgnoreReason.JUMP.code),
+                test.point(id, 2),
+                test.point(id, 3),
+                test.point(id, 4),
+            ),
+        )
+
+        repository.finishTrack(id, TEST_START + 60_000)
+
+        val track = dao.track(id)!!
+        assertEquals(ActivityType.WALKING.name, track.activityType)
+        assertEquals("the jump flag stands", 1, track.ignoredCount)
+        assertStatsMatchPoints(id)
+    }
+
     /**
      * The crash path. A track left open by a kill has a zeroed distance on its row (the recorder
      * never wrote one), so `finalizeDangling` must recompute from the points before applying the

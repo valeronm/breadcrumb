@@ -52,9 +52,31 @@ object TrackQuality {
     fun jumpCeilingKmh(activity: ActivityType, motion: Motion = Motion.Unknown): Double {
         val label = labelCeilingKmh(activity)
         val moving = motion as? Motion.Moving ?: return label
-        val observed = moving.speedMps * 3.6 * MOTION_CEILING_FACTOR
-        return maxOf(label, observed.coerceAtMost(MAX_CEILING_KMH))
+        return maxOf(label, derivedCeilingKmh(moving))
     }
+
+    /**
+     * Whether [motion] overrules [activity]'s own ceiling — measured ground speed the label cannot
+     * explain. The one statement of the condition the recorder's "Moving" display hangs on, kept
+     * next to the ceilings it compares so a change to either moves both.
+     */
+    fun motionOverrules(activity: ActivityType, motion: Motion): Boolean {
+        val moving = motion as? Motion.Moving ?: return false
+        return derivedCeilingKmh(moving) > labelCeilingKmh(activity)
+    }
+
+    /** The ceiling the measured pace argues for — margined for window-average lag, clamped. */
+    private fun derivedCeilingKmh(moving: Motion.Moving): Double =
+        (moving.speedKmh * MOTION_CEILING_FACTOR).coerceAtMost(MAX_CEILING_KMH)
+
+    /**
+     * The most permissive ceiling any activity in [activity]'s group carries — the bar the
+     * carrier-evidence speed channel measures against. The label's own ceiling would be the wrong
+     * bar: a run inside a walking-labelled track (same group, track keeps its label) sustains
+     * speeds above WALKING's ceiling, while no human sustains the group's.
+     */
+    fun groupCeilingKmh(activity: ActivityType): Double =
+        ActivityType.entries.filter { it.trackGroup == activity.trackGroup }.maxOf { labelCeilingKmh(it) }
 
     private fun labelCeilingKmh(activity: ActivityType): Double = when (activity) {
         ActivityType.WALKING, ActivityType.STILL -> 12.0
