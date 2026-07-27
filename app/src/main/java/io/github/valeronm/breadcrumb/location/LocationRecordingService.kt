@@ -29,6 +29,7 @@ import androidx.core.location.LocationManagerCompat
 import androidx.core.location.LocationRequestCompat
 import io.github.valeronm.breadcrumb.App
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackQuality
@@ -40,6 +41,8 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DeafnessWarning
 import io.github.valeronm.breadcrumb.domain.GnssSnapshot
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.Motion
+import io.github.valeronm.breadcrumb.domain.MovementConfirmer
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ReadingClock
 import io.github.valeronm.breadcrumb.domain.RecordingAction
@@ -106,6 +109,12 @@ class LocationRecordingService : Service() {
     // that into track lifecycle actions. All access is under [mutex].
     private val gate = ActivityGate()
     private val controller = TrackController()
+
+    // The second witness: what the position stream says the ground is doing, so a "you have
+    // stopped" reading can be weighed against it rather than believed on sight. Touched only under
+    // [mutex] — every path that feeds it, reads it or restarts it runs there, [startLocationUpdates]
+    // included (it is always reached through a withContext from inside the lock).
+    private val confirmer = MovementConfirmer(AndroidDistance)
 
     // Set while the service is armed; duplicate ACTION_STARTs while armed are no-ops.
     @Volatile private var armed = false
@@ -323,10 +332,56 @@ class LocationRecordingService : Service() {
         val nowMs = now()
         val readingMs = onReadingArrived(eventTimeMs, nowMs)
         // Debounce the raw reading into a trusted activity signal; nothing to apply if the trusted
-        // activity didn't move.
+        // activity didn't move — or if the ground contradicts it, in which case the gate holds it
+        // until [promoteParkedReading] finds it credible.
         val previous = gate.confirmed
-        val changed = gate.onReading(raw) ?: return
+        val changed = gate.onReading(raw, motionVerdict(nowMs))
+        if (changed == null) {
+            gate.parked?.let { DebugLog.i(TAG, "motion cross-check: holding $it — the ground is still moving") }
+            return
+        }
         applyConfirmed(previous, changed, readingMs, nowMs - readingMs)
+    }
+
+    /**
+     * **The one place the cross-check's verdict is produced, and so the one place its setting is
+     * read.** Every consultation defines a [Motion.Unknown] case identical to the recorder's
+     * behaviour before there was a second witness, so switching the feature off is this one branch
+     * and nothing downstream knows a switch exists.
+     *
+     * The confirmer is fed whether or not the setting is on — a ring push of arithmetic — so
+     * turning it on takes effect at once instead of after a warm-up window. Caller holds [mutex].
+     */
+    private fun motionVerdict(atMs: Long): Motion =
+        if (Settings.motionCrossCheck(this)) confirmer.verdict(atMs) else Motion.Unknown
+
+    /**
+     * Reconsider a reading the ground contradicted, and apply it if the contradiction has cleared.
+     * Caller holds [mutex].
+     */
+    private suspend fun promoteParkedReading(motion: Motion) {
+        val previous = gate.confirmed
+        val promoted = gate.onMotion(motion) ?: return
+        DebugLog.i(TAG, "motion cross-check: releasing the held $promoted")
+        // **The promotion's own time, not the reading's.** The controller measures the resume
+        // window from the time it is given, and a reading held longer than that window would
+        // promote into a pause that had already lapsed — the holding silently replacing the resume
+        // window instead of preceding it. The hold is evidence the stop had not begun yet, so the
+        // window that follows it is the first one measuring an actual stop.
+        applyConfirmed(previous, promoted, now(), readingLagMs = 0L)
+    }
+
+    /**
+     * A tick's worth of "is that held reading credible yet?". Cheap when nothing is held, which is
+     * always the case with the cross-check off — parking takes a verdict, and the verdict is then
+     * [Motion.Unknown].
+     *
+     * The pre-check reads gate state off the mutex, like the one in [maybeGiveUpOnNoFix]: a stale
+     * read costs at most one tick's delay, since the caller ticks about once a second.
+     */
+    private fun checkParkedReading() {
+        if (gate.parked == null) return
+        scope.launch { mutex.withLock { promoteParkedReading(motionVerdict(now())) } }
     }
 
     /**
@@ -540,6 +595,11 @@ class LocationRecordingService : Service() {
         // The alarm fires in Doze, where the pause wake's coroutine delay does not — so this is
         // also where a pause whose window quietly expired gets closed.
         finalizeExpiredPause()
+        // …and where a held reading is guaranteed a revisit. The GNSS tick that normally releases
+        // one exists only while GPS is on, so this alarm is what makes "a held reading never
+        // depends on GPS staying on" true of every path rather than of the ones thought of: with
+        // GPS off the window is stale, the verdict abstains, and the reading goes through.
+        checkParkedReading()
         if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) {
             // Request-only, deliberately not restart(): a plain request refreshes a healthy
             // registration without touching it, and replays the latest transition, which is what
@@ -600,9 +660,15 @@ class LocationRecordingService : Service() {
     private fun startLocationUpdates() {
         if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) return
         stopLocationUpdates()
-        val intervalMs = Settings.minIntervalSec(this) * 1000L
+        val intervalSec = Settings.minIntervalSec(this)
+        val intervalMs = intervalSec * 1000L
         val minDistanceM = Settings.minDistanceM(this).toFloat()
         noFixGuard.onProbeStarted(SystemClock.elapsedRealtime())
+        // The confirmer's window is shaped by the cadence, so it is re-derived where the cadence is
+        // read — and emptied here, since this path also runs on a resume, on a new track and on
+        // every no-fix probe retry, and fixes from before such a gap describe a different stretch
+        // of the journey. An empty window abstains, i.e. behaves as if there were no cross-check.
+        confirmer.restart(MovementConfirmer.forSampling(intervalSec))
         val lm = locationManager ?: return
         val request = LocationRequestCompat.Builder(intervalMs)
             .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
@@ -648,11 +714,23 @@ class LocationRecordingService : Service() {
      */
     private fun maybeGiveUpOnNoFix() {
         val giveUpMs = Settings.gpsGiveUpSec(this) * 1000L
+        // The un-vetoed check is the cheap racy pre-filter; the veto needs the verdict, and the
+        // verdict needs the lock.
         if (gpsListener == null || !noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return
         scope.launch {
             mutex.withLock {
                 if (gpsListener == null || activeTrackId == null || controller.isPaused) return@withLock
-                if (!noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return@withLock
+                val motion = motionVerdict(now())
+                if (!noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs, motion)) return@withLock
+                // GPS is about to go, and with it the tick that would ever revisit a held reading —
+                // so it is reconsidered here, on the way down. The veto above is what makes that
+                // honest: reaching this line means fixes have genuinely ceased, so there is no
+                // longer any moving ground to contradict a stop.
+                promoteParkedReading(motion)
+                // A promotion may have paused the track, and [pauseTrack] both stops GPS and arms
+                // its own resume-deadline wake. Carrying on would arm the no-fix resume signals on
+                // top of that, leaving one track with two mechanisms waiting to revive it.
+                if (controller.isPaused) return@withLock
                 val backoffMs = noFixGuard.onGaveUp(SystemClock.elapsedRealtime())
                 DebugLog.i(
                     TAG,
@@ -771,6 +849,7 @@ class LocationRecordingService : Service() {
                     lastGnssFixElapsedMs = SystemClock.elapsedRealtime()
                 }
                 maybeGiveUpOnNoFix()
+                checkParkedReading()
             }
         }
         gnssCallback = callback
@@ -827,8 +906,21 @@ class LocationRecordingService : Service() {
             // Bad fixes are still stored (with the reason), just excluded from distance and the
             // good-point baseline. The rule weighs all three reasons and their order; this reports
             // the platform evidence for one of them (null = the cross-check is off).
-            val gates = TrackQuality.Gates(maxAccuracyM, if (requireGnss) isGnssBacked(loc) else null)
+            // The motion verdict is taken against the ground as it stood *before* this fix joined
+            // the window, so a fix can never be part of the evidence that clears it.
+            val gates = TrackQuality.Gates(
+                maxAccuracyM,
+                if (requireGnss) isGnssBacked(loc) else null,
+                motionVerdict(candidate.timestamp),
+            )
             val reason = TrackQuality.badFixReason(baseline, candidate, gate.confirmed, gates)
+            // The feed contract ([MovementConfirmer]): every fix that cleared the *label-independent*
+            // gates, and only those. A jump-flagged fix is included deliberately — its rejection came
+            // from the activity ceiling, which is the very thing the witness exists to second-guess,
+            // and withholding it would make the witness inherit that error.
+            if (reason != IgnoreReason.ACCURACY && reason != IgnoreReason.NO_GNSS) {
+                confirmer.onFix(candidate.timestamp, candidate.latitude, candidate.longitude)
+            }
             if (reason == IgnoreReason.NO_GNSS) {
                 DebugLog.i(TAG, "fix dropped — no recent GNSS backing (acc=${candidate.accuracy})")
             }

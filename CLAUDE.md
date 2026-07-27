@@ -118,6 +118,29 @@ The pieces below only make sense together — read them as a unit.
   and the window lapsing finalizes it. `START_STICKY` + the persisted armed flag resume after
   process death; `BootReceiver` resumes after reboot.
 
+**Activity Recognition describes the user's body, not the journey**, and three recorder decisions
+read it as though it described the journey: when to pause, where tracks split, and which jump
+ceiling judges a fix. Aboard anything that carries the phone the body genuinely is still while the
+ground moves at vehicle speed, so a crossing is paused away, fragmented, and has its fixes rejected
+as teleports. `MovementConfirmer` is the second witness: a trailing window of accepted fixes
+answering only *is the ground moving?* (`Motion.Moving` / `Stopped` / `Unknown`). **`Unknown` is
+both the fallback and the off switch** — every consultation must define an `Unknown` case identical
+to the pre-witness behaviour, so the setting branches at exactly one place (the service's
+`motionVerdict`) and nothing downstream knows a switch exists. That invariant is what the untouched
+pre-change suites for `ActivityGate`, `TrackQuality` and `NoFixGuard` pin; a consultation that
+can't be expressed as a `Motion.Unknown`-defaulted parameter is a design smell, not a workaround.
+Four consultations exist: the gate **parks** a STILL the ground contradicts rather than dropping it
+(the AR stream is edge-triggered — a discarded stop is never re-announced), the jump ceiling rises
+to fit measured ground speed (clamped to the most permissive activity ceiling, since a lone teleport
+is fed to the confirmer like any other fix), a `Moving` verdict vetoes the no-fix give-up, and every
+path that turns GPS off re-evaluates the parked slot on the way down. Promotion rides the
+`GnssStatus` callback, with the 15-minute watchdog alarm as the guaranteed revisit — there is
+deliberately no parked-too-long cap, because a fresh verdict distinguishes a stale hold from a
+crossing still under way and a deadline cannot. **The feed contract is where the circularity
+hides:** the confirmer gets every fix that cleared the *label-independent* gates and only those, so
+`JUMP`-flagged fixes are included — they were rejected by the very label the witness exists to
+second-guess. Default off pending field data.
+
 **State bridge:** `location/TrackingStatus` is a process-wide `MutableStateFlow` the service writes
 and the UI collects — this is how live recording state reaches Compose without binding to the service.
 
@@ -132,7 +155,8 @@ params are not free to move; splitting tracks at stops is designed but
 not built), `EdgeStayDetector` (the recorder's overrun at a track's edges, where Activity
 Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to the points),
 `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
-`DeafnessWarning` (decide when to tell the user about it). New behavior
+`DeafnessWarning` (decide when to tell the user about it), `MovementConfirmer` (the recording
+pipeline's second witness — see below). New behavior
 belongs here first, with a test, before wiring into the service or UI. The shared vocabulary lives
 here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, and the `DistanceFn` seam (production
 implementation `data/AndroidDistance`; the GMS `DetectedActivity` mapping is
@@ -144,7 +168,7 @@ domain defaults for the same reason.
 
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
 time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
-auto-pause resume window, the GPS give-up timeout, and keep-track
+auto-pause resume window and its motion cross-check toggle, the GPS give-up timeout, and keep-track
 thresholds (min duration/length/extent). It also holds two pieces of recorder bookkeeping that
 aren't user settings at all: the liveness heartbeat timestamp, and the `EdgeStayDetector` rule
 version last swept — the latter is what makes `App.onCreate` re-derive the whole history.

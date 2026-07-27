@@ -4,6 +4,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.Motion
 
 /**
  * Pure track geometry and fix-quality math over recorded [TrackPoint]s — distance, bounding extent,
@@ -21,8 +22,41 @@ object TrackQuality {
     /** A position delta below this (meters) over a zero/negative time gap isn't a real jump. */
     private const val MIN_JUMP_M = 10.0
 
-    /** Plausible upper-bound ground speed (km/h) per activity, used to reject teleport fixes. */
-    fun jumpCeilingKmh(activity: ActivityType): Double = when (activity) {
+    /**
+     * Plausible upper-bound ground speed (km/h) for a fix recorded under [activity], used to reject
+     * teleports — raised to fit [motion] when the position stream has positively measured the
+     * ground moving faster than the label allows for.
+     *
+     * **The label describes the user's body; a carried journey moves the ground underneath it.**
+     * Aboard a vessel or a train the body is walking or still, and judging the deck's speed by a
+     * pedestrian's ceiling rejects the whole crossing as teleports — accurately recorded fixes,
+     * discarded for disagreeing with a label that was never about the journey. Measured ground
+     * speed is the evidence that says the label's ceiling is too tight for this fix.
+     *
+     * Three properties keep that from becoming a licence:
+     *
+     *  - **It only ever raises.** The greater of the two is taken, so a verdict can hand a fix the
+     *    benefit of the doubt but never withdraw one the label already granted.
+     *  - **[MOTION_CEILING_FACTOR] is generous on purpose.** [Motion.Moving.speedMps] is a window
+     *    *average*, and a carrier accelerating or rounding a headland is instantaneously well above
+     *    the average that produced the verdict — a tight margin would reject exactly those fixes.
+     *  - **It is clamped to the most permissive ceiling any activity carries.** A lone teleport is
+     *    fed to the confirmer like any other fix (that feed contract is what keeps the witness from
+     *    inheriting the error it checks) and can carry a window to [Motion.Moving] on its own. The
+     *    clamp bounds what that can buy: at worst a fix is judged as though the track were a drive,
+     *    which is a ceiling the recorder already grants on a label alone.
+     *
+     * [Motion.Unknown] — the verdict with the cross-check switched off, and whenever the sky is
+     * blocked — leaves the label's ceiling exactly as it was.
+     */
+    fun jumpCeilingKmh(activity: ActivityType, motion: Motion = Motion.Unknown): Double {
+        val label = labelCeilingKmh(activity)
+        val moving = motion as? Motion.Moving ?: return label
+        val observed = moving.speedMps * 3.6 * MOTION_CEILING_FACTOR
+        return maxOf(label, observed.coerceAtMost(MAX_CEILING_KMH))
+    }
+
+    private fun labelCeilingKmh(activity: ActivityType): Double = when (activity) {
         ActivityType.WALKING, ActivityType.STILL -> 12.0
         ActivityType.RUNNING -> 30.0
         ActivityType.CYCLING -> 70.0
@@ -31,6 +65,12 @@ object TrackQuality {
         ActivityType.FERRY -> 120.0
         ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN -> 220.0
     }
+
+    /** How far above the observed window average a fix may still be believed. */
+    private const val MOTION_CEILING_FACTOR = 2.5
+
+    /** Derived, not written down: the clamp is "no more than some label already allows". */
+    private val MAX_CEILING_KMH = ActivityType.entries.maxOf { labelCeilingKmh(it) }
 
     fun distanceMeters(a: TrackPoint, b: TrackPoint, distance: DistanceFn = AndroidDistance): Double =
         distance.meters(a.latitude, a.longitude, b.latitude, b.longitude)
@@ -144,11 +184,22 @@ object TrackQuality {
     }
 
     /**
-     * What the point-quality gates have to say about one fix: the configured accuracy limit, and
-     * the GNSS cross-check's verdict for this fix — null when the cross-check is switched off,
-     * which is not the same as false (see [badFixReason]).
+     * Everything outside the two points themselves that decides a fix's verdict — one field per
+     * reason [badFixReason] can report:
+     *
+     *  - [gnssBacked] → [IgnoreReason.NO_GNSS]: the cross-check's verdict for this fix, or null
+     *    when the cross-check is switched off, which is not the same as false (see [badFixReason]).
+     *  - [maxAccuracyM] → [IgnoreReason.ACCURACY]: the configured accuracy limit.
+     *  - [motion] → [IgnoreReason.JUMP]: what the position stream says the ground is doing, which
+     *    together with the activity sets how high the jump gate stands (see [jumpCeilingKmh]).
+     *    [Motion.Unknown] — the default, and what the recorder passes with the cross-check off —
+     *    leaves that gate at the activity's own height.
      */
-    data class Gates(val maxAccuracyM: Float, val gnssBacked: Boolean? = null)
+    data class Gates(
+        val maxAccuracyM: Float,
+        val gnssBacked: Boolean? = null,
+        val motion: Motion = Motion.Unknown,
+    )
 
     /**
      * Whether [point] is a bad fix relative to the last accepted ("good") point, and why — or null
@@ -168,6 +219,13 @@ object TrackQuality {
      * the speed logic is host-testable. The GNSS evidence arrives as a plain Boolean because
      * deciding it is `GnssSnapshot.backed`'s job — the caller reads two platform timestamps and
      * nothing more.
+     *
+     * [Gates.motion] reaches only the jump ceiling — see [jumpCeilingKmh]. It defaults to
+     * [Motion.Unknown], which is also what the recorder passes with the cross-check switched off,
+     * so the rule is then exactly what it was before there was a second witness. The two reasons
+     * above it are untouched by it on purpose: they judge a fix on its own merits rather than
+     * against a label, and they are the very gates that decide which fixes the position stream's
+     * witness may be fed at all.
      */
     fun badFixReason(
         lastGood: TrackPoint?,
@@ -180,7 +238,11 @@ object TrackQuality {
         val accuracy = point.accuracy
         if (accuracy != null && accuracy >= gates.maxAccuracyM) return IgnoreReason.ACCURACY
         if (lastGood == null) return null
-        return if (stepSpeedKmh(lastGood, point, distance) > jumpCeilingKmh(activity)) IgnoreReason.JUMP else null
+        return if (stepSpeedKmh(lastGood, point, distance) > jumpCeilingKmh(activity, gates.motion)) {
+            IgnoreReason.JUMP
+        } else {
+            null
+        }
     }
 
     /**

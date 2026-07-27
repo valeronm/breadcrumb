@@ -44,9 +44,25 @@ class NoFixGuard(
      * Whether the current probe has run [giveUpMs] with nothing accepted — measured from the probe
      * start or the last accepted fix, whichever is later, so a long mid-track signal loss counts
      * too. [giveUpMs] ≤ 0 disables the guard.
+     *
+     * **A [Motion.Moving] verdict vetoes the give-up**, because it is positive evidence that fixes
+     * are arriving and the sky is visible — which makes the guard's whole premise, that GPS cannot
+     * get a fix here, simply false. The guard is *likelier* to reach that state on a carrier than
+     * anywhere else: [onFixAccepted] is called only for fixes that passed the quality gates, so a
+     * journey whose fixes are all rejected against a pedestrian ceiling starves the guard despite
+     * perfect reception, and turning GPS off there would lose exactly the journey the cross-check
+     * exists to keep.
+     *
+     * [motion] defaults to [Motion.Unknown] — also what the recorder passes with the cross-check
+     * switched off — so the guard is then bit-for-bit the one that predates the second witness.
+     * [Motion.Stopped] gives up as before: a standstill is no reason to keep a fruitless probe
+     * running.
      */
-    fun shouldGiveUp(nowMs: Long, giveUpMs: Long): Boolean =
-        giveUpMs > 0 && !suspended && nowMs - maxOf(probeStartedMs, lastAcceptedMs) >= giveUpMs
+    fun shouldGiveUp(nowMs: Long, giveUpMs: Long, motion: Motion = Motion.Unknown): Boolean =
+        giveUpMs > 0 &&
+            !suspended &&
+            motion !is Motion.Moving &&
+            nowMs - maxOf(probeStartedMs, lastAcceptedMs) >= giveUpMs
 
     /** Record the failed probe and suspend. Returns how long motion-triggered retries are gated. */
     fun onGaveUp(nowMs: Long): Long {

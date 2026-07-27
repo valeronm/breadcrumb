@@ -4,6 +4,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.Motion
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,8 +28,11 @@ class TrackQualityTest {
     private fun gap(meters: Double) = DistanceFn { _, _, _, _ -> meters }
 
     /** The gates as configured, 50 m accuracy and the GNSS cross-check off, unless a case varies one. */
-    private fun gates(maxAccuracyM: Float = 50f, gnssBacked: Boolean? = null) =
-        TrackQuality.Gates(maxAccuracyM, gnssBacked)
+    private fun gates(
+        maxAccuracyM: Float = 50f,
+        gnssBacked: Boolean? = null,
+        motion: Motion = Motion.Unknown,
+    ) = TrackQuality.Gates(maxAccuracyM, gnssBacked, motion)
 
     private fun point(
         timestamp: Long,
@@ -141,6 +145,78 @@ class TrackQualityTest {
         assertEquals(
             IgnoreReason.ACCURACY,
             TrackQuality.badFixReason(point(0), imprecise, WALKING, gates(gnssBacked = true), gap(9_999.0)),
+        )
+    }
+
+    // --- The ceiling under a measured-motion verdict ---------------------
+    // Everything above is the rule as it was before the recorder had a second witness, and stays
+    // unedited on purpose: an untouched green test is what pins the behaviour the cross-check's
+    // off state must reproduce, and `Motion.Unknown` is what the recorder passes when it is off.
+
+    /** A carried journey at roughly 20 km/h — the case the cross-check exists for. */
+    private val CARRIED = Motion.Moving(5.6)
+
+    @Test fun `measured ground speed lifts a carrier's fixes over the pedestrian ceiling`() {
+        // 11.2 m in 2 s = 20.2 km/h — the deck's own cruise, and rejected as a teleport on the
+        // label alone, though the whole crossing is made of steps like it.
+        val prev = point(0)
+        val next = point(2_000)
+        assertEquals(
+            IgnoreReason.JUMP,
+            TrackQuality.badFixReason(prev, next, WALKING, gates(), gap(11.2)),
+        )
+        assertNull(TrackQuality.badFixReason(prev, next, WALKING, gates(motion = CARRIED), gap(11.2)))
+    }
+
+    @Test fun `abstaining leaves the label's ceiling exactly as it was`() {
+        val prev = point(0)
+        val next = point(2_000)
+        assertEquals(
+            IgnoreReason.JUMP,
+            TrackQuality.badFixReason(prev, next, WALKING, gates(motion = Motion.Unknown), gap(11.2)),
+        )
+        assertEquals(
+            IgnoreReason.JUMP,
+            TrackQuality.badFixReason(prev, next, WALKING, gates(motion = Motion.Stopped), gap(11.2)),
+        )
+    }
+
+    @Test fun `a step far beyond the measured pace is still a teleport`() {
+        // The margin is generous, not unlimited: 40 m in 2 s is 72 km/h against a window that
+        // measured 20 — a verdict buys a fix the benefit of the doubt, not an exemption.
+        assertEquals(
+            IgnoreReason.JUMP,
+            TrackQuality.badFixReason(point(0), point(2_000), WALKING, gates(motion = CARRIED), gap(40.0)),
+        )
+    }
+
+    @Test fun `a verdict never lowers a ceiling the label already granted`() {
+        // Crawling ground under a drive label must not turn the drive's own fixes into teleports.
+        val crawling = Motion.Moving(1.0)
+        assertEquals(
+            TrackQuality.jumpCeilingKmh(DRIVING),
+            TrackQuality.jumpCeilingKmh(DRIVING, crawling),
+            0.0,
+        )
+        assertNull(TrackQuality.badFixReason(point(0), point(5_000), DRIVING, gates(motion = crawling), gap(300.0)))
+    }
+
+    @Test fun `the ceiling keeps a margin over the window average it was derived from`() {
+        // The verdict's speed is a window *average*; a carrier accelerating is instantaneously well
+        // above it, and a ceiling drawn tight to the average would reject exactly those fixes.
+        val ceiling = TrackQuality.jumpCeilingKmh(WALKING, CARRIED)
+        assertTrue("$ceiling should clear the observed 20.2 km/h with room", ceiling > 40.0)
+    }
+
+    @Test fun `no verdict can lift a fix above what some label already allows`() {
+        // A lone teleport is fed to the confirmer like any other fix, so one can carry a window to
+        // Moving on its own. The clamp is what bounds the cost: at worst the fix is judged as
+        // though the track were a drive.
+        val absurd = Motion.Moving(1_000.0)
+        assertEquals(
+            TrackQuality.jumpCeilingKmh(DRIVING),
+            TrackQuality.jumpCeilingKmh(WALKING, absurd),
+            0.0,
         )
     }
 

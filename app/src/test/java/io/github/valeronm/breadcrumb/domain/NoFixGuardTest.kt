@@ -133,6 +133,34 @@ class NoFixGuardTest {
         assertEquals(3_000, g.onGaveUp(2)) // 4_000 capped to 3_000
     }
 
+    // --- The measured-ground veto -------------------------------------------
+    // Everything above is the guard as it was before the recorder had a second witness, and stays
+    // unedited: an untouched green test is what pins the behaviour the cross-check's off state has
+    // to reproduce, and `Motion.Unknown` is what the recorder passes when it is off.
+
+    @Test fun `moving ground vetoes the give-up`() {
+        // The starved-guard case: a carried journey whose fixes are all rejected against a
+        // pedestrian ceiling never calls onFixAccepted, so the guard times out under perfect
+        // reception. Turning GPS off there loses the journey the cross-check exists to keep.
+        val g = probing()
+        assertTrue(g.shouldGiveUp(240_000, 240_000))
+        assertFalse(g.shouldGiveUp(240_000, 240_000, Motion.Moving(6.0)))
+    }
+
+    @Test fun `a standstill gives up as before`() {
+        val g = probing()
+        assertTrue(g.shouldGiveUp(240_000, 240_000, Motion.Stopped))
+        assertTrue(g.shouldGiveUp(240_000, 240_000, Motion.Unknown))
+    }
+
+    @Test fun `the veto lapses with the verdict, it does not suspend the guard`() {
+        // Nothing is remembered: once the ground stops being provably in motion the same timed-out
+        // probe gives up, rather than the veto having consumed it.
+        val g = probing()
+        assertFalse(g.shouldGiveUp(300_000, 240_000, Motion.Moving(6.0)))
+        assertTrue(g.shouldGiveUp(300_000, 240_000, Motion.Unknown))
+    }
+
     /** A guard with a probe running since t=0. */
     private fun probing(): NoFixGuard = NoFixGuard().apply { onProbeStarted(0) }
 }

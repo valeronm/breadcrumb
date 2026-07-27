@@ -291,7 +291,11 @@ internal fun AutoPauseSettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
         { AppSettings.resumeWindowSec(context) },
     ) { AppSettings.setResumeWindowSec(context, it) }
-    SettingsSubPage("Auto-pause", onBack, listOf(resumeWindowSec)) {
+    val motionCrossCheck = rememberPref(
+        AppSettings.DEFAULT_MOTION_CROSS_CHECK,
+        { AppSettings.motionCrossCheck(context) },
+    ) { AppSettings.setMotionCrossCheck(context, it) }
+    SettingsSubPage("Auto-pause", onBack, listOf(resumeWindowSec, motionCrossCheck)) {
         SettingsPageDescription(
             "A stop shorter than this keeps the track open — moving again continues the same " +
                 "track. When set to Off, every stop ends the track.",
@@ -301,6 +305,16 @@ internal fun AutoPauseSettingsScreen(onBack: () -> Unit) {
                 SliderSetting("Resume window", resumeWindowSec.value.toFloat(), 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
                     resumeWindowSec.set(it.toInt())
                 }
+            },
+            {
+                SwitchSettingRow(
+                    title = "Keep recording while moving",
+                    subtitle = "Ignores \"stopped\" while your position keeps changing — for " +
+                        "ferries, trains and buses, where you sit still but the journey doesn't. " +
+                        "Uses more battery.",
+                    checked = motionCrossCheck.value,
+                    onCheckedChange = { motionCrossCheck.set(it) },
+                )
             },
         )
     }

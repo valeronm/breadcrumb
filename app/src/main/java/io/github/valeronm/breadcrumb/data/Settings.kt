@@ -15,6 +15,7 @@ object Settings {
     private const val KEY_TRACK_MIN_LENGTH_M = "track_min_length_m"
     private const val KEY_TRACK_MIN_EXTENT_M = "track_min_extent_m"
     private const val KEY_STITCH_RESUME_WINDOW_SEC = "stitch_resume_window_sec"
+    private const val KEY_MOTION_CROSS_CHECK = "motion_cross_check"
     private const val KEY_ACCURACY_GATE_M = "accuracy_gate_m"
     private const val KEY_REQUIRE_GNSS_FIX = "require_gnss_fix"
     private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
@@ -44,6 +45,12 @@ object Settings {
     // Auto-pause/stitch: a brief stop keeps the track open and resumes into it when the same
     // activity returns within this time gap (the resumed run is a new GPX segment).
     const val DEFAULT_STITCH_RESUME_WINDOW_SEC = 180 // 0 = always start a new track
+
+    // Let the position stream overrule a "you have stopped" reading while it can see the ground
+    // still moving — the carried-journey case, where activity detection describes the body and not
+    // the trip. Off by default: it keeps GPS on for about one measuring window past a genuine stop,
+    // which is a battery cost every user pays and only some journeys repay. See MovementConfirmer.
+    const val DEFAULT_MOTION_CROSS_CHECK = false
 
     // Fixes whose reported accuracy radius is at least this (meters) are flagged noisy and excluded.
     const val DEFAULT_ACCURACY_GATE_M = 50
@@ -147,6 +154,15 @@ object Settings {
 
     fun setResumeWindowSec(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_STITCH_RESUME_WINDOW_SEC, value) }
+    }
+
+    /** Whether a stop reading may be held back while the position stream still sees the ground
+     *  moving. See [io.github.valeronm.breadcrumb.domain.MovementConfirmer]. */
+    fun motionCrossCheck(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_MOTION_CROSS_CHECK, DEFAULT_MOTION_CROSS_CHECK)
+
+    fun setMotionCrossCheck(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_MOTION_CROSS_CHECK, enabled) }
     }
 
     /** Accuracy radius (meters) at/above which a fix is flagged noisy and excluded from new tracks. */
