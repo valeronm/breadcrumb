@@ -320,11 +320,28 @@ class LocationRecordingService : Service() {
     }
 
     private suspend fun applyActivity(raw: ActivityType, eventTimeMs: Long?) {
-        // 1) Debounce the raw reading into a trusted activity signal. The gate gets the event's
-        // own (sanitized) time, not the apply time: readings drained late from a frozen queue
-        // must keep their real spacing, or a stop and a return ten minutes apart would land
-        // inside the resume window and stitch through a genuine stop.
         val nowMs = now()
+        val readingMs = onReadingArrived(eventTimeMs, nowMs)
+        // Debounce the raw reading into a trusted activity signal; nothing to apply if the trusted
+        // activity didn't move.
+        val previous = gate.confirmed
+        val changed = gate.onReading(raw) ?: return
+        applyConfirmed(previous, changed, readingMs, nowMs - readingMs)
+    }
+
+    /**
+     * The preamble every Play-Services *reading* runs: sanitize the event's own time, let the
+     * deafness oracle judge it, and stamp the liveness the Record card shows. Returns the reading
+     * time the gate and controller are to work in.
+     *
+     * Separate from [applyConfirmed] because it is specific to a delivered reading: a caller that
+     * applies an activity with no reading behind it must not touch the oracle, whose whole job is
+     * to notice when readings stop arriving.
+     */
+    private suspend fun onReadingArrived(eventTimeMs: Long?, nowMs: Long): Long {
+        // The gate gets the event's own (sanitized) time, not the apply time: readings drained
+        // late from a frozen queue must keep their real spacing, or a stop and a return ten
+        // minutes apart would land inside the resume window and stitch through a genuine stop.
         val lastReadingMs = readingClock.lastReadingMs
         val readingMs = readingClock.sanitize(eventTimeMs, nowMs, READING_MAX_AGE_MS)
         // Deafness oracle: a stale-yet-clock-advancing reading applied while armed can only have
@@ -365,15 +382,27 @@ class LocationRecordingService : Service() {
         // Every delivery — even a NoChange — proves activity detection is alive; the Record
         // tab's standing-by card surfaces this.
         TrackingStatus.update { it.copy(lastReadingAtMillis = readingMs) }
-        val previous = gate.confirmed
-        val changed = gate.onReading(raw) ?: return
+        return readingMs
+    }
 
-        // 2) Turn the trusted change into a track action and apply it. The controller compares
-        // the reading's own time against the pause deadline, so a late-drained reading can't
-        // stitch through a genuine stop even if the pause wake never fired.
-        logTransition(previous, changed, nowMs - readingMs)
+    /**
+     * The apply tail: a confirmed activity change becomes a track action, and the action's side
+     * effects are performed. [atMs] is the time the change is taken to have happened — the
+     * controller measures the pause deadline from it — and [readingLagMs] only colours the log
+     * line.
+     */
+    private suspend fun applyConfirmed(
+        previous: ActivityType,
+        changed: ActivityType,
+        atMs: Long,
+        readingLagMs: Long,
+    ) {
+        // The controller compares the change's own time against the pause deadline, so a
+        // late-drained reading can't stitch through a genuine stop even if the pause wake never
+        // fired.
+        logTransition(previous, changed, readingLagMs)
         val action = controller.onActivity(
-            changed, readingMs, Settings.resumeWindowSec(this) * 1000L,
+            changed, atMs, Settings.resumeWindowSec(this) * 1000L,
         )
         when (action) {
             RecordingAction.Noop -> Unit
