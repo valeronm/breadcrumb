@@ -14,6 +14,7 @@ export const ACTIVITY_COLORS = {
   CYCLING: "#a78bfa",
   DRIVING: "#60a5fa",
   TAXI: "#38bdf8",
+  FERRY: "#f472b6",
   UNKNOWN: "#9ca3af",
 };
 

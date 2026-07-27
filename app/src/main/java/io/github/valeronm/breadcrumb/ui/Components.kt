@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DirectionsBoat
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Route
@@ -582,6 +583,7 @@ internal fun activityIcon(activity: ActivityType?): ImageVector = when (activity
     ActivityType.CYCLING -> Icons.AutoMirrored.Filled.DirectionsBike
     ActivityType.DRIVING -> Icons.Filled.DirectionsCar
     ActivityType.TAXI -> Icons.Filled.LocalTaxi
+    ActivityType.FERRY -> Icons.Filled.DirectionsBoat
     // Route, not Place: the pin means "a stay" in the timeline, and UNKNOWN tracks (e.g. a GPX
     // import without a <type>) are still movement.
     else -> Icons.Filled.Route
@@ -600,6 +602,7 @@ private const val ACTIVITY_LUM = 0.62f
 internal fun activityColor(activity: ActivityType?): Color = when (activity) {
     ActivityType.DRIVING -> Color.hsl(210f, ACTIVITY_SAT, ACTIVITY_LUM) // blue
     ActivityType.TAXI -> Color.hsl(48f, ACTIVITY_SAT, ACTIVITY_LUM)     // taxi yellow
+    ActivityType.FERRY -> Color.hsl(330f, ACTIVITY_SAT, ACTIVITY_LUM)   // magenta
     ActivityType.CYCLING -> Color.hsl(165f, ACTIVITY_SAT, ACTIVITY_LUM) // teal-green
     ActivityType.RUNNING -> Color.hsl(30f, ACTIVITY_SAT, ACTIVITY_LUM)  // orange
     ActivityType.WALKING -> Color.hsl(275f, ACTIVITY_SAT, ACTIVITY_LUM) // violet

@@ -28,6 +28,10 @@ enum class ActivityType(
     /** Never detected (activity recognition only sees IN_VEHICLE) — assigned by hand on the
      *  track page to mark rides where the user was a passenger. */
     TAXI("Taxi", true, TrackGroup.VEHICLE),
+
+    /** Never detected either (a crossing reads as IN_VEHICLE, or as nothing at all when the boat
+     *  carries the phone rather than the other way round) — assigned by hand on the track page. */
+    FERRY("Ferry", true, TrackGroup.VEHICLE),
     STILL("Stationary", false, TrackGroup.STILL),
     UNKNOWN("Moving", true, TrackGroup.UNKNOWN),
     ;

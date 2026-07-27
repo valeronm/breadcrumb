@@ -88,6 +88,16 @@ class GpxParserTest {
         assertNull(importable.points[1].speed)
     }
 
+    @Test fun `a boat type maps to the hand-assigned ferry activity`() {
+        val gpx = """
+            <gpx><trk><type>Ferry crossing</type><trkseg>
+              <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time></trkpt>
+              <trkpt lat="1.001" lon="1"><time>2026-01-01T00:01:00Z</time></trkpt>
+            </trkseg></trk></gpx>
+        """.trimIndent()
+        assertEquals("FERRY", GpxParser.toImportable(parse(gpx).single())!!.activityTypeName)
+    }
+
     @Test fun `unknown and missing types default to DRIVING`() {
         val gpx = """
             <gpx><trk><type>kayaking</type><trkseg>

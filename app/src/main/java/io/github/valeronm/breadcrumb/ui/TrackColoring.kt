@@ -58,6 +58,9 @@ private fun speedScaleFor(activity: ActivityType, units: UnitSystem): SpeedScale
         units.bySpeedUnit(kmh = SpeedScale(30f, 150f), mph = SpeedScale(20f, 90f))
     ActivityType.CYCLING ->
         units.bySpeedUnit(kmh = SpeedScale(10f, 34f), mph = SpeedScale(6f, 22f))
+    // A crossing spends its length near a steady cruise; on the road ramp that whole line is red.
+    ActivityType.FERRY ->
+        units.bySpeedUnit(kmh = SpeedScale(10f, 50f), mph = SpeedScale(5f, 35f))
     ActivityType.RUNNING ->
         units.bySpeedUnit(kmh = SpeedScale(6f, 16f), mph = SpeedScale(4f, 10f))
     ActivityType.WALKING, ActivityType.STILL ->

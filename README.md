@@ -29,7 +29,8 @@ Breadcrumb is on Google Play in closed testing. Join the test track, then instal
   start moving, switch tracks when your activity changes (e.g. walking → driving), and pause when
   you're stationary. A brief stop stitches back into the same track instead of splitting it (the
   resume window is configurable). Recognized modes: walking, running, cycling, and driving; a
-  recorded track can be manually reclassified as taxi (passenger) afterwards.
+  recorded track can be manually reclassified afterwards, including as modes recognition never
+  reports on its own — taxi (passenger) and ferry.
 - **Truly autonomous** — flip *Auto recording* on once; it keeps working with the screen off or
   the app closed, survives reboots, and resumes after the system kills it.
 - **Battery-conscious** — GPS only runs while you're actually moving, and a no-fix guard drops GPS

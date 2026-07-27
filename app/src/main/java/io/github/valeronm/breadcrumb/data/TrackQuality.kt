@@ -26,6 +26,9 @@ object TrackQuality {
         ActivityType.WALKING, ActivityType.STILL -> 12.0
         ActivityType.RUNNING -> 30.0
         ActivityType.CYCLING -> 70.0
+        // Above any ferry afloat (a fast catamaran cruises ~70), and well under the road ceiling,
+        // so a crossing's teleports are caught by a bar its own speeds can't reach.
+        ActivityType.FERRY -> 120.0
         ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN -> 220.0
     }
 

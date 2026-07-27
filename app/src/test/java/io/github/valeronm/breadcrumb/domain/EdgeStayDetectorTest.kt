@@ -327,6 +327,7 @@ class EdgeStayDetectorTest {
             ActivityType.CYCLING to EdgeStayDetector.BRIEF_STOP,
             ActivityType.DRIVING to EdgeStayDetector.VEHICLE,
             ActivityType.TAXI to EdgeStayDetector.VEHICLE,
+            ActivityType.FERRY to EdgeStayDetector.VEHICLE,
             ActivityType.STILL to EdgeStayDetector.BRIEF_STOP,
             ActivityType.UNKNOWN to EdgeStayDetector.BRIEF_STOP,
         )

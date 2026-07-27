@@ -15,6 +15,7 @@ class ActivityTypeTest {
         assertTrue(ActivityType.WALKING.sharesTrackWith(ActivityType.RUNNING))
         assertTrue(ActivityType.RUNNING.sharesTrackWith(ActivityType.WALKING))
         assertTrue(ActivityType.DRIVING.sharesTrackWith(ActivityType.TAXI))
+        assertTrue(ActivityType.DRIVING.sharesTrackWith(ActivityType.FERRY))
         assertTrue(ActivityType.CYCLING.sharesTrackWith(ActivityType.CYCLING))
     }
 

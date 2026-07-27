@@ -130,6 +130,7 @@ object GpxParser {
             "WALK" in t || "HIK" in t -> ActivityType.WALKING
             "RUN" in t || "JOG" in t -> ActivityType.RUNNING
             "CYCL" in t || "BIK" in t -> ActivityType.CYCLING
+            "FERR" in t || "BOAT" in t -> ActivityType.FERRY
             else -> ActivityType.DRIVING
         }
     }
