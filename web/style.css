@@ -5,6 +5,8 @@
   --text: #e5e9f0;
   --muted: #8b93a5;
   --accent: #60a5fa;
+  /* The map's place color, so a named place reads the same in the timeline and on the map. */
+  --place: #facc15;
 }
 
 * { box-sizing: border-box; }
@@ -81,7 +83,7 @@ body {
   color: var(--muted);
 }
 
-#track-list {
+#timeline {
   overflow-y: auto;
   flex: 1;
   padding: 6px 8px 16px;
@@ -99,7 +101,11 @@ body {
   background: var(--panel);
 }
 
-.track-row {
+/* Every timeline row — a recorded track, a derived stay, a gap — shares the button reset, the
+   glyph column and the selected/hover states; the species differ below. A full history runs to
+   thousands of rows in one scroll container, so off-screen ones skip layout and paint until they
+   are scrolled to; the placeholder height keeps the scrollbar honest meanwhile. */
+#timeline .row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -112,18 +118,48 @@ body {
   font: inherit;
   text-align: left;
   cursor: pointer;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 34px;
 }
-.track-row:hover { background: #1a2030; }
-.track-row.selected { background: #223; outline: 1px solid var(--accent); }
+#timeline .row:hover { background: #1a2030; }
+#timeline .row.selected { background: #223; outline: 1px solid var(--accent); }
 
-.track-row .dot {
+#timeline .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#timeline .stats { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+/* The glyph column: a filled dot for a track, a hollow ring for a stay — a stay is where nothing
+   was recorded, and the tracks own the solid marks. */
+.track-row .dot,
+.stay-row .pin {
   width: 9px;
   height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
 }
-.track-row .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.track-row .stats { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.stay-row .pin { border: 1.5px solid var(--muted); }
+
+/* A place with a name wears the color its map pin does, wherever it is written. */
+#timeline .label.named { color: var(--place); }
+.stay-row .label { color: var(--muted); }
+.stay-row.named .pin { border-color: var(--place); }
+
+/* The unrecorded leg, drawn as the map would: two places joined by a dashed connector. */
+.gap-row { align-items: stretch; }
+.gap-row::before {
+  content: "";
+  width: 9px;
+  flex-shrink: 0;
+  border-left: 2px dashed var(--border);
+  margin-left: 3px;
+}
+.gap-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.gap-row .label { color: var(--muted); }
+.gap-row .stats { opacity: 0.75; }
 
 #map-wrap { flex: 1; position: relative; }
 #map { position: absolute; inset: 0; }

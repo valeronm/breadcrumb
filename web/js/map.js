@@ -6,6 +6,7 @@
 import {
   REASON_NONE, REASON_ACCURACY, REASON_JUMP, REASON_NO_GNSS, REASON_EDGE_STAY,
 } from "./convert.js";
+import { metersBetween } from "./geo.js";
 
 export const ACTIVITY_COLORS = {
   WALKING: "#4ade80",
@@ -56,11 +57,14 @@ const OVERRUN_WIDTH = 4;
 const PLACE_COLOR = "#facc15";
 const RELATED_PLACE_RADIUS_M = 150;
 const RELATED = ["get", "related"];
+const NAMED = ["get", "named"];
+// Both ranks of place marker are clickable, and a label is as much a target as its dot.
+const PLACE_LAYERS = ["place-dots", "place-labels"];
 // A filled dot and its label read fainter than a line at the same alpha, so the unrelated places
 // sit above the tracks' muted level — still context, still legible as a name.
 const MUTED_PLACE_OPACITY = 0.4;
 
-export function createMap(container, protomapsKey, onTrackClick) {
+export function createMap(container, protomapsKey, onTrackClick, onPlaceClick) {
   const map = new maplibregl.Map({
     container,
     style: `https://api.protomaps.com/styles/v5/dark/en.json?key=${protomapsKey}`,
@@ -81,6 +85,36 @@ export function createMap(container, protomapsKey, onTrackClick) {
         "line-color": OVERVIEW_COLOR,
         "line-width": 1.6,
         "line-opacity": OVERVIEW_OPACITY,
+      },
+    });
+    // A selected stay's place: its capture circle and the endpoints it captured. Added before the
+    // track layers so the circle sits under any line crossing it, as the app draws it.
+    map.addSource("focus", { type: "geojson", data: emptyFc() });
+    map.addLayer({
+      id: "focus-fill",
+      type: "fill",
+      source: "focus",
+      filter: ["==", ["geometry-type"], "Polygon"],
+      paint: { "fill-color": PLACE_COLOR, "fill-opacity": 0.1 },
+    });
+    map.addLayer({
+      id: "focus-outline",
+      type: "line",
+      source: "focus",
+      filter: ["==", ["geometry-type"], "Polygon"],
+      paint: { "line-color": PLACE_COLOR, "line-width": 1.2, "line-opacity": 0.6 },
+    });
+    map.addLayer({
+      id: "focus-endpoints",
+      type: "circle",
+      source: "focus",
+      filter: ["==", ["geometry-type"], "Point"],
+      paint: {
+        "circle-radius": 3,
+        "circle-color": PLACE_COLOR,
+        "circle-opacity": 0.75,
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#0b0e14",
       },
     });
     map.addSource("selected", { type: "geojson", data: emptyFc() });
@@ -139,10 +173,12 @@ export function createMap(container, protomapsKey, onTrackClick) {
       type: "circle",
       source: "places",
       paint: {
-        "circle-radius": 4,
+        // Named places are the pins; an unnamed cluster is a smaller, fainter dot with no label —
+        // the app's places map draws the same two ranks, by marker icon rather than by size.
+        "circle-radius": ["case", NAMED, 4, 2.5],
         "circle-color": ["case", RELATED, PLACE_COLOR, MUTED_COLOR],
-        "circle-opacity": ["case", RELATED, 1, MUTED_PLACE_OPACITY],
-        "circle-stroke-width": 1.5,
+        "circle-opacity": ["case", RELATED, ["case", NAMED, 1, 0.7], MUTED_PLACE_OPACITY],
+        "circle-stroke-width": ["case", NAMED, 1.5, 0.8],
         "circle-stroke-color": "#0b0e14",
       },
     });
@@ -167,18 +203,33 @@ export function createMap(container, protomapsKey, onTrackClick) {
     });
 
     map.on("click", "overview-lines", (e) => {
+      // A place marker sitting on a track line is the deliberate target of the two: it is small,
+      // and a track can be picked anywhere else along its length.
+      if (map.queryRenderedFeatures(e.point, { layers: PLACE_LAYERS }).length) return;
       const f = e.features?.[0];
       if (f) onTrackClick(f.properties.id);
     });
-    map.on("mouseenter", "overview-lines", () => { map.getCanvas().style.cursor = "pointer"; });
-    map.on("mouseleave", "overview-lines", () => { map.getCanvas().style.cursor = ""; });
+    for (const layer of PLACE_LAYERS) {
+      map.on("click", layer, (e) => {
+        const f = e.features?.[0];
+        if (f) onPlaceClick(f.properties.id);
+      });
+    }
+    for (const layer of ["overview-lines", ...PLACE_LAYERS]) {
+      map.on("mouseenter", layer, () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; });
+    }
   });
 
   return map;
 }
 
-// Repaints the overview for the current selection (null = nothing selected). Paint properties
-// survive a setData, so this is state the layer carries, not something setOverview re-applies.
+/**
+ * Repaints the overview for the current selection: a track id lights that track and mutes the
+ * rest, null lights everything, [MUTE_ALL] mutes everything — what a place selection wants, since
+ * a place belongs to no one trip. Paint properties survive a setData, so this is state the layer
+ * carries, not something setOverview re-applies.
+ */
 function paintOverview(map, selectedId) {
   if (selectedId == null) {
     map.setPaintProperty("overview-lines", "line-color", OVERVIEW_COLOR);
@@ -190,27 +241,30 @@ function paintOverview(map, selectedId) {
   map.setPaintProperty("overview-lines", "line-opacity", ["case", isSelected, 0, MUTED_OPACITY]);
 }
 
+/** A selection that is no track's: every line mutes. No track id can collide with it. */
+const MUTE_ALL = -1;
+
+/** The sources one selection owns — cleared together whenever the selection changes. */
+const SELECTION_SOURCES = ["selected", "overrun", "ignored", "focus"];
+
+function clearSelectionSources(map) {
+  for (const id of SELECTION_SOURCES) map.getSource(id).setData(emptyFc());
+}
+
 const placesByMap = new WeakMap();
 
-// Rebuilds the place pins, flagging each as related to the selected track's endpoints
+// Rebuilds the place markers, flagging each as related to the selected track's endpoints
 // ([[lon, lat], [lon, lat]], or null when nothing is selected — then every place is related).
 function paintPlaces(map, endpoints) {
   const places = placesByMap.get(map) ?? [];
   map.getSource("places").setData(fc(places.map((p) => pointFeature([p.lon, p.lat], {
-    label: p.label,
+    id: p.id,
+    label: p.label ?? "",
+    named: p.label != null,
     related: endpoints == null || endpoints.some(
-      ([lon, lat]) => metersBetween(p.lon, p.lat, lon, lat) <= RELATED_PLACE_RADIUS_M,
+      ([lon, lat]) => metersBetween(p.lat, p.lon, lat, lon) <= RELATED_PLACE_RADIUS_M,
     ),
   }))));
-}
-
-// Equirectangular approximation — exact enough either side of a 150 m threshold, and it keeps the
-// viewer free of a geo dependency.
-function metersBetween(lonA, latA, lonB, latB) {
-  const perDegree = 111_320;
-  const dLat = (latA - latB) * perDegree;
-  const dLon = (lonA - lonB) * perDegree * Math.cos(((latA + latB) / 2) * Math.PI / 180);
-  return Math.hypot(dLat, dLon);
 }
 
 function emptyFc() {
@@ -227,6 +281,10 @@ function lineFeature(coordinates, properties = {}) {
 
 function pointFeature(coordinates, properties = {}) {
   return { type: "Feature", properties, geometry: { type: "Point", coordinates } };
+}
+
+function polygonFeature(coordinates, properties = {}) {
+  return { type: "Feature", properties, geometry: { type: "Polygon", coordinates } };
 }
 
 // Readiness means "the load handler ran, so the sources exist" — which is monotonic, unlike
@@ -258,11 +316,19 @@ export function setOverview(map, tracks) {
   });
 }
 
-/** Shows the user-named places as labeled pins ({label, lat, lon} rows from the export). */
+/**
+ * Shows the places: `{id, lat, lon, label}` rows — the *derived* clusters, not the export's
+ * named-place list, so an unnamed place the history keeps returning to appears as a dot the same
+ * way it does on the app's places map. A row with no label is one of those unnamed clusters. Which
+ * clusters arrive here is the caller's filter (`mapVisiblePlaces`); this draws what it is given,
+ * and hands [id] back on click.
+ */
 export function setPlaces(map, places) {
-  // Held per map because relatedness is recomputed on every selection, and a GeoJSON source
-  // won't hand its data back.
-  placesByMap.set(map, places ?? []);
+  // Held per map because relatedness is recomputed on every selection, and a GeoJSON source won't
+  // hand its data back. Sorted here rather than per repaint: unnamed dots first, so the named pins
+  // draw — and label — on top of them.
+  placesByMap.set(map, (places ?? []).slice()
+    .sort((a, b) => Number(a.label != null) - Number(b.label != null)));
   whenLoaded(map, () => paintPlaces(map, null));
 }
 
@@ -276,6 +342,53 @@ export function setPlacesVisible(map, visible) {
       map.setLayoutProperty(layer, "visibility", visible ? "visible" : "none");
     }
   });
+}
+
+/**
+ * Frames one or both places a timeline interval sits at: each as its capture circle plus the track
+ * endpoints the cluster captured — the app's place view, and the same picture that explains a gap
+ * (two circles where one place split in two). Tracks recede to the muted level throughout: the
+ * selection here is a place, so no single track is the subject.
+ *
+ * @param places [{anchor: {lat, lon}, radiusM, endpoints: [{lat, lon}]}]
+ */
+export function focusPlaces(map, places) {
+  whenLoaded(map, () => {
+    const features = [];
+    const bounds = new maplibregl.LngLatBounds();
+    for (const place of places) {
+      const ring = circleRing(place.anchor, place.radiusM);
+      features.push(polygonFeature([ring]));
+      for (const [lon, lat] of ring) bounds.extend([lon, lat]);
+      for (const e of place.endpoints ?? []) features.push(pointFeature([e.lon, e.lat]));
+    }
+    // Whatever was drawn belongs to the previous selection.
+    clearSelectionSources(map);
+    map.getSource("focus").setData(fc(features));
+    paintOverview(map, MUTE_ALL);
+    // Relatedness is about a trip's stops; with a place selected, its own pin should stay lit
+    // along with every other, so the labels around it stay readable.
+    paintPlaces(map, null);
+    if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 96, duration: 300, maxZoom: 17 });
+  });
+}
+
+/**
+ * A capture circle as a polygon ring — 64 segments is smooth at any zoom the viewer reaches. The
+ * ring is drawn with a flat meters-per-degree, not the ellipsoidal distance the rules are decided
+ * on: this is a shape on a screen, and the two differ by less than the stroke is wide.
+ */
+function circleRing(center, radiusM) {
+  const SEGMENTS = 64;
+  const METERS_PER_DEGREE = 111_320;
+  const dLat = radiusM / METERS_PER_DEGREE;
+  const dLon = radiusM / (METERS_PER_DEGREE * Math.cos(center.lat * Math.PI / 180));
+  const ring = [];
+  for (let i = 0; i <= SEGMENTS; i++) {
+    const angle = (i / SEGMENTS) * 2 * Math.PI;
+    ring.push([center.lon + dLon * Math.cos(angle), center.lat + dLat * Math.sin(angle)]);
+  }
+  return ring;
 }
 
 /**
@@ -334,6 +447,7 @@ export function showTrack(map, track, geometry) {
 
   whenLoaded(map, () => {
     const color = activityColor(track.activityType);
+    clearSelectionSources(map);
     map.getSource("selected").setData(
       fc(path.length >= 2 ? [lineFeature(path, { color })] : []),
     );
@@ -361,9 +475,7 @@ export function showTrack(map, track, geometry) {
 
 export function clearSelection(map) {
   whenLoaded(map, () => {
-    map.getSource("selected").setData(emptyFc());
-    map.getSource("overrun").setData(emptyFc());
-    map.getSource("ignored").setData(emptyFc());
+    clearSelectionSources(map);
     paintOverview(map, null);
     paintPlaces(map, null);
   });

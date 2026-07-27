@@ -180,8 +180,10 @@ streamed both ways (one track's points in memory at a time), point rows as array
 `pointFields` header so future exports stay restorable. Restore is offered only on the Timeline's
 empty state, deliberately: with existing tracks it would have to merge. The format also feeds the
 web companion viewer in `web/` (see its own README) — a change to it is a change to that viewer's
-input, and the viewer draws off-path fixes by the same conventions this app does, so a rule that
-moves here moves there. `PlaceRepository` backs the Places tab.
+input, and the viewer draws off-path fixes by the same conventions this app does *and derives the
+same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `web/js/stays.js`, tested case for case
+against `StayDeriverTest`), so a rule that moves here moves there. `PlaceRepository` backs the
+Places tab.
 
 **An ignored point is one that isn't part of the path — for either of two reasons.** The recorder's
 bad-fix rule (`TrackQuality`: accuracy, jump, no-GNSS) rejects fixes it doesn't trust; `EdgeStayIgnore`

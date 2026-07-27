@@ -38,6 +38,12 @@ const parser = new BackupParser({
       if (flags[i] & FLAG_SEGMENT_START) segments++;
     }
     assert.equal(trackIgnored, track.ignoredCount, `track ${track.id} ignored count`);
+    // The endpoints the stay derivation runs on are the app's own columns, carried through as they
+    // stand — including a null, which derives as an unknown endpoint rather than as a guess.
+    assert.equal(row.startLat, track.startLat ?? null);
+    assert.equal(row.startLon, track.startLon ?? null);
+    assert.equal(row.endLat, track.endLat ?? null);
+    assert.equal(row.endLon, track.endLon ?? null);
     if (row.bbox) {
       const [minLon, minLat, maxLon, maxLat] = row.bbox;
       assert.ok(minLon <= maxLon && minLat <= maxLat);

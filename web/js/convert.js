@@ -102,6 +102,14 @@ export function convertTrack(track, f) {
     distanceMeters: track.distanceMeters,
     pointCount: track.pointCount,
     ignoredCount: track.ignoredCount,
+    // The track's own first/last good-fix coordinates, taken from the export rather than recomputed
+    // off the points: they are what the app derives stays from, and the row is where the app keeps
+    // them. Null (a track with no good fix) is carried through as null — an endpoint the derivation
+    // doesn't know is a gap it must report, not one to guess at.
+    startLat: track.startLat ?? null,
+    startLon: track.startLon ?? null,
+    endLat: track.endLat ?? null,
+    endLon: track.endLon ?? null,
     bbox: good.length ? [minLon, minLat, maxLon, maxLat] : null,
     overview: overview.buffer,
   };
