@@ -8,10 +8,15 @@ places, and GPX import/export.
 
 ## Try it (closed testing)
 
-Breadcrumb is on Google Play in closed testing. Join the test track, then install:
+Breadcrumb is on Google Play in closed testing. Testers are admitted through a Google Group, so
+all three steps are needed — and all of them with the same Google account you use on your phone:
 
-- [Join on Android](https://play.google.com/store/apps/details?id=io.github.valeronm.breadcrumb)
-- [Join on the web](https://play.google.com/apps/testing/io.github.valeronm.breadcrumb)
+1. [Join the testers group](https://groups.google.com/g/breadcrumbtesting)
+2. [Opt in to the test](https://play.google.com/apps/testing/io.github.valeronm.breadcrumb)
+3. [Install from Google Play](https://play.google.com/store/apps/details?id=io.github.valeronm.breadcrumb)
+
+Step 2 can take a little while to take effect after joining the group; if the store page doesn't
+offer the install yet, try again later.
 
 ## Screenshots
 
