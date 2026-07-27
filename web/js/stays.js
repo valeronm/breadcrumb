@@ -408,8 +408,11 @@ export function resolveClusters(stays, clusters, places) {
       // Carried on the row, not just implied by its position: a marker clicked on the map has to
       // find its way back to the cluster after the display filter has dropped most of them.
       clusterId,
+      // Flattened from the matched place because that is what every consumer reads (the app's
+      // PlaceResolver.ResolvedStay keeps the row and derives these; here there is no row to keep).
       label: place?.label ?? null,
       placeId: place?.id ?? null,
+      category: place?.category ?? null,
       visitCount: visits.get(clusterId) ?? 0,
       anchor: cluster.anchor,
       radiusM: cluster.radiusM,

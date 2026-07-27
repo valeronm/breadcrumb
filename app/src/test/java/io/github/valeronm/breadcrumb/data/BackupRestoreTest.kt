@@ -10,11 +10,14 @@ import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.BackupImporter
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.placeCategory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -80,9 +83,17 @@ class BackupRestoreTest {
         source.repository.deleteTrack(discarded)
         source.dao.insertTrack(Track(activityType = "WALKING", startedAt = TEST_START + 300_000L)) // open
 
+        // One categorized place and one untagged, so both branches of the place object are written:
+        // an untagged place carries no `category` key at all.
         source.db.placeDao().insert(
             Place(
                 label = "Home", lat = 1.0, lon = -2.0, createdAt = TEST_START,
+                radiusM = PlaceClusterer.DEFAULT_RADIUS_M, category = PlaceCategory.HOME.code,
+            ),
+        )
+        source.db.placeDao().insert(
+            Place(
+                label = "Trailhead", lat = 1.01, lon = -2.01, createdAt = TEST_START + 1_000L,
                 radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
             ),
         )
@@ -93,7 +104,7 @@ class BackupRestoreTest {
 
         assertEquals(2, summary.tracks) // discarded and open tracks stayed behind
         assertEquals(10, summary.points)
-        assertEquals(1, summary.places)
+        assertEquals(2, summary.places)
         assertEquals(2, summary.events)
 
         fun Track.comparable() = copy(id = 0)
@@ -117,6 +128,26 @@ class BackupRestoreTest {
         )
         // The restored timeline actually shows the tracks.
         assertEquals(2, targetDb.trackDao().observeSummaries().first().size)
+    }
+
+    /**
+     * A category code this build can't name still has to come back out of the file. The column
+     * keeps the raw string for exactly this: a backup written by a later version, restored here and
+     * exported again, must not lose what it couldn't display in between.
+     */
+    @Test fun `a category code this build doesn't know survives the round trip`() = runTest {
+        source.db.placeDao().insert(
+            Place(
+                label = "Somewhere", lat = 1.0, lon = -2.0, createdAt = TEST_START,
+                radiusM = PlaceClusterer.DEFAULT_RADIUS_M, category = "laundromat",
+            ),
+        )
+
+        roundTrip()
+
+        val restored = targetPlaces.allPlaces().single()
+        assertEquals("laundromat", restored.category)
+        assertNull("unknown codes read as untagged", restored.placeCategory)
     }
 
     @Test fun `restore re-derives the edge stay instead of trusting the file`() = runTest {

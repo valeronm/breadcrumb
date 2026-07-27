@@ -23,15 +23,27 @@ object PlaceResolver {
     const val NOTABLE_VISIT_MIN = 3
 
     class ResolvedStay(
-        /** The matched place's label, or null for an unnamed cluster. */
-        val label: String?,
-        /** The matched place's id, set iff [label] is set. */
-        val placeId: Long?,
+        /**
+         * The matched place, or null for an unnamed cluster — the row itself rather than a copy of
+         * each attribute, so a new place column reaches the timeline without a field here and the
+         * label/id pair can't come apart. Its pin is deliberately *not* [centroid]: the pin is
+         * where the user dropped it, the centroid is where this cluster's endpoints actually sit.
+         */
+        val place: Place?,
         /** Visits to this cluster across the whole (unsliced) history. */
         val visitCount: Int,
         /** Cluster centroid — where a new place would be pinned when the user names this stay. */
         val centroid: StayDeriver.Endpoint,
-    )
+    ) {
+        /** The matched place's label, or null for an unnamed cluster. */
+        val label: String? get() = place?.label
+
+        /** The matched place's id — non-null exactly when [label] is. */
+        val placeId: Long? get() = place?.id
+
+        /** What the place is for; null for an unnamed or untagged one. */
+        val category: PlaceCategory? get() = place?.placeCategory
+    }
 
     /**
      * Aggregate stats for one place on the Places screen. [place] is null for an unnamed cluster
@@ -69,10 +81,8 @@ object PlaceResolver {
     ): List<ResolvedStay> {
         val visitsByCluster = stays.groupingBy { it.clusterId }.eachCount()
         return clusters.mapIndexed { clusterId, cluster ->
-            val place = matchedPlace(cluster, places)
             ResolvedStay(
-                label = place?.label,
-                placeId = place?.id,
+                place = matchedPlace(cluster, places),
                 visitCount = visitsByCluster[clusterId] ?: 0,
                 centroid = cluster.centroid,
             )

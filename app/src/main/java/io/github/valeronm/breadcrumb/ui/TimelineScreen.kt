@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -68,8 +70,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -88,6 +92,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
+import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
 import io.github.valeronm.breadcrumb.util.PerLocale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -208,7 +213,7 @@ internal fun TracksTab(
                 groups.forEach { (label, dayItems) ->
                     val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
                     stickyHeader(key = "header:$label") {
-                        DayHeader(label, dayTracks) {
+                        DayHeader(label, dayTracks, dayItems) {
                             viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
                                 if (intent != null) context.startActivity(intent)
                             }
@@ -444,15 +449,25 @@ internal fun dayActivityTotals(tracks: List<TrackSummary>): List<DayActivityTota
         }
         .sortedByDescending { it.meters }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () -> Unit) {
+private fun DayHeader(
+    label: String,
+    dayTracks: List<TrackSummary>,
+    dayItems: List<TimelineItem>,
+    onShare: () -> Unit,
+) {
     val totals = remember(dayTracks) { dayActivityTotals(dayTracks) }
+    val categoryTotals = remember(dayItems) {
+        dayCategoryTotals(dayItems, System.currentTimeMillis())
+    }
     Column(
-        // Opaque background: the header is sticky, rows scroll underneath it.
+        // Opaque background: the header is sticky, rows scroll underneath it. The gap to the first
+        // row is the header's own, so neither totals line has to know whether it is the last one.
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
-            .padding(top = 14.dp),
+            .padding(top = 14.dp, bottom = 6.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -480,28 +495,58 @@ private fun DayHeader(label: String, dayTracks: List<TrackSummary>, onShare: () 
         }
         // Day totals per recorded activity, in the row style: tinted glyph + distance · duration.
         Row(
-            modifier = Modifier.padding(bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val units = LocalUnits.current
             for (total in totals) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        activityIcon(total.activity),
-                        contentDescription = total.activity?.label,
-                        tint = activityColor(total.activity),
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "${units.distance(total.meters)} · ${formatDurationMs(total.durationMs)}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                DayTotal(
+                    icon = activityIcon(total.activity),
+                    description = total.activity?.label,
+                    tint = travelColor(),
+                    text = "${units.distance(total.meters)} · ${formatDurationMs(total.durationMs)}",
+                )
+            }
+        }
+        // Where the day went, under what it covered — a second line rather than more of the first,
+        // which doesn't wrap and would clip a day holding several of each. Wrapping here because a
+        // varied day has more categories than a day has activities.
+        if (categoryTotals.isNotEmpty()) {
+            FlowRow(
+                modifier = Modifier.padding(top = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                for (total in categoryTotals) {
+                    DayTotal(
+                        icon = total.category.icon,
+                        description = total.category.label,
+                        // Group color, as the rows below wear it — the totals line then reads as the
+                        // same palette the day's stays were drawn in.
+                        tint = categoryColor(total.category),
+                        text = formatDurationMs(total.durationMs),
                     )
                 }
             }
         }
+    }
+}
+
+/**
+ * One figure in a day header's totals: a small tinted glyph and its number. Both lines are built from
+ * this, so the glyph size, the gap and the type scale can't drift between them — they have to read as
+ * one block, which is the whole reason the second line sits under the first.
+ */
+@Composable
+private fun DayTotal(icon: ImageVector, description: String?, tint: Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -614,7 +659,7 @@ private fun TrackRow(
             shape = shape,
             // Activity token: a clear category cue that stays quiet.
             icon = activityIcon(activity),
-            tint = activityColor(activity),
+            tint = travelColor(),
             iconDescription = ActivityType.labelFor(track.activityType),
             // What happened leads; when it happened is the metadata line.
             title = "${ActivityType.labelFor(track.activityType)} · " +
@@ -741,14 +786,16 @@ private fun StayCard(
         animationSpec = tween(durationMillis = 600),
         label = "stayHighlight",
     )
-    // A merge-eligible short stop is its own species: tertiary accent (matching the
-    // swipe-to-merge hint) and a pause glyph instead of the place pin.
+    // A merge-eligible short stop is marked in tertiary (matching the swipe-to-merge hint) as a
+    // *badge* on the disc's corner rather than as its glyph: being mergeable is a fact about the
+    // stay, while the glyph answers where the user was, and one no longer costs the other.
     val mergeable = item.merge != null
-    val tint = when {
-        mergeable -> MaterialTheme.colorScheme.tertiary
-        named -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    // A categorized place says what the stop was for in the icon column, where an untagged one
+    // shows the generic pin.
+    val category = place?.category
+    // Accent means categorized here as it does on the Places list (placeDiscTint) — one rule, so the
+    // same place can't read as accented on one screen and neutral on the other.
+    val tint = placeDiscTint(category)
     val start = timeFormat.format(Date(stay.start))
     val end = stay.end
     val startsAtMidnight = isLocalMidnight(stay.start)
@@ -769,10 +816,12 @@ private fun StayCard(
         shape = shape,
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        icon = if (mergeable) Icons.Filled.Pause else Icons.Filled.Place,
+        icon = category.discIcon,
         tint = tint,
-        iconDescription = if (mergeable) "Short stop" else "Stay",
-        discAlpha = 0.16f,
+        iconDescription = category?.label ?: "Stay",
+        discAlpha = placeDiscAlpha(category),
+        badge = if (mergeable) Icons.Filled.Pause else null,
+        badgeDescription = if (mergeable) "Short stop, can be merged away" else null,
         // The place leads; when (with midnight slices phrased humanly) is the metadata line.
         // Merge-eligible stays (always unnamed) name the situation instead.
         title = place?.label ?: if (mergeable) "Short stop" else "Stayed",
@@ -788,6 +837,11 @@ private fun StayCard(
             if (!startsAtMidnight && !endsAtMidnight && reportable != null) {
                 append(" · ")
                 append(formatDurationMs(reportable))
+            }
+            // What the stop was for, after how long it took. Never alongside the visit count:
+            // that one only appears on unnamed clusters, which have nowhere to carry a category.
+            if (category != null) {
+                append(" · " + category.label)
             }
             if (visits != null) {
                 append(" · " + visitCountLabel(visits))

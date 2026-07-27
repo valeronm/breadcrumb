@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
@@ -312,32 +310,15 @@ internal fun TrackMapScreen(
                     // icon, colors and speed scale all follow — and so does the drawn path, on a
                     // choice that re-derives the overrun (see the point load above).
                     for (option in ActivityType.entries.filter { it.recording && it != ActivityType.UNKNOWN }) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    viewModel.setTrackActivity(trackId, option)
-                                    showTypeDialog = false
-                                }
-                                .padding(horizontal = 8.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        OptionRow(
+                            icon = activityIcon(option),
+                            label = option.label,
+                            tint = travelColor(),
+                            selected = option == activity,
+                            selectedDescription = "Current type",
                         ) {
-                            Icon(
-                                activityIcon(option),
-                                contentDescription = null,
-                                tint = activityColor(option),
-                            )
-                            Spacer(Modifier.width(16.dp))
-                            Text(option.label, style = MaterialTheme.typography.bodyLarge)
-                            if (option == activity) {
-                                Spacer(Modifier.weight(1f))
-                                Icon(
-                                    Icons.Filled.Check,
-                                    contentDescription = "Current type",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            }
+                            viewModel.setTrackActivity(trackId, option)
+                            showTypeDialog = false
                         }
                     }
                 }

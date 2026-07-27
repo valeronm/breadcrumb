@@ -65,6 +65,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
 import io.github.valeronm.breadcrumb.util.DistanceSliderScale
 import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.SliderStops
@@ -375,6 +377,12 @@ internal fun ListRowCard(
     modifier: Modifier = Modifier,
     iconDescription: String? = null,
     discAlpha: Float = 0.22f,
+    /** A second fact about the row, marked on the disc's corner instead of replacing its glyph. */
+    badge: ImageVector? = null,
+    badgeDescription: String? = null,
+    /** What the badge *means* is the caller's, so its color is too — the default is only a default. */
+    badgeColor: Color = MaterialTheme.colorScheme.tertiary,
+    badgeContentColor: Color = MaterialTheme.colorScheme.onTertiary,
     colors: CardColors? = null,
     onClick: (() -> Unit)? = null,
 ) {
@@ -384,7 +392,16 @@ internal fun ListRowCard(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TonalIconDisc(icon, tint, contentDescription = iconDescription, discAlpha = discAlpha)
+            TonalIconDisc(
+                icon,
+                tint,
+                contentDescription = iconDescription,
+                discAlpha = discAlpha,
+                badge = badge,
+                badgeDescription = badgeDescription,
+                badgeColor = badgeColor,
+                badgeContentColor = badgeContentColor,
+            )
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor)
@@ -409,7 +426,15 @@ internal fun ListRowCard(
     }
 }
 
-/** The list rows' category token: a glyph on a soft tonal disc of the same color (M3 "tonal"). */
+/**
+ * The list rows' category token: a glyph on a soft tonal disc of the same color (M3 "tonal").
+ *
+ * [badge] marks a *second*, unrelated fact about the row without spending the glyph on it — the disc
+ * says what the row is, the badge says something that happens to be true of it as well. It rides the
+ * bottom-end corner the circle leaves empty inside its own square, so a badged disc takes no more
+ * room than a plain one, and it comes in a saturated color rather than a tonal one because at this
+ * size a soft fill would read as a smudge on the disc's edge.
+ */
 @Composable
 internal fun TonalIconDisc(
     icon: ImageVector,
@@ -418,19 +443,48 @@ internal fun TonalIconDisc(
     size: Dp = 36.dp,
     iconSize: Dp = 20.dp,
     discAlpha: Float = 0.22f,
+    badge: ImageVector? = null,
+    badgeDescription: String? = null,
+    badgeColor: Color = MaterialTheme.colorScheme.tertiary,
+    badgeContentColor: Color = MaterialTheme.colorScheme.onTertiary,
 ) {
-    Box(
-        modifier = Modifier.size(size).clip(CircleShape).background(tint.copy(alpha = discAlpha)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = tint,
-            modifier = Modifier.size(iconSize),
-        )
+    Box(modifier = Modifier.size(size)) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(CircleShape)
+                .background(tint.copy(alpha = discAlpha)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier.size(iconSize),
+            )
+        }
+        if (badge != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(size * BADGE_FRACTION)
+                    .clip(CircleShape)
+                    .background(badgeColor),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = badge,
+                    contentDescription = badgeDescription,
+                    tint = badgeContentColor,
+                    modifier = Modifier.size(size * BADGE_FRACTION * 0.68f),
+                )
+            }
+        }
     }
 }
+
+/** Badge diameter as a share of the disc's: big enough to read, small enough to stay a badge. */
+private const val BADGE_FRACTION = 0.42f
 
 /** Confirm-style dialog: icon, message, a confirmation action and a Cancel button. */
 @Composable
@@ -590,14 +644,18 @@ internal fun activityIcon(activity: ActivityType?): ImageVector = when (activity
 }
 
 // A qualitative (categorical) palette for activity type. M3 has no categorical roles, so this is a
-// derived set: one fixed saturation + lightness, only the hue rotates, so every category carries
-// equal visual weight. It's a calmer sibling of the map's speed ramp (lower saturation) so the list
+// derived set: one fixed saturation + lightness, only the hue rotates, so every activity carries
+// equal visual weight. It's a calmer sibling of the map's speed ramp (lower saturation) so a screen
 // stays quiet. Green is nudged toward teal to avoid colliding with the app's green theme accent.
 // STILL/UNKNOWN fall back to the neutral scheme color.
 private const val ACTIVITY_SAT = 0.5f
 
 private const val ACTIVITY_LUM = 0.62f
 
+/**
+ * A hue per activity — for the **Record tab only**, where movement is the whole subject and no place
+ * appears to be coded. Elsewhere use [travelColor]: see the split described there.
+ */
 @Composable
 internal fun activityColor(activity: ActivityType?): Color = when (activity) {
     ActivityType.DRIVING -> Color.hsl(210f, ACTIVITY_SAT, ACTIVITY_LUM) // blue
@@ -607,4 +665,114 @@ internal fun activityColor(activity: ActivityType?): Color = when (activity) {
     ActivityType.RUNNING -> Color.hsl(30f, ACTIVITY_SAT, ACTIVITY_LUM)  // orange
     ActivityType.WALKING -> Color.hsl(275f, ACTIVITY_SAT, ACTIVITY_LUM) // violet
     else -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+/**
+ * One neutral for every kind of travel — **where places share the screen**, which is the Timeline and
+ * anything reached from it. There, color is spent on places ([categoryColor]) and an activity
+ * hue would compete with it while saying nothing the row doesn't already say: the car, the boots and
+ * the bike are distinct glyphs, and a day's shape is in where the user stopped.
+ *
+ * **The two palettes are separated by surface, not by tone**: [activityColor] belongs to the Record
+ * tab, which holds no places at all, and this belongs where places do. That invariant is what makes
+ * both readable; the saturation split below is only the fallback if a screen ever shows both.
+ * (The web viewer colors per activity throughout: its map draws overlapping *lines*, with no glyph to
+ * tell them apart.)
+ */
+@Composable
+internal fun travelColor(): Color = MaterialTheme.colorScheme.onSurfaceVariant
+
+// The places' categorical palette: what a place was for, by category group rather than by category —
+// fifteen colors would be a legend to memorize, five are a pattern picked up by scrolling. Built like
+// the activity set above (fixed saturation and lightness, hue rotates, so no group outweighs another)
+// and kept a step quieter than it, so that if the two ever do meet on one screen a group still can't
+// be mistaken for an activity at a neighboring hue.
+private const val CATEGORY_SAT = 0.34f
+
+private const val CATEGORY_LUM = 0.60f
+
+/**
+ * The color a categorized place reads as: its **group's**, never its own — a colour per category
+ * would be a legend to memorize.
+ */
+@Composable
+internal fun categoryColor(category: PlaceCategory): Color = when (category.group) {
+    PlaceCategoryGroup.HOME_PEOPLE -> Color.hsl(350f, CATEGORY_SAT, CATEGORY_LUM) // rose
+    PlaceCategoryGroup.ERRANDS -> Color.hsl(120f, CATEGORY_SAT, CATEGORY_LUM)     // green
+    PlaceCategoryGroup.ROUTINE -> Color.hsl(255f, CATEGORY_SAT, CATEGORY_LUM)     // indigo
+    PlaceCategoryGroup.AWAY -> Color.hsl(190f, CATEGORY_SAT, CATEGORY_LUM)        // cyan
+    // Deliberately the faintest of the five, for the stops that are passed through rather than spent
+    // — but still a hue, because a true neutral is what an *untagged* place wears.
+    PlaceCategoryGroup.TRANSIENT -> Color.hsl(30f, 0.16f, CATEGORY_LUM)           // warm gray
+}
+
+/**
+ * Title color for anything place-like (Places list rows, stay cards, gap sides): named reads
+ * at full onSurface, unnamed at the variant. Explicit because the inherited card color dims
+ * to onSurfaceVariant under dynamic color (contentColorFor matches surfaceVariant first).
+ */
+@Composable
+internal fun placeTitleColor(named: Boolean) =
+    if (named) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+
+/**
+ * Icon-disc tint for anything place-like: a categorized place takes its **group's** color (so kinds of
+ * stop read as a pattern down a list), while an untagged one — and an unnamed cluster, which can have
+ * no category at all — stays neutral. Neutral is therefore never a group's color; see [categoryColor],
+ * where the transient pair is faint but still hued for exactly that reason.
+ *
+ * This is the second of two channels, and they carry different things on purpose: [placeTitleColor]
+ * says whether you *named* the place, the disc says whether you told it what the place is *for*. One
+ * row then answers both at a glance, and a glyph swap alone (pin → category) isn't left to carry a
+ * distinction that reads as a shape change rather than a state.
+ */
+@Composable
+internal fun placeDiscTint(category: PlaceCategory?) =
+    if (category != null) {
+        categoryColor(category)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+/** The matching fill: a categorized disc is solid enough to pick out while scrolling a long list. */
+internal fun placeDiscAlpha(category: PlaceCategory?) = if (category != null) 0.24f else 0.12f
+
+/**
+ * A single-choice option in a dialog: glyph, label, and either the tick that marks the current choice
+ * or a [trailing] slot of the caller's. The shape both option dialogs use — the track-type picker and
+ * the place-category picker — so the corner radius, the paddings and the tick affordance are stated
+ * once rather than copied into the next one.
+ */
+@Composable
+internal fun OptionRow(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    labelColor: Color = MaterialTheme.colorScheme.onSurface,
+    selected: Boolean = false,
+    selectedDescription: String? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint)
+        Spacer(Modifier.width(16.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = labelColor)
+        Spacer(Modifier.weight(1f))
+        when {
+            trailing != null -> trailing()
+            selected -> Icon(
+                Icons.Filled.Check,
+                contentDescription = selectedDescription,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
 }

@@ -20,6 +20,10 @@ interface PlaceDao {
     @Query("UPDATE places SET radiusM = :radiusM WHERE id = :id")
     suspend fun setRadius(id: Long, radiusM: Double)
 
+    /** `PlaceCategory.code`, or null to untag. */
+    @Query("UPDATE places SET category = :code WHERE id = :id")
+    suspend fun setCategory(id: Long, code: String?)
+
     @Query("UPDATE places SET lat = :lat, lon = :lon WHERE id = :id")
     suspend fun setPin(id: Long, lat: Double, lon: Double)
 

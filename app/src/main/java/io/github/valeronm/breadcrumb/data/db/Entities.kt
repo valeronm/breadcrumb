@@ -146,7 +146,9 @@ data class LivenessEvent(
 
 /**
  * A user-named place. Created/renamed/deleted from the stay-naming dialog; stays, clusters and
- * visit counts stay derived on read — labels are the only persisted layer of the places feature.
+ * visit counts stay derived on read — a place row is the only persisted layer of the places
+ * feature, carrying what the user said about the spot (its name, what it is for, how wide it
+ * captures) and nothing derived.
  */
 @Entity(tableName = "places")
 data class Place(
@@ -161,6 +163,10 @@ data class Place(
      *  (PlaceClusterer.DEFAULT_RADIUS_M — callers pass it; the entity carries no default so the
      *  db package stays free of domain imports). */
     val radiusM: Double,
+    /** What the place is for (`PlaceCategory.code`), or null when untagged. Deliberately the raw
+     *  string rather than the enum: a code this build doesn't know reads as untagged but survives
+     *  the round trip through a backup, which mapping at the column would erase. */
+    val category: String? = null,
 )
 
 /** A finished track projected to what stay derivation needs: interval + endpoint coordinates. */

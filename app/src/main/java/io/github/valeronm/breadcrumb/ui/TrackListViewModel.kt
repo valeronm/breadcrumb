@@ -16,6 +16,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -143,10 +144,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Name an unnamed cluster from the Places screen — pins a place at its centroid. */
-    fun createPlace(lat: Double, lon: Double, label: String) {
+    fun createPlace(lat: Double, lon: Double, label: String, category: PlaceCategory? = null) {
         val trimmed = label.trim()
         if (trimmed.isEmpty()) return
-        viewModelScope.launch { placeRepository.create(trimmed, lat, lon, System.currentTimeMillis()) }
+        viewModelScope.launch {
+            placeRepository.create(trimmed, lat, lon, System.currentTimeMillis(), category)
+        }
     }
 
     fun deletePlace(id: Long) {
@@ -156,6 +159,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     /** Undo a [deletePlace] — the row comes back with its id, pin and radius intact. */
     fun restorePlace(place: Place) {
         viewModelScope.launch { placeRepository.restore(place) }
+    }
+
+    /**
+     * Tag what a place is for, or untag it with null. Nothing re-derives — a category is metadata
+     * the timeline reads back, not an input to clustering.
+     */
+    fun setPlaceCategory(id: Long, category: PlaceCategory?) {
+        viewModelScope.launch { placeRepository.setCategory(id, category) }
     }
 
     /** Set a place's capture radius; the derivation re-runs and re-clusters reactively. */

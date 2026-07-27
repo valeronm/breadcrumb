@@ -35,6 +35,12 @@ python3 -m http.server -d web 8000
   app was alive and armed throughout — an outage, a disarm, or history from before the log existed
   leaves it *inferred*. Derivation is "as of" the export's own timestamp, so the last stay is open
   as of the backup rather than growing every time the page is reloaded.
+
+  A stay row also names **what the place is for** where the user tagged it (`PlaceCategory` in the
+  app; `CATEGORY_LABELS` here), after the duration — the app's own order. The codes are the stored
+  vocabulary and the labels are this file's copy of the app's, so a code from a newer app than this
+  viewer reads as untagged rather than being guessed at. Categories are text here: the app draws a
+  glyph per category, and a viewer that has no icon set gains nothing by porting one.
 - `js/geo.js` — the distance seam that runs on, and its coordinate-box prefilter. WGS84 ellipsoidal
   (the same Vincenty inverse `Location.distanceBetween` runs on the phone) rather than a sphere
   approximation, so a borderline pair of endpoints can't cluster one way here and another there.

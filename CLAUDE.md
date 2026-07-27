@@ -158,8 +158,8 @@ Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to 
 `DeafnessWarning` (decide when to tell the user about it), `MovementConfirmer` (the recording
 pipeline's second witness — see below). New behavior
 belongs here first, with a test, before wiring into the service or UI. The shared vocabulary lives
-here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, and the `DistanceFn` seam (production
-implementation `data/AndroidDistance`; the GMS `DetectedActivity` mapping is
+here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, `PlaceCategory`, and the `DistanceFn` seam
+(production implementation `data/AndroidDistance`; the GMS `DetectedActivity` mapping is
 `location/DetectedActivities`). One deliberate impurity: domain functions take the Room entities
 (`TrackPoint`, `TrackSummary`, `Place`) directly rather than a mapped domain model — the point walk
 runs over millions of rows, and a per-row mapping allocation buys nothing but layering purity. The
@@ -199,7 +199,7 @@ second path over one period double-counts its stats and hands stay derivation pa
 Both checks read the points, not the track row's bounds — the row's move when the overrun comes off
 its edges — and both ignore soft-deleted rows, so a span covered only by Recently deleted imports. `BackupExporter`/`BackupImporter`
 (`data/export/`) are the full backup: one gzipped JSON file with every kept track's points
-(ignored ones and quality metadata included), places and liveness events — written from Settings,
+(ignored ones and quality metadata included), places with their categories and liveness events — written from Settings,
 streamed both ways (one track's points in memory at a time), point rows as arrays keyed by a
 `pointFields` header so future exports stay restorable. Restore is offered only on the Timeline's
 empty state, deliberately: with existing tracks it would have to merge. The format also feeds the
@@ -208,6 +208,38 @@ input, and the viewer draws off-path fixes by the same conventions this app does
 same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `web/js/stays.js`, tested case for case
 against `StayDeriverTest`), so a rule that moves here moves there. `PlaceRepository` backs the
 Places tab.
+
+**A place row holds what the user said about a spot, and only that** — its name, its capture radius,
+and its `category` (`PlaceCategory.code`, null = untagged). Everything else about a place is derived
+on read. A category feeds nothing on the way to a stay — clustering reads only the pin and radius, so
+unlike a re-pin it cannot move a visit between places — but it is still a `places` write, and the
+shared derivation observes that table, so the timeline re-derives off a tag exactly as off a rename. Three rules hold the vocabulary
+together. The **codes are permanent** — they reach the DB column *and* the backup format the web
+viewer reads — while the `label` beside each is display text, free to reword. The column keeps the
+**raw string, mapped in the domain** (`Place.placeCategory`, following the `activityType` /
+`IgnoreReason.code` precedent), so a code this build doesn't know reads as untagged but survives a
+backup round trip instead of being erased. And **untagged is a first-class state, not a thirteenth
+category**: there is deliberately no `Other`, because it would collect precisely the places worth
+finding again while saying nothing about them. Three categories carry `inTimeTotals = false` and so
+stay out of the timeline's per-day totals (`dayCategoryTotals`) — `HOME`, which as the baseline every
+day returns to would dwarf the line it shares, plus `PARKING` and `GAS_STATION`, which are transient:
+somewhere passed through on the way to the thing, with no purpose of their own for a total to report. The set is closed and not user-extensible — per-category
+totals only compare over a vocabulary that doesn't drift, and every entry owes a glyph (`ui/CategoryIcons`,
+where an `ImageVector` can live and the domain package can't) plus a `PlaceCategoryGroup`, the coarse
+five (home & people / errands / routine / away / transient) that **color coding** reads: a categorized
+place wears its *group's* color, never its own, so a list reads as a pattern instead of a legend to
+memorize, and untagged stays neutral (`placeDiscTint`). It is a derived categorical palette (M3 has no
+categorical roles): fixed saturation and lightness, only the hue rotates, so no group outweighs
+another. **The two categorical palettes are separated by surface, not by tone**: `activityColor`'s hue
+per activity belongs to the Record tab, which holds no places at all, while everywhere places share
+the screen (the Timeline and what it opens) travel takes one neutral (`travelColor`) so the coding is
+the places' — an activity hue there competes while saying nothing the row's glyph doesn't (car, boots,
+bike are distinct shapes), and a day's shape is in where the user stopped. `CATEGORY_SAT` sitting below
+`ACTIVITY_SAT` is only the fallback should a screen ever show both. The web viewer colors per activity
+throughout: its map draws overlapping *lines*, with no glyph to tell them apart. `TrackColoring`'s
+per-activity ramps are untouched and unrelated — they encode speed, not identity. Those glyphs were chosen as a *set*:
+no vehicle silhouette (a timeline row already spends those on the track's activity) and one building
+only (Home has it, so Work is a briefcase).
 
 **An ignored point is one that isn't part of the path — for either of two reasons.** The recorder's
 bad-fix rule (`TrackQuality`: accuracy, jump, no-GNSS) rejects fixes it doesn't trust; `EdgeStayIgnore`

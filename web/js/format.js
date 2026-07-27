@@ -52,6 +52,36 @@ function visitLabel(n) {
 }
 
 /**
+ * What a place is for, keyed by the code stored on the place row. PlaceCategory — the codes are the
+ * stored vocabulary and must match it exactly; the labels are display text the app is free to
+ * reword. A place with no category, or one carrying a code from a newer app than this viewer, reads
+ * as untagged: the same tolerance the app applies, so neither side invents a name for it.
+ */
+const CATEGORY_LABELS = {
+  home: "Home",
+  groceries: "Groceries",
+  shopping: "Shopping",
+  kids_school: "Kids & school",
+  sports: "Sports & fitness",
+  outdoors: "Outdoors",
+  friends_family: "Friends & family",
+  services: "Services",
+  health: "Health",
+  travel: "Travel",
+  food: "Food & drink",
+  entertainment: "Entertainment",
+  sightseeing: "Sightseeing",
+  gas_station: "Gas station",
+  parking: "Parking",
+  work: "Work",
+};
+
+/** Display label for a stored category code, or null when untagged or unrecognized. */
+export function categoryLabel(code) {
+  return CATEGORY_LABELS[code] ?? null;
+}
+
+/**
  * A stay row's metadata line: when it was, how long, and — for an unnamed cluster the user visits
  * often enough to want to name — how many visits.
  *
@@ -87,8 +117,14 @@ export function stayMeta(stay, place, nowMs) {
   }
   const duration = startsAtMidnight || endsAtMidnight ? null : reportableDurationMs(stay, nowMs);
   const visits = !place?.label && isNotable(place) ? place.visitCount : null;
-  return [phrase, duration && formatDurationMs(duration), visits && visitLabel(visits)]
-    .filter(Boolean).join(" · ");
+  // Category after duration, as the app's stay row orders them. Never alongside the visit count:
+  // that belongs to unnamed clusters, which have no place row to carry a category.
+  return [
+    phrase,
+    duration && formatDurationMs(duration),
+    categoryLabel(place?.category),
+    visits && visitLabel(visits),
+  ].filter(Boolean).join(" · ");
 }
 
 /** A bound the day slicing put there, rather than a time anything happened at. */

@@ -3,13 +3,15 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import kotlinx.coroutines.flow.Flow
 
 /**
- * User-assigned place labels — the only persisted layer of the places feature. Stays, clusters
- * and visit counts derive on read; a Place row pins a label to a cluster centroid at naming time
- * (the pin is never moved on rename — matching goes through the cluster anchor, see PlaceResolver).
+ * What the user said about a place — its label and its category, the only persisted layer of the
+ * places feature. Stays, clusters and visit counts derive on read; a Place row pins a label to a
+ * cluster centroid at naming time (the pin is never moved on rename — matching goes through the
+ * cluster anchor, see PlaceResolver).
  */
 class PlaceRepository(context: Context, db: AppDatabase = AppDatabase.get(context)) {
 
@@ -22,17 +24,33 @@ class PlaceRepository(context: Context, db: AppDatabase = AppDatabase.get(contex
     /** Backup restore: re-insert exported places under fresh ids (nothing references place ids). */
     suspend fun restorePlaces(places: List<Place>) = dao.insertAll(places.map { it.copy(id = 0) })
 
-    suspend fun create(label: String, lat: Double, lon: Double, now: Long): Long =
+    suspend fun create(
+        label: String,
+        lat: Double,
+        lon: Double,
+        now: Long,
+        category: PlaceCategory? = null,
+    ): Long =
         dao.insert(
             Place(
                 label = label, lat = lat, lon = lon, createdAt = now,
-                radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
+                radiusM = PlaceClusterer.DEFAULT_RADIUS_M, category = category?.code,
             ),
         )
 
     suspend fun rename(id: Long, label: String) = dao.rename(id, label)
 
     suspend fun setRadius(id: Long, radiusM: Double) = dao.setRadius(id, radiusM)
+
+    /**
+     * Tag what the place is for, or untag it with null.
+     *
+     * Nothing *reads* a category on the way to a stay: clustering takes only the pin and the radius,
+     * so unlike a re-pin this can't move a visit from one place to another. It is still a write to
+     * `places`, though, which invalidates the table the shared derivation observes — so the timeline
+     * re-derives off it exactly as a rename does. Callers should skip the write when nothing changed.
+     */
+    suspend fun setCategory(id: Long, category: PlaceCategory?) = dao.setCategory(id, category?.code)
 
     /** Explicit pin move (the re-center action) — the only path that ever changes a pin. */
     suspend fun setPin(id: Long, lat: Double, lon: Double) = dao.setPin(id, lat, lon)

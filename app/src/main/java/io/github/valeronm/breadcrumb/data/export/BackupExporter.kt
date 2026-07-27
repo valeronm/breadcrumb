@@ -11,7 +11,8 @@ import java.util.zip.GZIPOutputStream
 /**
  * Writes the whole recorded history as one gzipped JSON document — the web companion's data
  * source. Unlike GPX this keeps everything the viewer can use: ignored points with their
- * reasons, fix-quality metadata, named places, and the liveness events stay derivation needs.
+ * reasons, fix-quality metadata, named places with their categories, and the liveness events stay
+ * derivation needs.
  * Discarded tracks and a still-open recording are excluded, matching the rest of the app.
  *
  * Points are per-point arrays in [POINT_FIELDS] order (echoed in the document header as
@@ -145,9 +146,12 @@ object BackupExporter {
         out.append(']')
     }
 
+    // An untagged place writes no `category` key at all, so a history with no categories exports
+    // exactly as it did before the column existed.
     private fun placeObject(p: Place): String =
         """{"id":${p.id},"label":${str(p.label)},"lat":${p.lat},"lon":${p.lon}""" +
-            ""","createdAt":${p.createdAt},"radiusM":${p.radiusM}}"""
+            ""","createdAt":${p.createdAt},"radiusM":${p.radiusM}""" +
+            (p.category?.let { ""","category":${str(it)}""" } ?: "") + "}"
 
     private fun livenessObject(e: LivenessEvent): String =
         """{"type":${str(e.type)},"at":${e.at},"until":${e.until}}"""

@@ -203,6 +203,8 @@ private fun PeriodStats(title: String, tracks: List<TrackSummary>) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TonalIconDisc(
                     icon = activityIcon(total.activity),
+                    // A hue each here, unlike the Timeline's neutral: this tab is about how the day
+                    // moved, and no place shares the screen for the color to be taken from.
                     tint = activityColor(total.activity),
                     contentDescription = total.activity?.label,
                     size = 28.dp,

@@ -283,6 +283,9 @@ object BackupImporter {
         var lon = 0.0
         var createdAt = 0L
         var radiusM = PlaceClusterer.DEFAULT_RADIUS_M
+        // Kept as the raw code: a category this build doesn't know reads as untagged but survives
+        // the restore, so a file written by a later version isn't quietly stripped by this one.
+        var category: String? = null
         json.beginObject()
         while (json.hasNext()) {
             when (json.nextName()) {
@@ -292,11 +295,18 @@ object BackupImporter {
                 "lon" -> lon = json.nextNumber().toDouble()
                 "createdAt" -> createdAt = json.nextNumber().toLong()
                 "radiusM" -> radiusM = json.nextNumber().toDouble()
+                // Read as a primitive, not a string: this exporter omits the key when untagged, but a
+                // writer that spells it `"category":null` must not abort the whole restore — the same
+                // tolerance nextNumberOrNull gives every other optional field.
+                "category" -> category = json.nextPrimitive() as? String
                 else -> json.skipValue()
             }
         }
         json.endObject()
-        return Place(id = id, label = label, lat = lat, lon = lon, createdAt = createdAt, radiusM = radiusM)
+        return Place(
+            id = id, label = label, lat = lat, lon = lon, createdAt = createdAt,
+            radiusM = radiusM, category = category,
+        )
     }
 
     private fun readLiveness(json: JsonPullReader): LivenessEvent {

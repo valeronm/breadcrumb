@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,17 +16,26 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterCenterFocus
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -43,10 +53,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,16 +67,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.placeCategory
 import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.openInMaps
@@ -136,6 +155,10 @@ internal fun PlacesTab(
             // Tiebreak: named before unnamed, then by label — stable across recompositions.
             .sortedWith(comparator.thenBy { it.place?.label?.lowercase(Locale.getDefault()) ?: "￿" })
     }
+    // Search narrows the *list* only, so it sits with the list's chrome and the map keeps whatever
+    // it was showing — the same split the sort chips and the rare-stops chip already follow. An
+    // unnamed cluster drops out of any non-empty query: it has no name to match.
+    var query by remember { mutableStateOf("") }
     // What the map draws — the list below shows `sorted` whole, since it has no chip and demoting
     // rows there would bury places under a rule the screen gives no way to see or turn off. Note
     // the chip's off default also hides the map's orange brief-stop dots: a one-off stop is a rare
@@ -143,13 +166,47 @@ internal fun PlacesTab(
     val mapVisible = remember(sorted, showRareStops) {
         if (showRareStops) sorted else sorted.filterNot { it.isRareStop() }
     }
+    // Folded once per list change rather than once per place per keystroke: accent-stripping is an
+    // NFD normalisation and a regex pass, and this list is the whole named history.
+    val foldedLabels = remember(sorted) {
+        sorted.map { it.place?.label?.let(PlaceSearch::fold) }
+    }
+    val listed = remember(sorted, foldedLabels, query) {
+        val needle = PlaceSearch.fold(query)
+        if (needle.isEmpty()) {
+            sorted
+        } else {
+            sorted.filterIndexed { index, _ -> foldedLabels[index]?.contains(needle) == true }
+        }
+    }
 
     // Chips occupy an invisible touch target (48dp minimum) around their 32dp visual height;
     // insets that should read from a chip's *visible* edge subtract this overshoot.
     val chipHalo = ((LocalMinimumInteractiveComponentSize.current - FilterChipDefaults.Height) / 2)
         .coerceAtLeast(0.dp)
 
-    Column(Modifier.fillMaxSize()) {
+    // The search field keeps focus (and the keyboard) until something takes it away. Two gestures
+    // should: a tap that no row or control claimed, and the first scroll of the list — by then the
+    // user is reading results rather than typing. Only in list mode, so the map's own touch handling
+    // is left alone; it has no field to focus anyway.
+    val focusManager = LocalFocusManager.current
+    val listState = rememberLazyListState()
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) focusManager.clearFocus()
+    }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .then(
+                if (showMap) {
+                    Modifier
+                } else {
+                    Modifier.pointerInput(Unit) {
+                        detectTapGestures(onTap = { focusManager.clearFocus() })
+                    }
+                },
+            ),
+    ) {
         // Chrome beyond the view switch belongs to the view it controls: sort chips pin above
         // the list, the rare-stops filter rides on the map.
         SingleChoiceSegmentedButtonRow(
@@ -170,6 +227,8 @@ internal fun PlacesTab(
             }
         }
         if (!showMap) {
+            // The switch and the sort chips are both controls *of* the view and stay together under
+            // it; the search pill sits last, against the rows it narrows.
             // Pinned above the list (not scrolling with it): sort stays visible and reachable
             // mid-scroll. Default touch-target spacing between wrapped lines is left in place.
             FlowRow(
@@ -187,6 +246,16 @@ internal fun PlacesTab(
                     )
                 }
             }
+            PlacesSearchField(
+                query = query,
+                onQueryChange = { query = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    // Top gap measured from the chips' *visible* edge — their touch halo overhangs
+                    // downward, so it comes off the spacing here rather than showing as a wide gap.
+                    .padding(top = (10.dp - chipHalo).coerceAtLeast(0.dp), bottom = 8.dp),
+            )
         }
         if (sorted.isEmpty()) {
             EmptyState(
@@ -258,16 +327,24 @@ internal fun PlacesTab(
                     }
                 }
             }
+        } else if (listed.isEmpty()) {
+            // The search emptied the list, not the history — say which, and leave the field above
+            // it holding the query that did it.
+            EmptyState(
+                "No place matches \"${query.trim()}\".",
+                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+            )
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
+                state = listState,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                itemsIndexed(sorted, key = { _, s -> s.rowKey() }) { index, summary ->
+                itemsIndexed(listed, key = { _, s -> s.rowKey() }) { index, summary ->
                     PlaceRow(
                         summary = summary,
-                        shape = groupedRowShape(index, sorted.size),
+                        shape = groupedRowShape(index, listed.size),
                         onOpen = { onOpenPlace(summary.rowKey()) },
                         // Deleting removes the label, not the stays — they go back to being an
                         // unnamed cluster, and Undo re-pins the place exactly as it was.
@@ -275,6 +352,71 @@ internal fun PlacesTab(
                             viewModel.deletePlace(place.id)
                             undo.show("\"${place.label}\" deleted") { viewModel.restorePlace(place) }
                         },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The list's search box, shaped like the chips it sits above rather than like a form field: a Material
+ * text field brings a 56dp minimum and a heavy outline, which in a header of 32dp chips reads as
+ * something borrowed from another screen. Hence [BasicTextField] inside a pill of the app's own
+ * making — the height, the shape and the placeholder are all this composable's to set.
+ *
+ * Filtering is live, so there is nothing to submit: the keyboard's Done just dismisses itself.
+ */
+@Composable
+private fun PlacesSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.height(40.dp),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.weight(1f)) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium
+                        .copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (query.isEmpty()) {
+                    Text(
+                        "Search places",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            // Present only with something to clear — an always-there X on an empty field invites a
+            // tap that does nothing. Sized down like the day header's share action, for the same
+            // reason: a full 48dp target would outweigh the 40dp control holding it.
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Clear search",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
@@ -386,6 +528,26 @@ internal fun PlaceDetailScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        } else {
+                            // What the place is for belongs with its name, not among the stats.
+                            place?.placeCategory?.let { category ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Icon(
+                                        category.icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = categoryColor(category),
+                                    )
+                                    Text(
+                                        category.label,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                         }
                     }
                 },
@@ -417,7 +579,7 @@ internal fun PlaceDetailScreen(
                         // The rest are a named place's: naming itself has the header CTA.
                         if (place != null) {
                             IconButton(onClick = { showNameDialog = true }) {
-                                Icon(Icons.Filled.Edit, contentDescription = "Rename place")
+                                Icon(Icons.Filled.Edit, contentDescription = "Edit place")
                             }
                             IconButton(onClick = { editing = true }) {
                                 Icon(Icons.Filled.Tune, contentDescription = "Adjust area")
@@ -507,13 +669,20 @@ internal fun PlaceDetailScreen(
 
     if (showNameDialog) {
         var text by remember(place?.id) { mutableStateOf(place?.label ?: "") }
+        // Naming a place is when the user knows what it is, so the category is decided in the same
+        // breath — and the same dialog edits it later, so there is one screen for what a place *is*.
+        var category by remember(place?.id) { mutableStateOf(place?.placeCategory) }
+        // Both live inside this block, so Cancel discards an edited category with the typed name.
+        var choosingCategory by remember(place?.id) { mutableStateOf(false) }
         val removing = text.isBlank() && place != null
         AlertDialog(
             onDismissRequest = { showNameDialog = false },
-            icon = { Icon(Icons.Filled.Place, contentDescription = null) },
-            title = { Text(if (place == null) "Name this place" else "Rename place") },
+            icon = { Icon(category.discIcon, contentDescription = null) },
+            title = { Text(if (place == null) "Name this place" else "Edit place") },
             text = {
-                Column {
+                // The dialog bounds its text slot but doesn't scroll it (AlertDialogContent gives it
+                // `weight(1f, fill = false)`), so a tall picker would clip the buttons off instead.
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     OutlinedTextField(
                         value = text,
                         onValueChange = { text = it },
@@ -522,6 +691,8 @@ internal fun PlaceDetailScreen(
                         // Place names are proper nouns — capitalize each word.
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
                     )
+                    Spacer(Modifier.height(12.dp))
+                    CategorySummaryRow(category) { choosingCategory = true }
                     if (place != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -538,9 +709,17 @@ internal fun PlaceDetailScreen(
                         val trimmed = text.trim()
                         when {
                             trimmed.isEmpty() && place != null -> viewModel.deletePlace(place.id)
-                            place != null -> viewModel.renamePlace(place.id, trimmed)
+                            // Both writes are guarded: either one invalidates the places table, and
+                            // the derivation every screen reads runs again off it — so a dialog
+                            // dismissed with nothing changed must cost nothing.
+                            place != null -> {
+                                if (trimmed != place.label) viewModel.renamePlace(place.id, trimmed)
+                                if (category != place.placeCategory) {
+                                    viewModel.setPlaceCategory(place.id, category)
+                                }
+                            }
                             trimmed.isNotEmpty() -> viewModel.createPlace(
-                                summary.centroid.lat, summary.centroid.lon, trimmed,
+                                summary.centroid.lat, summary.centroid.lon, trimmed, category,
                             )
                         }
                         showNameDialog = false
@@ -552,7 +731,114 @@ internal fun PlaceDetailScreen(
                 TextButton(onClick = { showNameDialog = false }) { Text("Cancel") }
             },
         )
+
+        // Stacked over the naming dialog rather than replacing it, so the typed name is still there
+        // (and still on screen underneath) when the picker closes.
+        if (choosingCategory) {
+            CategoryDialog(
+                current = category,
+                onPick = {
+                    category = it
+                    choosingCategory = false
+                },
+                onDismiss = { choosingCategory = false },
+            )
+        }
     }
+}
+
+/**
+ * The current category as one row in the naming dialog, opening the picker. A row rather than the
+ * twelve chips this started as: in a dialog's width the chips wrapped into a ragged block, where
+ * "Home" and "Friends & family" are half a screen apart in size.
+ */
+@Composable
+private fun CategorySummaryRow(category: PlaceCategory?, onClick: () -> Unit) {
+    Column {
+        Text(
+            "What is it for?",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(4.dp))
+        CategoryRow(category, trailing = {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }, onClick = onClick)
+    }
+}
+
+/**
+ * The category list, built like the track-type dialog: one full-width row each, so a long label sits
+ * on its own line instead of wrapping mid-list. "Not set" leads it — untagging is a choice worth
+ * seeing, not a gesture (tapping the chosen one again) left for the user to discover.
+ *
+ * Grouped by color, under a heading each — this is where the coding is learned, and a list that
+ * scattered one group's color across four separate runs would teach nothing. No sorting happens
+ * here: [PlaceCategory] is declared in exactly this order (grouped, then by how often a category is
+ * chosen), so the picker walks the entries once and heads each run as it starts.
+ */
+@Composable
+private fun CategoryDialog(
+    current: PlaceCategory?,
+    onPick: (PlaceCategory?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(current.discIcon, contentDescription = null) },
+        title = { Text("What is it for?") },
+        text = {
+            // This many rows outgrow a dialog, whose text slot is bounded but doesn't scroll itself.
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                // Untagged leads, above the groups: it belongs to none of them.
+                CategoryRow(null, selected = current == null) { onPick(null) }
+                // One pass, heading each time the group changes — the categories are *declared* in
+                // this order, so reading it off them can't disagree with a second list of groups.
+                var heading: PlaceCategoryGroup? = null
+                PlaceCategory.entries.forEach { option ->
+                    if (option.group != heading) {
+                        heading = option.group
+                        Text(
+                            option.group.label,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 2.dp),
+                        )
+                    }
+                    CategoryRow(option, selected = option == current) { onPick(option) }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * One category as a row — glyph, label, and either a trailing slot or the chosen tick. Untagged (a
+ * null [category]) wears the plain pin, which is what its stays show on the timeline.
+ */
+@Composable
+private fun CategoryRow(
+    category: PlaceCategory?,
+    selected: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    OptionRow(
+        icon = category.discIcon,
+        label = category?.label ?: "Not set",
+        // The picker is where the color coding is learned, so a row wears its group's color.
+        tint = placeDiscTint(category),
+        labelColor = placeTitleColor(named = category != null),
+        selected = selected,
+        selectedDescription = "Current category",
+        trailing = trailing,
+        onClick = onClick,
+    )
 }
 
 @Composable
@@ -668,26 +954,23 @@ private fun PlaceRowCard(
     onClick: () -> Unit,
 ) {
     val named = summary.isNamed
+    // A tagged place says what it is in the disc, as its stays do on the timeline. Only the glyph,
+    // though: a stay row spells the category out because there the category qualifies an event,
+    // while here the name is the row's identity and the subtitle is already three stats long.
+    // The words still reach a screen reader through the disc's description.
+    val category = summary.place?.placeCategory
     ListRowCard(
         shape = shape,
         onClick = onClick,
-        icon = Icons.Filled.Place,
-        tint = if (named) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        discAlpha = 0.16f,
+        icon = category.discIcon,
+        tint = placeDiscTint(category),
+        iconDescription = category?.label,
+        discAlpha = placeDiscAlpha(category),
         title = summary.place?.label ?: "Unnamed place",
         titleColor = placeTitleColor(named),
         subtitle = AnnotatedString(placeSubtitle(summary)),
     )
 }
-
-/**
- * Title color for anything place-like (Places list rows, stay cards, gap sides): named reads
- * at full onSurface, unnamed at the variant. Explicit because the inherited card color dims
- * to onSurfaceVariant under dynamic color (contentColorFor matches surfaceVariant first).
- */
-@Composable
-internal fun placeTitleColor(named: Boolean) =
-    if (named) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
 
 /**
  * Stable place identity: the place id for named places, the centroid for ephemeral unnamed

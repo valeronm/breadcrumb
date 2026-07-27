@@ -1,0 +1,86 @@
+package io.github.valeronm.breadcrumb.domain
+
+import io.github.valeronm.breadcrumb.data.db.Place
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+/**
+ * The codes are the stored vocabulary — they reach the DB column and the backup format the web
+ * viewer reads — so what is pinned here is their stability, not the labels beside them.
+ */
+class PlaceCategoryTest {
+
+    private fun place(category: String?) =
+        Place(id = 1, label = "Somewhere", lat = 1.0, lon = -2.0, createdAt = 0L, radiusM = 150.0, category = category)
+
+    @Test fun `every code round-trips`() {
+        PlaceCategory.entries.forEach { category ->
+            assertEquals(category, PlaceCategory.fromCode(category.code))
+        }
+    }
+
+    @Test fun `codes are unique`() {
+        val codes = PlaceCategory.entries.map { it.code }
+        assertEquals(codes.size, codes.toSet().size)
+    }
+
+    /**
+     * A code this build doesn't know reads as untagged rather than throwing — that is what lets a
+     * backup from a later version restore here. The column keeps the raw string either way, so the
+     * value survives the round trip even while this build can't name it.
+     */
+    @Test fun `an unknown code reads as untagged`() {
+        assertNull(PlaceCategory.fromCode("laundromat"))
+        assertNull(place("laundromat").placeCategory)
+        assertEquals("laundromat", place("laundromat").category)
+    }
+
+    @Test fun `no category at all is untagged`() {
+        assertNull(PlaceCategory.fromCode(null))
+        assertNull(place(null).placeCategory)
+    }
+
+    @Test fun `a stored code resolves through the place`() {
+        assertEquals(PlaceCategory.GROCERIES, place("groceries").placeCategory)
+    }
+
+    @Test fun `the groups partition the categories`() {
+        assertEquals(
+            mapOf(
+                PlaceCategoryGroup.HOME_PEOPLE to listOf(PlaceCategory.FRIENDS_FAMILY, PlaceCategory.HOME),
+                PlaceCategoryGroup.ERRANDS to listOf(
+                    PlaceCategory.GROCERIES, PlaceCategory.FOOD, PlaceCategory.SHOPPING,
+                    PlaceCategory.SERVICES, PlaceCategory.HEALTH,
+                ),
+                PlaceCategoryGroup.ROUTINE to listOf(
+                    PlaceCategory.KIDS_SCHOOL, PlaceCategory.SPORTS, PlaceCategory.WORK,
+                ),
+                PlaceCategoryGroup.AWAY to listOf(
+                    PlaceCategory.OUTDOORS, PlaceCategory.SIGHTSEEING, PlaceCategory.TRAVEL,
+                    PlaceCategory.ENTERTAINMENT,
+                ),
+                PlaceCategoryGroup.TRANSIENT to listOf(PlaceCategory.PARKING, PlaceCategory.GAS_STATION),
+            ),
+            PlaceCategory.entries.groupBy { it.group },
+        )
+    }
+
+    /**
+     * Which categories stay out of a time total, pinned: home is the baseline a day returns to and
+     * would dwarf the line it shares, while a car park and a fuel stop are transient — passed
+     * through on the way to the thing, with no purpose of their own for a total to report. All three
+     * still tag places and label stays — a change here changes what the day header reads.
+     */
+    /**
+     * The colour grouping, pinned as a whole rather than per category: it is a statement about which
+     * stops are *alike*, so moving one category between groups is a decision to make deliberately —
+     * and every category must land in exactly one group, or a place would have no colour to wear.
+     */
+    @Test fun `only home and the transient stops stay out of time totals`() {
+        assertEquals(
+            listOf(PlaceCategory.HOME, PlaceCategory.PARKING, PlaceCategory.GAS_STATION),
+            PlaceCategory.entries.filterNot { it.inTimeTotals },
+        )
+    }
+}
