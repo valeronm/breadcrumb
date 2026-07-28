@@ -112,9 +112,6 @@ private enum class PlacesSort(val label: String) {
     }
 }
 
-/** How far around a place the detail map shows neighboring clusters for radius context. */
-internal const val NEIGHBOR_CONTEXT_M = 1_200.0
-
 /** Label of the map's filter chip — the empty state below names it, so both read from here. */
 private const val RARE_STOPS_LABEL = "Rare stops"
 

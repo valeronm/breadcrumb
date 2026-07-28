@@ -237,4 +237,48 @@ class PlaceResolverTest {
         assertEquals(1, summaries[1].visitCount)        // Office: one matching stay
         assertEquals(1, summaries.count { !it.isNamed }) // the (900) stay is an unnamed cluster
     }
+
+    // --- neighborhood: what a capture radius is judged against -------------------------------
+
+    /**
+     * A subject at the origin with a named neighbor and an unnamed one inside the shipping context
+     * radius, plus one stay beyond it. Laid out against [PlaceResolver.NEIGHBOR_CONTEXT_M] itself,
+     * so the reach these tests exercise is the reach production gathers at.
+     */
+    private fun neighborhoodFixture(): List<PlaceResolver.PlaceSummary> {
+        val places = listOf(place(1, "Home", at(0.0)), place(2, "Office", at(400.0)))
+        val stays = listOf(
+            stayAt(at(0.0), 1_000, 2_000),      // Home
+            stayAt(at(400.0), 3_000, 4_000),    // Office
+            stayAt(at(800.0), 5_000, 6_000),    // an unnamed cluster, still in reach
+            stayAt(at(2_000.0), 7_000, 8_000),  // past the context radius
+        )
+        return summarize(stays, places)
+    }
+
+    private fun homeNeighborhood(): PlaceResolver.Neighborhood {
+        val all = neighborhoodFixture()
+        return PlaceResolver.neighborhood(all.first { it.place?.label == "Home" }, all, flatDistance)
+    }
+
+    @Test fun `the neighborhood excludes the subject and anything out of reach`() {
+        val n = homeNeighborhood()
+
+        assertTrue(n.nearby.none { it === n.subject })
+        assertEquals(listOf(at(400.0), at(800.0)), n.nearby.map { it.anchor })
+    }
+
+    @Test fun `only a named neighbor is a rival`() {
+        // The rule the capture preview rests on; the reasoning is on PlaceResolver.Neighborhood.
+        val n = homeNeighborhood()
+
+        assertEquals(2, n.nearby.size)                    // the Office and the unnamed cluster
+        assertEquals(listOf(at(400.0)), n.rivals.map { it.anchor }) // the Office pin, not the other
+    }
+
+    @Test fun `candidates are the subject's own endpoints plus every neighbor's`() {
+        // The subject's own are in there: they are what it already holds, and a preview that left
+        // them out would show a radius losing what it never had at stake.
+        assertEquals(listOf(at(0.0), at(400.0), at(800.0)), homeNeighborhood().candidates)
+    }
 }

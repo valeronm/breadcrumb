@@ -12,6 +12,11 @@ import io.github.valeronm.breadcrumb.data.db.Place
  * [resolveClusters] results are indexed by cluster id, which [StayDeriver.slicePerDay]'s copies
  * preserve on each stay — so resolution runs once over the unsliced stays and consumers look it
  * up per interval afterwards.
+ *
+ * Above that sit two readings of the same resolution: [summarize], one row per place for the
+ * screens that list them, and [neighborhood], one place with its surroundings prepared for the
+ * clusterer's capture preview. Both take summaries down to what [PlaceClusterer] speaks, which is
+ * why they live on this side of the pair and not on it.
  */
 object PlaceResolver {
 
@@ -21,6 +26,14 @@ object PlaceResolver {
      * constant so the two screens can't disagree about which clusters matter.
      */
     const val NOTABLE_VISIT_MIN = 3
+
+    /**
+     * How far around a place its surroundings are gathered for judging a capture radius
+     * ([neighborhood]). It has to comfortably dominate the largest radius the editor's slider can
+     * reach, or the preview judges a circle against neighbors that were never collected — so this
+     * moves only together with those slider stops.
+     */
+    const val NEIGHBOR_CONTEXT_M = 1_200.0
 
     class ResolvedStay(
         /**
@@ -67,6 +80,39 @@ object PlaceResolver {
         val stays: List<StayDeriver.Stay> = emptyList(),
     ) {
         val isNamed: Boolean get() = place != null
+    }
+
+    /**
+     * One place and what sits around it. [candidates] and [rivals] are readings of [nearby] rather
+     * than parts assembled beside it, so nothing can hold a neighborhood whose rivals are not among
+     * its neighbors.
+     */
+    class Neighborhood(
+        val subject: PlaceSummary,
+        /** The summaries within [NEIGHBOR_CONTEXT_M] of [subject]'s anchor. */
+        val nearby: List<PlaceSummary>,
+    ) {
+        /** Every endpoint a radius here could take: [subject]'s own plus the loose ones around it. */
+        val candidates: List<StayDeriver.Endpoint> =
+            ArrayList<StayDeriver.Endpoint>(subject.endpoints.size + nearby.sumOf { it.endpoints.size })
+                .apply {
+                    addAll(subject.endpoints)
+                    for (other in nearby) addAll(other.endpoints)
+                }
+
+        /**
+         * The pins that can out-compete [subject] for a candidate — **only *named* neighbors.**
+         *
+         * A named place is a seed: it is in the clusterer's anchor list before any endpoint is
+         * read, so it holds its ground whatever the subject's radius does. An unnamed cluster is
+         * not — its anchor is merely the first endpoint no seed claimed, so ground a growing radius
+         * covers never forms one at all. Counting unnamed clusters as rivals makes them look
+         * immovable, since each sits on top of its own members, and a widened radius then appears
+         * to capture nothing while saving it quietly takes more than was shown.
+         */
+        val rivals: List<PlaceClusterer.Seed> = nearby.mapNotNull { other ->
+            other.place?.let { PlaceClusterer.Seed(other.anchor, other.radiusM) }
+        }
     }
 
     /**
@@ -158,6 +204,28 @@ object PlaceResolver {
             )
         }
         return named + unnamed
+    }
+
+    /**
+     * Gathers what surrounds [subject] — the context a capture radius is judged against, prepared
+     * for [PlaceClusterer.scanCapture].
+     *
+     * [all] is the full summary list and must contain [subject] itself, which is excluded by
+     * identity.
+     */
+    fun neighborhood(subject: PlaceSummary, all: List<PlaceSummary>, distance: DistanceFn): Neighborhood {
+        // [all] is one row per cluster in the whole history, while the answer is a handful of
+        // anchors: reject on coordinates first, and the distance call runs only for those.
+        val reach = ReachBound.around(subject.anchor.lat, subject.anchor.lon, distance)
+        val nearby = all.filter { other ->
+            other !== subject &&
+                !reach.outOfReach(other.anchor.lat, other.anchor.lon, NEIGHBOR_CONTEXT_M) &&
+                distance.meters(
+                    other.anchor.lat, other.anchor.lon,
+                    subject.anchor.lat, subject.anchor.lon,
+                ) <= NEIGHBOR_CONTEXT_M
+        }
+        return Neighborhood(subject, nearby)
     }
 
     private class Agg(
