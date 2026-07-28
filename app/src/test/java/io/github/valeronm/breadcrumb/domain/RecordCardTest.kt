@@ -6,8 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The Record-tab card decision as a pure priority table. The interesting rows are the GPS-waiting
- * states introduced with the no-fix guard: a fresh track shows a waiting card (not an empty map),
+ * The Record-tab card decision as a pure priority table. The interesting rows are the no-fix
+ * guard's GPS-waiting states: a fresh track shows a waiting card (not an empty map),
  * and a guard suspension mid-track keeps the map because there's real geometry to show.
  */
 class RecordCardTest {
@@ -260,7 +260,7 @@ class RecordCardTest {
     }
 
     @Test fun `a track still waiting for its first fix does not claim to be in progress`() {
-        // The distinction the notification used to collapse: no fix yet is not a track underway.
+        // No fix yet is not a track underway; the two states must not share a wording.
         assertEquals(
             "Recording walking" to "Waiting for a GPS fix",
             notif(RecordCardState.WAITING_FOR_GPS),
@@ -302,8 +302,8 @@ class RecordCardTest {
     }
 
     @Test fun `a stalled detector is not reported as idleness`() {
-        // The card already refuses to call this a benign wait; the notification now agrees, and
-        // carries the same remedy as the alerts notification for the same condition.
+        // The card refuses to call this a benign wait; the notification agrees, and carries the
+        // same remedy as the alerts notification for the same condition.
         assertEquals(
             "Detection stalled" to "Restarting the phone usually fixes it",
             notif(RecordCardState.WAITING_FOR_MOVEMENT, activity = ActivityType.STILL, deaf = true),

@@ -6,13 +6,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Dwells are detected from a track's good points with the flat-earth distance stub used across
- * the domain tests: 0.001° ≈ 100 m, so tests place points by meters east of an origin and reason
- * in meters/minutes directly.
- *
- * The params under test are the ones that ship — [DwellDetector.TRACK_OVERLAY], what the
- * track-detail overlay runs. (The edge rule's stage 1 tunes its own `dwell` params, covered by
- * [EdgeStayDetectorTest] through `BRIEF_STOP`.)
+ * Dwells are detected from a track's good points with the domain tests' flat-earth stub (0.001° ≈ 100 m),
+ * so tests place points by meters east of an origin and reason in meters/minutes directly. The params
+ * under test are the shipping [DwellDetector.TRACK_OVERLAY] — what the track-detail overlay runs. (The
+ * edge rule's stage 1 tunes its own `dwell` params, covered by [EdgeStayDetectorTest] through `BRIEF_STOP`.)
  */
 class DwellDetectorTest {
 

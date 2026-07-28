@@ -10,14 +10,12 @@ import java.util.zip.GZIPOutputStream
 
 /**
  * Writes the whole recorded history as one gzipped JSON document — the web companion's data
- * source. Unlike GPX this keeps everything the viewer can use: ignored points with their
- * reasons, fix-quality metadata, named places with their categories, and the liveness events stay
- * derivation needs.
- * Discarded tracks and a still-open recording are excluded, matching the rest of the app.
- *
- * Points are per-point arrays in [POINT_FIELDS] order (echoed in the document header as
- * `pointFields`) rather than objects — at millions of points the field names would dominate
- * the file and the parse. Tracks stream one at a time, so memory stays at one track's points.
+ * source. Unlike GPX this keeps everything the viewer can use: ignored points with their reasons,
+ * fix-quality metadata, named places with their categories, and the liveness events stay
+ * derivation needs; discarded tracks and a still-open recording are excluded, matching the rest
+ * of the app. Points are per-point arrays in [POINT_FIELDS] order (echoed in the document header
+ * as `pointFields`), not objects — at millions of points the field names would dominate the file
+ * and the parse — and tracks stream one at a time, so memory stays at one track's points.
  */
 object BackupExporter {
 

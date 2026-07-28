@@ -9,12 +9,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * v14 adds `places.category`. A plain ADD COLUMN, so the point of the test is that the column
- * arrives *empty*: untagged is a real state, and a place migrated into some category would put a
- * wrong chip on every stay it ever captured. The user's own words — the label, pin and radius —
- * have to come across untouched, since a place row is the only place they exist.
- *
- * See [MigrationDb] for why the v13 schema is written by hand.
+ * v14 adds `places.category` — a plain ADD COLUMN, so the test's point is that the column arrives *empty*:
+ * untagged is a real state, and a place migrated into some category would put a wrong chip on every stay
+ * it ever captured. The user's own words — label, pin, radius — must come across untouched, since a place
+ * row is the only place they exist. See [MigrationDb] on the hand-written v13 schema.
  */
 @RunWith(RobolectricTestRunner::class)
 class Migration13To14Test {

@@ -1,19 +1,15 @@
 package io.github.valeronm.breadcrumb.domain
 
 /**
- * Owns the track lifecycle: it turns trusted activity changes (from [ActivityGate]) into
- * track-lifecycle actions, holding the current [Phase].
- *
- * Both rules that decide whether an activity continues the open track or starts a new one live
- * here, next to the phase they act on:
- *  - **the resume window** — a stop pauses the track rather than closing it, and a return within
- *    [Phase.Paused.resumeDeadlineMs] resumes it. Timing is compared against the *reading's own*
- *    timestamp, so a decision is correct even when the recorder's timers were frozen in Doze and
- *    the reading arrives late (or the expiry tick never fired at all).
- *  - **the motion family** — walking ⇄ running stays one track; walking → driving splits.
- *
- * Pure and Android-free. The service applies the returned [RecordingAction] and reports the
- * resulting phase back via [onRecording] / [onPaused] / [onClosed].
+ * Owns the track lifecycle: turns trusted activity changes (from [ActivityGate]) into
+ * track-lifecycle actions, holding the current [Phase]. Both rules that decide whether an activity
+ * continues the open track or starts a new one live here, next to the phase they act on. The
+ * **resume window**: a stop pauses the track rather than closing it, and a return within
+ * [Phase.Paused.resumeDeadlineMs] resumes it — timed against the *reading's own* timestamp, so a
+ * decision is correct even when the recorder's timers were frozen in Doze and the reading arrives
+ * late (or the expiry tick never fired at all). The **motion family**: walking ⇄ running stays one
+ * track; walking → driving splits. Pure and Android-free; the service applies the returned
+ * [RecordingAction] and reports the resulting phase back via [onRecording] / [onPaused] / [onClosed].
  */
 class TrackController {
 
@@ -68,10 +64,9 @@ class TrackController {
     }
 
     /**
-     * Clock tick at (or after) a pause deadline: [RecordingAction.Finalize] once the window has
-     * lapsed with the track still paused. Callers' timers are logic-free — an early or stale tick
-     * (after a resume, a fresh start, or a newer pause with its own later deadline) is a
-     * [RecordingAction.Noop], so a tick can be fired from anywhere, as often as convenient.
+     * A tick at (or after) a pause deadline: [RecordingAction.Finalize] once the window lapsed with
+     * the track still paused. Callers' timers stay logic-free — an early or stale tick (after a resume,
+     * a fresh start, or a newer pause with a later deadline) is a Noop; fire anywhere, however often.
      */
     fun onTick(nowMs: Long): RecordingAction = when (val p = phase) {
         is Phase.Paused -> if (nowMs >= p.resumeDeadlineMs) RecordingAction.Finalize else RecordingAction.Noop

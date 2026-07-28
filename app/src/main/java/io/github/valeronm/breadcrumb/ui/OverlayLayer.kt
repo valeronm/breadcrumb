@@ -29,17 +29,13 @@ import kotlinx.coroutines.launch
 
 /**
  * Animation state for one stacked overlay layer: open/close presence plus the predictive-back
- * gesture. [rendered] holds the layer's content from open until the close animation finishes —
- * keep the layer composed (with that content) while it's non-null, so the page doesn't blank
- * or flip while receding.
- *
- * **Where a layer sits in the stack is named once, by the child, as [over], and nothing else may
- * restate it.** All three consequences of stacking derive from that one mention: which gesture
- * back reaches ([onTop]), which page blurs beneath which ([blurDp]), and which draws over which
- * ([depth]). Restated anywhere, the statements can disagree — and a layer that stacks correctly
- * for one of the three and wrongly for another looks right until a finger is on it, with neither
- * the compiler nor a test able to tell. The child is the end that names the relation, because the
- * parent exists first.
+ * gesture. [rendered] holds the content from open until the close animation ends — keep the layer
+ * composed with it while non-null, so the page doesn't blank or flip while receding. Where a layer
+ * sits is named once, by the child, as [over], and nothing else may restate it: everything stacking
+ * implies derives from that mention — which gesture back reaches ([onTop]), which page blurs beneath
+ * which ([blurDp]), which draws over which ([depth]). Restated, they could disagree — right for one
+ * and wrong for another looks right until a finger is on it, and neither compiler nor test can tell.
+ * The child names the relation because the parent exists first.
  */
 internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
     val presence = Animatable(0f) // 0 = underneath shown, 1 = layer fully shown
@@ -87,10 +83,10 @@ internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
 private fun easeOutBack(back: Float): Float = 1f - (1f - back) * (1f - back)
 
 /**
- * One stacked overlay layer: animates in while [content] is non-null, out when it goes null, and
- * wires the predictive back gesture, which it holds only while nothing stacked on it is open.
- * [over] is the layer this one opens on top of — see [OverlayLayerState]. [onDismiss] fires when
- * the gesture commits; [onClosed] after the close animation finishes.
+ * One stacked overlay layer: animates in while [content] is non-null, out when it goes null; holds
+ * the predictive back gesture only while nothing stacked on it is open. [over] is the layer this
+ * one opens on top of — see [OverlayLayerState]. [onDismiss] fires on gesture commit; [onClosed]
+ * after the close animation finishes.
  */
 @Composable
 internal fun <T : Any> rememberOverlayLayer(
@@ -168,11 +164,10 @@ internal fun Modifier.overlayTransform(layer: OverlayLayerState<*>): Modifier =
 
 /**
  * Blurs this content by [radiusDp] — pass a layer's [OverlayLayerState.blurDp] to blur it by
- * whatever is stacked on it, the way the system blurs the background activity during predictive
- * back: strongest when fully covered, sharpening as the gesture reveals it.
- *
- * [radiusDp] is read at draw time, so an animation frame re-runs only this block and not the
- * composition that applied the modifier. No-op below Android 12 (no RenderEffect there).
+ * whatever stacks on it, as the system blurs the background activity during predictive back:
+ * strongest when covered, sharpening as the gesture reveals it. [radiusDp] is read at draw time,
+ * so a frame re-runs only this block, not the applying composition; no-op below Android 12 (no
+ * RenderEffect there).
  */
 internal fun Modifier.blurredBy(radiusDp: () -> Float): Modifier {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return this
@@ -185,23 +180,15 @@ internal fun Modifier.blurredBy(radiusDp: () -> Float): Modifier {
 
 /**
  * One stacked layer's full-screen frame: composed only while the layer has content, carrying its
- * own open/close and predictive-back transform, its draw order, and the blur cast on it by
- * whatever is stacked on it. All three come off the layer, so where a frame is emitted among its
- * siblings carries no meaning and cannot contradict the stack.
- *
- * **[content] receives [OverlayLayerState.rendered], and that is the point.** A page must keep
- * drawing itself all the way through the close animation, so it has to render from the layer's
- * held content rather than from the state that opened it — that state goes null the moment back
- * commits, and a page reading it blanks mid-slide instead of fading out. Handing the held value
- * down puts the right one in scope and leaves the wrong one out of reach.
- *
- * The gate belongs here for the same reason it holds the content: a layer's data subscriptions go
- * *inside* this block, so they live exactly as long as the layer is up.
- *
- * Every overlay goes through here instead of assembling this itself, because each piece fails
- * quietly on its own: a page given the transform but no blur sits sharp under the layer above it,
- * one rendered from the live key vanishes a frame into its own exit, and a subscription hoisted
- * out of the gate stays live for the life of the app.
+ * open/close + predictive-back transform, its draw order, and the blur cast by whatever stacks on
+ * it — all off the layer, so a frame's emission order among siblings cannot contradict the stack.
+ * [content] receives [OverlayLayerState.rendered], deliberately: a page must keep drawing through
+ * the close animation, and the state that opened it goes null the moment back commits — a page
+ * reading it blanks mid-slide instead of fading out; handing the held value down puts the right
+ * one in scope and the wrong one out of reach. A layer's data subscriptions go *inside* this
+ * block, so they live exactly as long as the layer is up. Every overlay goes through here rather
+ * than assembling the pieces itself: each fails quietly alone — e.g. the transform without the
+ * blur sits sharp under the layer above.
  */
 @Composable
 internal fun <T : Any> OverlayFrame(

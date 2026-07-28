@@ -39,7 +39,6 @@ function dpPass(coords, sqTol) {
   const n = coords.length / 2;
   const keep = new Uint8Array(n);
   keep[0] = keep[n - 1] = 1;
-  // Iterative DP with an explicit stack.
   const stack = [[0, n - 1]];
   while (stack.length) {
     const [first, last] = stack.pop();

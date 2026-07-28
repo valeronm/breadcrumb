@@ -7,13 +7,11 @@ import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 
 /**
- * An in-memory database opened at a pre-migration schema version, so one migration can be run
- * against rows it has to carry across. [createSchema] writes the *before* schema by hand — only
- * the tables the migration touches — rather than driving Room's MigrationTestHelper, which would
- * need the exported schema JSON this project doesn't keep.
- *
- * `onUpgrade` is deliberately a no-op: the test calls the migration itself, so it sees the same
- * DDL Room would run and can assert on the result. Closed by the test's `@After`.
+ * An in-memory database opened at a pre-migration schema version, so one migration can run against rows
+ * it must carry across. [createSchema] writes the *before* schema by hand — only the tables the migration
+ * touches — rather than driving Room's MigrationTestHelper, which would need the exported schema JSON
+ * this project doesn't keep. `onUpgrade` is deliberately a no-op: the test calls the migration itself, so
+ * it sees the same DDL Room would run and can assert on the result. Closed by the test's `@After`.
  */
 class MigrationDb(version: Int, createSchema: (SupportSQLiteDatabase) -> Unit) {
 

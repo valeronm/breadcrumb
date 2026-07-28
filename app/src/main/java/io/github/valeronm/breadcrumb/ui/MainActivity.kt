@@ -132,7 +132,6 @@ class MainActivity : ComponentActivity() {
 /** The resolved display-unit system; all distance/speed rendering below reads this. */
 internal val LocalUnits = staticCompositionLocalOf { UnitSystem.METRIC }
 
-/** A bottom-nav destination, carrying its own bar title, nav label and icon. */
 private enum class HomeTab(val title: String, val label: String, val icon: ImageVector) {
     RECORD("Breadcrumb", "Record", Icons.Filled.MyLocation),
     TRACKS("Timeline", "Timeline", Icons.Filled.Route),
@@ -156,7 +155,6 @@ private fun MainScreen(
     val viewModel: TrackListViewModel = viewModel()
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
 
-    // GPX files shared/opened into the app import as soon as the UI is up.
     LaunchedEffect(pendingGpxImport.value) {
         val uris = pendingGpxImport.value ?: return@LaunchedEffect
         pendingGpxImport.value = null
@@ -251,14 +249,11 @@ private fun MainScreen(
     // false would swallow the second.
     var timelineHomeRequest by remember { mutableIntStateOf(0) }
 
-    // The stack, declared bottom-up. A layer's `over` is the one it opens on top of, and that
-    // single mention decides everything stacking implies: which gesture back reaches it, which
-    // page blurs beneath which, and which draws over which.
-    //
-    // The tabs are its floor — a layer with no page of its own, standing for the tabbed UI so that
-    // what opens over it can name it like any other parent. Without one, the pages reached from
-    // the tabs would have to be listed again wherever the tabs are blurred, which is the second
-    // statement of a relation this exists to state once.
+    // The stack, declared bottom-up. A layer's `over` is the one it opens on top of; that single
+    // mention decides everything stacking implies: which gesture back reaches, which page blurs
+    // beneath which, and which draws over which. The tabs are its floor — a page-less layer
+    // standing for the tabbed UI so what opens over it can name it like any parent; without one,
+    // the pages over the tabs would restate wherever the tabs blur a relation stated once here.
     val tabsLayer = remember { OverlayLayerState<Unit>() }
     val mainPageLayer = rememberOverlayLayer(
         content = mainPage,
@@ -632,11 +627,10 @@ private fun PlaceEditOverlay(
 }
 
 /**
- * The live summary a place-screen key points at. Includes zero-visit pass-through clusters
- * (summarize emits every cluster), so gap sides open even when their cluster never earned a stay —
- * and their endpoints show as neighbor context on adjacent places' maps. [snapshot] keeps the
- * screen stable between re-derivations and re-finds a just-named cluster by centroid, since naming
- * moves its key from `cluster:` to `place:`.
+ * The live summary a place-screen key points at. Zero-visit pass-through clusters are included
+ * (summarize emits every cluster): gap sides open even without an earned stay, and their endpoints
+ * show as neighbor context on adjacent places' maps. [snapshot] keeps the screen stable between
+ * re-derivations and re-finds a just-named cluster by centroid (its key moves `cluster:` → `place:`).
  */
 @Composable
 private fun rememberPlaceSummary(

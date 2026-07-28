@@ -25,7 +25,7 @@ class ReadingClockTest {
     }
 
     @Test fun `an implausibly old event time falls back to now`() {
-        // A live EXIT once claimed to be 22.5 hours old; garbage stamps must not time-travel.
+        // A live EXIT can claim to be 22.5 hours old; garbage stamps must not time-travel.
         val now = maxAge + 100_000
         assertEquals(now, sanitize(eventMs = 50_000, nowMs = now))
     }

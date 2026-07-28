@@ -3,27 +3,22 @@ package io.github.valeronm.breadcrumb.domain
 import kotlin.math.abs
 
 /**
- * A coordinate-box test that rules out candidates too far away to matter, without paying for a
- * [DistanceFn] call. Both axes are compared against the candidate's own capture radius, and both
- * bounds *understate* the separation, so a candidate that would qualify is never rejected —
- * over-admitting only costs the distance call that would have run anyway.
- *
- * It exists because the two derivation loops that ask "which anchor captures this point?"
- * ([PlaceClusterer], and [StayDeriver]'s nearest-pin override) scan every anchor per point over
- * the whole history, while the ellipsoidal distance costs orders of magnitude more than the two
- * subtractions that can rule one out. On a synthetic history a few thousand endpoints long it
- * removes ~98% of the distance calls, and the whole clustering with them: the loops are quadratic
- * in what the history accumulates, so this is what keeps a place rename from re-deriving for half
- * a second.
- *
- * **The scale is asked of [DistanceFn], not assumed to be Earth's.** Distance is an injected seam
- * — a bound built on hardcoded metres-per-degree would silently reject qualifying candidates under
- * any distance function scaled differently from the ellipsoid, which is exactly what the tests
- * inject. Two probes per point (reused across every candidate) buy consistency with whatever
- * function is in use.
- *
- * The box is not latitude alone: a history strung out east-west along one latitude — a coastal
- * city, a valley — prunes almost nothing on the north-south bound, and everything on both.
+ * A coordinate-box test that rules out candidates too far away to matter without paying for a
+ * [DistanceFn] call: both axes compare against the candidate's own capture radius, and both bounds
+ * *understate* the separation, so a qualifying candidate is never rejected — over-admitting only
+ * costs the distance call that would have run anyway. It exists because the two derivation loops
+ * asking "which anchor captures this point?" ([PlaceClusterer], and [StayDeriver]'s nearest-pin
+ * override) scan every anchor per point over the whole history, while the ellipsoidal distance
+ * costs orders of magnitude more than the two subtractions that can rule one out: on a synthetic
+ * history a few thousand endpoints long this removes ~98% of the distance calls and the whole
+ * clustering with them, and — the loops being quadratic in what the history accumulates — is what
+ * keeps a place rename from re-deriving for half a second. **The scale is asked of [DistanceFn],
+ * not assumed to be Earth's** — distance is an injected seam: a bound built on hardcoded
+ * metres-per-degree would silently reject qualifying candidates under any distance function scaled
+ * differently from the ellipsoid (exactly what the tests inject); two probes per point, reused
+ * across every candidate, buy consistency with whatever function is in use. The box is not
+ * latitude alone: a history strung out east-west along one latitude — a coastal city, a valley —
+ * prunes almost nothing on the north-south bound, and everything on both.
  */
 class ReachBound private constructor(
     private val lat: Double,
@@ -49,11 +44,10 @@ class ReachBound private constructor(
         private const val PROBE_DEGREES = 0.001
 
         /**
-         * How far past the radius the box still admits. The sampled scale is a measurement at one
-         * point, not a proven bound over the whole box: a degree of longitude shortens toward the
-         * pole, so a candidate offset poleward sits at a slightly smaller scale than was probed
-         * (at 60° latitude and a 500 m radius, by ~0.014%). One part in a thousand covers that
-         * many times over, and costs only a distance call that mostly ends in rejection anyway.
+         * How far past the radius the box still admits. The probed scale is one point's, not a
+         * bound over the box: longitude shortens toward the pole, so a poleward candidate sits at
+         * a slightly smaller scale than probed — ~0.014% at 60° latitude, 500 m radius. One part
+         * in a thousand covers that many times over, costing a mostly-rejected distance call.
          */
         private const val SLACK = 1.001
 

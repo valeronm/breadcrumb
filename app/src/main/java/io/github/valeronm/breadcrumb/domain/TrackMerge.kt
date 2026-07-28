@@ -4,12 +4,11 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 
 /**
  * Decides whether the interval between two tracks can be closed by merging them — the fix for a
- * continuous outing that got split (e.g. a walk broken by a brief run misdetection whose track was
- * then discarded, leaving a 1-min stay between two walk tracks). Both kinds of interval qualify:
- * a *stay*, where the endpoints agree, and a *gap*, where they don't and the recorder simply
- * missed the leg between them. The merge marks a segment break at the seam either way, so the
- * missed leg is drawn as nothing and counts as no distance. Pure; the UI offers the merge on a
- * swipe and the repository performs it.
+ * continuous outing that got split (e.g. a walk broken by a run misdetection whose track was
+ * discarded, leaving a 1-min stay between two walk tracks). Stays (endpoints agree) and gaps (they
+ * don't — the recorder missed the leg) both qualify; either way the merge marks a segment break at
+ * the seam, so the missed leg draws as nothing and counts as no distance. Pure; the UI offers the
+ * merge on a swipe and the repository performs it.
  */
 object TrackMerge {
 
@@ -21,12 +20,10 @@ object TrackMerge {
 
     /**
      * A plan to merge across the interval between [before] (ends into it) and [after] (starts out
-     * of it), or null if the interval is too long, still ongoing, or the two tracks aren't the same
-     * activity.
-     *
-     * A stay on a named place is mergeable like any other. The pin is untouched and only that one
-     * visit stops counting, which is recoverable in two ways — the merge itself undoes, and the
-     * stay re-derives from the tracks the moment it does.
+     * of it), or null if the interval is too long, still ongoing, or the tracks aren't the same
+     * activity. A stay on a named place is mergeable like any other: the pin is untouched, only
+     * that one visit stops counting, and the merge undoes — the stay re-derives from the tracks
+     * the moment it does.
      */
     fun plan(
         before: TrackSummary,
@@ -41,18 +38,15 @@ object TrackMerge {
 
     /**
      * Every mergeable interval's plan, keyed by the track it follows — the handle a timeline row
-     * looks its own offer up by, whatever the row's bounds say.
-     *
-     * That indirection is the point: pass the intervals **as derived**, never the per-day slices
-     * the timeline renders. A stop across local midnight slices into pieces, and the piece before
-     * midnight can be two minutes of a half-hour stay — a merge offered on it would fuse the two
-     * tracks across the whole stop. Judging the interval whole, once, is what keeps a slice from
-     * claiming a duration that isn't its own.
-     *
-     * [neighbors] holds each anchor's own summary and its chronological successor, so an anchor with
-     * nothing after it (the tail, into a track still recording) simply isn't in the map and yields
-     * no plan. One map rather than an id-keyed pair of them: two lookups that must agree on what
-     * follows what are two chances to disagree.
+     * looks its own offer up by, whatever the row's bounds say. That indirection is the point: pass
+     * the intervals **as derived**, never the per-day slices the timeline renders — a stop across
+     * local midnight slices into pieces, and a merge offered on the two-minute pre-midnight piece
+     * of a half-hour stay would fuse the two tracks across the whole stop; judging the interval
+     * whole, once, keeps a slice from claiming a duration that isn't its own. [neighbors] holds
+     * each anchor's own summary and its chronological successor, so an anchor with nothing after it
+     * (the tail, into a track still recording) isn't in the map and yields no plan — one map rather
+     * than an id-keyed pair, because two lookups that must agree on what follows what are two
+     * chances to disagree.
      */
     fun plansByAnchor(
         intervals: List<StayDeriver.Interval>,

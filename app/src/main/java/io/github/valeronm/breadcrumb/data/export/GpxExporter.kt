@@ -92,7 +92,7 @@ object GpxExporter {
     /**
      * The document as one String. Kept for the tests, which assert on the whole output; the export
      * paths stream through [writeGpx] instead — a long track is ~1.5 MB of text, and holding it as
-     * a String plus its byte copy churned several MB per track through the all-tracks export.
+     * a String plus its byte copy would churn several MB per track through the all-tracks export.
      */
     internal fun buildGpx(track: Track, points: List<TrackPoint>): String =
         StringBuilder().also { writeGpx(it, track, points) }.toString()

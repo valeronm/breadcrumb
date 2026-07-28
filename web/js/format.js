@@ -51,12 +51,10 @@ function visitLabel(n) {
   return n === 1 ? "1 visit" : `${n} visits`;
 }
 
-/**
- * What a place is for, keyed by the code stored on the place row. PlaceCategory — the codes are the
- * stored vocabulary and must match it exactly; the labels are display text the app is free to
- * reword. A place with no category, or one carrying a code from a newer app than this viewer, reads
- * as untagged: the same tolerance the app applies, so neither side invents a name for it.
- */
+/** What a place is for, keyed by the code stored on the place row. PlaceCategory — the codes are
+ * the stored vocabulary and must match it exactly; the labels are display text the app is free to
+ * reword. No category, or a code from a newer app than this viewer, reads as untagged: the same
+ * tolerance the app applies, so neither side invents a name for it. */
 const CATEGORY_LABELS = {
   home: "Home",
   groceries: "Groceries",
@@ -81,19 +79,15 @@ export function categoryLabel(code) {
   return CATEGORY_LABELS[code] ?? null;
 }
 
-/**
- * A stay row's metadata line: when it was, how long, and — for an unnamed cluster the user visits
- * often enough to want to name — how many visits.
- *
- * A duration appears only where the bounds can carry one. A midnight-clamped bound makes it both
- * redundant (it restates the clock time) and misleading (the stay continues across the slice), and
- * a stay shorter than its own bounds can measure gets none either: the stop was longer than the
- * bounds say, so "0m" would be worse than silence.
- *
+/** A stay row's metadata line: when it was, how long, and — for an unnamed cluster the user
+ * visits often enough to want to name — how many visits. A duration appears only where the bounds
+ * can carry one: a midnight-clamped bound makes it redundant (restates the clock time) and
+ * misleading (the stay continues across the slice), and a stay shorter than its own bounds can
+ * measure gets none either — the stop was longer than the bounds say, so "0m" would be worse
+ * than silence.
  * @param stay one interval, possibly a per-day slice of a longer one
  * @param place its resolved cluster (see resolveClusters), or undefined
- * @param nowMs what an open-ended stay is measured to — the export's instant, not today's
- */
+ * @param nowMs what an open-ended stay is measured to — the export's instant, not today's */
 export function stayMeta(stay, place, nowMs) {
   const start = formatTime(stay.start);
   const startsAtMidnight = isLocalMidnight(stay.start);

@@ -96,7 +96,7 @@ class StayDeriverTest {
     }
 
     @Test fun `pre-liveness history derives as inferred`() {
-        // First liveness evidence arrives after the gap — old data from before the feature.
+        // First liveness evidence arrives after the gap — history predating any liveness rows.
         val stays = derive(homePair(), liveness = listOf(Armed(500 * MIN)))
             .filterIsInstance<Stay>()
         assertEquals(Provenance.INFERRED, stays.first().provenance)

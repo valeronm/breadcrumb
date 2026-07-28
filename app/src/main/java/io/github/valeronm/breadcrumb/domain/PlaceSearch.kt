@@ -4,22 +4,19 @@ import java.text.Normalizer
 import java.util.Locale
 
 /**
- * Matching a typed query against a place name.
- *
- * Two rules, both there because of how place names are actually typed. The match is a **substring**,
- * not a prefix: names carry their location or their chain ("Lidl Rebelva", "Prio Carcavelos"), so the
- * half a user remembers is as often the second word as the first. And it is **accent-insensitive** in
- * both directions, because a phone keyboard reaches "Obidos" long before "Óbidos" — a name the user
- * can see on the screen must not be unreachable from the keys next to hand.
+ * Matching a typed query against a place name. Two rules, both from how names are actually typed:
+ * a **substring** match, not a prefix (names carry their location or chain — the remembered half
+ * is as often the second word), and **accent-insensitive** both ways (a phone keyboard reaches the
+ * plain letter long before the accented one — a name visible on screen must not be unreachable
+ * from the keys next to hand).
  */
 object PlaceSearch {
 
     /**
-     * Whether [label] contains [query], ignoring case and diacritics. Blank queries match nothing.
-     *
-     * Folds both sides on every call, so a caller filtering a *list* per keystroke should fold once
-     * itself instead — [fold] the query, pre-fold the labels when the list changes, and compare with
-     * `contains`. This overload is for one-off checks and for saying what the rule is.
+     * Whether [label] contains [query], ignoring case and diacritics; blank queries match nothing.
+     * Folds both sides on every call, so a caller filtering a *list* per keystroke should instead
+     * [fold] the query once, pre-fold the labels when the list changes, and compare with
+     * `contains` — this overload is for one-off checks and for saying what the rule is.
      */
     fun matches(label: String, query: String): Boolean {
         val needle = fold(query)

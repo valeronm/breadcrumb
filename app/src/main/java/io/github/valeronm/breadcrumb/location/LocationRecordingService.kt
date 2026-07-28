@@ -71,10 +71,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Foreground service that records GPS while the app is in the background. It listens for activity
- * changes (delivered via [ActivityTransitionReceiver]) and opens, continues or pauses tracks as the
- * detected activity moves between motion families — GPS runs at one cadence throughout, the
- * user's, read from [Settings] when each track's request starts.
+ * Foreground service that records GPS while the app is in the background, opening, continuing or
+ * pausing tracks as the detected activity (via [ActivityTransitionReceiver]) moves between motion
+ * families. GPS runs at one cadence — the user's, read from [Settings] when each track's request starts.
  */
 class LocationRecordingService : Service() {
 
@@ -130,7 +129,7 @@ class LocationRecordingService : Service() {
     @Volatile private var armed = false
 
     // When the current armed session began, and when the stale-reading oracle last forced a
-    // re-registration — see the deafness check in [applyActivity].
+    // re-registration — see the deafness check in [onReadingArrived].
     @Volatile private var armedAtMs = 0L
     private var lastStaleRestartMs = 0L
 
@@ -215,20 +214,17 @@ class LocationRecordingService : Service() {
             ACTION_START -> handleStart()
             ACTION_STOP -> handleStop()
             // Null intent = the system restarted us (START_STICKY) after process death.
-            // Resume only if auto-recording is still armed; otherwise shut down cleanly.
             else -> if (Settings.isAutoRecord(this)) handleStart() else stopSelf()
         }
         return START_STICKY
     }
 
     private fun handleStart() {
-        // A location-type foreground service can't be started without location permission (the
-        // platform throws SecurityException on Android 14+). This is reachable when the OS restarts
-        // the sticky service after the user revoked location — or after unused-app auto-revoke —
-        // while the armed flag is still set. Bail out cleanly instead of crash-looping; the UI's
-        // permission prompt takes over. (The startForegroundService caller path is guarded in
-        // [start] so this only fires for system-initiated restarts, which carry no
-        // startForeground deadline.)
+        // A location-type foreground service can't start without location permission (SecurityException
+        // on Android 14+); reachable when the OS restarts the sticky service after location was revoked
+        // — or unused-app auto-revoked — with the armed flag still set. Bail cleanly instead of crash-looping;
+        // the UI's permission prompt takes over. (The startForegroundService caller path is guarded in
+        // [start], so this fires only for system-initiated restarts, which carry no startForeground deadline.)
         if (!hasLocationPermission()) {
             DebugLog.i(TAG, "handleStart: location permission missing — staying disarmed")
             armed = false
@@ -315,10 +311,9 @@ class LocationRecordingService : Service() {
     private val readingClock = ReadingClock()
 
     /**
-     * Called by [ActivityTransitionReceiver] when Play Services reports a transition.
-     * [eventTimeMs] is the event's own (wall-clock) timestamp; [onApplied] runs once the reading
-     * has been applied — the receiver holds its broadcast wakelock open until then, so Doze can't
-     * freeze the apply between delivery and processing.
+     * Called by [ActivityTransitionReceiver] when Play Services reports a transition. [eventTimeMs]
+     * is the event's own (wall-clock) timestamp; [onApplied] runs once the reading has been applied
+     * — the receiver holds its broadcast wakelock open until then, so Doze can't freeze the apply.
      */
     fun onActivityChanged(activity: ActivityType, eventTimeMs: Long? = null, onApplied: (() -> Unit)? = null) {
         transitionSinceArm = true
@@ -354,13 +349,11 @@ class LocationRecordingService : Service() {
     }
 
     /**
-     * **The one place the cross-check's verdict is produced, and so the one place its setting is
-     * read.** Every consultation defines a [Motion.Unknown] case identical to the recorder's
-     * behaviour before there was a second witness, so switching the feature off is this one branch
-     * and nothing downstream knows a switch exists.
-     *
-     * The confirmer is fed whether or not the setting is on — a ring push of arithmetic — so
-     * turning it on takes effect at once instead of after a warm-up window. Caller holds [mutex].
+     * The one place the cross-check's verdict is produced, so the one place its setting is read:
+     * every consultation defines a [Motion.Unknown] case identical to the pre-witness behaviour, so
+     * the off switch is this branch alone and nothing downstream knows one exists. The confirmer is
+     * fed even while off (a ring push of arithmetic), so enabling acts at once, without a warm-up
+     * window. Caller holds [mutex].
      */
     private fun motionVerdict(atMs: Long): Motion =
         if (Settings.motionCrossCheck(this)) confirmer.verdict(atMs) else Motion.Unknown
@@ -382,12 +375,9 @@ class LocationRecordingService : Service() {
     }
 
     /**
-     * A tick's worth of "is that held reading credible yet?". Cheap when nothing is held, which is
-     * always the case with the cross-check off — parking takes a verdict, and the verdict is then
-     * [Motion.Unknown].
-     *
-     * The pre-check reads gate state off the mutex, like the one in [maybeGiveUpOnNoFix]: a stale
-     * read costs at most one tick's delay, since the caller ticks about once a second.
+     * A tick's worth of "is that held reading credible yet?". Cheap when nothing is held — always so
+     * with the cross-check off, since parking takes a verdict and it is then [Motion.Unknown]. The
+     * off-mutex pre-check (as in [maybeGiveUpOnNoFix]) costs at most one tick's delay (~1 s) on a stale read.
      */
     private fun checkParkedReading() {
         if (gate.parked == null) return
@@ -396,12 +386,9 @@ class LocationRecordingService : Service() {
 
     /**
      * The preamble every Play-Services *reading* runs: sanitize the event's own time, let the
-     * deafness oracle judge it, and stamp the liveness the Record card shows. Returns the reading
-     * time the gate and controller are to work in.
-     *
-     * Separate from [applyConfirmed] because it is specific to a delivered reading: a caller that
-     * applies an activity with no reading behind it must not touch the oracle, whose whole job is
-     * to notice when readings stop arriving.
+     * deafness oracle judge it, stamp the liveness the Record card shows; returns the reading time
+     * the gate and controller work in. Separate from [applyConfirmed]: an activity applied with no
+     * reading behind it must not touch the oracle, whose job is noticing when readings stop arriving.
      */
     private suspend fun onReadingArrived(eventTimeMs: Long?, nowMs: Long): Long {
         // The gate gets the event's own (sanitized) time, not the apply time: readings drained
@@ -451,10 +438,9 @@ class LocationRecordingService : Service() {
     }
 
     /**
-     * The apply tail: a confirmed activity change becomes a track action, and the action's side
-     * effects are performed. [atMs] is the time the change is taken to have happened — the
-     * controller measures the pause deadline from it — and [readingLagMs] only colours the log
-     * line.
+     * The apply tail: a confirmed activity change becomes a track action and its side effects.
+     * [atMs] is when the change is taken to have happened — the controller measures the pause
+     * deadline from it — and [readingLagMs] only colours the log line.
      */
     private suspend fun applyConfirmed(
         previous: ActivityType,
@@ -527,11 +513,9 @@ class LocationRecordingService : Service() {
     }
 
     /**
-     * Close a paused track whose resume window has passed. Only [finalizeExpiredPause] may call
-     * this: the close must be paired with the [publishStatus] that pushes the post-pause state to
-     * the UI and notification — a finalize without a publish leaves both showing a stale pause,
-     * and every later publish trigger early-outs because the controller is no longer paused.
-     * Caller holds [mutex].
+     * Close a paused track whose resume window has passed. Only [finalizeExpiredPause] may call this:
+     * the close must pair with its [publishStatus], or UI and notification keep showing a stale pause
+     * while every later publish early-outs (the controller is no longer paused). Caller holds [mutex].
      */
     private suspend fun finalizeIfPauseExpired(): Boolean {
         if (controller.onTick(now()) != RecordingAction.Finalize) return false
@@ -563,11 +547,10 @@ class LocationRecordingService : Service() {
     }
 
     // --- Registration watchdog ---
-    // The GMS transition registration can die with no error surfacing — replays keep answering
-    // while live delivery stops. While armed, an alarm re-registers every interval:
-    // registration replays the current activity, so a missed transition is recovered within one
-    // tick. Alarm-based (not a coroutine delay) because Doze freezes coroutine timers — exactly
-    // when transitions go missing.
+    // The GMS transition registration can die with no error surfacing (replays keep answering while
+    // live delivery stops), so while armed an alarm re-registers every interval; the replay of the
+    // current activity recovers a missed transition within one tick. Alarm-based because Doze
+    // freezes coroutine timers — exactly when transitions go missing.
     private val watchdogIntent: PendingIntent by lazy {
         PendingIntent.getBroadcast(
             this,
@@ -614,11 +597,10 @@ class LocationRecordingService : Service() {
         checkParkedReading()
         if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) {
             // Request-only, deliberately not restart(): a plain request refreshes a healthy
-            // registration without touching it, and replays the latest transition, which is what
-            // feeds the stale-reading oracle. A restart tears the registration down and rebuilds it
-            // on the other request code — too disruptive to run every tick against a registration
-            // that is probably fine. Restarts happen only at arm and when the oracle proves the
-            // registration deaf.
+            // registration in place and replays the latest transition, which feeds the stale-reading
+            // oracle. A restart tears the registration down and rebuilds it on the other request
+            // code — too disruptive to run every tick against a registration that is probably fine.
+            // Restarts happen only at arm and when the oracle proves it deaf.
             activityManager.start().addOnCompleteListener { onDone?.invoke() }
         } else {
             onDone?.invoke()
@@ -626,10 +608,10 @@ class LocationRecordingService : Service() {
     }
 
     /**
-     * Close a paused track whose resume window has passed. The single entry point for expiring a
-     * pause — the scheduled pause wake, the watchdog alarm (Doze defers the wake's timer), and
-     * the UI coming to the foreground all funnel through here, so the close can never be applied
-     * without the status publish that keeps the UI and notification in sync.
+     * Close a paused track whose resume window has passed — the single entry point for expiring a
+     * pause: the scheduled pause wake, the watchdog alarm (Doze defers the wake's timer) and UI
+     * foregrounding all funnel here, so the close never lands without the status publish that
+     * keeps the UI and notification in sync.
      */
     fun finalizeExpiredPause() {
         if (!controller.isPaused) return
@@ -840,11 +822,10 @@ class LocationRecordingService : Service() {
     }
 
     /**
-     * Track real satellite fixes in parallel with the location stream, for two uses: the
-     * [isGnssBacked] cross-check (a provider may report a position without satellite backing —
-     * e.g. dead-reckoned in a tunnel — with optimistic accuracy that slips through the accuracy
-     * gate), and per-point quality metadata (satellites-in-fix, C/N0). Registered whenever GPS is on,
-     * independent of the cross-check toggle, which only controls whether fixes are *rejected*.
+     * Track real satellite fixes alongside the location stream, for the [isGnssBacked] cross-check (a
+     * provider may report a position without satellite backing — e.g. dead-reckoned in a tunnel — with
+     * optimistic accuracy that slips the accuracy gate) and per-point quality metadata (satellites-in-fix,
+     * C/N0). Registered whenever GPS is on regardless of the cross-check toggle, which only gates *rejection*.
      */
     @SuppressLint("MissingPermission")
     private fun registerGnssStatus() {
@@ -976,16 +957,13 @@ class LocationRecordingService : Service() {
     }
 
     /**
-     * While the verdict overrules a foot label — measured ground speed the label's own ceiling
-     * cannot explain — the Record card and notification say "Moving" ([ActivityType.UNKNOWN])
-     * instead of repeating the label. Display only, and structurally so: computed here, downstream
-     * of every decision, feeding nothing — not the gate, not the controller, not the ceiling — and
-     * it reverts by itself when the verdict drops out, being derived state recomputed at every
-     * publish rather than a mode to exit. With the cross-check off the verdict is [Motion.Unknown]
-     * and the substitution never triggers.
-     *
-     * The parked-STILL stretch is covered by the same test: the *confirmed* activity stays the
-     * foot label while a STILL is parked, which is exactly when the card should say "Moving".
+     * While the verdict overrules a foot label (measured ground speed its ceiling can't explain),
+     * the Record card and notification say "Moving" ([ActivityType.UNKNOWN]) instead. Display only,
+     * structurally so: computed downstream of every decision, feeding neither gate, controller nor
+     * ceiling, and recomputed at every publish rather than a mode to exit, so it reverts by itself
+     * when the verdict drops out; with the cross-check off the verdict is [Motion.Unknown] and the
+     * substitution never triggers. A parked STILL keeps the *confirmed* activity on the foot label
+     * — exactly when the card should say "Moving" — so the same test covers that stretch.
      */
     private fun displayActivity(confirmed: ActivityType, motion: Motion): ActivityType {
         if (confirmed.trackGroup != TrackGroup.FOOT) return confirmed
@@ -1032,12 +1010,11 @@ class LocationRecordingService : Service() {
                 lastFixRejectedByAccuracy = rec && lastFixRejectedByAccuracy,
             )
         }
-        // One classification, shared with the Record tab's card: the state is decided by the pure
-        // [recordCardState] and worded by [notificationText], so a new or renamed state cannot mean
-        // one thing on the card and another in the notification. State only — no live distance, so
-        // the notification re-posts only when the pair below changes (a per-fix post would cost a
-        // wakelock + IPC every second while recording). `tracking` is true by construction: this
-        // runs in the live service, which is what the flag reports to the UI.
+        // One classification, shared with the Record tab's card: the pure [recordCardState] decides
+        // and [notificationText] words it, so a new or renamed state cannot mean one thing on the
+        // card and another in the notification. State only — no live distance — so it re-posts only
+        // when the pair below changes; a per-fix post would cost a wakelock + IPC every second.
+        // `tracking` is true by construction: this is the live service, which the flag reports.
         val text = recorderText(
             state = recordCardState(
                 armed = Settings.isAutoRecord(this),
@@ -1159,7 +1136,7 @@ class LocationRecordingService : Service() {
         /** True while the service is alive in this process. */
         val isRunning: Boolean get() = instance != null
 
-        /** Id of the track currently being recorded, or null. Used to skip it during cleanup. */
+        /** Id of the track currently being recorded, or null — the one open track that dangling-track cleanup must not close. */
         @Volatile
         var activeTrackId: Long? = null
             private set
@@ -1214,10 +1191,9 @@ class LocationRecordingService : Service() {
         }
 
         /**
-         * [start] with the crash guard the receiver re-arm paths need: a broadcast receiver that
-         * throws takes the process down, and neither the boot/update re-arm nor the watchdog's
-         * self-heal has anything better to do with a failed launch than log it. [reason] names the
-         * caller in that log line.
+         * [start] with the crash guard the receiver re-arm paths need: a throwing receiver takes
+         * the process down, and neither the boot/update re-arm nor the watchdog's self-heal has
+         * anything better to do with a failed launch than log it — [reason] names the caller there.
          */
         fun startSafely(context: Context, reason: String) {
             runCatching { start(context) }

@@ -124,12 +124,10 @@ class PlaceClustererTest {
     }
 
     // --- Reach-box pruning ------------------------------------------------------
-    //
-    // The scan rejects most anchors on their coordinates ([ReachBound]) instead of on a distance
-    // call. That is only sound if it never rejects an anchor the distance would have accepted, so
-    // these run against an unpruned reference scan — under a real-Earth distance rather than the
-    // flat stub above, since the bound's whole risk is spherical (a degree of longitude shortens
-    // toward the pole, and the box is probed at one point).
+    // The scan rejects most anchors on their coordinates ([ReachBound]), not on a distance call — sound
+    // only if it never rejects an anchor the distance would have accepted. So these run against an
+    // unpruned reference scan, under a real-Earth distance rather than the flat stub above: the bound's
+    // whole risk is spherical (a degree of longitude shortens toward the pole; the box is probed at one point).
 
     /** Spherical distance, so the pruning cases meet the geometry the bound is exposed to. */
     private val sphere = DistanceFn { aLat, aLon, bLat, bLon ->

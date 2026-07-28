@@ -14,17 +14,13 @@ import java.util.Locale
 
 /**
  * Receives activity updates from Google Play Services and forwards them to the running
- * [LocationRecordingService]. Handles two kinds:
- *  - Transition results (ENTER events) — the ongoing activity-change stream.
- *  - A one-shot recognition snapshot requested at start, so recording can begin immediately if the
- *    user is already moving when they arm.
- * We hand off to the live service instance directly (same process) rather than re-starting it,
- * which avoids background-start restrictions.
- *
- * Forwarded readings hold the broadcast open ([goAsync]) until the service has applied them.
- * Returning from onReceive releases the broadcast's wakelock, and in Doze the apply coroutine then
- * freezes: the reading is logged on time but applied minutes later, which puts a walking tail on a
- * drive track and stitches through a real stop.
+ * [LocationRecordingService]: the ongoing transition stream (ENTER/EXIT events) plus a one-shot
+ * recognition snapshot requested at start, so recording can begin immediately if the user is
+ * already moving when they arm. Hand-off goes to the live instance directly (same process) rather
+ * than re-starting it, avoiding background-start restrictions, and holds the broadcast open
+ * ([goAsync]) until the reading is applied: returning from onReceive releases the broadcast's
+ * wakelock, in Doze the apply coroutine then freezes, and the reading — logged on time, applied
+ * minutes later — puts a walking tail on a drive track and stitches through a real stop.
  */
 class ActivityTransitionReceiver : BroadcastReceiver() {
 

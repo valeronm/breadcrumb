@@ -8,10 +8,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The witness's case that a track's label is wrong — two channels, either sufficient, both immune
- * to the honest cases: an interval run must never build a case, and neither may a lone forged
- * window. The speed channel's bar comes from the shipping ceiling table, not a copy — a retuned
- * ceiling must move these tests with it.
+ * The witness's case that a track's label is wrong — two channels, either sufficient, both immune to the
+ * honest cases: an interval run must never build a case, nor may a lone forged window. The speed channel's
+ * bar is the shipping ceiling table, not a copy — a retuned ceiling must move these tests with it.
  */
 class CarrierEvidenceTest {
 

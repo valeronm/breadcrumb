@@ -1,18 +1,11 @@
-// Incremental parser for the Breadcrumb backup format (BackupExporter, format v1).
-//
-// The export is one JSON object whose "tracks" array dwarfs everything else — a full-history
-// file runs to hundreds of MB of text, past what JSON.parse can take in one bite. This parser
-// is fed decompressed text chunks and emits each track as soon as its object is complete, so
-// memory stays at one value plus the current chunk.
-//
-// Two processing modes keep the work linear in the input:
-// - token mode handles the small structural stream between values (keys, colons, commas,
-//   braces) through a tiny `head` buffer;
-// - value mode streams a value's chars through a depth/string machine directly off each
-//   incoming chunk — pieces accumulate in an array and are joined once when the value closes.
-// Nothing ever indexes into a growing concatenated string: with V8's rope strings that
-// flattens (copies) the whole buffer on every chunk, which is quadratic on big files.
-//
+// Incremental parser for the Breadcrumb backup format (BackupExporter, format v1). A full-history
+// export's "tracks" array runs to hundreds of MB of text — past what JSON.parse can take in one
+// bite — so this is fed decompressed text chunks and emits each track as soon as its object is
+// complete; memory stays at one value plus the current chunk. Token mode handles the small
+// structural stream between values (keys, colons, commas, braces) through the tiny `head` buffer;
+// value mode runs a depth/string machine directly off each chunk, joining the accumulated pieces
+// once when the value closes. Nothing ever indexes into a growing concatenated string — V8's rope
+// strings flatten (copy) the whole buffer on every chunk, quadratic on big files.
 // Pure ES module — the import worker uses it in the browser, and node tests drive it directly.
 
 export const FORMAT = "breadcrumb-export";
@@ -21,14 +14,11 @@ export const VERSION = 1;
 const WS = " \t\n\r";
 
 export class BackupParser {
-  /**
-   * @param {{onHeader?: (header: object) => void,
-   *          onTrack?: (track: object) => void,
+  /** @param {{onHeader?: (header: object) => void, onTrack?: (track: object) => void,
    *          onPlaces?: (places: object[]) => void,
    *          onLiveness?: (events: object[]) => void}} callbacks
    * onHeader fires once, before the first onTrack, with every scalar/small field seen so far —
-   * pointFields is guaranteed present (the exporter writes it before tracks).
-   */
+   * pointFields is guaranteed present (the exporter writes it before tracks). */
   constructor(callbacks) {
     this.cb = callbacks;
     this.header = {};

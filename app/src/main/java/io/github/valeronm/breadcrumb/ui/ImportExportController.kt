@@ -19,10 +19,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * The long-running data-transfer operations — GPX import/export/share and full backup/restore —
- * split out of [TrackListViewModel] so the timeline's state holder isn't also an orchestration
- * hub. Owned by the ViewModel and scoped to its lifetime: [scope] is the ViewModel's scope, so
- * every operation (and its progress flow) survives navigation exactly as before.
+ * The long-running data-transfer operations — GPX import/export/share and full backup/restore — kept
+ * out of [TrackListViewModel] so the timeline's state holder isn't also an orchestration hub. [scope]
+ * is the owning ViewModel's, so every operation and its progress flow survive navigation.
  */
 internal class ImportExportController(
     private val app: Application,

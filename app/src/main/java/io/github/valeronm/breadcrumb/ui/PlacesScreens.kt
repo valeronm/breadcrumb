@@ -140,7 +140,7 @@ internal fun PlacesTab(
     // For the map's orange dots: stays the Timeline offers to merge away (TrackMerge's rules —
     // short, finished, same activity on both sides). A place that is only such an artifact is
     // marked rather than re-deciding eligibility here. Named places are exempt at the dot, not
-    // here: the merge rule stopped sparing them, but a label still says the place is meant.
+    // here: the merge rule doesn't spare them, but a label still says the place is meant.
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
     var showMap by remember { mutableStateOf(AppSettings.placesViewMap(context)) }
     var sort by remember { mutableStateOf(PlacesSort.fromSettings(context)) }
@@ -363,12 +363,10 @@ internal fun PlacesTab(
 }
 
 /**
- * The list's search box, shaped like the chips it sits above rather than like a form field: a Material
- * text field brings a 56dp minimum and a heavy outline, which in a header of 32dp chips reads as
- * something borrowed from another screen. Hence [BasicTextField] inside a pill of the app's own
- * making — the height, the shape and the placeholder are all this composable's to set.
- *
- * Filtering is live, so there is nothing to submit: the keyboard's Done just dismisses itself.
+ * The list's search box, shaped like the chips it sits above, not like a form field: a Material text
+ * field's 56dp minimum and heavy outline read as borrowed from another screen in a header of 32dp
+ * chips — hence [BasicTextField] in a pill of the app's own making, height, shape and placeholder all
+ * this composable's to set. Filtering is live; with nothing to submit, the keyboard's Done dismisses itself.
  */
 @Composable
 private fun PlacesSearchField(
@@ -682,29 +680,22 @@ internal fun PlaceDetailScreen(
 }
 
 /**
- * Tuning one named place's capture area — its radius and its center — over a full-height map
- * showing what the circle would take: this place's endpoints and the loose ones around it, the
- * named neighbors it competes with, and their areas muted underneath.
- *
- * Both adjustments preview and neither writes. Re-centering moves the pin on the map exactly as
- * the slider moves the circle, and the scan re-measures from there, so what the screen shows is
- * always what saving would produce. A slider can be dragged back; a pin that jumped has nowhere
- * obvious to return to, so re-centering offers an Undo instead.
- *
- * **A layer of its own, above the place detail, and the map is the reason.** The two screens want
- * the map at different heights, and a `MapView` is a `TextureView`: handed a new size it scales its
- * last-rendered frame into the new box until it has one of its own, which is the pin visibly
- * stretching to an oval. Nothing fixes that from inside one shared map — hiding what is drawn is
- * too late (the frame being scaled was rendered before the hide), and animating the height makes it
- * every frame instead of one. A map per screen is never resized, so there is nothing to hide,
- * sequence or animate around.
- *
- * Its camera is its own too, and that is the point rather than the price: this screen opens framed
- * on the circle, in a state the radius can be judged in, wherever the detail map below happened to
- * be panned to.
- *
- * Backing out is the layer's own predictive-back gesture, and it discards by construction — the
- * radius and the pin are local to a screen that gets thrown away, so nothing needs restoring.
+ * Tuning one named place's capture area — radius and center — over a full-height map of what the
+ * circle would take: this place's endpoints and the loose ones around it, the named neighbors it
+ * competes with, and their areas muted underneath. Both adjustments preview and neither writes:
+ * re-centering moves the pin exactly as the slider moves the circle, and the scan re-measures from
+ * there, so the screen always shows what saving would produce. A slider can be dragged back; a
+ * jumped pin has nowhere obvious to return to, so re-centering offers an Undo instead.
+ * A layer of its own above the place detail, and the map is the reason: the two screens want it at
+ * different heights, and a `MapView` is a `TextureView` — handed a new size it scales its
+ * last-rendered frame into the new box until it has one of its own, the pin visibly stretching to
+ * an oval. Nothing fixes that inside one shared map (hiding is too late, the scaled frame was
+ * rendered before the hide; animating the height makes it every frame instead of one); a map per
+ * screen is never resized, so there is nothing to hide, sequence or animate around. Its own camera
+ * is the point rather than the price: this screen opens framed on the circle, in a state the radius
+ * can be judged in, wherever the detail map below was panned. Backing out is the layer's own
+ * predictive-back gesture, discarding by construction — radius and pin are local to a screen that
+ * gets thrown away, so nothing needs restoring.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -730,18 +721,15 @@ internal fun PlaceEditScreen(
     val undo = rememberUndoSnackbar(snackbarHostState)
     val radiusScale = rememberDistanceScale(SliderStops(50, 500, 25), SliderStops(150, 1650, 75))
     val maxRadiusM = radiusScale.metersOf(radiusScale.range.endInclusive).toDouble()
-    // Prepared once per pin, not per drag step: whether a neighbor keeps an endpoint has nothing
-    // to do with our radius, and paying for that scan on every step is what made a place with a
-    // few thousand endpoints around it lag under the finger. See CaptureScan.
-    //
-    // Off the main thread, because the frame it would otherwise land on is the one this layer
-    // opens on: a 300 ms animation and a fresh MapView loading its style, plus a distance call per
-    // endpoint in the neighborhood. Null until the first scan arrives — the map draws its plain
-    // endpoints meanwhile — and the previous scan stays up while a moved pin is re-measured, so
-    // re-centering colors the dots from where the pin was for a frame rather than blanking them.
-    //
-    // Keyed on what the scan reads, not on the whole summary — that carries visit stats which move
-    // on every derivation and would rebuild this for nothing.
+    // Prepared once per pin, not per drag step — whether a neighbor keeps an endpoint has nothing to
+    // do with our radius, and a per-step scan made a place with a few thousand endpoints around it
+    // lag under the finger (see CaptureScan). Off the main thread, because the frame it would land
+    // on is this layer's opening one: a 300 ms animation and a fresh MapView loading its style, plus
+    // a distance call per endpoint. Null until the first scan (the map draws plain endpoints
+    // meanwhile), and the previous scan stays up while a moved pin re-measures, so re-centering
+    // colors the dots from where the pin was for a frame rather than blanking them. Keyed on what
+    // the scan reads, not the whole summary — its visit stats move on every derivation and would
+    // rebuild this for nothing.
     val scan by produceState<PlaceClusterer.CaptureScan?>(null, pin, candidates, rivals, maxRadiusM) {
         value = withContext(Dispatchers.Default) {
             PlaceClusterer.scanCapture(
@@ -850,9 +838,9 @@ internal fun PlaceEditScreen(
 }
 
 /**
- * The current category as one row in the naming dialog, opening the picker. A row rather than the
- * twelve chips this started as: in a dialog's width the chips wrapped into a ragged block, where
- * "Home" and "Friends & family" are half a screen apart in size.
+ * The current category as one row in the naming dialog, opening the picker. A row rather than a
+ * chip per category: in a dialog's width the chips wrap into a ragged block, where "Home" and
+ * "Friends & family" are half a screen apart in size.
  */
 @Composable
 private fun CategorySummaryRow(category: PlaceCategory?, onClick: () -> Unit) {
@@ -875,13 +863,11 @@ private fun CategorySummaryRow(category: PlaceCategory?, onClick: () -> Unit) {
 
 /**
  * The category list, built like the track-type dialog: one full-width row each, so a long label sits
- * on its own line instead of wrapping mid-list. "Not set" leads it — untagging is a choice worth
- * seeing, not a gesture (tapping the chosen one again) left for the user to discover.
- *
- * Grouped by color, under a heading each — this is where the coding is learned, and a list that
- * scattered one group's color across four separate runs would teach nothing. No sorting happens
- * here: [PlaceCategory] is declared in exactly this order (grouped, then by how often a category is
- * chosen), so the picker walks the entries once and heads each run as it starts.
+ * on its own line instead of wrapping mid-list. "Not set" leads — untagging is a choice worth seeing,
+ * not a gesture (re-tapping the chosen one) left to discover. Grouped by color under headings, where
+ * the coding is learned — scattering one group's color across four runs would teach nothing — and
+ * unsorted: [PlaceCategory] is declared grouped, then by how often a category is chosen, so the
+ * picker walks the entries once and heads each run as it starts.
  */
 @Composable
 private fun CategoryDialog(

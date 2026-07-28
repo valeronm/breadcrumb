@@ -7,43 +7,36 @@ import io.github.valeronm.breadcrumb.data.db.TrackStatsUpdate
 import io.github.valeronm.breadcrumb.domain.DistanceFn
 
 /**
- * The one implementation of a track's point walk: distance, counts, endpoints and extent.
+ * The one implementation of a track's point walk: distance, counts, endpoints and extent. Its two
+ * callers must agree: the recorder accumulates as each fix arrives ([Accumulator]) for the Record
+ * card's running total, and the repository folds the *stored* points when a track finishes ([of])
+ * onto the track row — the only distance that survives, since the recorder writes none while it
+ * records (see [TrackDao]'s observed queries for why). If the walks disagreed, a finished track
+ * would contradict the card the user just watched, and a crash-recovered one would be judged on a
+ * number the recorder never produced — so [of] is a fold over [Accumulator], not a second walk.
  *
- * Two callers need it in two shapes, and they must agree. The recorder accumulates as each fix
- * arrives ([Accumulator]) and shows the running total on the Record card; the repository folds the
- * *stored* points when a track is finished ([of]) and writes the result onto the track row — which
- * is the only distance that survives, since the recorder writes none while it records (see
- * [TrackDao]'s observed queries for why). If the two walks disagreed, a finished track would
- * contradict the card the user just watched, and a crash-recovered one would be judged on a number
- * the recorder never produced. So [of] is a fold over [Accumulator] rather than a second walk.
- *
- * The rule itself: ignored fixes contribute nothing but their count, and every leg between
- * consecutive good fixes is travel — including the one spanning a [TrackPoint.segmentStart], where
- * the recorder had auto-paused or a merge joined two journeys.
- *
- * That last part is a deliberate reversal. The gap used to be dropped on the reasoning that a
- * paused stretch wasn't traveled, which holds for the standstill that fires the pause and fails
- * whenever the pause outlasted the stop: Activity Recognition is late to call movement, and a
- * reacquiring GPS lands its first fix down the road. Measured over the recorded history, the gaps
- * span everything from a parked phone's drift to vehicle pace over a couple of minutes — so a rule
- * that drops them all discards real travel to avoid counting a little jitter. Nothing teleports:
- * the straight line across a gap already *understates* whatever path connected the two fixes, and
- * dropping it understates by the whole leg.
- *
- * The break still separates the path everywhere it is drawn or exported (see
- * [io.github.valeronm.breadcrumb.domain.SegmentBreaks]) — a line the recorder never observed should
- * not be drawn, which is a different question from whether the ground was covered.
+ * The rule: ignored fixes contribute nothing but their count, and every leg between consecutive
+ * good fixes is travel, including the one spanning a [TrackPoint.segmentStart] (an auto-pause, or a
+ * merge's join). Counting that leg is deliberate: dropping it — a paused stretch wasn't traveled —
+ * holds for the standstill that fires the pause but fails whenever the pause outlasted the stop, as
+ * Activity Recognition is late to call movement and a reacquiring GPS lands its first fix down the
+ * road. Measured over the recorded history, such gaps span everything from a parked phone's drift
+ * to vehicle pace over a couple of minutes, so dropping them all discards real travel to avoid
+ * counting a little jitter — and nothing teleports: the straight line across a gap already
+ * *understates* whatever path connected the two fixes; dropping it understates by the whole leg.
+ * The break still separates the path everywhere it is drawn or exported
+ * ([io.github.valeronm.breadcrumb.domain.SegmentBreaks]) — a line the recorder never observed
+ * should not be drawn, which is a different question from whether the ground was covered.
  */
 object TrackStats {
 
     /**
-     * Bumped whenever this walk would produce different numbers for the same points. The aggregates
-     * on a track row are this code's output, so a rule that has moved leaves every stored track
-     * behind it — and nothing re-walks a track whose points haven't changed (the edge-stay sweep
-     * skips it, and a track is otherwise re-walked only when it is finished, merged, imported or
-     * retyped). [TrackRepository.sweepStats] re-walks the history when the version it last swept is
-     * behind this one, so bumping is part of changing the rule, not a follow-up chore.
-     *
+     * Bumped whenever this walk would produce different numbers for the same points: the aggregates
+     * on a track row are this code's output, so a moved rule leaves every stored track behind it,
+     * and nothing re-walks a track whose points haven't changed (the edge-stay sweep skips it; only
+     * finish, merge, import or retype re-walks otherwise). [TrackRepository.sweepStats] re-walks the
+     * history when the version it last swept is behind this one, so bumping is part of changing the
+     * rule, not a follow-up chore.
      * 1 — the leg spanning a [TrackPoint.segmentStart] counts as travel; it used to be dropped.
      */
     const val RULE_VERSION = 1
@@ -62,9 +55,8 @@ object TrackStats {
         val endLon: Double?,
         /**
          * Diagonal of the good points' bounding box (meters): a real trip's spread, which GPS jitter
-         * can't inflate the way it inflates accumulated distance. The keep rule's extent gate reads
-         * it; unlike the rest, it isn't stored on the track row — it's only needed at the moment the
-         * track finishes. 0 for fewer than two points.
+         * can't inflate the way it inflates accumulated distance. Read by the keep rule's extent gate;
+         * not stored on the row, unlike the rest — only needed at finish. 0 for fewer than two points.
          */
         val extentMeters: Double,
     ) {

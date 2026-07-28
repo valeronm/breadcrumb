@@ -1,11 +1,9 @@
 package io.github.valeronm.breadcrumb.domain
 
 /**
- * Reduction of one GNSS status callback to the two numbers the recorder stores per fix: how many
- * satellites the fix used, and the mean C/N0 of the strongest [topN] of them (signal quality
- * metadata, and the input to the no-GNSS cross-check). An accumulator, not a function, so the
- * caller can reuse one instance across callbacks — the status ticks ~1/s for the whole recording,
- * and this pass must stay allocation-free.
+ * Reduces one GNSS status callback to the two numbers stored per fix: satellites used, and the mean
+ * C/N0 of the strongest [topN] (quality metadata; the no-GNSS cross-check's input) — an accumulator,
+ * not a function, so one reused instance keeps the ~1/s pass of a whole recording allocation-free.
  */
 class GnssSnapshot(topN: Int = 4) {
     private val top = FloatArray(topN) // strongest C/N0s seen, descending
@@ -48,10 +46,9 @@ class GnssSnapshot(topN: Int = 4) {
     companion object {
         /**
          * Whether a fix taken at [fixElapsedMs] is backed by a real satellite fix seen at
-         * [lastGnssElapsedMs] (both elapsed-realtime millis). Fails open while
-         * [lastGnssElapsedMs] is still 0 — a session that never locks must keep recording
-         * rather than emptying the track; once locked, a fix more than [maxAgeMs] past the
-         * last satellite fix is a network/dead-reckoning fabrication.
+         * [lastGnssElapsedMs] (both elapsed-realtime millis); 0 fails open — a never-locked
+         * session keeps recording rather than emptying the track. Once locked, a fix more
+         * than [maxAgeMs] past the last satellite fix is a network/dead-reckoning fabrication.
          */
         fun backed(lastGnssElapsedMs: Long, fixElapsedMs: Long, maxAgeMs: Long): Boolean {
             if (lastGnssElapsedMs == 0L) return true

@@ -3,23 +3,19 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
 /**
- * Finds *embedded stays* inside a recorded track — stretches where the user lingered within a
- * small area while Activity Recognition kept reporting movement (an open-air museum, a
- * GNSS-transparent building), so neither the STILL auto-pause nor the no-fix guard ever fired.
- *
- * The sweep is a running-centroid stay-point detector: a dwell is a maximal run of fixes that
- * stay within [Params.corralRadiusM] of their own running mean for at least [Params.minDwellMs].
- * Two asymmetric exits keep venue-edge wandering from splitting one visit: a fix beyond
- * [Params.exitHardRadiusM] ends the dwell immediately, while a fix merely outside the corral
- * ends it only after [Params.exitConfirmMs] without re-entry. Auto-pause gaps need no special
- * handling — dwell time is wall-clock between samples, so a pause whose resume fix lands back
- * in the corral credits the whole gap, and one that resumes elsewhere ends the dwell at the last
- * in-corral fix (the user left during the pause).
- *
- * Adjacent dwells closer than [Params.mergeGapMs] and [Params.mergeDistM] coalesce into one —
- * a large venue often reads as two or three neighboring corrals with short strolls between.
- *
- * Pure and Android-free; nothing is persisted. Detection re-runs from stored points on demand.
+ * Finds *embedded stays* inside a recorded track — the user lingered within a small area while
+ * Activity Recognition kept reporting movement (an open-air museum, a GNSS-transparent building),
+ * so neither the STILL auto-pause nor the no-fix guard ever fired. A running-centroid stay-point
+ * detector: a dwell is a maximal run of fixes within [Params.corralRadiusM] of their own running
+ * mean for at least [Params.minDwellMs]. Two asymmetric exits keep venue-edge wandering from
+ * splitting one visit: a fix beyond [Params.exitHardRadiusM] ends the dwell immediately, one
+ * merely outside the corral only after [Params.exitConfirmMs] without re-entry. Auto-pause gaps
+ * need no special handling — dwell time is wall-clock between samples, so a pause resuming in the
+ * corral credits the whole gap and one resuming elsewhere ends the dwell at the last in-corral fix
+ * (the user left during the pause). Adjacent dwells closer than [Params.mergeGapMs] and
+ * [Params.mergeDistM] coalesce — a large venue often reads as two or three neighboring corrals
+ * with short strolls between. Pure and Android-free; nothing is persisted — detection re-runs from
+ * stored points on demand.
  */
 object DwellDetector {
 
@@ -46,11 +42,10 @@ object DwellDetector {
     )
 
     /**
-     * The tuning the track-detail overlay ships with — the constructor defaults, named so this
-     * choice has an owner. [EdgeStayDetector.paramsFor] exists for the same reason on the other
-     * consumer of this detector: two callers sizing the same dwell through different parameters is
-     * the failure a named set prevents. (The edge rule's stage 1 uses
-     * [EdgeStayDetector.BRIEF_STOP]'s own `dwell` params, deliberately tighter.)
+     * The tuning the track-detail overlay ships with — the constructor defaults, named so the
+     * choice has an owner: two callers sizing the same dwell through different parameters is the
+     * failure a named set prevents, and why [EdgeStayDetector.paramsFor] exists on the other
+     * consumer (whose stage 1 uses [EdgeStayDetector.BRIEF_STOP]'s own deliberately tighter `dwell` params).
      */
     val TRACK_OVERLAY = Params()
 

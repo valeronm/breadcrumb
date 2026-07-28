@@ -1,12 +1,9 @@
 package io.github.valeronm.breadcrumb.domain
 
 /**
- * Why a fix was flagged ignored. [code] is the stable string stored in the DB (and null for
- * points recorded before reasons were tracked).
- *
- * The first three are the recorder's bad-fix rule (`TrackQuality.badFixReason`). [EDGE_STAY] is
- * the odd one out and deliberately shares the mechanism: the fix is fine, it just isn't part of
- * the journey.
+ * Why a fix was flagged ignored. [code] is the stable DB string (null for points from before
+ * reasons were tracked). The first three are the recorder's bad-fix rule (`TrackQuality.badFixReason`);
+ * [EDGE_STAY] deliberately shares the mechanism — the fix is fine, just not part of the journey.
  */
 enum class IgnoreReason(val code: String) {
     /** Accuracy radius at or beyond the configured gate. */
@@ -19,10 +16,9 @@ enum class IgnoreReason(val code: String) {
     NO_GNSS("no_gnss"),
 
     /**
-     * Recorded at a track's edge after the user had already arrived (or before they truly left):
-     * Activity Recognition lagged the stop and the recorder ran on. Not a quality rejection — a
-     * good fix of somewhere the journey isn't. Applied by [EdgeStayIgnore] once a track is
-     * finished, and re-derived whenever the rule moves.
+     * Recorded at a track's edge after arrival (or before true departure): Activity Recognition
+     * lagged the stop and the recorder ran on. Not a quality rejection — a good fix of somewhere
+     * the journey isn't; [EdgeStayIgnore] applies it at finish, re-derived whenever the rule moves.
      */
     EDGE_STAY("edge_stay"),
     ;

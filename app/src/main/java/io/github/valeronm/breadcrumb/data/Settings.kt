@@ -26,8 +26,8 @@ object Settings {
     private const val KEY_UNIT_CHOICE = "unit_choice"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
 
-    // The stored name predates the verdict moving onto the points; it stays as it is, because a
-    // renamed key reads back 0 on every installed device and re-walks the whole history for nothing.
+    // The key string doesn't match the edge-stay name and must stay that way: a renamed key reads
+    // back 0 on every installed device and re-walks the whole history for nothing.
     private const val KEY_EDGE_STAY_RULE_VERSION = "review_mark_rule_version"
 
     private const val KEY_STATS_RULE_VERSION = "stats_rule_version"

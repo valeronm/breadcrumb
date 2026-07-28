@@ -4,10 +4,10 @@ import java.util.Locale
 
 /**
  * The motion states we care about — Google's detected-activity constants reduced to a small set
- * (the GMS mapping itself lives in the `location` package, keeping this enum platform-free).
- * An activity carries only what the recorder decides with: a label, whether it records at all, and
- * the [TrackGroup] that says which switches split a track. Sampling cadence is deliberately not
- * here: it is one global setting, so an activity change never re-tunes GPS.
+ * (the GMS mapping lives in the `location` package, keeping this enum platform-free). An activity
+ * carries only what the recorder decides with: a label, whether it records, and the [TrackGroup]
+ * saying which switches split a track. Sampling cadence is deliberately not here — it is one
+ * global setting, so an activity change never re-tunes GPS.
  */
 enum class ActivityType(
     val label: String,

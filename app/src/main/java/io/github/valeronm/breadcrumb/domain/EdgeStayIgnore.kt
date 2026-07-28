@@ -4,27 +4,23 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
 /**
  * How [EdgeStayDetector]'s verdict is recorded: the overrun's fixes are flagged
- * [IgnoreReason.EDGE_STAY] and stay on the track. They are not bad fixes — they are perfectly good
- * fixes of a phone that had already arrived — but "ignored" is exactly the status they need, and
- * the app already has it: ignored points keep their rows while dropping out of distance, the
- * rendered line, the endpoints, and GPX export. Nothing is moved to another track and nothing is
- * deleted, so the operation is undone by clearing a flag.
- *
- * Two rules make that safe to apply automatically and re-apply forever:
- *
+ * [IgnoreReason.EDGE_STAY] and stay on the track — not bad fixes but perfectly good fixes of a
+ * phone that had already arrived, and "ignored" is exactly the status they need, which the app
+ * already has: ignored points keep their rows while dropping out of distance, the rendered line,
+ * the endpoints, and GPX export. Nothing is moved to another track and nothing is deleted, so the
+ * operation is undone by clearing a flag. Two rules make that safe to apply automatically and
+ * re-apply forever:
  *  1. **Detection never sees its own output.** [plan] hands the detector the points with the edge
- *     flags cleared, so the overrun is always derived from the raw recording. Feeding it the
- *     already-shortened track instead would let it find a fresh stay inside the remainder each
- *     time and walk the track backwards, one sweep at a time.
+ *     flags cleared, so the overrun is always derived from the raw recording — fed the shortened
+ *     track instead, it would find a fresh stay inside the remainder each time and walk the track
+ *     backwards, one sweep at a time.
  *  2. **A flag survives only where the rule still re-derives it.** Every flag is reconsidered,
  *     wherever it sits, and one the detector doesn't find again is withdrawn. [TrackMerge] copies
- *     two tracks into one, which puts the earlier track's flagged tail in the middle of the
- *     result — an edge rule will never re-derive it there, so it is handed back: those fixes are
- *     the merged track's own path through a stop it drove on from, and a track that holds them
- *     off its line has a gap no screen accounts for. The alternative — holding a buried flag
- *     because nothing will re-examine it — kept fixes out of the path that no map layer drew and
- *     no legend named, on the say-so of a rule that had stopped applying.
- *
+ *     two tracks into one, putting the earlier track's flagged tail mid-track where an edge rule
+ *     will never re-derive it, so it is handed back: those fixes are the merged track's own path
+ *     through a stop it drove on from, and holding the buried flag because nothing re-examines it
+ *     would keep them off the line on the say-so of a rule that stopped applying — a gap no map
+ *     layer drew and no legend named.
  * Pure and Android-free.
  */
 object EdgeStayIgnore {
@@ -34,16 +30,13 @@ object EdgeStayIgnore {
         point.ignored && point.ignoreReason == IgnoreReason.EDGE_STAY.code
 
     /**
-     * What a track's rows should look like once the current rule has had its say: which points
-     * gain the flag, which lose it, and where the track's clock now starts and ends. Empty index
-     * sets and unchanged bounds mean the stored state already agrees — the usual case on a
-     * re-sweep, and the reason one costs no writes.
-     *
-     * Points are named by their **index** in the list handed to [plan], not by
-     * [TrackPoint.id]: a backup carries no point ids (the format's `pointFields` has no such
-     * column), so every point a restore parses has id 0 and an id-keyed set would match all of
-     * them at once. An index is meaningful whatever the points came from; the caller maps it back
-     * to a row id when it has one.
+     * What a track's rows should read once the current rule has had its say: which points gain the
+     * flag, which lose it, and where the track's clock now starts and ends. Empty index sets and
+     * unchanged bounds mean the stored state already agrees — the usual re-sweep case, and why one
+     * costs no writes. Points are named by their **index** in the list handed to [plan], not by
+     * [TrackPoint.id]: a backup carries no point ids (its `pointFields` has no such column), so
+     * every restored point has id 0 and an id-keyed set would match them all at once; the caller
+     * maps an index back to a row id when it has one.
      */
     data class Plan(
         val ignore: Set<Int>,
@@ -59,13 +52,11 @@ object EdgeStayIgnore {
 
     /**
      * [points] is *all* of a track's points in order, good and ignored alike; [startedAt]/[endedAt]
-     * are the track's current bounds.
-     *
-     * The bounds come back as the tighter of the two readings at each end: a stay's boundary fix
-     * where one was found, and otherwise the wider of the stored bound and the outermost fix —
-     * which is what restores the clock when a stay is withdrawn. The raw bound isn't stored
-     * anywhere, so the outermost fix is what stands in for it; the two differ by the seconds
-     * between the last fix and the recorder noticing, and only ever in that direction.
+     * the track's current bounds. Each bound comes back as a stay's boundary fix where one was
+     * found, else the wider of the stored bound and the outermost fix — which restores the clock
+     * when a stay is withdrawn: the raw bound isn't stored anywhere, so the outermost fix stands in
+     * for it, differing only by the seconds between the last fix and the recorder noticing, and
+     * only ever in that direction.
      */
     fun plan(
         points: List<TrackPoint>,

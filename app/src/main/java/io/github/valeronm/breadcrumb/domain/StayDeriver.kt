@@ -5,27 +5,23 @@ import java.time.Instant
 import java.time.ZoneId
 
 /**
- * Derives *stays* — where the user was between recorded tracks — from data the app already has,
- * at zero sensing cost. A stay is the interval between the end of one kept track and the start of
- * the next, when both endpoints land at "the same place". Same place means any of:
- *  - the same endpoint cluster ([PlaceClusterer] over every track endpoint in history, *seeded*
- *    by the user's named-place pins at each pin's own capture radius — widening a venue's radius
- *    makes it generous where blanket radii can't be, and repeated visits widen organic clusters
- *    to the place's real GPS scatter);
+ * Derives *stays* — where the user was between recorded tracks — from data the app already has, at
+ * zero sensing cost: the interval between the end of one kept track and the start of the next,
+ * when both endpoints land at "the same place". Same place means any of:
+ *  - the same endpoint cluster ([PlaceClusterer] over every track endpoint in history, *seeded* by
+ *    the named-place pins at each pin's own capture radius — widening a venue's radius is generous
+ *    where blanket radii can't be; repeat visits widen organic clusters to the place's GPS scatter);
  *  - raw distance within [Params.agreementRadiusM], so nearby endpoints straddling two clusters
  *    still agree;
  *  - the same nearest *named place* pin within that pin's radius, for the residual case where a
  *    nearer organic anchor pulled one endpoint out of the pin's seeded cluster.
- * Endpoint disagreement means movement the recorder missed, and is reported as a [Gap] instead.
- *
- * Honesty rule: silence is only a stay if the app was alive and armed throughout — that evidence
- * is the liveness log ([Armed]/[Disarmed]/[Outage] events). When an outage or a disarm-rearm
- * interrupts an otherwise-agreeing interval, the stay is still emitted but marked
- * [Provenance.INFERRED] (the endpoints agree; the middle is unattested) rather than
- * [Provenance.OBSERVED]. History from before the liveness log existed derives the same way.
- *
- * Pure and Android-free; nothing is persisted — stays re-derive from tracks + liveness on read,
- * so history backfills automatically and track deletions self-heal.
+ * Endpoint disagreement means movement the recorder missed, reported as a [Gap] instead. Honesty
+ * rule: silence is only a stay if the app was alive and armed throughout, per the liveness log
+ * ([Armed]/[Disarmed]/[Outage] events); an outage or disarm-rearm interrupting an otherwise-agreeing
+ * interval still emits the stay, marked [Provenance.INFERRED] (the endpoints agree; the middle is
+ * unattested) rather than [Provenance.OBSERVED], and pre-log history derives the same way. Pure and
+ * Android-free; nothing is persisted — stays re-derive from tracks + liveness on read, so history
+ * backfills automatically and track deletions self-heal.
  */
 object StayDeriver {
 
@@ -42,11 +38,10 @@ object StayDeriver {
     )
 
     /**
-     * The currently-recording track. Its presence closes the tail stay at [startedAt] instead of
-     * suppressing it, so the timeline shows the just-ended stay live rather than only after the
-     * track finalizes. [start] is the track's first good fix when already known — it lets the
-     * tail run the usual endpoint-agreement check; null (no fix yet) counts as agreement until
-     * the finished track re-derives the interval for real.
+     * The currently-recording track: its presence closes the tail stay at [startedAt] instead of
+     * suppressing it, so the just-ended stay shows live rather than only after the track finalizes.
+     * [start], the first good fix when already known, lets the tail run the usual endpoint-agreement
+     * check; null (no fix yet) counts as agreement until the finished track re-derives for real.
      */
     data class ActiveTrack(val startedAt: Long, val start: Endpoint? = null)
 
@@ -69,8 +64,8 @@ object StayDeriver {
         /** Inter-track gaps shorter than this emit nothing. 0 = keep every stay (brief stops
          *  included) — the auto-pause resume window already absorbs the truly-momentary ones. */
         val minStayMs: Long = 0L,
-        /** Heartbeat staleness after which a restart materializes an outage. Lives here as the
-         *  single source of truth; the service reads it when calling materializeOutageIfDead. */
+        /** Heartbeat staleness after which a restart materializes an outage — the single source
+         *  of truth for that threshold. */
         val heartbeatToleranceMs: Long = 30 * 60_000L,
     )
 
@@ -88,14 +83,13 @@ object StayDeriver {
     }
 
     /**
-     * Below this a stay's length is not worth reporting, because it is not the length of anything
-     * the user did. A stay is measured between two track *bounds*, so it only covers the part of
-     * a stop the recorder noticed: the stationary approach usually sits untrimmed inside the
-     * previous track's tail whenever the stop was shorter than [EdgeStayDetector]'s dwell floor
-     * (measured over the whole history, these short stays sit still for a median of ~2.5 min
-     * around a gap of seconds). Such a stay is still a real stop — it counts as a visit and keeps
-     * its place on the timeline — but any duration derived from its bounds would be fiction, and
-     * rounding one to "0m" reads as a broken value.
+     * Below this a stay's length is not worth reporting — it is not the length of anything the
+     * user did. Measured between two track *bounds*, a stay covers only the part of a stop the
+     * recorder noticed: the stationary approach usually sits untrimmed in the previous track's tail
+     * whenever the stop was shorter than [EdgeStayDetector]'s dwell floor (history-wide, such stays
+     * sit still for a median of ~2.5 min around a gap of seconds). Still a real stop — a visit,
+     * kept on the timeline — but a duration from its bounds would be fiction, and rounding one to
+     * "0m" reads as a broken value.
      */
     const val REPORTABLE_DURATION_MS = 60_000L
 
@@ -152,9 +146,9 @@ object StayDeriver {
         val out = mutableListOf<Interval>()
 
         // Nearest pin whose own radius captures [e], scanned in one pass: this runs twice per
-        // adjacent track pair over the whole history, and the pair-list form it replaced boxed a
-        // Double per pin per call. Pins out of reach of [e] cost coordinate arithmetic, not a
-        // distance call — the same rejection the clustering above runs.
+        // adjacent track pair over the whole history, and a pair-list form would box a Double per
+        // pin per call. Pins out of reach of [e] cost coordinate arithmetic, not a distance call —
+        // the same rejection the clustering above runs.
         fun nearestPin(e: Endpoint): Int? {
             if (placePins.isEmpty()) return null
             val reach = ReachBound.around(e.lat, e.lon, distance)
@@ -221,10 +215,9 @@ object StayDeriver {
     }
 
     /**
-     * Clusters every track endpoint (chronological: each track's start then end) so anchors are
-     * stable as history grows, seeding the clustering with the named-place pins so endpoints near
-     * a pin belong to that place's cluster. Identical coordinates always land in the same cluster,
-     * so the value-keyed map is safe even when endpoints repeat.
+     * Clusters every track endpoint (chronological: each track's start then end) so anchors stay
+     * stable as history grows; pin seeds put endpoints near a named place in its cluster. Identical
+     * coordinates always land in the same cluster, so the value-keyed map is safe under repeats.
      */
     private fun clusterEndpoints(
         tracks: List<TrackEnd>,

@@ -119,12 +119,11 @@ abstract class AppDatabase : RoomDatabase() {
 
         /**
          * v11 denormalizes each track's point aggregates (counts + first/last good coordinates)
-         * onto its row, so the timeline queries stop reading `track_points` — see [TrackDao]'s
-         * observed queries. The backfill is SQL rather than a Kotlin pass ([TrackStats]) because it
-         * has to be atomic with the schema change: a migrated-but-unfilled row would show a
-         * finished track with no points and no endpoints, dropping it out of the timeline and the
-         * stay derivation until the pass caught up. `distanceMeters` needs no backfill — it was
-         * already stored, and the SQL couldn't reproduce its great-circle walk anyway.
+         * onto its row, so the timeline queries stop reading `track_points` ([TrackDao]'s observed
+         * queries). The backfill is SQL rather than a Kotlin pass ([TrackStats]) to be atomic with
+         * the schema change: a migrated-but-unfilled row would show a finished track with no points
+         * or endpoints, out of the timeline and stay derivation until the pass caught up.
+         * `distanceMeters` needs no backfill: already stored, and SQL can't do its great-circle walk.
          */
         val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -159,11 +158,11 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
-         * v12 drops `track_points.provider`: with the fused path removed there is only one live
-         * source (raw GPS), so the column carried no information. minSdk 26's SQLite predates
-         * `ALTER TABLE … DROP COLUMN`, so the table is rebuilt — new table, copy, drop, rename —
-         * and the composite index is recreated. The DDL must match the entity annotations exactly
-         * (Room validates the schema at open and crashes on mismatch).
+         * v12 drops `track_points.provider` (the fused path gone, raw GPS is the only live source,
+         * the column carried no information). minSdk 26's SQLite predates `ALTER TABLE … DROP
+         * COLUMN`, so the table is rebuilt (new table, copy, drop, rename) and the composite index
+         * recreated; the DDL must match the entity annotations exactly or Room's schema validation
+         * crashes at open.
          */
         val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -203,15 +202,13 @@ abstract class AppDatabase : RoomDatabase() {
 
         /**
          * v13 adds `tracks.needsReview`: one boolean saying a cut on this track is waiting on the
-         * user. Deliberately a plain flag rather than a measurement — it answers "is there a
-         * decision pending here", and the screen recomputes the detail when opened.
-         *
-         * Nothing writes it today: the edge stay it was built for stopped needing confirmation
-         * once the overrun became a flag on the points rather than a destructive cut. The one
-         * release that did write it left marks behind on installed devices, and they were never
-         * cleared — harmless, because nothing reads the column, and the next feature to claim it
-         * derives its own verdict rather than trusting a stored one. Kept for the mid-track dwell
-         * split; [Track.needsReview] carries the full account.
+         * user — deliberately a plain flag, not a measurement: it answers "is a decision pending
+         * here", and the screen recomputes the detail when opened. Nothing writes it today: the
+         * edge stay it was built for stopped needing confirmation once the overrun became a flag
+         * on the points rather than a destructive cut. The one release that wrote it left marks
+         * on installed devices, never cleared — harmless, since nothing reads the column, and the
+         * next feature to claim it derives its own verdict rather than trusting a stored one. Kept
+         * for the mid-track dwell split; [Track.needsReview] carries the full account.
          */
         val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {

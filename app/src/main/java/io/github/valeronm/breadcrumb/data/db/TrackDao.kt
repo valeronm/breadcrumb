@@ -35,8 +35,8 @@ interface TrackDao {
 
     /**
      * Write a track's aggregates ([io.github.valeronm.breadcrumb.data.TrackStats]) onto its row —
-     * when it's finished, merged, imported or repaired, never per fix (see the observed queries
-     * below: `tracks` is the table they read, so a per-fix write here would wake them all).
+     * on finish, merge, split, import, retype or overrun re-derivation, never per fix: the
+     * observed queries below read `tracks`, so a per-fix write here would wake them all.
      */
     @Update(entity = Track::class)
     suspend fun updateStats(stats: TrackStatsUpdate)
@@ -82,12 +82,10 @@ interface TrackDao {
 
     /**
      * Hand every point of [srcId] at or after [fromTs] to [newId] — how a split rehomes its second
-     * half, and (with [fromTs] at the bottom of the range) how undoing one hands it back.
-     *
-     * The rows are *reassigned*, not copied: a fix keeps its id and changes owner, so a split
-     * duplicates nothing and leaves nothing behind to purge. That is the difference from
-     * [copyPointsInto] — a merge has to copy, because its originals stay reviewable in Recently
-     * deleted, while a split's first half *is* the original row.
+     * half and, with [fromTs] at the bottom of the range, how undoing one hands it back. Rows are
+     * *reassigned*, not copied — a fix keeps its id and changes owner — so a split duplicates
+     * nothing and leaves nothing to purge; [copyPointsInto] copies because a merge's originals
+     * stay reviewable in Recently deleted, while a split's first half *is* the original row.
      */
     @Query("UPDATE track_points SET trackId = :newId WHERE trackId = :srcId AND timestamp >= :fromTs")
     suspend fun movePointsFrom(newId: Long, srcId: Long, fromTs: Long)
@@ -141,15 +139,12 @@ interface TrackDao {
 
     /**
      * Duplicate check for GPX import: some track already holds fixes at both ends of the file's
-     * span (which the parser takes from its first and last point). Asked of the points rather than
-     * of `tracks.startedAt`/`endedAt` because a track's bounds are pulled in when the recorder's
-     * overrun comes off its edges, while its points stay where they are — so a row no longer
-     * answers to the span of the file it was imported from. A one-shot query, not an observed one:
-     * it may read `track_points` (see the observed queries below for why they may not).
-     *
-     * Soft-deleted tracks are excluded, here and in [countTracksOverlapping]: Recently deleted is a
-     * holding pen for tracks on their way out, not a record of what the app has already seen, so a
-     * span covered only by discarded rows imports.
+     * span (its first and last point). Asked of the points, not `tracks.startedAt`/`endedAt`: the
+     * bounds pull in when the recorder's overrun comes off a track's edges while its points stay,
+     * so a row no longer answers to the span of the file it was imported from. One-shot, not
+     * observed, so it may read `track_points` (the observed queries below may not). Soft-deleted
+     * tracks are excluded, here and in [countTracksOverlapping]: Recently deleted is a holding pen
+     * on the way out, not what the app has seen, so a span covered only by discarded rows imports.
      */
     @Query(
         """
@@ -162,11 +157,10 @@ interface TrackDao {
     suspend fun countTracksSpanning(startedAt: Long, endedAt: Long): Int
 
     /**
-     * Overlap check for GPX import, asked once [countTracksSpanning] has ruled out an exact
-     * duplicate: some track's own point span intersects the file's, so importing it would lay a
-     * second path over a period already covered. Both ends are compared strictly — two tracks that
-     * merely touch at one instant do not overlap, or a file split into back-to-back legs would
-     * import its first leg and reject the rest.
+     * Overlap check for GPX import, asked once [countTracksSpanning] rules out an exact duplicate:
+     * some track's own point span intersects the file's — a second path over a period already
+     * covered. Both ends compare strictly: tracks merely touching at one instant don't overlap, or
+     * a file split into back-to-back legs would import its first leg and reject the rest.
      */
     @Query(
         """
@@ -200,11 +194,10 @@ interface TrackDao {
     suspend fun exportTracks(): List<Track>
 
     // --- Observed queries -----------------------------------------------------------------------
-    // These read `tracks` and nothing else, deliberately: Room invalidates per table, so a query
-    // that touched `track_points` would re-run on every fix of a live recording — a scan of the
-    // whole point history, once a second, to produce a result that cannot have changed (an open
-    // track has no endedAt, so it isn't in any of them). The aggregates they need live on the
-    // track row instead, written when the track is finished. See [Track] and [TrackStats].
+    // These deliberately read `tracks` only: Room invalidates per table, so touching `track_points`
+    // would re-run them on every fix of a live recording — a scan of the whole point history, once
+    // a second, for a result that cannot have changed (an open track has no endedAt, so it's in
+    // none of them); the aggregates live on the track row, written at finish ([Track], [TrackStats]).
 
     @Query(
         """

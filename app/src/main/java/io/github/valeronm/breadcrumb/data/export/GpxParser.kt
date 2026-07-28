@@ -9,11 +9,10 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
 /**
- * Parses GPX 1.0/1.1 track data for import — the inverse of [GpxExporter], but tolerant of
- * foreign files: unknown elements (waypoints, routes, unrecognized extensions) are skipped,
- * per-point speed is read from a `<speed>` element or extension where present, `<type>` maps to
- * an [ActivityType] through a few aliases, and points without a `<time>` are dropped (the
- * timeline can't place them). Pure and stream-based; the Room insertion lives in TrackRepository.
+ * Parses GPX 1.0/1.1 for import — [GpxExporter]'s inverse, foreign-file tolerant: unknown elements
+ * (waypoints, routes, unrecognized extensions) skip, per-point speed reads from a `<speed>` element
+ * or extension, `<type>` maps to an [ActivityType] via aliases, and points without a `<time>` drop
+ * (the timeline can't place them). Pure and stream-based; Room insertion lives in TrackRepository.
  */
 object GpxParser {
 
@@ -65,10 +64,9 @@ object GpxParser {
     }
 
     /**
-     * Converts a parsed track to an insertable one, or null when fewer than two timed points
-     * survive. Untimed points are dropped, as are fixes repeating the one before them
-     * ([withoutRepeats]); points are ordered by time within each segment (and segments by their
-     * first time) so malformed files can't produce a backwards track.
+     * A parsed track made insertable, or null when fewer than two timed points survive. Untimed
+     * points and repeats of the previous fix ([withoutRepeats]) drop; points sort by time within
+     * each segment (and segments by first time), so a malformed file can't yield a backwards track.
      */
     fun toImportable(parsed: ParsedTrack): ImportableTrack? {
         val segments = parsed.segments
@@ -98,21 +96,16 @@ object GpxParser {
     }
 
     /**
-     * Drops each fix that repeats the previous one's instant *and* position — the same fix listed
-     * twice, carrying nothing a track can use. Files in the wild do this: one imported drive
-     * stored every fix of its last twenty minutes twice, and with no reported speed in the file
-     * the derived one has a zero-length gap to divide by on every second sample, so steady
-     * driving renders as a sawtooth between the real speed and the floor. [TrackQuality] carries
-     * the last speed across such a gap rather than calling it a stop, but a fix that says nothing
-     * is better not stored: it inflates the point count, and every walk over the track pays for it.
-     *
-     * Only exact repeats go. Two fixes sharing an instant at *different* positions contradict each
-     * other, and picking a winner would be a guess; they are kept, and the speed derivation's
-     * carry-forward covers them.
-     *
-     * Applied per segment, so a legitimate segment break landing on the same instant survives —
-     * and only to imports: the recorder can't produce these (its sampling gate needs the clock to
-     * advance), and measured over the whole history it never has.
+     * Drops each fix repeating the previous one's instant *and* position — the same fix listed
+     * twice. Files in the wild do this over long stretches, and with no reported speed the derived
+     * one has a zero-length gap to divide by on every second sample, so steady driving renders as
+     * a sawtooth between the real speed and the floor. [TrackQuality] carries the last speed
+     * across such a gap rather than calling it a stop, but a fix that says nothing is better not
+     * stored: it inflates the point count and every walk over the track pays for it. Only exact
+     * repeats go: same-instant fixes at *different* positions contradict each other and picking a
+     * winner would be a guess — they stay, the speed carry-forward covering them. Per segment, so
+     * a segment break landing on the same instant survives; imports only — the recorder's sampling
+     * gate needs the clock to advance, and history-wide it never has produced one.
      */
     private fun List<ParsedPoint>.withoutRepeats(): List<ParsedPoint> = filterIndexed { i, p ->
         i == 0 || this[i - 1].let { it.timeMs != p.timeMs || it.lat != p.lat || it.lon != p.lon }

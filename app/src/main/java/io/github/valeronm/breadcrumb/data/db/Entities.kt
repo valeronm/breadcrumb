@@ -16,10 +16,10 @@ data class Track(
     val startedAt: Long,
     val endedAt: Long? = null,
     // --- Aggregates of the track's points, denormalized -----------------------------------------
-    // Written only by TrackRepository.refreshStats, when a track is finished (or merged, imported,
-    // repaired) — never per fix, which is what keeps the observed queries off `track_points`; see
-    // [TrackDao]. Meaningless while a track is open: nothing reads an open track's row, and
-    // finishing it — including `finalizeDangling` after a crash — recomputes them from the points.
+    // Written only by TrackRepository.refreshStats — on finish, merge, split, import, retype, or
+    // overrun re-derivation, never per fix, which keeps the observed queries off `track_points`
+    // ([TrackDao]). Meaningless while open: nothing reads an open track's row, and finishing it —
+    // `finalizeDangling` after a crash included — recomputes them from the points.
     /** Total distance in meters over the good points, the legs spanning a segment gap included. */
     val distanceMeters: Double = 0.0,
     /** Usable (non-ignored) points. */
@@ -42,15 +42,14 @@ data class Track(
      *  [REASON_TRIMMED]; null on rows discarded before reasons were tracked. */
     val discardReason: String? = null,
     /**
-     * Dormant, and kept on purpose. It marked a track whose edge stay was waiting on the user to
-     * accept or reject; the recorder's overrun is now flagged on the points themselves as it is
-     * found ([io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]), which needs no pending
-     * decision, so nothing writes this today. It is reserved for the mid-track dwell split, whose
-     * cut *does* need confirming — splitting a track in two is not undone by clearing a flag — and
-     * which wants exactly this: one boolean saying a decision is pending here. Don't drop it to
-     * tidy up; the next feature is the reader — and it should re-derive rather than trust what it
-     * finds, since the one release that wrote this left marks on installed devices that no pass
-     * ever cleared.
+     * Dormant, kept on purpose. It marked a track whose edge stay awaited the user's accept/reject;
+     * nothing writes it since the overrun became a per-point flag applied as it is found
+     * ([io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]), needing no pending decision.
+     * Reserved for the mid-track dwell split, whose cut *does* need confirming — splitting a track
+     * in two is not undone by clearing a flag — and wants exactly this: one boolean saying a
+     * decision is pending here. Don't drop it to tidy up; its next reader should re-derive rather
+     * than trust what it finds, since the one release that wrote this left marks on installed
+     * devices that no pass ever cleared.
      */
     val needsReview: Boolean = false,
 ) {
@@ -101,11 +100,10 @@ data class TrackPoint(
     /** Average C/N0 (dB-Hz) of the 4 strongest satellites used in the fix — signal strength. */
     val cn0: Float? = null,
     /**
-     * True for a fix that isn't part of the track's path: one judged unreliable by
-     * [io.github.valeronm.breadcrumb.data.TrackQuality] (too-coarse accuracy or an implausible
-     * jump), or one recorded past the stop at a track edge
-     * ([io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]). Stored but excluded from distance,
-     * the rendered track line, the endpoints, and exports.
+     * True for a fix that isn't part of the track's path — judged unreliable by
+     * [io.github.valeronm.breadcrumb.data.TrackQuality] (too-coarse accuracy, implausible jump) or
+     * recorded past the stop at a track edge ([io.github.valeronm.breadcrumb.domain.EdgeStayIgnore])
+     * — and excluded from distance, the rendered track line, the endpoints, and exports, but stored.
      */
     val ignored: Boolean = false,
     /**
@@ -123,9 +121,9 @@ data class TrackPoint(
 
 /**
  * Recorder-lifecycle evidence for deriving stays: a gap between tracks only counts as "stayed
- * here" if the app was alive and armed throughout. Low volume — a few rows per day at most;
- * the high-frequency liveness signal is the heartbeat timestamp in Settings, which only
- * materializes as an OUTAGE row here when a restart discovers it went stale.
+ * here" if the app was alive and armed throughout. Low volume (a few rows per day at most); the
+ * high-frequency liveness signal is the heartbeat timestamp in Settings, which materializes as
+ * an OUTAGE row here only when a restart discovers it went stale.
  */
 @Entity(tableName = "liveness_events", indices = [Index("at")])
 data class LivenessEvent(
@@ -145,10 +143,9 @@ data class LivenessEvent(
 }
 
 /**
- * A user-named place. Created/renamed/deleted from the stay-naming dialog; stays, clusters and
- * visit counts stay derived on read — a place row is the only persisted layer of the places
- * feature, carrying what the user said about the spot (its name, what it is for, how wide it
- * captures) and nothing derived.
+ * A user-named place, created/renamed/deleted from the stay-naming dialog — the places feature's
+ * only persisted layer, carrying what the user said about the spot (its name, what it is for,
+ * how wide it captures) and nothing derived; stays, clusters and visit counts derive on read.
  */
 @Entity(tableName = "places")
 data class Place(

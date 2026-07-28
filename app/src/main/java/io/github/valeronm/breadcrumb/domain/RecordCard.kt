@@ -28,12 +28,10 @@ enum class RecordCardState {
 const val MIN_MAP_POINTS = 2
 
 /**
- * Pure decision for the Record tab's main area.
- *
- * The live map wins as soon as the open track is drawable — including while the no-fix guard is
- * suspended mid-track (there's real geometry to show; the guard state is the notification's job).
- * [hasOpenTrack] can briefly disagree with [recording] around track finalization; the waiting
- * states cover that gap rather than flashing an empty map.
+ * Pure decision for the Record tab's main area. The live map wins as soon as the open track is
+ * drawable — even while the no-fix guard is suspended mid-track (real geometry to show; the guard
+ * state is the notification's job). [hasOpenTrack] can briefly disagree with [recording] around
+ * track finalization; the waiting states cover that gap rather than flashing an empty map.
  */
 fun recordCardState(
     armed: Boolean,
@@ -67,14 +65,12 @@ class TimeRenderer(
 
 /**
  * The volatile inputs a *live* surface renders the recorder with — the 1 Hz-ticking clock, the
- * figures that move with it, and the host's own clock/duration renderings so this stays free of
- * Android formatters.
- *
- * It is a bundle rather than seven parameters plus a flag on purpose: a surface that must not carry
- * moving figures passes `null` and cannot accidentally read one. The ongoing notification is that
- * surface — it re-posts whenever its text changes, so a countdown or an accuracy radius in it would
- * cost a wakelock and an IPC every second for a whole drive. With the figures bundled, that
- * constraint is structural instead of a comment someone has to remember.
+ * figures that move with it, and the host's own clock/duration renderings (keeping this free of
+ * Android formatters). Deliberately a bundle, not seven parameters plus a flag: a surface that must
+ * not carry moving figures passes `null` and cannot accidentally read one. The ongoing notification
+ * is that surface — it re-posts whenever its text changes, so a countdown or an accuracy radius in
+ * it would cost a wakelock and an IPC every second for a whole drive; bundled, the constraint is
+ * structural instead of a comment someone has to remember.
  */
 class LiveFigures(
     val nowMs: Long,
@@ -89,11 +85,10 @@ class LiveFigures(
 )
 
 /**
- * The recorder in words: [title] names the state, [detail] gives the blocker or progress fact.
- *
- * [detail] is phrased lowercase — the Record card's convention, since it joins the two onto one line
- * after " · ". A surface that puts the detail on its own line (the notification) capitalizes it on
- * render; that is typography, not different wording. Only [RecordCardState.STARTING] has no detail.
+ * The recorder in words: [title] names the state, [detail] gives the blocker or progress fact —
+ * phrased lowercase, since the Record card joins the two onto one line after " · "; a surface with
+ * the detail on its own line (the notification) capitalizes it on render, which is typography, not
+ * different wording. Only [RecordCardState.STARTING] has no detail.
  */
 data class RecorderText(val title: String, val detail: String?) {
     /** The card's single line: "Recording walking · positioning ±78 m". */
@@ -106,17 +101,14 @@ data class RecorderText(val title: String, val detail: String?) {
 
 /**
  * The one place the recorder is put into words, for **both** surfaces — the Record tab's state card
- * and the foreground notification. They used to classify it twice, in two vocabularies, and had
- * already drifted: the notification called a track still waiting for its first fix "in progress",
- * and a stalled detector "idle".
- *
- * [live] decides how much the text moves, not what it says: with it the detail counts down and
- * quotes figures ("walking resumes within 1m 40s", "positioning ±78 m"), without it the same state
- * gets a settled phrase ("continues if you move soon", "waiting for a GPS fix"). Adding a state to
- * [RecordCardState] fails to compile here, which is what keeps the two surfaces in step.
- *
- * [deaf] colors only the idle states: while a track is open there is real recording to report, and
- * a stall is about what happens *next*, not about the track in hand.
+ * and the foreground notification. Classifying it twice, in two vocabularies, drifts: one surface
+ * ends up calling a track still waiting for its first fix "in progress", or a stalled detector
+ * "idle". [live] decides how much the text moves, not what it says: with it the detail counts down
+ * and quotes figures ("walking resumes within 1m 40s", "positioning ±78 m"), without it the same
+ * state gets a settled phrase ("continues if you move soon", "waiting for a GPS fix"). Adding a
+ * state to [RecordCardState] fails to compile here, which is what keeps the two surfaces in step.
+ * [deaf] colors only the idle states: an open track is real recording to report, and a stall is
+ * about what happens *next*, not about the track in hand.
  */
 fun recorderText(
     state: RecordCardState,
@@ -181,15 +173,13 @@ fun recorderText(
 
 /**
  * The reading's age is how long there's been nothing to record; under a minute goes unsaid. A
- * stalled detector is not a benign wait, so it says so — reporting it as plain quiet would read as
- * ordinary idleness while the service is posting a warning about it.
- *
- * A stall also drops the "Idle" lead entirely: idleness is a normal state the user chose, and
- * prefixing the fault with it reads as though nothing were wrong. It carries no duration and no
- * clock time — the only age available is the last reading's, which measures whichever event a
- * re-registration replay happened to surface, and the moment the stall was *noticed* would be read
- * as the moment it began. Both would invite the user to reason about which trips survived. What it
- * does carry is the remedy, the same one the alerts notification gives for the same condition.
+ * stalled detector is not a benign wait, so it says so — plain quiet would read as ordinary
+ * idleness while the service posts a warning about it — and drops the "Idle" lead: idleness is a
+ * normal state the user chose, and prefixing the fault with it reads as though nothing were wrong.
+ * It carries no duration and no clock time — the only age available is the last reading's, which
+ * measures whichever event a re-registration replay happened to surface, and the moment the stall
+ * was *noticed* would read as when it began; both invite the user to reason about which trips
+ * survived. It does carry the remedy, the same one the alerts notification gives for this condition.
  */
 private fun idleText(live: LiveFigures?, deaf: Boolean): RecorderText {
     if (deaf) return RecorderText("Detection stalled", "restarting the phone usually fixes it")

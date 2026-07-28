@@ -145,11 +145,9 @@ class TrackStatsTest {
     }
 
     /**
-     * The property the whole change rests on: the recorder no longer writes distance per fix, so
-     * what it showed live and what the repository recomputes when the track closes (or when
-     * `finalizeDangling` recovers it after a crash) must be the same number. They share this
-     * accumulator, so this pins that feeding it fix-by-fix — the recorder's usage — agrees with
-     * folding the stored points through it.
+     * The recorder writes no distance per fix: the live figure and the close-time recompute (or
+     * `finalizeDangling`'s after a crash) match only through this shared accumulator, so this pins
+     * that feeding it fix-by-fix — the recorder's usage — agrees with folding the stored points through it.
      */
     @Test fun `accumulating fix by fix equals recomputing from the stored points`() {
         val points = listOf(

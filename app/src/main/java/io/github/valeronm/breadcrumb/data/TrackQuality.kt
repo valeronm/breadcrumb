@@ -9,13 +9,11 @@ import io.github.valeronm.breadcrumb.domain.Motion
 /**
  * Pure track geometry and fix-quality math over recorded [TrackPoint]s — distance, bounding extent,
  * per-point speed, and the "bad fix" rule — all host-testable via an injectable [DistanceFn].
- *
- * The bad-fix rule ([TrackQuality.badFixReason]) decides which fixes are unreliable so they can be flagged and
- * excluded from distance, the rendered track line, and exports; the fixes are still stored, since
- * the count of ignored points is itself a signal that a track is questionable. It's the single
- * source of truth for that rule, applied by live recording
- * ([io.github.valeronm.breadcrumb.location.LocationRecordingService]) as each fix is ingested.
- * The reasons themselves are [IgnoreReason], shared with the domain's edge-stay rule.
+ * [TrackQuality.badFixReason] is the single source of truth for which fixes are unreliable, applied
+ * by live recording ([io.github.valeronm.breadcrumb.location.LocationRecordingService]) as each fix
+ * is ingested: flagged fixes drop out of distance, the rendered line and exports, but stay stored —
+ * the count of ignored points is itself a signal a track is questionable. The reasons are
+ * [IgnoreReason], shared with the domain's edge-stay rule.
  */
 object TrackQuality {
 
@@ -25,28 +23,20 @@ object TrackQuality {
     /**
      * Plausible upper-bound ground speed (km/h) for a fix recorded under [activity], used to reject
      * teleports — raised to fit [motion] when the position stream has positively measured the
-     * ground moving faster than the label allows for.
-     *
-     * **The label describes the user's body; a carried journey moves the ground underneath it.**
-     * Aboard a vessel or a train the body is walking or still, and judging the deck's speed by a
-     * pedestrian's ceiling rejects the whole crossing as teleports — accurately recorded fixes,
-     * discarded for disagreeing with a label that was never about the journey. Measured ground
-     * speed is the evidence that says the label's ceiling is too tight for this fix.
-     *
-     * Three properties keep that from becoming a licence:
-     *
-     *  - **It only ever raises.** The greater of the two is taken, so a verdict can hand a fix the
-     *    benefit of the doubt but never withdraw one the label already granted.
-     *  - **[MOTION_CEILING_FACTOR] is generous on purpose.** [Motion.Moving.speedMps] is a window
-     *    *average*, and a carrier accelerating or rounding a headland is instantaneously well above
-     *    the average that produced the verdict — a tight margin would reject exactly those fixes.
-     *  - **It is clamped to the most permissive ceiling any activity carries.** A lone teleport is
-     *    fed to the confirmer like any other fix (that feed contract is what keeps the witness from
-     *    inheriting the error it checks) and can carry a window to [Motion.Moving] on its own. The
-     *    clamp bounds what that can buy: at worst a fix is judged as though the track were a drive,
-     *    which is a ceiling the recorder already grants on a label alone.
-     *
-     * [Motion.Unknown] — the verdict with the cross-check switched off, and whenever the sky is
+     * ground moving faster than the label allows for. The label describes the user's body; a
+     * carried journey moves the ground underneath it — aboard a vessel or train the body is walking
+     * or still, and judging the deck's speed by a pedestrian's ceiling rejects the whole crossing
+     * as teleports: accurately recorded fixes, discarded for disagreeing with a label that was
+     * never about the journey. Three properties keep the raise from becoming a licence: it only
+     * ever raises (the greater of the two is taken — a verdict can hand a fix the benefit of the
+     * doubt, never withdraw one the label already granted); [MOTION_CEILING_FACTOR] is generous on
+     * purpose ([Motion.Moving.speedMps] is a window *average*, and a carrier accelerating or
+     * rounding a headland is instantaneously well above it — a tight margin would reject exactly
+     * those fixes); and it is clamped to the most permissive ceiling any activity carries, because
+     * a lone teleport is fed to the confirmer like any other fix (the feed contract that keeps the
+     * witness from inheriting the error it checks) and can carry a window to [Motion.Moving] on its
+     * own — at worst a fix is judged as though the track were a drive, a ceiling the recorder
+     * already grants on a label alone. [Motion.Unknown] — the cross-check switched off, or the sky
      * blocked — leaves the label's ceiling exactly as it was.
      */
     fun jumpCeilingKmh(activity: ActivityType, motion: Motion = Motion.Unknown): Double {
@@ -70,10 +60,9 @@ object TrackQuality {
         (moving.speedKmh * MOTION_CEILING_FACTOR).coerceAtMost(MAX_CEILING_KMH)
 
     /**
-     * The most permissive ceiling any activity in [activity]'s group carries — the bar the
-     * carrier-evidence speed channel measures against. The label's own ceiling would be the wrong
-     * bar: a run inside a walking-labelled track (same group, track keeps its label) sustains
-     * speeds above WALKING's ceiling, while no human sustains the group's.
+     * The most permissive ceiling in [activity]'s group — the bar the carrier-evidence speed
+     * channel measures against, not the label's own: a run inside a walking-labelled track (same
+     * group, keeps its label) sustains speeds above WALKING's ceiling, no human the group's.
      */
     fun groupCeilingKmh(activity: ActivityType): Double =
         ActivityType.entries.filter { it.trackGroup == activity.trackGroup }.maxOf { labelCeilingKmh(it) }
@@ -100,15 +89,11 @@ object TrackQuality {
     /**
      * A point list with the distance across each of its seams already walked: [meters] index 0 is
      * 0 (nothing precedes the first fix), index i is the metres from `points[i - 1]` to
-     * `points[i]`.
-     *
-     * **The one walk the track screen's per-point series are built from.** Per-point speed and the
-     * map line's gradient stops need exactly these numbers, and the ellipsoidal distance per seam
-     * is the most expensive thing either does — each walked the whole track on its own before, and
-     * most fixes carry no GPS speed, so the speed series really does need every seam. Sharing the
-     * walk also takes it off the colour-metric tap: seam distances don't depend on the metric being
-     * displayed, while the series drawn from them do.
-     *
+     * `points[i]`. The one walk the track screen's per-point series are built from: per-point speed
+     * and the map line's gradient stops need exactly these numbers, the ellipsoidal distance per
+     * seam is the most expensive thing either does, and most fixes carry no GPS speed, so the speed
+     * series really does need every seam. Sharing the walk also takes it off the colour-metric tap:
+     * seam distances don't depend on the displayed metric, while the series drawn from them do.
      * Not a data class on purpose: an array field would give it identity equality wearing value
      * clothes, and its one use as a Compose `remember` key wants identity anyway.
      */
@@ -124,16 +109,13 @@ object TrackQuality {
     }
 
     /**
-     * Per-point speed in km/h: the GPS-reported speed where present (non-null and non-negative),
-     * else derived from the previous point over the [Seams] walk. Used to color the rendered track
-     * by speed.
-     *
-     * A fix whose timestamp doesn't advance on its predecessor's is *unmeasurable*, not stationary,
-     * and carries the last speed forward rather than reporting 0 — there is no elapsed time to
-     * divide by, and calling that a standstill draws a stop where the track never stopped. Field
-     * case: an import in which every fix was stored twice, which turned a 130 km/h motorway run
-     * into a per-second sawtooth between real speed and zero on the graph and the map. Only the
-     * first point of a track has nothing to carry, and that one is 0.
+     * Per-point speed in km/h — the GPS-reported speed where present (non-null and non-negative),
+     * else derived from the previous point over the [Seams] walk — used to color the rendered track
+     * by speed. A fix whose timestamp doesn't advance is *unmeasurable*, not stationary: there is
+     * no elapsed time to divide by, calling it a standstill draws a stop the track never made, and
+     * a GPX import storing every fix twice would render a motorway run as a per-second sawtooth
+     * between real speed and zero on the graph and the map. Such a fix carries the last speed
+     * forward; only a track's first point has nothing to carry, and that one is 0.
      */
     fun pointSpeedsKmh(seams: Seams): FloatArray {
         val points = seams.points
@@ -182,14 +164,12 @@ object TrackQuality {
     /**
      * Whether the track opens with a stray point: the first seam's speed is implausibly high for a
      * drive *start* — well above [LEADING_STRAY_MIN_KMH] and at least [LEADING_STRAY_FACTOR]× the
-     * real pace of the seams that follow (a car pulling out does a few km/h, not 180). This is the
-     * classic recorder cold-start artifact — the first fix lands far off, then the track is
-     * consistent — common in imported GPX, which bypasses live ingest filtering.
-     *
-     * An absolute jump ceiling misses it: a stray commonly reads 40–200 km/h, under the driving
-     * ceiling yet impossible one second after setting off. The comparison is relative to the
-     * track's own following pace, so it catches the sub-ceiling cases the forward jump check can't.
-     * Repair: ignore the first point.
+     * real pace of the seams that follow (a car pulling out does a few km/h, not 180). The classic
+     * recorder cold-start artifact — first fix far off, then a consistent track — common in
+     * imported GPX, which bypasses live ingest filtering. An absolute jump ceiling misses it (a
+     * stray commonly reads 40–200 km/h, under the driving ceiling yet impossible one second after
+     * setting off); comparing against the track's own following pace catches the sub-ceiling cases
+     * the forward jump check can't. Repair: ignore the first point.
      */
     fun leadingPointIsJump(
         points: List<TrackPoint>,
@@ -207,15 +187,13 @@ object TrackQuality {
 
     /**
      * Everything outside the two points themselves that decides a fix's verdict — one field per
-     * reason [badFixReason] can report:
-     *
-     *  - [gnssBacked] → [IgnoreReason.NO_GNSS]: the cross-check's verdict for this fix, or null
-     *    when the cross-check is switched off, which is not the same as false (see [badFixReason]).
-     *  - [maxAccuracyM] → [IgnoreReason.ACCURACY]: the configured accuracy limit.
-     *  - [motion] → [IgnoreReason.JUMP]: what the position stream says the ground is doing, which
-     *    together with the activity sets how high the jump gate stands (see [jumpCeilingKmh]).
-     *    [Motion.Unknown] — the default, and what the recorder passes with the cross-check off —
-     *    leaves that gate at the activity's own height.
+     * reason [badFixReason] can report: [gnssBacked] → [IgnoreReason.NO_GNSS], the cross-check's
+     * verdict, or null when it's switched off (not the same as false — see [badFixReason]);
+     * [maxAccuracyM] → [IgnoreReason.ACCURACY], the configured limit; [motion] →
+     * [IgnoreReason.JUMP], what the position stream says the ground is doing, which with the
+     * activity sets how high the jump gate stands (see [jumpCeilingKmh]) — [Motion.Unknown], the
+     * default and what the recorder passes with the cross-check off, leaves that gate at the
+     * activity's own height.
      */
     data class Gates(
         val maxAccuracyM: Float,
@@ -226,28 +204,22 @@ object TrackQuality {
     /**
      * Whether [point] is a bad fix relative to the last accepted ("good") point, and why — or null
      * for a good fix. The whole rule lives here, all three reasons and the order between them:
-     *
-     *  1. [IgnoreReason.NO_GNSS] — [Gates.gnssBacked] is false, i.e. no recent real satellite fix
-     *     stands behind this position. Null means the cross-check is off, which is not the same as
-     *     false: off means "don't ask", false means "asked, and it isn't backed".
-     *     Unbacked wins over the rest because a fabricated position's *other* numbers say nothing —
-     *     a fused fix invented in a tunnel can report a tight accuracy radius and a plausible step.
+     *  1. [IgnoreReason.NO_GNSS] — [Gates.gnssBacked] is false: no recent real satellite fix stands
+     *     behind this position. Null is not false — off means "don't ask", false means "asked, and
+     *     it isn't backed". Unbacked wins over the rest because a fabricated position's *other*
+     *     numbers say nothing — a fused fix invented in a tunnel can report a tight accuracy radius
+     *     and a plausible step.
      *  2. [IgnoreReason.ACCURACY] — the accuracy radius is at least [Gates.maxAccuracyM].
      *  3. [IgnoreReason.JUMP] — reaching [point] from [lastGood] needs an implausible speed for
-     *     [activity] (a GPS teleport; these can have good reported accuracy, so the speed check is
-     *     independent of the accuracy gate).
-     *
-     * [lastGood] is null for the first point of a track (or a segment). [distance] is injectable so
-     * the speed logic is host-testable. The GNSS evidence arrives as a plain Boolean because
-     * deciding it is `GnssSnapshot.backed`'s job — the caller reads two platform timestamps and
-     * nothing more.
-     *
-     * [Gates.motion] reaches only the jump ceiling — see [jumpCeilingKmh]. It defaults to
-     * [Motion.Unknown], which is also what the recorder passes with the cross-check switched off,
-     * so the rule is then exactly what it was before there was a second witness. The two reasons
-     * above it are untouched by it on purpose: they judge a fix on its own merits rather than
-     * against a label, and they are the very gates that decide which fixes the position stream's
-     * witness may be fed at all.
+     *     [activity]; teleports can carry good reported accuracy, so this is independent of gate 2.
+     * [lastGood] is null for the first point of a track (or segment); [distance] is injectable so
+     * the speed logic is host-testable. The GNSS evidence is a plain Boolean because deciding it is
+     * `GnssSnapshot.backed`'s job — the caller reads two platform timestamps and nothing more.
+     * [Gates.motion] reaches only the jump ceiling (see [jumpCeilingKmh]); its [Motion.Unknown]
+     * default — also what the recorder passes with the cross-check switched off — makes the rule
+     * behave as if no second witness existed. The two reasons above it are untouched by it on
+     * purpose: they judge a fix on its own merits rather than against a label, and they are the
+     * very gates that decide which fixes the position stream's witness may be fed at all.
      */
     fun badFixReason(
         lastGood: TrackPoint?,
@@ -269,10 +241,9 @@ object TrackQuality {
 
     /**
      * The speed (km/h) the step from [lastGood] to [point] implies — the one number the jump rule
-     * judges, shared by the live check and the re-derivation below so the two can't drift.
-     *
-     * A non-positive time gap can't be divided by: a step longer than [MIN_JUMP_M] over one is
-     * infinitely fast (nowhere to have travelled it in), a shorter one is standing still.
+     * judges, shared by the live check and the re-derivation below so the two can't drift. A
+     * non-positive time gap can't be divided by: over one, a step longer than [MIN_JUMP_M] is
+     * infinitely fast (nowhere to have travelled it in) and a shorter one is standing still.
      */
     private fun stepSpeedKmh(lastGood: TrackPoint, point: TrackPoint, distance: DistanceFn): Double {
         val gapMeters = distanceMeters(lastGood, point, distance)
@@ -281,31 +252,24 @@ object TrackQuality {
     }
 
     /**
-     * Which [IgnoreReason.JUMP] flags in [points] the [activity] ceiling accepts — the indices of
-     * the fixes a retype hands back to the path, by position in the list given (the
+     * Which [IgnoreReason.JUMP] flags in [points] the [activity] ceiling accepts — the indices a
+     * retype hands back to the path, by position in the list given (the
      * [EdgeStayIgnore][io.github.valeronm.breadcrumb.domain.EdgeStayIgnore] convention).
-     *
-     * **Withdraws flags, never adds them.** A track recorded under a misdetected activity was
-     * judged by the wrong ceiling — a drive taken for walking is measured against 12 km/h and
-     * arrives with most of its path rejected — and correcting the activity is what says the
-     * ceiling was wrong. The converse is not the same statement: retyping *down* would flag the
-     * bulk of a real journey as noise on the strength of a label, so the rule stays silent there
-     * and the recorder's verdict stands. A flag therefore only ever comes off, and a track settles
-     * on the most permissive activity it has ever carried.
-     *
-     * Three things the walk gets right that a per-point filter wouldn't:
-     *  - **A rejected fix is no baseline.** Restoring one makes it the next fix's baseline, so a
-     *    run of rejects unwinds from the front — the same cascade the live rule produced going in.
-     *  - **With no preceding good fix there is no step to re-measure**, so the flag stands. That is
-     *    the imported leading stray ([leadingPointIsJump]), whose verdict came from the track's own
-     *    following pace rather than a ceiling — not something a ceiling may overturn.
-     *  - **Edge-stay fixes are good fixes** (a phone that had already arrived, not a bad reading),
-     *    so they carry the baseline like any other rather than stretching the gap across a stop.
-     *
-     * This is the ceiling of the activity the *track* now carries, not a replay of the live pass:
-     * that gated each fix on the activity confirmed at the moment it arrived, which within a group
-     * can differ from fix to fix (a run inside a walking track). Restore-only is what keeps the
-     * difference harmless — the coarser ceiling can hand fixes back, never take them.
+     * Withdraws flags, never adds them: a misdetected activity judged fixes by the wrong ceiling
+     * (a drive taken for walking is measured against 12 km/h) and correcting it says the ceiling
+     * was wrong, but retyping *down* would flag a real journey as noise on the strength of a label,
+     * so there the rule stays silent and a track settles on the most permissive activity it has
+     * ever carried. Three things the walk gets right that a per-point filter wouldn't: a restored
+     * fix becomes the next fix's baseline, so a run of rejects unwinds from the front (the same
+     * cascade the live rule produced going in); with no preceding good fix there is no step to
+     * re-measure, so the flag stands — the imported leading stray ([leadingPointIsJump]), whose
+     * verdict came from the track's own following pace and isn't a ceiling's to overturn; and
+     * edge-stay fixes are good fixes (a phone that had already arrived, not a bad reading), so they
+     * carry the baseline rather than stretching the gap across a stop. The ceiling is the *track's*
+     * activity's, not a replay of the live pass, which gated each fix on the activity confirmed as
+     * it arrived — within a group that can differ per fix (a run inside a walking track) — and
+     * restore-only keeps the difference harmless: the coarser ceiling can hand fixes back, never
+     * take them.
      */
     fun jumpRestores(
         points: List<TrackPoint>,

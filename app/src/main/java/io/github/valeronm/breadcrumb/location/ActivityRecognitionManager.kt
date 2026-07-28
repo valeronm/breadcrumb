@@ -17,12 +17,10 @@ import com.google.android.gms.tasks.Tasks
 import io.github.valeronm.breadcrumb.util.DebugLog
 
 /**
- * Registers/unregisters Activity Transition updates with Google Play Services. Transitions are
- * delivered to [ActivityTransitionReceiver] via a broadcast [PendingIntent].
- *
- * All Play Services calls go through [chain]. GMS processes them asynchronously with no ordering
- * guarantee, so a disarm's remove landing after a rearm's request — they are ~0.5s apart on a
- * toggle — unregisters the fresh registration, and reports success while doing it.
+ * Registers/unregisters Activity Transition updates with Google Play Services; transitions reach
+ * [ActivityTransitionReceiver] via a broadcast [PendingIntent]. All Play Services calls go through
+ * [chain]: GMS processes them asynchronously with no ordering guarantee, so a disarm's remove landing
+ * after a rearm's request (~0.5s apart on a toggle) unregisters the fresh registration and reports success.
  */
 class ActivityRecognitionManager(private val context: Context) {
 
@@ -101,20 +99,14 @@ class ActivityRecognitionManager(private val context: Context) {
 
     /**
      * Full re-registration on a fresh PendingIntent token: remove + cancel ([stop]), settle, then
-     * register.
-     *
-     * A registration can stop delivering live transitions while still reporting success, answering
-     * snapshots and replaying on re-registration, so there is no client-side tell — inferring it is
-     * what the service's deafness oracle is for. Cancelling before re-requesting at least mints a
-     * fresh token rather than reusing the one GMS already holds.
-     *
-     * Treat that as hygiene, not a cure. Re-registration is not a reliable recovery path: a
-     * registration on a request code GMS had never seen has been observed coming up dead while a
-     * second install recovered on a code it had reused, and the state responsible sits in Play
-     * Services rather than in anything this app owns — on the device it cleared only on a reboot.
-     * Nothing here should be built as though restarting fixes deafness.
-     *
-     * The settle only spaces consecutive GMS calls; nothing depends on its duration.
+     * register. A registration can stop delivering live while still reporting success, answering
+     * snapshots and replaying on re-registration — no client-side tell; inferring it is what the
+     * service's deafness oracle is for. Cancelling first at least mints a fresh token instead of
+     * reusing the one GMS already holds — hygiene, not a cure: a registration on a request code GMS
+     * had never seen has come up dead while a second install recovered on a reused one, and the
+     * responsible state sits in Play Services (not anything this app owns), clearing only on a
+     * reboot. Build nothing as though restarting fixes deafness. The settle only spaces consecutive
+     * GMS calls; nothing depends on its duration.
      */
     fun restart(): Task<Void> {
         stop()

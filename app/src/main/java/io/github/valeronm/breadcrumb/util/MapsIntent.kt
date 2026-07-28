@@ -8,13 +8,10 @@ import androidx.core.net.toUri
 import java.util.Locale
 
 /**
- * Shows [lat]/[lon] as a dropped pin in whatever maps app the device has, titled [label] when the
- * point has a name.
- *
- * A `geo:` view is the one map action every maps app answers, and it needs the point twice: the
- * scheme's own coordinate aims the camera, while the `q=` copy is what actually drops a marker
- * there — without it the area opens with nothing pinned. Coordinates are formatted in [Locale.US]
- * because the URI grammar wants a decimal point whatever the phone's locale would print.
+ * Shows [lat]/[lon] as a dropped pin in whatever maps app the device has, titled [label] when named.
+ * A `geo:` view is the one map action every maps app answers, needing the point twice: the scheme's
+ * coordinate aims the camera, the `q=` copy drops the marker (without it the area opens unpinned).
+ * [Locale.US] because the URI grammar wants a decimal point whatever the phone's locale would print.
  */
 internal fun Context.openInMaps(lat: Double, lon: Double, label: String? = null) {
     val point = "%.6f,%.6f".format(Locale.US, lat, lon)

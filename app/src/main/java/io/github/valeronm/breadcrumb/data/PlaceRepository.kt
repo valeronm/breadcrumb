@@ -8,10 +8,10 @@ import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import kotlinx.coroutines.flow.Flow
 
 /**
- * What the user said about a place — its label and its category, the only persisted layer of the
- * places feature. Stays, clusters and visit counts derive on read; a Place row pins a label to a
- * cluster centroid at naming time (the pin is never moved on rename — matching goes through the
- * cluster anchor, see PlaceResolver).
+ * What the user said about a place — label and category, the only persisted layer of the places
+ * feature. Stays, clusters and visit counts derive on read; a Place row pins a label to a cluster
+ * centroid at naming time (never moved on rename — matching goes through the cluster anchor, see
+ * PlaceResolver).
  */
 class PlaceRepository(context: Context, db: AppDatabase = AppDatabase.get(context)) {
 
@@ -43,12 +43,10 @@ class PlaceRepository(context: Context, db: AppDatabase = AppDatabase.get(contex
     suspend fun setRadius(id: Long, radiusM: Double) = dao.setRadius(id, radiusM)
 
     /**
-     * Tag what the place is for, or untag it with null.
-     *
-     * Nothing *reads* a category on the way to a stay: clustering takes only the pin and the radius,
-     * so unlike a re-pin this can't move a visit from one place to another. It is still a write to
-     * `places`, though, which invalidates the table the shared derivation observes — so the timeline
-     * re-derives off it exactly as a rename does. Callers should skip the write when nothing changed.
+     * Tag what the place is for; null untags. Clustering reads only the pin and radius, so unlike a
+     * re-pin this can't move a visit between places, but it's still a write to `places`, the table
+     * the shared derivation observes — so the timeline re-derives off it exactly as off a rename.
+     * Callers should skip the write when nothing changed.
      */
     suspend fun setCategory(id: Long, category: PlaceCategory?) = dao.setCategory(id, category?.code)
 

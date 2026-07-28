@@ -9,11 +9,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * v11 moves each track's point aggregates onto its row. The upgrade has to *fill* them in the same
- * step: the timeline reads the columns instead of counting points, so a migrated-but-unfilled row
- * is a track with no points and no endpoints — gone from the list and from the stay derivation.
- *
- * See [MigrationDb] for why the v10 schema is written by hand.
+ * v11 moves each track's point aggregates onto its row and must *fill* them in the same step: the
+ * timeline reads the columns, not the points, so an unfilled row — no points, no endpoints — is
+ * gone from the list and the stay derivation. See [MigrationDb] on the hand-written v10 schema.
  */
 @RunWith(RobolectricTestRunner::class)
 class Migration10To11Test {

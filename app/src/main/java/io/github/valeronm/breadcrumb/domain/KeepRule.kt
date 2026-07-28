@@ -7,11 +7,10 @@ package io.github.valeronm.breadcrumb.domain
 object KeepRule {
 
     /**
-     * Tracks with this many points or fewer — good and ignored counted together — are hard-deleted
-     * outright ([Verdict.PURGE]): nothing to draw on a map and nothing to review in Recently
-     * deleted, so soft-keeping them only clutters the list. Ignored points count because a track
-     * full of rejected fixes is still reviewable evidence (the track map marks them); only a track
-     * empty of information altogether is purged.
+     * Tracks with this many points or fewer, good and ignored counted together, are hard-deleted
+     * ([Verdict.PURGE]): nothing to draw and nothing to review, so soft-keeping them only clutters
+     * Recently deleted. Ignored points count because a track full of rejected fixes is still
+     * reviewable evidence (the track map marks them).
      */
     const val PURGE_MAX_POINTS = 2
 
@@ -42,17 +41,12 @@ object KeepRule {
 
     /**
      * A track of [PURGE_MAX_POINTS] or fewer points in total ([pointCount] good + [ignoredCount]
-     * rejected) is purged; past that floor, it is kept only if it clears every bar:
-     *  - at least [MIN_LINE_POINTS] good points (a hard floor — one point is never a line with any
-     *    length),
-     *  - runs at least [Thresholds.minDurationSec] seconds,
-     *  - is at least [Thresholds.minLengthM] meters long,
-     *  - and, when the extent gate is enabled ([Thresholds.minExtentM] > 0), spread at least that
-     *    far ([extent]) — guarding against a stationary "walk" whose accumulated length is only GPS
-     *    jitter.
-     *
-     * [extent] is a lazy supplier so the (potentially O(n)) bounding-box pass runs only when the
-     * extent gate is actually enabled.
+     * rejected) is purged; past that floor, it is kept only if it clears every bar: at least
+     * [MIN_LINE_POINTS] good points (a hard floor — one point is never a line with any length),
+     * [Thresholds.minDurationSec] seconds, [Thresholds.minLengthM] meters, and — when the extent
+     * gate is enabled ([Thresholds.minExtentM] > 0) — an [extent] at least that wide, guarding
+     * against a stationary "walk" whose accumulated length is only GPS jitter. [extent] is a lazy
+     * supplier so the (potentially O(n)) bounding-box pass runs only when that gate is enabled.
      */
     fun verdict(
         pointCount: Int,

@@ -24,11 +24,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * The whole backup/restore loop against real Room: export one database through
- * [BackupExporter.writeJson], restore into a fresh one through [BackupImporter.restore] — the
- * same batching, re-keying and counting path a real restore takes — and compare. Covers what the
- * parser round-trip test can't: id re-keying on insertion, the batch/flush accounting, and the
- * discarded/open-track exclusions of the export query.
+ * The whole backup/restore loop against real Room: export one database through [BackupExporter.writeJson],
+ * restore into a fresh one through [BackupImporter.restore] — the batching, re-keying and counting path a
+ * real restore takes — and compare. Covers what the parser round-trip test can't: id re-keying on
+ * insertion, batch/flush accounting, and the export query's discarded/open-track exclusions.
  */
 @RunWith(RobolectricTestRunner::class)
 class BackupRestoreTest {

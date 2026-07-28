@@ -6,14 +6,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Edge stays are asserted with the flat-earth distance stub (0.001° ≈ 100 m) and fixtures every
- * 15 s carrying an explicit Doppler speed, so tests reason in meters/minutes and can steer the
- * two stages independently: position decides *whether* (the corral sweep), speed decides *where*
- * (the moving-bin boundary).
- *
- * The params under test are the ones that ship — [EdgeStayDetector.BRIEF_STOP], and
- * [EdgeStayDetector.VEHICLE] where the activity floor is the point. A suite pinning the
- * constructor defaults would pass green through any change to the numbers the recorder runs.
+ * Fixtures use the flat-earth distance stub (0.001° ≈ 100 m) and a fix every 15 s with an explicit
+ * Doppler speed, so tests reason in meters/minutes and can steer the two stages independently:
+ * position decides *whether* (the corral sweep), speed decides *where* (the moving-bin boundary).
+ * The params are the shipping [EdgeStayDetector.BRIEF_STOP] — and [EdgeStayDetector.VEHICLE] where the
+ * activity floor is the point; pinning the constructor defaults passes green through any change to them.
  */
 class EdgeStayDetectorTest {
 
@@ -109,7 +106,7 @@ class EdgeStayDetectorTest {
     @Test
     fun `phantom Doppler at a standstill cannot move the boundary`() {
         // The field shape at an arrival: parked, but the platform keeps reporting
-        // meters per second — three such fixes at the very end used to put the last moving bin
+        // meters per second — three such fixes at the very end would put the last moving bin
         // past the real arrival and collapse the stay to nothing. Displacement holds the veto, so
         // a fixture that never leaves its jitter box is stopped however fast its Doppler reads.
         val stays = detect(
@@ -193,7 +190,7 @@ class EdgeStayDetectorTest {
 
     @Test
     fun `a parked vehicle's own drift hides the arrival until the activity floor rules it out`() {
-        // The regression that hid the arrival tail on 156 drives outright: parked, a car's
+        // The shape that hides the arrival tail on drives outright: parked, a car's
         // settling drift wanders far enough to clear the 0.7 m/s bar, so bins keep voting moving
         // to the end of the track, the refined stay collapses under the floor, and the stay is
         // dropped. Nothing about the position evidence changes — only that under 5 km/h a car is
@@ -243,8 +240,8 @@ class EdgeStayDetectorTest {
 
     @Test
     fun `a late first moving bin retracts the cut to the dwell rather than eating the journey`() {
-        // Two imported drives proposed cutting hundreds of meters of ordinary driving off their
-        // starts, because their bins only reached the moving threshold a minute into the drive.
+        // Bins that only reach the moving threshold a minute into the drive would cut hundreds
+        // of meters of ordinary driving off its start.
         // Here the platform reports a flat zero for the first minute (an import's speed-less
         // shape), so those bins can't vote — and the span the bin edge would cut ranges far
         // beyond anything a stop could cover, which pulls the cut back to the dwell's own bound.

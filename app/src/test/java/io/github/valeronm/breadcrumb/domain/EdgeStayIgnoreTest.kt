@@ -6,12 +6,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The rules that make automatic, repeatable application safe: a plan derived from the raw
- * recording (so re-running it converges instead of eating the track), flags that come back when
- * the rule withdraws, and edges that are the only part of the track this rule may touch.
- *
- * Same fixture shape as [EdgeStayDetectorTest] — flat-earth distances (0.001° ≈ 100 m), a fix
- * every 15 s carrying its Doppler speed.
+ * The rules that make automatic, repeatable application safe: a plan derived from the raw recording
+ * (so re-running it converges instead of eating the track), flags that come back when the rule
+ * withdraws, and edges as the only part of the track this rule may touch. Same fixture shape as
+ * [EdgeStayDetectorTest] — flat-earth distances (0.001° ≈ 100 m), a fix every 15 s carrying its Doppler speed.
  */
 class EdgeStayIgnoreTest {
 

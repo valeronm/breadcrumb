@@ -9,10 +9,9 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Process-wide in-memory ring buffer of diagnostic log lines, mirrored to logcat. Lets the debug
- * build show recent activity-recognition / recorder events on an in-app Logs page — handy for field
- * testing where adb isn't attached. The foreground service keeps the process (and this buffer) alive
- * for the whole armed session.
+ * Process-wide in-memory ring buffer of diagnostic log lines, mirrored to logcat. Lets the in-app
+ * Logs page show recent activity-recognition / recorder events for field testing where adb isn't
+ * attached; the foreground service keeps the process (and buffer) alive for the whole armed session.
  */
 object DebugLog {
 

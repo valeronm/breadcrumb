@@ -9,11 +9,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * v13 adds `tracks.needsReview`. A plain ADD COLUMN, so the point of the test is the default:
- * every existing row must come out unmarked and otherwise untouched — the backfill decides who
- * is marked, and a row that migrated to "1" would badge the whole timeline.
- *
- * See [MigrationDb] for why the v12 schema is written by hand.
+ * v13 adds `tracks.needsReview` — a plain ADD COLUMN, so the test's point is the default: every
+ * existing row must come out unmarked and otherwise untouched; the backfill decides who is marked,
+ * and a "1" here would badge the whole timeline. See [MigrationDb] on the hand-written v12 schema.
  */
 @RunWith(RobolectricTestRunner::class)
 class Migration12To13Test {

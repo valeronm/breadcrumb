@@ -45,6 +45,11 @@ class PlaceCategoryTest {
         assertEquals(PlaceCategory.GROCERIES, place("groceries").placeCategory)
     }
 
+    /**
+     * The colour grouping, pinned as a whole rather than per category: it is a statement about which
+     * stops are *alike*, so moving one category between groups is a decision to make deliberately —
+     * and every category must land in exactly one group, or a place would have no colour to wear.
+     */
     @Test fun `the groups partition the categories`() {
         assertEquals(
             mapOf(
@@ -67,15 +72,9 @@ class PlaceCategoryTest {
     }
 
     /**
-     * Which categories stay out of a time total, pinned: home is the baseline a day returns to and
-     * would dwarf the line it shares, while a car park and a fuel stop are transient — passed
-     * through on the way to the thing, with no purpose of their own for a total to report. All three
-     * still tag places and label stays — a change here changes what the day header reads.
-     */
-    /**
-     * The colour grouping, pinned as a whole rather than per category: it is a statement about which
-     * stops are *alike*, so moving one category between groups is a decision to make deliberately —
-     * and every category must land in exactly one group, or a place would have no colour to wear.
+     * Who stays out of the time totals, pinned: home, the baseline a day returns to, would dwarf the
+     * line it shares; a car park and a fuel stop are waypoints to the thing, nothing of their own to
+     * total. All three still tag places and label stays — a change here changes what the day header reads.
      */
     @Test fun `only home and the transient stops stay out of time totals`() {
         assertEquals(

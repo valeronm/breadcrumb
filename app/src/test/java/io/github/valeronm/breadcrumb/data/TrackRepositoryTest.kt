@@ -20,10 +20,9 @@ import org.robolectric.RobolectricTestRunner
 import kotlin.math.abs
 
 /**
- * The aggregates denormalized onto the track row must never drift from the points they summarize —
- * the timeline reads them instead of counting, so a stale value is a wrong track list, and a stale
- * distance means the keep-thresholds discard a real track. Every path that changes a track's points
- * is checked here against a recount from the points themselves.
+ * The track row's denormalized aggregates must never drift from their points: the timeline reads them,
+ * not the points, so a stale value is a wrong track list and a stale distance means the keep-thresholds
+ * discard a real track. Every path that changes a track's points is checked against a recount of them.
  */
 @RunWith(RobolectricTestRunner::class)
 class TrackRepositoryTest {
@@ -484,8 +483,8 @@ class TrackRepositoryTest {
 
     @Test fun `a segment break stranded on a rejected fix still detaches the path`() = runTest {
         // The fix a recording resumes on is a cold-start stray often enough that the break lands on
-        // a rejected row — where every reader that walks the path used to skip straight past it and
-        // draw, measure and export a leg across the gap.
+        // a rejected row — which path readers skip, so the break must move to the next good fix or
+        // they would draw, measure and export a leg across the gap.
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
         val resumeLat = 1.02
         repository.addPoints(walkPoints(id, 0, 30, fromLat = 1.0))
@@ -649,14 +648,11 @@ class TrackRepositoryTest {
     }
 
     /**
-     * One journey the recorder never broke: [addWalkThenLingerTail]'s walk and stop, walked on out
-     * of again — so the stop sits mid-track, where no edge rule reaches it.
-     *
-     * The stop is 10 min rather than the tail's 6 so that a cut through its middle leaves an edge
-     * **either** side can see. The rule is markedly less sensitive at a track's start than its end —
-     * a stay of a minute is found at the end, where the start needs several — so a shorter stop cut
-     * in half is detected on the arrival side and missed on the departure side, which is a fact
-     * about the tuning and not about the split. Don't shorten it to match the tail again.
+     * One journey the recorder never broke: [addWalkThenLingerTail]'s walk and stop, walked out of again
+     * — the stop sits mid-track, beyond any edge rule. It is 10 min to the tail's 6 so a cut through its
+     * middle leaves an edge **either** side can see: the rule is far less sensitive at a start than an
+     * end (a minute-long stay is found at an end, a start needs several), so a shorter stop cut in half
+     * is caught arriving, missed departing — tuning, not the split. Don't shorten it to match the tail.
      */
     private suspend fun addWalkStopWalk(id: Long): Long {
         addWalkThenLingerTail(id, lingerFixes = 60)

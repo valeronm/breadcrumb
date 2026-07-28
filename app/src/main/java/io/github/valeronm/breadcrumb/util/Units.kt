@@ -105,11 +105,10 @@ enum class UnitSystem(
 data class SliderStops(val min: Int, val max: Int, val step: Int)
 
 /**
- * A distance slider's stops in the display system's own unit — round meters for metric users,
- * round feet for imperial ones — mapped to and from the stored meters. The slider drags in
- * display units and the label comes from the display value directly (never round-tripped
- * through meters, which would drift: 50 ft → 15 m → "49 ft"); only the committed value is
- * converted. Switching systems snaps the stored meters to the nearest stop of the new scale.
+ * A distance slider's stops in the display system's own unit — round meters for metric users, round
+ * feet for imperial ones — mapped to and from the stored meters. Drag and label both use the display
+ * value directly (a round trip through meters drifts: 50 ft → 15 m → "49 ft"); only the committed
+ * value converts. Switching systems snaps the stored meters to the new scale's nearest stop.
  */
 class DistanceSliderScale internal constructor(
     private val stops: SliderStops,

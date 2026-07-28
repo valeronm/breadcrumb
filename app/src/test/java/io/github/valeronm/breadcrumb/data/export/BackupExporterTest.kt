@@ -10,11 +10,11 @@ import org.junit.Test
 import java.io.StringReader
 
 /**
- * The backup-export JSON writer, driven directly through [BackupExporter.writeJson] with
- * in-memory data — it's pure, so this runs on the host with no Robolectric. Output is checked by
- * parsing it back with the production [JsonPullReader] (the same parser restore uses), so
- * well-formedness is proven against the reader that actually has to read it. Asserts the format
- * contract: header fields, per-point arrays in `pointFields` order, nulls kept, strings escaped.
+ * The backup-export JSON writer, driven through [BackupExporter.writeJson] on in-memory data — pure,
+ * so host-run with no Robolectric. Output is parsed back with the production [JsonPullReader]
+ * (restore's own parser), proving well-formedness against the reader that actually has to read it.
+ * Asserts the format contract: header fields, per-point arrays in `pointFields` order, nulls kept,
+ * strings escaped.
  */
 class BackupExporterTest {
 

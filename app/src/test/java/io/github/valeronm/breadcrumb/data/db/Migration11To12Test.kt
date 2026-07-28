@@ -11,10 +11,8 @@ import org.robolectric.RobolectricTestRunner
 /**
  * v12 drops `track_points.provider` by rebuilding the table (minSdk 26's SQLite has no DROP
  * COLUMN), so the risk isn't the lost column — it's the copy: every other column of every point
- * must survive, ids included (they anchor `pointsAfter`'s incremental reload), and the composite
- * index must exist again on the rebuilt table.
- *
- * See [MigrationDb] for why the v11 schema is written by hand.
+ * must survive, ids included (they anchor `pointsAfter`'s incremental reload), as must the
+ * composite index. See [MigrationDb] on the hand-written v11 schema.
  */
 @RunWith(RobolectricTestRunner::class)
 class Migration11To12Test {

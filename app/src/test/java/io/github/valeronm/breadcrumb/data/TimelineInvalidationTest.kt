@@ -15,18 +15,14 @@ import org.robolectric.RobolectricTestRunner
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * The regression guard for why the timeline queries look the way they do.
- *
- * Room invalidates per table, not per row: a query that reads `track_points` is re-run on *every*
- * fix of a live recording — a scan of the whole point history, once a second, for a result that
- * cannot have changed (an open track has no `endedAt`, so no observed query selects it). That cost
- * was invisible in the query itself and paid for the entire recording, screen on or off.
- *
- * So the observed queries read `tracks` only, and the recorder writes nothing to `tracks` while it
- * records. Room's Flow re-emits on any invalidation of a table its query reads — it doesn't compare
- * results — so counting emissions counts re-runs: if someone re-introduces a join or subquery over
- * `track_points`, or a per-fix write to the track row, the recording starts waking these collectors
- * and this fails.
+ * The regression guard for why the timeline queries look the way they do. Room invalidates per
+ * table, not per row: a query reading `track_points` is re-run on *every* fix of a live recording —
+ * a scan of the whole point history, once a second, screen on or off, for a result that cannot have
+ * changed (an open track has no `endedAt`, so no observed query selects it) — a cost invisible in
+ * the query itself. So the observed queries read `tracks` only, and the recorder writes nothing to
+ * `tracks` while it records. Room's Flow re-emits on any invalidation of a table its query reads —
+ * it doesn't compare results — so counting emissions counts re-runs: a re-introduced join or subquery
+ * over `track_points`, or a per-fix write to the track row, wakes these collectors and fails here.
  */
 @RunWith(RobolectricTestRunner::class)
 class TimelineInvalidationTest {

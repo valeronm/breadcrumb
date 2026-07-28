@@ -1,13 +1,10 @@
 package io.github.valeronm.breadcrumb.domain
 
 /**
- * What the position stream says the ground is doing, independent of any activity label.
- *
- * **Every consultation of a [Motion] must define an [Unknown] case identical to the behaviour the
- * recorder had before it consulted anything.** That invariant is what makes the cross-check a
- * toggle: switching it off substitutes [Unknown] at the single place the verdict is produced, and
- * nothing downstream needs to know a switch exists. A new consultation without such a fallback
- * silently breaks that guarantee.
+ * What the position stream says the ground is doing, independent of any activity label. **Every
+ * consultation of a [Motion] must define an [Unknown] case identical to its pre-consultation
+ * behaviour** — the invariant that makes the cross-check a toggle: off substitutes [Unknown] at
+ * the single place the verdict is produced, and nothing downstream needs to know a switch exists.
  */
 sealed interface Motion {
 
@@ -19,11 +16,9 @@ sealed interface Motion {
 
     /**
      * The ground is provably still — every fix in the window sits within a few metres of the rest.
-     *
-     * No consultation in the recorder distinguishes this from [Unknown] today: the cross-check only
-     * ever acts on positive evidence of *movement*. It stays a verdict of its own because the
-     * confirmer can tell the two apart, and a rule that ends a track on a standstill — rather than
-     * merely declining to end one — would need exactly this and not [Unknown].
+     * No consultation distinguishes this from [Unknown] today (the cross-check acts only on positive
+     * evidence of *movement*); it stays separate because the confirmer can tell the two apart, and a
+     * rule ending a track on a standstill — not merely declining to end one — needs this, not [Unknown].
      */
     data object Stopped : Motion
 
@@ -32,45 +27,31 @@ sealed interface Motion {
 }
 
 /**
- * The recorder's second witness: a trailing window of accepted fixes, answering one question —
- * *is the ground moving?*
+ * The recorder's second witness: a trailing window of accepted fixes answering one question — *is
+ * the ground moving?* Activity Recognition describes the **body**, not the journey: aboard a
+ * carrier the body is genuinely still (or walking about) while the ground moves at vehicle speed,
+ * yet the recorder's stop, split and fix-quality rules all read the label as the trip; this
+ * reports what the positions say, so those rules can decline to act on a label the ground
+ * contradicts. **Net displacement over a window, never a single fix's speed**: a parked phone can
+ * report phantom Doppler and consecutive-fix deltas are noise-dominated; the displacement between
+ * the window's *averaged* halves is not — means damp the noise raw endpoints carry, and for steady
+ * motion the halves' mean times are separated by exactly the interval their mean positions are, so
+ * the derived speed is honest, not diluted. **Abstention is a real verdict**: too few fixes, too
+ * short a span, or neither clear progress nor clear standstill give [Motion.Unknown] —
+ * contradicting the label demands positive evidence, never its absence. **[Motion.Stopped]
+ * measures the window's whole spread, not just the endpoints**: net displacement alone reads a
+ * departure-and-return as a standstill, and a wrong standstill pauses a journey still under way.
  *
- * Activity Recognition describes the user's **body**, not the journey. Aboard something that
- * carries the phone, the body is genuinely still (or genuinely walking about) while the ground
- * moves at vehicle speed, and the recorder's stop, split and fix-quality rules all read that label
- * as though it described the trip. This reports what the positions say instead, so those rules can
- * decline to act on a label the ground contradicts.
- *
- * Three properties carry the design:
- *
- *  - **Net displacement over a window, never a single fix's speed.** A parked phone can report
- *    phantom Doppler, and consecutive-fix deltas are dominated by noise; the displacement between
- *    the window's two halves is not. The halves are *averaged* for the same reason — comparing the
- *    oldest fix against the newest compares two individually noisy positions, while comparing their
- *    means averages that noise down. For steady motion the halves' mean times are separated by
- *    exactly the interval their mean positions are, so the derived speed comes out honest rather
- *    than diluted.
- *  - **Abstention is a real verdict.** Too few fixes, too short a span, or a window that is neither
- *    clear progress nor a clear standstill all give [Motion.Unknown]. Contradicting the activity
- *    label always demands positive evidence; absence of evidence never overrides it.
- *  - **[Motion.Stopped] needs every fix close in, not just the endpoints.** Net displacement alone
- *    would read a departure-and-return as a standstill. Since a wrongly declared standstill is what
- *    pauses a journey still under way, the standstill test measures the window's whole spread.
- *
- * **The feed contract.** [onFix] must be given every fix that cleared the *label-independent*
- * quality gates, and only those: [IgnoreReason.ACCURACY] and [IgnoreReason.NO_GNSS] reject a fix on
- * its own merits, so those are withheld — but an [IgnoreReason.JUMP] fix was rejected by a ceiling
- * chosen from the very label this witness exists to check, and withholding it would make the
- * witness inherit the error it is here to catch. `TrackQuality.badFixReason` reports one prioritised
- * reason, so the seam is `reason != ACCURACY && reason != NO_GNSS`.
- *
- * The price of that contract is that a lone teleport — a fix that cleared accuracy and GNSS yet
- * landed far off — is evidence here like any other, and can carry a window to [Motion.Moving] on
- * its own. Averaging the halves damps it rather than removing it, so the consultations bound what a
- * single verdict may cost them: see the ceiling's own clamp in `TrackQuality.badFixReason`.
- *
- * Pure and Android-free like [ActivityGate]: clocks and positions are handed in, and the
- * [DistanceFn] seam keeps the geometry host-testable.
+ * **The feed contract.** [onFix] must get every fix that cleared the *label-independent* quality
+ * gates, and only those: [IgnoreReason.ACCURACY] and [IgnoreReason.NO_GNSS] reject a fix on its own
+ * merits and are withheld, but an [IgnoreReason.JUMP] fix was rejected by a ceiling chosen from the
+ * very label this witness exists to check, and withholding it would make the witness inherit the
+ * error it is here to catch. `TrackQuality.badFixReason` reports one prioritised reason, so the
+ * seam is `reason != ACCURACY && reason != NO_GNSS`. The price: a lone teleport that cleared
+ * accuracy and GNSS is evidence like any other and can carry a window to [Motion.Moving] alone;
+ * averaging damps rather than removes it, so the consultations bound what a single verdict may
+ * cost them — see the ceiling's own clamp in `TrackQuality.badFixReason`. Pure and Android-free
+ * like [ActivityGate]: clocks and positions are handed in, [DistanceFn] keeps geometry host-testable.
  */
 class MovementConfirmer(
     private val distance: DistanceFn,
@@ -133,14 +114,11 @@ class MovementConfirmer(
     }
 
     /**
-     * Adopt a new window shape and forget everything seen so far.
-     *
-     * The recorder calls this wherever the GPS request is built, which is also where the sampling
-     * these [Params] describe is read. That path runs on a resume, on a new track and on every
-     * no-fix probe retry as well, and evidence from before such a gap describes a different stretch
-     * of the journey — so the reset is deliberately per GPS start rather than only when the cadence
-     * actually changed. An empty window reads [Motion.Unknown], so the direction is always toward
-     * the recorder's un-cross-checked behaviour.
+     * Adopt a new window shape and forget everything seen so far. Called wherever the GPS request
+     * is built — where the sampling these [Params] describe is read, but also every resume, new
+     * track and no-fix probe retry: evidence from before such a gap describes a different stretch
+     * of the journey, so the reset is deliberately per GPS start, not only on a cadence change. An
+     * empty window reads [Motion.Unknown] — always toward un-cross-checked behaviour.
      */
     fun restart(params: Params) {
         this.params = params
@@ -185,17 +163,13 @@ class MovementConfirmer(
 
         /**
          * [Params] for a recorder sampling at [minIntervalSec] — the same setting the GPS request
-         * is built from, so the window is re-derived wherever that request is.
-         *
-         * Only the time bounds scale. A slower cadence doesn't need a *longer* look at the ground
-         * to see a carrier move, it needs one its few fixes can fill: [MIN_FIXES] of them span
-         * [MIN_FIXES] − 1 intervals by construction, so that is the floor the span is raised to.
-         * The displacement thresholds are cadence-free because they measure metres against a fix's
-         * error, and neither of those changes when fixes arrive less often.
-         *
-         * A verdict therefore arrives about [BASE_SPAN_MS] into a journey at a quick cadence and
-         * later as the cadence slows — past some point never, which is the recorder as it behaves
-         * with no cross-check at all.
+         * is built from, so the window is re-derived wherever that request is. Only the time bounds
+         * scale: a slower cadence doesn't need a *longer* look to see a carrier move, it needs one
+         * its few fixes can fill, and [MIN_FIXES] of them span [MIN_FIXES] − 1 intervals by
+         * construction — the floor the span is raised to. The displacement thresholds are
+         * cadence-free: they measure metres against a fix's error, neither changed by cadence. A
+         * verdict thus arrives about [BASE_SPAN_MS] into a journey at a quick cadence, later as the
+         * cadence slows — past some point never, which is the recorder with no cross-check at all.
          */
         fun forSampling(minIntervalSec: Int): Params {
             val intervalMs = minIntervalSec.coerceAtLeast(1) * 1000L
@@ -229,10 +203,9 @@ class MovementConfirmer(
         private const val BASE_MAX_AGE_MS = 60_000L
 
         /**
-         * Displacement between the halves that counts as the ground moving. Set well above what an
-         * accepted fix's error can fabricate — over [BASE_SPAN_MS] it means roughly the pace of a
-         * brisk cyclist, so an ordinary walk is not what trips it, and anything carrying a phone
-         * clears it several times over.
+         * Displacement between the halves that counts as the ground moving. Well above what an
+         * accepted fix's error can fabricate — over [BASE_SPAN_MS] roughly a brisk cyclist's pace,
+         * so an ordinary walk doesn't trip it and anything carrying a phone clears it several times over.
          */
         private const val MOVING_MIN_DISPLACEMENT_M = 40.0
 

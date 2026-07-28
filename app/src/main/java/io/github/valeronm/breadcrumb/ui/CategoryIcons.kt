@@ -22,29 +22,22 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 
 /**
- * The glyph for each place category. Lives here rather than on [PlaceCategory] because an
- * `ImageVector` is Android, and the domain package stays platform-free.
- *
- * Chosen as a *set*, at the two sizes they appear in — a stay row's tonal disc and a chip — because
- * the failure mode is two categories sharing a silhouette rather than one weak glyph. Two rules
- * hold it together, and both matter when a glyph is swapped:
- *
- * - **No vehicle silhouette.** A timeline row already spends `DirectionsCar`/`DirectionsWalk`/
- *   `DirectionsBoat`/`LocalTaxi` on the *track's* activity, and `DirectionsRun` on a running one, so
- *   a plane for [PlaceCategory.TRAVEL] or a runner for [PlaceCategory.SPORTS] would read as a second
- *   activity. A suitcase and a dumbbell say the same thing without the collision. (A fuel pump is
- *   not a vehicle, so [PlaceCategory.GAS_STATION] takes the literal glyph.)
- * - **One *plain* building.** [PlaceCategory.HOME] is the house, so [PlaceCategory.WORK] is the
- *   briefcase rather than the office block it would otherwise be — a rectangle with windows is the
- *   house's silhouette at 20dp. [PlaceCategory.SIGHTSEEING]'s columned portico is admissible on the
- *   same test: a pediment on columns is nothing like a pitched roof on a square.
- *
- * [PlaceCategory.PARKING] is the one letterform in the set, on the one category that has to stay
- * legible among map pins.
- *
- * The closest pair left is [PlaceCategory.GROCERIES]'s basket against [PlaceCategory.SHOPPING]'s bag
- * — both carriers with a handle. They share a color too (one errands group), so the shapes are all
- * that separate them; a swap on either should be judged against the other rather than on its own.
+ * The glyph for each place category — here rather than on [PlaceCategory] because an `ImageVector`
+ * is Android and the domain package stays platform-free. Chosen as a *set*, at the two sizes they
+ * appear in (a stay row's tonal disc and a chip): the failure mode is two categories sharing a
+ * silhouette, not one weak glyph. Two rules hold it together, and both matter when a glyph is
+ * swapped. **No vehicle silhouette** — a timeline row already spends `DirectionsCar`/`Walk`/`Boat`/
+ * `Run`/`LocalTaxi` on the *track's* activity, so a plane for [PlaceCategory.TRAVEL] or a runner for
+ * [PlaceCategory.SPORTS] would read as a second activity; a suitcase and a dumbbell say the same
+ * thing (a fuel pump is not a vehicle, so [PlaceCategory.GAS_STATION] is literal). **One *plain*
+ * building** — [PlaceCategory.HOME] is the house, so [PlaceCategory.WORK] is the briefcase, not the
+ * office block whose rectangle-with-windows is the house's silhouette at 20dp;
+ * [PlaceCategory.SIGHTSEEING]'s columned portico passes the same test, a pediment on columns being
+ * nothing like a pitched roof on a square. [PlaceCategory.PARKING] is the set's one letterform, on
+ * the one category that must stay legible among map pins. Closest pair left:
+ * [PlaceCategory.GROCERIES]'s basket vs [PlaceCategory.SHOPPING]'s bag, both handled carriers
+ * sharing one errands-group color, so the shapes are all that separate them — judge a swap of
+ * either against the other rather than on its own.
  */
 internal val PlaceCategory.icon: ImageVector
     get() = when (this) {

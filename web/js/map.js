@@ -32,10 +32,6 @@ const OVERVIEW_OPACITY = 0.4;
 const MUTED_COLOR = "#6b7280";
 const MUTED_OPACITY = 0.25;
 
-// Places are history-wide, not per-track, so relatedness is geometric: a place is this trip's stop
-// when the trip started or ended at it. Somewhere merely passed en route is not a stop of it. The
-// radius covers a named place's own capture size plus the gap left where the recorder's overrun
-// was trimmed off the track's ends.
 // Rejected-fix marker colors, matching the app's legend chips (ic_marker_noisy / _jump / _gnss) so
 // the same fix reads the same in both. EDGE_STAY never reaches this layer.
 export const REASON_LABELS = {
@@ -56,6 +52,10 @@ const OVERRUN_OPACITY = 0.85;
 const OVERRUN_WIDTH = 4;
 
 const PLACE_COLOR = "#facc15";
+// Places are history-wide, not per-track, so relatedness is geometric: a place is this trip's stop
+// when the trip started or ended at it. Somewhere merely passed en route is not a stop of it. The
+// radius covers a named place's own capture size plus the gap left where the recorder's overrun
+// was trimmed off the track's ends.
 const RELATED_PLACE_RADIUS_M = 150;
 const RELATED = ["get", "related"];
 const NAMED = ["get", "named"];
@@ -133,7 +133,7 @@ export function createMap(container, protomapsKey, onTrackClick, onPlaceClick) {
       layout: { "line-cap": "round", "line-join": "round" },
       paint: { "line-color": ["get", "color"], "line-width": 3 },
     });
-    // Over the path line and off its ends: those fixes are no longer part of the line at all, so
+    // Over the path line and off its ends: those fixes are not part of the line at all, so
     // there is nothing underneath to dim instead.
     map.addSource("overrun", { type: "geojson", data: emptyFc() });
     map.addLayer({
@@ -225,12 +225,10 @@ export function createMap(container, protomapsKey, onTrackClick, onPlaceClick) {
   return map;
 }
 
-/**
- * Repaints the overview for the current selection: a track id lights that track and mutes the
+/** Repaints the overview for the current selection: a track id lights that track and mutes the
  * rest, null lights everything, [MUTE_ALL] mutes everything — what a place selection wants, since
  * a place belongs to no one trip. Paint properties survive a setData, so this is state the layer
- * carries, not something setOverview re-applies.
- */
+ * carries, not something setOverview re-applies. */
 function paintOverview(map, selectedId) {
   if (selectedId == null) {
     map.setPaintProperty("overview-lines", "line-color", OVERVIEW_COLOR);
@@ -317,13 +315,11 @@ export function setOverview(map, tracks) {
   });
 }
 
-/**
- * Shows the places: `{id, lat, lon, label}` rows — the *derived* clusters, not the export's
+/** Shows the places: `{id, lat, lon, label}` rows — the *derived* clusters, not the export's
  * named-place list, so an unnamed place the history keeps returning to appears as a dot the same
- * way it does on the app's places map. A row with no label is one of those unnamed clusters. Which
- * clusters arrive here is the caller's filter (`mapVisiblePlaces`); this draws what it is given,
- * and hands [id] back on click.
- */
+ * way it does on the app's places map; a row with no label is one of those. Which clusters arrive
+ * here is the caller's filter (`mapVisiblePlaces`) — this draws what it is given, and hands [id]
+ * back on click. */
 export function setPlaces(map, places) {
   // Held per map because relatedness is recomputed on every selection, and a GeoJSON source won't
   // hand its data back. Sorted here rather than per repaint: unnamed dots first, so the named pins
@@ -345,14 +341,11 @@ export function setPlacesVisible(map, visible) {
   });
 }
 
-/**
- * Frames one or both places a timeline interval sits at: each as its capture circle plus the track
- * endpoints the cluster captured — the app's place view, and the same picture that explains a gap
- * (two circles where one place split in two). Tracks recede to the muted level throughout: the
- * selection here is a place, so no single track is the subject.
- *
- * @param places [{anchor: {lat, lon}, radiusM, endpoints: [{lat, lon}]}]
- */
+/** Frames one or both places a timeline interval sits at: each as its capture circle plus the
+ * track endpoints the cluster captured — the app's place view, and the same picture that explains
+ * a gap (two circles where one place split in two). Tracks recede to the muted level throughout:
+ * the selection here is a place, so no single track is the subject.
+ * @param places [{anchor: {lat, lon}, radiusM, endpoints: [{lat, lon}]}] */
 export function focusPlaces(map, places) {
   whenLoaded(map, () => {
     const features = [];
@@ -392,22 +385,16 @@ function circleRing(center, radiusM) {
   return ring;
 }
 
-/**
- * Splits a track's points the three ways they are drawn, mirroring the app's own split: the path,
- * the fixes rejected for quality, and the recorder's overrun grouped into runs.
- *
- * The path is ONE polyline. A segment break says the recorder stopped watching, not that the phone
- * stopped moving — the app draws straight through it on the map for the same reason, and its
- * distance now counts that ground. Where the break matters (GPX segments) the flag is carried, not
- * the drawing.
- *
- * Each overrun run is anchored to the good fix either side of it, so the grayed leg meets the path
- * instead of floating short of it. A run between two good fixes — what a merge leaves buried
- * mid-track — is connected on both sides rather than dropped: it is still recording the app knows
- * about, and a viewer that draws nothing there is the one place its own data goes missing.
- *
- * Exported for the node test; nothing else outside this module calls it.
- */
+/** Splits a track's points the three ways they are drawn, mirroring the app's own split: the path,
+ * the fixes rejected for quality, and the recorder's overrun grouped into runs. The path is ONE
+ * polyline — a segment break says the recorder stopped watching, not that the phone stopped
+ * moving; the app draws straight through it for the same reason and its distance counts that
+ * ground, and where the break matters (GPX segments) the flag is carried, not the drawing. Each
+ * overrun run is anchored to the good fix either side, so the grayed leg meets the path instead of
+ * floating short of it; a run between two good fixes — what a merge leaves buried mid-track — is
+ * connected on both sides rather than dropped: it is still recording the app knows about, and a
+ * viewer that draws nothing there is the one place its own data goes missing.
+ * Exported for the node test; nothing else outside this module calls it. */
 export function splitForDrawing(lonlat, reasons, n) {
   const path = [];
   const rejected = [];

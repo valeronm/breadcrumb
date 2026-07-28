@@ -11,12 +11,10 @@ import java.io.Reader
 import java.util.zip.GZIPInputStream
 
 /**
- * Reads a [BackupExporter] file back — the restore half of backup/restore. Streams the JSON
- * (one track's points in memory at a time, like the writer), maps point arrays by the file's own
- * `pointFields` header rather than by position, so a future export that appends fields still
- * restores, and hands rows to the caller for insertion. Pure and stream-based; the Room insertion
- * lives in the repositories. Restore is meant for an empty app (the UI only offers it there) —
- * nothing here merges or deduplicates.
+ * Reads a [BackupExporter] file back — the restore half. Streams one track's points at a time (like
+ * the writer), mapping point arrays by the file's own `pointFields` header, not position, so an
+ * export that appends fields still restores. Pure and stream-based — the Room insertion lives in
+ * the repositories. For an empty app (the UI offers it only there): nothing merges or deduplicates.
  */
 object BackupImporter {
 

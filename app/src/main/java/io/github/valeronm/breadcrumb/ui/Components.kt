@@ -253,7 +253,6 @@ internal fun SliderSetting(
     valueText: (Float) -> String,
     onChange: (Float) -> Unit,
 ) = LabeledSlider(label, valueText(value), value, range) { raw ->
-    // Snap to the nearest step so values land on round numbers.
     onChange(snapToStep(raw, step, range))
 }
 
@@ -356,12 +355,10 @@ internal fun EmptyState(
 }
 
 /**
- * The lists' shared row skeleton: a category disc, a title and a subtitle line, on a card. Used
- * by the Timeline's track and stay rows and the Places list, so their padding, disc placement and
- * type scale can't drift apart. Pass [onClick] for a plain tap target; for anything richer (long
- * press), leave it null and put the click modifier in [modifier]. The title color is explicit
- * because the inherited card color dims to onSurfaceVariant under dynamic color
- * (contentColorFor matches surfaceVariant first).
+ * The lists' shared row skeleton — category disc, title and subtitle on a card — shared by Timeline track
+ * and stay rows and the Places list so padding, disc placement and type scale can't drift. [onClick] is a
+ * plain tap; richer gestures (long press) go in [modifier] with [onClick] null. Title color is explicit:
+ * dynamic color dims the inherited card color to onSurfaceVariant (contentColorFor matches surfaceVariant first).
  */
 @Composable
 internal fun ListRowCard(
@@ -425,12 +422,9 @@ internal fun ListRowCard(
 
 /**
  * The list rows' category token: a glyph on a soft tonal disc of the same color (M3 "tonal").
- *
- * [badge] marks a *second*, unrelated fact about the row without spending the glyph on it — the disc
- * says what the row is, the badge says something that happens to be true of it as well. It rides the
- * bottom-end corner the circle leaves empty inside its own square, so a badged disc takes no more
- * room than a plain one, and it comes in a saturated color rather than a tonal one because at this
- * size a soft fill would read as a smudge on the disc's edge.
+ * [badge] marks a *second*, unrelated fact about the row without spending the glyph on it: it rides
+ * the bottom-end corner the circle leaves empty inside its own square (so a badged disc takes no
+ * more room), saturated rather than tonal — at this size a soft fill reads as a smudge on the edge.
  */
 @Composable
 internal fun TonalIconDisc(
@@ -504,10 +498,9 @@ internal fun ConfirmDialog(
 }
 
 /**
- * "Undo" snackbars: the action happens on the spot and Undo puts it back, rather than a dialog
- * interrupting to ask first. A new snackbar replaces whatever is
- * on screen — rapid swipes shouldn't stack up a queue, so only the latest action stays undoable
- * (the rest are still recoverable: tracks from Recently deleted, places by naming the cluster again).
+ * "Undo" snackbars: the action happens on the spot and Undo puts it back, not a dialog asking first.
+ * A new snackbar replaces whatever is on screen — rapid swipes shouldn't queue up, so only the latest
+ * stays undoable (the rest still recoverable: tracks from Recently deleted, places by naming the cluster).
  */
 internal class UndoSnackbar(
     private val scope: CoroutineScope,
@@ -665,16 +658,13 @@ internal fun activityColor(activity: ActivityType?): Color = when (activity) {
 }
 
 /**
- * One neutral for every kind of travel — **where places share the screen**, which is the Timeline and
- * anything reached from it. There, color is spent on places ([categoryColor]) and an activity
- * hue would compete with it while saying nothing the row doesn't already say: the car, the boots and
- * the bike are distinct glyphs, and a day's shape is in where the user stopped.
- *
- * **The two palettes are separated by surface, not by tone**: [activityColor] belongs to the Record
- * tab, which holds no places at all, and this belongs where places do. That invariant is what makes
- * both readable; the saturation split below is only the fallback if a screen ever shows both.
- * (The web viewer colors per activity throughout: its map draws overlapping *lines*, with no glyph to
- * tell them apart.)
+ * One neutral for every kind of travel wherever places share the screen — the Timeline and anything
+ * reached from it. There color is spent on places ([categoryColor]); an activity hue would compete
+ * while saying nothing the row's glyphs (car, boots, bike) don't, and a day's shape is in where the
+ * user stopped. The two palettes are separated by surface, not by tone — [activityColor] belongs to
+ * the Record tab, which holds no places at all; that invariant is what makes both readable, and the
+ * saturation split below is only the fallback if a screen ever shows both. (The web viewer colors
+ * per activity throughout: its map draws overlapping *lines*, with no glyph to tell them apart.)
  */
 @Composable
 internal fun travelColor(): Color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -713,15 +703,13 @@ internal fun placeTitleColor(named: Boolean) =
     if (named) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
 
 /**
- * Icon-disc tint for anything place-like: a categorized place takes its **group's** color (so kinds of
- * stop read as a pattern down a list), while an untagged one — and an unnamed cluster, which can have
- * no category at all — stays neutral. Neutral is therefore never a group's color; see [categoryColor],
- * where the transient pair is faint but still hued for exactly that reason.
- *
- * This is the second of two channels, and they carry different things on purpose: [placeTitleColor]
- * says whether you *named* the place, the disc says whether you told it what the place is *for*. One
- * row then answers both at a glance, and a glyph swap alone (pin → category) isn't left to carry a
- * distinction that reads as a shape change rather than a state.
+ * Icon-disc tint for anything place-like: a categorized place takes its **group's** color (kinds of
+ * stop read as a pattern down a list); an untagged one — and an unnamed cluster, which can have no
+ * category at all — stays neutral, so neutral is never a group's color (see [categoryColor], where
+ * the transient pair is faint but still hued for exactly that reason). Deliberately a second channel
+ * beside [placeTitleColor]: the title says whether you *named* the place, the disc whether you said
+ * what it's *for* — one row answers both at a glance, and the pin → category glyph swap alone isn't
+ * left to carry a distinction that would read as a shape change rather than a state.
  */
 @Composable
 internal fun placeDiscTint(category: PlaceCategory?) =
@@ -735,10 +723,9 @@ internal fun placeDiscTint(category: PlaceCategory?) =
 internal fun placeDiscAlpha(category: PlaceCategory?) = if (category != null) 0.24f else 0.12f
 
 /**
- * A single-choice option in a dialog: glyph, label, and either the tick that marks the current choice
- * or a [trailing] slot of the caller's. The shape both option dialogs use — the track-type picker and
- * the place-category picker — so the corner radius, the paddings and the tick affordance are stated
- * once rather than copied into the next one.
+ * A single-choice option in a dialog: glyph, label, and either the current-choice tick or a
+ * [trailing] slot of the caller's. Shared by both option dialogs — the track-type and place-category
+ * pickers — so the corner radius, paddings and tick affordance are stated once, not copied.
  */
 @Composable
 internal fun OptionRow(

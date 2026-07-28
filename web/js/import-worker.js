@@ -51,7 +51,7 @@ async function importFile(file) {
       header = h;
       fields = indexFields(h.pointFields);
       // The previous dataset is dropped only now — after format, version and pointFields all
-      // checked out — so a wrong or truncated file fails without destroying anything.
+      // checked out — so a wrong file is rejected without destroying anything.
       pending = pending.then(() => clearAll(db));
     },
     onTrack: (track) => {
@@ -85,7 +85,7 @@ async function importFile(file) {
     trackCount: tracksDone,
     pointCount: pointsTotal,
     places,
-    // Not rendered yet — kept as the input for the planned stays/timeline derivation.
+    // Provenance evidence for the stay derivation.
     liveness,
   });
   return { tracks: tracksDone, points: pointsTotal, places: places.length };

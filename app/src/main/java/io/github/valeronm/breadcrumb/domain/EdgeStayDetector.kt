@@ -3,29 +3,26 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
 /**
- * Finds a stay at the *edge* of a track — recording that ran on after the user had already
- * arrived (or before they truly departed) because Activity Recognition lagged the real stop.
- * A stop longer than the auto-pause resume window would have split the track, so anything
- * left at an edge is bounded by observer lag; the venue-scale 10-minute bar of mid-track
- * dwells doesn't apply. What ships is [BRIEF_STOP] — a half-minute floor, small enough to
- * cover the stops that never split a track at all.
- *
- * Two stages with distinct roles, both required:
- *  1. **Position says whether**: [DwellDetector]'s corral sweep, run with the lowered
- *     duration floor, must find a dwell touching the track's first/last good fix. This is
- *     what distinguishes "arrived somewhere specific" from plain GPS starvation.
- *  2. **Speed says where**: the cut is placed by speed collapse, not corral geometry.
- *     Good fixes moving at least [Params.movingSpeedMps] — by displacement, with Doppler as a
- *     seconding vote rather than the source of truth (see [movingBins]) — are binned; a bin holding at least
- *     [Params.movingBinFraction] of *its own* fixes moving is itself "moving", and the boundary
- *     is the end of the last moving bin (the start of the first, at a start edge) — pulled back
- *     to the dwell's own bound if the span it would cut ranges beyond a standstill.
- *     Field data showed the corral cuts 2–4 min early — it swallows the tail of the approach —
- *     while speed collapse matched the recalled arrival in all three ground-truth stays. Multipath at a standstill *can* fake Doppler, which is why
- *     displacement holds the veto. The corral alone must never decide — it is speed-blind (its
- *     exit hysteresis and net-drift gate both passed a car circling a parking lot at 35 km/h),
- *     so when no speed evidence exists at all, nothing is trimmed.
- *
+ * Finds a stay at the *edge* of a track — recording that ran on after the user had already arrived
+ * (or before they truly departed) because Activity Recognition lagged the real stop. A stop longer
+ * than the auto-pause resume window would have split the track, so anything left at an edge is
+ * bounded by observer lag and the venue-scale 10-minute bar of mid-track dwells doesn't apply;
+ * what ships is [BRIEF_STOP], a half-minute floor small enough to cover the stops that never split
+ * a track at all. Two stages with distinct roles, both required:
+ *  1. **Position says whether**: [DwellDetector]'s corral sweep, run with the lowered duration
+ *     floor, must find a dwell touching the track's first/last good fix — what distinguishes
+ *     "arrived somewhere specific" from plain GPS starvation.
+ *  2. **Speed says where**: the cut is placed by speed collapse, not corral geometry. Good fixes
+ *     moving at least [Params.movingSpeedMps] — by displacement, with Doppler as a seconding vote
+ *     rather than the source of truth (see [movingBins]) — are binned; a bin holding at least
+ *     [Params.movingBinFraction] of *its own* fixes moving is itself "moving", and the boundary is
+ *     the end of the last moving bin (the start of the first, at a start edge), pulled back to the
+ *     dwell's own bound if the span it would cut ranges beyond a standstill. Field data: the
+ *     corral cuts 2–4 min early, swallowing the approach's tail, while speed collapse matched the
+ *     recalled arrival in all three ground-truth stays; multipath at a standstill *can* fake
+ *     Doppler, which is why displacement holds the veto. The corral alone must never decide — it
+ *     is speed-blind (its exit hysteresis and net-drift gate both passed a car circling a parking
+ *     lot at 35 km/h) — so when no speed evidence exists at all, nothing is trimmed.
  * Pure and Android-free; nothing is persisted. Detection re-runs from stored points on demand.
  */
 object EdgeStayDetector {
@@ -61,14 +58,13 @@ object EdgeStayDetector {
     )
 
     /**
-     * The same two-stage rule resolved down to brief-stop scale — it covers what the recorder ran
-     * on through, including the short stops a resume-window-sized floor leaves alone. Every
-     * sub-parameter that is sized for a 10-minute venue has to come down with the floor: 15 s
-     * decimation leaves a half-minute dwell three samples, a 2-minute exit grace outlasts the dwell
-     * itself, 30 s bins can't place a boundary inside a 30 s stay, and the 4 m/min drift gate —
-     * calibrated on venue stops that creep 1.7–1.9 m/min — rejects a genuine standstill whose own
-     * jitter nets a few meters over half a minute. Measured over the recorded history: an end stay
-     * on ~30% of tracks, median ~72 s, start stays near-absent (departures barely lag).
+     * The two-stage rule resolved down to brief-stop scale — covering what the recorder ran on
+     * through, including the short stops a resume-window-sized floor leaves alone. Every
+     * venue-sized sub-parameter comes down with the floor: 15 s decimation leaves a half-minute
+     * dwell three samples, a 2-minute exit grace outlasts the dwell itself, 30 s bins can't place
+     * a boundary inside a 30 s stay, and the 4 m/min drift gate (venue stops creep 1.7–1.9 m/min)
+     * rejects a genuine standstill whose own jitter nets a few meters over half a minute. Measured
+     * history-wide: an end stay on ~30% of tracks, median ~72 s; start stays near-absent (departures barely lag).
      */
     val BRIEF_STOP = Params(
         dwell = DwellDetector.Params(
@@ -83,19 +79,18 @@ object EdgeStayDetector {
     )
 
     /**
-     * [BRIEF_STOP] with the floor a vehicle's own speed allows. At ~1 Hz a parked car produces
-     * plenty of drift fixes over the 0.7 m/s bar, and three in a bin is easy — which pinned the
-     * last moving bin to the end of the track and hid the arrival tail on 156 drives outright.
-     * Under 5 km/h a car is not driving, so those bins are standstill regardless of agreement.
+     * [BRIEF_STOP] with the floor a vehicle's own speed allows: at ~1 Hz a parked car easily puts
+     * three drift fixes over the 0.7 m/s bar in a bin — pinning the last moving bin to the track's
+     * end and hiding the arrival tail on 156 drives outright. Under 5 km/h a car is not driving,
+     * so those bins are standstill regardless of agreement.
      */
     val VEHICLE = BRIEF_STOP.copy(activityFloorMps = 1.4)
 
     /**
-     * The one place a track's tuning is chosen: two callers deriving the same track's overrun
-     * through different parameters is the failure this exists to prevent.
-     *
-     * Takes the stored activity *name* — the value a track row carries — so a row naming a type
-     * this build no longer has falls to [BRIEF_STOP] rather than needing a caller to handle it.
+     * The one place a track's tuning is chosen — two callers deriving the same track's overrun
+     * through different parameters is the failure this exists to prevent. Takes the stored activity
+     * *name* (the value a track row carries), so a row naming a type this build no longer has falls
+     * to [BRIEF_STOP] rather than needing a caller to handle it.
      */
     fun paramsFor(activityTypeName: String): Params =
         if (ActivityType.ofName(activityTypeName)?.trackGroup == TrackGroup.VEHICLE) VEHICLE else BRIEF_STOP
@@ -103,21 +98,15 @@ object EdgeStayDetector {
     /**
      * Bumped whenever detection changes what it would find — a new stage, a moved threshold, a
      * different boundary. The [IgnoreReason.EDGE_STAY][io.github.valeronm.breadcrumb.data.IgnoreReason.EDGE_STAY]
-     * flags on stored points are this code's verdicts, so a rule that has moved leaves them stale
-     * in both directions; the app re-sweeps its history when the version it last swept is behind
-     * this one. Bumping is therefore part of changing the rule, not a follow-up chore.
-     *
+     * flags on stored points are this code's verdicts, so a moved rule leaves them stale in both
+     * directions; the app re-sweeps its history when the version it last swept is behind this one,
+     * making the bump part of changing the rule, not a follow-up chore.
      * 1 — the original half-minute edge-stay sweep.
-     * 2 — displacement vetoes Doppler, boundary resolved to a real fix, span retracted to the
-     *     dwell when it ranges too far, per-bin voting within the bin, vehicle standstill floor.
+     * 2 — displacement vetoes Doppler, real-fix boundary, dwell retraction, per-bin voting, vehicle standstill floor.
      * 3 — no rule change (a bump taken to watch the sweep run).
-     * 4 — the per-bin vote floor scales with the track's own cadence, so a track sampled at bin
-     *     scale is detectable at all.
-     * 5 — no rule change: the verdict moved from a review mark to the points themselves
-     *     ([io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]), so history has to be swept once
-     *     more to acquire it.
-     * 6 — no rule change either, but every flag is now reconsidered wherever it sits: the overrun
-     *     a merge buries mid-track used to be held forever, and the sweep is what hands it back.
+     * 4 — the per-bin vote floor scales with the track's own cadence, so bin-scale sampling is detectable at all.
+     * 5 — no rule change: the verdict moved from a review mark onto the points ([EdgeStayIgnore]); history re-swept to acquire it.
+     * 6 — no rule change: every flag is now reconsidered wherever it sits, so a merge-buried overrun is handed back.
      */
     const val RULE_VERSION = 6
 
@@ -125,15 +114,13 @@ object EdgeStayDetector {
 
     /**
      * A stay at [side]. [boundaryTs] is the **cut point**: the timestamp of the last good fix the
-     * track keeps (the first, at a start edge), with the stay running from there to the track's
-     * edge. One value, used by everything — the fixes strictly beyond it are the ones flagged
+     * track keeps (the first, at a start edge), the stay running from there to the track's edge.
+     * One value, used by everything — the fixes strictly beyond it are the ones flagged
      * [io.github.valeronm.breadcrumb.data.IgnoreReason.EDGE_STAY], the track's clock is pulled in
-     * to it, and the track screen grays from it.
-     *
-     * It is a real fix, not the speed-bin edge the boundary is derived from: a bin edge falls
-     * between fixes (measured: 288 of 387 in gaps up to 94 s), and a polyline needs both its
-     * endpoints, so a display marking the first *removed* fix would leave the trimmed track
-     * ending a leg short of the line the user was shown.
+     * to it, and the track screen grays from it. It is a real fix, not the speed-bin edge it is
+     * derived from: a bin edge falls between fixes (measured: 288 of 387 in gaps up to 94 s), and
+     * a polyline needs both its endpoints, so marking the first *removed* fix would leave the
+     * trimmed track ending a leg short of the line the user was shown.
      */
     data class EdgeStay(
         val side: Side,
@@ -193,14 +180,12 @@ object EdgeStayDetector {
 
         /**
          * Stage 1 says a stop touches this edge; stage 2 says where travel stopped. When they
-         * disagree — the bin boundary lands outside the stop, so the span covers ground a stop
-         * never could — the span is pulled back to the dwell's own bound, which is stationary by
-         * construction. Two imported drives proposed cutting 347 m and 246 m of ordinary
-         * driving off their starts because the bins, counted against the
-         * *recorder's* sampling rate rather than the file's, only reached the moving threshold
-         * a minute late. Retracting is the fix rather than abstaining: those tracks do open with
-         * a real stop, just a shorter one than the bins claimed. If even the dwell's bound ranges
-         * too far, nothing is offered — stage 1 alone is speed-blind and must not place a cut.
+         * disagree — the bin boundary lands outside the stop, covering ground a stop never could —
+         * the span retracts to the dwell's own stationary-by-construction bound. Retracting beats
+         * abstaining: field data saw late-triggering bins propose cutting hundreds of meters of
+         * ordinary driving off a track's start, yet such tracks do open with a real, shorter stop.
+         * If even the dwell's bound ranges too far, nothing is offered — stage 1 alone is
+         * speed-blind and must not place a cut.
          */
         fun MutableList<EdgeStay>.addStay(side: Side, binEdge: Long, dwellBound: Long, edgeTs: Long) {
             var boundary = boundaryAt(side, binEdge) ?: return
@@ -244,22 +229,20 @@ object EdgeStayDetector {
 
     /**
      * Ascending bin indices (timestamp / binMs) holding enough moving good fixes. A fix counts as
-     * moving only when its **displacement** over [Params.speedLookbackMs] says so, and —
-     * where the platform reported one — its Doppler speed agrees. Displacement is the veto, not a
-     * fallback for Doppler-less imports: a parked phone reports phantom Doppler (field case:
-     * three consecutive fixes at up to 3.5 m/s while the phone sat 7 m from the track's final
-     * position), and a handful of those at the very end of a track is enough to put
-     * the last moving bin past the real arrival and collapse the detected stay to nothing. You
-     * cannot travel at 3.5 m/s and stay 7 m from where you stop; over the lookback window jitter
-     * averages to ~zero while genuine travel — a queue creep, a parking-lot loop — still shows.
-     *
-     * "Enough" is a fraction of the fixes the bin *actually holds*, floored at one. A bar drawn
-     * from a nominal count instead — what the recorder's sampling rate says a bin should hold —
-     * measures sparseness rather than evidence, and sparseness is exactly what a stop produces:
-     * an arrival crossed 85 m between two fixes 27 s apart, and that lone unambiguous
-     * fix was outvoted by the emptiness around it, so two stops 85 m apart read as one. Counting
-     * within the bin costs nothing in confidence now that displacement holds the veto — a fix
-     * that qualifies has already been checked against its own 10-second baseline.
+     * moving only when its **displacement** over [Params.speedLookbackMs] says so and — where the
+     * platform reported one — its Doppler speed agrees. Displacement is the veto, not a fallback
+     * for Doppler-less imports: a parked phone can report phantom Doppler up to 3.5 m/s across
+     * several consecutive fixes, and a handful at a track's very end can put the last moving bin
+     * past the real arrival and collapse the detected stay to nothing — Doppler that fast while
+     * going nowhere is physically empty, since over the lookback window standstill jitter averages
+     * to ~zero while genuine travel (a queue creep, a parking-lot loop) still shows. "Enough" is a
+     * fraction of the fixes the bin *actually holds*, floored at one: a bar drawn from a nominal
+     * per-bin count instead measures sparseness rather than evidence, and sparseness is exactly
+     * what a stop produces — on min-distance sampling an arrival can cross its last stretch in one
+     * long leg between two sparse fixes, that lone unambiguous fix outvoted by the emptiness around
+     * it, reading two nearby stops as one. Counting within the bin costs nothing in confidence,
+     * since displacement holds the veto — a qualifying fix was already checked against its own
+     * 10-second baseline.
      */
     private fun movingBins(good: List<TrackPoint>, params: Params, distance: DistanceFn): List<Long> {
         // Displacement is only evidence over a long enough baseline: across a second or two,

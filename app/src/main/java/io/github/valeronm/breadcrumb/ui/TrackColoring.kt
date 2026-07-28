@@ -45,11 +45,10 @@ private const val SPEED_SATURATION = 0.9f
 private fun rampLuminance(dark: Boolean) = if (dark) 0.5f else 0.33f
 
 /**
- * Speed thresholds (in the display system's speed unit) anchoring the red and blue ends of the
- * color ramp per activity. Hand-rounded per system like the slider ladders — the legend must
- * read "20 / 55 / 90 mph", not the converted "19 / 56 / 93" — so min/max are picked evenly
- * spaced around a round midpoint (the legend's middle label is their average, and lands on
- * green). The anchors therefore sit a hair apart between systems; a user only sees one.
+ * Per-activity speed thresholds (display-system units) anchoring the ramp's red and blue ends.
+ * Hand-rounded per system like the slider ladders — the legend must read "20 / 55 / 90 mph", not the
+ * converted "19 / 56 / 93" — min/max evenly spaced around a round midpoint, so the middle label
+ * (their average) lands on green; the anchors sit a hair apart between systems, a user only sees one.
  */
 private data class SpeedScale(val min: Float, val max: Float)
 

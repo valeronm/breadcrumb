@@ -258,11 +258,9 @@ internal fun TracksTab(
 }
 
 /**
- * Haptic CLOCK_TICK when a scrubbed value crosses to a different key, throttled (30 ms) so a fast
- * drag feels like a picker, not a buzz. A plain holder rather than composed state: gesture lambdas
- * capture one composition and go stale. [tickOnFirst] controls whether the first non-null key
- * after construction (or a [reset]) ticks. Shared by the timeline fast scroller and the metric
- * graph scrubber.
+ * Haptic CLOCK_TICK when a scrubbed value crosses keys, throttled (30 ms) so a fast drag feels like
+ * a picker, not a buzz; a plain holder because gesture lambdas capture a composition and go stale.
+ * [tickOnFirst]: does the first non-null key after construction (or a [reset]) tick.
  */
 internal class ThrottledTick(private val view: View, private val tickOnFirst: Boolean) {
     private var last: Any? = null
@@ -288,9 +286,8 @@ internal class ThrottledTick(private val view: View, private val tickOnFirst: Bo
 
 /**
  * Fast scroller for the timeline: a finger-sized handle that fades in while the list scrolls and
- * can be grabbed and dragged through the history. The drag snaps to day headers (never into the
- * middle of a day), a bubble names the day under the thumb, and crossing into a different day
- * ticks like the track scrubber.
+ * can be grabbed and dragged through the history; the drag snaps to day headers (never inside a
+ * day), a bubble names the day under the thumb, and crossing days ticks like the track scrubber.
  */
 @Composable
 private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List<Pair<String, Int>>) {
@@ -788,7 +785,7 @@ private fun StayCard(
     )
     // A merge-eligible short stop is marked in tertiary (matching the swipe-to-merge hint) as a
     // *badge* on the disc's corner rather than as its glyph: being mergeable is a fact about the
-    // stay, while the glyph answers where the user was, and one no longer costs the other.
+    // stay, while the glyph answers where the user was, and neither should cost the other.
     val mergeable = item.merge != null
     // A categorized place says what the stop was for in the icon column, where an untagged one
     // shows the generic pin.
@@ -851,12 +848,12 @@ private fun StayCard(
 }
 
 /**
- * Movement the recorder missed: neighboring track endpoints disagree. Deliberately subdued.
- * Most such gaps are really one place misclustered as two, so the card names both sides as
- * full-width tappable lines — the app's row-tap language, not inline links — each opening its
- * place, where re-pinning or widening the radius fixes the split. Two pin glyphs joined by a
- * dashed connector in the icon column draw the unrecorded leg the way a map would. Newest-first
- * timeline: the destination sits above (adjacent to the later track), the source below.
+ * Movement the recorder missed: neighboring track endpoints disagree. Deliberately subdued — most
+ * such gaps are one place misclustered as two, so the card names both sides as full-width tappable
+ * lines (the app's row-tap language, not inline links), each opening its place, where a re-pin or
+ * wider radius fixes the split. Two pins joined by a dashed connector in the icon column draw the
+ * unrecorded leg as a map would. Newest-first timeline: the destination sits above (adjacent to
+ * the later track), the source below.
  */
 @Composable
 private fun GapRow(
@@ -916,10 +913,10 @@ private fun GapCard(item: TimelineItem.GapItem, shape: RoundedCornerShape, onOpe
 }
 
 /**
- * One side of a gap: a full-width tappable line (pin glyph + place name, ripple across the row,
- * like every other tappable row in the app) opening the place's detail screen — stay-less
- * clusters have zero-visit rows (summarize emits every cluster), so every known side opens.
- * A side that's unknown renders nothing; its position tells the story.
+ * One side of a gap: a full-width tappable line (pin glyph + place name, ripple across the row
+ * like every other tappable row) opening the place's detail — stay-less clusters have zero-visit
+ * rows (summarize emits every cluster), so every known side opens. An unknown side renders
+ * nothing; its position tells the story.
  */
 @Composable
 private fun GapPlaceLine(place: PlaceResolver.ResolvedStay?, onOpenPlace: (String) -> Unit) {

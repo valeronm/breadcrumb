@@ -62,13 +62,12 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Renders a track on a Protomaps vector basemap via MapLibre GL Native, in the dark or light flavor
- * the app theme calls for. The line is colored by
- * [colorMode] via a MapLibre `line-gradient` built from [TrackColoring]'s per-point colors; start/end
- * and noisy-fix markers sit on a symbol layer, and the camera fits the track once on open. Switching
- * the color mode updates the gradient in place without moving the camera; the source is refreshed
- * when the point list grows (the live "current track" preview), which re-frames only when the
- * current position nears the viewport edge — user pan/zoom survives otherwise.
+ * Renders a track on a Protomaps vector basemap (MapLibre GL Native), dark or light flavor per the app
+ * theme. The line is colored by [colorMode] via a `line-gradient` of [TrackColoring]'s per-point colors;
+ * start/end and noisy-fix markers ride a symbol layer; the camera fits the track once on open. A
+ * color-mode switch recolors in place, camera untouched; the source refreshes as the point list grows
+ * (the live "current track" preview), re-framing only when the position nears the viewport edge —
+ * user pan/zoom survives otherwise.
  */
 @Composable
 internal fun MapLibreTrackMap(
@@ -197,10 +196,9 @@ private class AppliedTrackInputs {
 }
 
 /**
- * Shared host for all the map composables: owns the [MapView], loads the Protomaps dark style once,
- * then routes subsequent recompositions to [onUpdate]. [onMapReady] runs before the style loads —
- * for one-time map-level setup like click listeners. Callers keep their own "what was last applied"
- * state; this only removes the init/style boilerplate.
+ * Shared host for the map composables: owns the [MapView], loads the Protomaps style once, routes
+ * later recompositions to [onUpdate], and runs [onMapReady] before the style loads (one-time map
+ * setup like click listeners); callers keep their own last-applied state — this only removes boilerplate.
  */
 @Composable
 private fun MapLibreStyledMap(
@@ -249,16 +247,13 @@ private class MapHost {
 }
 
 /**
- * How much basemap MapLibre may keep in its ambient tile cache (`files/mbgl-offline.db`).
- *
- * The library's own default holds about a tenth of this, which is barely more than a few
- * screenfuls: Protomaps' vector tiles average ~45 KiB, so the default fills at roughly a thousand
- * of them and then evicts, least-recently-used, whatever a session just looked at. Reopening the
- * same track an hour later re-downloaded its tiles — and map data is the app's only network use,
- * so that eviction *is* the data bill. This holds several times a day's worth of viewing.
- *
- * Nothing is pinned: this raises the ceiling, it does not create an offline region, so the cache
- * stays opportunistic and the map still needs a connection for ground it has never shown.
+ * How much basemap MapLibre may keep in its ambient tile cache (`files/mbgl-offline.db`). The
+ * library default (~a tenth of this) is a few screenfuls: Protomaps vector tiles average ~45 KiB,
+ * so it fills at roughly a thousand and LRU-evicts what a session just viewed — reopening a track
+ * an hour later re-downloads its tiles, and with map data the app's only network use, that
+ * eviction *is* the data bill. This holds several times a day's worth of viewing. Nothing is
+ * pinned: a ceiling raise, not an offline region — the cache stays opportunistic, and ground the
+ * map has never shown still needs a connection.
  */
 private const val AMBIENT_CACHE_BYTES = 250L * 1024 * 1024
 
@@ -353,10 +348,9 @@ private const val EDGE_STAY_DIM_DARK = 0xD9424242.toInt()
 private const val EDGE_STAY_DIM_LIGHT = 0xD9BDBDBD.toInt()
 
 /**
- * The stretch at each track edge the recorder ran on through — the fixes already taken off the
- * path, each run drawn from the good fix it hangs off so the gray meets the colored line. Drawn
- * in its own dim color rather than by dimming the track underneath: those fixes are not part of
- * the track line at all anymore, so there is nothing under this to recolor.
+ * The stretch at each track edge the recorder ran on through — fixes already off the path, each run
+ * drawn from the good fix it hangs off so the gray meets the colored line. Its own dim color rather
+ * than dimming the track underneath: the fixes left the track line, so there is nothing to recolor.
  */
 private fun edgeStayFeature(overruns: List<EdgeStayIgnore.Overrun>): FeatureCollection =
     FeatureCollection.fromFeatures(overruns.mapNotNull { lineFeature(it.points) })
@@ -502,14 +496,11 @@ private fun addMarkers(
 }
 
 /**
- * Every marker layer here starts from this: an icon per feature, placed wherever its feature is
- * and drawn in the order the source lists them.
- *
- * **The draw order is the load-bearing part.** Left to itself a symbol layer stacks point symbols
- * by screen position, so whichever marker sits lower covers the rest — and both collections that
- * feed these layers are written the other way, ending with the marker that matters most (the pin
- * among a place's dots, the start and end among a track's rejected fixes). Overlap and placement
- * are off for the same reason: these are markers, not labels competing for room.
+ * Shared base of the marker layers: an icon per feature, drawn in source order — the load-bearing
+ * part: left to itself a symbol layer stacks point symbols by screen position, so the lower marker
+ * covers the rest, and both feeding collections end with the marker that matters most (a place's
+ * pin among its dots, a track's start/end among rejected fixes). Overlap and placement are off
+ * likewise: these are markers, not labels competing for room.
  */
 private fun markerSymbolLayer(id: String, source: String): SymbolLayer =
     SymbolLayer(id, source).withProperties(
@@ -599,9 +590,8 @@ private fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction: 
 
 /**
  * Fits the camera to [positions]: ≥2 → bounds fit with 96px padding, exactly 1 → [singlePointZoom].
- * [headroom] > 1 zooms out beyond the exact fit (half-spans scaled around the center). The live
- * re-fit needs it: a tight fit puts the current position right back at the viewport edge, so the
- * very next fix would trigger another re-frame.
+ * [headroom] > 1 zooms out beyond the exact fit (half-spans scaled around the center) — the live
+ * re-fit needs it: a tight fit leaves the position at the viewport edge, re-framing on the next fix.
  */
 private fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom: Double, headroom: Double = 1.0) {
     when {
@@ -626,8 +616,8 @@ private sealed interface TrackPaint {
 
 /**
  * Builds a MapLibre `line-gradient` from per-point [colors] by placing each point's color at its
- * cumulative-distance fraction along the line (0..1) — the parity port of osmdroid's per-vertex
- * paint list. Falls back to a solid color for a track with no length.
+ * cumulative-distance fraction along the line (0..1). Falls back to a solid color for a track
+ * with no length.
  */
 private fun buildTrackPaint(colors: IntArray, seams: TrackQuality.Seams): TrackPaint {
     val points = seams.points
@@ -708,13 +698,11 @@ private fun styleBackgroundColor(ctx: Context): Int = styleFlavor(ctx).backgroun
 // --- Place map ----------------------------------------------------------------------------------
 
 /**
- * One dot on the place map whose fate the *map* decides: [distanceM] is its distance from the pin,
- * compared against the live radius in a layer expression. Null means settled — a neighbor keeps it
- * whatever the radius does — and it draws gray without being compared.
- *
- * The point of carrying the distance instead of a resolved icon is that a radius being dragged
- * then changes one layer property rather than rewriting every feature: on a place with thousands
- * of endpoints around it, rebuilding the collection per step was the whole lag.
+ * One dot on the place map whose fate the *map* decides: [distanceM] (distance from the pin) is
+ * compared against the live radius in a layer expression; null means settled — a neighbor keeps it
+ * whatever the radius does, drawn gray uncompared. Carrying the distance rather than a resolved
+ * icon means a drag changes one layer property, not thousands of features — that per-step rebuild
+ * of the collection is what lags.
  */
 internal class CaptureDot(val location: StayDeriver.Endpoint, val distanceM: Double?)
 
@@ -726,13 +714,12 @@ class NeighborPlace(
 )
 
 /**
- * Renders one place on the dark basemap. With [showInternals] the cluster's capture circle
- * (meter-true polygon around [center]) is drawn with every captured track endpoint as small dots
- * plus [neighbors] — surrounding clusters' endpoints (gray dots) and named pins (labeled) — so
- * the radius can be judged against what a wider circle would swallow; without it only the pin
- * marker shows. Toggling the flag restyles in place without moving the camera. The camera fits
- * the circle once on open; the place data is a snapshot, so there is no live update path beyond
- * a full refresh when the inputs change.
+ * Renders one place on the basemap. With [showInternals] the cluster's capture circle (a meter-true
+ * polygon around [center]) is drawn with every captured track endpoint as small dots plus
+ * [neighbors] — gray neighbor-endpoint dots and labeled named pins — so the radius can be judged
+ * against what a wider circle would swallow; without it only the pin shows. Toggling restyles in
+ * place, camera untouched; the camera fits the circle once on open, and the data is a snapshot —
+ * an input change is a full refresh.
  */
 @Composable
 internal fun MapLibrePlaceMap(
@@ -937,13 +924,10 @@ private fun endpointFeature(
     )
 
 /**
- * The marker layer's icon property. Capture dots are the features carrying a distance, and only
- * they are resolved against the radius; everything else keeps the icon it was written with. Keyed
- * on the property being *present* rather than on a sentinel icon name — a sentinel would share a
- * value space with the real image ids, so registering an image called "auto" would break it.
- *
- * Rebuilding this is what a radius change costs, and it is correct with or without capture dots,
- * so it is installed unconditionally.
+ * The marker layer's icon property: only features carrying a distance (capture dots) resolve against
+ * the radius; the rest keep their written icon. Keyed on the property being *present*, not a sentinel
+ * icon name — that shares the image ids' value space (an image id "auto" would break it). A radius
+ * change costs only this rebuild; correct with or without capture dots, so installed unconditionally.
  */
 private fun markerIconProperty(radiusM: Double) = PropertyFactory.iconImage(
     Expression.switchCase(

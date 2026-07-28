@@ -1,25 +1,17 @@
 // Stays, gaps and the endpoint clustering they index into — a port of the app's `StayDeriver`,
-// `PlaceClusterer` and `PlaceResolver.resolveClusters`, running on the same two inputs the backup
-// carries: every kept track's endpoints, and the liveness log.
-//
-// A stay is the interval between the end of one track and the start of the next, when both
-// endpoints land at "the same place"; endpoint disagreement means movement the recorder missed and
-// is reported as a gap instead. The rules are the app's, restated once here because a viewer that
-// reads the same history a second way is worse than one that doesn't read it at all:
-//
-//   same place  = same endpoint cluster, OR raw distance within the agreement radius, OR the same
-//                 nearest named-place pin within that pin's own radius;
-//   provenance  = OBSERVED only where the liveness log attests the app was alive and armed
-//                 throughout; an outage or a disarm-rearm inside the interval marks it INFERRED,
-//                 and so does history from before the log existed.
-//
-// One presentation rule is ported here too, because it is a rule about the data and not about
-// pixels: which clusters are worth drawing (`mapVisiblePlaces`, from PlacesScreens.kt).
-//
-// Every constant below names its Kotlin counterpart, so that changing a threshold in the app turns
-// up this file in a grep for the symbol — that is the only thing standing between the two copies
-// and silent drift.
-//
+// `PlaceClusterer` and `PlaceResolver.resolveClusters`, running on the backup's two inputs: every
+// kept track's endpoints, and the liveness log. A stay is the interval between one track's end and
+// the next's start when both endpoints land at "the same place" (same endpoint cluster, OR raw
+// distance within the agreement radius, OR the same nearest named-place pin within that pin's own
+// radius); endpoint disagreement means movement the recorder missed, reported as a gap instead.
+// Provenance is OBSERVED only where the liveness log attests the app was alive and armed
+// throughout — an outage, a disarm-rearm inside the interval, or history from before the log
+// existed marks it INFERRED. The rules are the app's, restated once here because a viewer that
+// reads the same history a second way is worse than one that doesn't read it at all; one
+// presentation rule is ported too, being a rule about the data and not about pixels: which
+// clusters are worth drawing (`mapVisiblePlaces`, from PlacesScreens.kt). Every constant below
+// names its Kotlin counterpart, so changing a threshold in the app turns up this file in a grep
+// for the symbol — the only thing standing between the two copies and silent drift.
 // Pure ES module — the viewer imports it, node tests drive it directly with a stubbed distance.
 
 import { metersBetween, reachBound } from "./geo.js";
@@ -39,14 +31,11 @@ export const PLACE_RADIUS_M = 150;
  *  StayDeriver.Params.minStayMs. */
 const MIN_STAY_MS = 0;
 
-/**
- * Below this a stay's length is not worth reporting, because it is not the length of anything the
- * user did: a stay is measured between two track *bounds*, so it only covers the part of a stop the
- * recorder noticed — the stationary approach usually sits untrimmed inside the previous track's
- * tail. Such a stay is still a real stop and keeps its place on the timeline, but a duration
- * derived from its bounds would be fiction, and rounding one to "0m" reads as a broken value.
- * StayDeriver.REPORTABLE_DURATION_MS.
- */
+/** Below this a stay's length is not worth reporting: measured between two track *bounds*, it only
+ * covers the part of a stop the recorder noticed — the stationary approach usually sits untrimmed
+ * inside the previous track's tail — so it is not the length of anything the user did. Such a stay
+ * is still a real stop and keeps its place on the timeline, but a bounds-derived duration would be
+ * fiction, and rounding one to "0m" reads as a broken value. StayDeriver.REPORTABLE_DURATION_MS. */
 const REPORTABLE_DURATION_MS = 60_000;
 
 /** Visits at which an unnamed cluster is worth surfacing as a count — the app's naming invitation.
@@ -73,18 +62,15 @@ const DEFAULT_PARAMS = {
 // endpoints repeat — the app's map is value-keyed for the same reason.
 const key = (e) => `${e.lat},${e.lon}`;
 
-/**
- * Groups endpoints into *places* by anchor-based greedy leader clustering, in chronological input
- * order — a cluster's anchor is its first-ever member's location, so appending newer history can
- * never re-shuffle the clusters older stays belong to. Every member is within the capture radius of
- * its anchor, so a cluster can't chain-walk across a neighborhood.
- *
- * The user's named-place pins enter as `seeds` ({anchor, radiusM}): pre-existing anchors, each with
- * its own venue-scale radius, that outrank chronology. A seeded cluster's identity *is* its place
- * (`seedIndex`), which kills the anchor lottery — a skewed first visit can no longer found a shadow
- * cluster beside a named place. Assignment is nearest-qualifying-anchor, so an endpoint closer to a
- * distinct organic anchor still goes there.
- */
+/** Groups endpoints into *places* by anchor-based greedy leader clustering in chronological input
+ * order: a cluster's anchor is its first-ever member's location, so appending newer history never
+ * re-shuffles the clusters older stays belong to, and every member sits within its anchor's
+ * capture radius, so a cluster can't chain-walk across a neighborhood. The user's named-place pins
+ * enter as `seeds` ({anchor, radiusM}) — pre-existing anchors with their own venue-scale radii,
+ * outranking chronology; a seeded cluster's identity *is* its place (`seedIndex`), killing the
+ * anchor lottery (a skewed first visit cannot found a shadow cluster beside a named place).
+ * Assignment is nearest-qualifying-anchor, so an endpoint closer to a distinct organic anchor
+ * still goes there. */
 export function clusterEndpoints(locations, radiusM, distance, seeds) {
   const anchors = [];
   const radii = [];
@@ -135,20 +121,17 @@ export function clusterEndpoints(locations, radiusM, distance, seeds) {
   });
 }
 
-/**
- * Derives the timeline's intervals from tracks + liveness.
- *
- * @param tracks ascending by time: {trackId, startedAt, endedAt, start, end} where start/end are
- *   the first/last *good* point's {lat, lon}, or null (a track whose endpoint is unknown can only
- *   produce gaps — the app treats it the same way).
+/** Derives the timeline's intervals from tracks + liveness.
+ * @param tracks ascending by time: {trackId, startedAt, endedAt, start, end} — start/end the
+ *   first/last *good* point's {lat, lon}, or null (an unknown endpoint can only produce gaps,
+ *   as in the app).
  * @param liveness ascending: {type: "ARMED"|"DISARMED"|"OUTAGE", at, until}.
  * @param nowMs the instant the derivation is "as of" — the viewer passes the backup's export time,
  *   so an open tail stay is open as of the export rather than growing on every page load.
- * @param placePins named places as clustering seeds: {anchor: {lat, lon}, radiusM}, in the same
- *   order as the places list, so a cluster's seedIndex identifies its place exactly.
+ * @param placePins named places as clustering seeds: {anchor: {lat, lon}, radiusM}, in places-list
+ *   order, so a cluster's seedIndex identifies its place exactly.
  * @returns {{intervals: object[], clusters: object[]}} intervals ascending; a stay carries
- *   `clusterId`, a gap the cluster id of each known side.
- */
+ *   `clusterId`, a gap the cluster id of each known side. */
 export function deriveStays({
   tracks,
   liveness = [],
@@ -238,13 +221,11 @@ export function deriveStays({
   return { intervals: out, clusters };
 }
 
-/**
- * The stay after the last finished track: open-ended (where the user was left) unless the liveness
- * log says the app was disarmed, in which case it can attest nothing past the disarm and the stay
- * closes there. The app has a third case — a live recording closes the tail at the active track's
- * start — that a backup can't have: the export is a finished snapshot, and a track still recording
- * when it was written isn't in it.
- */
+/** The stay after the last finished track: open-ended (where the user was left) unless the
+ * liveness log says the app was disarmed — it can attest nothing past the disarm, so the stay
+ * closes there. The app's third case — a live recording closing the tail at the active track's
+ * start — can't arise from a backup: the export is a finished snapshot, and a track still
+ * recording when it was written isn't in it. */
 function tailStay(last, evidence, nowMs, p, clusterOf) {
   if (!last) return null;
   const location = last.end;
@@ -349,12 +330,10 @@ export function slicePerDay(intervals, nowMs, nextMidnight = localNextMidnight) 
   return out;
 }
 
-/**
- * Merges the DESC track list with derived intervals (ASC) into one DESC timeline of
+/** Merges the DESC track list with derived intervals (ASC) into one DESC timeline of
  * {kind: "track"|"stay"|"gap"} items. On a start-time tie the interval sorts newer only when it is
  * open-ended: a closed one ended the instant the track began (a zero-length trim seam), so the
- * departing track is newer and the interval sorts between the pair.
- */
+ * departing track is newer and the interval sorts between the pair. */
 export function interleave(tracks, intervals) {
   const descIntervals = intervals.slice().reverse();
   const out = [];
@@ -377,28 +356,23 @@ export function interleave(tracks, intervals) {
   return out;
 }
 
-/**
- * Which resolved clusters a map should draw, mirroring the app's Places map exactly.
- *
- * Two rules, and they are different rules. A cluster nothing ever stayed at is a *pass-through* —
- * a stray endpoint that only ever produced disagreements — and is never drawn; it exists so a gap's
- * side has something to point at. A cluster below the notable-visit floor is a *rare stop*, drawn
- * only when [showRareStops] asks for it: a name doesn't exempt one, because a place named on the
- * strength of a single visit is exactly the clutter the toggle is asked to clear, and a named
- * cluster with no visits at all (a dropped pin, or one whose stays were deleted) is rarer still.
- */
+/** Which resolved clusters a map should draw, mirroring the app's Places map exactly. Two rules,
+ * and they are different rules: a cluster nothing ever stayed at is a *pass-through* — a stray
+ * endpoint that only ever produced disagreements — never drawn, existing so a gap's side has
+ * something to point at; a cluster below the notable-visit floor is a *rare stop*, drawn only when
+ * [showRareStops] asks. A name doesn't exempt one — a place named on the strength of a single
+ * visit is exactly the clutter the toggle is asked to clear, and a named cluster with no visits at
+ * all (a dropped pin, or one whose stays were deleted) is rarer still. */
 export function mapVisiblePlaces(resolved, showRareStops) {
   return resolved.filter((p) => (p.label != null || p.visitCount > 0)
     && (showRareStops || isNotable(p)));
 }
 
-/**
- * Resolution of *every* endpoint cluster, indexed by cluster id: stays look up by `clusterId`, gaps
- * by their side cluster ids (whose clusters may have no stays at all — those resolve with a zero
- * visit count). The clustering was seeded by the place pins, so a cluster's seedIndex identifies its
- * place exactly and labels can't silently detach; organic clusters are unnamed. Must run over the
- * UNSLICED stays — after slicePerDay a 3-day stay would count as 3 visits.
- */
+/** Resolution of *every* endpoint cluster, indexed by cluster id: stays look up by `clusterId`,
+ * gaps by their side cluster ids (whose clusters may have no stays at all — those resolve with a
+ * zero visit count). The clustering was seeded by the place pins, so a cluster's seedIndex
+ * identifies its place exactly and labels can't silently detach; organic clusters are unnamed.
+ * Must run over the UNSLICED stays — after slicePerDay a 3-day stay would count as 3 visits. */
 export function resolveClusters(stays, clusters, places) {
   const visits = new Map();
   for (const stay of stays) visits.set(stay.clusterId, (visits.get(stay.clusterId) ?? 0) + 1);
@@ -421,13 +395,11 @@ export function resolveClusters(stays, clusters, places) {
   });
 }
 
-/**
- * The instant a derivation is "as of". A backup is a snapshot, so that is when it was exported —
- * not today, or an open tail stay would grow every time the page is reloaded. A file without an
- * export stamp (nothing in the format guarantees one) falls back to the newest track's end: the
- * tail stay is then open at the instant the history stops, and measures nothing, which is the
- * honest reading — a file that doesn't say when it was written attests nothing past its last fix.
- */
+/** The instant a derivation is "as of". A backup is a snapshot, so that is when it was exported —
+ * not today, or an open tail stay would grow on every reload. A file without an export stamp
+ * (nothing in the format guarantees one) falls back to the newest track's end: the tail stay is
+ * then open at the instant the history stops and measures nothing — the honest reading, since a
+ * file that doesn't say when it was written attests nothing past its last fix. */
 export function derivationInstant(exportedAt, tracks) {
   if (exportedAt != null) return exportedAt;
   return tracks.reduce((newest, t) => Math.max(newest, t.endedAt ?? 0), 0);

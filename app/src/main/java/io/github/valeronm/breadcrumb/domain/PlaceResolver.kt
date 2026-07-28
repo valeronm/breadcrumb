@@ -7,16 +7,13 @@ import io.github.valeronm.breadcrumb.data.db.Place
  * (see [StayDeriver.Derivation]), and the clustering was *seeded* by the place pins, so a cluster's
  * [PlaceClusterer.Cluster.seedIndex] identifies its place exactly — no distance matching, labels
  * can't silently detach. The [places] list must be the same list (same order) whose pins seeded
- * the derivation; organic clusters (null seedIndex) are unnamed.
- *
- * [resolveClusters] results are indexed by cluster id, which [StayDeriver.slicePerDay]'s copies
- * preserve on each stay — so resolution runs once over the unsliced stays and consumers look it
- * up per interval afterwards.
- *
- * Above that sit two readings of the same resolution: [summarize], one row per place for the
- * screens that list them, and [neighborhood], one place with its surroundings prepared for the
- * clusterer's capture preview. Both take summaries down to what [PlaceClusterer] speaks, which is
- * why they live on this side of the pair and not on it.
+ * the derivation; organic clusters (null seedIndex) are unnamed. [resolveClusters] results are
+ * indexed by cluster id, which [StayDeriver.slicePerDay]'s copies preserve on each stay — so
+ * resolution runs once over the unsliced stays and consumers look it up per interval. Above that
+ * sit two readings of the same resolution: [summarize] (one row per place for the screens that
+ * list them) and [neighborhood] (one place with its surroundings prepared for the clusterer's
+ * capture preview); both take summaries down to what [PlaceClusterer] speaks, which is why they
+ * live on this side of the pair and not on it.
  */
 object PlaceResolver {
 
@@ -29,9 +26,9 @@ object PlaceResolver {
 
     /**
      * How far around a place its surroundings are gathered for judging a capture radius
-     * ([neighborhood]). It has to comfortably dominate the largest radius the editor's slider can
-     * reach, or the preview judges a circle against neighbors that were never collected — so this
-     * moves only together with those slider stops.
+     * ([neighborhood]). Must comfortably dominate the largest radius the editor's slider reaches —
+     * else the preview judges a circle against neighbors never collected — so it moves only with
+     * those slider stops.
      */
     const val NEIGHBOR_CONTEXT_M = 1_200.0
 
@@ -43,25 +40,22 @@ object PlaceResolver {
     private const val RECENTER_MIN_SHIFT_M = 10.0
 
     /**
-     * Stable identity for a place: its row id once named, and where it sits while it is only a
-     * cluster. A name is the only thing that survives re-derivation unchanged — an unnamed cluster
-     * has nothing but its position, which is why the two halves read differently. Coordinates go in
-     * rounded to about a meter, so a key doesn't churn on movement smaller than the fixes it is
-     * averaged from.
-     *
-     * Private on purpose: [PlaceSummary.key] and [ResolvedStay.key] are the only ways to ask, so no
-     * caller ever decides for itself which pair of fields identifies a place, and the two cannot
-     * name the same cluster differently.
+     * Stable identity for a place: its row id once named, its position while only a cluster — a
+     * name is the only thing that survives re-derivation unchanged, and an unnamed cluster has
+     * nothing but its position. Coordinates go in rounded to about a meter, so a key doesn't churn
+     * on movement smaller than the fixes it is averaged from. Private on purpose: [PlaceSummary.key]
+     * and [ResolvedStay.key] are the only ways to ask, so no caller ever decides for itself which
+     * fields identify a place, and the two cannot name the same cluster differently.
      */
     private fun placeKey(placeId: Long?, position: StayDeriver.Endpoint): String =
         placeId?.let { "place:$it" } ?: "cluster:%.5f,%.5f".format(position.lat, position.lon)
 
     class ResolvedStay(
         /**
-         * The matched place, or null for an unnamed cluster — the row itself rather than a copy of
-         * each attribute, so a new place column reaches the timeline without a field here and the
+         * The matched place, or null for an unnamed cluster — the row itself rather than a copy
+         * per attribute, so a new place column reaches the timeline without a field here and the
          * label/id pair can't come apart. Its pin is deliberately *not* [centroid]: the pin is
-         * where the user dropped it, the centroid is where this cluster's endpoints actually sit.
+         * where the user dropped it, the centroid where this cluster's endpoints actually sit.
          */
         val place: Place?,
         /** Visits to this cluster across the whole (unsliced) history. */
@@ -104,11 +98,10 @@ object PlaceResolver {
         val endpoints: List<StayDeriver.Endpoint>,
         /**
          * Where the visits actually landed — the mean of [endpoints], as against [anchor], where
-         * the pin was dropped; null when there is nothing to average.
-         *
-         * It is the clusterer's own mean ([PlaceClusterer.Cluster.endpointMean]) carried through
-         * rather than a second one computed here, and it is what [pin] answers with for a cluster
-         * no one has named yet — where a place sits when nothing has said where to put it.
+         * the pin was dropped; null when there is nothing to average. The clusterer's own mean
+         * ([PlaceClusterer.Cluster.endpointMean]) carried through rather than recomputed here, and
+         * what [pin] answers with for an unnamed cluster — where a place sits when nothing has
+         * said where to put it.
          */
         val endpointCentroid: StayDeriver.Endpoint?,
         /** This place's individual visits (unsliced), newest first — the detail screen's history. */
@@ -117,12 +110,11 @@ object PlaceResolver {
         val isNamed: Boolean get() = place != null
 
         /**
-         * Where this place sits: the pin once named, and until then the mean of what it captured
-         * — which is exactly where naming would drop the pin. Derived, because a summary that
-         * carried it could hold a position its own anchor and endpoints disagree with.
-         *
-         * The fallback cannot fire: only a seeded cluster can be empty of endpoints, and a seeded
-         * cluster is named. It is there because the mean is typed nullable for that case.
+         * Where this place sits: the pin once named, until then the mean of what it captured —
+         * exactly where naming would drop the pin. Derived, because a summary that carried it
+         * could hold a position its own anchor and endpoints disagree with. The fallback cannot
+         * fire — only a seeded cluster can be empty of endpoints, and a seeded cluster is named —
+         * it is there because the mean is typed nullable for that case.
          */
         val pin: StayDeriver.Endpoint get() = if (isNamed) anchor else endpointCentroid ?: anchor
 
@@ -150,13 +142,12 @@ object PlaceResolver {
 
         /**
          * The pins that can out-compete [subject] for a candidate — **only *named* neighbors.**
-         *
-         * A named place is a seed: it is in the clusterer's anchor list before any endpoint is
-         * read, so it holds its ground whatever the subject's radius does. An unnamed cluster is
-         * not — its anchor is merely the first endpoint no seed claimed, so ground a growing radius
-         * covers never forms one at all. Counting unnamed clusters as rivals makes them look
-         * immovable, since each sits on top of its own members, and a widened radius then appears
-         * to capture nothing while saving it quietly takes more than was shown.
+         * A named place is a seed, in the clusterer's anchor list before any endpoint is read, so
+         * it holds its ground whatever the subject's radius does; an unnamed cluster's anchor is
+         * merely the first endpoint no seed claimed, so ground a growing radius covers never forms
+         * one at all. Counting unnamed clusters as rivals makes them look immovable (each sits on
+         * its own members), and a widened radius then appears to capture nothing while saving it
+         * quietly takes more than was shown.
          */
         val rivals: List<PlaceClusterer.Seed> = nearby.mapNotNull { other ->
             other.place?.let { PlaceClusterer.Seed(other.anchor, other.radiusM) }
@@ -185,14 +176,13 @@ object PlaceResolver {
 
     /**
      * Summaries for the Places screen: **every visited cluster** in the history, plus any named
-     * place with no current stays (so labels stay listed/manageable). Clusters that match the same
-     * place are aggregated into one row; unnamed clusters get a row each, *including* zero-visit
-     * pass-through clusters — gap sides land in exactly those (a stray endpoint cluster only
-     * ever produces disagreements, so it never earns a stay), and the detail screen needs a row
-     * to open so the stray can be named or swallowed by widening a neighbor. Keeping
-     * pass-throughs off the Places tab is that screen's presentation filter, not this layer's.
-     * Runs over the unsliced stays so counts and durations are exact. Order: named places
-     * (input order) first, then unnamed clusters (chronological); the UI applies its own sort.
+     * place with no current stays (so labels stay listed/manageable). Clusters matching the same
+     * place aggregate into one row; unnamed clusters get a row each, *including* zero-visit
+     * pass-throughs — gap sides land in exactly those (a stray endpoint cluster only ever produces
+     * disagreements, so it never earns a stay), and the detail screen needs a row to open so the
+     * stray can be named or swallowed by widening a neighbor; keeping them off the Places tab is
+     * that screen's presentation filter, not this layer's. Runs over unsliced stays so counts and
+     * durations are exact; order: named (input order) then unnamed (chronological), the UI sorting.
      */
     fun summarize(
         stays: List<StayDeriver.Stay>,
@@ -224,7 +214,7 @@ object PlaceResolver {
                 )
             } else if (count > 0) {
                 // Zero-stay seeded clusters add nothing: the place row below reports null/zero
-                // stats via the missing Agg, exactly as before.
+                // stats via the missing Agg.
                 val agg = namedAgg.getOrPut(place.id) { Agg() }
                 agg.count += count
                 agg.total += total
@@ -257,15 +247,12 @@ object PlaceResolver {
 
     /**
      * Where re-centering a pin at [anchor] would move it — the middle of what a radius of
-     * [radiusM] takes — or null when it would not move it anywhere worth offering: nothing
-     * captured to average, or a middle already sitting on the pin.
-     *
-     * The coincident case is the ordinary one, not a corner: naming a cluster pins the place at
-     * exactly this mean, so a place named and not since revisited has the two in the same spot.
-     *
-     * The middle is taken from [scan] at [radiusM] rather than passed in, so the answer always
-     * describes the circle on screen rather than the one last saved — a caller cannot pair a pin
-     * with a mean measured from somewhere else.
+     * [radiusM] takes — or null when the move isn't worth offering: nothing captured to average,
+     * or a middle already sitting on the pin. The coincident case is the ordinary one, not a
+     * corner: naming a cluster pins the place at exactly this mean, so a place named and not since
+     * revisited has the two in the same spot. The middle is taken from [scan] at [radiusM] rather
+     * than passed in, so the answer always describes the circle on screen rather than the one last
+     * saved — a caller cannot pair a pin with a mean measured from somewhere else.
      */
     fun recenterTarget(
         anchor: StayDeriver.Endpoint,
@@ -279,12 +266,10 @@ object PlaceResolver {
 
     /**
      * Finds the place a screen is showing in a freshly derived list — [key] is what it was opened
-     * with, [previous] what it last resolved to.
-     *
-     * Identity alone is not enough, because naming is the one act that changes a place's key: the
-     * cluster it was is gone and a `place:` row stands where it stood. So a key that no longer
-     * resolves falls back to position, which naming leaves exactly where it was, and failing that
-     * the screen keeps what it had rather than emptying while a derivation catches up.
+     * with, [previous] what it last resolved to. Identity alone is not enough: naming is the one
+     * act that changes a place's key — the cluster it was is gone and a `place:` row stands where
+     * it stood. So a dead key falls back to position, which naming leaves exactly where it was —
+     * failing that, the screen keeps what it had rather than emptying while a derivation catches up.
      */
     fun reacquire(
         summaries: List<PlaceSummary>,
@@ -297,11 +282,9 @@ object PlaceResolver {
 
     /**
      * Gathers what surrounds [subject] — the context a capture radius is judged against, prepared
-     * for [PlaceClusterer.scanCapture]. Gathered once, around where the place is currently saved:
-     * a pin being dragged about stays well inside a context this wide.
-     *
-     * [all] is the full summary list, [subject] included; it is excluded by position, so a summary
-     * rebuilt by a re-derivation still recognises itself.
+     * for [PlaceClusterer.scanCapture] — once, around where the place is currently saved: a dragged
+     * pin stays well inside it. [all] is the full summary list, [subject] included — excluded by
+     * position, so a summary rebuilt by a re-derivation still recognises itself.
      */
     fun neighborhood(subject: PlaceSummary, all: List<PlaceSummary>, distance: DistanceFn): Neighborhood {
         // [all] is one row per cluster in the whole history, while the answer is a handful of

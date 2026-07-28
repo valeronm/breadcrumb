@@ -20,14 +20,14 @@ class PlaceSearchTest {
 
     /** The reachable-from-the-keyboard rule: an unaccented query finds an accented name. */
     @Test fun `an unaccented query finds an accented name`() {
-        assertTrue(PlaceSearch.matches("Castelo de Óbidos", "obidos"))
-        assertTrue(PlaceSearch.matches("Parque das Nações", "nacoes"))
-        assertTrue(PlaceSearch.matches("Hípica", "hipica"))
+        assertTrue(PlaceSearch.matches("Padaria São José", "sao jose"))
+        assertTrue(PlaceSearch.matches("Estação Central", "estacao"))
+        assertTrue(PlaceSearch.matches("Ótica do Miradouro", "otica"))
     }
 
     /** …and symmetrically, so a user who does type the accent isn't punished for it. */
     @Test fun `an accented query finds an unaccented name`() {
-        assertTrue(PlaceSearch.matches("Obidos Castle", "óbidos"))
+        assertTrue(PlaceSearch.matches("Clinica Moderna", "clínica"))
     }
 
     @Test fun `a blank query matches nothing`() {

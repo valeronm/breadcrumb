@@ -9,11 +9,10 @@ import kotlin.math.roundToInt
 import kotlin.reflect.KProperty
 
 /**
- * Delegate for a locale-derived value (typically a date formatter) that follows the *current*
- * default locale. A plain `val` captures the locale at class-load, and this process outlives the
- * UI by weeks (the recording service holds it) — a user switching language would otherwise keep
- * seeing dates in the old locale until the process finally dies. Cached per locale, so the value
- * is only rebuilt on an actual switch.
+ * Delegate for a locale-derived value (typically a date formatter) that follows the *current* default
+ * locale: a plain `val` captures it at class-load, and the process outlives the UI by weeks (the
+ * recording service holds it), so a language switch would otherwise show old-locale dates until the
+ * process dies. Cached per locale, rebuilt only on an actual switch.
  */
 class PerLocale<T>(private val make: (Locale) -> T) {
     @Volatile private var cached: Pair<Locale, T>? = null

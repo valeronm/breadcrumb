@@ -33,10 +33,10 @@ class LivenessRepository(context: Context, db: AppDatabase = AppDatabase.get(con
     }
 
     /**
-     * At service start: if the last heartbeat is stale, the app was dead (or the phone off) from
-     * [lastHeartbeat] to [now] — record that as an OUTAGE so the deriver doesn't read the silence
-     * as a stay. Only applies while the last recorded state was ARMED: an arm after a deliberate
-     * disarm must not fabricate an outage over the disarmed period.
+     * At service start: a stale heartbeat means the app was dead (or phone off) from [lastHeartbeat]
+     * to [now] — recorded as an OUTAGE so the deriver doesn't read the silence as a stay. Only while
+     * the last recorded state was ARMED: an arm after a deliberate disarm must not fabricate an
+     * outage over the disarmed period.
      */
     suspend fun materializeOutageIfDead(lastHeartbeat: Long, now: Long, toleranceMs: Long) {
         if (lastHeartbeat <= 0 || now - lastHeartbeat <= toleranceMs) return

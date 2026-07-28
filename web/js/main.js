@@ -1,11 +1,8 @@
-// UI glue: import flow, timeline, selection. Data comes from IndexedDB (imported once by the
-// worker); the map renders the overview from simplified geometries and loads full points only
-// for the selected track.
-//
-// The sidebar is the app's timeline, not a track list: tracks interleaved with the stays and gaps
-// derived from their endpoints (js/stays.js), newest first, sliced at midnight so every row falls
-// in one day. Derivation is "as of" the backup's export time — the file is a snapshot, so the last
-// stay is open as of the export rather than growing every time the page is reloaded.
+// UI glue: import flow, timeline, selection. Data: IndexedDB, imported once by the worker; the map
+// draws simplified overview geometries, full points only for the selected track. The sidebar is the
+// app's timeline, not a track list: tracks interleaved with the stays and gaps derived from their
+// endpoints (js/stays.js), newest first, sliced at midnight so every row falls in one day — derived
+// "as of" the export time (a backup is a snapshot), so the last stay is open then, not growing per reload.
 
 import { openDb, getMeta, getAllTracks, getGeometry } from "./db.js";
 import {
@@ -131,12 +128,10 @@ function paintPlaceLayer() {
   })));
 }
 
-/**
- * Runs the derivation and lays out the rows; returns how many stays it found (counted before the
+/** Runs the derivation and lays out the rows; returns how many stays it found (counted before the
  * per-day slicing, which would count a three-day stay three times). Places seed the clustering in
  * their export order, so a cluster's seedIndex indexes straight back into this list — the same
- * contract the app relies on.
- */
+ * contract the app relies on. */
 function buildTimeline(places, liveness) {
   const ascending = tracks.slice().reverse();
   const { intervals, clusters } = deriveStays({
@@ -274,12 +269,10 @@ function placeSpan(place, fallback, className) {
   return span;
 }
 
-/**
- * Movement the recorder missed: the endpoints either side disagree. Most such gaps are really one
- * place clustered as two, so the row names both sides — newest-first, so the destination sits above
- * the dashed leg and the origin below it, the way the trip ran. A side with no known endpoint
- * renders nothing; its absence is the story.
- */
+/** Movement the recorder missed: the endpoints either side disagree. Most such gaps are really
+ * one place clustered as two, so the row names both sides — newest-first, destination above the
+ * dashed leg and origin below it, the way the trip ran. A side with no known endpoint renders
+ * nothing; its absence is the story. */
 function gapRow(gap) {
   const row = document.createElement("button");
   row.className = "row gap-row";

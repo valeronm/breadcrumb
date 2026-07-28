@@ -17,10 +17,10 @@ import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
- * DEBUG: replays a stored track through the live "current track" view at accelerated speed, so the
- * live UI (growing map line, directional pointer, ticking stats) can be exercised without actually
- * moving. Publishes the same shape the recorder feeds the UI — a [TrackingStatus.State] plus the
- * points recorded so far — but through its own flow, leaving the real recorder untouched.
+ * DEBUG: replays a stored track through the live "current track" view at accelerated speed, exercising
+ * the live UI (growing map line, directional pointer, ticking stats) without actually moving. Publishes
+ * the recorder's shape — a [TrackingStatus.State] plus the points so far — via its own flow, leaving
+ * the real recorder untouched.
  */
 object TrackReplayer {
 

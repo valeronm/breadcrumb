@@ -48,7 +48,7 @@ class App : Application() {
         val logCrash = CoroutineExceptionHandler { _, e -> DebugLog.e("App", "housekeeping failed", e) }
         CoroutineScope(SupervisorJob() + Dispatchers.IO + logCrash).launch {
             val repository = TrackRepository(this@App)
-            // Drop soft-deleted tracks past the retention window (kept only for tuning).
+            // Drop soft-deleted tracks whose Recently-deleted review window has lapsed.
             repository.purgeOldDiscarded()
             // Crash-cleanup of dangling tracks happens in the service's arm path. One-time
             // data backfills also go here when needed — see "Backfills" in CLAUDE.md.

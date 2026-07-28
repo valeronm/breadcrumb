@@ -1,17 +1,15 @@
 package io.github.valeronm.breadcrumb.domain
 
 /**
- * Pure state machine for the no-fix give-up guard: if a GPS probe runs for the configured window
- * without a single accepted fix (indoors on an activity-recognition false positive, or parked
- * underground), the recorder turns GPS off and waits for a cheap resume signal — a significant-
- * motion trigger, a passive fix from another app, or an activity transition — before probing again.
- * Consecutive failed probes back off ([retryBaseMs] × 2^(failures−1), capped at [retryCapMs]) so
- * pacing around indoors doesn't degenerate into GPS-always-on; only motion-triggered retries
- * respect that gate, since a transition or a passive fix is evidence in itself.
- *
- * Pure and Android-free like [ActivityGate]: all clocks are injected (the recorder passes
- * elapsedRealtime), and the side effects — stopping/starting location updates, arming sensors —
- * stay in [io.github.valeronm.breadcrumb.location.LocationRecordingService].
+ * Pure state machine for the no-fix give-up guard: a GPS probe that runs the configured window
+ * without one accepted fix (indoors on an activity-recognition false positive, or parked
+ * underground) turns GPS off to wait for a cheap resume signal — significant motion, a passive fix
+ * from another app, or an activity transition. Consecutive failed probes back off ([retryBaseMs] ×
+ * 2^(failures−1), capped at [retryCapMs]) so pacing around indoors doesn't degenerate into
+ * GPS-always-on; only motion-triggered retries respect that gate, since a transition or a passive
+ * fix is evidence in itself. Android-free like [ActivityGate]: clocks are injected (the recorder
+ * passes elapsedRealtime), and the side effects — stopping/starting location updates, arming
+ * sensors — stay in [io.github.valeronm.breadcrumb.location.LocationRecordingService].
  */
 class NoFixGuard(
     private val retryBaseMs: Long = RETRY_BASE_MS,
@@ -43,20 +41,16 @@ class NoFixGuard(
     /**
      * Whether the current probe has run [giveUpMs] with nothing accepted — measured from the probe
      * start or the last accepted fix, whichever is later, so a long mid-track signal loss counts
-     * too. [giveUpMs] ≤ 0 disables the guard.
-     *
-     * **A [Motion.Moving] verdict vetoes the give-up**, because it is positive evidence that fixes
-     * are arriving and the sky is visible — which makes the guard's whole premise, that GPS cannot
-     * get a fix here, simply false. The guard is *likelier* to reach that state on a carrier than
-     * anywhere else: [onFixAccepted] is called only for fixes that passed the quality gates, so a
-     * journey whose fixes are all rejected against a pedestrian ceiling starves the guard despite
+     * too; [giveUpMs] ≤ 0 disables the guard. **A [Motion.Moving] verdict vetoes the give-up**: it
+     * is positive evidence that fixes are arriving and the sky is visible, so the guard's premise —
+     * GPS cannot get a fix here — is simply false. The guard is *likelier* to reach that state on a
+     * carrier than anywhere else: [onFixAccepted] sees only fixes that passed the quality gates, so
+     * a journey whose fixes are all rejected against a pedestrian ceiling starves the guard despite
      * perfect reception, and turning GPS off there would lose exactly the journey the cross-check
-     * exists to keep.
-     *
-     * [motion] defaults to [Motion.Unknown] — also what the recorder passes with the cross-check
-     * switched off — so the guard is then bit-for-bit the one that predates the second witness.
-     * [Motion.Stopped] gives up as before: a standstill is no reason to keep a fruitless probe
-     * running.
+     * exists to keep. [motion] defaults to [Motion.Unknown] — also what the recorder passes with
+     * the cross-check switched off — making the guard bit-for-bit the guard with no cross-check;
+     * [Motion.Stopped] gives up like [Motion.Unknown], a standstill being no reason to keep a
+     * fruitless probe running.
      */
     fun shouldGiveUp(nowMs: Long, giveUpMs: Long, motion: Motion = Motion.Unknown): Boolean =
         giveUpMs > 0 &&

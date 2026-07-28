@@ -4,13 +4,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Process-wide progress of a history sweep, observed by the timeline — the same bridge pattern as
- * `TrackingStatus`, and for the same reason: a sweep runs from `App.onCreate`, long before any
- * ViewModel exists, and outlives whatever screen happens to be open.
- *
- * It exists because a sweep is otherwise invisible work that changes what the user sees: it walks
- * the whole point history for half a minute while distances and end times shift behind it. Only one
- * runs at a time — `App.onCreate` starts them in sequence — so one flow carries whichever it is.
+ * Process-wide progress of a history sweep, observed by the timeline — the `TrackingStatus` bridge
+ * pattern, for the same reason: sweeps run from `App.onCreate`, before any ViewModel exists, and
+ * outlive the open screen. Without it a sweep is invisible work that changes what the user sees —
+ * half a minute walking the whole point history while distances and end times shift behind it.
+ * Only one runs at a time (`App.onCreate` sequences them), so one flow carries whichever it is.
  */
 object SweepStatus {
 

@@ -27,16 +27,14 @@ object ActivityInterpreter {
     }
 
     /**
-     * A snapshot's most-probable activity, if it's confident enough to act on — else null to ignore.
+     * A snapshot's most-probable activity, if confident enough to act on — else null to ignore.
      * Bidirectional (a confident reading drives the state either way); UNKNOWN and low-confidence
-     * readings (e.g. a cold engine reporting a flat distribution) are dropped.
-     *
-     * The snapshot only exists to cover the gap between arming and the first transition. Once any
-     * transition has been applied since arming ([transitionApplied]), the transition stream is
-     * authoritative and the snapshot is dropped: it samples the *raw* classifier with none of the
-     * transition API's smoothing, so a momentary state the transition machinery would ride out —
-     * STILL at a red light, say, arriving moments after a replayed ENTER IN_VEHICLE — would pause
-     * (and eventually discard) a genuine drive.
+     * readings (e.g. a cold engine's flat distribution) are dropped. The snapshot exists only to
+     * cover the gap between arming and the first transition: once any transition has applied since
+     * arming ([transitionApplied]) the transition stream is authoritative and the snapshot is
+     * dropped — it samples the *raw* classifier with none of the transition API's smoothing, so a
+     * momentary state the transition machinery would ride out (STILL at a red light, moments after
+     * a replayed ENTER IN_VEHICLE) would pause, and eventually discard, a genuine drive.
      */
     fun interpretSnapshot(
         mostProbable: ActivityType,

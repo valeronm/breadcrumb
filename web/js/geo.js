@@ -3,20 +3,16 @@
 // production passes `metersBetween`, tests inject a flat-earth stub, and everything downstream asks
 // the function for the local scale rather than assuming Earth's.
 
-/**
- * WGS84 ellipsoidal distance in meters — the same Vincenty inverse solution
- * `Location.distanceBetween` runs on the phone, so a cluster radius or the stay agreement
- * threshold decides identically in both places. A sphere formula is off by a few tenths of a
- * percent, which is under a metre at these radii but enough to sort a borderline pair of endpoints
- * differently from the app, and two answers to "is this the same place?" is worse than either.
- *
- * The result is rounded to float precision because the app's is a `float` — the difference is far
- * below anything the rules test for, but it costs one call to leave nothing to explain.
- */
+/** WGS84 ellipsoidal distance in meters — the same Vincenty inverse `Location.distanceBetween`
+ * runs on the phone, so a cluster radius or the stay agreement threshold decides identically in
+ * both places: a sphere formula's error (a few tenths of a percent, under a metre at these radii)
+ * can still sort a borderline endpoint pair differently, and two answers to "is this the same
+ * place?" is worse than either. The result is rounded to float precision because the app's is a
+ * `float` — far below anything the rules test for, but one call leaves nothing to explain. */
 export function metersBetween(latA, lonA, latB, lonB) {
   const MAXITERS = 20;
   const a = 6378137.0; // WGS84 major axis
-  const b = 6356752.3142; // WGS84 semi-major axis
+  const b = 6356752.3142; // WGS84 semi-minor axis
   const f = (a - b) / a;
   const aSqMinusBSqOverBSq = (a * a - b * b) / (b * b);
 
@@ -76,15 +72,11 @@ const PROBE_DEGREES = 0.001;
  */
 const SLACK = 1.001;
 
-/**
- * A coordinate-box test that rules out anchors too far from ([lat], [lon]) to capture it, without
- * paying for a [distance] call. Both bounds understate the separation, so a candidate that would
- * qualify is never rejected — over-admitting costs only the distance call that would have run.
- *
- * The scale is asked of [distance], never assumed to be Earth's: a bound built on hardcoded
- * meters-per-degree would silently reject qualifying candidates under any other scale, which is
- * exactly what the tests inject.
- */
+/** A coordinate-box test that rules out anchors too far from ([lat], [lon]) to capture it,
+ * without paying for a [distance] call. Both bounds understate the separation, so a qualifying
+ * candidate is never rejected — over-admitting costs only the distance call that would have run.
+ * The scale is asked of [distance], never assumed to be Earth's: hardcoded meters-per-degree would
+ * silently reject qualifying candidates under any other scale — exactly what the tests inject. */
 export function reachBound(lat, lon, distance) {
   // The latitude probe runs toward the equator so it cannot step past a pole, and toward the
   // equator the meridian is shorter — one more reason the bound can only understate.

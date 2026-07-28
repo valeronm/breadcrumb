@@ -7,11 +7,11 @@ import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.util.DebugLog
 
 /**
- * Fires on the armed-session watchdog alarm (see [LocationRecordingService.onWatchdog]). The GMS
- * transition registration can die with no error surfacing, so while armed the service
- * re-registers every interval; registration replays the current activity, so any missed transition
- * is recovered within one tick. Also self-heals the "armed flag set but service dead" state: the alarm's
- * temporary power-allowlist window permits the foreground-service start from the background.
+ * Fires on the armed-session watchdog alarm (see [LocationRecordingService.onWatchdog]): the GMS
+ * transition registration can die with no error surfacing, so while armed the service re-registers
+ * every interval, and the replay of the current activity recovers a missed transition within one tick.
+ * Also self-heals "armed flag set but service dead" — the alarm's temporary power-allowlist window
+ * permits the foreground-service start from the background.
  */
 class WatchdogReceiver : BroadcastReceiver() {
 

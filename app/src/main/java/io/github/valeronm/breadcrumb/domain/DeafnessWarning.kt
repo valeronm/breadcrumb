@@ -3,15 +3,13 @@ package io.github.valeronm.breadcrumb.domain
 /**
  * Decides when to tell the user that automatic recording has stopped responding, and when to take
  * that back. Fed by `LocationRecordingService.applyActivity`; the service owns the notification.
- *
  * The registration can stop delivering live transitions with no error anywhere, and re-registering
  * is not a reliable cure (see [io.github.valeronm.breadcrumb.location.ActivityRecognitionManager]),
- * so the app cannot fix it — but it can stop failing silently. The user's remedy is a reboot, which
- * is only worth suggesting once it is clear the recorder is not recovering on its own.
- *
- * Hence [detectionsBeforeWarning]: one detection is not enough. [StaleReadingOracle] can fire on a
+ * so the app cannot fix it — but it can stop failing silently: the user's remedy is a reboot,
+ * worth suggesting only once the recorder is clearly not recovering on its own. Hence
+ * [detectionsBeforeWarning] — one detection is not enough: [StaleReadingOracle] can fire on a
  * registration that then recovers by itself, and the service restarts on the first detection
- * anyway, so warning immediately would cry wolf on an episode the user never noticed. A second
+ * anyway, so warning immediately would cry wolf on an episode the user never noticed; a second
  * detection means the restart did not take.
  */
 class DeafnessWarning(
@@ -37,12 +35,11 @@ class DeafnessWarning(
     }
 
     /**
-     * A reading applied [readingAgeMs] after the event that produced it, [sinceRegistrationMs]
-     * after the last re-registration. Returns true when a standing warning should be withdrawn.
-     *
-     * Only a prompt reading that did *not* follow a re-registration proves delivery is live: a
-     * re-registration replays the current activity, and a dead registration answers that replay
-     * just as a healthy one does — which is exactly why deafness is invisible in the first place.
+     * A reading applied [readingAgeMs] after its event, [sinceRegistrationMs] after the last
+     * re-registration; returns true when a standing warning should be withdrawn. Only a prompt
+     * reading that did *not* follow a re-registration proves delivery live: a dead registration
+     * answers a re-registration's replay of the current activity just as a healthy one does —
+     * exactly why deafness is invisible in the first place.
      */
     fun onReading(readingAgeMs: Long, sinceRegistrationMs: Long): Boolean {
         if (readingAgeMs > liveMaxAgeMs || sinceRegistrationMs < replayWindowMs) return false

@@ -97,15 +97,14 @@ internal fun TrackMapScreen(
     onSplit: ((Long) -> Unit)?,
 ) {
     val context = LocalContext.current
-    // One load of everything the screen draws (null = still reading it), keyed on the row as well
-    // as the id. Nothing observes `track_points` — a query that did would re-run on every GPS fix
-    // (see CLAUDE.md) — so the row standing in for them is what lets the screen notice a
-    // re-derivation it didn't ask for. Retyping is the case that made this necessary: it re-runs
-    // the overrun rule and hands back the fixes the new jump ceiling accepts
-    // (`TrackRepository.setActivityType`), and until this key moved, the header updated from the
-    // summary flow while the line and the grayed edges kept the pre-retype shape until the screen
-    // was reopened. A retype that moves neither re-reads for nothing, which is a rare tap and
-    // invisible — produceState keeps what it has while the new query runs.
+    // One load of everything the screen draws (null = still reading), keyed on the row as well as
+    // the id. Nothing observes `track_points` — such a query would re-run on every GPS fix (see
+    // CLAUDE.md) — so the row standing in lets the screen notice a re-derivation it didn't ask for:
+    // a retype re-runs the overrun rule and hands back what the new jump ceiling accepts
+    // (`TrackRepository.setActivityType`); keyed on the id alone, the header would update from the
+    // summary flow while the line and grayed edges kept the pre-retype shape until reopen. A retype
+    // that moves nothing re-reads for nothing — a rare tap, invisible because produceState keeps
+    // what it has while the new query runs.
     val trackPoints by produceState<TrackPoints?>(initialValue = null, trackId, summary) {
         value = viewModel.getTrackPoints(trackId)
     }
@@ -145,15 +144,13 @@ internal fun TrackMapScreen(
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
     var showTypeDialog by remember(trackId) { mutableStateOf(false) }
     var showSplitDialog by remember(trackId) { mutableStateOf(false) }
-    // Whether the selected point is a cut the repository would accept — false while nothing is
-    // selected, and on a selection too close to either end to leave two drawable tracks, which is
-    // what grays the scissors rather than letting the tap be refused silently.
-    //
-    // Deliberately a derived *Boolean*, and deliberately not read here: the graph writes
-    // selectedIndex on every drag event, so a value read in this scope would recompose the whole
-    // Scaffold per touch move (the scrubber's cost was ground down to 8 ms frames by keeping those
-    // reads inside the two cards — see MetricPlot). A State read inside the actions lambda keeps
-    // topBar memoized, and this only changes when the scissors actually flips.
+    // Whether the selected point is a cut the repository would accept — false with no selection or
+    // one too close to an end to leave two drawable tracks — which grays the scissors rather than
+    // refusing the tap silently. A derived *Boolean*, deliberately unread here: the graph writes
+    // selectedIndex per drag event, so a read in this scope would recompose the whole Scaffold per
+    // touch move (the scrubber holds ~8 ms frames only because reads stay inside the two cards —
+    // see MetricPlot); read inside the actions lambda it keeps topBar memoized, changing only when
+    // the scissors actually flips.
     val canSplit by remember(points) {
         derivedStateOf {
             val index = selectedIndex ?: return@derivedStateOf false
@@ -344,11 +341,10 @@ internal fun TrackMapScreen(
 
 /**
  * Confirm a split, showing both halves as they will read on the timeline. Reversible from the undo
- * snackbar, but it is still the one action here that turns one track into two, so it asks first.
- *
- * Draws nothing until every piece of a legal cut is present, which is why the preconditions live
- * here rather than at the call site: a non-null [cutIndex] (the dialog is up on a selected point),
- * a finished track to cut, a caller willing to perform it, and a plan [TrackSplit] accepts.
+ * snackbar, yet the one action here turning one track into two, so it asks first. Draws nothing
+ * until every piece of a legal cut is present — hence the preconditions here, not at the call site:
+ * a non-null [cutIndex] (dialog up on a selected point), a finished track, a willing caller, and a
+ * plan [TrackSplit] accepts.
  */
 @Composable
 private fun SplitConfirmation(
@@ -436,10 +432,10 @@ internal fun metricGraphData(
 }
 
 /**
- * The metric polyline alone, rasterized once per (graph, size) into a bitmap and blitted per frame.
- * Recording/issuing thousands of drawLine ops every frame is what made scrubbing long tracks lag
- * (the cursor overlay invalidates each frame); a cached bitmap makes the plot a single drawImage.
- * Takes only the (immutable) series and scale, never the selection, so Compose also skips it.
+ * The metric polyline alone, rasterized once per (graph, size) into a bitmap blitted per frame:
+ * the cursor overlay invalidates every frame, and thousands of drawLine ops each lag long-track
+ * scrubbing — cached, the plot is one drawImage. Takes only the immutable series and scale, never
+ * the selection, so Compose also skips it.
  */
 @Composable
 private fun MetricPlot(
@@ -478,10 +474,10 @@ private fun MetricPlot(
 }
 
 /**
- * The selected color metric over the track's time span, stroked point-to-point in the same colors
- * as the map's track line, with a time axis. Missing values and segment starts break the line.
- * Tapping or dragging picks the nearest point ([onSelect]); the selection is drawn as a cursor with
- * a value/time readout, and the caller highlights the same point on the map.
+ * The selected color metric over the track's time span, stroked point-to-point in the map line's
+ * colors, with a time axis; missing values and segment starts break the line. Tap/drag picks the
+ * nearest point ([onSelect]), drawn as a cursor with a value/time readout; the caller highlights
+ * the same point on the map.
  */
 @Composable
 private fun MetricGraph(
@@ -550,8 +546,8 @@ private fun MetricGraph(
             val selValue = sel?.let { graph.values[it] }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 // Static plot in its own skippable composable: scrubbing recomposes MetricGraph per
-                // touch event, and redrawing the full multi-thousand-segment polyline each time is
-                // what made long tracks feel laggy. Only the cursor overlay below redraws.
+                // touch event, and redrawing the full multi-thousand-segment polyline each time
+                // makes long tracks feel laggy. Only the cursor overlay below redraws.
                 MetricPlot(graph, minV, span, t0, tSpan, Modifier.fillMaxSize())
                 Canvas(
                     Modifier

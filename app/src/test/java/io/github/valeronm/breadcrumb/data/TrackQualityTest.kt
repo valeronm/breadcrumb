@@ -107,8 +107,8 @@ class TrackQualityTest {
     }
 
     // --- GNSS cross-check, and its precedence over the other two reasons ---
-    // The service used to decide this ahead of the rule, so nothing could pin the ordering; these
-    // are the rows that were unreachable from a host test.
+    // The rule, not its caller, decides the cross-check and how it ranks against the other
+    // reasons — which is what makes these rows pinnable from a host test.
 
     @Test fun `an unbacked fix is NO_GNSS`() {
         assertEquals(
@@ -149,9 +149,9 @@ class TrackQualityTest {
     }
 
     // --- The ceiling under a measured-motion verdict ---------------------
-    // Everything above is the rule as it was before the recorder had a second witness, and stays
-    // unedited on purpose: an untouched green test is what pins the behaviour the cross-check's
-    // off state must reproduce, and `Motion.Unknown` is what the recorder passes when it is off.
+    // The cases above all run with `Motion.Unknown` — what the recorder passes when the motion
+    // cross-check is off — and stay unedited on purpose: their green run is what pins that the
+    // off state changes nothing.
 
     /** A carried journey at roughly 20 km/h — the case the cross-check exists for. */
     private val CARRIED = Motion.Moving(5.6)
@@ -330,11 +330,10 @@ class TrackQualityTest {
     }
 
     // --- Stray leading point (drive-start cold-start artifact in imports) -----
-    //
-    // The rule is relative, not an absolute ceiling: the first seam is a stray when it's much
-    // faster than the real pace that follows (a car pulling out does a few km/h, not 180 in the
-    // opening second). Per-seam distance is keyed by the from-point's latitude, and every point is
-    // one second apart unless a test says otherwise, so seam speed (km/h) = gap-meters × 3.6.
+    // The rule is relative, not an absolute ceiling: the first seam is a stray when it's much faster
+    // than the real pace that follows (a car pulling out does a few km/h, not 180 in the opening
+    // second). Per-seam distance is keyed by the from-point's latitude, and every point is one second
+    // apart unless a test says otherwise, so seam speed (km/h) = gap-meters × 3.6.
 
     /** Per-seam gaps keyed by the from-point's latitude: lat n -> gaps[n] meters to the next. */
     private fun seamGaps(vararg gaps: Double) = DistanceFn { la1, _, la2, _ ->
@@ -364,7 +363,7 @@ class TrackQualityTest {
 
     @Test fun `a sub-ceiling stray is still caught`() {
         // 100 km/h first seam is under the driving jump ceiling, yet impossible one second after
-        // setting off when the real pace is ~14 km/h. The absolute rule missed exactly these.
+        // setting off when the real pace is ~14 km/h — the stray an absolute ceiling cannot catch.
         val pts = fivePoints()
         assertTrue(TrackQuality.leadingPointIsJump(pts, seamGaps(28.0, 4.0, 4.0, 4.0)))
     }

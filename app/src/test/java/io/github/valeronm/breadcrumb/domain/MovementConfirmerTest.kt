@@ -5,11 +5,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The second witness: what the position stream alone says the ground is doing. Nothing here knows
- * about activities or tracks — how a verdict is *used* belongs to [ActivityGate], the jump ceiling
- * and the no-fix guard, and is tested there.
- *
- * Fixtures lay fixes out in seconds and metres east of the neutral origin ([TestGeo]).
+ * The second witness: what the position stream alone says the ground is doing. Nothing here knows about
+ * activities or tracks — how a verdict is *used* belongs to [ActivityGate], the jump ceiling and the
+ * no-fix guard, tested there. Fixtures lay fixes out in seconds and metres east of [TestGeo]'s neutral origin.
  */
 class MovementConfirmerTest {
 
