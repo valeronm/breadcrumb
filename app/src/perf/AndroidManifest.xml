@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Lets `simpleperf` attach to this build from an adb shell. On a `user`-build phone the
+      profiler refuses any process that is neither debuggable nor profileable, which left the
+      perf build — the only one worth measuring — the one build that could not be sampled.
+      It grants nothing to anything but a shell on a connected cable, and it lives in this
+      source set so it reaches the perf build alone, never release.
+    -->
+    <application>
+        <profileable android:shell="true" />
+    </application>
+
+</manifest>
