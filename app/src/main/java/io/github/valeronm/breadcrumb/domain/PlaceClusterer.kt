@@ -157,7 +157,17 @@ object PlaceClusterer {
          * neighbor — so anything drawing them must treat them as settled, not compare them.
          */
         val conceded: List<StayDeriver.Endpoint>,
-    )
+    ) {
+        /**
+         * How many candidates a radius of [radiusM] would take — [wouldCapture]'s answer counted
+         * rather than listed, and deliberately the same one predicate so the two cannot disagree.
+         *
+         * A dragged radius asks this on every step, and a walk is what that costs: the expensive
+         * half — the rival scan and its distance calls — is already spent in [scanCapture], and
+         * what remains is a comparison per candidate still in play.
+         */
+        fun countWithin(radiusM: Double): Int = winnable.count { it.distanceM <= radiusM }
+    }
 
     /**
      * Prepares [candidates] for a radius sweeping between zero and [maxRadiusM].

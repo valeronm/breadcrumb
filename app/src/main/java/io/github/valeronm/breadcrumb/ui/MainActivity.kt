@@ -240,6 +240,11 @@ private fun MainScreen(
     // The last summary the key resolved to: keeps the screen stable between re-derivations and
     // re-finds a just-named cluster by centroid (naming moves its key from cluster: to place:).
     var placeDetailSnapshot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
+    // Whether that place's capture area is being tuned, stacked above its detail. Its own layer
+    // because its map wants the whole screen where the detail's is a card — see PlaceEditScreen.
+    // A flag rather than a second key: it can only ever be the place the detail below is showing,
+    // so deriving the layer's content from that key keeps the two from needing to agree.
+    var editingArea by remember { mutableStateOf(false) }
     // A visit tapped on the place detail: the Timeline scrolls to this stay when it next composes.
     var timelineVisitTarget by remember { mutableStateOf<StayDeriver.Stay?>(null) }
     // Tapping the Timeline tab while it is already open sends the list home. A counter, not a
@@ -266,8 +271,16 @@ private fun MainScreen(
     )
     val placeLayer = rememberOverlayLayer(
         content = placeDetailKey,
+        backEnabled = placeDetailKey != null && !editingArea,
         onDismiss = { placeDetailKey = null },
         onClosed = { placeDetailSnapshot = null },
+    )
+    // Capture-area tuning stacks above the place detail — back returns to it, previewed under the
+    // gesture, and discards the radius by simply never having written it. Its content is the
+    // detail's own key, so the two cannot drift apart or outlive one another.
+    val placeEditLayer = rememberOverlayLayer(
+        content = placeDetailKey?.takeIf { editingArea },
+        onDismiss = { editingArea = false },
     )
 
     // Undo snackbars for the swipe actions on the Timeline and Places lists. Owned here, not in the
@@ -416,8 +429,8 @@ private fun MainScreen(
 
         PlaceDetailOverlay(
             layer = placeLayer,
+            underlay = placeEditLayer,
             viewModel = viewModel,
-            detailKey = placeDetailKey,
             snapshot = placeDetailSnapshot,
             onResolved = { s ->
                 placeDetailSnapshot = s
@@ -430,6 +443,13 @@ private fun MainScreen(
                 overlay = null
                 selectedTab = HomeTab.TRACKS
             },
+            onAdjustArea = { editingArea = true },
+        )
+
+        PlaceEditOverlay(
+            layer = placeEditLayer,
+            viewModel = viewModel,
+            onClose = { editingArea = false },
         )
 
         SettingsPagesOverlay(
@@ -458,15 +478,10 @@ private fun DiscardedTrackOverlay(
     viewModel: TrackListViewModel,
     onClose: () -> Unit,
 ) {
-    val trackId = layer.rendered ?: return
-    // Collected here, not at MainScreen level: the aggregate query only stays live
-    // while this rarely-open layer exists.
-    val discardedTracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .overlayTransform(layer),
-    ) {
+    OverlayFrame(layer) { trackId ->
+        // Collected inside the frame, which composes only while the layer has content: the
+        // aggregate query stays live no longer than this rarely-open layer.
+        val discardedTracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
         TrackMapScreen(
             trackId = trackId,
             summary = discardedTracks.firstOrNull { it.id == trackId }?.toTrackSummary(),
@@ -492,13 +507,7 @@ private fun MainOverlay(
     onClose: () -> Unit,
     onOpenPage: (SettingsPage) -> Unit,
 ) {
-    val rendered = layer.rendered ?: return
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .overlayTransform(layer)
-            .underlayBlur(underlay),
-    ) {
+    OverlayFrame(layer, underlay) { rendered ->
         when (rendered) {
             is Overlay.TrackDetail -> TrackMapScreen(
                 trackId = rendered.id,
@@ -531,85 +540,130 @@ private fun MainOverlay(
 }
 
 /**
- * Place detail: stacked above whatever opened it (the Places overlay or the Tracks tab). The live
- * summary is re-found by [detailKey] each derivation; [onResolved] reports what it resolved to so
- * the caller can keep its snapshot (and key) tracking a renamed cluster.
+ * Place detail: stacked above whatever opened it (the Places overlay or the Tracks tab), and itself
+ * under the capture-area editor — hence the [underlay], which is what blurs and sharpens this page
+ * as the gesture backing out of that one moves. The live summary is re-found by [detailKey] each
+ * derivation; [onResolved] reports what it resolved to so the caller can keep its snapshot (and
+ * key) tracking a renamed cluster.
  */
 @Composable
 private fun PlaceDetailOverlay(
     layer: OverlayLayerState<String>,
+    underlay: OverlayLayerState<String>,
     viewModel: TrackListViewModel,
-    detailKey: String?,
     snapshot: PlaceResolver.PlaceSummary?,
     onResolved: (PlaceResolver.PlaceSummary) -> Unit,
     onClose: () -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
+    onAdjustArea: () -> Unit,
 ) {
-    if (layer.rendered == null) return
-    // Includes zero-visit pass-through clusters (summarize emits every cluster), so gap
-    // sides open even when their cluster never earned a stay — and their endpoints show
-    // as neighbor context on adjacent places' maps.
-    val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
-    val summary = remember(placeSummaries, detailKey, snapshot) {
-        placeSummaries.firstOrNull { it.rowKey() == detailKey }
-            ?: snapshot?.let { snap -> placeSummaries.firstOrNull { it.centroid == snap.centroid } }
-            ?: snapshot
-    }
-    LaunchedEffect(summary) {
-        summary?.let(onResolved)
-    }
-    summary?.let { detail ->
-        // The surrounding neighborhood, resolved once: the same distance test fed two passes
-        // before, and the ellipsoidal call is not cheap enough to pay twice per summary.
-        val nearby = remember(placeSummaries, detail) {
-            val self = detail.rowKey()
-            placeSummaries.filter { other ->
-                other.rowKey() != self &&
-                    AndroidDistance.meters(
-                        other.anchor.lat, other.anchor.lon,
-                        detail.anchor.lat, detail.anchor.lon,
-                    ) <= NEIGHBOR_CONTEXT_M
-            }
+    OverlayFrame(layer, underlay) { detailKey ->
+        // Inside the frame, so the derivation behind `places` is subscribed only while this layer
+        // is up — it is idle unless a screen wants it, and the frame is what knows that now.
+        val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
+        val summary = rememberPlaceSummary(placeSummaries, detailKey, snapshot)
+        LaunchedEffect(summary) {
+            summary?.let(onResolved)
         }
-        // Their endpoints as gray dots, named neighbors as labeled pins.
-        val neighbors = remember(nearby) {
-            nearby.flatMap { other ->
-                other.endpoints.map { NeighborPlace(it) } +
-                    listOfNotNull(other.place?.let { NeighborPlace(other.anchor, it.label) })
-            }
-        }
-        // What a radius could take: this cluster's own endpoints and the loose ones around it.
-        // Passed as endpoints rather than recovered from the dots above, which are a drawing list.
-        val candidates = remember(nearby, detail) {
-            detail.endpoints + nearby.flatMap { it.endpoints }
-        }
-        // The neighbors that can actually out-compete this pin for an endpoint — and only the
-        // *named* ones can. A named place is a seed: it is in the clusterer's anchor list before
-        // any endpoint is read, so it holds its ground whatever this radius does. An unnamed
-        // cluster is not; its anchor is merely the first endpoint no seed claimed, so ground this
-        // radius grows over never forms one at all. Counting unnamed clusters as rivals is why an
-        // earlier version of this preview could never show a widened radius taking anything.
-        val rivals = remember(nearby) {
-            nearby.filter { it.place != null }
-                .map { PlaceClusterer.Seed(it.anchor, it.radiusM) }
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .overlayTransform(layer),
-        ) {
+        summary?.let { detail ->
             PlaceDetailScreen(
+                summary = detail,
+                viewModel = viewModel,
+                onBack = onClose,
+                onOpenVisit = onOpenVisit,
+                onAdjustArea = onAdjustArea,
+            )
+        }
+    }
+}
+
+/**
+ * Tuning a place's capture area: stacked above its detail, which the predictive-back gesture
+ * previews underneath. The neighborhood the radius is judged against is resolved here rather than
+ * on the detail below — nothing over there draws it, so opening a place shouldn't pay for it.
+ */
+@Composable
+private fun PlaceEditOverlay(
+    layer: OverlayLayerState<String>,
+    viewModel: TrackListViewModel,
+    onClose: () -> Unit,
+) {
+    OverlayFrame(layer) { editKey ->
+        val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
+        // No snapshot fallback: a named place's key is `place:<id>`, which nothing here can move.
+        val summary = rememberPlaceSummary(placeSummaries, editKey, null)
+        summary?.let { detail ->
+            // The surrounding neighborhood, resolved once: the same distance test fed two passes
+            // before, and the ellipsoidal call is not cheap enough to pay twice per summary.
+            //
+            // Keyed on the pin, not on the summaries: those get a new identity on every
+            // derivation, and re-running this cascade would hand the map fresh neighbor, dot and
+            // rival lists — the GeoJSON re-upload the whole design avoids per drag step, fired by
+            // a track finishing somewhere instead. The pin moving (re-centering, from this very
+            // screen) is the one thing that genuinely re-frames the question.
+            val nearby = remember(editKey, detail.anchor) {
+                val self = detail.rowKey()
+                placeSummaries.filter { other ->
+                    other.rowKey() != self &&
+                        AndroidDistance.meters(
+                            other.anchor.lat, other.anchor.lon,
+                            detail.anchor.lat, detail.anchor.lon,
+                        ) <= NEIGHBOR_CONTEXT_M
+                }
+            }
+            // Their endpoints as gray dots, named neighbors as labeled pins.
+            val neighbors = remember(nearby) {
+                nearby.flatMap { other ->
+                    other.endpoints.map { NeighborPlace(it) } +
+                        listOfNotNull(other.place?.let { NeighborPlace(other.anchor, it.label) })
+                }
+            }
+            // What a radius could take: this cluster's own endpoints and the loose ones around it.
+            // Passed as endpoints rather than recovered from the dots above, a drawing list.
+            val candidates = remember(nearby, detail.endpoints) {
+                detail.endpoints + nearby.flatMap { it.endpoints }
+            }
+            // The neighbors that can actually out-compete this pin for an endpoint — and only the
+            // *named* ones can. A named place is a seed: it is in the clusterer's anchor list
+            // before any endpoint is read, so it holds its ground whatever this radius does. An
+            // unnamed cluster is not; its anchor is merely the first endpoint no seed claimed, so
+            // ground this radius grows over never forms one at all. Counting unnamed clusters as
+            // rivals is why an earlier version of this preview could never show a widened radius
+            // taking anything.
+            val rivals = remember(nearby) {
+                nearby.filter { it.place != null }
+                    .map { PlaceClusterer.Seed(it.anchor, it.radiusM) }
+            }
+            PlaceEditScreen(
                 summary = detail,
                 neighbors = neighbors,
                 candidates = candidates,
                 rivals = rivals,
                 viewModel = viewModel,
-                onBack = onClose,
-                onOpenVisit = onOpenVisit,
+                onClose = onClose,
             )
         }
     }
 }
+
+/**
+ * The live summary a place-screen key points at. Includes zero-visit pass-through clusters
+ * (summarize emits every cluster), so gap sides open even when their cluster never earned a stay —
+ * and their endpoints show as neighbor context on adjacent places' maps. [snapshot] keeps the
+ * screen stable between re-derivations and re-finds a just-named cluster by centroid, since naming
+ * moves its key from `cluster:` to `place:`.
+ */
+@Composable
+private fun rememberPlaceSummary(
+    summaries: List<PlaceResolver.PlaceSummary>,
+    key: String?,
+    snapshot: PlaceResolver.PlaceSummary?,
+): PlaceResolver.PlaceSummary? =
+    remember(summaries, key, snapshot) {
+        summaries.firstOrNull { it.rowKey() == key }
+            ?: snapshot?.let { snap -> summaries.firstOrNull { it.centroid == snap.centroid } }
+            ?: snapshot
+    }
 
 /**
  * Settings sub-pages: a second overlay layer above the hub — the gesture previews the hub
@@ -623,13 +677,7 @@ private fun SettingsPagesOverlay(
     onClose: () -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
-    val page = layer.rendered ?: return
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .overlayTransform(layer)
-            .underlayBlur(underlay),
-    ) {
+    OverlayFrame(layer, underlay) { page ->
         when (page) {
             SettingsPage.Sampling -> SamplingSettingsScreen(onBack = onClose)
             SettingsPage.PointQuality -> PointQualitySettingsScreen(onBack = onClose)

@@ -5,6 +5,9 @@ import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -126,10 +129,44 @@ internal fun Modifier.overlayTransform(layer: OverlayLayerState<*>): Modifier =
  * gesture reveals it. No-op below Android 12 (no RenderEffect there).
  */
 internal fun Modifier.underlayBlur(vararg layers: OverlayLayerState<*>): Modifier {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return this
+    // Nothing stacked above is the ordinary case for the topmost layer, not a caller's mistake.
+    if (layers.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return this
     return graphicsLayer {
         val radius = layers.maxOf { it.backdropBlurDp }.dp.toPx()
         renderEffect = if (radius > 0.5f) BlurEffect(radius, radius, TileMode.Clamp) else null
         clip = renderEffect != null
+    }
+}
+
+/**
+ * One stacked layer's full-screen frame: composed only while the layer has content, with its own
+ * open/close and predictive-back transform, plus the blur cast on it by [above] — the layers
+ * stacked over it, which sharpen this page as their gesture recedes. Pass nothing for [above] when
+ * the layer is the top of the stack.
+ *
+ * **[content] receives [OverlayLayerState.rendered], and that is the point.** A page must keep
+ * drawing itself all the way through the close animation, so it has to render from the layer's
+ * held content rather than from the state that opened it — that state goes null the moment back
+ * commits, and a page reading it blanks mid-slide instead of fading out. Handing the held value
+ * down puts the right one in scope and leaves the wrong one out of reach.
+ *
+ * Every overlay goes through here instead of assembling this itself. Both halves have already been
+ * got wrong once by a new layer re-deriving them: one sat sharp under the layer above it for want
+ * of an `underlayBlur`, and one vanished a frame into its own exit for reading the live key.
+ */
+@Composable
+internal fun <T : Any> OverlayFrame(
+    layer: OverlayLayerState<T>,
+    vararg above: OverlayLayerState<*>,
+    content: @Composable BoxScope.(T) -> Unit,
+) {
+    val rendered = layer.rendered ?: return
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .overlayTransform(layer)
+            .underlayBlur(*above),
+    ) {
+        content(rendered)
     }
 }

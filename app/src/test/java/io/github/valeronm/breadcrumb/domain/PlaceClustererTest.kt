@@ -299,6 +299,32 @@ class PlaceClustererTest {
         assertEquals(listOf(at(900.0)), scan.conceded)
     }
 
+    @Test fun `the count follows the radius across the prepared distances`() {
+        // What the edit screen's subtitle reads while the slider moves. One scan, then a count per
+        // step — so it has to agree with the dots at every radius, boundary included.
+        val candidates = listOf(at(0.0), at(120.0), at(120.0), at(250.0), at(900.0))
+        val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, emptyList(), flatDistance)
+
+        // The one exact distance the fixture has — the endpoint on the pin — pins inclusivity;
+        // the rest are compared either side of themselves, since a projected meter offset does
+        // not come back through the distance stub as the round number it was built from.
+        assertEquals(1, scan.countWithin(0.0))
+        assertEquals(1, scan.countWithin(119.5))
+        assertEquals(3, scan.countWithin(120.5))      // duplicates both count
+        assertEquals(4, scan.countWithin(500.0))
+        assertEquals(4, scan.countWithin(5_000.0))    // the 900 m one was conceded up front
+    }
+
+    @Test fun `the count leaves out what a nearer rival keeps`() {
+        // Conceded candidates are never counted, however wide the radius — the subtitle has to
+        // mean "this place's", the same as the dots that stay gray.
+        val rival = PlaceClusterer.Seed(at(210.0), 100.0)
+        val scan = PlaceClusterer
+            .scanCapture(listOf(at(0.0), at(200.0)), at(0.0), 500.0, listOf(rival), flatDistance)
+
+        assertEquals(1, scan.countWithin(500.0))
+    }
+
     @Test fun `a widened seed takes ground an organic cluster used to hold`() {
         // The premise the preview rests on: an organic anchor only exists where no seed reached,
         // so it is not a rival a radius has to beat — it simply stops forming.

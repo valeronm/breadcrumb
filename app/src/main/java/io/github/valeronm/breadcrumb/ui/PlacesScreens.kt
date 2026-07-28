@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -487,78 +486,22 @@ private fun PlaceRow(
 }
 
 /**
- * Full-screen detail for one place: stats header, the cluster on a map (capture circle +
- * endpoints), and — for named places — a radius slider. While dragging, both the circle and which
- * endpoints it captures preview locally against [PlaceClusterer.wouldCapture]; nothing is written
- * until Done, and Back restores the stored radius.
+ * Full-screen detail for one place: stats header, the place on a map, and its visits. The map
+ * leads with the pin alone — the capture circle, the endpoint scatter and the neighbors belong to
+ * [PlaceEditScreen], which [onAdjustArea] opens as a layer above this one.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PlaceDetailScreen(
     summary: PlaceResolver.PlaceSummary,
-    neighbors: List<NeighborPlace>,
-    candidates: List<StayDeriver.Endpoint>,
-    rivals: List<PlaceClusterer.Seed>,
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
+    onAdjustArea: () -> Unit,
 ) {
     val context = LocalContext.current
     val place = summary.place
     var showNameDialog by remember { mutableStateOf(false) }
-    var showRecenterDialog by remember { mutableStateOf(false) }
-    // Edit mode reveals the cluster internals (capture circle, endpoints, neighbors) plus the
-    // radius slider and re-center action; view mode leads with stats, a clean map and visits.
-    var editing by remember(place?.id) { mutableStateOf(false) }
-    // Local while editing: the circle previews live, but nothing is written until Done. A radius
-    // write re-derives the whole timeline, so committing per drag re-derived it several times for
-    // one adjustment — and left no way back to the value the screen was opened on.
-    var radiusM by remember(place?.id) { mutableFloatStateOf(summary.radiusM.toFloat()) }
-    // Where the pin would move: the mean of the endpoints the cluster currently captures.
-    val endpointCentroid = remember(summary.endpoints) {
-        summary.endpoints.takeIf { it.isNotEmpty() }?.let { pts ->
-            StayDeriver.Endpoint(pts.sumOf { it.lat } / pts.size, pts.sumOf { it.lon } / pts.size)
-        }
-    }
-    // The two ways out of edit mode, and they mean different things: Done keeps the radius, Back
-    // — by icon or by gesture — throws it away. `summary.radiusM` is still the stored value while
-    // editing, precisely because nothing has been written yet, so it is what a discard restores.
-    val discardRadius = {
-        radiusM = summary.radiusM.toFloat()
-        editing = false
-    }
-    val commitRadius = {
-        if (place != null && radiusM.toDouble() != summary.radiusM) {
-            viewModel.setPlaceRadius(place.id, radiusM.toDouble())
-        }
-        editing = false
-    }
-    val radiusScale = rememberDistanceScale(SliderStops(50, 500, 25), SliderStops(150, 1650, 75))
-    // Prepared once when edit mode opens, not per drag step: whether a neighbor keeps an endpoint
-    // has nothing to do with our radius, and paying for that scan on every step is what made a
-    // place with a few thousand endpoints around it lag under the finger. See CaptureScan.
-    //
-    // Keyed on what the scan reads, not on the whole summary — that carries visit stats which move
-    // on every derivation and would rebuild this for nothing.
-    val captureDots = remember(editing, place, summary.anchor, candidates, rivals, radiusScale) {
-        if (!editing || place == null) {
-            null
-        } else {
-            val scan = PlaceClusterer.scanCapture(
-                candidates = candidates,
-                anchor = summary.anchor,
-                maxRadiusM = radiusScale.metersOf(radiusScale.range.endInclusive).toDouble(),
-                rivals = rivals,
-                distance = AndroidDistance,
-            )
-            // Conceded dots carry no distance — a nearer pin holds them at any radius, so the map
-            // must draw them settled rather than compare them.
-            scan.winnable.map { CaptureDot(it.location, it.distanceM) } +
-                scan.conceded.map { CaptureDot(it, null) }
-        }
-    }
-    // Back steps out of edit mode before it closes the screen.
-    BackHandler(enabled = editing) { discardRadius() }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -566,68 +509,46 @@ internal fun PlaceDetailScreen(
                 title = {
                     Column {
                         Text(place?.label ?: "Unnamed place")
-                        if (editing) {
-                            Text(
-                                "${summary.endpoints.size} recorded track endpoints",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        } else {
-                            // What the place is for belongs with its name, not among the stats.
-                            place?.placeCategory?.let { category ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    Icon(
-                                        category.icon,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = categoryColor(category),
-                                    )
-                                    Text(
-                                        category.label,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
+                        // What the place is for belongs with its name, not among the stats.
+                        place?.placeCategory?.let { category ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    category.icon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = categoryColor(category),
+                                )
+                                Text(
+                                    category.label,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                     }
                 },
-                navigationIcon = { BackNavIcon { if (editing) discardRadius() else onBack() } },
+                navigationIcon = { BackNavIcon(onBack) },
                 actions = {
-                    if (editing) {
-                        if (place != null && endpointCentroid != null) {
-                            IconButton(onClick = { showRecenterDialog = true }) {
-                                Icon(
-                                    Icons.Filled.FilterCenterFocus,
-                                    contentDescription = "Re-center pin",
-                                )
-                            }
+                    // Handing the pin to a maps app is offered for unnamed clusters too — the
+                    // point is there to look up whether or not it has a name.
+                    IconButton(
+                        onClick = { context.openInMaps(summary.anchor.lat, summary.anchor.lon, place?.label) },
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = "Open in maps app",
+                        )
+                    }
+                    // The rest are a named place's: naming itself has the header CTA.
+                    if (place != null) {
+                        IconButton(onClick = { showNameDialog = true }) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Edit place")
                         }
-                        IconButton(onClick = { commitRadius() }) {
-                            Icon(Icons.Filled.Check, contentDescription = "Done")
-                        }
-                    } else {
-                        // Handing the pin to a maps app is offered for unnamed clusters too — the
-                        // point is there to look up whether or not it has a name.
-                        IconButton(
-                            onClick = { context.openInMaps(summary.anchor.lat, summary.anchor.lon, place?.label) },
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = "Open in maps app",
-                            )
-                        }
-                        // The rest are a named place's: naming itself has the header CTA.
-                        if (place != null) {
-                            IconButton(onClick = { showNameDialog = true }) {
-                                Icon(Icons.Filled.Edit, contentDescription = "Edit place")
-                            }
-                            IconButton(onClick = { editing = true }) {
-                                Icon(Icons.Filled.Tune, contentDescription = "Adjust area")
-                            }
+                        IconButton(onClick = onAdjustArea) {
+                            Icon(Icons.Filled.Tune, contentDescription = "Adjust area")
                         }
                     }
                 },
@@ -642,74 +563,40 @@ internal fun PlaceDetailScreen(
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (!editing) {
-                Card(Modifier.fillMaxWidth()) {
-                    PlaceStatsHeader(summary)
-                    if (place == null) {
-                        FilledTonalButton(
-                            onClick = { showNameDialog = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .padding(bottom = 16.dp),
-                        ) { Text("Name this place") }
-                    }
-                }
-            } else if (place != null) {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        SliderSetting("Place radius", radiusM.roundToInt(), radiusScale) {
-                            radiusM = it.toFloat()
-                        }
-                    }
+            Card(Modifier.fillMaxWidth()) {
+                PlaceStatsHeader(summary)
+                if (place == null) {
+                    FilledTonalButton(
+                        onClick = { showNameDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(bottom = 16.dp),
+                    ) { Text("Name this place") }
                 }
             }
-            // One card at one call site in both modes, so the MapView survives the mode switch
-            // and only restyles (internals on/off) instead of reloading.
-            Card(
-                if (editing) {
-                    Modifier.weight(1f).fillMaxWidth()
-                } else {
-                    Modifier.height(220.dp).fillMaxWidth()
-                },
-            ) {
+            Card(Modifier.height(220.dp).fillMaxWidth()) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
                     MapLibrePlaceMap(
                         center = summary.anchor,
-                        radiusM = if (place != null) radiusM.toDouble() else summary.radiusM,
-                        endpoints = summary.endpoints,
-                        neighbors = neighbors,
-                        capture = captureDots,
-                        // Only while editing: in view mode the map leads with this place alone.
-                        rivalAreas = if (editing) rivals else emptyList(),
-                        showInternals = editing,
+                        radiusM = summary.radiusM,
+                        // The map here leads with the place alone: no circle, no endpoint dots,
+                        // no neighbors. Everything they are for belongs to PlaceEditScreen — and
+                        // the scatter is withheld rather than merely hidden, because the map
+                        // compares it to decide whether to rebuild its marker source, and a fresh
+                        // list each derivation would re-upload it all to redraw one pin.
+                        endpoints = emptyList(),
+                        showInternals = false,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
-            if (!editing) {
-                if (summary.stays.isEmpty()) {
-                    EmptyState("No visits yet", Modifier.weight(1f).fillMaxWidth())
-                } else {
-                    PlaceVisitsList(summary.stays, onOpenVisit, Modifier.weight(1f).fillMaxWidth())
-                }
+            if (summary.stays.isEmpty()) {
+                EmptyState("No visits yet", Modifier.weight(1f).fillMaxWidth())
+            } else {
+                PlaceVisitsList(summary.stays, onOpenVisit, Modifier.weight(1f).fillMaxWidth())
             }
         }
-    }
-
-    if (showRecenterDialog && place != null && endpointCentroid != null) {
-        ConfirmDialog(
-            icon = Icons.Filled.FilterCenterFocus,
-            title = "Re-center pin?",
-            text = "Moves \"${place.label}\" to the middle of where your visits actually landed. " +
-                "Visits and stats recalculate around the new spot.",
-            confirmLabel = "Move",
-            onConfirm = {
-                viewModel.setPlacePin(place.id, endpointCentroid.lat, endpointCentroid.lon)
-                showRecenterDialog = false
-            },
-            onDismiss = { showRecenterDialog = false },
-        )
     }
 
     if (showNameDialog) {
@@ -789,6 +676,155 @@ internal fun PlaceDetailScreen(
                 onDismiss = { choosingCategory = false },
             )
         }
+    }
+}
+
+/**
+ * Tuning one named place's capture area: the radius slider over a full-height map showing what the
+ * circle would take — this place's endpoints and the loose ones around it, the named neighbors it
+ * competes with, and their areas muted underneath.
+ *
+ * **A layer of its own, above the place detail, and the map is the reason.** The two screens want
+ * the map at different heights, and a `MapView` is a `TextureView`: handed a new size it scales its
+ * last-rendered frame into the new box until it has one of its own, which is the pin visibly
+ * stretching to an oval. Nothing fixes that from inside one shared map — hiding what is drawn is
+ * too late (the frame being scaled was rendered before the hide), and animating the height makes it
+ * every frame instead of one. A map per screen is never resized, so there is nothing to hide,
+ * sequence or animate around.
+ *
+ * Its camera is its own too, and that is the point rather than the price: this screen opens framed
+ * on the circle, in a state the radius can be judged in, wherever the detail map below happened to
+ * be panned to.
+ *
+ * Backing out is the layer's own predictive-back gesture, and it discards by construction —
+ * [radiusM] is local and nothing is written until Done.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PlaceEditScreen(
+    summary: PlaceResolver.PlaceSummary,
+    neighbors: List<NeighborPlace>,
+    candidates: List<StayDeriver.Endpoint>,
+    rivals: List<PlaceClusterer.Seed>,
+    viewModel: TrackListViewModel,
+    onClose: () -> Unit,
+) {
+    val place = summary.place ?: return
+    var showRecenterDialog by remember { mutableStateOf(false) }
+    // The circle previews live, but nothing is written until Done. A radius write re-derives the
+    // whole timeline, so committing per drag re-derived it several times for one adjustment.
+    var radiusM by remember(place.id) { mutableFloatStateOf(summary.radiusM.toFloat()) }
+    // Where the pin would move: the mean of the endpoints the cluster currently captures.
+    val endpointCentroid = remember(summary.endpoints) {
+        summary.endpoints.takeIf { it.isNotEmpty() }?.let { pts ->
+            StayDeriver.Endpoint(pts.sumOf { it.lat } / pts.size, pts.sumOf { it.lon } / pts.size)
+        }
+    }
+    val radiusScale = rememberDistanceScale(SliderStops(50, 500, 25), SliderStops(150, 1650, 75))
+    // Prepared once when the screen opens, not per drag step: whether a neighbor keeps an endpoint
+    // has nothing to do with our radius, and paying for that scan on every step is what made a
+    // place with a few thousand endpoints around it lag under the finger. See CaptureScan.
+    //
+    // Keyed on what the scan reads, not on the whole summary — that carries visit stats which move
+    // on every derivation and would rebuild this for nothing.
+    val scan = remember(summary.anchor, candidates, rivals, radiusScale) {
+        PlaceClusterer.scanCapture(
+            candidates = candidates,
+            anchor = summary.anchor,
+            maxRadiusM = radiusScale.metersOf(radiusScale.range.endInclusive).toDouble(),
+            rivals = rivals,
+            distance = AndroidDistance,
+        )
+    }
+    val captureDots = remember(scan) {
+        // Conceded dots carry no distance — a nearer pin holds them at any radius, so the map
+        // must draw them settled rather than compare them.
+        scan.winnable.map { CaptureDot(it.location, it.distanceM) } +
+            scan.conceded.map { CaptureDot(it, null) }
+    }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                colors = canvasTopBarColors(),
+                title = {
+                    Column {
+                        Text(place.label)
+                        // What the circle holds *now*, not what the stored radius holds: the count
+                        // is the same answer the dots below are showing, so the two can't disagree
+                        // as the slider moves.
+                        val captured = scan.countWithin(radiusM.toDouble())
+                        Text(
+                            "$captured recorded track ${if (captured == 1) "endpoint" else "endpoints"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                navigationIcon = { BackNavIcon(onClose) },
+                actions = {
+                    if (endpointCentroid != null) {
+                        IconButton(onClick = { showRecenterDialog = true }) {
+                            Icon(Icons.Filled.FilterCenterFocus, contentDescription = "Re-center pin")
+                        }
+                    }
+                    IconButton(
+                        onClick = {
+                            if (radiusM.toDouble() != summary.radiusM) {
+                                viewModel.setPlaceRadius(place.id, radiusM.toDouble())
+                            }
+                            onClose()
+                        },
+                    ) {
+                        Icon(Icons.Filled.Check, contentDescription = "Done")
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(inner)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    SliderSetting("Place radius", radiusM.roundToInt(), radiusScale) {
+                        radiusM = it.toFloat()
+                    }
+                }
+            }
+            Card(Modifier.weight(1f).fillMaxWidth()) {
+                Box(Modifier.fillMaxSize().clipToBounds()) {
+                    MapLibrePlaceMap(
+                        center = summary.anchor,
+                        radiusM = radiusM.toDouble(),
+                        endpoints = summary.endpoints,
+                        neighbors = neighbors,
+                        capture = captureDots,
+                        rivalAreas = rivals,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+    }
+
+    if (showRecenterDialog && endpointCentroid != null) {
+        ConfirmDialog(
+            icon = Icons.Filled.FilterCenterFocus,
+            title = "Re-center pin?",
+            text = "Moves \"${place.label}\" to the middle of where your visits actually landed. " +
+                "Visits and stats recalculate around the new spot.",
+            confirmLabel = "Move",
+            onConfirm = {
+                viewModel.setPlacePin(place.id, endpointCentroid.lat, endpointCentroid.lon)
+                showRecenterDialog = false
+            },
+            onDismiss = { showRecenterDialog = false },
+        )
     }
 }
 
