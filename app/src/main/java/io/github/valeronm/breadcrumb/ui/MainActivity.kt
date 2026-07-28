@@ -252,26 +252,38 @@ private fun MainScreen(
     // false would swallow the second.
     var timelineHomeRequest by remember { mutableIntStateOf(0) }
 
+    // The stack, declared bottom-up. A layer's `over` is the one it opens on top of, and that
+    // single mention decides everything stacking implies: which gesture back reaches it, which
+    // page blurs beneath which, and which draws over which.
+    //
+    // The tabs are its floor — a layer with no page of its own, standing for the tabbed UI so that
+    // what opens over it can name it like any other parent. Without one, the pages reached from
+    // the tabs would have to be listed again wherever the tabs are blurred, which is the second
+    // statement of a relation this exists to state once.
+    val tabsLayer = remember { OverlayLayerState<Unit>() }
     val overlayLayer = rememberOverlayLayer(
         content = overlay,
-        backEnabled = overlay != null && settingsPage == null && placeDetailKey == null,
+        over = tabsLayer,
         onDismiss = { overlay = null },
     )
     // Settings sub-pages stack above the hub — the predictive-back preview under them shows
     // the hub (where back actually lands), not the tabs.
     val settingsPageLayer = rememberOverlayLayer(
         content = settingsPage,
-        backEnabled = settingsPage != null && discardedTrackId == null,
+        over = overlayLayer,
         onDismiss = { settingsPage = null },
     )
     // Deleted-track detail: back returns to the Recently deleted list, previewing it under the gesture.
     val discardedLayer = rememberOverlayLayer(
         content = discardedTrackId,
+        over = settingsPageLayer,
         onDismiss = { discardedTrackId = null },
     )
+    // On the tabs, not on the track detail: place detail is reached from the Timeline or the
+    // Places list, and no page above the tabs offers a route to one.
     val placeLayer = rememberOverlayLayer(
         content = placeDetailKey,
-        backEnabled = placeDetailKey != null && !editingArea,
+        over = tabsLayer,
         onDismiss = { placeDetailKey = null },
         onClosed = { placeDetailSnapshot = null },
     )
@@ -280,6 +292,7 @@ private fun MainScreen(
     // detail's own key, so the two cannot drift apart or outlive one another.
     val placeEditLayer = rememberOverlayLayer(
         content = placeDetailKey?.takeIf { editingArea },
+        over = placeLayer,
         onDismiss = { editingArea = false },
     )
 
@@ -292,7 +305,7 @@ private fun MainScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         // The tabbed UI stays composed underneath so it can be previewed during the back gesture.
         Scaffold(
-            modifier = Modifier.underlayBlur(overlayLayer, placeLayer),
+            modifier = Modifier.blurredBy { tabsLayer.blurDp },
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 TopAppBar(
@@ -417,7 +430,6 @@ private fun MainScreen(
         // shifts with the predictive-back gesture, previewing the layer underneath.
         MainOverlay(
             layer = overlayLayer,
-            underlay = settingsPageLayer,
             timeline = timeline,
             viewModel = viewModel,
             unitChoice = unitChoice,
@@ -429,7 +441,6 @@ private fun MainScreen(
 
         PlaceDetailOverlay(
             layer = placeLayer,
-            underlay = placeEditLayer,
             viewModel = viewModel,
             snapshot = placeDetailSnapshot,
             onResolved = { s ->
@@ -454,7 +465,6 @@ private fun MainScreen(
 
         SettingsPagesOverlay(
             layer = settingsPageLayer,
-            underlay = discardedLayer,
             viewModel = viewModel,
             onClose = { settingsPage = null },
             onOpenTrack = { discardedTrackId = it },
@@ -498,7 +508,6 @@ private fun DiscardedTrackOverlay(
 @Composable
 private fun MainOverlay(
     layer: OverlayLayerState<Overlay>,
-    underlay: OverlayLayerState<SettingsPage>,
     timeline: List<TimelineItem>,
     viewModel: TrackListViewModel,
     unitChoice: UnitChoice,
@@ -507,7 +516,7 @@ private fun MainOverlay(
     onClose: () -> Unit,
     onOpenPage: (SettingsPage) -> Unit,
 ) {
-    OverlayFrame(layer, underlay) { rendered ->
+    OverlayFrame(layer) { rendered ->
         when (rendered) {
             is Overlay.TrackDetail -> TrackMapScreen(
                 trackId = rendered.id,
@@ -540,16 +549,13 @@ private fun MainOverlay(
 }
 
 /**
- * Place detail: stacked above whatever opened it (the Places overlay or the Tracks tab), and itself
- * under the capture-area editor — hence the [underlay], which is what blurs and sharpens this page
- * as the gesture backing out of that one moves. The live summary is re-found by [detailKey] each
- * derivation; [onResolved] reports what it resolved to so the caller can keep its snapshot (and
- * key) tracking a renamed cluster.
+ * Place detail: the tabs beneath it, the capture-area editor above. The live summary is re-found by
+ * the layer's key each derivation; [onResolved] reports what it resolved to so the caller can keep
+ * its snapshot (and key) tracking a renamed cluster.
  */
 @Composable
 private fun PlaceDetailOverlay(
     layer: OverlayLayerState<String>,
-    underlay: OverlayLayerState<String>,
     viewModel: TrackListViewModel,
     snapshot: PlaceResolver.PlaceSummary?,
     onResolved: (PlaceResolver.PlaceSummary) -> Unit,
@@ -557,7 +563,7 @@ private fun PlaceDetailOverlay(
     onOpenVisit: (StayDeriver.Stay) -> Unit,
     onAdjustArea: () -> Unit,
 ) {
-    OverlayFrame(layer, underlay) { detailKey ->
+    OverlayFrame(layer) { detailKey ->
         // Inside the frame, so the derivation behind `places` is subscribed only while this layer
         // is up — it is idle unless a screen wants it, and the frame is what knows that now.
         val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
@@ -672,12 +678,11 @@ private fun rememberPlaceSummary(
 @Composable
 private fun SettingsPagesOverlay(
     layer: OverlayLayerState<SettingsPage>,
-    underlay: OverlayLayerState<Long>,
     viewModel: TrackListViewModel,
     onClose: () -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
-    OverlayFrame(layer, underlay) { page ->
+    OverlayFrame(layer) { page ->
         when (page) {
             SettingsPage.Sampling -> SamplingSettingsScreen(onBack = onClose)
             SettingsPage.PointQuality -> PointQualitySettingsScreen(onBack = onClose)
