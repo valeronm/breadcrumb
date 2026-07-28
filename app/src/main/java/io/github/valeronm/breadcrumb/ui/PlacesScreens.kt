@@ -63,6 +63,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -90,6 +91,8 @@ import io.github.valeronm.breadcrumb.domain.placeCategory
 import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.openInMaps
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -726,26 +729,37 @@ internal fun PlaceEditScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val undo = rememberUndoSnackbar(snackbarHostState)
     val radiusScale = rememberDistanceScale(SliderStops(50, 500, 25), SliderStops(150, 1650, 75))
-    // Prepared once when the screen opens, not per drag step: whether a neighbor keeps an endpoint
-    // has nothing to do with our radius, and paying for that scan on every step is what made a
-    // place with a few thousand endpoints around it lag under the finger. See CaptureScan.
+    val maxRadiusM = radiusScale.metersOf(radiusScale.range.endInclusive).toDouble()
+    // Prepared once per pin, not per drag step: whether a neighbor keeps an endpoint has nothing
+    // to do with our radius, and paying for that scan on every step is what made a place with a
+    // few thousand endpoints around it lag under the finger. See CaptureScan.
+    //
+    // Off the main thread, because the frame it would otherwise land on is the one this layer
+    // opens on: a 300 ms animation and a fresh MapView loading its style, plus a distance call per
+    // endpoint in the neighborhood. Null until the first scan arrives — the map draws its plain
+    // endpoints meanwhile — and the previous scan stays up while a moved pin is re-measured, so
+    // re-centering colors the dots from where the pin was for a frame rather than blanking them.
     //
     // Keyed on what the scan reads, not on the whole summary — that carries visit stats which move
     // on every derivation and would rebuild this for nothing.
-    val scan = remember(pin, candidates, rivals, radiusScale) {
-        PlaceClusterer.scanCapture(
-            candidates = candidates,
-            anchor = pin,
-            maxRadiusM = radiusScale.metersOf(radiusScale.range.endInclusive).toDouble(),
-            rivals = rivals,
-            distance = AndroidDistance,
-        )
+    val scan by produceState<PlaceClusterer.CaptureScan?>(null, pin, candidates, rivals, maxRadiusM) {
+        value = withContext(Dispatchers.Default) {
+            PlaceClusterer.scanCapture(
+                candidates = candidates,
+                anchor = pin,
+                maxRadiusM = maxRadiusM,
+                rivals = rivals,
+                distance = AndroidDistance,
+            )
+        }
     }
     val captureDots = remember(scan) {
         // Conceded dots carry no distance — a nearer pin holds them at any radius, so the map
         // must draw them settled rather than compare them.
-        scan.winnable.map { CaptureDot(it.location, it.distanceM) } +
-            scan.conceded.map { CaptureDot(it, null) }
+        scan?.let {
+            it.winnable.map { reach -> CaptureDot(reach.location, reach.distanceM) } +
+                it.conceded.map { endpoint -> CaptureDot(endpoint, null) }
+        }
     }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -758,7 +772,7 @@ internal fun PlaceEditScreen(
                         // What the circle holds *now*, not what the stored radius holds: the count
                         // is the same answer the dots below are showing, so the two can't disagree
                         // as the slider moves.
-                        val captured = scan.countWithin(radiusM.toDouble())
+                        val captured = scan?.countWithin(radiusM.toDouble()) ?: opened.endpoints.size
                         Text(
                             "$captured recorded track ${if (captured == 1) "endpoint" else "endpoints"}",
                             style = MaterialTheme.typography.bodySmall,
@@ -772,12 +786,9 @@ internal fun PlaceEditScreen(
                     // changes what it takes, which moves the middle of it, which is where
                     // re-centering would put the pin. Taking the offer moves the pin there and
                     // re-measures from it, so a second tap settles rather than repeating.
-                    val recenterTarget = PlaceResolver.recenterTarget(
-                        anchor = pin,
-                        scan = scan,
-                        radiusM = radiusM.toDouble(),
-                        distance = AndroidDistance,
-                    )
+                    val recenterTarget = scan?.let {
+                        PlaceResolver.recenterTarget(pin, it, radiusM.toDouble(), AndroidDistance)
+                    }
                     if (recenterTarget != null) {
                         IconButton(
                             onClick = {

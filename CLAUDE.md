@@ -383,3 +383,16 @@ cross-checks it.
   switching the color metric recolors without re-centring; the live preview refreshes the source
   geometry on point-list growth but re-frames only when the current position leaves the central 80%
   of the viewport, so a user pan/zoom survives. See `MapLibreTrackMap`.
+- **Never resize a `MapView` — give each screen its own.** In texture mode it scales its
+  last-rendered frame into the new box until it has one of its own, so a marker visibly stretches;
+  on a place map the pin becomes an oval. There is no fix from inside a shared map: hiding what is
+  drawn is too late (the frame being scaled was rendered *before* the hide), animating the height
+  makes it every frame instead of one, and sequencing against `OnDidFinishRenderingFrame` spares
+  the markers but not the basemap and costs two frames of latency. Two screens that want the map at
+  different sizes are two layers with a map each — which is why the place detail and its capture-area
+  editor are separate (`PlaceEditScreen`). A fresh map means a fresh camera, and that is the point
+  rather than the price: an editor should open framed on what it edits.
+- **Marker symbol layers draw in source order** (`symbolZOrder(SYMBOL_Z_ORDER_SOURCE)`, set once on
+  the shared `markerSymbolLayer` base). The default stacks point symbols by screen position, so the
+  feature a collection deliberately appends last — a place's pin after its dots, a track's start/end
+  after the rejected fixes around them — is otherwise covered by whatever happens to sit lower.
