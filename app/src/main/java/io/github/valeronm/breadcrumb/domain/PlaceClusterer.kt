@@ -174,6 +174,26 @@ object PlaceClusterer {
          * what remains is a comparison per candidate still in play.
          */
         fun countWithin(radiusM: Double): Int = winnable.count { it.distanceM <= radiusM }
+
+        /**
+         * The mean of what a radius of [radiusM] would take, or null when it would take nothing —
+         * where a pin would sit if it followed the circle being dragged.
+         *
+         * Same walk and same predicate as [countWithin], so the two always describe one set: a
+         * radius cannot report a count of nothing and a position anyway, or the reverse.
+         */
+        fun centroidWithin(radiusM: Double): StayDeriver.Endpoint? {
+            var lat = 0.0
+            var lon = 0.0
+            var taken = 0
+            for (reach in winnable) {
+                if (reach.distanceM > radiusM) continue
+                lat += reach.location.lat
+                lon += reach.location.lon
+                taken++
+            }
+            return if (taken == 0) null else StayDeriver.Endpoint(lat / taken, lon / taken)
+        }
     }
 
     /**

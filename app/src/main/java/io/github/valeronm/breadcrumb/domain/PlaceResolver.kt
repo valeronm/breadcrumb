@@ -35,6 +35,27 @@ object PlaceResolver {
      */
     const val NEIGHBOR_CONTEXT_M = 1_200.0
 
+    /**
+     * How far the endpoint mean has to sit from the pin before re-centering is worth offering.
+     * A shift smaller than this is inside the scatter the mean is made of — the endpoints are GPS
+     * fixes, and no arrangement of them locates a place to better than a few meters.
+     */
+    private const val RECENTER_MIN_SHIFT_M = 10.0
+
+    /**
+     * Stable identity for a place: its row id once named, and where it sits while it is only a
+     * cluster. A name is the only thing that survives re-derivation unchanged — an unnamed cluster
+     * has nothing but its position, which is why the two halves read differently. Coordinates go in
+     * rounded to about a meter, so a key doesn't churn on movement smaller than the fixes it is
+     * averaged from.
+     *
+     * Private on purpose: [PlaceSummary.key] and [ResolvedStay.key] are the only ways to ask, so no
+     * caller ever decides for itself which pair of fields identifies a place, and the two cannot
+     * name the same cluster differently.
+     */
+    private fun placeKey(placeId: Long?, position: StayDeriver.Endpoint): String =
+        placeId?.let { "place:$it" } ?: "cluster:%.5f,%.5f".format(position.lat, position.lon)
+
     class ResolvedStay(
         /**
          * The matched place, or null for an unnamed cluster — the row itself rather than a copy of
@@ -56,15 +77,20 @@ object PlaceResolver {
 
         /** What the place is for; null for an unnamed or untagged one. */
         val category: PlaceCategory? get() = place?.placeCategory
+
+        /**
+         * This cluster's stable identity — the same string [PlaceSummary.key] gives for it, so a
+         * stay row and a Places row open the same place.
+         */
+        val key: String get() = placeKey(placeId, centroid)
     }
 
     /**
-     * Aggregate stats for one place on the Places screen. [place] is null for an unnamed cluster
-     * (still listed so it can be named); [centroid] is where naming would pin it.
+     * Aggregate stats for one place on the Places screen. [place] is null for an unnamed cluster,
+     * still listed so it can be named.
      */
     data class PlaceSummary(
         val place: Place?,
-        val centroid: StayDeriver.Endpoint,
         val visitCount: Int,
         /** Most recent stay end (ongoing → now); null only for a named place with no stays. */
         val lastSeenMs: Long?,
@@ -80,15 +106,28 @@ object PlaceResolver {
          * Where the visits actually landed — the mean of [endpoints], as against [anchor], where
          * the pin was dropped; null when there is nothing to average.
          *
-         * It is the clusterer's own mean ([PlaceClusterer.Cluster.endpointMean]) carried through,
-         * not a second one computed here: a summary is what every screen gets in place of the
-         * cluster, so a reading of the cluster that a screen needs has to be on it.
+         * It is the clusterer's own mean ([PlaceClusterer.Cluster.endpointMean]) carried through
+         * rather than a second one computed here, and it is what [pin] answers with for a cluster
+         * no one has named yet — where a place sits when nothing has said where to put it.
          */
         val endpointCentroid: StayDeriver.Endpoint?,
         /** This place's individual visits (unsliced), newest first — the detail screen's history. */
         val stays: List<StayDeriver.Stay> = emptyList(),
     ) {
         val isNamed: Boolean get() = place != null
+
+        /**
+         * Where this place sits: the pin once named, and until then the mean of what it captured
+         * — which is exactly where naming would drop the pin. Derived, because a summary that
+         * carried it could hold a position its own anchor and endpoints disagree with.
+         *
+         * The fallback cannot fire: only a seeded cluster can be empty of endpoints, and a seeded
+         * cluster is named. It is there because the mean is typed nullable for that case.
+         */
+        val pin: StayDeriver.Endpoint get() = if (isNamed) anchor else endpointCentroid ?: anchor
+
+        /** This place's stable identity — see [placeKey]. */
+        val key: String get() = placeKey(place?.id, pin)
     }
 
     /**
@@ -178,7 +217,7 @@ object PlaceResolver {
             val place = matchedPlace(cluster, places)
             if (place == null) {
                 unnamed += PlaceSummary(
-                    null, cluster.centroid, count, last.takeIf { count > 0 }, total,
+                    null, count, last.takeIf { count > 0 }, total,
                     anchor = cluster.anchor, radiusM = cluster.radiusM, endpoints = cluster.members,
                     endpointCentroid = cluster.endpointMean,
                     stays = members.sortedByDescending { it.start },
@@ -203,7 +242,6 @@ object PlaceResolver {
             val cluster = clusters.getOrNull(index)?.takeIf { it.seedIndex == index }
             PlaceSummary(
                 place = place,
-                centroid = StayDeriver.Endpoint(place.lat, place.lon),
                 visitCount = agg?.count ?: 0,
                 lastSeenMs = agg?.last,
                 totalMs = agg?.total ?: 0L,
@@ -218,18 +256,60 @@ object PlaceResolver {
     }
 
     /**
-     * Gathers what surrounds [subject] — the context a capture radius is judged against, prepared
-     * for [PlaceClusterer.scanCapture].
+     * Where re-centering a pin at [anchor] would move it — the middle of what a radius of
+     * [radiusM] takes — or null when it would not move it anywhere worth offering: nothing
+     * captured to average, or a middle already sitting on the pin.
      *
-     * [all] is the full summary list and must contain [subject] itself, which is excluded by
-     * identity.
+     * The coincident case is the ordinary one, not a corner: naming a cluster pins the place at
+     * exactly this mean, so a place named and not since revisited has the two in the same spot.
+     *
+     * The middle is taken from [scan] at [radiusM] rather than passed in, so the answer always
+     * describes the circle on screen rather than the one last saved — a caller cannot pair a pin
+     * with a mean measured from somewhere else.
+     */
+    fun recenterTarget(
+        anchor: StayDeriver.Endpoint,
+        scan: PlaceClusterer.CaptureScan,
+        radiusM: Double,
+        distance: DistanceFn,
+    ): StayDeriver.Endpoint? =
+        scan.centroidWithin(radiusM)?.takeIf {
+            distance.meters(it.lat, it.lon, anchor.lat, anchor.lon) >= RECENTER_MIN_SHIFT_M
+        }
+
+    /**
+     * Finds the place a screen is showing in a freshly derived list — [key] is what it was opened
+     * with, [previous] what it last resolved to.
+     *
+     * Identity alone is not enough, because naming is the one act that changes a place's key: the
+     * cluster it was is gone and a `place:` row stands where it stood. So a key that no longer
+     * resolves falls back to position, which naming leaves exactly where it was, and failing that
+     * the screen keeps what it had rather than emptying while a derivation catches up.
+     */
+    fun reacquire(
+        summaries: List<PlaceSummary>,
+        key: String?,
+        previous: PlaceSummary?,
+    ): PlaceSummary? =
+        summaries.firstOrNull { it.key == key }
+            ?: previous?.let { was -> summaries.firstOrNull { it.pin == was.pin } }
+            ?: previous
+
+    /**
+     * Gathers what surrounds [subject] — the context a capture radius is judged against, prepared
+     * for [PlaceClusterer.scanCapture]. Gathered once, around where the place is currently saved:
+     * a pin being dragged about stays well inside a context this wide.
+     *
+     * [all] is the full summary list, [subject] included; it is excluded by position, so a summary
+     * rebuilt by a re-derivation still recognises itself.
      */
     fun neighborhood(subject: PlaceSummary, all: List<PlaceSummary>, distance: DistanceFn): Neighborhood {
         // [all] is one row per cluster in the whole history, while the answer is a handful of
-        // anchors: reject on coordinates first, and the distance call runs only for those.
+        // anchors: coordinates rule out nearly everything, and the distance call runs only for
+        // what survives that.
         val reach = ReachBound.around(subject.anchor.lat, subject.anchor.lon, distance)
         val nearby = all.filter { other ->
-            other !== subject &&
+            other.pin != subject.pin &&
                 !reach.outOfReach(other.anchor.lat, other.anchor.lon, NEIGHBOR_CONTEXT_M) &&
                 distance.meters(
                     other.anchor.lat, other.anchor.lon,

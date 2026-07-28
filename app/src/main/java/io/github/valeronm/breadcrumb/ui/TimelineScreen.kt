@@ -244,7 +244,7 @@ internal fun TracksTab(
                                 highlighted = item.rowKey() == highlightKey,
                                 onMerge = onMerge,
                                 onClick = {
-                                    item.place?.let { onOpenPlace(placeDetailKeyOf(it.placeId, it.centroid)) }
+                                    item.place?.let { onOpenPlace(it.key) }
                                 },
                             )
                             is TimelineItem.GapItem -> GapRow(item, shape, onOpenPlace, onMerge)
@@ -927,7 +927,7 @@ private fun GapPlaceLine(place: PlaceResolver.ResolvedStay?, onOpenPlace: (Strin
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onOpenPlace(placeDetailKeyOf(place.placeId, place.centroid)) }
+            .clickable { onOpenPlace(place.key) }
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

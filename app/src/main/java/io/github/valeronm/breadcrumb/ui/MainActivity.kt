@@ -139,10 +139,10 @@ private enum class HomeTab(val title: String, val label: String, val icon: Image
     PLACES("Places", "Places", Icons.Filled.Place),
 }
 
-/** A full-screen page shown over the tabs, animated with predictive back. */
-private sealed interface Overlay {
-    data class TrackDetail(val id: Long) : Overlay
-    data object Settings : Overlay
+/** Track detail or the Settings hub: the full-screen pages a tab opens directly onto. */
+private sealed interface MainPage {
+    data class TrackDetail(val id: Long) : MainPage
+    data object Settings : MainPage
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -184,7 +184,7 @@ private fun MainScreen(
     var backgroundOk by remember { mutableStateOf(context.backgroundGranted()) }
     var autoOn by remember { mutableStateOf(AppSettings.isAutoRecord(context)) }
     var batteryOk by remember { mutableStateOf(context.isBatteryOptimizationIgnored()) }
-    var overlay by remember { mutableStateOf<Overlay?>(null) }
+    var mainPage by remember { mutableStateOf<MainPage?>(null) }
     var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -233,7 +233,7 @@ private fun MainScreen(
     // A deleted track's full detail, stacked above the Recently deleted list.
     var discardedTrackId by remember { mutableStateOf<Long?>(null) }
     // Place detail is opened from the Places list or a timeline stay — back lands wherever it was
-    // opened from. Keyed by PlaceSummary.rowKey() so the screen tracks the live summary while the
+    // opened from. Keyed by PlaceSummary.key so the screen tracks the live summary while the
     // derivation re-runs underneath (rename, radius change).
     var placeDetailKey by remember { mutableStateOf<String?>(null) }
     // The last summary the key resolved to: keeps the screen stable between re-derivations and
@@ -260,16 +260,16 @@ private fun MainScreen(
     // the tabs would have to be listed again wherever the tabs are blurred, which is the second
     // statement of a relation this exists to state once.
     val tabsLayer = remember { OverlayLayerState<Unit>() }
-    val overlayLayer = rememberOverlayLayer(
-        content = overlay,
+    val mainPageLayer = rememberOverlayLayer(
+        content = mainPage,
         over = tabsLayer,
-        onDismiss = { overlay = null },
+        onDismiss = { mainPage = null },
     )
     // Settings sub-pages stack above the hub — the predictive-back preview under them shows
     // the hub (where back actually lands), not the tabs.
     val settingsPageLayer = rememberOverlayLayer(
         content = settingsPage,
-        over = overlayLayer,
+        over = mainPageLayer,
         onDismiss = { settingsPage = null },
     )
     // Deleted-track detail: back returns to the Recently deleted list, previewing it under the gesture.
@@ -330,7 +330,7 @@ private fun MainScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { overlay = Overlay.Settings }) {
+                        IconButton(onClick = { mainPage = MainPage.Settings }) {
                             Icon(Icons.Filled.Settings, contentDescription = "Settings")
                         }
                     },
@@ -408,7 +408,7 @@ private fun MainScreen(
                         visitTarget = timelineVisitTarget,
                         onVisitTargetShown = { timelineVisitTarget = null },
                         homeRequest = timelineHomeRequest,
-                        onOpen = { overlay = Overlay.TrackDetail(it) },
+                        onOpen = { mainPage = MainPage.TrackDetail(it) },
                         onOpenPlace = { placeDetailKey = it },
                         onReplay = { track ->
                             TrackReplayer.start(context, track.id)
@@ -427,14 +427,14 @@ private fun MainScreen(
 
         // The stacked full-screen layers, bottom to top; each animates in on open and scales/
         // shifts with the predictive-back gesture, previewing the layer underneath.
-        MainOverlay(
-            layer = overlayLayer,
+        MainPageOverlay(
+            layer = mainPageLayer,
             timeline = timeline,
             viewModel = viewModel,
             unitChoice = unitChoice,
             onUnitChoice = onUnitChoice,
             undo = undo,
-            onClose = { overlay = null },
+            onClose = { mainPage = null },
             onOpenPage = { settingsPage = it },
         )
 
@@ -444,13 +444,13 @@ private fun MainScreen(
             snapshot = placeDetailSnapshot,
             onResolved = { s ->
                 placeDetailSnapshot = s
-                if (placeDetailKey != null && placeDetailKey != s.rowKey()) placeDetailKey = s.rowKey()
+                if (placeDetailKey != null && placeDetailKey != s.key) placeDetailKey = s.key
             },
             onClose = { placeDetailKey = null },
             onOpenVisit = { stay ->
                 timelineVisitTarget = stay
                 placeDetailKey = null
-                overlay = null
+                mainPage = null
                 selectedTab = HomeTab.TRACKS
             },
             onAdjustArea = { editingArea = true },
@@ -503,10 +503,13 @@ private fun DiscardedTrackOverlay(
     }
 }
 
-/** Track detail or the Settings hub — the first overlay layer, previewing the tabs underneath. */
+/**
+ * The first layer over the tabs, so the predictive-back preview under it shows the tabs — which is
+ * where back lands from here.
+ */
 @Composable
-private fun MainOverlay(
-    layer: OverlayLayerState<Overlay>,
+private fun MainPageOverlay(
+    layer: OverlayLayerState<MainPage>,
     timeline: List<TimelineItem>,
     viewModel: TrackListViewModel,
     unitChoice: UnitChoice,
@@ -517,7 +520,7 @@ private fun MainOverlay(
 ) {
     OverlayFrame(layer) { rendered ->
         when (rendered) {
-            is Overlay.TrackDetail -> TrackMapScreen(
+            is MainPage.TrackDetail -> TrackMapScreen(
                 trackId = rendered.id,
                 summary = timeline.firstNotNullOfOrNull {
                     (it as? TimelineItem.TrackItem)?.summary?.takeIf { s -> s.id == rendered.id }
@@ -536,7 +539,7 @@ private fun MainOverlay(
                 },
             )
 
-            Overlay.Settings -> SettingsScreen(
+            MainPage.Settings -> SettingsScreen(
                 viewModel = viewModel,
                 unitChoice = unitChoice,
                 onUnitChoice = onUnitChoice,
@@ -598,12 +601,12 @@ private fun PlaceEditOverlay(
         // No snapshot fallback: a named place's key is `place:<id>`, which nothing here can move.
         val summary = rememberPlaceSummary(placeSummaries, editKey, null)
         summary?.let { detail ->
-            // Keyed on the pin, not on the summaries: those take a new identity on every
+            // Keyed on the place, not on the summaries: those take a new identity on every
             // derivation, and redoing this would hand the map fresh neighbor, dot and rival lists
             // — the GeoJSON re-upload the whole design avoids per drag step, fired by a track
-            // finishing somewhere instead. The pin moving (re-centering, from this very screen) is
-            // the one thing that genuinely re-frames the question.
-            val neighborhood = remember(editKey, detail.anchor) {
+            // finishing somewhere instead. Gathered once for as long as the editor is open, which
+            // is what its own doc says it is for.
+            val neighborhood = remember(editKey) {
                 PlaceResolver.neighborhood(detail, placeSummaries, AndroidDistance)
             }
             // Their endpoints as gray dots, named neighbors as labeled pins — the only part of a
@@ -641,11 +644,7 @@ private fun rememberPlaceSummary(
     key: String?,
     snapshot: PlaceResolver.PlaceSummary?,
 ): PlaceResolver.PlaceSummary? =
-    remember(summaries, key, snapshot) {
-        summaries.firstOrNull { it.rowKey() == key }
-            ?: snapshot?.let { snap -> summaries.firstOrNull { it.centroid == snap.centroid } }
-            ?: snapshot
-    }
+    remember(summaries, key, snapshot) { PlaceResolver.reacquire(summaries, key, snapshot) }
 
 /**
  * Settings sub-pages: a second overlay layer above the hub — the gesture previews the hub

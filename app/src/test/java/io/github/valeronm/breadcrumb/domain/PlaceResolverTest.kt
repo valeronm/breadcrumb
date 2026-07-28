@@ -177,7 +177,7 @@ class PlaceResolverTest {
         val stays = listOf(stay(at(0.0)).copy(clusterId = stayClusterId))
         val summaries = PlaceResolver.summarize(stays, clusters, places, NOW)
         val passThrough = summaries.single { !it.isNamed && it.visitCount == 0 }
-        assertEquals(at(1200.0), passThrough.centroid)
+        assertEquals(at(1200.0), passThrough.pin)
         assertEquals(listOf(at(1200.0)), passThrough.endpoints)
         assertNull(passThrough.lastSeenMs)
         assertEquals(0L, passThrough.totalMs)
@@ -239,8 +239,8 @@ class PlaceResolverTest {
     }
 
     @Test fun `a named place's endpoint centroid is where its visits landed, not its pin`() {
-        // The two readings a re-center offers to swap between, and they are only interesting when
-        // they differ: the pin is where it was dropped, the centroid where the visits fell.
+        // The two positions a summary carries, and they are only interesting when they differ:
+        // the anchor is where the pin was dropped, the centroid where the visits actually fell.
         val places = listOf(place(1, "Home", at(0.0)))
         // Both stays fall inside the pin's capture radius, so there is no unnamed cluster beside it.
         val s = summarize(listOf(stayAt(at(100.0), 1_000, 2_000), stayAt(at(300.0), 3_000, 4_000)), places)
@@ -251,12 +251,36 @@ class PlaceResolverTest {
     }
 
     @Test fun `a named place that captured nothing has no endpoint centroid`() {
-        // An empty seeded cluster keeps its pin as its centroid, which would offer a re-center
-        // that moves the pin to where it already is.
+        // A cluster with no members has no mean, and must not report its pin as one — an empty
+        // seed keeps the pin in [PlaceClusterer.Cluster.centroid], which is the answer to avoid.
         val s = summarize(emptyList(), listOf(place(1, "Home", at(0.0)))).single()
 
         assertTrue(s.endpoints.isEmpty())
         assertNull(s.endpointCentroid)
+    }
+
+    @Test fun `re-centering is offered only where it would move the pin, and follows the radius`() {
+        // The whole rule the action bar renders, against the circle on screen: a radius wide
+        // enough to take the far endpoint has a middle worth moving to, and one that reaches only
+        // what is already under the pin does not — same scan, so the radius is what decides.
+        val scan = PlaceClusterer.scanCapture(
+            listOf(at(0.0), at(600.0)), at(0.0), 1_000.0, emptyList(), flatDistance,
+        )
+        fun targetAt(radiusM: Double) = PlaceResolver.recenterTarget(at(0.0), scan, radiusM, flatDistance)
+
+        assertEquals(at(300.0).lon, targetAt(1_000.0)!!.lon, 1e-9) // both, so the middle is between
+        assertNull(targetAt(100.0))                                // only the one on the pin
+    }
+
+    @Test fun `an unnamed cluster is keyed by where it sits and a named place by its row`() {
+        // Identity has to survive re-derivation: a name does, a cluster's position is all it has.
+        val summaries = summarize(
+            listOf(stayAt(at(0.0), 1_000, 2_000), stayAt(at(900.0), 3_000, 4_000)),
+            listOf(place(7, "Home", at(0.0))),
+        )
+
+        assertEquals("place:7", summaries.single { it.isNamed }.key)
+        assertEquals("cluster:%.5f,%.5f".format(at(900.0).lat, at(900.0).lon), summaries.single { !it.isNamed }.key)
     }
 
     // --- neighborhood: what a capture radius is judged against -------------------------------

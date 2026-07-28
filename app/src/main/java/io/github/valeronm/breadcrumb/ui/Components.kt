@@ -504,8 +504,8 @@ internal fun ConfirmDialog(
 }
 
 /**
- * "Undo" snackbars for the swipe actions: the action happens on the swipe and Undo puts it back,
- * rather than a dialog interrupting the gesture to ask first. A new snackbar replaces whatever is
+ * "Undo" snackbars: the action happens on the spot and Undo puts it back, rather than a dialog
+ * interrupting to ask first. A new snackbar replaces whatever is
  * on screen — rapid swipes shouldn't stack up a queue, so only the latest action stays undoable
  * (the rest are still recoverable: tracks from Recently deleted, places by naming the cluster again).
  */

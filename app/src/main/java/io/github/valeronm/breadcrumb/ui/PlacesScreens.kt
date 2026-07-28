@@ -52,6 +52,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -282,7 +284,7 @@ internal fun PlacesTab(
                             OverviewPlace(
                                 location = summary.anchor,
                                 label = summary.place?.label,
-                                key = summary.rowKey(),
+                                key = summary.key,
                                 // Never a named place: a merge offer says the split may be an
                                 // artifact, but a label says the user meant this place, and the
                                 // dot claims the opposite.
@@ -339,11 +341,11 @@ internal fun PlacesTab(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                itemsIndexed(listed, key = { _, s -> s.rowKey() }) { index, summary ->
+                itemsIndexed(listed, key = { _, s -> s.key }) { index, summary ->
                     PlaceRow(
                         summary = summary,
                         shape = groupedRowShape(index, listed.size),
-                        onOpen = { onOpenPlace(summary.rowKey()) },
+                        onOpen = { onOpenPlace(summary.key) },
                         // Deleting removes the label, not the stays — they go back to being an
                         // unnamed cluster, and Undo re-pins the place exactly as it was.
                         onDelete = { place ->
@@ -648,7 +650,7 @@ internal fun PlaceDetailScreen(
                                 }
                             }
                             trimmed.isNotEmpty() -> viewModel.createPlace(
-                                summary.centroid.lat, summary.centroid.lon, trimmed, category,
+                                summary.pin.lat, summary.pin.lon, trimmed, category,
                             )
                         }
                         showNameDialog = false
@@ -677,9 +679,14 @@ internal fun PlaceDetailScreen(
 }
 
 /**
- * Tuning one named place's capture area: the radius slider over a full-height map showing what the
- * circle would take — this place's endpoints and the loose ones around it, the named neighbors it
- * competes with, and their areas muted underneath.
+ * Tuning one named place's capture area — its radius and its center — over a full-height map
+ * showing what the circle would take: this place's endpoints and the loose ones around it, the
+ * named neighbors it competes with, and their areas muted underneath.
+ *
+ * Both adjustments preview and neither writes. Re-centering moves the pin on the map exactly as
+ * the slider moves the circle, and the scan re-measures from there, so what the screen shows is
+ * always what saving would produce. A slider can be dragged back; a pin that jumped has nowhere
+ * obvious to return to, so re-centering offers an Undo instead.
  *
  * **A layer of its own, above the place detail, and the map is the reason.** The two screens want
  * the map at different heights, and a `MapView` is a `TextureView`: handed a new size it scales its
@@ -693,8 +700,8 @@ internal fun PlaceDetailScreen(
  * on the circle, in a state the radius can be judged in, wherever the detail map below happened to
  * be panned to.
  *
- * Backing out is the layer's own predictive-back gesture, and it discards by construction —
- * [radiusM] is local and nothing is written until Done.
+ * Backing out is the layer's own predictive-back gesture, and it discards by construction — the
+ * radius and the pin are local to a screen that gets thrown away, so nothing needs restoring.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -707,10 +714,17 @@ internal fun PlaceEditScreen(
     onClose: () -> Unit,
 ) {
     val place = summary.place ?: return
-    var showRecenterDialog by remember { mutableStateOf(false) }
-    // The circle previews live, but nothing is written until Done. A radius write re-derives the
-    // whole timeline, so committing per drag re-derived it several times for one adjustment.
-    var radiusM by remember(place.id) { mutableFloatStateOf(summary.radiusM.toFloat()) }
+    // Both halves of what this screen adjusts are local until Done: the circle and its center
+    // preview together, and nothing is written on the way. A write here re-derives the whole
+    // timeline, so committing per drag step would re-derive it several times for one adjustment.
+    // Leaving without Done discards both by simply never having written them.
+    val opened = remember(place.id) { summary }
+    var radiusM by remember(place.id) { mutableFloatStateOf(opened.radiusM.toFloat()) }
+    var pin by remember(place.id) { mutableStateOf(opened.anchor) }
+    // Its own host, not the app's: that one hangs off MainScreen's Scaffold, under every overlay
+    // layer, so an Undo offered from this screen would be covered by the screen offering it.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val undo = rememberUndoSnackbar(snackbarHostState)
     val radiusScale = rememberDistanceScale(SliderStops(50, 500, 25), SliderStops(150, 1650, 75))
     // Prepared once when the screen opens, not per drag step: whether a neighbor keeps an endpoint
     // has nothing to do with our radius, and paying for that scan on every step is what made a
@@ -718,10 +732,10 @@ internal fun PlaceEditScreen(
     //
     // Keyed on what the scan reads, not on the whole summary — that carries visit stats which move
     // on every derivation and would rebuild this for nothing.
-    val scan = remember(summary.anchor, candidates, rivals, radiusScale) {
+    val scan = remember(pin, candidates, rivals, radiusScale) {
         PlaceClusterer.scanCapture(
             candidates = candidates,
-            anchor = summary.anchor,
+            anchor = pin,
             maxRadiusM = radiusScale.metersOf(radiusScale.range.endInclusive).toDouble(),
             rivals = rivals,
             distance = AndroidDistance,
@@ -734,6 +748,7 @@ internal fun PlaceEditScreen(
             scan.conceded.map { CaptureDot(it, null) }
     }
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
@@ -753,16 +768,35 @@ internal fun PlaceEditScreen(
                 },
                 navigationIcon = { BackNavIcon(onClose) },
                 actions = {
-                    if (summary.endpointCentroid != null) {
-                        IconButton(onClick = { showRecenterDialog = true }) {
+                    // Measured against the circle on screen, not the one last saved: dragging
+                    // changes what it takes, which moves the middle of it, which is where
+                    // re-centering would put the pin. Taking the offer moves the pin there and
+                    // re-measures from it, so a second tap settles rather than repeating.
+                    val recenterTarget = PlaceResolver.recenterTarget(
+                        anchor = pin,
+                        scan = scan,
+                        radiusM = radiusM.toDouble(),
+                        distance = AndroidDistance,
+                    )
+                    if (recenterTarget != null) {
+                        IconButton(
+                            onClick = {
+                                val was = pin
+                                pin = recenterTarget
+                                // One step back, to wherever the pin was before this tap — so
+                                // re-centering twice can be walked back one tap at a time.
+                                undo.show("Pin re-centered") { pin = was }
+                            },
+                        ) {
                             Icon(Icons.Filled.FilterCenterFocus, contentDescription = "Re-center pin")
                         }
                     }
                     IconButton(
                         onClick = {
-                            if (radiusM.toDouble() != summary.radiusM) {
+                            if (radiusM.toDouble() != opened.radiusM) {
                                 viewModel.setPlaceRadius(place.id, radiusM.toDouble())
                             }
+                            if (pin != opened.anchor) viewModel.setPlacePin(place.id, pin.lat, pin.lon)
                             onClose()
                         },
                     ) {
@@ -790,7 +824,7 @@ internal fun PlaceEditScreen(
             Card(Modifier.weight(1f).fillMaxWidth()) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
                     MapLibrePlaceMap(
-                        center = summary.anchor,
+                        center = pin,
                         radiusM = radiusM.toDouble(),
                         endpoints = summary.endpoints,
                         neighbors = neighbors,
@@ -801,21 +835,6 @@ internal fun PlaceEditScreen(
                 }
             }
         }
-    }
-
-    if (showRecenterDialog && summary.endpointCentroid != null) {
-        ConfirmDialog(
-            icon = Icons.Filled.FilterCenterFocus,
-            title = "Re-center pin?",
-            text = "Moves \"${place.label}\" to the middle of where your visits actually landed. " +
-                "Visits and stats recalculate around the new spot.",
-            confirmLabel = "Move",
-            onConfirm = {
-                viewModel.setPlacePin(place.id, summary.endpointCentroid.lat, summary.endpointCentroid.lon)
-                showRecenterDialog = false
-            },
-            onDismiss = { showRecenterDialog = false },
-        )
     }
 }
 
@@ -1043,16 +1062,6 @@ private fun PlaceRowCard(
         subtitle = AnnotatedString(placeSubtitle(summary)),
     )
 }
-
-/**
- * Stable place identity: the place id for named places, the centroid for ephemeral unnamed
- * clusters. Shared by the Places list keys, the detail overlay, and stay-row tap-through —
- * a stay's [PlaceResolver.ResolvedStay] carries the same placeId/centroid pair.
- */
-internal fun placeDetailKeyOf(placeId: Long?, centroid: StayDeriver.Endpoint): String =
-    placeId?.let { "place:$it" } ?: "cluster:%.5f,%.5f".format(centroid.lat, centroid.lon)
-
-internal fun PlaceResolver.PlaceSummary.rowKey(): String = placeDetailKeyOf(place?.id, centroid)
 
 private fun placeSubtitle(summary: PlaceResolver.PlaceSummary): String {
     if (summary.visitCount == 0) return "No visits yet"

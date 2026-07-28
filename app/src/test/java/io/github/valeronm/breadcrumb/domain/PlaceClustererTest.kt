@@ -315,6 +315,25 @@ class PlaceClustererTest {
         assertEquals(4, scan.countWithin(5_000.0))    // the 900 m one was conceded up front
     }
 
+    @Test fun `the middle of what a radius takes follows the radius`() {
+        // Where re-centering would put the pin while the circle is being dragged — so it has to
+        // move as the circle does, and describe the same set the count reports.
+        val candidates = listOf(at(0.0), at(100.0), at(400.0))
+        val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, emptyList(), flatDistance)
+
+        assertEquals(at(50.0).lon, scan.centroidWithin(200.0)!!.lon, 1e-9)   // the first two
+        assertEquals(at(166.666).lon, scan.centroidWithin(500.0)!!.lon, 1e-8) // all three
+    }
+
+    @Test fun `a radius that takes nothing has no middle`() {
+        // Null rather than the anchor: a pin is not evidence of where visits fell.
+        val scan = PlaceClusterer
+            .scanCapture(listOf(at(300.0)), at(0.0), 500.0, emptyList(), flatDistance)
+
+        assertNull(scan.centroidWithin(100.0))
+        assertEquals(0, scan.countWithin(100.0))
+    }
+
     @Test fun `the count leaves out what a nearer rival keeps`() {
         // Conceded candidates are never counted, however wide the radius — the subtitle has to
         // mean "this place's", the same as the dots that stay gray.
