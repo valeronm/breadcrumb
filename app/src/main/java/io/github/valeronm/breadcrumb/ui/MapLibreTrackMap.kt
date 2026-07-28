@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.RectF
+import android.util.Log
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -41,6 +42,7 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.offline.OfflineManager
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
@@ -245,12 +247,47 @@ private class MapHost {
     var onStyleLoaded: (Context, MapLibreMap, Style) -> Unit = { _, _, _ -> }
 }
 
+/**
+ * How much basemap MapLibre may keep in its ambient tile cache (`files/mbgl-offline.db`).
+ *
+ * The library's own default holds about a tenth of this, which is barely more than a few
+ * screenfuls: Protomaps' vector tiles average ~45 KiB, so the default fills at roughly a thousand
+ * of them and then evicts, least-recently-used, whatever a session just looked at. Reopening the
+ * same track an hour later re-downloaded its tiles — and map data is the app's only network use,
+ * so that eviction *is* the data bill. This holds several times a day's worth of viewing.
+ *
+ * Nothing is pinned: this raises the ceiling, it does not create an offline region, so the cache
+ * stays opportunistic and the map still needs a connection for ground it has never shown.
+ */
+private const val AMBIENT_CACHE_BYTES = 250L * 1024 * 1024
+
+/** Set once per process — the ceiling is a property of the shared file source, not of a map. */
+@Volatile private var ambientCacheCeilingRaised = false
+
+private fun raiseAmbientCacheCeiling(ctx: Context) {
+    if (ambientCacheCeilingRaised) return
+    ambientCacheCeilingRaised = true
+    OfflineManager.getInstance(ctx.applicationContext)
+        .setMaximumAmbientCacheSize(
+            AMBIENT_CACHE_BYTES,
+            object : OfflineManager.FileSourceCallback {
+                override fun onSuccess() = Unit
+
+                // Not fatal: the cache keeps working at whatever ceiling it already had.
+                override fun onError(message: String) {
+                    Log.w("Breadcrumb", "Could not raise the map tile cache ceiling: $message")
+                }
+            },
+        )
+}
+
 /** A MapLibre [MapView] whose lifecycle follows the composition's [LocalLifecycleOwner]. */
 @Composable
 private fun rememberMapLibreMapView(): MapView {
     val ctx = LocalContext.current
     val mapView = remember {
         MapLibre.getInstance(ctx)
+        raiseAmbientCacheCeiling(ctx)
         // Texture mode instead of the default SurfaceView: a SurfaceView composites in its own
         // layer and ignores Compose clipping, so it would bleed over rounded card corners. The
         // cards' side padding also keeps the map out of the back-gesture edge strips, so no
