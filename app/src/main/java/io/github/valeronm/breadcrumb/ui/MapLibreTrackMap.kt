@@ -501,26 +501,37 @@ private fun addMarkers(
     style.addLayer(iconSymbolLayer(MARKER_LAYER, MARKER_SOURCE))
 }
 
-/** Icon-marker layer shared by the track's marker and selection layers. */
-private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
+/**
+ * Every marker layer here starts from this: an icon per feature, placed wherever its feature is
+ * and drawn in the order the source lists them.
+ *
+ * **The draw order is the load-bearing part.** Left to itself a symbol layer stacks point symbols
+ * by screen position, so whichever marker sits lower covers the rest — and both collections that
+ * feed these layers are written the other way, ending with the marker that matters most (the pin
+ * among a place's dots, the start and end among a track's rejected fixes). Overlap and placement
+ * are off for the same reason: these are markers, not labels competing for room.
+ */
+private fun markerSymbolLayer(id: String, source: String): SymbolLayer =
     SymbolLayer(id, source).withProperties(
+        PropertyFactory.symbolZOrder(Property.SYMBOL_Z_ORDER_SOURCE),
         PropertyFactory.iconImage(Expression.get(ICON_KEY)),
         PropertyFactory.iconAllowOverlap(true),
         PropertyFactory.iconIgnorePlacement(true),
         PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+    )
+
+/** The track's marker and selection layers: markers that turn to face along the ground track. */
+private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
+    markerSymbolLayer(id, source).withProperties(
         // Rotate with the map so the droplet keeps pointing along the ground-track bearing.
         PropertyFactory.iconRotate(Expression.get("bearing")),
         PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
     )
 
-/** Labeled pin layer shared by the place and overview maps: icon plus a label under it. */
+/** Labeled pin layer shared by the place and overview maps: a marker plus a label under it. */
 private fun labeledSymbolLayer(ctx: Context, id: String, source: String): SymbolLayer {
     val dark = isDarkUi(ctx)
-    return SymbolLayer(id, source).withProperties(
-        PropertyFactory.iconImage(Expression.get(ICON_KEY)),
-        PropertyFactory.iconAllowOverlap(true),
-        PropertyFactory.iconIgnorePlacement(true),
-        PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+    return markerSymbolLayer(id, source).withProperties(
         // Named features carry a label under the pin; other features have an empty string.
         PropertyFactory.textField(Expression.get("label")),
         PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
