@@ -277,11 +277,10 @@ internal fun SliderSetting(
     label: String,
     meters: Int,
     scale: DistanceSliderScale,
-    onDragEnd: (() -> Unit)? = null,
     onChange: (Int) -> Unit,
 ) {
     val display = scale.displayOf(meters)
-    LabeledSlider(label, scale.label(display), display, scale.range, onDragEnd) { raw ->
+    LabeledSlider(label, scale.label(display), display, scale.range) { raw ->
         onChange(scale.metersOf(scale.snap(raw)))
     }
 }
@@ -293,7 +292,6 @@ private fun LabeledSlider(
     valueText: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
-    onDragEnd: (() -> Unit)? = null,
     onChange: (Float) -> Unit,
 ) {
     Column {
@@ -312,7 +310,6 @@ private fun LabeledSlider(
             value = value,
             onValueChange = onChange,
             valueRange = range,
-            onValueChangeFinished = onDragEnd,
         )
     }
 }

@@ -32,6 +32,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -503,7 +504,7 @@ private fun addMarkers(
 /** Icon-marker layer shared by the track's marker and selection layers. */
 private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
     SymbolLayer(id, source).withProperties(
-        PropertyFactory.iconImage(Expression.get("icon")),
+        PropertyFactory.iconImage(Expression.get(ICON_KEY)),
         PropertyFactory.iconAllowOverlap(true),
         PropertyFactory.iconIgnorePlacement(true),
         PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
@@ -516,7 +517,7 @@ private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
 private fun labeledSymbolLayer(ctx: Context, id: String, source: String): SymbolLayer {
     val dark = isDarkUi(ctx)
     return SymbolLayer(id, source).withProperties(
-        PropertyFactory.iconImage(Expression.get("icon")),
+        PropertyFactory.iconImage(Expression.get(ICON_KEY)),
         PropertyFactory.iconAllowOverlap(true),
         PropertyFactory.iconIgnorePlacement(true),
         PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
@@ -562,7 +563,7 @@ private fun markerFeature(p: TrackPoint, icon: String, bearing: Float = 0f): Fea
     Feature.fromGeometry(
         Point.fromLngLat(p.longitude, p.latitude),
         JsonObject().apply {
-            addProperty("icon", icon)
+            addProperty(ICON_KEY, icon)
             addProperty("bearing", bearing)
         },
     )
@@ -695,6 +696,17 @@ private fun styleBackgroundColor(ctx: Context): Int = styleFlavor(ctx).backgroun
 
 // --- Place map ----------------------------------------------------------------------------------
 
+/**
+ * One dot on the place map whose fate the *map* decides: [distanceM] is its distance from the pin,
+ * compared against the live radius in a layer expression. Null means settled — a neighbor keeps it
+ * whatever the radius does — and it draws gray without being compared.
+ *
+ * The point of carrying the distance instead of a resolved icon is that a radius being dragged
+ * then changes one layer property rather than rewriting every feature: on a place with thousands
+ * of endpoints around it, rebuilding the collection per step was the whole lag.
+ */
+internal class CaptureDot(val location: StayDeriver.Endpoint, val distanceM: Double?)
+
 /** A neighboring cluster shown for context on the place map. */
 class NeighborPlace(
     val location: StayDeriver.Endpoint,
@@ -719,15 +731,31 @@ internal fun MapLibrePlaceMap(
     modifier: Modifier = Modifier,
     neighbors: List<NeighborPlace> = emptyList(),
     showInternals: Boolean = true,
+    // When set, these dots replace [endpoints] and the plain neighbor dots, and the radius decides
+    // each one's icon in a layer expression — so dragging costs one property, not a re-upload.
+    capture: List<CaptureDot>? = null,
+    // Named neighbors' own capture areas, drawn muted under this one. They are what stops a dot
+    // joining this place, so seeing them is what makes a gray dot inside your circle make sense.
+    rivalAreas: List<PlaceClusterer.Seed> = emptyList(),
 ) {
     val applied = remember { AppliedPlaceInputs() }
+    val placeContent = {
+        PlaceMapContent(
+            center = center,
+            radiusM = radiusM,
+            markers = PlaceMarkers(endpoints, neighbors, showInternals, capture),
+            rivalAreas = rivalAreas,
+        )
+    }
     MapLibreStyledMap(
         modifier = modifier,
         onStyleLoaded = { ctx, map, style ->
             applied.circle = center to radiusM
             applied.markers = Triple(endpoints, neighbors, showInternals)
+            applied.capture = capture
+            applied.rivalAreas = rivalAreas
             applied.internals = showInternals
-            addPlaceLayers(ctx, style, center, radiusM, endpoints, neighbors, showInternals)
+            addPlaceLayers(ctx, style, placeContent())
             framePlace(map, center, radiusM)
         },
         onUpdate = { map, style ->
@@ -736,34 +764,80 @@ internal fun MapLibrePlaceMap(
                 style.getSourceAs<GeoJsonSource>(PLACE_CIRCLE_SOURCE)
                     ?.setGeoJson(circleFeature(center, radiusM))
                 framePlace(map, center, radiusM)
+                // The dots do not move; which side of the radius they fall on does.
+                style.getLayer(PLACE_MARKER_LAYER)?.setProperties(markerIconProperty(radiusM))
             }
-            if (applied.markers != Triple(endpoints, neighbors, showInternals)) {
+            if (applied.markers != Triple(endpoints, neighbors, showInternals) ||
+                applied.capture !== capture
+            ) {
                 applied.markers = Triple(endpoints, neighbors, showInternals)
+                applied.capture = capture
                 style.getSourceAs<GeoJsonSource>(PLACE_MARKER_SOURCE)
-                    ?.setGeoJson(placeMarkerCollection(center, endpoints, neighbors, showInternals))
+                    ?.setGeoJson(placeMarkerCollection(placeContent()))
+            }
+            if (applied.rivalAreas !== rivalAreas) {
+                applied.rivalAreas = rivalAreas
+                style.getSourceAs<GeoJsonSource>(PLACE_RIVAL_SOURCE)
+                    ?.setGeoJson(rivalAreaCollection(rivalAreas))
             }
             if (applied.internals != showInternals) {
                 applied.internals = showInternals
                 val visibility = PropertyFactory.visibility(
                     if (showInternals) Property.VISIBLE else Property.NONE,
                 )
-                style.getLayer(PLACE_CIRCLE_FILL)?.setProperties(visibility)
-                style.getLayer(PLACE_CIRCLE_LINE)?.setProperties(visibility)
+                for (id in PLACE_CIRCLE_LAYERS) style.getLayer(id)?.setProperties(visibility)
             }
         },
     )
 }
 
+/** What the marker layer draws — four inputs that always travel together. */
+private class PlaceMarkers(
+    val endpoints: List<StayDeriver.Endpoint>,
+    val neighbors: List<NeighborPlace>,
+    val showInternals: Boolean,
+    val capture: List<CaptureDot>?,
+)
+
+/** Everything the place map draws: its own area, the markers, and the areas it competes with. */
+private class PlaceMapContent(
+    val center: StayDeriver.Endpoint,
+    val radiusM: Double,
+    val markers: PlaceMarkers,
+    val rivalAreas: List<PlaceClusterer.Seed>,
+)
+
 /** Last-applied inputs of the place map — value comparisons, the inputs are rebuilt lists. */
 private class AppliedPlaceInputs {
     var circle: Pair<StayDeriver.Endpoint, Double>? = null
     var markers: Triple<List<StayDeriver.Endpoint>, List<NeighborPlace>, Boolean>? = null
+
+    /** Identity, not equality: the scan hands back a new list only when the candidates change. */
+    var capture: List<CaptureDot>? = null
+    var rivalAreas: List<PlaceClusterer.Seed>? = null
     var internals: Boolean? = null
 }
+
+/** The place-circle layers, toggled together with the rest of the edit-mode internals. */
+private val PLACE_CIRCLE_LAYERS = listOf(
+    PLACE_RIVAL_FILL, PLACE_RIVAL_LINE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE,
+)
+
+/** Faint enough to read as context rather than as a second thing being edited. */
+private const val RIVAL_AREA_OPACITY = 0.35f
+
+private const val PLACE_RIVAL_SOURCE = "place-rival-src"
+private const val PLACE_RIVAL_FILL = "place-rival-fill"
+private const val PLACE_RIVAL_LINE = "place-rival-line"
 
 private const val PLACE_CIRCLE_SOURCE = "place-circle-src"
 private const val PLACE_CIRCLE_FILL = "place-circle-fill"
 private const val PLACE_CIRCLE_LINE = "place-circle-line"
+
+/** Feature property names shared by the marker features and the icon expression above. */
+private const val ICON_KEY = "icon"
+private const val DISTANCE_KEY = "dm"
+
 private const val PLACE_MARKER_SOURCE = "place-marker-src"
 private const val PLACE_MARKER_LAYER = "place-marker-layer"
 private const val IMG_ENDPOINT = "marker-endpoint"
@@ -773,57 +847,108 @@ private const val IMG_PLACE = "marker-place"
 private const val CIRCLE_FILL = 0x2E5B9BF0
 private const val CIRCLE_LINE = 0x995B9BF0.toInt()
 
-private fun addPlaceLayers(
-    ctx: Context,
-    style: Style,
-    center: StayDeriver.Endpoint,
-    radiusM: Double,
-    endpoints: List<StayDeriver.Endpoint>,
-    neighbors: List<NeighborPlace>,
-    showInternals: Boolean,
-) {
-    val visibility = PropertyFactory.visibility(if (showInternals) Property.VISIBLE else Property.NONE)
-    style.addSource(GeoJsonSource(PLACE_CIRCLE_SOURCE, circleFeature(center, radiusM)))
+private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent) {
+    val visibility =
+        PropertyFactory.visibility(if (content.markers.showInternals) Property.VISIBLE else Property.NONE)
+    // Rivals first, so this place's own circle reads on top of them where they overlap.
+    style.addSource(GeoJsonSource(PLACE_RIVAL_SOURCE, rivalAreaCollection(content.rivalAreas)))
+    addCaptureCircleLayers(
+        style, PLACE_RIVAL_SOURCE, PLACE_RIVAL_FILL, PLACE_RIVAL_LINE, visibility,
+        PropertyFactory.fillOpacity(RIVAL_AREA_OPACITY),
+        PropertyFactory.lineOpacity(RIVAL_AREA_OPACITY),
+    )
+    style.addSource(GeoJsonSource(PLACE_CIRCLE_SOURCE, circleFeature(content.center, content.radiusM)))
     addCaptureCircleLayers(style, PLACE_CIRCLE_SOURCE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE, visibility)
     style.addImage(IMG_ENDPOINT, drawableBitmap(ctx, R.drawable.ic_marker_endpoint))
     style.addImage(IMG_NEIGHBOR, drawableBitmap(ctx, R.drawable.ic_marker_neighbor))
     style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))
     style.addSource(
-        GeoJsonSource(PLACE_MARKER_SOURCE, placeMarkerCollection(center, endpoints, neighbors, showInternals)),
+        GeoJsonSource(
+            PLACE_MARKER_SOURCE,
+            placeMarkerCollection(content),
+        ),
     )
-    style.addLayer(labeledSymbolLayer(ctx, PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE))
+    style.addLayer(
+        labeledSymbolLayer(ctx, PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE)
+            .withProperties(markerIconProperty(content.radiusM)),
+    )
 }
 
 /**
  * Neighbor context first (visually underneath), then the place's own endpoint dots, then the
  * pin marker last so it draws on top. Without [showInternals] only the pin is emitted.
  */
-private fun placeMarkerCollection(
-    center: StayDeriver.Endpoint,
-    endpoints: List<StayDeriver.Endpoint>,
-    neighbors: List<NeighborPlace>,
-    showInternals: Boolean,
-): FeatureCollection {
-    val features = ArrayList<Feature>(neighbors.size + endpoints.size + 1)
-    if (showInternals) {
-        neighbors.forEach { n ->
-            val icon = if (n.label != null) IMG_PLACE else IMG_NEIGHBOR
-            features.add(endpointFeature(n.location, icon, n.label))
-        }
-        endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
+private fun placeMarkerCollection(content: PlaceMapContent): FeatureCollection {
+    val (endpoints, neighbors, capture) = content.markers.let {
+        Triple(it.endpoints, it.neighbors, it.capture)
     }
-    features.add(endpointFeature(center, IMG_PLACE))
+    val features = ArrayList<Feature>(neighbors.size + endpoints.size + 1)
+    if (content.markers.showInternals) {
+        // Named neighbors are pins in both modes; their plain dots are only drawn when the
+        // capture form isn't, because there they are already among the candidates.
+        neighbors.forEach { n ->
+            if (capture != null && n.label == null) return@forEach
+            features.add(endpointFeature(n.location, if (n.label != null) IMG_PLACE else IMG_NEIGHBOR, n.label))
+        }
+        if (capture != null) {
+            capture.forEach { dot ->
+                features.add(
+                    // A settled dot is written as the gray icon; one still in play carries the
+                    // distance instead and lets the layer decide.
+                    if (dot.distanceM == null) {
+                        endpointFeature(dot.location, IMG_NEIGHBOR)
+                    } else {
+                        endpointFeature(dot.location, IMG_NEIGHBOR, distanceM = dot.distanceM)
+                    },
+                )
+            }
+        } else {
+            endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
+        }
+    }
+    features.add(endpointFeature(content.center, IMG_PLACE))
     return FeatureCollection.fromFeatures(features)
 }
 
-private fun endpointFeature(e: StayDeriver.Endpoint, icon: String, label: String? = null): Feature =
+private fun endpointFeature(
+    e: StayDeriver.Endpoint,
+    icon: String,
+    label: String? = null,
+    distanceM: Double? = null,
+): Feature =
     Feature.fromGeometry(
         Point.fromLngLat(e.lon, e.lat),
         JsonObject().apply {
-            addProperty("icon", icon)
+            addProperty(ICON_KEY, icon)
             addProperty("label", label ?: "")
+            distanceM?.let { addProperty(DISTANCE_KEY, it) }
         },
     )
+
+/**
+ * The marker layer's icon property. Capture dots are the features carrying a distance, and only
+ * they are resolved against the radius; everything else keeps the icon it was written with. Keyed
+ * on the property being *present* rather than on a sentinel icon name — a sentinel would share a
+ * value space with the real image ids, so registering an image called "auto" would break it.
+ *
+ * Rebuilding this is what a radius change costs, and it is correct with or without capture dots,
+ * so it is installed unconditionally.
+ */
+private fun markerIconProperty(radiusM: Double) = PropertyFactory.iconImage(
+    Expression.switchCase(
+        Expression.has(DISTANCE_KEY),
+        Expression.switchCase(
+            Expression.lte(Expression.get(DISTANCE_KEY), Expression.literal(radiusM)),
+            Expression.literal(IMG_ENDPOINT),
+            Expression.literal(IMG_NEIGHBOR),
+        ),
+        Expression.get(ICON_KEY),
+    ),
+)
+
+/** Every named neighbor's capture area, as its own polygon. Empty is a valid, common answer. */
+private fun rivalAreaCollection(rivals: List<PlaceClusterer.Seed>): FeatureCollection =
+    FeatureCollection.fromFeatures(rivals.map { circleFeature(it.anchor, it.radiusM) })
 
 /** A meter-true circle approximated by a 72-gon (fine at place zoom levels). */
 private fun circleFeature(center: StayDeriver.Endpoint, radiusM: Double): Feature {
@@ -922,7 +1047,7 @@ private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
                 Point.fromLngLat(p.location.lon, p.location.lat),
                 JsonObject().apply {
                     addProperty(
-                        "icon",
+                        ICON_KEY,
                         when {
                             p.label != null -> IMG_PLACE
                             p.brief -> IMG_ENDPOINT_BRIEF

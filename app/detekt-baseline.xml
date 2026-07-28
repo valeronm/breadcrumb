@@ -4,7 +4,6 @@
   <CurrentIssues>
     <ID>LargeClass:LocationRecordingService.kt$LocationRecordingService : Service</ID>
     <ID>LongParameterList:KeepRule.kt$KeepRule$( pointCount: Int, ignoredCount: Int, durationSec: Long, distanceMeters: Double, thresholds: Thresholds, extent: () -&gt; Double, )</ID>
-    <ID>LongParameterList:MapLibreTrackMap.kt$( ctx: Context, style: Style, center: StayDeriver.Endpoint, radiusM: Double, endpoints: List&lt;StayDeriver.Endpoint&gt;, neighbors: List&lt;NeighborPlace&gt;, showInternals: Boolean, )</ID>
     <ID>LongParameterList:RecordCard.kt$( armed: Boolean, tracking: Boolean, recording: Boolean, paused: Boolean, gpsSuspended: Boolean, points: Int, hasOpenTrack: Boolean, )</ID>
     <ID>LongParameterList:StaleReadingOracle.kt$StaleReadingOracle$( eventTimeMs: Long?, readingMs: Long, lastReadingMs: Long, armedAtMs: Long, nowMs: Long, staleMs: Long, minAdvanceMs: Long, )</ID>
     <ID>LongParameterList:StayDeriver.kt$StayDeriver$( last: TrackEnd?, evidence: LivenessSummary, nowMs: Long, activeTrack: ActiveTrack?, params: Params, clusterOf: Map&lt;Endpoint, Int&gt;, samePlace: (Endpoint, Endpoint) -&gt; Boolean, )</ID>

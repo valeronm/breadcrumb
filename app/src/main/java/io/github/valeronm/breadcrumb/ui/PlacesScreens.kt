@@ -76,9 +76,11 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -486,14 +488,17 @@ private fun PlaceRow(
 
 /**
  * Full-screen detail for one place: stats header, the cluster on a map (capture circle +
- * endpoints), and — for named places — a live radius slider (the circle previews while dragging;
- * the value persists on release and the derivation re-clusters reactively).
+ * endpoints), and — for named places — a radius slider. While dragging, both the circle and which
+ * endpoints it captures preview locally against [PlaceClusterer.wouldCapture]; nothing is written
+ * until Done, and Back restores the stored radius.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PlaceDetailScreen(
     summary: PlaceResolver.PlaceSummary,
     neighbors: List<NeighborPlace>,
+    candidates: List<StayDeriver.Endpoint>,
+    rivals: List<PlaceClusterer.Seed>,
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
@@ -505,7 +510,9 @@ internal fun PlaceDetailScreen(
     // Edit mode reveals the cluster internals (capture circle, endpoints, neighbors) plus the
     // radius slider and re-center action; view mode leads with stats, a clean map and visits.
     var editing by remember(place?.id) { mutableStateOf(false) }
-    // Local while dragging; summary.radiusM catches up after the persisted value re-derives.
+    // Local while editing: the circle previews live, but nothing is written until Done. A radius
+    // write re-derives the whole timeline, so committing per drag re-derived it several times for
+    // one adjustment — and left no way back to the value the screen was opened on.
     var radiusM by remember(place?.id) { mutableFloatStateOf(summary.radiusM.toFloat()) }
     // Where the pin would move: the mean of the endpoints the cluster currently captures.
     val endpointCentroid = remember(summary.endpoints) {
@@ -513,8 +520,45 @@ internal fun PlaceDetailScreen(
             StayDeriver.Endpoint(pts.sumOf { it.lat } / pts.size, pts.sumOf { it.lon } / pts.size)
         }
     }
+    // The two ways out of edit mode, and they mean different things: Done keeps the radius, Back
+    // — by icon or by gesture — throws it away. `summary.radiusM` is still the stored value while
+    // editing, precisely because nothing has been written yet, so it is what a discard restores.
+    val discardRadius = {
+        radiusM = summary.radiusM.toFloat()
+        editing = false
+    }
+    val commitRadius = {
+        if (place != null && radiusM.toDouble() != summary.radiusM) {
+            viewModel.setPlaceRadius(place.id, radiusM.toDouble())
+        }
+        editing = false
+    }
+    val radiusScale = rememberDistanceScale(SliderStops(50, 500, 25), SliderStops(150, 1650, 75))
+    // Prepared once when edit mode opens, not per drag step: whether a neighbor keeps an endpoint
+    // has nothing to do with our radius, and paying for that scan on every step is what made a
+    // place with a few thousand endpoints around it lag under the finger. See CaptureScan.
+    //
+    // Keyed on what the scan reads, not on the whole summary — that carries visit stats which move
+    // on every derivation and would rebuild this for nothing.
+    val captureDots = remember(editing, place, summary.anchor, candidates, rivals, radiusScale) {
+        if (!editing || place == null) {
+            null
+        } else {
+            val scan = PlaceClusterer.scanCapture(
+                candidates = candidates,
+                anchor = summary.anchor,
+                maxRadiusM = radiusScale.metersOf(radiusScale.range.endInclusive).toDouble(),
+                rivals = rivals,
+                distance = AndroidDistance,
+            )
+            // Conceded dots carry no distance — a nearer pin holds them at any radius, so the map
+            // must draw them settled rather than compare them.
+            scan.winnable.map { CaptureDot(it.location, it.distanceM) } +
+                scan.conceded.map { CaptureDot(it, null) }
+        }
+    }
     // Back steps out of edit mode before it closes the screen.
-    BackHandler(enabled = editing) { editing = false }
+    BackHandler(enabled = editing) { discardRadius() }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -551,7 +595,7 @@ internal fun PlaceDetailScreen(
                         }
                     }
                 },
-                navigationIcon = { BackNavIcon { if (editing) editing = false else onBack() } },
+                navigationIcon = { BackNavIcon { if (editing) discardRadius() else onBack() } },
                 actions = {
                     if (editing) {
                         if (place != null && endpointCentroid != null) {
@@ -562,7 +606,7 @@ internal fun PlaceDetailScreen(
                                 )
                             }
                         }
-                        IconButton(onClick = { editing = false }) {
+                        IconButton(onClick = { commitRadius() }) {
                             Icon(Icons.Filled.Check, contentDescription = "Done")
                         }
                     } else {
@@ -614,11 +658,9 @@ internal fun PlaceDetailScreen(
             } else if (place != null) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        val scale = rememberDistanceScale(SliderStops(50, 500, 25), SliderStops(150, 1650, 75))
-                        SliderSetting(
-                            "Place radius", radiusM.roundToInt(), scale,
-                            onDragEnd = { viewModel.setPlaceRadius(place.id, radiusM.toDouble()) },
-                        ) { radiusM = it.toFloat() }
+                        SliderSetting("Place radius", radiusM.roundToInt(), radiusScale) {
+                            radiusM = it.toFloat()
+                        }
                     }
                 }
             }
@@ -637,6 +679,9 @@ internal fun PlaceDetailScreen(
                         radiusM = if (place != null) radiusM.toDouble() else summary.radiusM,
                         endpoints = summary.endpoints,
                         neighbors = neighbors,
+                        capture = captureDots,
+                        // Only while editing: in view mode the map leads with this place alone.
+                        rivalAreas = if (editing) rivals else emptyList(),
                         showInternals = editing,
                         modifier = Modifier.fillMaxSize(),
                     )

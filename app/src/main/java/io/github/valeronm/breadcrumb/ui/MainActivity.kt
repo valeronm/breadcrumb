@@ -65,6 +65,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -558,21 +559,39 @@ private fun PlaceDetailOverlay(
         summary?.let(onResolved)
     }
     summary?.let { detail ->
-        // Surrounding clusters for radius context: their endpoints as gray dots, named
-        // neighbors as labeled pins.
-        val neighbors = remember(placeSummaries, detail) {
-            placeSummaries
-                .filter { other ->
-                    other.rowKey() != detail.rowKey() &&
-                        AndroidDistance.meters(
-                            other.anchor.lat, other.anchor.lon,
-                            detail.anchor.lat, detail.anchor.lon,
-                        ) <= NEIGHBOR_CONTEXT_M
-                }
-                .flatMap { other ->
-                    other.endpoints.map { NeighborPlace(it) } +
-                        listOfNotNull(other.place?.let { NeighborPlace(other.anchor, it.label) })
-                }
+        // The surrounding neighborhood, resolved once: the same distance test fed two passes
+        // before, and the ellipsoidal call is not cheap enough to pay twice per summary.
+        val nearby = remember(placeSummaries, detail) {
+            val self = detail.rowKey()
+            placeSummaries.filter { other ->
+                other.rowKey() != self &&
+                    AndroidDistance.meters(
+                        other.anchor.lat, other.anchor.lon,
+                        detail.anchor.lat, detail.anchor.lon,
+                    ) <= NEIGHBOR_CONTEXT_M
+            }
+        }
+        // Their endpoints as gray dots, named neighbors as labeled pins.
+        val neighbors = remember(nearby) {
+            nearby.flatMap { other ->
+                other.endpoints.map { NeighborPlace(it) } +
+                    listOfNotNull(other.place?.let { NeighborPlace(other.anchor, it.label) })
+            }
+        }
+        // What a radius could take: this cluster's own endpoints and the loose ones around it.
+        // Passed as endpoints rather than recovered from the dots above, which are a drawing list.
+        val candidates = remember(nearby, detail) {
+            detail.endpoints + nearby.flatMap { it.endpoints }
+        }
+        // The neighbors that can actually out-compete this pin for an endpoint — and only the
+        // *named* ones can. A named place is a seed: it is in the clusterer's anchor list before
+        // any endpoint is read, so it holds its ground whatever this radius does. An unnamed
+        // cluster is not; its anchor is merely the first endpoint no seed claimed, so ground this
+        // radius grows over never forms one at all. Counting unnamed clusters as rivals is why an
+        // earlier version of this preview could never show a widened radius taking anything.
+        val rivals = remember(nearby) {
+            nearby.filter { it.place != null }
+                .map { PlaceClusterer.Seed(it.anchor, it.radiusM) }
         }
         Box(
             modifier = Modifier
@@ -582,6 +601,8 @@ private fun PlaceDetailOverlay(
             PlaceDetailScreen(
                 summary = detail,
                 neighbors = neighbors,
+                candidates = candidates,
+                rivals = rivals,
                 viewModel = viewModel,
                 onBack = onClose,
                 onOpenVisit = onOpenVisit,
