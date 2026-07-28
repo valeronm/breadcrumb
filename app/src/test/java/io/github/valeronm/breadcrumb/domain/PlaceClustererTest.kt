@@ -235,4 +235,114 @@ class PlaceClustererTest {
             assertEquals("lat=$lat", listOf(0, 1, 2), clusters[0].memberIndices)
         }
     }
+
+    // --- wouldCapture: what a radius being dragged would take, without re-deriving -------------
+
+    private fun wouldCapture(
+        radiusM: Double,
+        rivals: List<PlaceClusterer.Seed> = emptyList(),
+        vararg candidates: Endpoint,
+    ) = PlaceClusterer.wouldCapture(
+        candidates.toList(), at(0.0), radiusM, rivals, flatDistance,
+    )
+
+    @Test fun `takes the candidates inside the radius and no others`() {
+        val taken = wouldCapture(150.0, candidates = arrayOf(at(0.0), at(100.0), at(300.0)))
+        assertEquals(listOf(at(0.0), at(100.0)), taken)
+    }
+
+    @Test fun `a wider radius takes more — the slider's whole point`() {
+        val candidates = arrayOf(at(0.0), at(100.0), at(300.0))
+        assertEquals(2, wouldCapture(150.0, candidates = candidates).size)
+        assertEquals(3, wouldCapture(350.0, candidates = candidates).size)
+    }
+
+    @Test fun `a nearer rival that also covers it keeps the candidate`() {
+        // Inside our 400 m, but the rival sits 50 m away and covers it — cluster() would give it
+        // to the rival, so a preview must not claim it.
+        val rival = PlaceClusterer.Seed(at(300.0), 150.0)
+        assertTrue(wouldCapture(400.0, listOf(rival), at(250.0)).isEmpty())
+    }
+
+    @Test fun `a farther rival does not block it`() {
+        val rival = PlaceClusterer.Seed(at(500.0), 300.0)
+        assertEquals(listOf(at(200.0)), wouldCapture(400.0, listOf(rival), at(200.0)))
+    }
+
+    @Test fun `a rival too tight to cover it does not block it`() {
+        // Nearer in absolute terms, but its own radius does not reach the candidate, so it never
+        // qualifies as an anchor for it.
+        val rival = PlaceClusterer.Seed(at(210.0), 5.0)
+        assertEquals(listOf(at(200.0)), wouldCapture(400.0, listOf(rival), at(200.0)))
+    }
+
+    @Test fun `the scan partitions every candidate exactly once`() {
+        // winnable and conceded are what the screen draws; between them they must account for the
+        // whole input, or dots vanish off the map.
+        val candidates = listOf(at(0.0), at(120.0), at(250.0), at(900.0))
+        val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, emptyList(), flatDistance)
+
+        assertEquals(candidates.size, scan.winnable.size + scan.conceded.size)
+        assertEquals(
+            candidates.toSet(),
+            (scan.winnable.map { it.location } + scan.conceded).toSet(),
+        )
+    }
+
+    @Test fun `a candidate beyond the widest radius is conceded, not carried`() {
+        // The pruning the scan's cost depends on: at 900 m it can never be reached by a slider
+        // that stops at 500, so it is settled up front rather than compared on every step.
+        val scan = PlaceClusterer
+            .scanCapture(listOf(at(900.0)), at(0.0), 500.0, emptyList(), flatDistance)
+
+        assertTrue(scan.winnable.isEmpty())
+        assertEquals(listOf(at(900.0)), scan.conceded)
+    }
+
+    @Test fun `a widened seed takes ground an organic cluster used to hold`() {
+        // The premise the preview rests on: an organic anchor only exists where no seed reached,
+        // so it is not a rival a radius has to beat — it simply stops forming.
+        val locations = listOf(at(0.0), at(300.0), at(320.0))
+        fun seededWith(radiusM: Double) = PlaceClusterer
+            .cluster(locations, distance = flatDistance, seeds = listOf(PlaceClusterer.Seed(at(0.0), radiusM)))
+            .first { it.seedIndex == 0 }
+
+        assertEquals(1, seededWith(100.0).visitCount)
+        assertEquals(3, seededWith(400.0).visitCount)
+    }
+
+    @Test fun `the preview sees that widening too, given only named rivals`() {
+        // Passing the organic anchor at 300 m in as a rival would concede both far endpoints to
+        // it — it sits on top of one of them — and the preview would show a widened radius taking
+        // nothing, which is exactly the bug this pins.
+        val locations = listOf(at(0.0), at(300.0), at(320.0))
+        val seed = PlaceClusterer.Seed(at(0.0), 400.0)
+
+        assertEquals(
+            PlaceClusterer.cluster(locations, distance = flatDistance, seeds = listOf(seed))
+                .first { it.seedIndex == 0 }
+                .members,
+            PlaceClusterer.wouldCapture(locations, seed.anchor, seed.radiusM, emptyList(), flatDistance),
+        )
+    }
+
+    @Test fun `agrees with what cluster actually assigns`() {
+        // The mirror is only worth having while it matches the rule it mirrors: run the same
+        // scene through cluster() and compare the seed's real members against the preview.
+        val subject = PlaceClusterer.Seed(at(0.0), 400.0)
+        val rival = PlaceClusterer.Seed(at(300.0), 150.0)
+        val candidates = listOf(at(50.0), at(200.0), at(250.0), at(900.0))
+
+        val real = PlaceClusterer
+            .cluster(candidates, distance = flatDistance, seeds = listOf(subject, rival))
+            .first { it.seedIndex == 0 }
+            .members
+
+        assertEquals(
+            real,
+            PlaceClusterer.wouldCapture(
+                candidates, subject.anchor, subject.radiusM, listOf(rival), flatDistance,
+            ),
+        )
+    }
 }
