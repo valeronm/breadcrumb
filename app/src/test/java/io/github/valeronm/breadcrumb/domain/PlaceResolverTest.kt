@@ -238,6 +238,27 @@ class PlaceResolverTest {
         assertEquals(1, summaries.count { !it.isNamed }) // the (900) stay is an unnamed cluster
     }
 
+    @Test fun `a named place's endpoint centroid is where its visits landed, not its pin`() {
+        // The two readings a re-center offers to swap between, and they are only interesting when
+        // they differ: the pin is where it was dropped, the centroid where the visits fell.
+        val places = listOf(place(1, "Home", at(0.0)))
+        // Both stays fall inside the pin's capture radius, so there is no unnamed cluster beside it.
+        val s = summarize(listOf(stayAt(at(100.0), 1_000, 2_000), stayAt(at(300.0), 3_000, 4_000)), places)
+            .single()
+
+        assertEquals(at(0.0), s.anchor)
+        assertEquals(at(200.0).lon, s.endpointCentroid!!.lon, 1e-9)
+    }
+
+    @Test fun `a named place that captured nothing has no endpoint centroid`() {
+        // An empty seeded cluster keeps its pin as its centroid, which would offer a re-center
+        // that moves the pin to where it already is.
+        val s = summarize(emptyList(), listOf(place(1, "Home", at(0.0)))).single()
+
+        assertTrue(s.endpoints.isEmpty())
+        assertNull(s.endpointCentroid)
+    }
+
     // --- neighborhood: what a capture radius is judged against -------------------------------
 
     /**

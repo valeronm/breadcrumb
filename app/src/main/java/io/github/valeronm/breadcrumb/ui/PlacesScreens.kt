@@ -711,12 +711,6 @@ internal fun PlaceEditScreen(
     // The circle previews live, but nothing is written until Done. A radius write re-derives the
     // whole timeline, so committing per drag re-derived it several times for one adjustment.
     var radiusM by remember(place.id) { mutableFloatStateOf(summary.radiusM.toFloat()) }
-    // Where the pin would move: the mean of the endpoints the cluster currently captures.
-    val endpointCentroid = remember(summary.endpoints) {
-        summary.endpoints.takeIf { it.isNotEmpty() }?.let { pts ->
-            StayDeriver.Endpoint(pts.sumOf { it.lat } / pts.size, pts.sumOf { it.lon } / pts.size)
-        }
-    }
     val radiusScale = rememberDistanceScale(SliderStops(50, 500, 25), SliderStops(150, 1650, 75))
     // Prepared once when the screen opens, not per drag step: whether a neighbor keeps an endpoint
     // has nothing to do with our radius, and paying for that scan on every step is what made a
@@ -759,7 +753,7 @@ internal fun PlaceEditScreen(
                 },
                 navigationIcon = { BackNavIcon(onClose) },
                 actions = {
-                    if (endpointCentroid != null) {
+                    if (summary.endpointCentroid != null) {
                         IconButton(onClick = { showRecenterDialog = true }) {
                             Icon(Icons.Filled.FilterCenterFocus, contentDescription = "Re-center pin")
                         }
@@ -809,7 +803,7 @@ internal fun PlaceEditScreen(
         }
     }
 
-    if (showRecenterDialog && endpointCentroid != null) {
+    if (showRecenterDialog && summary.endpointCentroid != null) {
         ConfirmDialog(
             icon = Icons.Filled.FilterCenterFocus,
             title = "Re-center pin?",
@@ -817,7 +811,7 @@ internal fun PlaceEditScreen(
                 "Visits and stats recalculate around the new spot.",
             confirmLabel = "Move",
             onConfirm = {
-                viewModel.setPlacePin(place.id, endpointCentroid.lat, endpointCentroid.lon)
+                viewModel.setPlacePin(place.id, summary.endpointCentroid.lat, summary.endpointCentroid.lon)
                 showRecenterDialog = false
             },
             onDismiss = { showRecenterDialog = false },

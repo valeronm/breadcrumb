@@ -76,6 +76,15 @@ object PlaceResolver {
         val radiusM: Double,
         /** Every track endpoint captured by the cluster, for showing the scatter on a map. */
         val endpoints: List<StayDeriver.Endpoint>,
+        /**
+         * Where the visits actually landed — the mean of [endpoints], as against [anchor], where
+         * the pin was dropped; null when there is nothing to average.
+         *
+         * It is the clusterer's own mean ([PlaceClusterer.Cluster.endpointMean]) carried through,
+         * not a second one computed here: a summary is what every screen gets in place of the
+         * cluster, so a reading of the cluster that a screen needs has to be on it.
+         */
+        val endpointCentroid: StayDeriver.Endpoint?,
         /** This place's individual visits (unsliced), newest first — the detail screen's history. */
         val stays: List<StayDeriver.Stay> = emptyList(),
     ) {
@@ -171,6 +180,7 @@ object PlaceResolver {
                 unnamed += PlaceSummary(
                     null, cluster.centroid, count, last.takeIf { count > 0 }, total,
                     anchor = cluster.anchor, radiusM = cluster.radiusM, endpoints = cluster.members,
+                    endpointCentroid = cluster.endpointMean,
                     stays = members.sortedByDescending { it.start },
                 )
             } else if (count > 0) {
@@ -200,6 +210,7 @@ object PlaceResolver {
                 anchor = StayDeriver.Endpoint(place.lat, place.lon),
                 radiusM = cluster?.radiusM ?: place.radiusM,
                 endpoints = cluster?.members ?: emptyList(),
+                endpointCentroid = cluster?.endpointMean,
                 stays = agg?.stays?.sortedByDescending { it.start } ?: emptyList(),
             )
         }

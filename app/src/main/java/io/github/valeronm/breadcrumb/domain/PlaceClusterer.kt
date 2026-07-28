@@ -37,6 +37,13 @@ object PlaceClusterer {
         val seedIndex: Int? = null,
     ) {
         val visitCount: Int get() = memberIndices.size
+
+        /**
+         * The members' mean, or null where there are no members to average — the reading
+         * [centroid] cannot give, since an empty seed keeps its pin there. Only a seeded cluster
+         * can be empty: an organic one exists because an endpoint founded it.
+         */
+        val endpointMean: StayDeriver.Endpoint? get() = centroid.takeIf { members.isNotEmpty() }
     }
 
     fun cluster(
