@@ -37,6 +37,43 @@ object PlaceClusterer {
     fun seedsOf(places: List<Place>): List<Seed> =
         places.map { Seed(StayDeriver.Endpoint(it.lat, it.lon), it.radiusM) }
 
+    /**
+     * Which of [seeds] claims ([lat], [lon]): the nearest one whose own radius covers it, or null
+     * where none does. **The single statement of the rule** — [cluster] admits an endpoint to a
+     * seeded cluster by it, [StayDeriver] decides two endpoints are the same place by it, and a
+     * track's ends are named by it ([RoutePlaces]) — so the inclusive radius and the
+     * nearest-wins tie-break are settled in one spot rather than agreeing three times by comment.
+     *
+     * Scanned in one pass returning an index, not a [Seed]: this runs twice per adjacent track pair
+     * over the whole history, and handing back a pin-with-distance would box a `Double` per call.
+     * Seeds out of reach cost coordinate arithmetic, not a distance call ([ReachBound]).
+     *
+     * [cluster] keeps its own copy of the scan deliberately: its anchor list grows as it walks, so it
+     * compares against organic anchors this cannot see and would have to allocate a [Seed] per
+     * endpoint in the hot path to ask.
+     */
+    fun nearestSeedIndex(
+        lat: Double,
+        lon: Double,
+        seeds: List<Seed>,
+        distance: DistanceFn,
+    ): Int? {
+        if (seeds.isEmpty()) return null
+        val reach = ReachBound.around(lat, lon, distance)
+        var nearest = -1
+        var nearestM = Double.MAX_VALUE
+        for (i in seeds.indices) {
+            val seed = seeds[i]
+            if (reach.outOfReach(seed.anchor.lat, seed.anchor.lon, seed.radiusM)) continue
+            val meters = distance.meters(seed.anchor.lat, seed.anchor.lon, lat, lon)
+            if (meters <= seed.radiusM && meters < nearestM) {
+                nearest = i
+                nearestM = meters
+            }
+        }
+        return nearest.takeIf { it >= 0 }
+    }
+
     class Cluster(
         /** First member's location (or the seed pin) — the stable cluster identity. */
         val anchor: StayDeriver.Endpoint,

@@ -145,26 +145,8 @@ object StayDeriver {
         val (clusters, clusterOf) = clusterEndpoints(tracks, activeTrack?.start, placePins, params, distance)
         val out = mutableListOf<Interval>()
 
-        // Nearest pin whose own radius captures [e], scanned in one pass: this runs twice per
-        // adjacent track pair over the whole history, and a pair-list form would box a Double per
-        // pin per call. Pins out of reach of [e] cost coordinate arithmetic, not a distance call —
-        // the same rejection the clustering above runs.
-        fun nearestPin(e: Endpoint): Int? {
-            if (placePins.isEmpty()) return null
-            val reach = ReachBound.around(e.lat, e.lon, distance)
-            var best = -1
-            var bestD = Double.MAX_VALUE
-            for (i in placePins.indices) {
-                val pin = placePins[i]
-                if (reach.outOfReach(pin.anchor.lat, pin.anchor.lon, pin.radiusM)) continue
-                val d = distance.meters(pin.anchor.lat, pin.anchor.lon, e.lat, e.lon)
-                if (d <= pin.radiusM && d < bestD) {
-                    best = i
-                    bestD = d
-                }
-            }
-            return best.takeIf { it >= 0 }
-        }
+        fun nearestPin(e: Endpoint): Int? =
+            PlaceClusterer.nearestSeedIndex(e.lat, e.lon, placePins, distance)
 
         fun samePlace(a: Endpoint, b: Endpoint): Boolean =
             clusterOf.getValue(a) == clusterOf.getValue(b) ||
