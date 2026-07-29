@@ -67,8 +67,16 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     // distinctUntilChanged calls are for the writes that do: opening a track re-emits a list that
     // doesn't contain it (endedAt IS NOT NULL), and they stop that identical re-emission from
     // re-running the derivation downstream.
-    val tracks: StateFlow<List<TrackSummary>> = repository.observeSummaries()
+    //
+    // Shared unseeded, and [timeline] combines *this* rather than the StateFlow below: a seeded
+    // StateFlow emits its `emptyList()` at once, which would let the combine produce a real, empty
+    // timeline before the first query returned — the very "a full history reads as empty" the null
+    // initial exists to prevent, re-entering through the other input.
+    private val trackRows: Flow<List<TrackSummary>> = repository.observeSummaries()
         .distinctUntilChanged()
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    val tracks: StateFlow<List<TrackSummary>> = trackRows
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Soft-deleted tracks (deleted, filtered, merged), for the Recently deleted screen. */
@@ -148,8 +156,16 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
-    /** Tracks interleaved with derived stays and data gaps, newest first, sliced per local day. */
-    val timeline: StateFlow<List<TimelineItem>> = combine(tracks, derived) { summaries, d ->
+    /**
+     * Tracks interleaved with derived stays and data gaps, newest first, sliced per local day.
+     *
+     * **Null until the first derivation lands**, which is not the same answer as an empty list and
+     * must not be collapsed into one: the derivation walks the whole history, so on a cold start
+     * there is a window where a full history reads as empty. The Timeline's empty state offers a
+     * backup restore — an offer that is only safe *because* there is nothing to merge with — so a
+     * reader that can't tell the two apart makes that offer over the user's data.
+     */
+    val timeline: StateFlow<List<TimelineItem>?> = combine(trackRows, derived) { summaries, d ->
         // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
         // as 3 visits. Cluster ids survive the slicing copies, so items look up directly.
         val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places)
@@ -181,17 +197,20 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }.flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * Every cluster's aggregate stats — visited places for the Places screen plus zero-visit
      * pass-through clusters so gap sides always have a detail page to open (the Places tab
      * filters the zero-visit rows out at display time). Idle unless a subscriber screen is open.
+     *
+     * **Null until the first derivation lands**, for the reason given on [timeline]: a screen that
+     * reads "not yet" as "nothing" tells the user their history is empty while it is being read.
      */
-    val places: StateFlow<List<PlaceResolver.PlaceSummary>> = derived.map { d ->
+    val places: StateFlow<List<PlaceResolver.PlaceSummary>?> = derived.map { d ->
         PlaceResolver.summarize(d.stays, d.derivation.clusters, d.places, d.now)
     }.flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * What the user's own naming says about a place's category, retrained whenever the places table

@@ -424,7 +424,7 @@ private fun MainScreen(
         // shifts with the predictive-back gesture, previewing the layer underneath.
         MainPageOverlay(
             layer = mainPageLayer,
-            timeline = timeline,
+            timeline = timeline.orEmpty(),
             viewModel = viewModel,
             unitChoice = unitChoice,
             onUnitChoice = onUnitChoice,
@@ -603,7 +603,7 @@ private fun PlaceEditOverlay(
             // finishing somewhere instead. Gathered once for as long as the editor is open, which
             // is what its own doc says it is for.
             val neighborhood = remember(editKey) {
-                PlaceResolver.neighborhood(detail, placeSummaries, AndroidDistance)
+                PlaceResolver.neighborhood(detail, placeSummaries.orEmpty(), AndroidDistance)
             }
             // Their endpoints as gray dots, named neighbors as labeled pins — the only part of a
             // neighborhood that is about drawing rather than about what a radius would take.
@@ -632,14 +632,17 @@ private fun PlaceEditOverlay(
  * (summarize emits every cluster): gap sides open even without an earned stay, and their endpoints
  * show as neighbor context on adjacent places' maps. [snapshot] keeps the screen stable between
  * re-derivations and re-finds a just-named cluster by centroid (its key moves `cluster:` → `place:`).
+ *
+ * [summaries] is null until the derivation lands, which needs no case of its own: a key resolves
+ * against nothing then, and null is already the answer for a key this list doesn't hold.
  */
 @Composable
 private fun rememberPlaceSummary(
-    summaries: List<PlaceResolver.PlaceSummary>,
+    summaries: List<PlaceResolver.PlaceSummary>?,
     key: String?,
     snapshot: PlaceResolver.PlaceSummary?,
 ): PlaceResolver.PlaceSummary? =
-    remember(summaries, key, snapshot) { PlaceResolver.reacquire(summaries, key, snapshot) }
+    remember(summaries, key, snapshot) { PlaceResolver.reacquire(summaries.orEmpty(), key, snapshot) }
 
 /**
  * Settings sub-pages: a second overlay layer above the hub — the gesture previews the hub

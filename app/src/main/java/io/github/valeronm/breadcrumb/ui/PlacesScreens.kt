@@ -159,7 +159,8 @@ internal fun PlacesTab(
     onOpenPlace: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    val places by viewModel.places.collectAsStateWithLifecycle()
+    val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
+    val places = derivedPlaces.orEmpty()
     // For the map's orange dots: stays the Timeline offers to merge away (TrackMerge's rules —
     // short, finished, same activity on both sides). A place that is only such an artifact is
     // marked rather than re-deciding eligibility here. Named places are exempt at the dot, not
@@ -283,7 +284,9 @@ internal fun PlacesTab(
                     .padding(top = (10.dp - chipHalo).coerceAtLeast(0.dp), bottom = 8.dp),
             )
         }
-        if (sorted.isEmpty()) {
+        if (derivedPlaces == null) {
+            DerivingState(Modifier.weight(1f).fillMaxWidth())
+        } else if (sorted.isEmpty()) {
             EmptyState(
                 "No places yet. Stays and places you name show up here.",
                 Modifier.weight(1f).fillMaxWidth().padding(24.dp),
@@ -301,7 +304,7 @@ internal fun PlacesTab(
                     // Stay identity (afterTrackId + start) survives the timeline's per-day
                     // slicing — a mergeable stay is short, so its first slice is the whole stay.
                     val mergeableStays = remember(timeline) {
-                        timeline.filterIsInstance<TimelineItem.StayItem>()
+                        timeline.orEmpty().filterIsInstance<TimelineItem.StayItem>()
                             .filter { it.merge != null }
                             .mapTo(HashSet()) { it.stay.afterTrackId to it.stay.start }
                     }

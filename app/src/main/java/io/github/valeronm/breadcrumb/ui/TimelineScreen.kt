@@ -107,7 +107,8 @@ import kotlin.time.Duration.Companion.milliseconds
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun TracksTab(
-    items: List<TimelineItem>,
+    /** Null while the derivation is still running — see [TrackListViewModel.timeline]. */
+    items: List<TimelineItem>?,
     viewModel: TrackListViewModel,
     undo: UndoSnackbar,
     visitTarget: StayDeriver.Stay?,
@@ -124,9 +125,21 @@ internal fun TracksTab(
     // the first inserted batch would otherwise replace this screen (and its progress text) with a
     // timeline that keeps re-deriving as tracks pour in. The finished timeline appears at once.
     val restoreProgress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
-    if (restoreProgress != null || items.none { it is TimelineItem.TrackItem }) {
-        EmptyTracksState(viewModel)
-        return
+    // In priority order: a restore outranks everything, since that screen reports its progress for
+    // the whole run; then "not derived yet"; then a history that really is empty.
+    when {
+        restoreProgress != null -> {
+            EmptyTracksState(viewModel)
+            return
+        }
+        items == null -> {
+            DerivingState(Modifier.fillMaxSize())
+            return
+        }
+        items.none { it is TimelineItem.TrackItem } -> {
+            EmptyTracksState(viewModel)
+            return
+        }
     }
 
     // Rows change under the user while this runs, so the work says so rather than the list

@@ -31,6 +31,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +52,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -75,6 +77,7 @@ import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.snapToStep
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -330,6 +333,29 @@ internal val timeFormat by PerLocale { SimpleDateFormat("HH:mm", it) }
 internal fun BackNavIcon(onBack: () -> Unit) {
     IconButton(onClick = onBack) {
         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+    }
+}
+
+/**
+ * Long enough that a derivation which beats it shows nothing at all — an indicator that appears and
+ * vanishes within a few frames reads as a glitch, and most cold starts are over before this elapses.
+ */
+private const val DERIVING_SPINNER_DELAY_MS = 300L
+
+/**
+ * Placeholder for a screen whose contents are still being derived — **not** interchangeable with
+ * [EmptyState]. The stay derivation walks the whole history, so until it lands a full history is
+ * indistinguishable from an empty one, and the messages [EmptyState] carries here ("no places yet",
+ * and on the Timeline an offer to restore a backup) are then wrong in the alarming direction.
+ */
+@Composable
+internal fun DerivingState(modifier: Modifier = Modifier) {
+    val visible by produceState(false) {
+        delay(DERIVING_SPINNER_DELAY_MS)
+        value = true
+    }
+    Box(modifier, contentAlignment = Alignment.Center) {
+        if (visible) CircularProgressIndicator()
     }
 }
 
