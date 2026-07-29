@@ -698,6 +698,9 @@ private const val PIN_MAX_LUM = 0.66f
 
 private const val PIN_TRANSIENT_SAT = 0.38f
 
+/** The share of its saturation a muted pin keeps — see [categoryMutedPinColor]. */
+private const val PIN_MUTED_SAT = 0.28f
+
 /**
  * The hue a group reads as — the only thing that separates the five, and the one thing every
  * surface coloring a place shares. Whatever else moves, this table is the vocabulary.
@@ -735,10 +738,34 @@ internal fun categoryColor(category: PlaceCategory): Color =
     Color.hsl(category.group.hue, category.group.saturation(CATEGORY_SAT, CATEGORY_TRANSIENT_SAT), CATEGORY_LUM)
 
 /** [categoryColor] as a map pin wears it — see [PIN_SAT] for why the map gets its own weight. */
-internal fun categoryPinColor(category: PlaceCategory): Color =
-    forWhiteGlyph(
-        Color.hsl(category.group.hue, category.group.saturation(PIN_SAT, PIN_TRANSIENT_SAT), PIN_MAX_LUM),
-    )
+internal fun categoryPinColor(category: PlaceCategory): Color = pinFill(category, satScale = 1f)
+
+/**
+ * The one recipe a pin fill is built by, so a neighbour's differs from a subject's in exactly the
+ * one term that is meant to. [satScale] must apply *inside* it rather than to the colour it returns:
+ * [forWhiteGlyph] darkens by measured contrast, so draining chroma afterwards would leave a fill
+ * lightened for a saturation it no longer has.
+ */
+private fun pinFill(category: PlaceCategory, satScale: Float): Color = forWhiteGlyph(
+    Color.hsl(
+        category.group.hue,
+        category.group.saturation(PIN_SAT, PIN_TRANSIENT_SAT) * satScale,
+        PIN_MAX_LUM,
+    ),
+)
+
+/**
+ * What a *neighbouring* place's pin keeps of its chroma: the same hue and the same lightness, most of
+ * the saturation gone. Colour is the only thing a pin spends to be noticed — hue is what the coding
+ * says and lightness is what the glyph needs — so draining it is what makes a pin recede without
+ * making it faint, which is the state a pin can't afford: the glyph still has to be recognisable, or
+ * a neighbour is drawn for nothing.
+ *
+ * A *fraction* of the group's saturation rather than a flat value, so the transient groups — already
+ * the quietest, deliberately — stay quietest here too instead of all five flattening to one wash.
+ */
+internal fun categoryMutedPinColor(category: PlaceCategory): Color =
+    pinFill(category, satScale = PIN_MUTED_SAT)
 
 /**
  * The pin an untagged place wears: chroma-free, so it can never be mistaken for a group's colour —

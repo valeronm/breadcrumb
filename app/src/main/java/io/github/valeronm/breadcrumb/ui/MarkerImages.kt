@@ -96,8 +96,9 @@ private fun withShadow(ctx: Context, icon: Bitmap, shadow: MarkerShadow, scale: 
  * Every variant is registered up front ([addPlacePinImages]) so a re-tag or a zoom threshold is a
  * change of *which id a feature names*, never a bitmap built mid-gesture.
  */
-internal fun placePinImage(category: PlaceCategory?, withGlyph: Boolean): String =
-    "place-pin-${category?.code ?: "untagged"}-${if (withGlyph) "glyph" else "disc"}"
+internal fun placePinImage(category: PlaceCategory?, withGlyph: Boolean, muted: Boolean = false): String =
+    "place-pin-${category?.code ?: "untagged"}-${if (withGlyph) "glyph" else "disc"}" +
+        if (muted) "-muted" else ""
 
 /**
  * Geometry as fractions of the image, in the 24-unit viewport of the drawable this replaces. The
@@ -131,6 +132,7 @@ internal const val PIN_MAX_SCALE = 1.55f
  * theme-free. Main thread only, as every style load that reads it is.
  */
 private var cachedPins: List<PinImage>? = null
+private var cachedMutedPins: List<PinImage>? = null
 
 private fun pinImages(ctx: Context): List<PinImage> {
     cachedPins?.let { return it }
@@ -154,17 +156,55 @@ private fun pinImages(ctx: Context): List<PinImage> {
 }
 
 /**
+ * The neighbouring-place forms, cached apart from the rest: only the place map names them, so the
+ * Places tab's own map would otherwise rasterise seventeen bitmaps it can never draw and hold them
+ * for the life of a process the recorder keeps alive for weeks.
+ *
+ * Glyphed only — a neighbour is drawn at the size that earns a glyph, never the small one. An
+ * untagged pin is chroma-free already, so its muted form *is* the plain one and the bitmap is
+ * shared rather than drawn twice; it earns an id anyway, so naming the muted image never has to ask
+ * whether a category happens to have colour to give up.
+ */
+private fun mutedPinImages(ctx: Context): List<PinImage> {
+    cachedMutedPins?.let { return it }
+    val images = (listOf(null) + PlaceCategory.entries).map { category ->
+        PinImage(
+            placePinImage(category, withGlyph = true, muted = true),
+            glyphed = true,
+            bitmap = category?.let { placePinBitmap(ctx, categoryMutedPinColor(it), it.icon) }
+                ?: pinImages(ctx).first { it.id == placePinImage(null, withGlyph = true) }.bitmap,
+        )
+    }
+    cachedMutedPins = images
+    return images
+}
+
+/**
  * Registers a pin image per category, with and without its glyph, plus the pair for untagged.
  *
- * [glyphedOnly] leaves out the glyphless variant, for a map whose pins are never the small form: the
- * set is built either way, being cached whole, but the sprite atlas isn't asked to carry images no
- * feature on that map can name.
+ * [glyphedOnly] leaves out the glyphless variant, for a map whose pins are never the small form, and
+ * [withMuted] adds the neighbouring-place forms, for the one map that draws places other than its
+ * subject. The set is built either way, being cached whole, but the sprite atlas isn't asked to
+ * carry images no feature on that map can name.
  */
-internal fun addPlacePinImages(ctx: Context, style: Style, glyphedOnly: Boolean = false) {
+internal fun addPlacePinImages(ctx: Context, style: Style, pins: PinSet = PinSet.EveryForm) {
     for (image in pinImages(ctx)) {
-        if (glyphedOnly && !image.glyphed) continue
+        if (pins == PinSet.PlacesAndNeighbors && !image.glyphed) continue
         style.addImage(image.id, image.bitmap)
     }
+    if (pins == PinSet.PlacesAndNeighbors) {
+        for (image in mutedPinImages(ctx)) style.addImage(image.id, image.bitmap)
+    }
+}
+
+/** Which pins a map can name — one name per map rather than a pair of booleans with three of their
+ *  four combinations unreachable. */
+internal enum class PinSet {
+    /** Every category at both sizes, no neighbours: the all-places overview. */
+    EveryForm,
+
+    /** The glyphed forms plus their muted twins: one place drawn among the places around it. */
+    PlacesAndNeighbors,
 }
 
 private fun placePinBitmap(ctx: Context, fill: Color, glyph: ImageVector?): Bitmap {

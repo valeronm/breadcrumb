@@ -618,8 +618,21 @@ private fun labeledSymbolLayer(ctx: Context, id: String, source: String): Symbol
         PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
         PropertyFactory.textOffset(arrayOf(0f, 0.8f)),
         PropertyFactory.textOptional(true),
+        // Context recedes twice over: a muted pin gives up most of its chroma in the bitmap it
+        // names *and* some of its ink here, which is what separates it from its neighbours' circles
+        // as well as from the subject. The label can only give up ink, being neutral in both themes
+        // with no chroma to drain. Keyed on the property being present, so a collection that never
+        // writes it — the all-places overview — is unaffected without knowing the rule exists.
+        PropertyFactory.iconOpacity(mutedOpacity()),
+        PropertyFactory.textOpacity(mutedOpacity()),
     )
 }
+
+private fun mutedOpacity(): Expression = Expression.switchCase(
+    Expression.has(MUTED_KEY),
+    Expression.literal(NEIGHBOR_MUTED_OPACITY),
+    Expression.literal(1f),
+)
 
 /**
  * The graph-scrubber selection: its own source/layer so updates don't rebuild the marker set.
@@ -760,8 +773,12 @@ internal data class PlaceMarker(
  * the marker is big enough to hold one — and unnamed leaves it the [unnamed] dot the surface gives
  * a cluster. Every map answers this the same way; only which dot differs.
  */
-private fun markerIcon(marker: PlaceMarker, withGlyph: Boolean, unnamed: String): String =
-    if (marker.label != null) placePinImage(marker.category, withGlyph) else unnamed
+private fun markerIcon(
+    marker: PlaceMarker,
+    withGlyph: Boolean,
+    unnamed: String,
+    muted: Boolean = false,
+): String = if (marker.label != null) placePinImage(marker.category, withGlyph, muted) else unnamed
 
 /**
  * Renders one place on the basemap. With [showInternals] the cluster's capture circle (a meter-true
@@ -883,6 +900,14 @@ private val PLACE_CIRCLE_LAYERS = listOf(
 /** Faint enough to read as context rather than as a second thing being edited. */
 private const val RIVAL_AREA_OPACITY = 0.35f
 
+/**
+ * The ink a neighbouring place's pin and label keep. Gentler than [RIVAL_AREA_OPACITY], and gentler
+ * than it would be if it worked alone: the pin has already given up most of its saturation (see
+ * `categoryMutedPinColor`), so this is the second half of a recede rather than the whole of one, and
+ * a neighbour still has to be identifiable — which is the entire reason it is drawn.
+ */
+private const val NEIGHBOR_MUTED_OPACITY = 0.7f
+
 private const val PLACE_RIVAL_SOURCE = "place-rival-src"
 private const val PLACE_RIVAL_FILL = "place-rival-fill"
 private const val PLACE_RIVAL_LINE = "place-rival-line"
@@ -893,6 +918,7 @@ private const val PLACE_CIRCLE_LINE = "place-circle-line"
 
 /** Feature property names shared by the marker features and the icon expressions above. */
 private const val ICON_KEY = "icon"
+private const val MUTED_KEY = "muted"
 private const val DISTANCE_KEY = "dm"
 
 /** The image a feature takes once it is drawn big enough to carry a glyph — see [GLYPH_ZOOM]. */
@@ -929,7 +955,7 @@ private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent)
     style.addImage(IMG_NEIGHBOR, shadowedBitmap(ctx, R.drawable.ic_marker_neighbor, MarkerShadow.EVIDENCE))
     // This map holds one place at the zoom its own radius frames, so its pins are never the
     // small form: full size, glyphed, and no disc variant to carry.
-    addPlacePinImages(ctx, style, glyphedOnly = true)
+    addPlacePinImages(ctx, style, PinSet.PlacesAndNeighbors)
     style.addSource(
         GeoJsonSource(
             PLACE_MARKER_SOURCE,
@@ -955,7 +981,7 @@ private fun placeMarkerCollection(content: PlaceMapContent): FeatureCollection {
         // capture form isn't, because there they are already among the candidates.
         markers.neighbors.forEach { n ->
             if (capture != null && n.label == null) return@forEach
-            features.add(endpointFeature(n.location, markerIcon(n, withGlyph = true, unnamed = IMG_NEIGHBOR), n.label))
+            features.add(neighborFeature(n))
         }
         if (capture != null) {
             capture.forEach { dot ->
@@ -979,11 +1005,24 @@ private fun placeMarkerCollection(content: PlaceMapContent): FeatureCollection {
     return FeatureCollection.fromFeatures(features)
 }
 
+/**
+ * A neighbouring place, receding on both counts a raster symbol can: a desaturated bitmap and less
+ * ink. One function because the two are one decision — set on the feature but not the image (or the
+ * reverse) and the pin half-recedes, with nothing to catch it.
+ */
+private fun neighborFeature(n: PlaceMarker): Feature = endpointFeature(
+    n.location,
+    markerIcon(n, withGlyph = true, unnamed = IMG_NEIGHBOR, muted = true),
+    n.label,
+    muted = true,
+)
+
 private fun endpointFeature(
     e: StayDeriver.Endpoint,
     icon: String,
     label: String? = null,
     distanceM: Double? = null,
+    muted: Boolean = false,
 ): Feature =
     Feature.fromGeometry(
         Point.fromLngLat(e.lon, e.lat),
@@ -991,6 +1030,7 @@ private fun endpointFeature(
             addProperty(ICON_KEY, icon)
             addProperty("label", label ?: "")
             distanceM?.let { addProperty(DISTANCE_KEY, it) }
+            if (muted) addProperty(MUTED_KEY, true)
         },
     )
 
