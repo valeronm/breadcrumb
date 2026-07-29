@@ -741,6 +741,17 @@ internal fun categoryPinColor(category: PlaceCategory): Color =
     )
 
 /**
+ * The pin an untagged place wears: chroma-free, so it can never be mistaken for a group's colour —
+ * which is the same thing the lists say with [placeDiscTint]'s neutral, said in the map's own terms.
+ *
+ * Fixed rather than the theme's neutral, as the five hues are. The map bakes its colours into
+ * bitmaps outside composition, and one colour reaching back into the theme would be the only reason
+ * a pin image depends on anything but its category. It is a *quieter* rule than it looks: the theme
+ * neutral was never worn as-is either, since white ink has to read on it.
+ */
+internal val untaggedPinColor: Color = forWhiteGlyph(Color.hsl(0f, 0f, PIN_MAX_LUM))
+
+/**
  * What white ink needs against the fill under it. 3:1 is the bar for a *graphical object* (WCAG
  * 1.4.11) — a glyph is a shape to recognize, not text to read, and holding it to the 4.5:1 text bar
  * costs about a fifth of the palette's brightness for legibility a Material silhouette never needed.

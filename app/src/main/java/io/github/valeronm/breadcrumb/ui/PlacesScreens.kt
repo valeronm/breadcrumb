@@ -288,8 +288,7 @@ internal fun PlacesTab(
                     val mapPlaces = remember(mapVisible, mergeableStays) {
                         mapVisible.map { summary ->
                             OverviewPlace(
-                                location = summary.anchor,
-                                label = summary.place?.label,
+                                marker = PlaceMarker(summary.anchor, summary.place),
                                 key = summary.key,
                                 // Never a named place: a merge offer says the split may be an
                                 // artifact, but a label says the user meant this place, and the
@@ -297,7 +296,6 @@ internal fun PlacesTab(
                                 brief = !summary.isNamed &&
                                     summary.stays.singleOrNull()
                                         ?.let { (it.afterTrackId to it.start) in mergeableStays } == true,
-                                category = summary.place?.placeCategory,
                             )
                         }
                     }
@@ -582,10 +580,8 @@ internal fun PlaceDetailScreen(
             Card(Modifier.height(220.dp).fillMaxWidth()) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
                     MapLibrePlaceMap(
-                        center = summary.anchor,
+                        center = PlaceMarker(summary.anchor, place),
                         radiusM = summary.radiusM,
-                        category = place?.placeCategory,
-                        centerAsPin = place != null,
                         // The map here leads with the place alone: no circle, no endpoint dots,
                         // no neighbors. Everything they are for belongs to PlaceEditScreen — and
                         // the scatter is withheld rather than merely hidden, because the map
@@ -711,7 +707,7 @@ internal fun PlaceDetailScreen(
 @Composable
 internal fun PlaceEditScreen(
     summary: PlaceResolver.PlaceSummary,
-    neighbors: List<NeighborPlace>,
+    neighbors: List<PlaceMarker>,
     candidates: List<StayDeriver.Endpoint>,
     rivals: List<PlaceClusterer.Seed>,
     viewModel: TrackListViewModel,
@@ -833,10 +829,9 @@ internal fun PlaceEditScreen(
             Card(Modifier.weight(1f).fillMaxWidth()) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
                     MapLibrePlaceMap(
-                        center = pin,
+                        center = PlaceMarker(pin, summary.place),
                         radiusM = radiusM.toDouble(),
                         endpoints = summary.endpoints,
-                        category = summary.place?.placeCategory,
                         neighbors = neighbors,
                         capture = captureDots,
                         rivalAreas = rivals,

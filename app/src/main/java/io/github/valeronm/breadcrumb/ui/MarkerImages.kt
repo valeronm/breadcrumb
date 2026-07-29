@@ -116,64 +116,59 @@ private const val PIN_GLYPH_BOX = 12f / 24f
 
 private class PinImage(val id: String, val glyphed: Boolean, val bitmap: Bitmap)
 
-private class PinImageSet(val scale: Float, val untaggedFill: Int, val images: List<PinImage>)
+/**
+ * A pin at full size, as a multiple of [PIN_BASE_DP] — the one size a pin is ever *drawn* at, every
+ * other being a scaling down of it by a layer's zoom ramp. So the pin a place opens onto is the
+ * same pin the map it was opened from was showing.
+ */
+internal const val PIN_MAX_SCALE = 1.55f
 
 /**
  * The pin set, built once for the process rather than per style load: opening a place and editing
  * it is three maps by the never-resize-a-MapView rule, and rasterizing plus blurring the whole
  * catalogue for each lands on the main thread in front of every map's first frame. Cached like the
- * basemap style, for the same reason, and keyed by the two things that can change the bitmaps — the
- * scale they were drawn at, and the theme-derived neutral untagged wears. Main thread only, as
- * every style load that reads it is.
+ * basemap style, for the same reason — and nothing can invalidate it, every colour in a pin being
+ * theme-free. Main thread only, as every style load that reads it is.
  */
-private var cachedPins: PinImageSet? = null
+private var cachedPins: List<PinImage>? = null
 
-private fun pinImages(ctx: Context, untaggedFill: Int, scale: Float): List<PinImage> {
-    cachedPins?.let { if (it.scale == scale && it.untaggedFill == untaggedFill) return it.images }
+private fun pinImages(ctx: Context): List<PinImage> {
+    cachedPins?.let { return it }
     val images = (listOf(null) + PlaceCategory.entries).flatMap { category ->
-        val fill = category?.let { categoryPinColor(it) } ?: forWhiteGlyph(Color(untaggedFill))
+        val fill = category?.let { categoryPinColor(it) } ?: untaggedPinColor
         listOf(
             PinImage(
                 placePinImage(category, withGlyph = false),
                 glyphed = false,
-                bitmap = placePinBitmap(ctx, fill, glyph = null, scale = scale),
+                bitmap = placePinBitmap(ctx, fill, glyph = null),
             ),
             PinImage(
                 placePinImage(category, withGlyph = true),
                 glyphed = true,
-                bitmap = placePinBitmap(ctx, fill, glyph = category.discIcon, scale = scale),
+                bitmap = placePinBitmap(ctx, fill, glyph = category.discIcon),
             ),
         )
     }
-    cachedPins = PinImageSet(scale, untaggedFill, images)
+    cachedPins = images
     return images
 }
 
 /**
  * Registers a pin image per category, with and without its glyph, plus the pair for untagged.
- * [untaggedFill] is the caller's resolved neutral — the map has no composition to read a theme color
- * from, and untagged must stay the *same* neutral the place lists use. [scale] draws the pins larger
- * than [PIN_BASE_DP], for a layer that scales them down by zoom.
  *
  * [glyphedOnly] leaves out the glyphless variant, for a map whose pins are never the small form: the
  * set is built either way, being cached whole, but the sprite atlas isn't asked to carry images no
  * feature on that map can name.
  */
-internal fun addPlacePinImages(
-    ctx: Context,
-    style: Style,
-    untaggedFill: Int,
-    scale: Float,
-    glyphedOnly: Boolean = false,
-) {
-    for (image in pinImages(ctx, untaggedFill, scale)) {
+internal fun addPlacePinImages(ctx: Context, style: Style, glyphedOnly: Boolean = false) {
+    for (image in pinImages(ctx)) {
         if (glyphedOnly && !image.glyphed) continue
         style.addImage(image.id, image.bitmap)
     }
 }
 
-private fun placePinBitmap(ctx: Context, fill: Color, glyph: ImageVector?, scale: Float): Bitmap {
-    val size = (PIN_BASE_DP * ctx.resources.displayMetrics.density * scale).roundToInt().coerceAtLeast(1)
+private fun placePinBitmap(ctx: Context, fill: Color, glyph: ImageVector?): Bitmap {
+    val size = (PIN_BASE_DP * ctx.resources.displayMetrics.density * PIN_MAX_SCALE).roundToInt().coerceAtLeast(1)
     val bmp = createBitmap(size, size)
     val canvas = Canvas(bmp)
     val center = size / 2f
@@ -188,7 +183,7 @@ private fun placePinBitmap(ctx: Context, fill: Color, glyph: ImageVector?, scale
         // the ink is never what tells two categories apart.
         canvas.drawGlyph(glyph, center - box / 2f, center - box / 2f, box, android.graphics.Color.WHITE)
     }
-    return withShadow(ctx, bmp, MarkerShadow.SUBJECT, scale)
+    return withShadow(ctx, bmp, MarkerShadow.SUBJECT, PIN_MAX_SCALE)
 }
 
 /**
