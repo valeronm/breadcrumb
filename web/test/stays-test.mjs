@@ -32,8 +32,8 @@ const pin = (meters, radiusM = 350) => ({ anchor: at(meters), radiusM });
 const track = (trackId, startedAt, endedAt, start = home, end = home) =>
   ({ trackId, startedAt, endedAt, start, end });
 
-const derive = (tracks, { liveness = [{ type: "ARMED", at: 0 }], now = NOW, placePins = [], params } = {}) =>
-  deriveStays({ tracks, liveness, nowMs: now, distance: flatDistance, placePins, params });
+const derive = (tracks, { liveness = [{ type: "ARMED", at: 0 }], now = NOW, placePins = [] } = {}) =>
+  deriveStays({ tracks, liveness, nowMs: now, distance: flatDistance, placePins });
 
 const intervalsOf = (...args) => derive(...args).intervals;
 
@@ -168,10 +168,6 @@ const gaps = (intervals) => intervals.filter((i) => i.kind === "gap");
 {
   const short = [track(1, 60 * MIN, 120 * MIN), track(2, 121 * MIN, 300 * MIN, nearHome)];
   assert.equal(stays(betweenTracks(short)).length, 1, "a short gap emits a stay: there is no minimum");
-  assert.equal(
-    betweenTracks(short, { params: { minStayMs: 5 * MIN } }).length, 0,
-    "a configured minimum still suppresses short gaps",
-  );
 }
 
 {

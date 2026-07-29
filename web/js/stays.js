@@ -27,10 +27,6 @@ const AGREEMENT_RADIUS_M = 100;
  */
 export const PLACE_RADIUS_M = 150;
 
-/** Inter-track gaps shorter than this emit nothing. 0 = keep every stay, brief stops included.
- *  StayDeriver.Params.minStayMs. */
-const MIN_STAY_MS = 0;
-
 /** Below this a stay's length is not worth reporting: measured between two track *bounds*, it only
  * covers the part of a stop the recorder noticed — the stationary approach usually sits untrimmed
  * inside the previous track's tail — so it is not the length of anything the user did. Such a stay
@@ -54,7 +50,6 @@ export function isNotable(place) {
 const DEFAULT_PARAMS = {
   agreementRadiusM: AGREEMENT_RADIUS_M,
   placeRadiusM: PLACE_RADIUS_M,
-  minStayMs: MIN_STAY_MS,
 };
 
 // Endpoints are plain {lat, lon} objects, so cluster lookup is keyed by value rather than identity.
@@ -204,7 +199,6 @@ export function deriveStays({
       });
       continue;
     }
-    if (gapEnd - gapStart < p.minStayMs) continue;
     out.push({
       kind: "stay",
       start: gapStart,
@@ -216,7 +210,7 @@ export function deriveStays({
     });
   }
 
-  const tail = tailStay(tracks[tracks.length - 1], evidence, nowMs, p, clusterOf);
+  const tail = tailStay(tracks[tracks.length - 1], evidence, nowMs, clusterOf);
   if (tail) out.push(tail);
   return { intervals: out, clusters };
 }
@@ -226,7 +220,7 @@ export function deriveStays({
  * closes there. The app's third case — a live recording closing the tail at the active track's
  * start — can't arise from a backup: the export is a finished snapshot, and a track still
  * recording when it was written isn't in it. */
-function tailStay(last, evidence, nowMs, p, clusterOf) {
+function tailStay(last, evidence, nowMs, clusterOf) {
   if (!last) return null;
   const location = last.end;
   if (!location) return null;
@@ -234,7 +228,6 @@ function tailStay(last, evidence, nowMs, p, clusterOf) {
   if (start > nowMs) return null;
   const end = evidence.disarmedSince == null ? null : Math.max(evidence.disarmedSince, start);
   const effectiveEnd = end ?? nowMs;
-  if (effectiveEnd - start < p.minStayMs) return null;
   return {
     kind: "stay",
     start,

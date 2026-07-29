@@ -257,7 +257,9 @@ class StayDeriverTest {
         assertEquals(500 * MIN, intervals.filterIsInstance<Stay>().single().end)
     }
 
-    @Test fun `a short gap emits a stay by default (no minimum)`() {
+    @Test fun `a gap of one minute is a stay - there is no minimum`() {
+        // Not a default that could be raised: a brief stop is what a place accumulates visits from,
+        // so the floor lives with each reader instead. See the rule on StayDeriver.
         val intervals = derive(
             listOf(
                 track(1, start = 60 * MIN, end = 120 * MIN),
@@ -285,18 +287,6 @@ class StayDeriverTest {
         val ongoing = stayAt(start = 100 * MIN, end = null)
         assertNull(ongoing.reportableDurationMs(100 * MIN + 30_000))
         assertEquals(2 * MIN, ongoing.reportableDurationMs(102 * MIN))
-    }
-
-    @Test fun `a configured minimum stay still suppresses short gaps`() {
-        val intervals = StayDeriver.derive(
-            listOf(
-                track(1, start = 60 * MIN, end = 120 * MIN),
-                track(2, start = 120 * MIN + 60_000, from = nearHome, end = 300 * MIN),
-            ),
-            listOf(Armed(0)), 300 * MIN, StayDeriver.ActiveTrack(startedAt = 300 * MIN),
-            StayDeriver.Params(minStayMs = 5 * MIN), flatDistance,
-        ).intervals
-        assertTrue(intervals.isEmpty())
     }
 
     @Test fun `clock stepping backwards between tracks emits nothing for that pair`() {

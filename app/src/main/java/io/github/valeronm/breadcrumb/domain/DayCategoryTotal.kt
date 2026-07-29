@@ -20,7 +20,7 @@ private const val REPORTED_TOTAL_FLOOR_MS = 5 * 60_000L
  * midnight-sliced bound doesn't suppress the duration (the row hides one because it would merely
  * restate its own clock times, while the total asks how much of the day went here — a night at
  * home is the day's hours from midnight), and a stop too short to quote on its own row still
- * counts toward its category (so no [StayDeriver.Interval.reportableDurationMs] floor on the
+ * counts toward its category (so no [StayDeriver.Stay.reportableDurationMs] floor on the
  * stays). What is dropped is a *category* under [REPORTED_TOTAL_FLOOR_MS], once summed — so these
  * totals deliberately don't add up to the day, and are a summary rather than a ledger. An open stay
  * runs to [nowMs]. Untagged and unnamed stays contribute nothing — there is no category to

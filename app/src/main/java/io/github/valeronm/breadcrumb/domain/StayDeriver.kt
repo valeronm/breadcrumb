@@ -22,6 +22,15 @@ import java.time.ZoneId
  * unattested) rather than [Provenance.OBSERVED], and pre-log history derives the same way. Pure and
  * Android-free; nothing is persisted — stays re-derive from tracks + liveness on read, so history
  * backfills automatically and track deletions self-heal.
+ *
+ * **However brief, a stop the endpoints agree on is a stay — there is no minimum duration here, and
+ * a five-minute floor was tried and taken back out.** A stop is what a *place* accumulates visits
+ * from, so suppressing the short ones costs the Places feature the recurring lunch stop and the
+ * daily school run, which are exactly the spots worth naming. Every threshold therefore lives with
+ * the reader that wants one, where it can be tuned against how that screen reads without changing
+ * what the history is: [PlaceResolver.NOTABLE_VISIT_MIN] for which clusters a list surfaces,
+ * [Stay.reportableDurationMs] for a duration worth printing, and `DayCategoryTotal`'s own floor
+ * for what earns a chip. A floor added back here would silently empty all three.
  */
 object StayDeriver {
 
@@ -61,9 +70,8 @@ object StayDeriver {
         val agreementRadiusM: Double = 100.0,
         /** Radius for clustering track endpoints into places. */
         val placeRadiusM: Double = PlaceClusterer.DEFAULT_RADIUS_M,
-        /** Inter-track gaps shorter than this emit nothing. 0 = keep every stay (brief stops
-         *  included) — the auto-pause resume window already absorbs the truly-momentary ones. */
-        val minStayMs: Long = 0L,
+        // No minimum stay duration belongs here — see the rule on [StayDeriver]. One was tried and
+        // taken out, and adding it back empties the three reader-side floors that replaced it.
         /** Heartbeat staleness after which a restart materializes an outage — the single source
          *  of truth for that threshold. */
         val heartbeatToleranceMs: Long = 30 * 60_000L,
@@ -180,7 +188,6 @@ object StayDeriver {
                 )
                 continue
             }
-            if (gapEnd - gapStart < params.minStayMs) continue
             out += Stay(
                 start = gapStart,
                 end = gapEnd,
@@ -191,7 +198,7 @@ object StayDeriver {
             )
         }
 
-        tailStay(tracks.lastOrNull(), evidence, nowMs, activeTrack, params, clusterOf, ::samePlace)
+        tailStay(tracks.lastOrNull(), evidence, nowMs, activeTrack, clusterOf, ::samePlace)
             ?.let { out += it }
         return Derivation(out, clusters)
     }
@@ -235,7 +242,6 @@ object StayDeriver {
         evidence: LivenessSummary,
         nowMs: Long,
         activeTrack: ActiveTrack?,
-        params: Params,
         clusterOf: Map<Endpoint, Int>,
         samePlace: (Endpoint, Endpoint) -> Boolean,
     ): Interval? {
@@ -257,7 +263,6 @@ object StayDeriver {
                     toClusterId = clusterOf.getValue(b),
                 )
             }
-            if (end - start < params.minStayMs) return null
             return Stay(
                 start = start,
                 end = end,
@@ -271,7 +276,6 @@ object StayDeriver {
         // If currently disarmed, the app can attest nothing past the disarm — close the stay there.
         val end = evidence.disarmedSince?.coerceAtLeast(start)
         val effectiveEnd = end ?: nowMs
-        if (effectiveEnd - start < params.minStayMs) return null
         return Stay(
             start = start,
             end = end,
