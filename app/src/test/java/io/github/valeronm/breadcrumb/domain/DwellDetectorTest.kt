@@ -190,6 +190,14 @@ class DwellDetectorTest {
     }
 
     @Test
+    fun `a track with too little to sweep has no dwells`() {
+        // Every caller runs this over whatever the recorder produced, including tracks the keep rule
+        // lets through with a couple of fixes, and the edge rule runs it on both track ends.
+        assertTrue(detect(emptyList()).isEmpty())
+        assertTrue(detect(listOf(pt(0.0, 0))).isEmpty())
+    }
+
+    @Test
     fun `dense one-second sampling decimates without losing the dwell boundaries`() {
         val dense = (0 until 10 * 60).map { i -> pt(0.0 + i * 85.0 / 60.0, i * 1_000L) } +
             (0 until 15 * 60).map { i -> pt(850.0 + if (i % 2 == 0) 20.0 else -20.0, 10 * MIN + i * 1_000L) } +

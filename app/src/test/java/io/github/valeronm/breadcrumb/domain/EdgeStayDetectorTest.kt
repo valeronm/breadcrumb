@@ -339,4 +339,38 @@ class EdgeStayDetectorTest {
         // A stored row can name anything — an old build's type, or a GPX <type> we no longer map.
         assertEquals(EdgeStayDetector.BRIEF_STOP, EdgeStayDetector.paramsFor("HANG_GLIDING"))
     }
+
+    @Test
+    fun `a bin edge that ranges too far falls back to the dwell's own bound`() {
+        // The two stages can disagree about which stretch they mean. Here travel carries on after
+        // the last *moving* bin — slowly enough to clear the bar, far enough to matter — so cutting
+        // from the bin edge would take 160 m of real ground off the track. The dwell's bound names
+        // the stop itself, and stage 2 defers to it rather than trimming what was driven.
+        val fast = walk(0.0, 120.0, 0L, 8)              // 2 m/s: moving
+        val crawl = walk(960.0, 40.0, 8 * MIN, 4)       // 0.67 m/s: under the moving bar
+        val stopped = linger(1_120.0, 8.0, 12 * MIN, 2)
+
+        val stay = detect(fast + crawl + stopped).single()
+
+        assertEquals(EdgeStayDetector.Side.END, stay.side)
+        // The last moving bin closes with the fast leg, so a cut from the bin edge would start at
+        // 8 min and take the crawl's 160 m of real ground with it. The dwell's bound lands in the
+        // crawl's tail instead — the last stretch slow enough to be part of the stop.
+        assertTrue("boundary at ${stay.boundaryTs / MIN} min", stay.boundaryTs in (10 * MIN)..(12 * MIN))
+    }
+
+    @Test
+    fun `a track that never moved offers no cut`() {
+        // Stage 1 is speed-blind, so with no moving bin there is no evidence of where travel ended
+        // — and a corral boundary alone has been wrong before (a car circling at 35 km/h on
+        // speed-less imported data). No signal, no trim.
+        assertTrue(detect(linger(0.0, 8.0, 0L, 20)).isEmpty())
+    }
+
+    @Test
+    fun `a track too short to have two fixes is left alone`() {
+        // The keep rule lets a 2-point track through, and finish/merge/split/import all run this.
+        assertTrue(detect(emptyList()).isEmpty())
+        assertTrue(detect(listOf(pt(0.0, 0L, 2.0f))).isEmpty())
+    }
 }

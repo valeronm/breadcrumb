@@ -13,7 +13,10 @@ import org.junit.Test
  */
 class EdgeStayIgnoreTest {
 
-    private val params = EdgeStayDetector.Params()
+    /** The params the recorder actually runs, as in [EdgeStayDetectorTest]: the detector's own
+     *  defaults ship nowhere, so a plan derived through them is a plan of a rule the app doesn't
+     *  apply — and whether a steady walk plans *nothing* is exactly a question of the numbers. */
+    private val params = EdgeStayDetector.BRIEF_STOP
 
     private var nextId = 1L
 
@@ -133,6 +136,75 @@ class EdgeStayIgnoreTest {
         assertEquals(points.size, kept.size + plan.ignore.size)
         // Only the tail, and contiguously so.
         assertEquals(applied.indices.toList().takeLast(plan.ignore.size).toSet(), plan.ignore)
+    }
+
+    // --- overruns ------------------------------------------------------------
+    //
+    // Read back off the stored flags, so these hand it the two lists directly rather than detecting
+    // first: the screen's contract is "describe what the rows say", and a fixture that ran the
+    // detector would test the detector's verdict instead of this rendering of it.
+
+    @Test
+    fun `a lead overrun hangs off the fix that opens the track`() {
+        // The mirror of the arrival tail: recording armed while still parked, so the flagged fixes
+        // sit *before* the first good one and the polyline ends on it rather than starting there.
+        val lead = linger(0.0, 0L, 3)
+        val good = walk(0.0, 3 * 60_000L, 10)
+
+        val overrun = EdgeStayIgnore.overruns(good, lead).single()
+
+        assertEquals(EdgeStayDetector.Side.START, overrun.side)
+        assertEquals(good.first().timestamp - lead.first().timestamp, overrun.stayMs)
+        assertEquals(lead.size + 1, overrun.points.size)
+        assertEquals(good.first().id, overrun.points.last().id)
+    }
+
+    @Test
+    fun `a track that overran at both ends reads back as two, start first`() {
+        val lead = linger(0.0, 0L, 3)
+        val good = walk(0.0, 3 * 60_000L, 10)
+        val tail = linger(good.last().longitudeM(), 13 * 60_000L, 3)
+
+        val overruns = EdgeStayIgnore.overruns(good, lead + tail)
+
+        assertEquals(
+            listOf(EdgeStayDetector.Side.START, EdgeStayDetector.Side.END),
+            overruns.map { it.side },
+        )
+        // Each joins the end it hangs off, from opposite directions.
+        assertEquals(good.first().id, overruns[0].points.last().id)
+        assertEquals(good.last().id, overruns[1].points.first().id)
+    }
+
+    @Test
+    fun `flags buried mid-track render no overrun`() {
+        // What a merge leaves behind. `plan` hands these back to the path; until that sweep runs the
+        // screen must draw no grayed edge for them — they are at neither end.
+        val good = walk(0.0, 0L, 10)
+        val buried = listOf(good[20], good[21])
+
+        assertTrue(EdgeStayIgnore.overruns(good, buried).isEmpty())
+    }
+
+    @Test
+    fun `nothing to hang off and nothing to hang are both empty`() {
+        val walk = walk(0.0, 0L, 10)
+        // A bad-points-only track: every fix rejected, so there is no good fix to join.
+        assertTrue(EdgeStayIgnore.overruns(emptyList(), walk).isEmpty())
+        assertTrue(EdgeStayIgnore.overruns(walk, emptyList()).isEmpty())
+    }
+
+    @Test
+    fun `a plan that moves nothing hands back the very same list`() {
+        // A steady walk with no stop at either edge and no flags to withdraw. Identity, not equality:
+        // this runs on every track finish, merge, split, import and retype, and the fast path is
+        // what keeps the common case from copying every point row to change none of them.
+        val points = walk(0.0, 0L, 10)
+
+        val plan = plan(points, startedAt = 0L, endedAt = points.last().timestamp)
+
+        assertTrue("a steady walk plans nothing", !plan.movesPoints)
+        assertTrue(EdgeStayIgnore.applied(points, plan) === points)
     }
 
     @Test

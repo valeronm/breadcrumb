@@ -326,4 +326,73 @@ class PlaceResolverTest {
         // them out would show a radius losing what it never had at stake.
         assertEquals(listOf(at(0.0), at(400.0), at(800.0)), homeNeighborhood().candidates)
     }
+
+    // --- reacquire -----------------------------------------------------------
+    //
+    // What an open place screen does with a freshly derived list. Every fixture here goes through
+    // `summarize`, never a hand-built summary: the whole subject is how keys and pins behave across
+    // a re-derivation, so a summary whose key was assigned by the test would prove nothing.
+
+    /** The one unnamed cluster in a history of stays at [locations]. */
+    private fun unnamedAt(vararg locations: Endpoint) =
+        summarize(locations.map { stay(it) }, emptyList()).single()
+
+    @Test fun `a live key resolves to its own summary`() {
+        val summaries = summarize(
+            listOf(stay(at(0.0)), stay(at(4_000.0))),
+            listOf(place(7, "Home", at(0.0))),
+        )
+        val home = summaries.first { it.place?.label == "Home" }
+
+        assertTrue(home === PlaceResolver.reacquire(summaries, home.key, previous = null))
+    }
+
+    @Test fun `naming a cluster is followed by pin, the key it was opened with being gone`() {
+        // The case the fallback exists for. A screen opens on an unnamed cluster, the user names it,
+        // and the next derivation has no `cluster:` row at all — a `place:` row stands where it
+        // stood. Naming pins the place at the cluster's own mean, so the pin is what carries over.
+        val before = unnamedAt(at(0.0), at(20.0))
+        val named = summarize(
+            listOf(stay(at(0.0)), stay(at(20.0))),
+            listOf(place(7, "Home", before.pin)),
+        ).single()
+
+        assertTrue("the key really did die", named.key != before.key)
+        assertTrue(named === PlaceResolver.reacquire(listOf(named), before.key, previous = before))
+    }
+
+    @Test fun `a summary whose pin also moved keeps what the screen had`() {
+        // Both readings fail: the key is dead and no pin matches. Emptying the screen would be the
+        // wrong answer — a derivation in flight is not the same as a place that stopped existing.
+        val before = unnamedAt(at(0.0))
+        val elsewhere = unnamedAt(at(9_000.0))
+
+        val got = PlaceResolver.reacquire(listOf(elsewhere), before.key, previous = before)
+
+        assertTrue(got === before)
+    }
+
+    @Test fun `an unmatched key resolves to nothing, never to whatever is first`() {
+        // With no previous summary there is nothing to fall back *to*, and the list is not a
+        // fallback: resolving to its first row would put the screen on someone else's place while
+        // looking like a successful match. This is MainActivity's opening state, key and all.
+        val summaries = listOf(unnamedAt(at(0.0)), unnamedAt(at(9_000.0)))
+
+        assertNull(PlaceResolver.reacquire(summaries, key = "place:99", previous = null))
+        assertNull(PlaceResolver.reacquire(summaries, key = null, previous = null))
+        assertNull(PlaceResolver.reacquire(emptyList(), key = "place:7", previous = null))
+    }
+
+    @Test fun `a key that is merely absent still prefers a pin match over the stale summary`() {
+        // Deleting a place leaves its cluster unnamed again, so the row's key changes without the
+        // place moving. The pin match must win: the *fresh* summary is the one carrying the visit
+        // counts, and retaining `previous` would leave the screen on figures that no longer hold.
+        val named = summarize(listOf(stay(at(0.0))), listOf(place(7, "Home", at(0.0)))).single()
+        val unnamedAgain = unnamedAt(at(0.0))
+
+        val got = PlaceResolver.reacquire(listOf(unnamedAgain), named.key, previous = named)
+
+        assertTrue(got === unnamedAgain)
+        assertNull(got?.place)
+    }
 }

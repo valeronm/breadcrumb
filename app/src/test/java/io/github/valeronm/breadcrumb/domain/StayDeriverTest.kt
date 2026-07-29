@@ -42,7 +42,8 @@ class StayDeriverTest {
         liveness: List<Liveness> = listOf(Armed(0)),
         now: Long = NOW,
         active: StayDeriver.ActiveTrack? = null,
-    ) = StayDeriver.derive(tracks, liveness, now, active, StayDeriver.Params(), flatDistance)
+        pins: List<PlaceClusterer.Seed> = emptyList(),
+    ) = StayDeriver.derive(tracks, liveness, now, active, StayDeriver.Params(), flatDistance, pins)
         .intervals
 
     /** Two tracks whose gap is [120, 240) min, both ending/starting near `home`. */
@@ -169,30 +170,18 @@ class StayDeriverTest {
     @Test fun `endpoints sharing a nearest named-place pin agree at venue scale`() {
         // 300 m apart — beyond both the raw radius and any shared 150 m cluster — but both
         // nearest to the same pin within 350 m (a mall-sized venue).
-        val intervals = StayDeriver.derive(
-            homePair(from = at(300.0)), listOf(Armed(0)), NOW, null,
-            StayDeriver.Params(), flatDistance,
-            placePins = listOf(pin(150.0)),
-        ).intervals
+        val intervals = derive(homePair(from = at(300.0)), pins = listOf(pin(150.0)))
         assertTrue(intervals.filterIsInstance<Stay>().any { it.end == 240 * MIN })
     }
 
     @Test fun `endpoints nearest to different pins stay a gap`() {
         // Each endpoint sits by its own pin; distance (300 m) and clusters disagree too.
-        val intervals = StayDeriver.derive(
-            homePair(from = at(300.0)), listOf(Armed(0)), NOW, null,
-            StayDeriver.Params(), flatDistance,
-            placePins = listOf(pin(0.0), pin(300.0)),
-        ).intervals
+        val intervals = derive(homePair(from = at(300.0)), pins = listOf(pin(0.0), pin(300.0)))
         assertEquals(GapReason.MOVED_UNRECORDED, (intervals.first { it is Gap } as Gap).reason)
     }
 
     @Test fun `a pin near only one endpoint does not force agreement`() {
-        val intervals = StayDeriver.derive(
-            homePair(from = at(600.0)), listOf(Armed(0)), NOW, null,
-            StayDeriver.Params(), flatDistance,
-            placePins = listOf(pin(0.0)),
-        ).intervals
+        val intervals = derive(homePair(from = at(600.0)), pins = listOf(pin(0.0)))
         assertEquals(GapReason.MOVED_UNRECORDED, (intervals.first { it is Gap } as Gap).reason)
     }
 
@@ -200,11 +189,7 @@ class StayDeriverTest {
         // 300 m apart with a default-radius (150 m) pin between them: neither endpoint is captured
         // (both are ~150 m out but the near one clusters organically first at 0), and no shared
         // nearest pin within radius — a gap. The same layout with a widened pin is a stay above.
-        val intervals = StayDeriver.derive(
-            homePair(from = at(300.0)), listOf(Armed(0)), NOW, null,
-            StayDeriver.Params(), flatDistance,
-            placePins = listOf(pin(150.0, radiusM = 100.0)),
-        ).intervals
+        val intervals = derive(homePair(from = at(300.0)), pins = listOf(pin(150.0, radiusM = 100.0)))
         assertEquals(GapReason.MOVED_UNRECORDED, (intervals.first { it is Gap } as Gap).reason)
     }
 
@@ -236,6 +221,40 @@ class StayDeriverTest {
         val gap = derive(homePair(to = null)).first { it is Gap } as Gap
         assertNull(gap.fromClusterId)
         assertNotNull(gap.toClusterId)
+    }
+
+    @Test fun `the later track's missing start reads the same way round`() {
+        // The mirror of the case above, and worth pinning as its own: which side is null decides
+        // which cluster id the gap can carry, so a rule written for one end is half a rule.
+        val gap = derive(homePair(from = null)).first { it is Gap } as Gap
+        assertEquals(GapReason.UNKNOWN_ENDPOINT, gap.reason)
+        assertNotNull(gap.fromClusterId)
+        assertNull(gap.toClusterId)
+    }
+
+    @Test fun `a last track with no end coordinate derives no tail stay`() {
+        // A track whose every fix was rejected has nowhere to put the stay that follows it. The
+        // alternative is inventing a location, which would place a visit at a spot nothing observed.
+        val intervals = derive(listOf(track(1, start = 60 * MIN, end = 120 * MIN, to = null)))
+        assertTrue(intervals.isEmpty())
+    }
+
+    @Test fun `no pin near the earlier endpoint leaves the pair a gap`() {
+        // The pin override answers "same *named* place", so it can only agree when both endpoints
+        // reach a pin. Tested from this side too because the two are separate reads: a pin found for
+        // the later endpoint and none for the earlier must not read as agreement by omission.
+        val intervals = derive(homePair(to = at(600.0), from = at(0.0)), pins = listOf(pin(0.0)))
+        assertEquals(GapReason.MOVED_UNRECORDED, (intervals.first { it is Gap } as Gap).reason)
+    }
+
+    @Test fun `a second disarm does not move the first`() {
+        // Only the earliest disarm bounds what the app can attest to. A later one is the recorder
+        // being re-armed and disarmed inside a stay it has already stopped vouching for.
+        val intervals = derive(
+            listOf(track(1, start = 60 * MIN, end = 120 * MIN)),
+            liveness = listOf(Armed(0), Disarmed(500 * MIN), Disarmed(600 * MIN)),
+        )
+        assertEquals(500 * MIN, intervals.filterIsInstance<Stay>().single().end)
     }
 
     @Test fun `a short gap emits a stay by default (no minimum)`() {
@@ -415,6 +434,20 @@ class StayDeriverTest {
         assertEquals(listOf<StayDeriver.Interval>(gap), StayDeriver.slicePerDay(listOf(gap), utc, 2 * DAY))
     }
 
+    @Test fun `a midnight-spanning gap slices like a stay does`() {
+        // Slicing is per interval kind, and a gap keeps its reason across the cut — a day showing
+        // half of one must still say why the ground went unrecorded.
+        val gap = Gap(
+            start = 20 * 60 * MIN, end = DAY + 3 * 60 * MIN,
+            reason = GapReason.UNKNOWN_ENDPOINT, afterTrackId = 1,
+        )
+        val slices = StayDeriver.slicePerDay(listOf(gap), utc, 2 * DAY)
+        assertEquals(2, slices.size)
+        assertEquals(DAY, slices[0].end)
+        assertEquals(DAY + 3 * 60 * MIN, slices[1].end)
+        assertTrue(slices.all { it is Gap && it.reason == GapReason.UNKNOWN_ENDPOINT })
+    }
+
     @Test fun `day slicing respects the zone's DST transition`() {
         // Europe/Lisbon, 2026-03-29: 01:00 UTC the clocks jump 00:59→02:00 local... the point
         // pinned here is just that atStartOfDay on a DST day doesn't crash or mis-order slices.
@@ -465,6 +498,20 @@ class StayDeriverTest {
         assertTrue(items[1] is TimelineItem.StayItem)
         assertTrue(items[2] is TimelineItem.TrackItem)
         assertEquals(2L, (items[0] as TimelineItem.TrackItem).summary.id)
+    }
+
+    @Test fun `intervals older than every track still reach the timeline`() {
+        // The merge runs two cursors and the track list is the one that empties first on any history
+        // whose oldest thing is a stay. Dropping the remainder would silently truncate the bottom of
+        // the timeline — the end a reader scrolls to.
+        val summaries = listOf(summary(2, startedAt = 240 * MIN))
+        val gap = Gap(120 * MIN, 180 * MIN, GapReason.MOVED_UNRECORDED, afterTrackId = 1)
+
+        val items = StayDeriver.interleave(summaries, listOf(gap))
+
+        assertEquals(2, items.size)
+        assertTrue(items[0] is TimelineItem.TrackItem)
+        assertTrue("a gap renders as a gap, not a stay", items[1] is TimelineItem.GapItem)
     }
 
     private fun summary(id: Long, startedAt: Long) = TrackSummary(
