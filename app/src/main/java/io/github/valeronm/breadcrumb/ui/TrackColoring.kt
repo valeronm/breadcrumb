@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.MetricSmoother
 import io.github.valeronm.breadcrumb.util.UnitSystem
 
 // Static, per-activity speed→color scale so tracks are visually comparable across the whole list:
@@ -135,6 +136,25 @@ internal fun metricSeries(
     ColorMode.ACCURACY -> points.map { it.accuracy?.let(units::fromMeters) } to units.shortUnit
     ColorMode.SATELLITES -> points.map { it.satellitesInFix?.toFloat() } to "sat"
     ColorMode.CN0 -> points.map { it.cn0 } to "dB"
+}
+
+/**
+ * [metricSeries] as a graph *plots* it. Speed alone is smoothed, and the reason is the line above
+ * that computes it: it is the one metric derived per fix rather than reported about one — the
+ * receiver's own figure where it gives one, the seam's where it doesn't — so it jitters by several
+ * km/h between neighbours taken at one steady pace. The other four are what the receiver said about
+ * that single moment, and a moment is what the graph is asked for when they are on screen.
+ *
+ * Exhaustive on purpose: a metric added later has to answer this, as it must answer for its series,
+ * its ramp and its label.
+ */
+internal fun plottedSeries(
+    points: List<TrackPoint>,
+    mode: ColorMode,
+    values: List<Float?>,
+): List<Float?> = when (mode) {
+    ColorMode.SPEED -> MetricSmoother.timeAveraged(points, values)
+    ColorMode.ELEVATION, ColorMode.ACCURACY, ColorMode.SATELLITES, ColorMode.CN0 -> values
 }
 
 /**

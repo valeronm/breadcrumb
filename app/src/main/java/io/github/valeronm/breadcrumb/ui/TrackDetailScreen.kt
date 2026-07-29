@@ -406,6 +406,11 @@ private fun SplitConfirmation(
 @Immutable
 internal class MetricGraphData(
     val points: List<TrackPoint>,
+    /**
+     * What the graph draws and reports — time-averaged where the metric smooths (see
+     * [plottedSeries]), so a stroke's *height* and the *hue* it is drawn in answer different
+     * questions: the shape of the trip, and what the fix under it recorded.
+     */
     val values: List<Float?>,
     /** Shared with the map (via `precomputedColoring`) so the O(points) pass runs once. */
     val coloring: TrackColoring,
@@ -428,7 +433,7 @@ internal fun metricGraphData(
     val (values, unit) = metricSeries(points, mode, speeds, units)
     if (values.all { it == null }) return null
     val coloring = trackColoring(points, speeds, mode, activity, dark, units)
-    return MetricGraphData(points, values, coloring, unit)
+    return MetricGraphData(points, plottedSeries(points, mode, values), coloring, unit)
 }
 
 /**
@@ -475,7 +480,8 @@ private fun MetricPlot(
 
 /**
  * The selected color metric over the track's time span, stroked point-to-point in the map line's
- * colors, with a time axis; missing values and segment starts break the line. Tap/drag picks the
+ * colors — which are the map's, off the raw series, where the height is [MetricGraphData.values] —
+ * with a time axis; missing values and segment starts break the line. Tap/drag picks the
  * nearest point ([onSelect]), drawn as a cursor with a value/time readout; the caller highlights
  * the same point on the map.
  */
