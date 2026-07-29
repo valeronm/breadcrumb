@@ -120,6 +120,9 @@ private enum class PlacesSort(val label: String) {
 /** Label of the map's filter chip — the empty state below names it, so both read from here. */
 private const val RARE_STOPS_LABEL = "Rare stops"
 
+/** A line break with whatever indentation surrounds it — one space's worth of separation. */
+private val LINE_BREAK_RUN = Regex("[ \\t]*[\\r\\n]+[ \\t]*")
+
 // Clusters below the notable-visit floor are "rare stops": hidden on the map unless its chip is
 // on. A label doesn't exempt one — a place named on the strength of a single visit is exactly the
 // clutter the chip is asked to clear, and a named cluster with no visits at all (a dropped pin, or
@@ -620,7 +623,11 @@ internal fun PlaceDetailScreen(
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     OutlinedTextField(
                         value = text,
-                        onValueChange = { text = it },
+                        // `singleLine` lays the field out on one line but doesn't police what
+                        // arrives: paste a block of text and everything past the first break is
+                        // stored, and saved, where it can't be seen. Breaks (and the indentation
+                        // around them) fold into single spaces instead.
+                        onValueChange = { text = it.replace(LINE_BREAK_RUN, " ") },
                         singleLine = true,
                         label = { Text("Place name") },
                         // Place names are proper nouns — capitalize each word.
