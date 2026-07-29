@@ -182,10 +182,13 @@ private fun mutedPinImages(ctx: Context): List<PinImage> {
 /**
  * Registers a pin image per category, with and without its glyph, plus the pair for untagged.
  *
- * [glyphedOnly] leaves out the glyphless variant, for a map whose pins are never the small form, and
- * [withMuted] adds the neighbouring-place forms, for the one map that draws places other than its
- * subject. The set is built either way, being cached whole, but the sprite atlas isn't asked to
- * carry images no feature on that map can name.
+ * [PinSet.PlacesAndNeighbors] leaves out the glyphless variant, for a map whose pins are never the
+ * small form, and adds the neighbouring-place forms, for the one map that draws places other than its
+ * subject. The set is built either way, being cached whole, but the sprite atlas isn't asked to carry
+ * images no feature on that map can name.
+ *
+ * A map that draws a *known* place or two registers those instead ([glyphedPinBitmap]) — a whole
+ * catalogue is only worth packing where any category might turn up.
  */
 internal fun addPlacePinImages(ctx: Context, style: Style, pins: PinSet = PinSet.EveryForm) {
     for (image in pinImages(ctx)) {
@@ -196,6 +199,14 @@ internal fun addPlacePinImages(ctx: Context, style: Style, pins: PinSet = PinSet
         for (image in mutedPinImages(ctx)) style.addImage(image.id, image.bitmap)
     }
 }
+
+/**
+ * The full-size, glyphed pin for [category] — the same bitmap [addPlacePinImages] would register, so
+ * a map naming its pins one at a time draws exactly what the catalogue maps draw and shares their
+ * cache rather than building a second copy.
+ */
+internal fun glyphedPinBitmap(ctx: Context, category: PlaceCategory?): Bitmap =
+    pinImages(ctx).first { it.id == placePinImage(category, withGlyph = true) }.bitmap
 
 /** Which pins a map can name — one name per map rather than a pair of booleans with three of their
  *  four combinations unreachable. */

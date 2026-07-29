@@ -159,7 +159,9 @@ Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to 
 `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
 `DeafnessWarning` (decide when to tell the user about it), `MovementConfirmer` (the recording
 pipeline's second witness — see below), `PlaceCategorySuggester` (guess a place's category from
-what the user called it — see below). New behavior
+what the user called it — see below), `RoutePlaces` (the named places at a track's two ends: the
+nearest place whose own capture radius covers each end, on the same predicate that admits a stay, so
+narrowing a place stops it claiming arrivals exactly as it keeps stops out). New behavior
 belongs here first, with a test, before wiring into the service or UI. The shared vocabulary lives
 here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, `PlaceCategory`, and the `DistanceFn` seam
 (production implementation `data/AndroidDistance`; the GMS `DetectedActivity` mapping is
@@ -349,9 +351,19 @@ along the line's *length* where every other reading of the metric — the graph 
 is positioned along its *time*, so a slow stretch shrinks to nothing on the map while filling the
 graph. The banded ramp, the source's simplification tolerance and the layer's round caps are one
 mechanism serving that and none survives being tidied alone; `trackLineFeature` says why.
-Two more layers ride on the same map — the detected in-track stops as
-place-style capture circles *under* the line, and the recorder's overrun grayed off the track's
-ends, read back from the stored flags rather than re-detected. The map renders in texture mode (a SurfaceView would ignore Compose
+Three more layers ride on the same map — the detected in-track stops as
+place-style capture circles *under* the line, the recorder's overrun grayed off the track's
+ends, read back from the stored flags rather than re-detected, and the **named places at the path's
+two ends** (`RoutePlaces`), each a labeled pin over the capture area that claimed that end. Those end
+places come off the stored rows (`storedPlaces`) rather than the derived summaries, so a route is
+annotated without waiting behind the clustering, and they never move the camera — the route is the
+subject. Three rules a reader can't infer from the layers: the **pin keeps its full colour while its
+ring recedes** (the pin answers where the journey went, the ring only says how far that place reaches,
+and the dwell circles stay full because a dwell is *this track's* evidence where the ring belongs to a
+place the track merely arrived in); at an end the **place outranks the recorder's own markers**, which
+is why the start/end markers are endpoint-dot sized and the pin draws over them; and the Places
+overview's zoom gating deliberately does *not* apply, being a property of a field of places framed to
+fit however far apart they are. The map renders in texture mode (a SurfaceView would ignore Compose
 clipping and bleed over rounded card corners), sits inside padded cards (so it never reaches the
 back-gesture edge strips), and is lifecycle-bound to the composition.
 

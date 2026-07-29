@@ -69,8 +69,10 @@ import kotlin.math.sin
 /**
  * Renders a track on a Protomaps vector basemap (MapLibre GL Native), dark or light flavor per the app
  * theme. The line is drawn as one feature per run of same-colored fixes ([TrackColoring], the metric
- * picked by [colorMode]); start/end and noisy-fix markers ride a symbol layer; the camera fits the
- * track once on open. A color-mode switch rebuilds the line's source, camera untouched, and the
+ * picked by [colorMode]); start/end and noisy-fix markers ride a symbol layer; the named places at
+ * the path's two ends are drawn as labeled pins with their capture areas; the camera fits the
+ * track once on open — the places never move it, a route being the subject and them the annotation.
+ * A color-mode switch rebuilds the line's source, camera untouched, and the
  * source refreshes as the point list grows
  * (the live "current track" preview), re-framing only when the position nears the viewport edge —
  * user pan/zoom survives otherwise.
@@ -89,6 +91,9 @@ internal fun MapLibreTrackMap(
     // Stops the recording ran on through at either edge, as stored: one point run per edge,
     // drawn grayed off the end of the track line.
     overruns: List<EdgeStayIgnore.Overrun> = emptyList(),
+    // The named places at the path's two ends (see RoutePlaces) — a labeled pin over the capture
+    // area that claimed that end. One entry where a round trip began and ended in the same place.
+    endPlaces: List<Place> = emptyList(),
     // Live preview: the last point is the current position — a droplet rotated to the movement
     // bearing instead of the finished-track end dot.
     directionalEnd: Boolean = false,
@@ -101,6 +106,9 @@ internal fun MapLibreTrackMap(
 ) {
     val darkTheme = isSystemInDarkTheme()
     val units = LocalUnits.current
+    // For the pin images an update may have to register — the style-loaded callback is handed a
+    // context, an update is not.
+    val context = LocalContext.current
     // Keyed on the points alone, unlike the coloring: seam distances don't depend on the metric,
     // so switching it must not re-walk them.
     val seams = remember(precomputedSeams, points) {
@@ -117,10 +125,17 @@ internal fun MapLibreTrackMap(
         MapLibreStyledMap(
             modifier = Modifier.fillMaxSize(),
             onStyleLoaded = { ctx, map, style ->
-                addDwellLayers(style, dwells) // first, so the circles render under the line
+                // The end places are one input drawn at two depths — their areas under the line, their
+                // pins over it so it can't cover them.
+                addEndPlaceAreas(style, endPlaces)
+                addDwellLayers(style, dwells)
                 addTrackLine(style, points, colors)
                 addEdgeStayLayer(style, overruns, darkTheme) // over the line, off its ends
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
+                // Over the recorder's own markers: at an end the two land within a capture radius of
+                // each other, and the place is the one that says where the journey went. The
+                // scrubber's selection alone draws over it — that one is under the user's thumb.
+                addEndPlacePins(ctx, style, endPlaces)
                 addSelectionLayer(ctx, style, selectedPoint)
                 frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
                 // Stamped here as well as drawn: otherwise the first update sees no applied input
@@ -128,6 +143,7 @@ internal fun MapLibreTrackMap(
                 applied.points = points
                 applied.noisy = noisyPoints
                 applied.colors = colors
+                applied.endPlaces = endPlaces
                 applied.framed = true
             },
             onUpdate = { map, style ->
@@ -178,6 +194,16 @@ internal fun MapLibreTrackMap(
                     style.getSourceAs<GeoJsonSource>(EDGE_STAY_SOURCE)
                         ?.setGeoJson(edgeStayFeature(overruns))
                 }
+                // One check for both sources: a pin and the area it sits in are one place, and a set
+                // that had them disagree would be showing a reach nothing claims.
+                if (applied.endPlaces !== endPlaces) {
+                    applied.endPlaces = endPlaces
+                    addEndPlacePinImages(context, style, endPlaces)
+                    style.getSourceAs<GeoJsonSource>(END_PLACE_AREA_SOURCE)
+                        ?.setGeoJson(captureAreaCollection(PlaceClusterer.seedsOf(endPlaces)))
+                    style.getSourceAs<GeoJsonSource>(END_PLACE_SOURCE)
+                        ?.setGeoJson(endPlaceCollection(endPlaces))
+                }
                 if (!applied.framed) {
                     frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
                     applied.framed = true
@@ -205,6 +231,10 @@ private class AppliedTrackInputs {
     var selection: TrackPoint? = null
     var dwells: List<DwellDetector.Dwell>? = null
     var overruns: List<EdgeStayIgnore.Overrun>? = null
+
+    /** The named places at the path's ends — identity, the resolution handing back a fresh list only
+     *  when the path or the places table changed. */
+    var endPlaces: List<Place>? = null
 
     /** Frame once per map; later updates must not move the camera (the live preview re-frames
      *  only when the current position nears the viewport edge). */
@@ -387,6 +417,12 @@ private const val DWELL_LINE = "dwell-line"
 private const val EDGE_STAY_SOURCE = "edge-stay-src"
 private const val EDGE_STAY_LAYER = "edge-stay-layer"
 
+private const val END_PLACE_AREA_SOURCE = "end-place-area-src"
+private const val END_PLACE_AREA_FILL = "end-place-area-fill"
+private const val END_PLACE_AREA_LINE = "end-place-area-line"
+private const val END_PLACE_SOURCE = "end-place-src"
+private const val END_PLACE_LAYER = "end-place-layer"
+
 // Grays the colored line underneath rather than adding a color of its own: dark theme needs a
 // darker gray than the track to read as receding, light theme a lighter one.
 private const val EDGE_STAY_DIM_DARK = 0xD9424242.toInt()
@@ -426,9 +462,55 @@ private fun addDwellLayers(style: Style, dwells: List<DwellDetector.Dwell>) {
     addCaptureCircleLayers(style, DWELL_SOURCE, DWELL_FILL, DWELL_LINE)
 }
 
+private fun addEndPlaceAreas(style: Style, places: List<Place>) {
+    style.addSource(
+        GeoJsonSource(END_PLACE_AREA_SOURCE, captureAreaCollection(PlaceClusterer.seedsOf(places))),
+    )
+    addContextCircleLayers(style, END_PLACE_AREA_SOURCE, END_PLACE_AREA_FILL, END_PLACE_AREA_LINE)
+}
+
 /**
- * The capture-circle look — translucent fill + dashed outline — shared by the place detail's
- * capture circle and the track map's dwell circles, so they read as the same species.
+ * A pin per end place, at full size with its glyph and its name — no zoom gating and no receding.
+ * Where a journey began and ended is what a reader wants first from a track, so these are read at
+ * every zoom the map can open at; the two markers that *are* the recorder's own give way both ways,
+ * drawn as dots and drawn underneath (see [addMarkers]).
+ */
+private fun endPlaceCollection(places: List<Place>): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        places.map { place ->
+            endpointFeature(
+                StayDeriver.Endpoint(place.lat, place.lon),
+                placePinImage(place.placeCategory, withGlyph = true),
+                place.label,
+            )
+        },
+    )
+
+private fun addEndPlacePins(ctx: Context, style: Style, places: List<Place>) {
+    addEndPlacePinImages(ctx, style, places)
+    style.addSource(GeoJsonSource(END_PLACE_SOURCE, endPlaceCollection(places)))
+    style.addLayer(labeledSymbolLayer(ctx, END_PLACE_LAYER, END_PLACE_SOURCE))
+}
+
+/**
+ * Just the pins these places name, rather than the catalogue: a track has two ends, so a map that
+ * registered every category would pack sixteen bitmaps into its sprite atlas — a megabyte of JNI copy
+ * per track opened — to draw at most two of them. Cheap enough to redo whenever the ends change,
+ * `addImage` overwriting by id, so nothing has to remember whether it ran.
+ */
+private fun addEndPlacePinImages(ctx: Context, style: Style, places: List<Place>) {
+    for (place in places) {
+        val category = place.placeCategory
+        style.addImage(placePinImage(category, withGlyph = true), glyphedPinBitmap(ctx, category))
+    }
+}
+
+/**
+ * The capture-circle look — translucent fill + dashed outline — shared by every ring on every map: a
+ * place's own reach, its neighbours', the stops detected inside a track, and the places at that
+ * track's ends. All of them are "ground that counts as one spot", so all of them read as one species,
+ * and only opacity says which of them the screen is about — [addContextCircleLayers] for the ones it
+ * isn't.
  */
 private fun addCaptureCircleLayers(
     style: Style,
@@ -452,6 +534,22 @@ private fun addCaptureCircleLayers(
         ),
     )
 }
+
+/**
+ * [addCaptureCircleLayers] for a ring the screen is *not* about — a neighbouring place beside the one
+ * being edited, the reach of the place at a track's end. One function so the weight of "context" is
+ * set once for every surface that has some, rather than each remembering to pass the pair.
+ */
+private fun addContextCircleLayers(
+    style: Style,
+    sourceId: String,
+    fillLayerId: String,
+    lineLayerId: String,
+) = addCaptureCircleLayers(
+    style, sourceId, fillLayerId, lineLayerId,
+    PropertyFactory.fillOpacity(CONTEXT_AREA_OPACITY),
+    PropertyFactory.lineOpacity(CONTEXT_AREA_OPACITY),
+)
 
 /**
  * What the once-per-map fit frames: the track line's points — or, when there's no drawable line,
@@ -570,8 +668,13 @@ private fun addMarkers(
     noisyPoints: List<TrackPoint>,
     directionalEnd: Boolean,
 ) {
-    style.addImage(IMG_START, shadowedBitmap(ctx, R.drawable.ic_marker_start, MarkerShadow.SUBJECT_TURNING))
-    style.addImage(IMG_END, shadowedBitmap(ctx, R.drawable.ic_marker_end, MarkerShadow.SUBJECT_TURNING))
+    // Endpoint-dot sized and weighted, not pin-sized, and this layer sits under the end pins: the
+    // *place* at each end is what the map says first, and these mark the fix — where recording began
+    // and stopped inside it, which is a detail of the recording rather than of the journey. They keep
+    // their green and red: the pair reads as start-and-end, which the blue cluster dot they now match
+    // in size and weight does not say.
+    style.addImage(IMG_START, shadowedBitmap(ctx, R.drawable.ic_marker_start, MarkerShadow.EVIDENCE_TURNING))
+    style.addImage(IMG_END, shadowedBitmap(ctx, R.drawable.ic_marker_end, MarkerShadow.EVIDENCE_TURNING))
     style.addImage(IMG_POINTER, shadowedBitmap(ctx, R.drawable.ic_marker_pointer, MarkerShadow.SUBJECT_TURNING))
     style.addImage(IMG_NOISY, shadowedBitmap(ctx, R.drawable.ic_marker_noisy, MarkerShadow.EVIDENCE_TURNING))
     style.addImage(IMG_NOISY_JUMP, shadowedBitmap(ctx, R.drawable.ic_marker_noisy_jump, MarkerShadow.EVIDENCE_TURNING))
@@ -583,9 +686,9 @@ private fun addMarkers(
 /**
  * Shared base of the marker layers: an icon per feature, drawn in source order — the load-bearing
  * part: left to itself a symbol layer stacks point symbols by screen position, so the lower marker
- * covers the rest, and both feeding collections end with the marker that matters most (a place's
- * pin among its dots, a track's start/end among rejected fixes). Overlap and placement are off
- * likewise: these are markers, not labels competing for room.
+ * covers the rest, and a collection with a hierarchy in it ends with the marker that matters most (a
+ * place's pin among its dots, a track's start/end among rejected fixes). Overlap and placement are
+ * off likewise: these are markers, not labels competing for room.
  */
 private fun markerSymbolLayer(id: String, source: String): SymbolLayer =
     SymbolLayer(id, source).withProperties(
@@ -612,13 +715,13 @@ private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
  * reading as *this pin's* and starts looking like a caption adrift under it. The usable range is
  * about a third of an em wide and this sits at the bottom of it.
  *
- * Flat rather than ramped by zoom: the place map draws pins at full size, and the overview shows
- * names only from [LABEL_ZOOM], by which point its size ramp has the pin at ~0.9 — so the most this
+ * Flat rather than ramped by zoom: the place map draws pins at full size, and a field of places shows
+ * names only from [LABEL_ZOOM], by which point the size ramp has the pin at ~0.9 — so the most this
  * is ever out by is a dp of extra gap at one zoom stop, never an overlap.
  */
 private const val PLACE_LABEL_OFFSET_EM = 1.2f
 
-/** Labeled pin layer shared by the place and overview maps: a marker plus a label under it. */
+/** Labeled pin layer, shared by every map that draws a place: a marker plus a label under it. */
 private fun labeledSymbolLayer(ctx: Context, id: String, source: String): SymbolLayer {
     val dark = isDarkUi(ctx)
     return markerSymbolLayer(id, source).withProperties(
@@ -636,7 +739,8 @@ private fun labeledSymbolLayer(ctx: Context, id: String, source: String): Symbol
         // names *and* some of its ink here, which is what separates it from its neighbours' circles
         // as well as from the subject. The label can only give up ink, being neutral in both themes
         // with no chroma to drain. Keyed on the property being present, so a collection that never
-        // writes it — the all-places overview — is unaffected without knowing the rule exists.
+        // writes it — the all-places overview, a track's end places — is unaffected without knowing
+        // the rule exists.
         PropertyFactory.iconOpacity(mutedOpacity()),
         PropertyFactory.textOpacity(mutedOpacity()),
     )
@@ -857,7 +961,7 @@ internal fun MapLibrePlaceMap(
             if (applied.rivalAreas !== rivalAreas) {
                 applied.rivalAreas = rivalAreas
                 style.getSourceAs<GeoJsonSource>(PLACE_RIVAL_SOURCE)
-                    ?.setGeoJson(rivalAreaCollection(rivalAreas))
+                    ?.setGeoJson(captureAreaCollection(rivalAreas))
             }
         },
     )
@@ -894,11 +998,20 @@ private class AppliedPlaceInputs {
     var rivalAreas: List<PlaceClusterer.Seed>? = null
 }
 
-/** Faint enough to read as context rather than as a second thing being edited. */
-private const val RIVAL_AREA_OPACITY = 0.35f
+/**
+ * A capture area on a map that is not *about* that area — a neighbouring place beside the one being
+ * edited, and the reach of the place at a track's end. Faint enough to read as context rather than as
+ * a second subject.
+ *
+ * At a track's end this is deliberately not matched by the pin above it, which keeps its full colour:
+ * the pin answers where the journey began and ended, and the ring only says how far that place
+ * reaches — the same information the place's own screen exists to show. Muting the ring alone is what
+ * lets the answer stay loud while its footnote recedes.
+ */
+private const val CONTEXT_AREA_OPACITY = 0.35f
 
 /**
- * The ink a neighbouring place's pin and label keep. Gentler than [RIVAL_AREA_OPACITY], and gentler
+ * The ink a neighbouring place's pin and label keep. Gentler than [CONTEXT_AREA_OPACITY], and gentler
  * than it would be if it worked alone: the pin has already given up most of its saturation (see
  * `categoryMutedPinColor`), so this is the second half of a recede rather than the whole of one, and
  * a neighbour still has to be identifiable — which is the entire reason it is drawn.
@@ -936,12 +1049,8 @@ private const val CIRCLE_LINE = 0x995B9BF0.toInt()
 
 private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent) {
     // Rivals first, so this place's own circle reads on top of them where they overlap.
-    style.addSource(GeoJsonSource(PLACE_RIVAL_SOURCE, rivalAreaCollection(content.rivalAreas)))
-    addCaptureCircleLayers(
-        style, PLACE_RIVAL_SOURCE, PLACE_RIVAL_FILL, PLACE_RIVAL_LINE,
-        PropertyFactory.fillOpacity(RIVAL_AREA_OPACITY),
-        PropertyFactory.lineOpacity(RIVAL_AREA_OPACITY),
-    )
+    style.addSource(GeoJsonSource(PLACE_RIVAL_SOURCE, captureAreaCollection(content.rivalAreas)))
+    addContextCircleLayers(style, PLACE_RIVAL_SOURCE, PLACE_RIVAL_FILL, PLACE_RIVAL_LINE)
     style.addSource(
         GeoJsonSource(PLACE_CIRCLE_SOURCE, circleFeature(content.center.location, content.radiusM)),
     )
@@ -1045,9 +1154,13 @@ private fun markerIconProperty(radiusM: Double) = PropertyFactory.iconImage(
     ),
 )
 
-/** Every named neighbor's capture area, as its own polygon. Empty is a valid, common answer. */
-private fun rivalAreaCollection(rivals: List<PlaceClusterer.Seed>): FeatureCollection =
-    FeatureCollection.fromFeatures(rivals.map { circleFeature(it.anchor, it.radiusM) })
+/**
+ * A capture area per seed, each as its own polygon — the named neighbours a radius is judged against,
+ * or the places at a track's ends. Taken as [PlaceClusterer.Seed]s because a pin and its reach are all
+ * a ring needs, which is the same projection the clustering reads. Empty is a valid, common answer.
+ */
+private fun captureAreaCollection(seeds: List<PlaceClusterer.Seed>): FeatureCollection =
+    FeatureCollection.fromFeatures(seeds.map { circleFeature(it.anchor, it.radiusM) })
 
 /** A meter-true circle approximated by a 72-gon (fine at place zoom levels). */
 private fun circleFeature(center: StayDeriver.Endpoint, radiusM: Double): Feature {
@@ -1131,11 +1244,16 @@ private const val OVERVIEW_SOURCE = "places-overview-src"
 private const val OVERVIEW_LAYER = "places-overview-layer"
 
 /**
- * The zoom from which a pin carries its category's glyph. Below it the pin is a colored disc — the
- * color survives being scaled down where a 24-unit glyph does not, and drawing the glyph all the
- * way out reads as a field of smudges rather than as symbols. It is also the ramp's middle stop, so
- * the glyph arrives on a pin already near full size: a glyph appearing on a marker still too small
- * to hold it is what the threshold exists to prevent.
+ * The zoom from which an overview pin carries its category's glyph. Below it the pin is a colored
+ * disc — the color survives being scaled down where a 24-unit glyph does not, and drawing the glyph
+ * all the way out reads as a field of smudges rather than as symbols. It is also the ramp's middle
+ * stop, so the glyph arrives on a pin already near full size: a glyph appearing on a marker still too
+ * small to hold it is what the threshold exists to prevent.
+ *
+ * A threshold at all is a property of a *field* of places, framed to fit however far apart they are.
+ * The track map's two end pins carry their glyph and name at every zoom: two markers cannot smudge
+ * into each other, and a pin small enough to need this rule would be a pin whose name is the only
+ * thing saying where the journey went.
  *
  * **Whole numbers only.** A camera expression on a *layout* property — which `icon-image`,
  * `text-field` and `icon-size` all are — is evaluated at integer zooms alone, so a fractional
@@ -1144,10 +1262,10 @@ private const val OVERVIEW_LAYER = "places-overview-layer"
 private const val GLYPH_ZOOM = 9f
 
 /**
- * The zoom from which a pin carries its place's name. Wider than this the map answers *where* the
- * places are and how they group, which the colored discs do on their own; a field of names over a
- * region is a wall of text with most of it dropped to collision anyway. Above [GLYPH_ZOOM], so a
- * pin gains its glyph first and its name second — shape, then word.
+ * The zoom from which an overview pin carries its place's name. Wider than this the map answers
+ * *where* the places are and how they group, which the colored discs do on their own; a field of
+ * names over a region is a wall of text with most of it dropped to collision anyway. Above
+ * [GLYPH_ZOOM], so a pin gains its glyph first and its name second — shape, then word.
  */
 private const val LABEL_ZOOM = 11f
 

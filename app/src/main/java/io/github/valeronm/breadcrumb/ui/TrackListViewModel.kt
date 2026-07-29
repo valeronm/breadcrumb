@@ -213,6 +213,20 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
+     * The places table as stored — what the user *said* about places, with nothing derived around
+     * it. Not a leaner [places]: that one answers "which spots does this history hold, and what is
+     * known about each", and waits on the clustering to do it, while this answers "where are the
+     * user's pins" off a table read. A screen with a map and no interest in visits (a track's own,
+     * which annotates a route with the places it ran through) wants the second question, and asking
+     * the first would leave it blank behind the most expensive computation in the app.
+     *
+     * Seeded empty rather than null, unlike [places]: no pin is a real and ordinary answer here, and
+     * nothing reads it as evidence the history is empty.
+     */
+    val storedPlaces: StateFlow<List<Place>> = placeRows
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
      * What the user's own naming says about a place's category, retrained whenever the places table
      * changes — a rename or a fresh tag is exactly the evidence this learns from, so there is
      * nothing to invalidate by hand. Reads [placeRows] rather than [derived]: retraining owes

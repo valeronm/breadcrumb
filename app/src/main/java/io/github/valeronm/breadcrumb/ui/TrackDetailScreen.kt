@@ -56,6 +56,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackQuality
@@ -67,6 +68,7 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
+import io.github.valeronm.breadcrumb.domain.RoutePlaces
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
@@ -123,6 +125,18 @@ internal fun TrackMapScreen(
     // grouped back into one run per edge, each hanging off the good fix that ends the track.
     val overruns = remember(points, stayPoints) {
         EdgeStayIgnore.overruns(points.orEmpty(), stayPoints)
+    }
+    // The named places this journey set out from and arrived at. Off the stored rows rather than the
+    // derived summaries: a pin and its reach are all the rule and the map read, and neither has
+    // anything to learn from a visit count worth waiting for the clustering over.
+    //
+    // A plain remember, unlike the dwell walk above: this reads two fixes and prunes the places on
+    // their coordinates, so a dispatcher hop would cost more than the work — and arriving in the
+    // first composition means the pins are there when the style loads, instead of a source rebuilt a
+    // frame later.
+    val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
+    val endPlaces = remember(points, storedPlaces) {
+        RoutePlaces.ends(points.orEmpty(), storedPlaces, AndroidDistance)
     }
     // The one seam walk this screen's derived series come from, keyed on the points alone — it is
     // the same distances whatever metric is displayed, and the graph, the map's colors and the
@@ -263,6 +277,7 @@ internal fun TrackMapScreen(
                                     selectedPoint = selectedIndex?.let { load.good.getOrNull(it) },
                                     dwells = dwells,
                                     overruns = overruns,
+                                    endPlaces = endPlaces,
                                     precomputedColoring = graph?.coloring,
                                     precomputedSeams = seams,
                                     modifier = Modifier.fillMaxSize(),
