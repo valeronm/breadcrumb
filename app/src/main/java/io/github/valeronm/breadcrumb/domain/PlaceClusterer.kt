@@ -1,5 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
+import io.github.valeronm.breadcrumb.data.db.Place
+
 /**
  * Groups stay locations into *places* by anchor-based greedy leader clustering. Nothing is
  * persisted — clusters re-derive on read in chronological input order, deterministic *and* stable:
@@ -14,11 +16,26 @@ package io.github.valeronm.breadcrumb.domain
  */
 object PlaceClusterer {
 
-    /** A pre-existing anchor — a stored place pin — with its own capture radius. */
-    class Seed(
+    /**
+     * A pre-existing anchor — a stored place pin — with its own capture radius. **A value**: two
+     * seeds describing the same pin are the same seed, which is what lets a caller ask whether a
+     * fresh reading of the places table would cluster any differently by comparing the projections
+     * rather than the rows. Compared by value nowhere inside this object, which indexes seeds
+     * positionally throughout.
+     */
+    data class Seed(
         val anchor: StayDeriver.Endpoint,
         val radiusM: Double,
     )
+
+    /**
+     * What clustering reads off stored places, in the list's order: where each sits and how far it
+     * reaches. **This is the whole of a place's influence on the derivation** — its name and its
+     * category reach clustering nowhere — so an observer that re-derives only when this projection
+     * changes cannot miss a move and cannot re-run on a rename.
+     */
+    fun seedsOf(places: List<Place>): List<Seed> =
+        places.map { Seed(StayDeriver.Endpoint(it.lat, it.lon), it.radiusM) }
 
     class Cluster(
         /** First member's location (or the seed pin) — the stable cluster identity. */

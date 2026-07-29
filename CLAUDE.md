@@ -47,7 +47,9 @@ a refactor that moves baselined code can resurface its entry as new, which is in
 ## Unit tests
 
 Unit tests live in `app/src/test` and cover the pure logic in `domain/` plus data-layer pieces
-(TrackQuality, TrackStats, GpxExporter/GpxParser, BackupExporter/BackupImporter) — run them with
+(TrackQuality, TrackStats, GpxExporter/GpxParser, BackupExporter/BackupImporter) and the view
+model's flow gating (`PlaceDerivationGateTest`, which drives the real `pinnedRows` rather than a
+copy of it, and needs no database — so unlike the Room-backed tests below it runs on any dev box) — run them with
 `./gradlew :app:testDebugUnitTest`, and note that `assembleDebug` does **not** compile them, so
 run the tests after touching anything they cover. **Room runs in these host tests via Robolectric**
 (in-memory DB, `TestDb` fixture), so the repository's DB rules and the schema migrations are
@@ -211,14 +213,24 @@ Places tab.
 
 **A place row holds what the user said about a spot, and only that** — its name, its capture radius,
 and its `category` (`PlaceCategory.code`, null = untagged). Everything else about a place is derived
-on read. A category feeds nothing on the way to a stay — clustering reads only the pin and radius, so
-unlike a re-pin it cannot move a visit between places — but it is still a `places` write, and the
-shared derivation observes that table, so the timeline re-derives off a tag exactly as off a rename. Three rules hold the vocabulary
+on read. **A category and a name feed nothing on the way to a stay**, and the plumbing is built to
+say so: clustering reads a place's pin and its reach and nothing else — `PlaceClusterer.seedsOf` is
+that projection, and `Seed` is a **value**, so the derivation is gated by comparing seed lists
+(`pinnedRows` in `TrackListViewModel`, pinned by `PlaceDerivationGateTest`) rather than the rows.
+Gating on the row re-clusters the whole history whenever a place is renamed or tagged — for fields it
+never reads — and the user watches it happen, because everything a place's screen shows waits behind
+that walk. Two traps sit in this gate. **`Seed` must keep value equality**: as a plain class it
+compared by identity, so a `distinctUntilChanged` over freshly built seeds differed every time and
+silently gated nothing. And a fresher reading of the rows may only be **matched by id onto the list
+the clustering was built from**, never substituted for it — `PlaceResolver` resolves a cluster to a
+place *positionally* (`seedIndex`), so pairing a cached derivation with a list a delete has reindexed
+labels stays with the wrong places until the re-clustering lands.
+Three rules hold the vocabulary
 together. The **codes are permanent** — they reach the DB column *and* the backup format the web
 viewer reads — while the `label` beside each is display text, free to reword. The column keeps the
 **raw string, mapped in the domain** (`Place.placeCategory`, following the `activityType` /
 `IgnoreReason.code` precedent), so a code this build doesn't know reads as untagged but survives a
-backup round trip instead of being erased. And **untagged is a first-class state, not a thirteenth
+backup round trip instead of being erased. And **untagged is a first-class state, not one more
 category**: there is deliberately no `Other`, because it would collect precisely the places worth
 finding again while saying nothing about them. Three categories carry `inTimeTotals = false` and so
 stay out of the timeline's per-day totals (`dayCategoryTotals`) — `HOME`, which as the baseline every

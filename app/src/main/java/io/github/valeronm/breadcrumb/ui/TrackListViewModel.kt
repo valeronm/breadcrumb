@@ -36,6 +36,22 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 
+/**
+ * The places table, admitted only when a reading would cluster differently from the last one —
+ * compared through [PlaceClusterer.seedsOf], so the rule is stated in the type the clusterer
+ * actually consumes and a new seed field cannot be forgotten in a comparison kept somewhere else.
+ * A rename or a tag projects to the same seeds and is dropped here.
+ *
+ * This is the gate on the most expensive computation in the app: whatever survives it re-clusters
+ * the entire history, and the user waits behind that. Rows rather than seeds come out, because the
+ * clustering has to keep the exact list it was built from — see [TrackListViewModel.Clustered].
+ * Extracted so the rule is reachable by a test without a database — see `PlaceDerivationGateTest`.
+ */
+internal fun pinnedRows(rows: Flow<List<Place>>): Flow<List<Place>> = rows
+    .distinctUntilChanged { before, after ->
+        PlaceClusterer.seedsOf(before) == PlaceClusterer.seedsOf(after)
+    }
+
 class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repository = TrackRepository(app)
@@ -59,6 +75,19 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * A clustering run, the clock it was taken against, and **the exact places list it was built
+     * from**. That list is not incidental: [PlaceResolver] resolves a cluster to a place by position
+     * (`seedIndex`), so a derivation is only meaningful beside the reading that seeded it. Pairing
+     * one with a later reading is what deleting a place would otherwise do — every row after the
+     * gap shifts, and clusters resolve to their neighbours.
+     */
+    private class Clustered(
+        val derivation: StayDeriver.Derivation,
+        val places: List<Place>,
+        val now: Long,
+    )
+
     /** One derivation run's inputs and outputs, shared by [timeline] and [places]. */
     private class Derived(
         val derivation: StayDeriver.Derivation,
@@ -69,27 +98,53 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val stays: List<StayDeriver.Stay> = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
     }
 
+    /** The places table, read once for every reader below rather than observed per consumer. */
+    private val placeRows: Flow<List<Place>> = placeRepository.observePlaces()
+        .distinctUntilChanged()
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
     // The stay/place derivation is the most expensive pure computation in the app, so it runs once
     // here and both screens map from it. Of the live status only the active track's start matters
     // (constant per track) — distinctUntilChanged keeps per-fix status emissions from re-running
     // the clustering.
-    private val derived: Flow<Derived> = combine(
+    private val clustered: Flow<Clustered> = combine(
         repository.observeEndpoints().distinctUntilChanged(),
         livenessRepository.observeEvents().distinctUntilChanged(),
-        placeRepository.observePlaces().distinctUntilChanged(),
+        pinnedRows(placeRows),
         TrackingStatus.state.map { if (it.recording) it.startedAtMillis else null }.distinctUntilChanged(),
     ) { endpoints, events, places, activeStartedAt ->
         val now = System.currentTimeMillis()
-        val derivation = StayDeriver.derive(
-            tracks = endpoints.map { it.toTrackEnd() },
-            liveness = events.mapNotNull { it.toLiveness() },
-            nowMs = now,
-            activeTrack = activeStartedAt?.let { StayDeriver.ActiveTrack(it) },
-            distance = AndroidDistance,
-            placePins = places.map { PlaceClusterer.Seed(StayDeriver.Endpoint(it.lat, it.lon), it.radiusM) },
+        Clustered(
+            StayDeriver.derive(
+                tracks = endpoints.map { it.toTrackEnd() },
+                liveness = events.mapNotNull { it.toLiveness() },
+                nowMs = now,
+                activeTrack = activeStartedAt?.let { StayDeriver.ActiveTrack(it) },
+                distance = AndroidDistance,
+                placePins = PlaceClusterer.seedsOf(places),
+            ),
+            places,
+            now,
         )
-        Derived(derivation, places, now)
     }.flowOn(Dispatchers.Default)
+
+    // Freshening the rows *over* the clustering's own is what makes a tag cheap: the pins are
+    // unchanged, so the cached derivation is reused and only what reads a label or category runs
+    // again. Matched by id onto the list the clustering was built from — never replaced by it — so
+    // the positional contract holds whatever the newer reading added or removed; a place deleted
+    // while a re-clustering is in flight stays until that lands, which is correct, because it is
+    // still in the clustering.
+    private val derived: Flow<Derived> = combine(clustered, placeRows) { clustering, fresh ->
+        val byId = fresh.associateBy { it.id }
+        Derived(clustering.derivation, clustering.places.map { byId[it.id] ?: it }, clustering.now)
+    }
+        // A places write that moved a pin re-emits both sides; the first carries a list the patch
+        // above has just restored to what the previous emission held, and re-deriving the timeline
+        // off it would walk the whole history for an identical answer.
+        .distinctUntilChanged { before, after ->
+            before.derivation === after.derivation && before.places == after.places
+        }
+        .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
     /** Tracks interleaved with derived stays and data gaps, newest first, sliced per local day. */
@@ -136,6 +191,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         PlaceResolver.summarize(d.stays, d.derivation.clusters, d.places, d.now)
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
 
     fun renamePlace(id: Long, label: String) {
         val trimmed = label.trim()
