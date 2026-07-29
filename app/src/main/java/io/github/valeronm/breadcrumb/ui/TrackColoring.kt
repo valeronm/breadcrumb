@@ -31,6 +31,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.MetricSmoother
 import io.github.valeronm.breadcrumb.util.UnitSystem
+import kotlin.math.roundToInt
 
 // Static, per-activity speed→color scale so tracks are visually comparable across the whole list:
 // red (slow) → green (a good cruising pace) → blue (fast). Hue runs 0°(red)→240°(blue), so with an
@@ -90,14 +91,49 @@ internal sealed interface Legend {
     data class None(val message: String) : Legend
 }
 
-internal class TrackColoring(val colors: IntArray, val legend: Legend)
+/**
+ * A metric's per-point colors and legend — plus the very series they were read from, so the graph
+ * beside the map plots and reports exactly what the map is drawn in rather than deriving it again.
+ */
+internal class TrackColoring(
+    /**
+     * A color per point. A surface drawing *legs* takes the color of the fix a leg **arrives at**:
+     * an entry is the reading at its own fix, so the leg ending there is what it describes, and the
+     * first fix's color is read by nobody. Both the map's line and the graph's strokes obey this;
+     * they disagree by a whole segment if one of them stops.
+     */
+    val colors: IntArray,
+    val legend: Legend,
+    val values: List<Float?>,
+    val unit: String,
+)
 
-/** ARGB on the red(0°)→green(120°)→blue(240°) ramp for [value] between the [redAt] and [blueAt] anchors. */
-private fun rampColor(value: Float?, redAt: Float, blueAt: Float, luminance: Float, noData: Int): Int {
+/**
+ * The ramp is a stepped scale of this many bands, not a continuum: a band is a pace worth telling
+ * apart, where a shade per fix is a shimmer along a line held at one speed. Banded in the palette,
+ * so every surface reading it — the map, the graph's strokes, the legend — is colored by one table.
+ *
+ * A consequence the map depends on: the track is drawn as one feature per *run* of one color, and
+ * an ungraded ramp would make a long cruise thousands of sub-pixel features rather than one.
+ */
+private const val RAMP_STEPS = 32
+
+/** Hue on the red(0°)→green(120°)→blue(240°) ramp at [t] (0..1), stepped into [RAMP_STEPS] bands. */
+private fun bandedHue(t: Float): Float {
+    val banded = (t.coerceIn(0f, 1f) * RAMP_STEPS).roundToInt() / RAMP_STEPS.toFloat()
+    return HUE_RED + banded * (HUE_BLUE - HUE_RED)
+}
+
+/** The [RAMP_STEPS] + 1 colors of the whole ramp — resolved once per coloring, as `Color.hsl` is a
+ *  real conversion and a track asks for one per point. */
+private fun rampPalette(luminance: Float): IntArray =
+    IntArray(RAMP_STEPS + 1) { Color.hsl(bandedHue(it / RAMP_STEPS.toFloat()), SPEED_SATURATION, luminance).toArgb() }
+
+/** ARGB from [palette] for [value] between the [redAt] and [blueAt] anchors. */
+private fun rampColor(value: Float?, redAt: Float, blueAt: Float, palette: IntArray, noData: Int): Int {
     if (value == null) return noData
     val t = ((value - redAt) / (blueAt - redAt)).coerceIn(0f, 1f)
-    val hue = HUE_RED + t * (HUE_BLUE - HUE_RED)
-    return Color.hsl(hue, SPEED_SATURATION, luminance).toArgb()
+    return palette[(t * RAMP_STEPS).roundToInt()]
 }
 
 private fun rampColoring(
@@ -111,21 +147,21 @@ private fun rampColoring(
     // Resolved once per coloring, not per point — Color.hsl is a real conversion.
     val noData = noDataArgb(dark)
     if (values.all { it == null }) {
-        return TrackColoring(IntArray(values.size) { noData }, Legend.None(emptyMsg))
+        return TrackColoring(IntArray(values.size) { noData }, Legend.None(emptyMsg), values, unit)
     }
-    val luminance = rampLuminance(dark)
-    val colors = IntArray(values.size) { rampColor(values[it], redAt, blueAt, luminance, noData) }
+    val palette = rampPalette(rampLuminance(dark))
+    val colors = IntArray(values.size) { rampColor(values[it], redAt, blueAt, palette, noData) }
     fun num(v: Float) = "%.0f".format(v)
     // Unit only on the rightmost label, else three "… unit" labels overflow the fixed-width legend.
     val right = num(blueAt).let { if (unit.isEmpty()) it else "$it $unit" }
-    return TrackColoring(colors, Legend.Ramp(num(redAt), num((redAt + blueAt) / 2f), right))
+    return TrackColoring(colors, Legend.Ramp(num(redAt), num((redAt + blueAt) / 2f), right), values, unit)
 }
 
 /**
  * The per-point value series for [mode] (null where a point lacks the metric) and its display
  * unit — the single mode→series/unit mapping, feeding both the graph and the map coloring.
  */
-internal fun metricSeries(
+private fun metricSeries(
     points: List<TrackPoint>,
     mode: ColorMode,
     speedsKmh: FloatArray,
@@ -139,16 +175,17 @@ internal fun metricSeries(
 }
 
 /**
- * [metricSeries] as a graph *plots* it. Speed alone is smoothed, and the reason is the line above
- * that computes it: it is the one metric derived per fix rather than reported about one — the
+ * [metricSeries] as everything that *shows* it reads it — the graph's line and readout, and the
+ * colors the line and the map are drawn in. Speed alone is smoothed, and the reason is the line
+ * above that computes it: it is the one metric derived per fix rather than reported about one — the
  * receiver's own figure where it gives one, the seam's where it doesn't — so it jitters by several
  * km/h between neighbours taken at one steady pace. The other four are what the receiver said about
- * that single moment, and a moment is what the graph is asked for when they are on screen.
+ * that single moment, and a moment is what is being asked for when they are on screen.
  *
  * Exhaustive on purpose: a metric added later has to answer this, as it must answer for its series,
  * its ramp and its label.
  */
-internal fun plottedSeries(
+private fun plottedSeries(
     points: List<TrackPoint>,
     mode: ColorMode,
     values: List<Float?>,
@@ -161,6 +198,11 @@ internal fun plottedSeries(
  * Per-point colors + legend for [mode]. Ramps go red→green→blue between two anchor values; where an
  * anchor is "worse" it's placed at red (e.g. accuracy: 50 m = red, 0 m = blue). Points missing the
  * metric are gray.
+ *
+ * Colors the series a graph would *plot* ([plottedSeries]), not the raw one: where a metric smooths,
+ * a fix's hue and the height drawn above it have to be the same reading of the same moment, or the
+ * line's colour argues with its own shape — and the map, which has no shape to argue with, would be
+ * showing a jitter the graph says isn't there.
  */
 internal fun trackColoring(
     points: List<TrackPoint>,
@@ -172,7 +214,8 @@ internal fun trackColoring(
 ): TrackColoring {
     // Anchors are hand-rounded in the display unit (see SpeedScale), so the legend reads round
     // numbers in every system; the colors may sit a hair apart between systems as a result.
-    val (values, unit) = metricSeries(points, mode, speedsKmh, units)
+    val (raw, unit) = metricSeries(points, mode, speedsKmh, units)
+    val values = plottedSeries(points, mode, raw)
     return when (mode) {
         ColorMode.SPEED -> {
             val s = speedScaleFor(activity ?: ActivityType.UNKNOWN, units)
@@ -231,10 +274,7 @@ internal fun TrackLegend(legend: Legend, modifier: Modifier) {
                 // brown/gray — 30° hue steps stay on-hue.
                 val rampBrush = remember(luminance) {
                     Brush.horizontalGradient(
-                        (0..8).map {
-                            val hue = HUE_RED + it * (HUE_BLUE - HUE_RED) / 8f
-                            Color.hsl(hue, SPEED_SATURATION, luminance)
-                        },
+                        (0..8).map { Color.hsl(bandedHue(it / 8f), SPEED_SATURATION, luminance) },
                     )
                 }
                 Box(

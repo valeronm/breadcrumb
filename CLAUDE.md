@@ -303,10 +303,15 @@ one layer at a time). The Compose code is split one file per screen, all in the 
 `DiscardedScreens`, with shared widgets and formatters in `Components.kt` and the color-ramp/
 legend code in `TrackColoring.kt` (cross-file symbols are `internal`, not `private`). The track
 map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps
-vector basemap** (dark or light flavor following the app theme): the track is a `line-gradient`
-colored per point by the selected metric (ramp luminance also theme-dependent), start/end
-and noisy-fix markers sit on a symbol layer, and switching the color metric recolors in place
-without moving the camera. Two more layers ride on the same map — the detected in-track stops as
+vector basemap** (dark or light flavor following the app theme): **the track is one line feature per
+run of same-colored fixes**, colored by the selected metric (ramp luminance also theme-dependent),
+start/end and noisy-fix markers sit on a symbol layer, and switching the color metric rebuilds the
+line's source without moving the camera. Deliberately not a `line-gradient`, which positions color
+along the line's *length* where every other reading of the metric — the graph beside it above all —
+is positioned along its *time*, so a slow stretch shrinks to nothing on the map while filling the
+graph. The banded ramp, the source's simplification tolerance and the layer's round caps are one
+mechanism serving that and none survives being tidied alone; `trackLineFeature` says why.
+Two more layers ride on the same map — the detected in-track stops as
 place-style capture circles *under* the line, and the recorder's overrun grayed off the track's
 ends, read back from the stored flags rather than re-detected. The map renders in texture mode (a SurfaceView would ignore Compose
 clipping and bleed over rounded card corners), sits inside padded cards (so it never reaches the

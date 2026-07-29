@@ -57,6 +57,7 @@ import org.maplibre.android.style.layers.PropertyValue
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonOptions
 import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.utils.ColorUtils
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
@@ -67,9 +68,10 @@ import kotlin.math.sin
 
 /**
  * Renders a track on a Protomaps vector basemap (MapLibre GL Native), dark or light flavor per the app
- * theme. The line is colored by [colorMode] via a `line-gradient` of [TrackColoring]'s per-point colors;
- * start/end and noisy-fix markers ride a symbol layer; the camera fits the track once on open. A
- * color-mode switch recolors in place, camera untouched; the source refreshes as the point list grows
+ * theme. The line is drawn as one feature per run of same-colored fixes ([TrackColoring], the metric
+ * picked by [colorMode]); start/end and noisy-fix markers ride a symbol layer; the camera fits the
+ * track once on open. A color-mode switch rebuilds the line's source, camera untouched, and the
+ * source refreshes as the point list grows
  * (the live "current track" preview), re-framing only when the position nears the viewport edge —
  * user pan/zoom survives otherwise.
  */
@@ -93,8 +95,8 @@ internal fun MapLibreTrackMap(
     // A coloring the caller already computed for the same inputs (the track-detail screen builds
     // one for its metric graph) — the O(points) pass then runs once, not twice.
     precomputedColoring: TrackColoring? = null,
-    // …and the seam walk that coloring was built from ([TrackQuality.Seams]), which the gradient
-    // below needs too. Null = walk it here (the live preview, which has no graph).
+    // …and the seam walk that coloring was built from ([TrackQuality.Seams]). Null = walk it here
+    // (the live preview, which has no graph).
     precomputedSeams: TrackQuality.Seams? = null,
 ) {
     val darkTheme = isSystemInDarkTheme()
@@ -108,7 +110,7 @@ internal fun MapLibreTrackMap(
         precomputedColoring
             ?: trackColoring(points, TrackQuality.pointSpeedsKmh(seams), colorMode, activity, darkTheme, units)
     }
-    val paint = remember(seams, coloring) { buildTrackPaint(coloring.colors, seams) }
+    val colors = coloring.colors
     val applied = remember { AppliedTrackInputs() }
 
     Box(modifier) {
@@ -116,21 +118,33 @@ internal fun MapLibreTrackMap(
             modifier = Modifier.fillMaxSize(),
             onStyleLoaded = { ctx, map, style ->
                 addDwellLayers(style, dwells) // first, so the circles render under the line
-                addTrackLine(style, points, paint)
+                addTrackLine(style, points, colors)
                 addEdgeStayLayer(style, overruns, darkTheme) // over the line, off its ends
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
                 addSelectionLayer(ctx, style, selectedPoint)
                 frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
+                // Stamped here as well as drawn: otherwise the first update sees no applied input
+                // and rebuilds every source the load just built.
+                applied.points = points
+                applied.noisy = noisyPoints
+                applied.colors = colors
                 applied.framed = true
             },
             onUpdate = { map, style ->
-                // Recolor on color-mode change; also refresh geometry when the track grows (the
-                // live "current track" preview). Re-frame only when the points changed (not on a
-                // color switch), so a color change keeps the user's pan/zoom.
-                if (applied.points !== points || applied.noisy !== noisyPoints) {
+                // The line's features carry their colors, so a color switch rebuilds that source —
+                // but nothing else: not the markers, which no metric touches, and not the camera,
+                // so switching metric keeps the user's pan/zoom. Growing points reach it too, the
+                // coloring being remembered off them; showing the noisy fixes doesn't, the line
+                // having none of them.
+                val moved = applied.points !== points || applied.noisy !== noisyPoints
+                if (applied.colors !== colors) {
+                    applied.colors = colors
+                    style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points, colors))
+                }
+                // Refresh geometry when the track grows (the live "current track" preview).
+                if (moved) {
                     applied.points = points
                     applied.noisy = noisyPoints
-                    style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points))
                     style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(points, noisyPoints, directionalEnd))
                     // Live preview: hold the camera (so a pan/zoom survives and the map
                     // isn't re-rendered every fix); re-fit only when the current position
@@ -148,10 +162,6 @@ internal fun MapLibreTrackMap(
                             }
                         }
                     }
-                }
-                if (applied.paint !== paint) {
-                    applied.paint = paint
-                    style.getLayerAs<LineLayer>(TRACK_LAYER)?.let { applyPaint(it, paint) }
                 }
                 if (applied.selection !== selectedPoint) {
                     applied.selection = selectedPoint
@@ -189,7 +199,9 @@ internal fun MapLibreTrackMap(
 private class AppliedTrackInputs {
     var points: List<TrackPoint>? = null
     var noisy: List<TrackPoint>? = null
-    var paint: TrackPaint? = null
+
+    /** The line's colours: a metric switch rebuilds the source, the legs carrying their own. */
+    var colors: IntArray? = null
     var selection: TrackPoint? = null
     var dwells: List<DwellDetector.Dwell>? = null
     var overruns: List<EdgeStayIgnore.Overrun>? = null
@@ -364,7 +376,9 @@ private const val IMG_NOISY_GNSS = "marker-noisy-gnss"
 private const val SELECT_SOURCE = "select-src"
 private const val SELECT_LAYER = "select-layer"
 private const val IMG_SELECTED = "marker-selected"
-private const val DEFAULT_LINE = 0xFF5B9BF0.toInt()
+
+/** Feature property naming a leg's own color, read by the line layer. */
+private const val COLOR_KEY = "color"
 
 private const val DWELL_SOURCE = "dwell-src"
 private const val DWELL_FILL = "dwell-fill"
@@ -448,35 +462,75 @@ private fun framePositions(points: List<TrackPoint>, noisyPoints: List<TrackPoin
     (if (points.size >= 2) points else points + noisyPoints).map { LatLng(it.latitude, it.longitude) }
 
 /** The points as one polyline, or null below the two positions a GeoJSON LineString needs. */
-private fun lineFeature(points: List<TrackPoint>): Feature? =
+private fun lineFeature(points: List<TrackPoint>, properties: JsonObject? = null): Feature? =
     if (points.size < 2) {
         null
     } else {
         Feature.fromGeometry(
             LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) }),
+            properties,
         )
     }
 
-private fun trackLineFeature(points: List<TrackPoint>): FeatureCollection =
-    FeatureCollection.fromFeatures(listOfNotNull(lineFeature(points)))
-
-private fun addTrackLine(style: Style, points: List<TrackPoint>, paint: TrackPaint) {
-    // lineMetrics is required for line-gradient (line-progress is measured along the rendered line).
-    style.addSource(GeoJsonSource(TRACK_SOURCE, trackLineFeature(points), GeoJsonOptions().withLineMetrics(true)))
-    val layer = LineLayer(TRACK_LAYER, TRACK_SOURCE).withProperties(
-        PropertyFactory.lineWidth(3f),
-        PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-        PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-    )
-    style.addLayer(layer)
-    applyPaint(layer, paint)
+/**
+ * The track as one feature per run of same-colored fixes.
+ *
+ * Features rather than one polyline under a `line-gradient`, because a gradient is positioned along
+ * the line's *length* while every other reading of the metric — the graph beside the map most of
+ * all — is positioned along its *time*. A slowdown is long in time and short on the ground, and a
+ * stretch slow enough to advance no distance between fixes could hold no gradient stop at all,
+ * stops having to strictly increase: the colors either side simply ran through it.
+ *
+ * What puts such a stretch back on the map is the round cap ([addTrackLine]): a run of near-zero
+ * length still draws as a dot of the line's own width, so a stop has a floor of a few pixels rather
+ * than the nothing its ground distance earns. That is also why the source disables simplification —
+ * a zero-length feature is the first thing it drops.
+ *
+ * Runs, not a feature per fix: the ramp is banded (`RAMP_STEPS`), so a steady pace is one feature
+ * instead of hundreds, and only a boundary fix is spent twice.
+ */
+private fun trackLineFeature(points: List<TrackPoint>, colors: IntArray): FeatureCollection {
+    if (points.size < 2) return FeatureCollection.fromFeatures(emptyList())
+    val runs = ArrayList<Feature>()
+    // One properties object per *color*, not per run: a banded ramp has a few dozen, a track has
+    // hundreds of runs, and a feature only ever reads them.
+    val properties = HashMap<Int, JsonObject>()
+    fun addRun(from: Int, until: Int, color: Int) {
+        val props = properties.getOrPut(color) {
+            JsonObject().apply { addProperty(COLOR_KEY, ColorUtils.colorToRgbaString(color)) }
+        }
+        lineFeature(points.subList(from, until), props)?.let(runs::add)
+    }
+    var from = 0
+    // The color of the fix a leg *arrives* at, per TrackColoring.colors. A run therefore ends on
+    // the fix the next one starts from, and the two meet there.
+    for (arrival in 2 until points.size) {
+        if (colors[arrival] == colors[arrival - 1]) continue
+        addRun(from, arrival, colors[arrival - 1])
+        from = arrival - 1
+    }
+    addRun(from, points.size, colors[points.lastIndex])
+    return FeatureCollection.fromFeatures(runs)
 }
 
-private fun applyPaint(layer: LineLayer, paint: TrackPaint) {
-    when (paint) {
-        is TrackPaint.Gradient -> layer.setProperties(PropertyFactory.lineGradient(paint.expression))
-        is TrackPaint.Solid -> layer.setProperties(PropertyFactory.lineColor(paint.color))
-    }
+private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArray) {
+    // A run of a slow stretch spans metres — sub-pixel on any view of a whole track — and a GeoJSON
+    // source simplifies per tile, which drops a feature that small outright. The one long polyline
+    // this replaced survived it because simplification keeps a long line's shape.
+    // Turning simplification off is what lets a stop keep its color at all; see trackLineFeature.
+    style.addSource(
+        GeoJsonSource(TRACK_SOURCE, trackLineFeature(points, colors), GeoJsonOptions().withTolerance(0f)),
+    )
+    style.addLayer(
+        LineLayer(TRACK_LAYER, TRACK_SOURCE).withProperties(
+            PropertyFactory.lineWidth(3f),
+            // Round is load-bearing, not cosmetic: it joins runs drawn as separate features, and
+            // it gives a near-zero-length run the width of the line to be seen in.
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            PropertyFactory.lineColor(Expression.get(COLOR_KEY)),
+        ),
+    )
 }
 
 // Noisy markers are color-coded by why the fix was rejected; points recorded before reasons
@@ -637,46 +691,6 @@ private fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom: 
         positions.size == 1 -> map.cameraPosition = CameraPosition.Builder()
             .target(positions[0]).zoom(singlePointZoom).build()
     }
-}
-
-/** The line's paint for the current color mode: a per-distance gradient, or a solid fallback. */
-private sealed interface TrackPaint {
-    data class Gradient(val expression: Expression) : TrackPaint
-    data class Solid(val color: Int) : TrackPaint
-}
-
-/**
- * Builds a MapLibre `line-gradient` from per-point [colors] by placing each point's color at its
- * cumulative-distance fraction along the line (0..1). Falls back to a solid color for a track
- * with no length.
- */
-private fun buildTrackPaint(colors: IntArray, seams: TrackQuality.Seams): TrackPaint {
-    val points = seams.points
-    if (points.size < 2 || colors.isEmpty()) return TrackPaint.Solid(colors.firstOrNull() ?: DEFAULT_LINE)
-    val cumulative = DoubleArray(points.size)
-    for (i in 1 until points.size) {
-        cumulative[i] = cumulative[i - 1] + seams.meters[i]
-    }
-    val total = cumulative.last()
-    if (total <= 0.0) return TrackPaint.Solid(colors.first())
-    val stops = ArrayList<Expression.Stop>(points.size)
-    var lastFraction = -1.0
-    for (i in points.indices) {
-        val fraction = when (i) {
-            0 -> 0.0
-            points.size - 1 -> 1.0
-            else -> cumulative[i] / total
-        }
-        // line-gradient stops must strictly increase; skip zero-length steps (duplicate positions).
-        if (fraction > lastFraction) {
-            stops.add(Expression.stop(fraction, Expression.color(colors[i])))
-            lastFraction = fraction
-        }
-    }
-    if (stops.size < 2) return TrackPaint.Solid(colors.first())
-    return TrackPaint.Gradient(
-        Expression.interpolate(Expression.linear(), Expression.lineProgress(), *stops.toTypedArray()),
-    )
 }
 
 /** Whether the UI is in dark mode — the single switch for basemap flavor and map ink colors. */

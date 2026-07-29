@@ -90,7 +90,7 @@ object TrackQuality {
      * A point list with the distance across each of its seams already walked: [meters] index 0 is
      * 0 (nothing precedes the first fix), index i is the metres from `points[i - 1]` to
      * `points[i]`. The one walk the track screen's per-point series are built from: per-point speed
-     * and the map line's gradient stops need exactly these numbers, the ellipsoidal distance per
+     * and the speed series the map and graph are colored by is read off exactly these numbers, the ellipsoidal distance per
      * seam is the most expensive thing either does, and most fixes carry no GPS speed, so the speed
      * series really does need every seam. Sharing the walk also takes it off the colour-metric tap:
      * seam distances don't depend on the displayed metric, while the series drawn from them do.

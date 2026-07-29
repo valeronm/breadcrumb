@@ -125,7 +125,7 @@ internal fun TrackMapScreen(
         EdgeStayIgnore.overruns(points.orEmpty(), stayPoints)
     }
     // The one seam walk this screen's derived series come from, keyed on the points alone — it is
-    // the same distances whatever metric is displayed, and the graph, the map's gradient and the
+    // the same distances whatever metric is displayed, and the graph, the map's colors and the
     // split preview are all built from it. Switching the metric then re-runs only the ramp, not an
     // ellipsoidal distance per point. Hoisted this high because the split dialog is a sibling of
     // the Scaffold, not part of the column that draws the track.
@@ -402,21 +402,20 @@ private fun SplitConfirmation(
     )
 }
 
-/** Per-point series for the metric graph: values (null = gap), the map's coloring, and a unit. */
+/**
+ * Per-point series for the metric graph. Everything but the points comes off one [TrackColoring],
+ * which is also the map's — the series a stroke's height is read from is the series its hue was
+ * read from, because there is only one of them.
+ */
 @Immutable
 internal class MetricGraphData(
     val points: List<TrackPoint>,
-    /**
-     * What the graph draws and reports — time-averaged where the metric smooths (see
-     * [plottedSeries]), so a stroke's *height* and the *hue* it is drawn in answer different
-     * questions: the shape of the trip, and what the fix under it recorded.
-     */
-    val values: List<Float?>,
     /** Shared with the map (via `precomputedColoring`) so the O(points) pass runs once. */
     val coloring: TrackColoring,
-    val unit: String,
 ) {
+    val values: List<Float?> get() = coloring.values
     val colors: IntArray get() = coloring.colors
+    val unit: String get() = coloring.unit
 }
 
 /** Null when no point carries the metric. */
@@ -427,13 +426,12 @@ internal fun metricGraphData(
     dark: Boolean,
     units: UnitSystem,
 ): MetricGraphData? {
-    val points = seams.points
-    // Computed unconditionally: trackColoring below needs it whatever the mode.
-    val speeds = TrackQuality.pointSpeedsKmh(seams)
-    val (values, unit) = metricSeries(points, mode, speeds, units)
-    if (values.all { it == null }) return null
-    val coloring = trackColoring(points, speeds, mode, activity, dark, units)
-    return MetricGraphData(points, plottedSeries(points, mode, values), coloring, unit)
+    val coloring = trackColoring(
+        seams.points, TrackQuality.pointSpeedsKmh(seams), mode, activity, dark, units,
+    )
+    // The ramp already reached this verdict when it found nothing to scale.
+    if (coloring.legend is Legend.None) return null
+    return MetricGraphData(seams.points, coloring)
 }
 
 /**
@@ -480,8 +478,7 @@ private fun MetricPlot(
 
 /**
  * The selected color metric over the track's time span, stroked point-to-point in the map line's
- * colors — which are the map's, off the raw series, where the height is [MetricGraphData.values] —
- * with a time axis; missing values and segment starts break the line. Tap/drag picks the
+ * colors, with a time axis; missing values and segment starts break the line. Tap/drag picks the
  * nearest point ([onSelect]), drawn as a cursor with a value/time readout; the caller highlights
  * the same point on the map.
  */
