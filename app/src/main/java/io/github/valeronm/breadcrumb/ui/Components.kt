@@ -82,7 +82,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import kotlin.math.roundToLong
 
 /** Settings-style switch with a check/cross icon in the thumb mirroring its state. */
 @Composable
@@ -586,34 +585,6 @@ internal fun canvasTopBarColors() = TopAppBarDefaults.topAppBarColors(
     scrolledContainerColor = MaterialTheme.colorScheme.background,
 )
 
-internal fun formatDuration(startedAt: Long, endedAt: Long?): String {
-    val end = endedAt ?: return "recording"
-    return formatDurationMs(end - startedAt)
-}
-
-/** Minute-rounded like [formatDurationMs], except below a minute, where seconds are the point —
- *  edge stays start at half a minute and "0m" would say nothing. */
-internal fun formatShortDurationMs(durationMs: Long): String =
-    if (durationMs < 60_000L) "${durationMs / 1000}s" else formatDurationMs(durationMs)
-
-internal fun formatDurationMs(durationMs: Long): String {
-    val minutes = (durationMs / 60000.0).roundToLong()
-    // A day or more: minutes stop mattering — round to whole hours and split off days.
-    if (minutes >= 24 * 60) {
-        val hours = ((minutes + 30) / 60)
-        return if (hours % 24 == 0L) {
-            "%dd".format(hours / 24)
-        } else {
-            "%dd %dh".format(hours / 24, hours % 24)
-        }
-    }
-    return when {
-        minutes >= 60 && minutes % 60 == 0L -> "%dh".format(minutes / 60)
-        minutes >= 60 -> "%dh %02dm".format(minutes / 60, minutes % 60)
-        else -> "%dm".format(minutes)
-    }
-}
-
 @Composable
 internal fun HeaderStat(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -782,8 +753,12 @@ internal fun categoryMutedPinColor(category: PlaceCategory): Color =
  * bitmaps outside composition, and one colour reaching back into the theme would be the only reason
  * a pin image depends on anything but its category. It is a *quieter* rule than it looks: the theme
  * neutral was never worn as-is either, since white ink has to read on it.
+ *
+ * Lazy because [forWhiteGlyph] reaches `android.graphics.Color`: computed eagerly it runs in this
+ * file's static initializer, and every pure function beside it becomes unreachable from a plain JVM
+ * test — the whole file fails to load, not just this value.
  */
-internal val untaggedPinColor: Color = forWhiteGlyph(Color.hsl(0f, 0f, PIN_MAX_LUM))
+internal val untaggedPinColor: Color by lazy { forWhiteGlyph(Color.hsl(0f, 0f, PIN_MAX_LUM)) }
 
 /**
  * What white ink needs against the fill under it. 3:1 is the bar for a *graphical object* (WCAG

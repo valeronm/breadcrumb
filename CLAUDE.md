@@ -334,7 +334,12 @@ one layer at a time). The Compose code is split one file per screen, all in the 
 `MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in
 `RecordScreen`/`TimelineScreen`/`PlacesScreens`/`TrackDetailScreen`/`SettingsScreens`/
 `DiscardedScreens`, with shared widgets and formatters in `Components.kt` and the color-ramp/
-legend code in `TrackColoring.kt` (cross-file symbols are `internal`, not `private`). The track
+legend code in `TrackColoring.kt` (cross-file symbols are `internal`, not `private`), and the
+duration ladder in `DurationFormat.kt`. **No top-level `val` in these files may reach the Android
+framework eagerly** — Kotlin compiles them into one class initializer per file, so a single eager
+`android.graphics` call makes *every* pure function in that file unloadable from a plain JVM test,
+testable only under Robolectric, which on an arm64 box means not at all. `untaggedPinColor` is `by
+lazy` for exactly this reason. That is the rule; which file a formatter sits in is then free. The track
 map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps
 vector basemap** (dark or light flavor following the app theme): **the track is one line feature per
 run of same-colored fixes**, colored by the selected metric (ramp luminance also theme-dependent),
