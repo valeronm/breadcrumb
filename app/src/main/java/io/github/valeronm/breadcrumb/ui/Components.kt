@@ -573,11 +573,18 @@ internal fun SwipeActionRow(
 /**
  * Top bars sit on the scaffold canvas instead of the default lighter surface — visible since
  * the light theme dips the canvas below the cards; identical tones in dark.
+ *
+ * The scrolled colour is the same one. M3 tints a bar that has content under it, which would make a
+ * collapsing bar a different colour from a fixed one on the screen beside it — and on the one screen
+ * carrying both, a place whose name fits would sit on the canvas while a longer-named neighbour sat
+ * on the tint. The canvas is what these bars are, in every state.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun canvasTopBarColors() =
-    TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+internal fun canvasTopBarColors() = TopAppBarDefaults.topAppBarColors(
+    containerColor = MaterialTheme.colorScheme.background,
+    scrolledContainerColor = MaterialTheme.colorScheme.background,
+)
 
 internal fun formatDuration(startedAt: Long, endedAt: Long?): String {
     val end = endedAt ?: return "recording"

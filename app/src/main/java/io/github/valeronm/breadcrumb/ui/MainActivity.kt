@@ -583,7 +583,8 @@ private fun PlaceDetailOverlay(
 /**
  * Tuning a place's capture area: stacked above its detail, which the predictive-back gesture
  * previews underneath. The neighborhood the radius is judged against is resolved here rather than
- * on the detail below — nothing over there draws it, so opening a place shouldn't pay for it.
+ * on the detail below — nothing over there draws a map at all, so opening a place shouldn't pay for
+ * one.
  */
 @Composable
 private fun PlaceEditOverlay(

@@ -427,9 +427,12 @@ cross-checks it.
   drawn is too late (the frame being scaled was rendered *before* the hide), animating the height
   makes it every frame instead of one, and sequencing against `OnDidFinishRenderingFrame` spares
   the markers but not the basemap and costs two frames of latency. Two screens that want the map at
-  different sizes are two layers with a map each — which is why the place detail and its capture-area
-  editor are separate (`PlaceEditScreen`). A fresh map means a fresh camera, and that is the point
-  rather than the price: an editor should open framed on what it edits.
+  different sizes are two layers with a map each. A fresh map means a fresh camera, and that is the
+  point rather than the price: an editor should open framed on what it edits. **The place detail
+  screen carries no map** — one small enough to sit above the visits is framed on the capture circle,
+  which cannot say where a place is, and repeats the category glyph already on the screen; both
+  questions belong elsewhere (`PlaceEditScreen` for the area, the maps-app action for where), so it
+  is the visits that get the room.
 - **Marker symbol layers draw in source order** (`symbolZOrder(SYMBOL_Z_ORDER_SOURCE)`, set once on
   the shared `markerSymbolLayer` base). The default stacks point symbols by screen position, so the
   feature a collection deliberately appends last — a place's pin after its dots, a track's start/end

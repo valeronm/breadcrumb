@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -28,15 +31,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Adjust
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterCenterFocus
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ElevatedFilterChip
@@ -46,8 +48,10 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -61,26 +65,35 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.data.AndroidDistance
@@ -98,6 +111,7 @@ import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.openInMaps
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
@@ -494,9 +508,47 @@ private fun PlaceRow(
 }
 
 /**
- * Full-screen detail for one place: stats header, the place on a map, and its visits. The map
- * leads with the pin alone — the capture circle, the endpoint scatter and the neighbors belong to
- * [PlaceEditScreen], which [onAdjustArea] opens as a layer above this one.
+ * Whether [title] would be cut on the single line a closed top bar gives it — the question of
+ * whether an expanding bar has anything to offer this particular name.
+ *
+ * The width is *reckoned*, not observed: the bar's own layout isn't available before it is composed,
+ * and reading it back afterwards would make the answer depend on the state it decides. So the title
+ * slot is taken to be the screen less the navigation icon and [actionSlots] action icons, each a
+ * standard touch target, plus the bar's own inset. An estimate a few dp out only ever misjudges a
+ * name that almost exactly fills the line, where either answer is defensible.
+ */
+@Composable
+private fun titleNeedsMoreThanOneLine(title: String, actionSlots: Int): Boolean {
+    val measurer = rememberTextMeasurer()
+    val style = MaterialTheme.typography.titleLarge
+    val density = LocalDensity.current
+    val iconSlot = LocalMinimumInteractiveComponentSize.current
+    val screenWidth = LocalConfiguration.current.screenWidthDp
+    return remember(title, actionSlots, screenWidth, style, density, iconSlot) {
+        val slot = screenWidth.dp - iconSlot * (actionSlots + 1) - TOP_BAR_TITLE_INSET
+        measurer.measure(
+            AnnotatedString(title),
+            style = style,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            constraints = Constraints(maxWidth = with(density) { slot.roundToPx() }.coerceAtLeast(0)),
+        ).hasVisualOverflow
+    }
+}
+
+/** The bar's own start padding plus the gap it keeps between the title and the first action. */
+private val TOP_BAR_TITLE_INSET = 12.dp
+
+/**
+ * Full-screen detail for one place: its name and category, its stats, and its visits.
+ *
+ * **No map.** One framed on the capture circle answers neither question worth asking here — at this
+ * size it is a texture swatch rather than a locator, it cannot say where a place *is* without
+ * zooming out past the circle it was drawn for, and its pin repeats the category glyph sitting a
+ * finger's width above it. Both questions have better answers already: [PlaceEditScreen], which
+ * [onAdjustArea] opens as a layer above this one, is a full-height map of the area and what
+ * competes for it, and the maps-app action hands the pin to something built to say where. The
+ * visits take the space instead, which is what this screen is actually for.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -511,50 +563,106 @@ internal fun PlaceDetailScreen(
     val place = summary.place
     var showNameDialog by remember { mutableStateOf(false) }
     val suggester by viewModel.categorySuggester.collectAsStateWithLifecycle()
+    val zone = ZoneId.systemDefault()
+    val nowMs = remember { System.currentTimeMillis() }
+    // Stays arrive newest first, so groupBy preserves month order and in-month order.
+    val visitGroups = remember(summary.stays) {
+        summary.stays.groupBy { YearMonth.from(it.start.toLocalDate(zone)) }
+    }
+    val title = place?.label ?: "Unnamed place"
+    // A bar that expands is only worth having when there is something to expand *to*. Most names fit
+    // the one line a closed bar gives them, and for those the pull-down reveals the same words in
+    // bigger type — an affordance that costs a gesture to learn and returns nothing. So the question
+    // is asked ahead of drawing: measured rather than read back off the rendered title, because the
+    // rendered one is two lines while expanded, and deciding on that would flip the answer every
+    // time the bar moved.
+    // One source for both what the bar draws and what the measurement subtracts — counted apart,
+    // a third action would leave the title silently measured against a slot it no longer has.
+    val hasAreaAction = place != null
+    val titleTruncated = titleNeedsMoreThanOneLine(title, actionSlots = if (hasAreaAction) 2 else 1)
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    // `collapsedFraction` moves with every scroll delta and every fling frame, while the only thing
+    // read off it flips once. Derived, so the title recomposes on the crossing rather than the frame.
+    val collapsed by remember(scrollBehavior) {
+        derivedStateOf { scrollBehavior.state.collapsedFraction > 0.5f }
+    }
+    // Opens closed up. A place is arrived at from a row the user just tapped, so the name is a
+    // confirmation rather than a question, and the visits are what the screen was opened for — an
+    // expanded title would spend the top of it restating what was already read. The limit is only
+    // known once the bar has measured, hence the effect rather than an initial state.
+    LaunchedEffect(scrollBehavior) {
+        // Waited for rather than read as a key: the limit is written during the bar's layout, and a
+        // key would put that read in this function's restart scope — so settling it would recompose
+        // the whole screen and rebuild the visit list's intervals.
+        snapshotFlow { scrollBehavior.state.heightOffsetLimit }
+            .first { it != 0f }
+            .let { scrollBehavior.state.heightOffset = it }
+    }
     Scaffold(
+        modifier = if (titleTruncated) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier,
         topBar = {
-            TopAppBar(
-                colors = canvasTopBarColors(),
-                // The category used to trail the name here. It sits in the card below instead, where
-                // it is editable — a place spends most of its life untagged, so what the screen owes
-                // it is somewhere to *become* tagged, not a second place to read the tag it lacks.
-                title = { Text(place?.label ?: "Unnamed place") },
-                navigationIcon = { BackNavIcon(onBack) },
-                actions = {
-                    // Handing the pin to a maps app is offered for unnamed clusters too — the
-                    // point is there to look up whether or not it has a name.
-                    IconButton(
-                        onClick = { context.openInMaps(summary.anchor.lat, summary.anchor.lon, place?.label) },
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.OpenInNew,
-                            contentDescription = "Open in maps app",
-                        )
+            // A place name runs long, and in a one-line bar it either wraps into the icons or gets
+            // cut where the identifying words are. Expanded it gets its own rows at the screen's
+            // full width; collapsed it is one truncated line, and the page under it has scrolled far
+            // enough that the name is no longer the question. Tapping it renames — the name is the
+            // thing being edited, so it carries the tap rather than a pencil beside two other glyphs.
+            val barTitle: @Composable () -> Unit = {
+                Text(
+                    title,
+                    // Two lines while the bar is open, one once it has closed up.
+                    maxLines = if (collapsed) 1 else 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clickable { showNameDialog = true },
+                )
+            }
+            val barActions: @Composable RowScope.() -> Unit = {
+                // Handing the pin to a maps app is offered for unnamed clusters too — the
+                // point is there to look up whether or not it has a name.
+                IconButton(
+                    onClick = { context.openInMaps(summary.anchor.lat, summary.anchor.lon, place?.label) },
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = "Open in maps app",
+                    )
+                }
+                // Only a named place has an area to tune. Renaming is not here: it is the name
+                // itself, below — a pencil beside this one was two similar-weight glyphs to tell
+                // apart, and the thing it edits is on screen and can carry the tap.
+                if (place != null) {
+                    IconButton(onClick = onAdjustArea) {
+                        Icon(Icons.Filled.Adjust, contentDescription = "Adjust capture area")
                     }
-                    // The rest are a named place's: naming itself has the header CTA.
-                    if (place != null) {
-                        IconButton(onClick = { showNameDialog = true }) {
-                            Icon(Icons.Filled.Edit, contentDescription = "Edit place")
-                        }
-                        IconButton(onClick = onAdjustArea) {
-                            Icon(Icons.Filled.Tune, contentDescription = "Adjust area")
-                        }
-                    }
-                },
-            )
+                }
+            }
+            if (titleTruncated) {
+                MediumTopAppBar(
+                    colors = canvasTopBarColors(),
+                    scrollBehavior = scrollBehavior,
+                    title = barTitle,
+                    navigationIcon = { BackNavIcon(onBack) },
+                    actions = barActions,
+                )
+            } else {
+                TopAppBar(
+                    colors = canvasTopBarColors(),
+                    title = barTitle,
+                    navigationIcon = { BackNavIcon(onBack) },
+                    actions = barActions,
+                )
+            }
         },
     ) { inner ->
         Column(
-            Modifier
-                .fillMaxSize()
-                .padding(inner)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxSize().padding(inner).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // The screen reads identity, then place, then history: what this is and the one control
-            // that sets it, the map that says where, and only then the counts — which are a summary
-            // of the visit list under them, and sit against it rather than three screens away.
+            // What this is for and what it adds up to, held above the visits rather than read once
+            // and scrolled past — the counts summarise the list moving under them, and the chip is
+            // the screen's one control. Above the list rather than a sticky header inside it: at
+            // index 0 it would never unstick, so the stickiness was machinery for a header that is
+            // simply fixed, and it needed an opaque background only because a sticky header is
+            // drawn over rows that here never pass beneath it.
             if (place != null) {
                 PlaceCategorySection(
                     place = place,
@@ -568,27 +676,19 @@ internal fun PlaceDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Name this place") }
             }
-            Card(Modifier.height(220.dp).fillMaxWidth()) {
-                Box(Modifier.fillMaxSize().clipToBounds()) {
-                    MapLibrePlaceMap(
-                        center = PlaceMarker(summary.anchor, place),
-                        radiusM = summary.radiusM,
-                        // The map here leads with the place alone: no circle, no endpoint dots,
-                        // no neighbors. Everything they are for belongs to PlaceEditScreen — and
-                        // the scatter is withheld rather than merely hidden, because the map
-                        // compares it to decide whether to rebuild its marker source, and a fresh
-                        // list each derivation would re-upload it all to redraw one pin.
-                        endpoints = emptyList(),
-                        showInternals = false,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
             Card(Modifier.fillMaxWidth()) { PlaceStatsHeader(summary) }
             if (summary.stays.isEmpty()) {
                 EmptyState("No visits yet", Modifier.weight(1f).fillMaxWidth())
             } else {
-                PlaceVisitsList(summary.stays, onOpenVisit, Modifier.weight(1f).fillMaxWidth())
+                // The scroller the collapsing title reads. Lazy because a long-lived place
+                // accumulates visits by the hundred.
+                LazyColumn(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp),
+                ) {
+                    placeVisits(visitGroups, zone, nowMs, onOpenVisit)
+                }
             }
         }
     }
@@ -732,7 +832,10 @@ internal fun PlaceEditScreen(
                 colors = canvasTopBarColors(),
                 title = {
                     Column {
-                        Text(place.label)
+                        // Bounded here rather than moved into the content as on the detail screen:
+                        // this screen's content is a full-height map with nowhere to put a heading,
+                        // and you arrive already knowing which place you opened.
+                        Text(place.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         // What the circle holds *now*, not what the stored radius holds: the count
                         // is the same answer the dots below are showing, so the two can't disagree
                         // as the slider moves.
@@ -823,6 +926,13 @@ internal fun PlaceEditScreen(
  *
  * [icon] is optional because one chip has no category to stand for: "More" would only be able to
  * show a glyph *about* opening a picker, which the caret already says and the word says twice.
+ *
+ * [selected] switches it to a filled `InputChip`. The filled/outlined split is what carries the
+ * meaning — an answer already given should not look like one more thing on offer, and a caret alone
+ * said only *this opens something*, which is an affordance rather than a statement of what the chip
+ * holds. The component pair follows Material's rule that a chip is chosen by who authored its
+ * content, the product's guess against the person's own answer; the two are never on screen
+ * together, so the differing chip metrics cost nothing.
  */
 @Composable
 private fun CategoryChip(
@@ -830,31 +940,44 @@ private fun CategoryChip(
     icon: ImageVector? = null,
     tint: Color = Color.Unspecified,
     showsMore: Boolean = false,
+    selected: Boolean = false,
     onClick: () -> Unit,
 ) {
-    SuggestionChip(
-        onClick = onClick,
-        label = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(label, style = MaterialTheme.typography.labelLarge)
-                if (showsMore) {
-                    Icon(
-                        Icons.Filled.ArrowDropDown,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+    val content: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.labelLarge)
+            if (showsMore) {
+                Icon(
+                    Icons.Filled.ArrowDropDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-        },
-        icon = if (icon != null) {
-            { Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = tint) }
-        } else {
-            null
-        },
-        shape = CircleShape,
-        modifier = Modifier.height(CATEGORY_CHIP_HEIGHT),
-    )
+        }
+    }
+    val leading: @Composable (() -> Unit)? = icon?.let {
+        { Icon(it, contentDescription = null, modifier = Modifier.size(16.dp), tint = tint) }
+    }
+    val height = Modifier.height(CATEGORY_CHIP_HEIGHT)
+    if (selected) {
+        InputChip(
+            selected = true,
+            onClick = onClick,
+            label = content,
+            leadingIcon = leading,
+            shape = CircleShape,
+            modifier = height,
+        )
+    } else {
+        SuggestionChip(
+            onClick = onClick,
+            label = content,
+            icon = leading,
+            shape = CircleShape,
+            modifier = height,
+        )
+    }
 }
 
 /** Shorter than the stock 32dp chip; the touch target stays 48dp, which the chip's halo supplies. */
@@ -868,11 +991,11 @@ private val CATEGORY_CHIP_HEIGHT = 30.dp
 private data class PickedCategory(val value: PlaceCategory?)
 
 /**
- * What a place is for, as **one chip-high line** above the map: tagged, the category it carries;
+ * What a place is for, as **one chip-high line**: tagged, the category it carries;
  * untagged, the categories its *name* suggests ([PlaceCategorySuggester]) plus a chip onto the full
  * picker. Deliberately not a card and not a full-width row — a place spends most of its life with a
  * one-word answer here, and a card's surface and padding cost three times the line they wrap, on a
- * screen whose subject is the map and the visits below it.
+ * screen whose subject is the visits below it.
  *
  * A suggestion is a shortcut past the picker, never a replacement for it: the picker chip is always
  * present, the suggester offers at most three and often none, and nothing is written until something
@@ -927,6 +1050,10 @@ private fun PlaceCategorySection(
             icon = if (suggestions.isEmpty()) category.discIcon else null,
             tint = placeDiscTint(category),
             showsMore = true,
+            // Filled once a category is set, outlined until then. Material picks a chip by who
+            // authored it: a suggestion is the model's guess, the category is the user's answer, and
+            // an answer already given should not look like one more thing being offered.
+            selected = category != null,
         ) { choosingCategory = true }
     }
     if (choosingCategory) {
@@ -952,8 +1079,8 @@ private fun PlaceCategorySection(
  *
  * A **sheet** rather than a dialog: seventeen rows carrying glyphs and group headings are what a
  * modal bottom sheet is for, where a dialog would have to scroll inside its own bounded text slot.
- * It also leaves the map and the visit list showing behind it — deciding what a place *is* is a
- * question the screen underneath helps answer. No Cancel button: dismissing a sheet is the drag or
+ * It also leaves the visit list showing behind it — deciding what a place *is* is a question the
+ * screen underneath helps answer. No Cancel button: dismissing a sheet is the drag or
  * the scrim, and a picker writes on the row that is tapped rather than on a confirmation.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1022,45 +1149,43 @@ private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {
     )
 }
 
-/** The place's visit history, newest first, grouped under month headers. */
-@Composable
-private fun PlaceVisitsList(
-    stays: List<StayDeriver.Stay>,
+/**
+ * The place's visit history, newest first, grouped under month headers — emitted *into* the screen's
+ * list rather than owning one. The whole page is one scroller, which is what lets the title collapse
+ * against it; a list of its own would scroll under a bar that never moved.
+ */
+private fun LazyListScope.placeVisits(
+    groups: Map<YearMonth, List<StayDeriver.Stay>>,
+    zone: ZoneId,
+    nowMs: Long,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
-    val nowMs = remember { System.currentTimeMillis() }
-    // Stays arrive newest first, so groupBy preserves month order and in-month order.
-    val groups = remember(stays) {
-        stays.groupBy { YearMonth.from(it.start.toLocalDate(zone)) }
-    }
-    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        groups.forEach { (month, visits) ->
-            item(key = "month:$month") {
-                Text(
-                    monthLabel(month, today),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 6.dp),
-                )
-            }
-            itemsIndexed(visits, key = { _, s -> "visit:${s.afterTrackId}:${s.start}" }) { index, stay ->
-                // Tap → the Timeline, scrolled to this stay in its day's context.
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = groupedRowShape(index, visits.size),
-                    onClick = { onOpenVisit(stay) },
-                ) {
-                    VisitRowContent(stay, zone, nowMs)
-                }
+    groups.forEach { (month, visits) ->
+        item(key = "month:$month") {
+            Text(
+                monthLabel(month, today),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 6.dp),
+            )
+        }
+        itemsIndexed(visits, key = { _, s -> "visit:${s.afterTrackId}:${s.start}" }) { index, stay ->
+            // Tap → the Timeline, scrolled to this stay in its day's context.
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = groupedRowShape(index, visits.size),
+                onClick = { onOpenVisit(stay) },
+            ) {
+                VisitRowContent(stay, zone, nowMs)
             }
         }
-        // The history ends where it began — a quiet marker instead of a stat-card factoid. Withheld
-        // on a single visit, where the header's "Last visit" already names that day and the one row
-        // above spells it out: a marker saying the history started where it plainly starts is noise.
-        stays.takeIf { it.size > 1 }?.lastOrNull()?.let { first ->
+    }
+    // The history ends where it began — a quiet marker instead of a stat-card factoid. Withheld
+    // on a single visit, where the header's "Last visit" already names that day and the one row
+    // above spells it out: a marker saying the history started where it plainly starts is noise.
+    groups.values.takeIf { months -> months.sumOf { it.size } > 1 }
+        ?.lastOrNull()?.lastOrNull()?.let { first ->
             item(key = "first-visit") {
                 Text(
                     "First visit ${relativeDay(first.start)}",
@@ -1071,7 +1196,6 @@ private fun PlaceVisitsList(
                 )
             }
         }
-    }
 }
 
 @Composable

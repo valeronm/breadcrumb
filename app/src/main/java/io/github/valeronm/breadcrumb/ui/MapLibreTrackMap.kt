@@ -781,12 +781,11 @@ private fun markerIcon(
 ): String = if (marker.label != null) placePinImage(marker.category, withGlyph, muted) else unnamed
 
 /**
- * Renders one place on the basemap. With [showInternals] the cluster's capture circle (a meter-true
- * polygon around [center]) is drawn with every captured track endpoint as small dots plus
- * [neighbors] — gray neighbor-endpoint dots and labeled named pins — so the radius can be judged
- * against what a wider circle would swallow; without it only the pin shows. Toggling restyles in
- * place, camera untouched; the camera fits the circle once on open, and the data is a snapshot —
- * an input change is a full refresh.
+ * Renders one place on the basemap: the cluster's capture circle (a meter-true polygon around
+ * [center]) with every captured track endpoint as small dots, plus [neighbors] — gray
+ * neighbor-endpoint dots and labeled named pins — so the radius can be judged against what a wider
+ * circle would swallow. The camera fits the circle once on open, and the data is a snapshot: an
+ * input change is a full refresh.
  */
 @Composable
 internal fun MapLibrePlaceMap(
@@ -795,7 +794,6 @@ internal fun MapLibrePlaceMap(
     endpoints: List<StayDeriver.Endpoint>,
     modifier: Modifier = Modifier,
     neighbors: List<PlaceMarker> = emptyList(),
-    showInternals: Boolean = true,
     // When set, these dots replace [endpoints] and the plain neighbor dots, and the radius decides
     // each one's icon in a layer expression — so dragging costs one property, not a re-upload.
     capture: List<CaptureDot>? = null,
@@ -808,7 +806,7 @@ internal fun MapLibrePlaceMap(
         PlaceMapContent(
             center = center,
             radiusM = radiusM,
-            markers = PlaceMarkers(endpoints, neighbors, showInternals, capture),
+            markers = PlaceMarkers(endpoints, neighbors, capture),
             rivalAreas = rivalAreas,
         )
     }
@@ -816,11 +814,10 @@ internal fun MapLibrePlaceMap(
         modifier = modifier,
         onStyleLoaded = { ctx, map, style ->
             applied.circle = center.location to radiusM
-            applied.markers = Triple(endpoints, neighbors, showInternals)
+            applied.markers = endpoints to neighbors
             applied.center = center
             applied.capture = capture
             applied.rivalAreas = rivalAreas
-            applied.internals = showInternals
             addPlaceLayers(ctx, style, placeContent())
             framePlace(map, center.location, radiusM)
         },
@@ -833,11 +830,11 @@ internal fun MapLibrePlaceMap(
                 // The dots do not move; which side of the radius they fall on does.
                 style.getLayer(PLACE_MARKER_LAYER)?.setProperties(markerIconProperty(radiusM))
             }
-            if (applied.markers != Triple(endpoints, neighbors, showInternals) ||
+            if (applied.markers != endpoints to neighbors ||
                 applied.capture !== capture ||
                 applied.center != center
             ) {
-                applied.markers = Triple(endpoints, neighbors, showInternals)
+                applied.markers = endpoints to neighbors
                 applied.capture = capture
                 applied.center = center
                 style.getSourceAs<GeoJsonSource>(PLACE_MARKER_SOURCE)
@@ -848,22 +845,14 @@ internal fun MapLibrePlaceMap(
                 style.getSourceAs<GeoJsonSource>(PLACE_RIVAL_SOURCE)
                     ?.setGeoJson(rivalAreaCollection(rivalAreas))
             }
-            if (applied.internals != showInternals) {
-                applied.internals = showInternals
-                val visibility = PropertyFactory.visibility(
-                    if (showInternals) Property.VISIBLE else Property.NONE,
-                )
-                for (id in PLACE_CIRCLE_LAYERS) style.getLayer(id)?.setProperties(visibility)
-            }
         },
     )
 }
 
-/** What the marker layer draws — four inputs that always travel together. */
+/** What the marker layer draws — three inputs that always travel together. */
 private class PlaceMarkers(
     val endpoints: List<StayDeriver.Endpoint>,
     val neighbors: List<PlaceMarker>,
-    val showInternals: Boolean,
     val capture: List<CaptureDot>?,
 )
 
@@ -878,7 +867,7 @@ private class PlaceMapContent(
 /** Last-applied inputs of the place map — value comparisons, the inputs are rebuilt lists. */
 private class AppliedPlaceInputs {
     var circle: Pair<StayDeriver.Endpoint, Double>? = null
-    var markers: Triple<List<StayDeriver.Endpoint>, List<PlaceMarker>, Boolean>? = null
+    var markers: Pair<List<StayDeriver.Endpoint>, List<PlaceMarker>>? = null
 
     /** Naming or tagging a place while its map is open redraws its marker — the source names an
      *  image per category, so both are a feature rebuild rather than a restyle. Its position is
@@ -889,13 +878,7 @@ private class AppliedPlaceInputs {
     /** Identity, not equality: the scan hands back a new list only when the candidates change. */
     var capture: List<CaptureDot>? = null
     var rivalAreas: List<PlaceClusterer.Seed>? = null
-    var internals: Boolean? = null
 }
-
-/** The place-circle layers, toggled together with the rest of the edit-mode internals. */
-private val PLACE_CIRCLE_LAYERS = listOf(
-    PLACE_RIVAL_FILL, PLACE_RIVAL_LINE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE,
-)
 
 /** Faint enough to read as context rather than as a second thing being edited. */
 private const val RIVAL_AREA_OPACITY = 0.35f
@@ -938,19 +921,17 @@ private const val CIRCLE_FILL = 0x2E5B9BF0
 private const val CIRCLE_LINE = 0x995B9BF0.toInt()
 
 private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent) {
-    val visibility =
-        PropertyFactory.visibility(if (content.markers.showInternals) Property.VISIBLE else Property.NONE)
     // Rivals first, so this place's own circle reads on top of them where they overlap.
     style.addSource(GeoJsonSource(PLACE_RIVAL_SOURCE, rivalAreaCollection(content.rivalAreas)))
     addCaptureCircleLayers(
-        style, PLACE_RIVAL_SOURCE, PLACE_RIVAL_FILL, PLACE_RIVAL_LINE, visibility,
+        style, PLACE_RIVAL_SOURCE, PLACE_RIVAL_FILL, PLACE_RIVAL_LINE,
         PropertyFactory.fillOpacity(RIVAL_AREA_OPACITY),
         PropertyFactory.lineOpacity(RIVAL_AREA_OPACITY),
     )
     style.addSource(
         GeoJsonSource(PLACE_CIRCLE_SOURCE, circleFeature(content.center.location, content.radiusM)),
     )
-    addCaptureCircleLayers(style, PLACE_CIRCLE_SOURCE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE, visibility)
+    addCaptureCircleLayers(style, PLACE_CIRCLE_SOURCE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE)
     style.addImage(IMG_ENDPOINT, shadowedBitmap(ctx, R.drawable.ic_marker_endpoint, MarkerShadow.EVIDENCE))
     style.addImage(IMG_NEIGHBOR, shadowedBitmap(ctx, R.drawable.ic_marker_neighbor, MarkerShadow.EVIDENCE))
     // This map holds one place at the zoom its own radius frames, so its pins are never the
@@ -970,34 +951,32 @@ private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent)
 
 /**
  * Neighbor context first (visually underneath), then the place's own endpoint dots, then the
- * pin marker last so it draws on top. Without [showInternals] only the pin is emitted.
+ * pin marker last so it draws on top.
  */
 private fun placeMarkerCollection(content: PlaceMapContent): FeatureCollection {
     val markers = content.markers
     val capture = markers.capture
     val features = ArrayList<Feature>(markers.neighbors.size + markers.endpoints.size + 1)
-    if (markers.showInternals) {
-        // Named neighbors are pins in both modes; their plain dots are only drawn when the
-        // capture form isn't, because there they are already among the candidates.
-        markers.neighbors.forEach { n ->
-            if (capture != null && n.label == null) return@forEach
-            features.add(neighborFeature(n))
+    // Named neighbors are pins in both modes; their plain dots are only drawn when the
+    // capture form isn't, because there they are already among the candidates.
+    markers.neighbors.forEach { n ->
+        if (capture != null && n.label == null) return@forEach
+        features.add(neighborFeature(n))
+    }
+    if (capture != null) {
+        capture.forEach { dot ->
+            features.add(
+                // A settled dot is written as the gray icon; one still in play carries the
+                // distance instead and lets the layer decide.
+                if (dot.distanceM == null) {
+                    endpointFeature(dot.location, IMG_NEIGHBOR)
+                } else {
+                    endpointFeature(dot.location, IMG_NEIGHBOR, distanceM = dot.distanceM)
+                },
+            )
         }
-        if (capture != null) {
-            capture.forEach { dot ->
-                features.add(
-                    // A settled dot is written as the gray icon; one still in play carries the
-                    // distance instead and lets the layer decide.
-                    if (dot.distanceM == null) {
-                        endpointFeature(dot.location, IMG_NEIGHBOR)
-                    } else {
-                        endpointFeature(dot.location, IMG_NEIGHBOR, distanceM = dot.distanceM)
-                    },
-                )
-            }
-        } else {
-            markers.endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
-        }
+    } else {
+        markers.endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
     }
     // The centre carries no label: its name is the screen's title, not something to repeat on it.
     val center = content.center
