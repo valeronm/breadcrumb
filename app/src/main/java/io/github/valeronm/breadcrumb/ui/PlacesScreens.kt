@@ -294,6 +294,7 @@ internal fun PlacesTab(
                                 brief = !summary.isNamed &&
                                     summary.stays.singleOrNull()
                                         ?.let { (it.afterTrackId to it.start) in mergeableStays } == true,
+                                category = summary.place?.placeCategory,
                             )
                         }
                     }
@@ -580,6 +581,8 @@ internal fun PlaceDetailScreen(
                     MapLibrePlaceMap(
                         center = summary.anchor,
                         radiusM = summary.radiusM,
+                        category = place?.placeCategory,
+                        centerAsPin = place != null,
                         // The map here leads with the place alone: no circle, no endpoint dots,
                         // no neighbors. Everything they are for belongs to PlaceEditScreen — and
                         // the scatter is withheld rather than merely hidden, because the map
@@ -826,6 +829,7 @@ internal fun PlaceEditScreen(
                         center = pin,
                         radiusM = radiusM.toDouble(),
                         endpoints = summary.endpoints,
+                        category = summary.place?.placeCategory,
                         neighbors = neighbors,
                         capture = captureDots,
                         rivalAreas = rivals,

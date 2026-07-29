@@ -7,7 +7,7 @@
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M12,1 a11,11 0 1,0 0,22 a11,11 0 1,0 0,-22 z" />
-    <!-- brief-stop dot (deep orange, distinct from the amber place pin) -->
+    <!-- brief-stop dot: deep orange, apart from the plain endpoint dot it stands in for -->
     <path
         android:fillColor="#FF7043"
         android:pathData="M12,4 a8,8 0 1,0 0,16 a8,8 0 1,0 0,-16 z" />

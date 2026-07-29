@@ -2,24 +2,26 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import android.content.res.Configuration
-import android.graphics.Bitmap
-import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.RectF
 import android.util.Log
-import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.FloatState
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.graphics.createBitmap
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -32,6 +34,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import org.maplibre.android.MapLibre
@@ -213,26 +216,53 @@ private fun MapLibreStyledMap(
     // style is still null, so their update is skipped. Route the callback through the host so the
     // load applies the *latest* composition's data, not what the first composition captured.
     host.onStyleLoaded = onStyleLoaded
-    AndroidView(
-        modifier = modifier,
-        factory = { mapView },
-        update = { view ->
-            if (!host.inited) {
-                host.inited = true
-                view.getMapAsync { map ->
-                    host.map = map
-                    onMapReady(map)
-                    map.setStyle(Style.Builder().fromJson(loadProtomapsStyle(view.context))) { style ->
-                        host.onStyleLoaded(view.context, map, style)
+    val zoom = remember { mutableFloatStateOf(0f) }
+    Box(modifier) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { mapView },
+            update = { view ->
+                if (!host.inited) {
+                    host.inited = true
+                    view.getMapAsync { map ->
+                        host.map = map
+                        val readZoom = { zoom.floatValue = map.cameraPosition.zoom.toFloat() }
+                        if (BuildConfig.DEV_TOOLS) map.addOnCameraMoveListener(readZoom)
+                        onMapReady(map)
+                        map.setStyle(Style.Builder().fromJson(loadProtomapsStyle(view.context))) { style ->
+                            host.onStyleLoaded(view.context, map, style)
+                            // The opening frame is a moveCamera, which lands before this listener
+                            // exists to hear it.
+                            if (BuildConfig.DEV_TOOLS) readZoom()
+                        }
                     }
+                } else {
+                    val map = host.map
+                    val style = map?.style ?: return@AndroidView
+                    onUpdate(map, style)
                 }
-            } else {
-                val map = host.map
-                val style = map?.style ?: return@AndroidView
-                onUpdate(map, style)
-            }
-        },
-    )
+            },
+        )
+        if (BuildConfig.DEV_TOOLS) {
+            ZoomReadout(zoom, Modifier.align(Alignment.BottomEnd).padding(8.dp))
+        }
+    }
+}
+
+/**
+ * The live camera zoom, dev builds only — every threshold on these maps (marker size ramp, when a
+ * pin earns its glyph) is a zoom number, and they can't be judged against a map that won't say
+ * which zoom it is at.
+ *
+ * It takes the state rather than its value so the read happens *here*: read a level up and every
+ * camera frame would invalidate the map host, whose `update` lambda then re-runs each caller's
+ * whole diff mid-pinch — in the `perf` build, which exists to measure exactly that.
+ */
+@Composable
+private fun ZoomReadout(zoom: FloatState, modifier: Modifier = Modifier) {
+    LegendSurface(modifier) {
+        Text("z %.1f".format(zoom.floatValue), style = MaterialTheme.typography.labelSmall)
+    }
 }
 
 /**
@@ -485,12 +515,12 @@ private fun addMarkers(
     noisyPoints: List<TrackPoint>,
     directionalEnd: Boolean,
 ) {
-    style.addImage(IMG_START, drawableBitmap(ctx, R.drawable.ic_marker_start))
-    style.addImage(IMG_END, drawableBitmap(ctx, R.drawable.ic_marker_end))
-    style.addImage(IMG_POINTER, drawableBitmap(ctx, R.drawable.ic_marker_pointer))
-    style.addImage(IMG_NOISY, drawableBitmap(ctx, R.drawable.ic_marker_noisy))
-    style.addImage(IMG_NOISY_JUMP, drawableBitmap(ctx, R.drawable.ic_marker_noisy_jump))
-    style.addImage(IMG_NOISY_GNSS, drawableBitmap(ctx, R.drawable.ic_marker_noisy_gnss))
+    style.addImage(IMG_START, shadowedBitmap(ctx, R.drawable.ic_marker_start, MarkerShadow.SUBJECT_TURNING))
+    style.addImage(IMG_END, shadowedBitmap(ctx, R.drawable.ic_marker_end, MarkerShadow.SUBJECT_TURNING))
+    style.addImage(IMG_POINTER, shadowedBitmap(ctx, R.drawable.ic_marker_pointer, MarkerShadow.SUBJECT_TURNING))
+    style.addImage(IMG_NOISY, shadowedBitmap(ctx, R.drawable.ic_marker_noisy, MarkerShadow.EVIDENCE_TURNING))
+    style.addImage(IMG_NOISY_JUMP, shadowedBitmap(ctx, R.drawable.ic_marker_noisy_jump, MarkerShadow.EVIDENCE_TURNING))
+    style.addImage(IMG_NOISY_GNSS, shadowedBitmap(ctx, R.drawable.ic_marker_noisy_gnss, MarkerShadow.EVIDENCE_TURNING))
     style.addSource(GeoJsonSource(MARKER_SOURCE, markerCollection(points, noisyPoints, directionalEnd)))
     style.addLayer(iconSymbolLayer(MARKER_LAYER, MARKER_SOURCE))
 }
@@ -555,8 +585,8 @@ private fun selectionCollection(p: TrackPoint?): FeatureCollection =
     )
 
 private fun addSelectionLayer(ctx: Context, style: Style, selected: TrackPoint?) {
-    style.addImage(IMG_SELECTED, drawableBitmap(ctx, R.drawable.ic_marker_selected))
-    style.addImage(IMG_POINTER, drawableBitmap(ctx, R.drawable.ic_marker_pointer))
+    style.addImage(IMG_SELECTED, shadowedBitmap(ctx, R.drawable.ic_marker_selected, MarkerShadow.SUBJECT_TURNING))
+    style.addImage(IMG_POINTER, shadowedBitmap(ctx, R.drawable.ic_marker_pointer, MarkerShadow.SUBJECT_TURNING))
     style.addSource(GeoJsonSource(SELECT_SOURCE, selectionCollection(selected)))
     style.addLayer(iconSymbolLayer(SELECT_LAYER, SELECT_SOURCE))
 }
@@ -648,16 +678,6 @@ private fun buildTrackPaint(colors: IntArray, seams: TrackQuality.Seams): TrackP
     )
 }
 
-private fun drawableBitmap(ctx: Context, resId: Int): Bitmap {
-    val d = AppCompatResources.getDrawable(ctx, resId)!!
-    val w = d.intrinsicWidth.coerceAtLeast(1)
-    val h = d.intrinsicHeight.coerceAtLeast(1)
-    val bmp = createBitmap(w, h)
-    d.setBounds(0, 0, w, h)
-    d.draw(Canvas(bmp))
-    return bmp
-}
-
 /** Whether the UI is in dark mode — the single switch for basemap flavor and map ink colors. */
 private fun isDarkUi(ctx: Context): Boolean =
     (ctx.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
@@ -711,6 +731,8 @@ class NeighborPlace(
     val location: StayDeriver.Endpoint,
     /** Named neighbors render as a labeled pin; null = a plain neighbor endpoint dot. */
     val label: String? = null,
+    /** The neighbor's own category — it wears its colors here, not this place's. */
+    val category: PlaceCategory? = null,
 )
 
 /**
@@ -726,7 +748,12 @@ internal fun MapLibrePlaceMap(
     center: StayDeriver.Endpoint,
     radiusM: Double,
     endpoints: List<StayDeriver.Endpoint>,
+    category: PlaceCategory?,
     modifier: Modifier = Modifier,
+    // False draws the centre as the cluster dot it is on the Places map, glyphless, rather than
+    // promoting it to a pin: an unnamed cluster is the same thing on both screens. Untagged is not
+    // unnamed — a named place with no category is still a pin, in the neutral.
+    centerAsPin: Boolean = true,
     neighbors: List<NeighborPlace> = emptyList(),
     showInternals: Boolean = true,
     // When set, these dots replace [endpoints] and the plain neighbor dots, and the radius decides
@@ -737,10 +764,13 @@ internal fun MapLibrePlaceMap(
     rivalAreas: List<PlaceClusterer.Seed> = emptyList(),
 ) {
     val applied = remember { AppliedPlaceInputs() }
+    val untaggedFill = placeDiscTint(null).toArgb()
     val placeContent = {
         PlaceMapContent(
             center = center,
             radiusM = radiusM,
+            centerCategory = category,
+            centerAsPin = centerAsPin,
             markers = PlaceMarkers(endpoints, neighbors, showInternals, capture),
             rivalAreas = rivalAreas,
         )
@@ -750,10 +780,11 @@ internal fun MapLibrePlaceMap(
         onStyleLoaded = { ctx, map, style ->
             applied.circle = center to radiusM
             applied.markers = Triple(endpoints, neighbors, showInternals)
+            applied.center = category to centerAsPin
             applied.capture = capture
             applied.rivalAreas = rivalAreas
             applied.internals = showInternals
-            addPlaceLayers(ctx, style, placeContent())
+            addPlaceLayers(ctx, style, placeContent(), untaggedFill)
             framePlace(map, center, radiusM)
         },
         onUpdate = { map, style ->
@@ -766,10 +797,12 @@ internal fun MapLibrePlaceMap(
                 style.getLayer(PLACE_MARKER_LAYER)?.setProperties(markerIconProperty(radiusM))
             }
             if (applied.markers != Triple(endpoints, neighbors, showInternals) ||
-                applied.capture !== capture
+                applied.capture !== capture ||
+                applied.center != category to centerAsPin
             ) {
                 applied.markers = Triple(endpoints, neighbors, showInternals)
                 applied.capture = capture
+                applied.center = category to centerAsPin
                 style.getSourceAs<GeoJsonSource>(PLACE_MARKER_SOURCE)
                     ?.setGeoJson(placeMarkerCollection(placeContent()))
             }
@@ -801,6 +834,8 @@ private class PlaceMarkers(
 private class PlaceMapContent(
     val center: StayDeriver.Endpoint,
     val radiusM: Double,
+    val centerCategory: PlaceCategory?,
+    val centerAsPin: Boolean,
     val markers: PlaceMarkers,
     val rivalAreas: List<PlaceClusterer.Seed>,
 )
@@ -809,6 +844,11 @@ private class PlaceMapContent(
 private class AppliedPlaceInputs {
     var circle: Pair<StayDeriver.Endpoint, Double>? = null
     var markers: Triple<List<StayDeriver.Endpoint>, List<NeighborPlace>, Boolean>? = null
+
+    /** What the centre marker draws as. Tagging a place while its map is open recolors the pin —
+     *  the marker source names an image per category, so a re-tag is a feature rebuild, not a
+     *  restyle — and naming one promotes it from a dot. */
+    var center: Pair<PlaceCategory?, Boolean>? = null
 
     /** Identity, not equality: the scan hands back a new list only when the candidates change. */
     var capture: List<CaptureDot>? = null
@@ -832,20 +872,27 @@ private const val PLACE_CIRCLE_SOURCE = "place-circle-src"
 private const val PLACE_CIRCLE_FILL = "place-circle-fill"
 private const val PLACE_CIRCLE_LINE = "place-circle-line"
 
-/** Feature property names shared by the marker features and the icon expression above. */
+/** Feature property names shared by the marker features and the icon expressions above. */
 private const val ICON_KEY = "icon"
 private const val DISTANCE_KEY = "dm"
+
+/** The image a feature takes once it is drawn big enough to carry a glyph — see [GLYPH_ZOOM]. */
+private const val GLYPH_KEY = "glyph"
+
+/** What a feature *is*, kept apart from which image draws it: a pin's image id names its category. */
+private const val KIND_KEY = "kind"
+private const val KIND_PIN = "pin"
+private const val KIND_DOT = "dot"
 
 private const val PLACE_MARKER_SOURCE = "place-marker-src"
 private const val PLACE_MARKER_LAYER = "place-marker-layer"
 private const val IMG_ENDPOINT = "marker-endpoint"
 private const val IMG_ENDPOINT_BRIEF = "marker-endpoint-brief"
 private const val IMG_NEIGHBOR = "marker-neighbor"
-private const val IMG_PLACE = "marker-place"
 private const val CIRCLE_FILL = 0x2E5B9BF0
 private const val CIRCLE_LINE = 0x995B9BF0.toInt()
 
-private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent) {
+private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent, untaggedFill: Int) {
     val visibility =
         PropertyFactory.visibility(if (content.markers.showInternals) Property.VISIBLE else Property.NONE)
     // Rivals first, so this place's own circle reads on top of them where they overlap.
@@ -857,9 +904,11 @@ private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent)
     )
     style.addSource(GeoJsonSource(PLACE_CIRCLE_SOURCE, circleFeature(content.center, content.radiusM)))
     addCaptureCircleLayers(style, PLACE_CIRCLE_SOURCE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE, visibility)
-    style.addImage(IMG_ENDPOINT, drawableBitmap(ctx, R.drawable.ic_marker_endpoint))
-    style.addImage(IMG_NEIGHBOR, drawableBitmap(ctx, R.drawable.ic_marker_neighbor))
-    style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))
+    style.addImage(IMG_ENDPOINT, shadowedBitmap(ctx, R.drawable.ic_marker_endpoint, MarkerShadow.EVIDENCE))
+    style.addImage(IMG_NEIGHBOR, shadowedBitmap(ctx, R.drawable.ic_marker_neighbor, MarkerShadow.EVIDENCE))
+    // This map holds one place at the zoom its own radius frames, so its pins are never the
+    // small form: full size, glyphed, and no disc variant to carry.
+    addPlacePinImages(ctx, style, untaggedFill, PIN_MAX_SCALE, glyphedOnly = true)
     style.addSource(
         GeoJsonSource(
             PLACE_MARKER_SOURCE,
@@ -886,7 +935,12 @@ private fun placeMarkerCollection(content: PlaceMapContent): FeatureCollection {
         // capture form isn't, because there they are already among the candidates.
         neighbors.forEach { n ->
             if (capture != null && n.label == null) return@forEach
-            features.add(endpointFeature(n.location, if (n.label != null) IMG_PLACE else IMG_NEIGHBOR, n.label))
+            val icon = if (n.label != null) {
+                placePinImage(n.category, withGlyph = true)
+            } else {
+                IMG_NEIGHBOR
+            }
+            features.add(endpointFeature(n.location, icon, n.label))
         }
         if (capture != null) {
             capture.forEach { dot ->
@@ -904,7 +958,12 @@ private fun placeMarkerCollection(content: PlaceMapContent): FeatureCollection {
             endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
         }
     }
-    features.add(endpointFeature(content.center, IMG_PLACE))
+    val centerIcon = if (content.centerAsPin) {
+        placePinImage(content.centerCategory, withGlyph = true)
+    } else {
+        IMG_ENDPOINT
+    }
+    features.add(endpointFeature(content.center, centerIcon))
     return FeatureCollection.fromFeatures(features)
 }
 
@@ -974,11 +1033,16 @@ class OverviewPlace(
     /** The place's only stay is a merge-eligible short stop (a likely split-track artifact,
      *  not a real visit) — unnamed dots render orange instead of blue. */
     val brief: Boolean = false,
+    /** What the place is for — the pin's color, and its glyph up close. Null reads as untagged,
+     *  which is a state of a *named* place; an unnamed cluster is a dot and has no category. */
+    val category: PlaceCategory? = null,
 )
 
 /**
- * Every place on one map: labeled amber pins for named places, small dots for unnamed clusters,
- * framed to fit them all once on open. Tapping a marker reports its key via [onOpen].
+ * Every place on one map: labeled pins for named places, small dots for unnamed clusters, sized
+ * down the zoom range (see [overviewIconSize]) and framed to fit them all once on open. A pin is
+ * colored by its category's group and shows the category's glyph at [GLYPH_ZOOM]. Tapping a marker
+ * reports its key via [onOpen].
  */
 @Composable
 internal fun MapLibrePlacesMap(
@@ -988,6 +1052,7 @@ internal fun MapLibrePlacesMap(
 ) {
     val applied = remember { AppliedOverviewInputs() }
     applied.onOpen = onOpen
+    val untaggedFill = placeDiscTint(null).toArgb()
     MapLibreStyledMap(
         modifier = modifier,
         onMapReady = { map ->
@@ -1002,7 +1067,7 @@ internal fun MapLibrePlacesMap(
         },
         onStyleLoaded = { ctx, map, style ->
             applied.places = places
-            addOverviewLayers(ctx, style, places)
+            addOverviewLayers(ctx, style, places, untaggedFill)
             frameTo(map, places.map { LatLng(it.location.lat, it.location.lon) }, singlePointZoom = 13.0)
         },
         onUpdate = { _, style ->
@@ -1026,29 +1091,114 @@ private class AppliedOverviewInputs {
 private const val OVERVIEW_SOURCE = "places-overview-src"
 private const val OVERVIEW_LAYER = "places-overview-layer"
 
-private fun addOverviewLayers(ctx: Context, style: Style, places: List<OverviewPlace>) {
-    style.addImage(IMG_ENDPOINT, drawableBitmap(ctx, R.drawable.ic_marker_endpoint))
-    style.addImage(IMG_ENDPOINT_BRIEF, drawableBitmap(ctx, R.drawable.ic_marker_endpoint_brief))
-    style.addImage(IMG_PLACE, drawableBitmap(ctx, R.drawable.ic_marker_place))
+/**
+ * A pin at full size, as a multiple of its base size — the one size a pin is ever *drawn* at, which
+ * every other size is a scaling down of. It is the overview ramp's top stop and the place map's only
+ * size, so the pin a place opens onto is the same pin the map it was opened from was showing.
+ *
+ * Raising it lifts the whole ramp, the stops being fractions of the bitmap; the stops below the top
+ * are set back down to hold the sizes a wide view had, so the extra is spent where a glyph is read.
+ */
+private const val PIN_MAX_SCALE = 1.55f
+
+/**
+ * The zoom from which a pin carries its category's glyph. Below it the pin is a colored disc — the
+ * color survives being scaled down where a 24-unit glyph does not. It is also the ramp's middle
+ * stop, and the stop is set high enough that the glyph arrives on a pin already near full size:
+ * a glyph appearing on a marker still too small to hold it is what the threshold exists to prevent.
+ */
+private const val GLYPH_ZOOM = 10f
+
+/**
+ * The zoom from which a pin carries its place's name. Wider than this the map answers *where* the
+ * places are and how they group, which the colored discs do on their own; a field of names over a
+ * region is a wall of text with most of it dropped to collision anyway. Above [GLYPH_ZOOM], so a
+ * pin gains its glyph first and its name second — shape, then word.
+ */
+private const val LABEL_ZOOM = 11f
+
+private fun addOverviewLayers(
+    ctx: Context,
+    style: Style,
+    places: List<OverviewPlace>,
+    untaggedFill: Int,
+) {
+    style.addImage(IMG_ENDPOINT, shadowedBitmap(ctx, R.drawable.ic_marker_endpoint, MarkerShadow.EVIDENCE))
+    style.addImage(
+        IMG_ENDPOINT_BRIEF,
+        shadowedBitmap(ctx, R.drawable.ic_marker_endpoint_brief, MarkerShadow.EVIDENCE),
+    )
+    addPlacePinImages(ctx, style, untaggedFill, PIN_MAX_SCALE)
     style.addSource(GeoJsonSource(OVERVIEW_SOURCE, overviewCollection(places)))
-    style.addLayer(labeledSymbolLayer(ctx, OVERVIEW_LAYER, OVERVIEW_SOURCE))
+    style.addLayer(
+        labeledSymbolLayer(ctx, OVERVIEW_LAYER, OVERVIEW_SOURCE).withProperties(
+            // Every feature names both of its variants; zoom picks which one is drawn. A dot names
+            // its own icon twice — it has no glyph to gain, and a missing image draws nothing.
+            PropertyFactory.iconImage(
+                Expression.step(
+                    Expression.zoom(),
+                    Expression.get(ICON_KEY),
+                    Expression.stop(GLYPH_ZOOM, Expression.get(GLYPH_KEY)),
+                ),
+            ),
+            PropertyFactory.iconSize(overviewIconSize()),
+            // Emptied rather than faded out: an invisible label still takes part in collision and
+            // would push its neighbours' names around from behind.
+            PropertyFactory.textField(
+                Expression.step(
+                    Expression.zoom(),
+                    Expression.literal(""),
+                    Expression.stop(LABEL_ZOOM, Expression.get("label")),
+                ),
+            ),
+        ),
+    )
 }
+
+/**
+ * Marker size down the overview map's zoom range: this map is framed to fit every place at once,
+ * so it opens as wide as the history is spread and pans down to a single street — one fixed size
+ * cannot serve both. The pin shrinks the harder of the two, because a wide view is asking where the
+ * places *are*, not which one is which; the dots shrink gently so they stay visible as a density
+ * without ever catching the pin up.
+ *
+ * Zoom must be the interpolation's own input — it may not sit nested inside a per-feature
+ * expression — so the ramp is over zoom with each stop choosing per feature, never the reverse.
+ */
+private fun overviewIconSize(): Expression =
+    Expression.interpolate(
+        Expression.linear(),
+        Expression.zoom(),
+        // Interpolation clamps outside its stops, so the smallest size holds all the way out to a
+        // world view without a stop of its own down there.
+        Expression.stop(8f, sizeByMarker(pin = 0.4f, dot = 0.65f)),
+        Expression.stop(GLYPH_ZOOM, sizeByMarker(pin = 0.76f, dot = 0.8f)),
+        Expression.stop(12f, sizeByMarker(pin = 1f, dot = 1f)),
+    )
+
+/**
+ * Keyed on the feature's kind rather than its icon id: a pin's id says which *category* it is, and
+ * matching sixteen of those to learn it is a pin would put the palette in the size ramp.
+ */
+private fun sizeByMarker(pin: Float, dot: Float): Expression =
+    Expression.switchCase(
+        Expression.eq(Expression.get(KIND_KEY), Expression.literal(KIND_PIN)),
+        Expression.literal(pin),
+        Expression.literal(dot),
+    )
 
 private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
     FeatureCollection.fromFeatures(
         // Unnamed dots first so named pins draw (and hit-test) on top.
         places.sortedBy { it.label != null }.map { p ->
+            val dot = if (p.brief) IMG_ENDPOINT_BRIEF else IMG_ENDPOINT
             Feature.fromGeometry(
                 Point.fromLngLat(p.location.lon, p.location.lat),
                 JsonObject().apply {
-                    addProperty(
-                        ICON_KEY,
-                        when {
-                            p.label != null -> IMG_PLACE
-                            p.brief -> IMG_ENDPOINT_BRIEF
-                            else -> IMG_ENDPOINT
-                        },
-                    )
+                    val named = p.label != null
+                    addProperty(KIND_KEY, if (named) KIND_PIN else KIND_DOT)
+                    addProperty(ICON_KEY, if (named) placePinImage(p.category, withGlyph = false) else dot)
+                    addProperty(GLYPH_KEY, if (named) placePinImage(p.category, withGlyph = true) else dot)
                     addProperty("label", p.label ?: "")
                     addProperty("key", p.key)
                 },

@@ -68,6 +68,7 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.placeCategory
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.UnitChoice
@@ -610,7 +611,7 @@ private fun PlaceEditOverlay(
                 buildList(neighborhood.candidates.size) {
                     for (other in neighborhood.nearby) {
                         for (endpoint in other.endpoints) add(NeighborPlace(endpoint))
-                        other.place?.let { add(NeighborPlace(other.anchor, it.label)) }
+                        other.place?.let { add(NeighborPlace(other.anchor, it.label, it.placeCategory)) }
                     }
                 }
             }
