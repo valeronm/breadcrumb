@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +27,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -47,6 +48,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -54,6 +56,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,7 +72,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -82,6 +87,7 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
+import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
@@ -504,34 +510,15 @@ internal fun PlaceDetailScreen(
     val context = LocalContext.current
     val place = summary.place
     var showNameDialog by remember { mutableStateOf(false) }
+    val suggester by viewModel.categorySuggester.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                title = {
-                    Column {
-                        Text(place?.label ?: "Unnamed place")
-                        // What the place is for belongs with its name, not among the stats.
-                        place?.placeCategory?.let { category ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                Icon(
-                                    category.icon,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
-                                    tint = categoryColor(category),
-                                )
-                                Text(
-                                    category.label,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                },
+                // The category used to trail the name here. It sits in the card below instead, where
+                // it is editable — a place spends most of its life untagged, so what the screen owes
+                // it is somewhere to *become* tagged, not a second place to read the tag it lacks.
+                title = { Text(place?.label ?: "Unnamed place") },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
                     // Handing the pin to a maps app is offered for unnamed clusters too — the
@@ -565,17 +552,21 @@ internal fun PlaceDetailScreen(
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Card(Modifier.fillMaxWidth()) {
-                PlaceStatsHeader(summary)
-                if (place == null) {
-                    FilledTonalButton(
-                        onClick = { showNameDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .padding(bottom = 16.dp),
-                    ) { Text("Name this place") }
-                }
+            // The screen reads identity, then place, then history: what this is and the one control
+            // that sets it, the map that says where, and only then the counts — which are a summary
+            // of the visit list under them, and sit against it rather than three screens away.
+            if (place != null) {
+                PlaceCategorySection(
+                    place = place,
+                    suggester = suggester,
+                    onPick = { viewModel.setPlaceCategory(place.id, it) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                FilledTonalButton(
+                    onClick = { showNameDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Name this place") }
             }
             Card(Modifier.height(220.dp).fillMaxWidth()) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
@@ -593,6 +584,7 @@ internal fun PlaceDetailScreen(
                     )
                 }
             }
+            Card(Modifier.fillMaxWidth()) { PlaceStatsHeader(summary) }
             if (summary.stays.isEmpty()) {
                 EmptyState("No visits yet", Modifier.weight(1f).fillMaxWidth())
             } else {
@@ -603,20 +595,18 @@ internal fun PlaceDetailScreen(
 
     if (showNameDialog) {
         var text by remember(place?.id) { mutableStateOf(place?.label ?: "") }
-        // Naming a place is when the user knows what it is, so the category is decided in the same
-        // breath — and the same dialog edits it later, so there is one screen for what a place *is*.
-        var category by remember(place?.id) { mutableStateOf(place?.placeCategory) }
-        // Both live inside this block, so Cancel discards an edited category with the typed name.
-        var choosingCategory by remember(place?.id) { mutableStateOf(false) }
         val removing = text.isBlank() && place != null
+        // Naming only. The category is chosen on the screen underneath, because the suggestion that
+        // makes choosing it one tap is read *off the name* — offered here it would have to rank
+        // against a field still being typed, and a user who saved straight from the keyboard would
+        // never see it. Naming first also matches which step is mandatory: a place must be called
+        // something, and may stay untagged forever.
         AlertDialog(
             onDismissRequest = { showNameDialog = false },
-            icon = { Icon(category.discIcon, contentDescription = null) },
-            title = { Text(if (place == null) "Name this place" else "Edit place") },
+            icon = { Icon(place?.placeCategory.discIcon, contentDescription = null) },
+            title = { Text(if (place == null) "Name this place" else "Rename place") },
             text = {
-                // The dialog bounds its text slot but doesn't scroll it (AlertDialogContent gives it
-                // `weight(1f, fill = false)`), so a tall picker would clip the buttons off instead.
-                Column(Modifier.verticalScroll(rememberScrollState())) {
+                Column {
                     OutlinedTextField(
                         value = text,
                         // `singleLine` lays the field out on one line but doesn't police what
@@ -629,8 +619,6 @@ internal fun PlaceDetailScreen(
                         // Place names are proper nouns — capitalize each word.
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
                     )
-                    Spacer(Modifier.height(12.dp))
-                    CategorySummaryRow(category) { choosingCategory = true }
                     if (place != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -647,18 +635,13 @@ internal fun PlaceDetailScreen(
                         val trimmed = text.trim()
                         when {
                             trimmed.isEmpty() && place != null -> viewModel.deletePlace(place.id)
-                            // Both writes are guarded: either one invalidates the places table, and
-                            // the derivation every screen reads runs again off it — so a dialog
-                            // dismissed with nothing changed must cost nothing.
-                            place != null -> {
+                            // Guarded: the write invalidates the places table, and the derivation
+                            // every screen reads runs again off it — so a dialog dismissed with
+                            // nothing changed must cost nothing.
+                            place != null ->
                                 if (trimmed != place.label) viewModel.renamePlace(place.id, trimmed)
-                                if (category != place.placeCategory) {
-                                    viewModel.setPlaceCategory(place.id, category)
-                                }
-                            }
-                            trimmed.isNotEmpty() -> viewModel.createPlace(
-                                summary.pin.lat, summary.pin.lon, trimmed, category,
-                            )
+                            trimmed.isNotEmpty() ->
+                                viewModel.createPlace(summary.pin.lat, summary.pin.lon, trimmed)
                         }
                         showNameDialog = false
                     },
@@ -669,19 +652,6 @@ internal fun PlaceDetailScreen(
                 TextButton(onClick = { showNameDialog = false }) { Text("Cancel") }
             },
         )
-
-        // Stacked over the naming dialog rather than replacing it, so the typed name is still there
-        // (and still on screen underneath) when the picker closes.
-        if (choosingCategory) {
-            CategoryDialog(
-                current = category,
-                onPick = {
-                    category = it
-                    choosingCategory = false
-                },
-                onDismiss = { choosingCategory = false },
-            )
-        }
     }
 }
 
@@ -844,82 +814,191 @@ internal fun PlaceEditScreen(
 }
 
 /**
- * The current category as one row in the naming dialog, opening the picker. A row rather than a
- * chip per category: in a dialog's width the chips wrap into a ragged block, where "Home" and
- * "Friends & family" are half a screen apart in size.
+ * One category as a chip, denser than the stock [SuggestionChip]. **Both states of the category line
+ * are built from this** — the tagged place's current category and the untagged place's suggestions —
+ * so the line keeps one height and one visual language whichever it is showing, and there is no
+ * selector for the suggestions to look bolted onto. The glyph carries its group's colour: the same
+ * set the timeline and Places rows use, already learned, and scanned faster than the label.
+ * [showsMore] marks a chip that opens the full picker rather than setting a category.
+ *
+ * [icon] is optional because one chip has no category to stand for: "More" would only be able to
+ * show a glyph *about* opening a picker, which the caret already says and the word says twice.
  */
 @Composable
-private fun CategorySummaryRow(category: PlaceCategory?, onClick: () -> Unit) {
-    Column {
-        Text(
-            "What is it for?",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun CategoryChip(
+    label: String,
+    icon: ImageVector? = null,
+    tint: Color = Color.Unspecified,
+    showsMore: Boolean = false,
+    onClick: () -> Unit,
+) {
+    SuggestionChip(
+        onClick = onClick,
+        label = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, style = MaterialTheme.typography.labelLarge)
+                if (showsMore) {
+                    Icon(
+                        Icons.Filled.ArrowDropDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        icon = if (icon != null) {
+            { Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = tint) }
+        } else {
+            null
+        },
+        shape = CircleShape,
+        modifier = Modifier.height(CATEGORY_CHIP_HEIGHT),
+    )
+}
+
+/** Shorter than the stock 32dp chip; the touch target stays 48dp, which the chip's halo supplies. */
+private val CATEGORY_CHIP_HEIGHT = 30.dp
+
+/**
+ * A category the user has just tapped, held until the stored row catches up. A wrapper rather than a
+ * bare [PlaceCategory]? because untagging is itself a choice: "picked Not set" and "picked nothing
+ * yet" are different states and null cannot carry both.
+ */
+private data class PickedCategory(val value: PlaceCategory?)
+
+/**
+ * What a place is for, as **one chip-high line** above the map: tagged, the category it carries;
+ * untagged, the categories its *name* suggests ([PlaceCategorySuggester]) plus a chip onto the full
+ * picker. Deliberately not a card and not a full-width row — a place spends most of its life with a
+ * one-word answer here, and a card's surface and padding cost three times the line they wrap, on a
+ * screen whose subject is the map and the visits below it.
+ *
+ * A suggestion is a shortcut past the picker, never a replacement for it: the picker chip is always
+ * present, the suggester offers at most three and often none, and nothing is written until something
+ * is tapped — which is what lets a wrong guess cost a glance. Suggestions show only while untagged,
+ * because a tagged place has an answer already and re-suggesting against it would invite tapping the
+ * model's opinion over the user's own.
+ */
+@Composable
+private fun PlaceCategorySection(
+    place: Place,
+    suggester: PlaceCategorySuggester.Model,
+    onPick: (PlaceCategory?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var choosingCategory by remember(place.id) { mutableStateOf(false) }
+    // Keyed on the stored category as well as the place: the hold releases itself the moment the row
+    // comes back carrying anything, which is what an effect comparing the two would do a frame later.
+    var picked by remember(place.id, place.placeCategory) { mutableStateOf<PickedCategory?>(null) }
+    // What was tapped outranks what the row currently reads, until the two agree. The write is
+    // asynchronous and the row comes back through the whole stay derivation, so for the length of
+    // that walk the screen would otherwise hold a place that is still untagged — and the *model*,
+    // which reloads off the places table directly, is already retrained on the tag just written.
+    // Untagged place plus a model that has memorized this exact name is a chip for the category the
+    // user has just chosen, offered beside a row still reading "Not set".
+    val pending = picked
+    val category = if (pending != null) pending.value else place.placeCategory
+    // Keyed on the label as well as the model: a rename is new evidence about what this place is,
+    // and it retrains the model that reads it.
+    val suggestions = remember(suggester, place.label, category) {
+        if (category == null) suggester.suggest(place.label) else emptyList()
+    }
+    // Scrolls rather than wraps, so the line's height never depends on how long three category
+    // labels happen to be. The picker chip is last and always present — it wears the caret, which is
+    // what marks a chip that opens something rather than setting a category outright — and it is the
+    // tagged place's chip too, since a tagged place has no suggestions to precede it.
+    Row(
+        modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        suggestions.forEach { suggestion ->
+            CategoryChip(suggestion.label, suggestion.icon, placeDiscTint(suggestion)) {
+                picked = PickedCategory(suggestion)
+                onPick(suggestion)
+            }
+        }
+        CategoryChip(
+            label = category?.label ?: if (suggestions.isEmpty()) "Set a category" else "More",
+            // Standing alone it wears the place glyph — untagged included, which `discIcon` is the
+            // one place that decides. Beside suggestions it wears none: "More" has no category to
+            // stand for, and a glyph about opening a picker says what the caret already says.
+            icon = if (suggestions.isEmpty()) category.discIcon else null,
+            tint = placeDiscTint(category),
+            showsMore = true,
+        ) { choosingCategory = true }
+    }
+    if (choosingCategory) {
+        CategorySheet(
+            current = category,
+            onPick = {
+                picked = PickedCategory(it)
+                onPick(it)
+                choosingCategory = false
+            },
+            onDismiss = { choosingCategory = false },
         )
-        Spacer(Modifier.height(4.dp))
-        CategoryRow(category, trailing = {
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }, onClick = onClick)
     }
 }
 
 /**
- * The category list, built like the track-type dialog: one full-width row each, so a long label sits
- * on its own line instead of wrapping mid-list. "Not set" leads — untagging is a choice worth seeing,
- * not a gesture (re-tapping the chosen one) left to discover. Grouped by color under headings, where
- * the coding is learned — scattering one group's color across four runs would teach nothing — and
- * unsorted: [PlaceCategory] is declared grouped, then by how often a category is chosen, so the
- * picker walks the entries once and heads each run as it starts.
+ * The full category list: one full-width row each, so a long label sits on its own line instead of
+ * wrapping mid-list. "Not set" leads — untagging is a choice worth seeing, not a gesture (re-tapping
+ * the chosen one) left to discover. Grouped by colour under headings, where the coding is learned —
+ * scattering one group's colour across four runs would teach nothing — and unsorted: [PlaceCategory]
+ * is declared grouped, then by how often a category is chosen, so this walks the entries once and
+ * heads each run as it starts.
+ *
+ * A **sheet** rather than a dialog: seventeen rows carrying glyphs and group headings are what a
+ * modal bottom sheet is for, where a dialog would have to scroll inside its own bounded text slot.
+ * It also leaves the map and the visit list showing behind it — deciding what a place *is* is a
+ * question the screen underneath helps answer. No Cancel button: dismissing a sheet is the drag or
+ * the scrim, and a picker writes on the row that is tapped rather than on a confirmation.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CategoryDialog(
+private fun CategorySheet(
     current: PlaceCategory?,
     onPick: (PlaceCategory?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = { Icon(current.discIcon, contentDescription = null) },
-        title = { Text("What is it for?") },
-        text = {
-            // This many rows outgrow a dialog, whose text slot is bounded but doesn't scroll itself.
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                // Untagged leads, above the groups: it belongs to none of them.
-                CategoryRow(null, selected = current == null) { onPick(null) }
-                // One pass, heading each time the group changes — the categories are *declared* in
-                // this order, so reading it off them can't disagree with a second list of groups.
-                var heading: PlaceCategoryGroup? = null
-                PlaceCategory.entries.forEach { option ->
-                    if (option.group != heading) {
-                        heading = option.group
-                        Text(
-                            option.group.label,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 2.dp),
-                        )
-                    }
-                    CategoryRow(option, selected = option == current) { onPick(option) }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
+            Text(
+                "What is it for?",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+            )
+            // Untagged leads, above the groups: it belongs to none of them.
+            CategoryRow(null, selected = current == null) { onPick(null) }
+            // One pass, heading each time the group changes — the categories are *declared* in
+            // this order, so reading it off them can't disagree with a second list of groups.
+            var heading: PlaceCategoryGroup? = null
+            PlaceCategory.entries.forEach { option ->
+                if (option.group != heading) {
+                    heading = option.group
+                    Text(
+                        option.group.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 2.dp),
+                    )
                 }
+                CategoryRow(option, selected = option == current) { onPick(option) }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+        }
+    }
 }
 
 /**
- * One category as a row — glyph, label, and either a trailing slot or the chosen tick. Untagged (a
+ * One category as a row — glyph, label, and the chosen tick. Untagged (a
  * null [category]) wears the plain pin, which is what its stays show on the timeline.
  */
 @Composable
 private fun CategoryRow(
     category: PlaceCategory?,
     selected: Boolean = false,
-    trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     OptionRow(
@@ -930,7 +1009,6 @@ private fun CategoryRow(
         labelColor = placeTitleColor(named = category != null),
         selected = selected,
         selectedDescription = "Current category",
-        trailing = trailing,
         onClick = onClick,
     )
 }
@@ -979,8 +1057,10 @@ private fun PlaceVisitsList(
                 }
             }
         }
-        // The history ends where it began — a quiet marker instead of a stat-card factoid.
-        stays.lastOrNull()?.let { first ->
+        // The history ends where it began — a quiet marker instead of a stat-card factoid. Withheld
+        // on a single visit, where the header's "Last visit" already names that day and the one row
+        // above spells it out: a marker saying the history started where it plainly starts is noise.
+        stays.takeIf { it.size > 1 }?.lastOrNull()?.let { first ->
             item(key = "first-visit") {
                 Text(
                     "First visit ${relativeDay(first.start)}",

@@ -815,7 +815,7 @@ internal fun placeDiscAlpha(category: PlaceCategory?) = if (category != null) 0.
 
 /**
  * A single-choice option in a dialog: glyph, label, and either the current-choice tick or a
- * [trailing] slot of the caller's. Shared by both option dialogs — the track-type and place-category
+ * Shared by both option dialogs — the track-type and place-category
  * pickers — so the corner radius, paddings and tick affordance are stated once, not copied.
  */
 @Composable
@@ -826,7 +826,6 @@ internal fun OptionRow(
     labelColor: Color = MaterialTheme.colorScheme.onSurface,
     selected: Boolean = false,
     selectedDescription: String? = null,
-    trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Row(
@@ -841,9 +840,8 @@ internal fun OptionRow(
         Spacer(Modifier.width(16.dp))
         Text(label, style = MaterialTheme.typography.bodyLarge, color = labelColor)
         Spacer(Modifier.weight(1f))
-        when {
-            trailing != null -> trailing()
-            selected -> Icon(
+        if (selected) {
+            Icon(
                 Icons.Filled.Check,
                 contentDescription = selectedDescription,
                 tint = MaterialTheme.colorScheme.primary,

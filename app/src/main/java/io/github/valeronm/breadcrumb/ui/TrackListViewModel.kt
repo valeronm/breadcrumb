@@ -17,6 +17,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -192,6 +193,16 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * What the user's own naming says about a place's category, retrained whenever the places table
+     * changes — a rename or a fresh tag is exactly the evidence this learns from, so there is
+     * nothing to invalidate by hand. Reads [placeRows] rather than [derived]: retraining owes
+     * nothing to the clustering, and waiting on it would retrain on every finished track.
+     */
+    val categorySuggester: StateFlow<PlaceCategorySuggester.Model> = placeRows
+        .map(PlaceCategorySuggester::train)
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlaceCategorySuggester.Untrained)
 
     fun renamePlace(id: Long, label: String) {
         val trimmed = label.trim()
@@ -199,12 +210,16 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { placeRepository.rename(id, trimmed) }
     }
 
-    /** Name an unnamed cluster from the Places screen — pins a place at its centroid. */
-    fun createPlace(lat: Double, lon: Double, label: String, category: PlaceCategory? = null) {
+    /**
+     * Name an unnamed cluster from the Places screen — pins a place at its centroid. Always
+     * untagged: naming and categorizing are separate steps, because what a place is called is what
+     * the category suggestion is read from.
+     */
+    fun createPlace(lat: Double, lon: Double, label: String) {
         val trimmed = label.trim()
         if (trimmed.isEmpty()) return
         viewModelScope.launch {
-            placeRepository.create(trimmed, lat, lon, System.currentTimeMillis(), category)
+            placeRepository.create(trimmed, lat, lon, System.currentTimeMillis())
         }
     }
 

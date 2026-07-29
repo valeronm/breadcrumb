@@ -158,7 +158,8 @@ not built), `EdgeStayDetector` (the recorder's overrun at a track's edges, where
 Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to the points),
 `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
 `DeafnessWarning` (decide when to tell the user about it), `MovementConfirmer` (the recording
-pipeline's second witness — see below). New behavior
+pipeline's second witness — see below), `PlaceCategorySuggester` (guess a place's category from
+what the user called it — see below). New behavior
 belongs here first, with a test, before wiring into the service or UI. The shared vocabulary lives
 here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, `PlaceCategory`, and the `DistanceFn` seam
 (production implementation `data/AndroidDistance`; the GMS `DetectedActivity` mapping is
@@ -252,6 +253,26 @@ throughout: its map draws overlapping *lines*, with no glyph to tell them apart.
 per-activity ramps are untouched and unrelated — they encode speed, not identity. Those glyphs were chosen as a *set*:
 no vehicle silhouette (a timeline row already spends those on the track's activity) and one building
 only (Home has it, so Work is a briefcase).
+
+**Naming a place and categorizing it are two steps, because the second is read off the first.**
+`PlaceCategorySuggester` learns from the places the user has already tagged — naive Bayes over word
+tokens and character 3/4-grams — and offers an untagged place's likely categories as one-tap chips on
+its detail screen, beside the row that opens the full picker. Training on *one person's* names is what
+makes a model this small work: place names are proper nouns, and a general vocabulary would have to
+know every shop brand on earth, where one user's names rhyme with each other. Names arrive through
+`PlaceSearch.fold`, so an accent is invisible here exactly as it is to search — two normalizations
+would be the app disagreeing with itself about what counts as the same place. **Silence is a supported
+answer**: a name built of unrecognized features scores every category at its prior, so the suggester
+gates on the share of features it knows at all and says nothing below the floor — which also subsumes
+the cold start, an untrained model recognizing nothing on a fresh install without a threshold of its
+own. The margin decides *how many* chips, not whether to show any: a low margin means the answer is
+probably among the top few, which is the case chips exist for. Retraining is recounting, so it rebuilds
+whenever the places table changes and there is no model to persist, version or migrate. Two things the
+UI owes it: chips show only while a place is untagged (a tagged place has an answer, and re-suggesting
+against it invites tapping the model's opinion over the user's), and a tap is held optimistically until
+the stored row agrees — the suggester reloads faster than the derivation, so an untagged place held
+against a model that has just been trained on the tag being written is a chip for the category the
+user has already chosen.
 
 **An ignored point is one that isn't part of the path — for either of two reasons.** The recorder's
 bad-fix rule (`TrackQuality`: accuracy, jump, no-GNSS) rejects fixes it doesn't trust; `EdgeStayIgnore`

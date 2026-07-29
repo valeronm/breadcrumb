@@ -29,12 +29,11 @@ class PlaceRepository(context: Context, db: AppDatabase = AppDatabase.get(contex
         lat: Double,
         lon: Double,
         now: Long,
-        category: PlaceCategory? = null,
     ): Long =
         dao.insert(
             Place(
                 label = label, lat = lat, lon = lon, createdAt = now,
-                radiusM = PlaceClusterer.DEFAULT_RADIUS_M, category = category?.code,
+                radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
             ),
         )
 
