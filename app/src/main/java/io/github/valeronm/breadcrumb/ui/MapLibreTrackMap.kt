@@ -604,6 +604,20 @@ private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
         PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
     )
 
+/**
+ * How far a place's name sits below its anchor, in ems of [PropertyFactory.textSize] — at the 12
+ * used here, ~14 dp. Measured against the *pin* rather than the text, and squeezed from both sides:
+ * a full-size pin is `PIN_BASE_DP * PIN_MAX_SCALE` ≈ 28 dp, so its lower half reaches ~14 dp below
+ * centre and less than this draws the name through it, while a couple of dp more and the name stops
+ * reading as *this pin's* and starts looking like a caption adrift under it. The usable range is
+ * about a third of an em wide and this sits at the bottom of it.
+ *
+ * Flat rather than ramped by zoom: the place map draws pins at full size, and the overview shows
+ * names only from [LABEL_ZOOM], by which point its size ramp has the pin at ~0.9 — so the most this
+ * is ever out by is a dp of extra gap at one zoom stop, never an overlap.
+ */
+private const val PLACE_LABEL_OFFSET_EM = 1.2f
+
 /** Labeled pin layer shared by the place and overview maps: a marker plus a label under it. */
 private fun labeledSymbolLayer(ctx: Context, id: String, source: String): SymbolLayer {
     val dark = isDarkUi(ctx)
@@ -616,7 +630,7 @@ private fun labeledSymbolLayer(ctx: Context, id: String, source: String): Symbol
         PropertyFactory.textHaloColor(if (dark) "#14211A" else "#F0F2EE"),
         PropertyFactory.textHaloWidth(1.2f),
         PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
-        PropertyFactory.textOffset(arrayOf(0f, 0.8f)),
+        PropertyFactory.textOffset(arrayOf(0f, PLACE_LABEL_OFFSET_EM)),
         PropertyFactory.textOptional(true),
         // Context recedes twice over: a muted pin gives up most of its chroma in the bitmap it
         // names *and* some of its ink here, which is what separates it from its neighbours' circles
