@@ -1132,11 +1132,16 @@ private const val OVERVIEW_LAYER = "places-overview-layer"
 
 /**
  * The zoom from which a pin carries its category's glyph. Below it the pin is a colored disc — the
- * color survives being scaled down where a 24-unit glyph does not. It is also the ramp's middle
- * stop, and the stop is set high enough that the glyph arrives on a pin already near full size:
- * a glyph appearing on a marker still too small to hold it is what the threshold exists to prevent.
+ * color survives being scaled down where a 24-unit glyph does not, and drawing the glyph all the
+ * way out reads as a field of smudges rather than as symbols. It is also the ramp's middle stop, so
+ * the glyph arrives on a pin already near full size: a glyph appearing on a marker still too small
+ * to hold it is what the threshold exists to prevent.
+ *
+ * **Whole numbers only.** A camera expression on a *layout* property — which `icon-image`,
+ * `text-field` and `icon-size` all are — is evaluated at integer zooms alone, so a fractional
+ * threshold silently takes effect at the integer above it.
  */
-private const val GLYPH_ZOOM = 10f
+private const val GLYPH_ZOOM = 9f
 
 /**
  * The zoom from which a pin carries its place's name. Wider than this the map answers *where* the
@@ -1188,6 +1193,9 @@ private fun addOverviewLayers(ctx: Context, style: Style, places: List<OverviewP
  *
  * Zoom must be the interpolation's own input — it may not sit nested inside a per-feature
  * expression — so the ramp is over zoom with each stop choosing per feature, never the reverse.
+ *
+ * The ramp steps rather than glides: `icon-size` is a layout property, so this is sampled at whole
+ * zooms and the sizes between the stops are the ones those samples land on.
  */
 private fun overviewIconSize(): Expression =
     Expression.interpolate(
