@@ -787,8 +787,10 @@ private fun StayCard(
     // *badge* on the disc's corner rather than as its glyph: being mergeable is a fact about the
     // stay, while the glyph answers where the user was, and neither should cost the other.
     val mergeable = item.merge != null
-    // A categorized place says what the stop was for in the icon column, where an untagged one
-    // shows the generic pin.
+    // A categorized place says what the stop was for in the icon column alone — its glyph and its
+    // group's tint — where an untagged one shows the generic pin. Deliberately not repeated as text
+    // in the subtitle: the row would then name in words what it has just drawn, and the line is
+    // shared with when and how long, which nothing else says.
     val category = place?.category
     // Accent means categorized here as it does on the Places list (placeDiscTint) — one rule, so the
     // same place can't read as accented on one screen and neutral on the other.
@@ -834,11 +836,6 @@ private fun StayCard(
             if (!startsAtMidnight && !endsAtMidnight && reportable != null) {
                 append(" · ")
                 append(formatDurationMs(reportable))
-            }
-            // What the stop was for, after how long it took. Never alongside the visit count:
-            // that one only appears on unnamed clusters, which have nowhere to carry a category.
-            if (category != null) {
-                append(" · " + category.label)
             }
             if (visits != null) {
                 append(" · " + visitCountLabel(visits))
