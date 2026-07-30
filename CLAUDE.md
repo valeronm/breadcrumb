@@ -330,6 +330,13 @@ reconstruction can't recognise mixedness at all — a recorded track may hold fi
 radius for, which is exactly what half an import looks like. This is also the answer `track_points.provider`
 carried until v12 dropped it as uninformative: true of the recorder, which had stopped using more than
 one provider, and overlooked that the import path was writing a distinct value into that same column.
+Besides that refusal it is read by `availableColorModes`, which offers a track only the colour metrics
+that can say something — **two filters, because a dead metric has two causes**: the source rules out the
+recorder's own fix-quality readings (accuracy, satellites, signal) for an import as a *kind*, whatever
+a parser is later taught to fill in, and the fixes rule out what this particular track lacks, which
+the source cannot answer for (a GPX may or may not carry elevation; a recording taken with no
+`GnssStatus` to count from is a recording still). Speed is never ruled out — it falls back to position
+over time — so the row is never empty.
 
 **Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*
 rows and a Room SQL migration can't express the logic, add a repository pass and run it from

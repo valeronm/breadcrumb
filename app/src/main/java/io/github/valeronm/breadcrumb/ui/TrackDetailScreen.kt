@@ -69,6 +69,7 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.RoutePlaces
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
@@ -147,7 +148,13 @@ internal fun TrackMapScreen(
     val activity = remember(summary) {
         summary?.let { ActivityType.ofName(it.activityType) }
     }
-    var colorMode by remember { mutableStateOf(ColorMode.SPEED) }
+    val colorModes = remember(points, summary?.source) {
+        availableColorModes(points.orEmpty(), TrackOrigin.fromCode(summary?.source))
+    }
+    var selectedMode by remember { mutableStateOf(ColorMode.SPEED) }
+    // The points arrive after the first composition, so a mode can be selected and then turn out to
+    // have nothing behind it — on a track opened from a metric the last one had.
+    val colorMode = if (selectedMode in colorModes) selectedMode else ColorMode.SPEED
     // Noisy (ignored) fixes are hidden by default; the warning toggle shows them with a legend.
     // A track with no drawable line is the exception — its noisy fixes are all there is to see, so
     // the default follows the points once they load, until the user says otherwise.
@@ -263,7 +270,7 @@ internal fun TrackMapScreen(
                     ) {
                         val blocks = if (graph != null) 3 else 2
                         Card(Modifier.fillMaxWidth(), shape = groupedRowShape(0, blocks)) {
-                            ColorModeSelector(colorMode) { colorMode = it }
+                            ColorModeSelector(colorMode, colorModes) { selectedMode = it }
                         }
                         // The map card takes the stretch.
                         Card(Modifier.weight(1f).fillMaxWidth(), shape = groupedRowShape(1, blocks)) {

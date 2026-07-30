@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.MetricSmoother
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import kotlin.math.roundToInt
 
@@ -71,12 +72,42 @@ private fun speedScaleFor(activity: ActivityType, units: UnitSystem): SpeedScale
 // --- Track line coloring by metric ------------------------------------------------------------
 
 /** Which per-point metric the track line is colored by. */
-enum class ColorMode(val label: String) {
-    SPEED("Speed"),
-    ELEVATION("Elevation"),
-    ACCURACY("Accuracy"),
-    SATELLITES("Satellites"),
-    CN0("Signal"),
+enum class ColorMode(val label: String, val recorderOnly: Boolean) {
+    SPEED("Speed", recorderOnly = false),
+    ELEVATION("Elevation", recorderOnly = false),
+
+    // What the receiver said about its own fix at the moment it took it. A file describes a path,
+    // not a measurement of one, so these belong to a recording however a parser is taught to read.
+    ACCURACY("Accuracy", recorderOnly = true),
+    SATELLITES("Satellites", recorderOnly = true),
+    CN0("Signal", recorderOnly = true),
+}
+
+/**
+ * The modes worth offering for one track — the question [rampColoring] answers with [Legend.None]
+ * once a series turns out all-null, asked before a chip is shown rather than after it is tapped.
+ *
+ * Two filters, because a dead metric has two causes. A writer that reports nothing about its own
+ * measurements ([TrackOrigin.measuresFixQuality]) rules out the [ColorMode.recorderOnly] ones as a
+ * kind, not as an observation — asked of the writer rather than tested against one origin, so a
+ * writer added later answers for itself. An unknown writer claims nothing and rules out nothing. The rest is decided by the fixes,
+ * which the source can't answer for: a GPX may or may not carry elevation, and a recording taken
+ * without a satellite count is a recording still. [ColorMode.SPEED] is never ruled out — it falls
+ * back to position over time (`TrackQuality.pointSpeedsKmh`), so a track that draws a line has it,
+ * and a track that draws none is left a chip rather than an empty row.
+ */
+internal fun availableColorModes(points: List<TrackPoint>, source: TrackOrigin?): List<ColorMode> =
+    ColorMode.entries.filter { mode ->
+        !(mode.recorderOnly && source?.measuresFixQuality == false) && mode.carriedBy(points)
+    }
+
+/** Exhaustive on purpose, like [metricSeries] it mirrors: a metric added later answers this too. */
+private fun ColorMode.carriedBy(points: List<TrackPoint>): Boolean = when (this) {
+    ColorMode.SPEED -> true
+    ColorMode.ELEVATION -> points.any { it.altitude != null }
+    ColorMode.ACCURACY -> points.any { it.accuracy != null }
+    ColorMode.SATELLITES -> points.any { it.satellitesInFix != null }
+    ColorMode.CN0 -> points.any { it.cn0 != null }
 }
 
 /** Gray for points the metric has no value for; darker on the light basemap. */
@@ -241,7 +272,11 @@ internal fun trackColoring(
 
 /** Horizontally-scrollable chips to pick how the track line is colored. */
 @Composable
-internal fun ColorModeSelector(selected: ColorMode, onSelect: (ColorMode) -> Unit) {
+internal fun ColorModeSelector(
+    selected: ColorMode,
+    modes: List<ColorMode>,
+    onSelect: (ColorMode) -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -249,7 +284,7 @@ internal fun ColorModeSelector(selected: ColorMode, onSelect: (ColorMode) -> Uni
             .padding(horizontal = 12.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        for (mode in ColorMode.entries) {
+        for (mode in modes) {
             FilterChip(
                 selected = mode == selected,
                 onClick = { onSelect(mode) },
