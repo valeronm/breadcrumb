@@ -35,7 +35,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.ZoneId
 
 /**
  * The places table, admitted only when a reading would cluster differently from the last one —
@@ -181,7 +180,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
         StayDeriver.interleave(
             summaries,
-            StayDeriver.slicePerDay(d.derivation.intervals, ZoneId.systemDefault(), d.now),
+            // The zone every reader of these bounds asks its own questions in — a slice seam is only
+            // recognisable as one against the zone it was cut in. See timelineZone().
+            StayDeriver.slicePerDay(d.derivation.intervals, timelineZone(), d.now),
         ).map { item ->
             when (item) {
                 is TimelineItem.TrackItem -> item

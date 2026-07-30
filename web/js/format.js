@@ -121,6 +121,30 @@ export function stayMeta(stay, place, nowMs) {
   ].filter(Boolean).join(" · ");
 }
 
+/**
+ * A gap row's metadata line, and which of its two sides that row may name. Both answers come off
+ * the same reading of its bounds: a midnight bound is a slice seam, so the absence runs on into the
+ * neighbouring day and this slice knows neither how long it lasted nor what happened at that end.
+ * A day the absence merely passes through therefore names no place at all — "all day" is the whole
+ * of what the history says about it. Mirrors the app's gap card.
+ * @param gap one gap interval, possibly a per-day slice of a longer one
+ */
+export function gapMeta(gap) {
+  const startsAtMidnight = isLocalMidnight(gap.start);
+  const endsAtMidnight = isLocalMidnight(gap.end);
+  let extent;
+  if (startsAtMidnight && endsAtMidnight) {
+    extent = "all day";
+  } else if (startsAtMidnight) {
+    extent = `until ${formatTime(gap.end)}`;
+  } else if (endsAtMidnight) {
+    extent = `from ${formatTime(gap.start)}`;
+  } else {
+    extent = formatDurationMs(gap.end - gap.start);
+  }
+  return { text: `missing recording · ${extent}`, namesFrom: !startsAtMidnight, namesTo: !endsAtMidnight };
+}
+
 /** A bound the day slicing put there, rather than a time anything happened at. */
 function isLocalMidnight(ms) {
   return startOfLocalDay(ms) === ms;

@@ -11,7 +11,7 @@ import {
   mapVisiblePlaces, derivationInstant,
 } from "../js/stays.js";
 import { metersBetween } from "../js/geo.js";
-import { stayMeta, formatTime, formatDurationMs, categoryLabel } from "../js/format.js";
+import { stayMeta, gapMeta, formatTime, formatDurationMs, categoryLabel } from "../js/format.js";
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -396,6 +396,22 @@ assert.equal(
   assert.equal(formatDurationMs(45 * MIN), "45 min");
   assert.equal(formatDurationMs(3 * DAY), "3 d");
   assert.equal(formatDurationMs(3 * DAY + 5 * 60 * MIN), "3 d 5 h");
+
+  // A gap slice, and the two things its bounds decide together: what it may say about the absence,
+  // and which of its two ends happened on this day at all.
+  const gap = (start, end) => ({ kind: "gap", start, end });
+  assert.deepEqual(gapMeta(gap(hm(9), hm(11))),
+    { text: "missing recording · 2 h 0 min", namesFrom: true, namesTo: true },
+    "a whole absence inside one day measures itself and names both ends");
+  assert.deepEqual(gapMeta(gap(hm(18), day + DAY)),
+    { text: `missing recording · from ${t(18)}`, namesFrom: true, namesTo: false },
+    "the day it began names the departure; the arrival hasn't happened yet");
+  assert.deepEqual(gapMeta(gap(day, hm(9))),
+    { text: `missing recording · until ${t(9)}`, namesFrom: false, namesTo: true },
+    "the day it ended names the arrival, and no duration — the absence started earlier");
+  assert.deepEqual(gapMeta(gap(day, day + DAY)),
+    { text: "missing recording · all day", namesFrom: false, namesTo: false },
+    "a day the absence merely passes through knows neither end of it");
 }
 
 // --- the distance function itself -----------------------------------------------------------------

@@ -195,12 +195,15 @@ internal fun TracksTab(
             listState.scrollToItem(hit.first - 1)
             highlightKey = hit.second.rowKey()
         } else {
-            val zone = ZoneId.systemDefault()
+            val zone = timelineZone()
             val label = dayLabel(target.start.toLocalDate(zone), LocalDate.now(zone))
             dayAnchors.firstOrNull { it.first == label }?.let { listState.scrollToItem(it.second) }
         }
         onVisitTargetShown()
     }
+    // Resolved once for the rows below, and it is the same zone the deriver sliced these intervals
+    // in — see [timelineZone].
+    val zone = timelineZone()
     // Both interval rows offer the same merge, so they share one handler rather than two copies
     // of the undo wiring.
     val onMerge = { plan: TrackMerge.Plan ->
@@ -254,13 +257,14 @@ internal fun TracksTab(
                             is TimelineItem.StayItem -> StayRow(
                                 item = item,
                                 shape = shape,
+                                zone = zone,
                                 highlighted = item.rowKey() == highlightKey,
                                 onMerge = onMerge,
                                 onClick = {
                                     item.place?.let { onOpenPlace(it.key) }
                                 },
                             )
-                            is TimelineItem.GapItem -> GapRow(item, shape, onOpenPlace, onMerge)
+                            is TimelineItem.GapItem -> GapRow(item, shape, zone, onOpenPlace, onMerge)
                         }
                     }
                 }
@@ -561,7 +565,7 @@ private fun DayTotal(icon: ImageVector, description: String?, tint: Color, text:
 }
 
 private fun groupTimelineByDay(items: List<TimelineItem>): List<Pair<String, List<TimelineItem>>> {
-    val zone = ZoneId.systemDefault()
+    val zone = timelineZone()
     val today = LocalDate.now(zone)
     // groupBy preserves encounter order, and items arrive newest-first, so days stay descending.
     // Midnight-spanning stays were already sliced per day by the deriver.
@@ -570,8 +574,19 @@ private fun groupTimelineByDay(items: List<TimelineItem>): List<Pair<String, Lis
         .map { (date, list) -> dayLabel(date, today) to list }
 }
 
-private fun isLocalMidnight(epochMs: Long): Boolean =
-    Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).toLocalTime() == java.time.LocalTime.MIDNIGHT
+/**
+ * The zone a timeline is sliced and read in. **One source, because two readings would disagree**:
+ * `slicePerDay` clamps a bound to midnight in the zone it is given, and every row that reads a bound
+ * back — the day grouping, and the wording that tells a slice seam from a real end — has to ask the
+ * same question of the same zone. Resolved per call rather than captured, so a device that changes
+ * zone mid-process moves the slicing and the reading together.
+ */
+internal fun timelineZone(): ZoneId = ZoneId.systemDefault()
+
+/** A bound the day slicing put there, rather than a time anything happened at — in [zone], which
+ *  must be the zone the slicing used ([timelineZone]). */
+private fun isLocalMidnight(epochMs: Long, zone: ZoneId): Boolean =
+    Instant.ofEpochMilli(epochMs).atZone(zone).toLocalTime() == java.time.LocalTime.MIDNIGHT
 
 internal fun TimelineItem.rowKey(): String = when (this) {
     is TimelineItem.TrackItem -> "track:${summary.id}"
@@ -737,6 +752,7 @@ private fun SweepBanner(progress: SweepStatus.Progress, modifier: Modifier = Mod
 private fun StayRow(
     item: TimelineItem.StayItem,
     shape: RoundedCornerShape,
+    zone: ZoneId,
     highlighted: Boolean,
     onMerge: (TrackMerge.Plan) -> Unit,
     onClick: () -> Unit,
@@ -746,7 +762,7 @@ private fun StayRow(
     // A short same-activity stay can be swiped to merge its two tracks — the merged track replaces
     // the stay and both originals, and Undo unmerges. Ineligible stays (no plan) aren't swipeable.
     MergeSwipeable(item.merge, shape, onMerge) {
-        StayCard(item, shape, named, highlighted, onClick)
+        StayCard(item, shape, named, highlighted, zone, onClick)
     }
 }
 
@@ -782,6 +798,7 @@ private fun StayCard(
     shape: RoundedCornerShape,
     named: Boolean,
     highlighted: Boolean,
+    zone: ZoneId,
     onClick: () -> Unit,
 ) {
     val stay = item.stay
@@ -810,8 +827,8 @@ private fun StayCard(
     val tint = placeDiscTint(category)
     val start = timeFormat.format(Date(stay.start))
     val end = stay.end
-    val startsAtMidnight = isLocalMidnight(stay.start)
-    val endsAtMidnight = end != null && isLocalMidnight(end)
+    val startsAtMidnight = isLocalMidnight(stay.start, zone)
+    val endsAtMidnight = end != null && isLocalMidnight(end, zone)
     val timePhrase = when {
         // Ongoing from midnight = all of today so far; completed midnight-to-midnight
         // slices of a multi-day stay read the same.
@@ -859,31 +876,56 @@ private fun StayCard(
 
 /**
  * Movement the recorder missed: neighboring track endpoints disagree. Deliberately subdued — most
- * such gaps are one place misclustered as two, so the card names both sides as full-width tappable
- * lines (the app's row-tap language, not inline links), each opening its place, where a re-pin or
+ * such gaps are one place misclustered as two, so the card names each side it holds as a full-width
+ * tappable line (the app's row-tap language, not inline links) opening that place, where a re-pin or
  * wider radius fixes the split. Two pins joined by a dashed connector in the icon column draw the
  * unrecorded leg as a map would. Newest-first timeline: the destination sits above (adjacent to
  * the later track), the source below.
+ *
+ * A gap spanning midnight renders once per day, and a day is only told what happened in it: the
+ * departure appears on the day it happened, the arrival on the day it happened, and a day the
+ * absence merely passes through gets neither pin — a dashed line and "all day" is the whole card,
+ * which is the honest amount the app knows about that day.
  */
 @Composable
 private fun GapRow(
     item: TimelineItem.GapItem,
     shape: RoundedCornerShape,
+    zone: ZoneId,
     onOpenPlace: (String) -> Unit,
     onMerge: (TrackMerge.Plan) -> Unit,
 ) {
     // A gap short enough to be one outing the recorder split swipes away exactly as a short stop
     // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
     // absences and aren't swipeable.
-    MergeSwipeable(item.merge, shape, onMerge) { GapCard(item, shape, onOpenPlace) }
+    MergeSwipeable(item.merge, shape, onMerge) { GapCard(item, shape, zone, onOpenPlace) }
 }
 
 @Composable
-private fun GapCard(item: TimelineItem.GapItem, shape: RoundedCornerShape, onOpenPlace: (String) -> Unit) {
+private fun GapCard(
+    item: TimelineItem.GapItem,
+    shape: RoundedCornerShape,
+    zone: ZoneId,
+    onOpenPlace: (String) -> Unit,
+) {
     val gap = item.gap
+    // A midnight bound is a slice seam, not a bound of the absence (StayRow reads its own the same
+    // way): the gap runs on into the neighbouring day, so this slice knows neither how long the
+    // absence was nor where it ended. Each side is named only on the day that side happened —
+    // otherwise every day of a three-day gap claims the arrival, two days before it happened.
+    val startsAtMidnight = isLocalMidnight(gap.start, zone)
+    val endsAtMidnight = isLocalMidnight(gap.end, zone)
+    val extent = when {
+        startsAtMidnight && endsAtMidnight -> "all day"
+        startsAtMidnight -> "until ${timeFormat.format(Date(gap.end))}"
+        endsAtMidnight -> "from ${timeFormat.format(Date(gap.start))}"
+        else -> formatDurationMs(gap.end - gap.start)
+    }
+    val arrival = if (endsAtMidnight) null else item.toPlace
+    val departure = if (startsAtMidnight) null else item.fromPlace
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
-            GapPlaceLine(item.toPlace, onOpenPlace)
+            GapPlaceLine(arrival, onOpenPlace)
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -912,12 +954,12 @@ private fun GapCard(item: TimelineItem.GapItem, shape: RoundedCornerShape, onOpe
                 }
                 Spacer(Modifier.width(16.dp))
                 Text(
-                    "missing recording · ${formatDurationMs(gap.end - gap.start)}",
+                    "missing recording · $extent",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
             }
-            GapPlaceLine(item.fromPlace, onOpenPlace)
+            GapPlaceLine(departure, onOpenPlace)
         }
     }
 }

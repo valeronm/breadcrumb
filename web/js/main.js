@@ -14,7 +14,7 @@ import {
   PLACE_RADIUS_M,
 } from "./stays.js";
 import {
-  stayMeta, formatTime, formatDay, formatDate, formatDistance, formatDurationMs, titleCase,
+  stayMeta, gapMeta, formatTime, formatDay, formatDate, formatDistance, formatDurationMs, titleCase,
 } from "./format.js";
 
 const $ = (id) => document.getElementById(id);
@@ -269,10 +269,19 @@ function placeSpan(place, fallback, className) {
   return span;
 }
 
+/** The cluster ids a gap row names, newest-first (destination, then origin) — the one reading of
+ * which sides a slice may speak for, so the row and the map it frames cannot disagree. Takes the
+ * meta a caller has already computed: building a row costs one pass over the whole history, and the
+ * per-row formatting is the dominant part of it. */
+function namedSidesOf(gap, meta = gapMeta(gap)) {
+  return [meta.namesTo ? gap.toClusterId : null, meta.namesFrom ? gap.fromClusterId : null];
+}
+
 /** Movement the recorder missed: the endpoints either side disagree. Most such gaps are really
  * one place clustered as two, so the row names both sides — newest-first, destination above the
  * dashed leg and origin below it, the way the trip ran. A side with no known endpoint renders
- * nothing; its absence is the story. */
+ * nothing; its absence is the story, and so is a side [namedSidesOf] withholds because the day this
+ * slice covers isn't the day that end happened. */
 function gapRow(gap) {
   const row = document.createElement("button");
   row.className = "row gap-row";
@@ -281,10 +290,12 @@ function gapRow(gap) {
   const side = (clusterId) => (clusterId == null
     ? null
     : placeSpan(clusterPlaces[clusterId], "unnamed place", "label"));
+  const gapText = gapMeta(gap);
   const meta = document.createElement("span");
   meta.className = "stats";
-  meta.textContent = `missing recording · ${formatDurationMs(gap.end - gap.start)}`;
-  body.append(...[side(gap.toClusterId), meta, side(gap.fromClusterId)].filter(Boolean));
+  meta.textContent = gapText.text;
+  const [to, from] = namedSidesOf(gap, gapText);
+  body.append(...[side(to), meta, side(from)].filter(Boolean));
   row.append(body);
   return row;
 }
@@ -325,8 +336,10 @@ async function selectRow(index) {
     renderLegend(geometry && map ? showTrack(map, item.track, geometry) : null);
     return;
   }
-  // A stay frames its place; a gap frames both sides, which is the picture that explains it.
-  const clusterIds = item.kind === "stay" ? [item.clusterId] : [item.toClusterId, item.fromClusterId];
+  // A stay frames its place; a gap frames the sides its row names, which is the picture that
+  // explains it. A day the absence only passes through names none, and framing places it doesn't
+  // show would answer a question the row deliberately leaves open.
+  const clusterIds = item.kind === "stay" ? [item.clusterId] : namedSidesOf(item);
   const places = clusterIds.map((id) => clusterPlaces[id]).filter(Boolean);
   if (map && places.length) focusPlaces(map, places);
   renderLegend(null);
