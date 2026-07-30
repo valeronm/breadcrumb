@@ -15,6 +15,7 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
@@ -63,7 +64,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     fun observeDiscardedSummaries(): Flow<List<DiscardedSummary>> = dao.observeDiscardedSummaries()
 
     suspend fun startTrack(activityType: ActivityType, startedAt: Long): Long =
-        dao.insertTrack(Track(activityType = activityType.name, startedAt = startedAt))
+        dao.insertTrack(
+            Track(
+                activityType = activityType.name,
+                startedAt = startedAt,
+                source = TrackOrigin.RECORDED.code,
+            ),
+        )
 
     suspend fun addPoints(points: List<TrackPoint>) = dao.insertPoints(points)
 
@@ -96,6 +103,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                         activityType = track.activityTypeName,
                         startedAt = track.startedAt,
                         endedAt = track.endedAt,
+                        source = TrackOrigin.IMPORTED.code,
                     ),
                 )
                 dao.insertPoints(
@@ -532,6 +540,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                     activityType = earlier.activityType, // == later's (the merge condition)
                     startedAt = earlier.startedAt,
                     endedAt = later.endedAt ?: later.startedAt,
+                    source = earlier.source, // likewise — TrackMerge refuses across writers
                 ),
             )
             dao.copyPointsInto(mergedId, earlierId)
@@ -603,25 +612,24 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
             // Each half keeps the original's outer bound and takes the raw fix at the cut as its
             // inner one; applyEdgeStays below pulls that in wherever it finds an overrun.
-            val secondId = dao.insertTrack(
-                Track(
-                    activityType = track.activityType,
-                    startedAt = plan.secondStartTs,
-                    endedAt = endedAt,
-                ),
+            // Built once and re-read below with its id: a second description of the same row could
+            // disagree with this one, and `track.copy` would quietly carry the first half's
+            // aggregates onto it — numbers that are not this row's and that nothing would contradict.
+            val secondRow = Track(
+                activityType = track.activityType,
+                startedAt = plan.secondStartTs,
+                endedAt = endedAt,
+                // The half is the same recording, cut: a split never introduces a writer.
+                source = track.source,
             )
+            val secondId = dao.insertTrack(secondRow)
             dao.movePointsFrom(secondId, trackId, atTs)
             dao.closeTrack(trackId, plan.firstEndTs)
             // The points are the lists already in hand: the move rewrote one column and left every
             // row id, timestamp and flag alone, so re-reading them would buy nothing (and
             // refreshStats requires the caller's walk, not a fresh read).
             val first = track.copy(endedAt = plan.firstEndTs)
-            val second = Track(
-                id = secondId,
-                activityType = track.activityType,
-                startedAt = plan.secondStartTs,
-                endedAt = endedAt,
-            )
+            val second = secondRow.copy(id = secondId)
             // Recomputed per half, not divided: each is its own journey now, and this keeps the one
             // writer of the denormalized columns in charge.
             refreshStats(trackId, applyEdgeStays(first, plan.firstEndTs, before).points)

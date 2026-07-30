@@ -115,6 +115,7 @@ object BackupExporter {
     private fun trackHeader(t: Track): String = buildString {
         append("""{"id":${t.id},"activityType":${str(t.activityType)}""")
         append(""","startedAt":${t.startedAt},"endedAt":${t.endedAt}""")
+        append(""","source":${strOrNull(t.source)}""")
         append(""","distanceMeters":${t.distanceMeters}""")
         append(""","pointCount":${t.pointCount},"ignoredCount":${t.ignoredCount}""")
         append(""","startLat":${t.startLat},"startLon":${t.startLon}""")
@@ -139,7 +140,7 @@ object BackupExporter {
         out.append(p.satellitesInFix.toString()).append(',')
         out.append(p.cn0.toString()).append(',')
         out.append(if (p.ignored) '1' else '0').append(',')
-        out.append(p.ignoreReason?.let { str(it) } ?: "null").append(',')
+        out.append(strOrNull(p.ignoreReason)).append(',')
         out.append(if (p.segmentStart) '1' else '0')
         out.append(']')
     }
@@ -153,6 +154,9 @@ object BackupExporter {
 
     private fun livenessObject(e: LivenessEvent): String =
         """{"type":${str(e.type)},"at":${e.at},"until":${e.until}}"""
+
+    /** A nullable field: the string literal, or the JSON `null` a reader defaults from. */
+    private fun strOrNull(s: String?): String = s?.let { str(it) } ?: "null"
 
     /** JSON string literal with the mandatory escapes. */
     private fun str(s: String): String = buildString(s.length + 2) {

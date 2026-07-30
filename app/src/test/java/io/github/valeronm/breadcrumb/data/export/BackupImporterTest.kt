@@ -45,7 +45,7 @@ class BackupImporterTest {
     @Test fun `round-trips an export exactly, every field of every row`() {
         val track = Track(
             id = 3, activityType = "IN_VEHICLE", startedAt = 1_000L, endedAt = 9_000L,
-            distanceMeters = 42.5, pointCount = 2, ignoredCount = 1,
+            source = "recorded", distanceMeters = 42.5, pointCount = 2, ignoredCount = 1,
             startLat = 1.25, startLon = 2.5, endLat = 3.75, endLon = -4.5,
         )
         val points = listOf(
@@ -99,6 +99,36 @@ class BackupImporterTest {
         assertEquals(-2.05, p.longitude, 0.0)
         assertEquals(1_000L, p.timestamp)
         assertNull(p.altitude) // absent field -> null, not a crash
+    }
+
+    @Test fun `a file written before tracks declared a writer has one read off its fixes`() {
+        // Adding `source` didn't bump the format version, so old files stay restorable — and a
+        // restore that left them blank would lose the answer the fixes still carry.
+        val json = """
+            {"format":"breadcrumb-export","version":1,"exportedAt":1,
+             "pointFields":["timestamp","lat","lon","accuracy"],
+             "tracks":[{"id":1,"activityType":"WALKING","startedAt":1,"endedAt":2,
+                        "points":[[1000,1.05,-2.05,4.5]]},
+                       {"id":2,"activityType":"WALKING","startedAt":3,"endedAt":4,
+                        "points":[[2000,1.06,-2.06,null]]},
+                       {"id":3,"activityType":"WALKING","startedAt":5,"endedAt":6,"points":[]}],
+             "places":[],"liveness":[]}
+        """.trimIndent()
+        val tracks = parse(json).tracks.map { it.first }
+        assertEquals(listOf("recorded", "imported", null), tracks.map { it.source })
+    }
+
+    @Test fun `a declared writer is never overruled by the fixes`() {
+        // Our own GPX export re-imported reads as recorded to the reconstruction; the declaration
+        // it was restored with is the truth, so the file's word wins wherever there is one.
+        val json = """
+            {"format":"breadcrumb-export","version":1,"exportedAt":1,
+             "pointFields":["timestamp","lat","lon","accuracy"],
+             "tracks":[{"id":1,"activityType":"WALKING","startedAt":1,"endedAt":2,
+                        "source":"imported","points":[[1000,1.05,-2.05,4.5]]}],
+             "places":[],"liveness":[]}
+        """.trimIndent()
+        assertEquals("imported", parse(json).tracks.single().first.source)
     }
 
     @Test fun `a foreign json file is rejected`() {

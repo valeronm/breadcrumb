@@ -32,9 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
-import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.Track
-import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.util.PerLocale
 import java.time.Instant
@@ -90,7 +88,8 @@ internal fun DiscardedTracksScreen(
                         modifier = Modifier.padding(vertical = 12.dp),
                     )
                 }
-                items(tracks, key = { it.id }) { t ->
+                items(tracks, key = { it.track.id }) { row ->
+                    val t = row.track
                     val activity = ActivityType.ofName(t.activityType) ?: ActivityType.UNKNOWN
                     Row(
                         modifier = Modifier.fillMaxWidth()
@@ -124,8 +123,8 @@ internal fun DiscardedTracksScreen(
                             )
                             Text(
                                 listOfNotNull(
-                                    discardReasonLabel(t.discardReason),
-                                    purgeCountdown(t.discardedAt, nowMs),
+                                    discardReasonLabel(row.discardReason),
+                                    purgeCountdown(row.discardedAt, nowMs),
                                 ).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -182,10 +181,5 @@ private fun purgeCountdown(discardedAt: Long, nowMs: Long): String {
         else -> "$left days left"
     }
 }
-
-internal fun DiscardedSummary.toTrackSummary() = TrackSummary(
-    id = id, activityType = activityType, startedAt = startedAt, endedAt = endedAt,
-    distanceMeters = distanceMeters, pointCount = pointCount, ignoredCount = ignoredCount,
-)
 
 private val discardedWhenFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM HH:mm", it) }

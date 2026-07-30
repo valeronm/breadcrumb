@@ -18,11 +18,12 @@ import java.io.StringReader
  */
 class BackupExporterTest {
 
-    private fun track(id: Long, activityType: String = "WALKING") = Track(
+    private fun track(id: Long, activityType: String = "WALKING", source: String? = "recorded") = Track(
         id = id,
         activityType = activityType,
         startedAt = 1_000L,
         endedAt = 2_000L,
+        source = source,
         distanceMeters = 123.5,
         pointCount = 2,
         ignoredCount = 1,
@@ -106,6 +107,7 @@ class BackupExporterTest {
         val t = doc["tracks"].arr().single().obj()
         assertEquals(1L, t["id"])
         assertEquals("WALKING", t["activityType"])
+        assertEquals("recorded", t["source"])
         assertEquals(2_000L, t["endedAt"])
         assertEquals(123.5, t["distanceMeters"])
         val points = t["points"].arr()
@@ -120,6 +122,11 @@ class BackupExporterTest {
         assertEquals(12L, p[10]) // satellitesInFix
         assertEquals(0L, p[14]) // segmentStart
         assertEquals(1L, points[1].arr()[14])
+    }
+
+    @Test fun `a track that names no writer exports a null, not a guess`() {
+        val doc = export(tracks = listOf(track(1, source = null)), points = emptyMap())
+        assertNull(doc["tracks"].arr().single().obj()["source"])
     }
 
     @Test fun `ignored points ride along with their reason`() {

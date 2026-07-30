@@ -519,7 +519,7 @@ private fun DiscardedTrackOverlay(
         val discardedTracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
         TrackMapScreen(
             trackId = trackId,
-            summary = discardedTracks.firstOrNull { it.id == trackId }?.toTrackSummary(),
+            summary = discardedTracks.firstOrNull { it.track.id == trackId }?.track,
             viewModel = viewModel,
             onBack = onClose,
             // No splitting here: these tracks are on their way out of the timeline, not being

@@ -507,6 +507,7 @@ class StayDeriverTest {
     private fun summary(id: Long, startedAt: Long) = TrackSummary(
         id = id, activityType = "WALKING", startedAt = startedAt,
         endedAt = startedAt + 10 * MIN, distanceMeters = 1000.0, pointCount = 100, ignoredCount = 0,
+        source = null,
     )
 
     // --- Zero-length gaps (trim seams) -------------------------------------

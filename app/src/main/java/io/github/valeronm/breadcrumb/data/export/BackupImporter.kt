@@ -7,6 +7,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import java.io.Reader
 import java.util.zip.GZIPInputStream
 
@@ -190,6 +191,7 @@ object BackupImporter {
     ): Pair<Track, List<TrackPoint>> {
         var id = 0L
         var activityType: String? = null
+        var source: String? = null
         var startedAt = 0L
         var endedAt: Long? = null
         var distanceMeters = 0.0
@@ -206,6 +208,7 @@ object BackupImporter {
             when (json.nextName()) {
                 "id" -> id = json.nextNumber().toLong()
                 "activityType" -> activityType = json.nextString()
+                "source" -> source = json.nextStringOrNull()
                 "startedAt" -> startedAt = json.nextNumber().toLong()
                 "endedAt" -> endedAt = json.nextNumberOrNull()?.toLong()
                 "distanceMeters" -> distanceMeters = json.nextNumber().toDouble()
@@ -227,6 +230,9 @@ object BackupImporter {
         val track = Track(
             id = id,
             activityType = requireNotNull(activityType) { "track without activityType" },
+            // A file written before tracks declared a writer has none to restore, so the fixes are
+            // read for it — the same reconstruction the column's own migration ran.
+            source = source ?: TrackOrigin.inferFrom(points)?.code,
             startedAt = startedAt,
             endedAt = endedAt,
             distanceMeters = distanceMeters,
@@ -386,6 +392,12 @@ internal class JsonPullReader(private val reader: Reader) {
                 }
             }
         }
+    }
+
+    fun nextStringOrNull(): String? = when (val v = nextPrimitive()) {
+        null -> null
+        is String -> v
+        else -> error("expected string, got $v")
     }
 
     fun nextNumber(): Number = checkNotNull(nextNumberOrNull()) { "expected number, got null" }

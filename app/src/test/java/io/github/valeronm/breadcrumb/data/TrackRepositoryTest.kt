@@ -284,7 +284,7 @@ class TrackRepositoryTest {
         }
 
     private suspend fun discardedTracks(): List<Track> =
-        dao.observeDiscardedSummaries().first().map { dao.track(it.id)!! }
+        dao.observeDiscardedSummaries().first().map { dao.track(it.track.id)!! }
 
     /** 10 min of walking (840 m) then [lingerFixes] × 10 s lingering where the walk ended — the
      *  AR-lag tail. Returns the track's raw end time (one fix per 10 s throughout). */

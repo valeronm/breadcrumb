@@ -313,6 +313,24 @@ recomputes them. `TimelineInvalidationTest` fails if either half is broken. The 
 `collectAsStateWithLifecycle` for the same reason — a backgrounded Compose tree keeps collecting
 otherwise, and the process outlives the UI by weeks.
 
+**A track's writer is declared, not measured** — the one thing said *about the fixes* that is not
+measured from them. `source` (`TrackOrigin.code`, null = unknown, as untagged is for a place) is set
+by whoever inserts the row — the recorder in `startTrack`, the GPX import, a backup restore, and
+merge/split handing it on to the rows they create. Provenance is a fact known at insert; the fixes merely trace
+it, and re-deriving from the trace would make a workaround permanent. `TrackOrigin.inferFrom` *is*
+that trace — the recorder stores an accuracy radius per fix, a parsed GPX has none to store — and it
+exists only where the declaration is missing: the v15 migration fills pre-existing rows with it
+expressed as SQL, and a restore falls back to it for a backup written before `source` shipped (the
+format is additive, so old files stay restorable without a version bump and older builds skip the key).
+The fill runs **in the migration rather than as a backfill pass** so null never means both "unknown"
+and "not computed yet" — measured at ~0.5 s over a six-million-point history. Two codes and no third:
+**a merge across writers is refused** (`TrackMerge.plan`, beside its same-activity rule) rather than
+resolved to a "mixed" one, because a split of a mixed track would stamp both halves mixed, and the
+reconstruction can't recognise mixedness at all — a recorded track may hold fixes the platform gave no
+radius for, which is exactly what half an import looks like. This is also the answer `track_points.provider`
+carried until v12 dropped it as uninformative: true of the recorder, which had stopped using more than
+one provider, and overlooked that the import path was writing a distinct value into that same column.
+
 **Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*
 rows and a Room SQL migration can't express the logic, add a repository pass and run it from
 `App.onCreate`'s IO coroutine behind a `Settings` done-flag:

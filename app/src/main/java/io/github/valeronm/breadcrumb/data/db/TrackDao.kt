@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data.db
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.RewriteQueriesToDropUnusedColumns
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -198,38 +199,25 @@ interface TrackDao {
     // would re-run them on every fix of a live recording — a scan of the whole point history, once
     // a second, for a result that cannot have changed (an open track has no endedAt, so it's in
     // none of them); the aggregates live on the track row, written at finish ([Track], [TrackStats]).
+    //
+    // Each selects `*` under @RewriteQueriesToDropUnusedColumns: Room resolves the star against the
+    // schema at compile time and emits SQL naming only the columns its result class reads, so the
+    // transferred columns stay as narrow as a hand-written list while the result class is the single
+    // place that list is declared. Hand-listing them is how a column reached one projection and not
+    // its twin — a drift no compiler could see, since a missing column is a Room warning.
 
-    @Query(
-        """
-        SELECT id, activityType, startedAt, endedAt, distanceMeters, pointCount, ignoredCount
-        FROM tracks
-        WHERE endedAt IS NOT NULL AND discardedAt IS NULL
-        ORDER BY startedAt DESC
-        """,
-    )
+    @RewriteQueriesToDropUnusedColumns
+    @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt DESC")
     fun observeSummaries(): Flow<List<TrackSummary>>
 
     /** The inverse of [observeSummaries]: soft-deleted tracks (user delete, keep-threshold
      *  filter, merge originals) for the Recently deleted screen. */
-    @Query(
-        """
-        SELECT id, activityType, startedAt, endedAt, distanceMeters, pointCount, ignoredCount,
-               discardedAt, discardReason
-        FROM tracks
-        WHERE discardedAt IS NOT NULL
-        ORDER BY startedAt DESC
-        """,
-    )
+    @RewriteQueriesToDropUnusedColumns
+    @Query("SELECT * FROM tracks WHERE discardedAt IS NOT NULL ORDER BY startedAt DESC")
     fun observeDiscardedSummaries(): Flow<List<DiscardedSummary>>
 
     /** Finished tracks with first/last good-point coordinates, oldest first — the stay deriver's input. */
-    @Query(
-        """
-        SELECT id, startedAt, endedAt, startLat, startLon, endLat, endLon
-        FROM tracks
-        WHERE endedAt IS NOT NULL AND discardedAt IS NULL
-        ORDER BY startedAt ASC
-        """,
-    )
+    @RewriteQueriesToDropUnusedColumns
+    @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt ASC")
     fun observeEndpoints(): Flow<List<TrackEndpoints>>
 }

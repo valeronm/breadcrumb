@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.data.db
 
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -15,6 +16,13 @@ data class Track(
     val activityType: String,
     val startedAt: Long,
     val endedAt: Long? = null,
+    /**
+     * Who wrote the fixes — an [io.github.valeronm.breadcrumb.domain.TrackOrigin.code] string, set
+     * by whoever inserts the row and never re-derived from the points afterwards. Null is unknown:
+     * a row this build's vocabulary doesn't cover, or one from before the column that held no points
+     * to reconstruct an answer from.
+     */
+    val source: String? = null,
     // --- Aggregates of the track's points, denormalized -----------------------------------------
     // Written only by TrackRepository.refreshStats — on finish, merge, split, import, retype, or
     // overrun re-derivation, never per fix, which keeps the observed queries off `track_points`
@@ -177,15 +185,14 @@ data class TrackEndpoints(
     val endLon: Double?,
 )
 
-/** A Recently-deleted row: the summary plus when and why it was discarded. */
+/**
+ * A Recently-deleted row: [track] plus when and why it was discarded. Composed rather than
+ * restated — the two projections had drifted into identical field lists, so a column added to one
+ * had to be remembered in the other, and the same screen renders a discarded track by handing its
+ * [track] on. The query still names its own columns, so that is where a new one must be added.
+ */
 data class DiscardedSummary(
-    val id: Long,
-    val activityType: String,
-    val startedAt: Long,
-    val endedAt: Long?,
-    val distanceMeters: Double,
-    val pointCount: Int,
-    val ignoredCount: Int,
+    @Embedded val track: TrackSummary,
     val discardedAt: Long,
     val discardReason: String?,
 )
@@ -201,4 +208,7 @@ data class TrackSummary(
     val pointCount: Int,
     /** Number of ignored points — bad fixes, plus any the recorder ran on past the stop for. */
     val ignoredCount: Int,
+    /** [Track.source]: who wrote the fixes. Undefaulted like the columns beside it — a projection
+     *  that leaves it out reads as a track whose writer is unknown, which is a claim, not a gap. */
+    val source: String?,
 )

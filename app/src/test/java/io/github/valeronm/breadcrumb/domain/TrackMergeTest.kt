@@ -9,8 +9,8 @@ import java.time.ZoneId
 
 class TrackMergeTest {
 
-    private fun track(id: Long, activity: String, startedAt: Long) =
-        TrackSummary(id, activity, startedAt, endedAt = startedAt + 1000, distanceMeters = 100.0, pointCount = 10, ignoredCount = 0)
+    private fun track(id: Long, activity: String, startedAt: Long, source: String? = null) =
+        TrackSummary(id, activity, startedAt, endedAt = startedAt + 1000, distanceMeters = 100.0, pointCount = 10, ignoredCount = 0, source = source)
 
     private val before = track(1, "WALKING", 0)
     private val after = track(2, "WALKING", 300_000)
@@ -38,6 +38,21 @@ class TrackMergeTest {
     @Test fun `different activities are not mergeable`() {
         val running = track(2, "RUNNING", 300_000)
         assertNull(TrackMerge.plan(before, running, intervalStart = 0, intervalEnd = 60_000))
+    }
+
+    @Test fun `tracks written by different sources are not mergeable`() {
+        val recorded = track(1, "WALKING", 0, TrackOrigin.RECORDED.code)
+        val imported = track(2, "WALKING", 300_000, TrackOrigin.IMPORTED.code)
+        assertNull(TrackMerge.plan(recorded, imported, intervalStart = 0, intervalEnd = 60_000))
+    }
+
+    @Test fun `same source on both sides merges as usual`() {
+        val first = track(1, "WALKING", 0, TrackOrigin.IMPORTED.code)
+        val second = track(2, "WALKING", 300_000, TrackOrigin.IMPORTED.code)
+        assertEquals(
+            TrackMerge.Plan(earlierId = 1, laterId = 2),
+            TrackMerge.plan(first, second, intervalStart = 0, intervalEnd = 60_000),
+        )
     }
 
     @Test fun `an ongoing interval is not mergeable`() {
