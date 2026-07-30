@@ -14,8 +14,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.FloatState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -889,7 +891,8 @@ internal data class PlaceMarker(
 /**
  * What a place is drawn as: named makes it a pin in its own category's colors — [withGlyph] where
  * the marker is big enough to hold one — and unnamed leaves it the [unnamed] dot the surface gives
- * a cluster. Every map answers this the same way; only which dot differs.
+ * a cluster. Every map answers this the same way; only the fallback differs — and it need not be a
+ * dot: the place map's own centre passes an untagged pin, being about to become one.
  */
 private fun markerIcon(
     marker: PlaceMarker,
@@ -918,8 +921,14 @@ internal fun MapLibrePlaceMap(
     // Named neighbors' own capture areas, drawn muted under this one. They are what stops a dot
     // joining this place, so seeing them is what makes a gray dot inside your circle make sense.
     rivalAreas: List<PlaceClusterer.Seed> = emptyList(),
+    /** A long press on the map, in map coordinates — how the center is placed by hand. */
+    onLongPress: (StayDeriver.Endpoint) -> Unit,
 ) {
     val applied = remember { AppliedPlaceInputs() }
+    // The listener is attached once, to a map that outlives every recomposition, so it must read the
+    // *current* callback rather than the one the first composition passed — that one would move the
+    // pin while offering an Undo back to wherever the pin was when the map was built.
+    val longPress by rememberUpdatedState(onLongPress)
     val placeContent = {
         PlaceMapContent(
             center = center,
@@ -930,8 +939,15 @@ internal fun MapLibrePlaceMap(
     }
     MapLibreStyledMap(
         modifier = modifier,
+        onMapReady = { map ->
+            map.addOnMapLongClickListener { at ->
+                longPress(StayDeriver.Endpoint(at.latitude, at.longitude))
+                true
+            }
+        },
         onStyleLoaded = { ctx, map, style ->
-            applied.circle = center.location to radiusM
+            applied.circleCenter = center.location
+            applied.circleRadiusM = radiusM
             applied.markers = endpoints to neighbors
             applied.center = center
             applied.capture = capture
@@ -940,10 +956,17 @@ internal fun MapLibrePlaceMap(
             framePlace(map, center.location, radiusM)
         },
         onUpdate = { map, style ->
-            if (applied.circle != center.location to radiusM) {
-                applied.circle = center.location to radiusM
+            if (applied.circleCenter != center.location || applied.circleRadiusM != radiusM) {
+                applied.circleCenter = center.location
                 style.getSourceAs<GeoJsonSource>(PLACE_CIRCLE_SOURCE)
                     ?.setGeoJson(circleFeature(center.location, radiusM))
+            }
+            if (applied.circleRadiusM != radiusM) {
+                applied.circleRadiusM = radiusM
+                // A radius that changed re-fits the camera — the circle is the subject and it just
+                // grew or shrank. A *moved* pin deliberately does not: the move was aimed at a point
+                // the user was looking at, so re-fitting would slide it out from under them and
+                // re-zoom to boot, which is exactly the precision the placement was after.
                 framePlace(map, center.location, radiusM)
                 // The dots do not move; which side of the radius they fall on does.
                 style.getLayer(PLACE_MARKER_LAYER)?.setProperties(markerIconProperty(radiusM))
@@ -984,13 +1007,17 @@ private class PlaceMapContent(
 
 /** Last-applied inputs of the place map — value comparisons, the inputs are rebuilt lists. */
 private class AppliedPlaceInputs {
-    var circle: Pair<StayDeriver.Endpoint, Double>? = null
+    /** Where the circle is drawn and how wide, tracked apart because the two have different
+     *  consequences: either redraws the ring, but only a *resize* re-fits the camera and re-decides
+     *  which side of the radius each dot falls on. */
+    var circleCenter: StayDeriver.Endpoint? = null
+    var circleRadiusM: Double? = null
     var markers: Pair<List<StayDeriver.Endpoint>, List<PlaceMarker>>? = null
 
     /** Naming or tagging a place while its map is open redraws its marker — the source names an
      *  image per category, so both are a feature rebuild rather than a restyle. Its position is
-     *  watched twice over, here and in [circle]: the two answer different questions about a moved
-     *  pin (which features to rebuild, where to point the camera) and both must be asked. */
+     *  watched twice over, here and in [circleCenter]: the two answer different questions about a
+     *  moved pin (which features to rebuild, where to point the camera) and both must be asked. */
     var center: PlaceMarker? = null
 
     /** Identity, not equality: the scan hands back a new list only when the candidates change. */
@@ -1101,9 +1128,14 @@ private fun placeMarkerCollection(content: PlaceMapContent): FeatureCollection {
     } else {
         markers.endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
     }
-    // The centre carries no label: its name is the screen's title, not something to repeat on it.
+    // A pin whether or not the row exists yet — this map shows what saving would produce, and saving
+    // produces a pin. Said through the rule's own `unnamed` seam rather than around it: an untagged
+    // pin is simply the fallback *this* surface gives, where a dot would be the same marker as the
+    // endpoints it sits among in another hue, and these are told apart by size and shape first.
+    // Carries no label: its name is the screen's title, not something to repeat on it.
     val center = content.center
-    features.add(endpointFeature(center.location, markerIcon(center, withGlyph = true, unnamed = IMG_ENDPOINT)))
+    val centerIcon = markerIcon(center, withGlyph = true, unnamed = placePinImage(null, withGlyph = true))
+    features.add(endpointFeature(center.location, centerIcon))
     return FeatureCollection.fromFeatures(features)
 }
 

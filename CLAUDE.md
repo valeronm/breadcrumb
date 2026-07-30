@@ -449,7 +449,47 @@ cross-checks it.
   screen carries no map** — one small enough to sit above the visits is framed on the capture circle,
   which cannot say where a place is, and repeats the category glyph already on the screen; both
   questions belong elsewhere (`PlaceEditScreen` for the area, the maps-app action for where), so it
-  is the visits that get the room.
+  is the visits that get the room. **That holds only while the editor is reachable**, and for an
+  unnamed cluster it once wasn't: `Place.label` is non-null, so a cluster has no row, the area action
+  was hidden, and the one screen whose job is working out *what* a place is had no map and no controls
+  — only a link out to a maps app. So **`PlaceEditScreen` owns everything the user says about a
+  place** — name, capture radius and pin — and writes them as one row (an insert for a cluster,
+  `PlaceDao.update` for a place — never a setter per field, because every write invalidates `places`
+  and re-runs the derivation, and a pin and a radius are both `Seed` fields, so two writes are two
+  re-clusterings of the whole history for one Done tap; `TrackListViewModel.savePlace` also drops a
+  save that changed nothing, which is a data-layer question rather than a button's). **The detail
+  screen then reads and does not edit**, bar the category chips, which are read off the name and
+  belong beside the suggestions that produced them: its title is a heading, and its one edit action
+  wears a pencil rather than the target it had while it only tuned a radius. A cluster carries **no
+  edit action at all** — it is titled "Detected stop", nothing exists to edit, and its single filled
+  "Create place" button is the whole offer, at the emphasis a first step wants. Removing a place is
+  the Places list's swipe or the editor's own button under the map — both delete at once and answer
+  with an Undo, as this app does rather than asking first; the editor's dismisses its layer *and* the
+  detail underneath, because both are about a row that has gone and the detail's `place:<id>` key
+  would resolve against nothing, and the Undo is raised from the app's host so it outlives them.
+  A cleared *name* is still never a delete — Done just disables — and that separation is what having
+  an explicit Remove buys. **The pin is placed by long-pressing the map**, with the re-center action
+  as the shortcut beside it (snap to the middle of what the circle holds): the pin decides which
+  endpoints are held, so an answer derived from the held ones cannot be the only one on offer. A long
+  press because a tap is how a map is panned, and a pin move deliberately does *not* re-fit the camera
+  (only a radius change does) — re-fitting would slide the aimed-at point out from under the finger
+  that aimed at it, and re-zoom.
+  Creating a place from the editor means the layers can hold a cluster key that the create has just
+  killed, so **both halves of following it are needed**. `PlaceResolver.reacquire` tracks a named
+  cluster by *position* — which a hand-placed pin is exactly what may have moved, and then nothing in
+  the fresh list sits where the cluster did, leaving the screen on the stop it opened on, still
+  offering to create the place that now exists (pinned by `PlaceResolverTest`). So the view model
+  hands the inserted row's id to the caller (`savePlace(…, onCreated)`, the shape `mergeTracks` already
+  uses) and `MainScreen` re-keys the open screen onto it through `PlaceResolver.keyOf`; the id is the
+  only identity a create leaves behind before a derivation runs, and handing it back rather than
+  broadcasting it keeps "which screen follows this" with the screen that asked. **And a re-key must never follow a stale summary**: `reacquire` returns the
+  screen's own snapshot when nothing matched yet, and writing *that* key back would undo the re-key
+  and strand the screen for good — hence the identity guard in `onResolved`. The edit layer also
+  shares the detail screen's snapshot, since a `cluster:<n>` index is reassignable mid-edit.
+  The editor's **centre marker is a pin whether or not the row exists** (untagged until
+  tagged): it shows what saving produces, and the "named ⇒ dot" fallback left it the same marker as
+  the endpoint dots it sits among, in another hue — which is not a distinction, since these markers
+  are told apart by size and shape first.
 - **Marker symbol layers draw in source order** (`symbolZOrder(SYMBOL_Z_ORDER_SOURCE)`, set once on
   the shared `markerSymbolLayer` base). The default stacks point symbols by screen position, so the
   feature a collection deliberately appends last — a place's pin after its dots, a track's start/end

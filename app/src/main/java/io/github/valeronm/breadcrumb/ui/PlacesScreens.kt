@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -31,19 +30,19 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Adjust
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterCenterFocus
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -68,6 +67,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -155,8 +155,9 @@ private fun PlaceResolver.PlaceSummary.isRareStop() =
 @Composable
 internal fun PlacesTab(
     viewModel: TrackListViewModel,
-    undo: UndoSnackbar,
     onOpenPlace: (String) -> Unit,
+    /** Removes a place and offers the Undo — hoisted, because the editor's Remove is the same act. */
+    onRemovePlace: (Place) -> Unit,
 ) {
     val context = LocalContext.current
     val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
@@ -374,12 +375,7 @@ internal fun PlacesTab(
                         summary = summary,
                         shape = groupedRowShape(index, listed.size),
                         onOpen = { onOpenPlace(summary.key) },
-                        // Deleting removes the label, not the stays — they go back to being an
-                        // unnamed cluster, and Undo re-pins the place exactly as it was.
-                        onDelete = { place ->
-                            viewModel.deletePlace(place.id)
-                            undo.show("\"${place.label}\" deleted") { viewModel.restorePlace(place) }
-                        },
+                        onDelete = onRemovePlace,
                     )
                 }
             }
@@ -543,7 +539,12 @@ private fun titleNeedsMoreThanOneLine(title: String, actionSlots: Int): Boolean 
 private val TOP_BAR_TITLE_INSET = 12.dp
 
 /**
- * Full-screen detail for one place: its name and category, its stats, and its visits.
+ * Full-screen detail for one place: its name and category, its stats, and its visits. **It reads and
+ * does not edit** — bar the category, whose one-tap chips are read off the name and belong beside the
+ * suggestions that produced them. Name, area and pin are [PlaceEditScreen]'s, reached through
+ * [onAdjustArea]: one screen changes what the user said about a place, and the title is a heading
+ * rather than a second way in. Removing a place is that screen's own button, or the Places list's
+ * swipe — both with an Undo.
  *
  * **No map.** One framed on the capture circle answers neither question worth asking here — at this
  * size it is a texture swatch rather than a locator, it cannot say where a place *is* without
@@ -552,6 +553,12 @@ private val TOP_BAR_TITLE_INSET = 12.dp
  * [onAdjustArea] opens as a layer above this one, is a full-height map of the area and what
  * competes for it, and the maps-app action hands the pin to something built to say where. The
  * visits take the space instead, which is what this screen is actually for.
+ *
+ * That holds only while [PlaceEditScreen] is reachable, and for a **detected stop** it once wasn't:
+ * with no row to edit, the action was hidden and the maps app was the only way to see anything at all
+ * — on the one screen whose whole job is working out what the place is. So the editor takes a name
+ * too, and a stop's single filled "Create place" button opens it. No edit action there: nothing
+ * exists to edit, and the button is the page's one offer.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -564,7 +571,6 @@ internal fun PlaceDetailScreen(
 ) {
     val context = LocalContext.current
     val place = summary.place
-    var showNameDialog by remember { mutableStateOf(false) }
     val suggester by viewModel.categorySuggester.collectAsStateWithLifecycle()
     val zone = ZoneId.systemDefault()
     val nowMs = remember { System.currentTimeMillis() }
@@ -572,17 +578,16 @@ internal fun PlaceDetailScreen(
     val visitGroups = remember(summary.stays) {
         summary.stays.groupBy { YearMonth.from(it.start.toLocalDate(zone)) }
     }
-    val title = place?.label ?: "Unnamed place"
+    val title = place?.label ?: "Detected stop"
     // A bar that expands is only worth having when there is something to expand *to*. Most names fit
     // the one line a closed bar gives them, and for those the pull-down reveals the same words in
     // bigger type — an affordance that costs a gesture to learn and returns nothing. So the question
     // is asked ahead of drawing: measured rather than read back off the rendered title, because the
     // rendered one is two lines while expanded, and deciding on that would flip the answer every
     // time the bar moved.
-    // One source for both what the bar draws and what the measurement subtracts — counted apart,
-    // a third action would leave the title silently measured against a slot it no longer has.
-    val hasAreaAction = place != null
-    val titleTruncated = titleNeedsMoreThanOneLine(title, actionSlots = if (hasAreaAction) 2 else 1)
+    // Counted rather than read back off the rendered bar — an action added or withheld would
+    // otherwise leave the title silently measured against a slot it doesn't have.
+    val titleTruncated = titleNeedsMoreThanOneLine(title, actionSlots = if (place == null) 1 else 2)
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     // `collapsedFraction` moves with every scroll delta and every fling frame, while the only thing
     // read off it flips once. Derived, so the title recomposes on the crossing rather than the frame.
@@ -607,15 +612,15 @@ internal fun PlaceDetailScreen(
             // A place name runs long, and in a one-line bar it either wraps into the icons or gets
             // cut where the identifying words are. Expanded it gets its own rows at the screen's
             // full width; collapsed it is one truncated line, and the page under it has scrolled far
-            // enough that the name is no longer the question. Tapping it renames — the name is the
-            // thing being edited, so it carries the tap rather than a pencil beside two other glyphs.
+            // enough that the name is no longer the question. It is only a heading: editing the name
+            // is the edit action's, along with the radius and the pin, so there is one screen that
+            // changes what the user said about a place and no second way in.
             val barTitle: @Composable () -> Unit = {
                 Text(
                     title,
                     // Two lines while the bar is open, one once it has closed up.
                     maxLines = if (collapsed) 1 else 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clickable { showNameDialog = true },
                 )
             }
             val barActions: @Composable RowScope.() -> Unit = {
@@ -629,12 +634,14 @@ internal fun PlaceDetailScreen(
                         contentDescription = "Open in maps app",
                     )
                 }
-                // Only a named place has an area to tune. Renaming is not here: it is the name
-                // itself, below — a pencil beside this one was two similar-weight glyphs to tell
-                // apart, and the thing it edits is on screen and can carry the tap.
+                // Everything the user gets to say about a place — its name, its area, its pin — is
+                // edited behind this one action, which is why it wears a pencil rather than the
+                // target it did while it only tuned a radius. Nothing here for a detected stop:
+                // there is no place to edit yet, and "edit" is the wrong offer for a thing that
+                // doesn't exist — creating it is the button below, at the emphasis a first step wants.
                 if (place != null) {
                     IconButton(onClick = onAdjustArea) {
-                        Icon(Icons.Filled.Adjust, contentDescription = "Adjust capture area")
+                        Icon(Icons.Filled.Edit, contentDescription = "Edit place")
                     }
                 }
             }
@@ -674,10 +681,14 @@ internal fun PlaceDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
-                FilledTonalButton(
-                    onClick = { showNameDialog = true },
+                // The screen's one offer, and filled rather than tonal because it is the only thing
+                // to do here — a detected stop is a candidate, and everything else on the page is
+                // evidence for deciding. Opens the editor rather than a dialog: a name typed against
+                // nothing is a guess, and that screen is the one that can show what is being named.
+                Button(
+                    onClick = onAdjustArea,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Name this place") }
+                ) { Text("Create place") }
             }
             Card(Modifier.fillMaxWidth()) { PlaceStatsHeader(summary) }
             if (summary.stays.isEmpty()) {
@@ -695,76 +706,31 @@ internal fun PlaceDetailScreen(
             }
         }
     }
-
-    if (showNameDialog) {
-        var text by remember(place?.id) { mutableStateOf(place?.label ?: "") }
-        val removing = text.isBlank() && place != null
-        // Naming only. The category is chosen on the screen underneath, because the suggestion that
-        // makes choosing it one tap is read *off the name* — offered here it would have to rank
-        // against a field still being typed, and a user who saved straight from the keyboard would
-        // never see it. Naming first also matches which step is mandatory: a place must be called
-        // something, and may stay untagged forever.
-        AlertDialog(
-            onDismissRequest = { showNameDialog = false },
-            icon = { Icon(place?.placeCategory.discIcon, contentDescription = null) },
-            title = { Text(if (place == null) "Name this place" else "Rename place") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = text,
-                        // `singleLine` lays the field out on one line but doesn't police what
-                        // arrives: paste a block of text and everything past the first break is
-                        // stored, and saved, where it can't be seen. Breaks (and the indentation
-                        // around them) fold into single spaces instead.
-                        onValueChange = { text = it.replace(LINE_BREAK_RUN, " ") },
-                        singleLine = true,
-                        label = { Text("Place name") },
-                        // Place names are proper nouns — capitalize each word.
-                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-                    )
-                    if (place != null) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Clear the name to remove this place.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val trimmed = text.trim()
-                        when {
-                            trimmed.isEmpty() && place != null -> viewModel.deletePlace(place.id)
-                            // Guarded: the write invalidates the places table, and the derivation
-                            // every screen reads runs again off it — so a dialog dismissed with
-                            // nothing changed must cost nothing.
-                            place != null ->
-                                if (trimmed != place.label) viewModel.renamePlace(place.id, trimmed)
-                            trimmed.isNotEmpty() ->
-                                viewModel.createPlace(summary.pin.lat, summary.pin.lon, trimmed)
-                        }
-                        showNameDialog = false
-                    },
-                    enabled = text.isNotBlank() || place != null,
-                ) { Text(if (removing) "Remove" else "Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showNameDialog = false }) { Text("Cancel") }
-            },
-        )
-    }
 }
 
 /**
- * Tuning one named place's capture area — radius and center — over a full-height map of what the
- * circle would take: this place's endpoints and the loose ones around it, the named neighbors it
- * competes with, and their areas muted underneath. Both adjustments preview and neither writes:
- * re-centering moves the pin exactly as the slider moves the circle, and the scan re-measures from
- * there, so the screen always shows what saving would produce. A slider can be dragged back; a
- * jumped pin has nowhere obvious to return to, so re-centering offers an Undo instead.
+ * Everything the user gets to say about one place — its name, its capture radius and its center —
+ * over a full-height map of what the circle would take: this place's endpoints and the loose ones
+ * around it, the named neighbors it competes with, and their areas muted underneath. Every
+ * adjustment previews and none writes: the pin moves exactly as the slider moves the circle, and the
+ * scan re-measures from there, so the screen always shows what saving would produce. A slider can be
+ * dragged back; a jumped pin has nowhere obvious to return to, so both ways of moving it offer an
+ * Undo instead.
+ *
+ * **The center is placed by long-pressing the map**, and the re-center action is the shortcut beside
+ * it — snap to the middle of what the circle already holds. Both are needed, and in that order: the
+ * center is what decides which endpoints are held at all, so an answer derived from the held ones
+ * can't be the only one available. A long press rather than a tap because a tap is how a map is
+ * panned; and a placement doesn't re-fit the camera, or the point aimed at would slide away under
+ * the finger that aimed at it.
+ *
+ * **This is also where an unnamed cluster becomes a place**, which is why the name is here and not
+ * only in the detail screen's dialog: a cluster has no name to identify it by, so naming it is the
+ * one moment the map matters most — and the same screen then lets the radius be judged before the
+ * name is committed, rather than in a second trip. Done writes name, radius and pin as one row.
+ * Removing the place is its own button under the map, and a blank name is therefore never a delete —
+ * Done simply disables. That separation is what the explicit button buys: the field says what a place
+ * is called, and nothing about whether it exists.
  * A layer of its own above the place detail, and the map is the reason: the two screens want it at
  * different heights, and a `MapView` is a `TextureView` — handed a new size it scales its
  * last-rendered frame into the new box until it has one of its own, the pin visibly stretching to
@@ -785,20 +751,44 @@ internal fun PlaceEditScreen(
     rivals: List<PlaceClusterer.Seed>,
     viewModel: TrackListViewModel,
     onClose: () -> Unit,
+    /** The row a create landed on — the screen underneath follows the place there. */
+    onCreated: (Long) -> Unit,
+    /** Removes the place and leaves this screen — the caller owns both, since the Undo it offers has
+     *  to outlive a layer that is going away. */
+    onRemove: (Place) -> Unit,
 ) {
-    val place = summary.place ?: return
-    // Both halves of what this screen adjusts are local until Done: the circle and its center
+    // Null while this is still a cluster being named — every write below then becomes the one insert.
+    val place = summary.place
+    // Everything this screen adjusts is local until Done: the name, the circle and its center
     // preview together, and nothing is written on the way. A write here re-derives the whole
     // timeline, so committing per drag step would re-derive it several times for one adjustment.
-    // Leaving without Done discards both by simply never having written them.
-    val opened = remember(place.id) { summary }
-    var radiusM by remember(place.id) { mutableFloatStateOf(opened.radiusM.toFloat()) }
-    var pin by remember(place.id) { mutableStateOf(opened.anchor) }
+    // Leaving without Done discards them all by simply never having written them.
+    var radiusM by remember(place?.id) { mutableFloatStateOf(summary.radiusM.toFloat()) }
+    // Where the place sits, which for an unnamed cluster is where naming would drop the pin rather
+    // than the anchor its clustering grew from — so the circle previews what saving produces.
+    var pin by remember(place?.id) { mutableStateOf(summary.pin) }
+    // The state, not its value: read here and every keystroke would invalidate this whole screen —
+    // including the map, which cannot skip and would re-run its input diff per character. The field
+    // reads it a level down ([PlaceNameField]), the way ZoomReadout takes the camera's zoom.
+    val name = remember(place?.id) { mutableStateOf(place?.label ?: "") }
+    // Read where the bar's actions are built, and that scope also measures the re-center target over
+    // every captured endpoint — so it must not turn on the name itself, or each keystroke would walk
+    // the scan again. Derived, so it changes only as the field crosses between blank and not.
+    val nameGiven by remember { derivedStateOf { name.value.isNotBlank() } }
     // Its own host, not the app's: that one hangs off MainScreen's Scaffold, under every overlay
     // layer, so an Undo offered from this screen would be covered by the screen offering it.
     val snackbarHostState = remember { SnackbarHostState() }
     val undo = rememberUndoSnackbar(snackbarHostState)
-    val radiusScale = rememberDistanceScale(SliderStops(50, 500, 25), SliderStops(150, 1650, 75))
+    // Both ways of moving the pin are one step back: a jumped pin has nowhere obvious to return to,
+    // where a slider can simply be dragged again.
+    val movePin: (StayDeriver.Endpoint, String) -> Unit = { target, message ->
+        val was = pin
+        pin = target
+        undo.show(message) { pin = was }
+    }
+    // Down to 25 m (75 ft, the step-aligned stop nearest it): a doorway-scale place needs a circle
+    // tighter than GPS scatter, and narrowing one is also how it stops claiming a neighbour's stops.
+    val radiusScale = rememberDistanceScale(SliderStops(25, 500, 25), SliderStops(75, 1650, 75))
     val maxRadiusM = radiusScale.metersOf(radiusScale.range.endInclusive).toDouble()
     // Prepared once per pin, not per drag step — whether a neighbor keeps an endpoint has nothing to
     // do with our radius, and a per-step scan made a place with a few thousand endpoints around it
@@ -834,21 +824,16 @@ internal fun PlaceEditScreen(
             TopAppBar(
                 colors = canvasTopBarColors(),
                 title = {
-                    Column {
-                        // Bounded here rather than moved into the content as on the detail screen:
-                        // this screen's content is a full-height map with nowhere to put a heading,
-                        // and you arrive already knowing which place you opened.
-                        Text(place.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        // What the circle holds *now*, not what the stored radius holds: the count
-                        // is the same answer the dots below are showing, so the two can't disagree
-                        // as the slider moves.
-                        val captured = scan?.countWithin(radiusM.toDouble()) ?: opened.endpoints.size
-                        Text(
-                            "$captured recorded track ${if (captured == 1) "endpoint" else "endpoints"}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(
+                        // Titled with the action that opened it, not with what it does to a name —
+                        // "Create place" is the offer the button made. Bounded here rather than moved
+                        // into the content as on the detail screen: this screen's content is a
+                        // full-height map with nowhere to put a heading, and you arrive already
+                        // knowing which place you opened, or what you came to do to a stop.
+                        place?.label ?: "Create place",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 },
                 navigationIcon = { BackNavIcon(onClose) },
                 actions = {
@@ -860,26 +845,18 @@ internal fun PlaceEditScreen(
                         PlaceResolver.recenterTarget(pin, it, radiusM.toDouble(), AndroidDistance)
                     }
                     if (recenterTarget != null) {
-                        IconButton(
-                            onClick = {
-                                val was = pin
-                                pin = recenterTarget
-                                // One step back, to wherever the pin was before this tap — so
-                                // re-centering twice can be walked back one tap at a time.
-                                undo.show("Pin re-centered") { pin = was }
-                            },
-                        ) {
+                        IconButton(onClick = { movePin(recenterTarget, "Pin re-centered") }) {
                             Icon(Icons.Filled.FilterCenterFocus, contentDescription = "Re-center pin")
                         }
                     }
                     IconButton(
                         onClick = {
-                            if (radiusM.toDouble() != opened.radiusM) {
-                                viewModel.setPlaceRadius(place.id, radiusM.toDouble())
-                            }
-                            if (pin != opened.anchor) viewModel.setPlacePin(place.id, pin.lat, pin.lon)
+                            viewModel.savePlace(place, name.value, pin, radiusM.toDouble(), onCreated)
                             onClose()
                         },
+                        // A place must be called something. Clearing the field is not how one is
+                        // deleted — that offer belongs to the Remove button below.
+                        enabled = nameGiven,
                     ) {
                         Icon(Icons.Filled.Check, contentDescription = "Done")
                     }
@@ -895,13 +872,7 @@ internal fun PlaceEditScreen(
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    SliderSetting("Place radius", radiusM.roundToInt(), radiusScale) {
-                        radiusM = it.toFloat()
-                    }
-                }
-            }
+            Card(Modifier.fillMaxWidth()) { PlaceNameField(name) }
             Card(Modifier.weight(1f).fillMaxWidth()) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
                     MapLibrePlaceMap(
@@ -911,12 +882,80 @@ internal fun PlaceEditScreen(
                         neighbors = neighbors,
                         capture = captureDots,
                         rivalAreas = rivals,
+                        // Placing the center by hand, where the re-center action only snaps it to
+                        // what the circle already holds — and the center is what decides what is
+                        // held, so it needs an answer that isn't derived from the dots. A long press
+                        // rather than a tap: a tap is how a map is panned, and this is one Undo away
+                        // either way.
+                        onLongPress = { movePin(it, "Pin moved") },
                         modifier = Modifier.fillMaxSize(),
                     )
+                    // Over the map's corner, not under the slider: this number is read *while*
+                    // dragging, and a hand reaching down to the slider covers everything below it.
+                    // Here it sits beside the dots it counts, in the one part of the screen a thumb
+                    // never crosses. What the circle holds *now*, not what the stored radius holds,
+                    // so it and the dots can't disagree as the slider moves.
+                    val captured = remember(scan, radiusM, summary.endpoints) {
+                        scan?.countWithin(radiusM.toDouble()) ?: summary.endpoints.size
+                    }
+                    LegendSurface(Modifier.align(Alignment.TopStart).padding(8.dp)) {
+                        Text(
+                            "$captured ${if (captured == 1) "endpoint" else "endpoints"}",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            }
+            // Below the map, not above it: this is the one control dragged while watching the result,
+            // and a hand on a slider above the map covers the circle it is sizing.
+            Card(Modifier.fillMaxWidth()) {
+                Box(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    SliderSetting("Capture radius", radiusM.roundToInt(), radiusScale) {
+                        radiusM = it.toFloat()
+                    }
+                }
+            }
+            // Under the map rather than up with the fields: removing is not one more thing to adjust,
+            // and it must not sit next to the name it would once have been performed by clearing.
+            // Low emphasis in the error color, and it takes effect at once with an Undo, as the
+            // Places list's swipe does — the app answers a destructive tap with a way back rather
+            // than with a question first. Nothing to remove until there is a row.
+            if (place != null) {
+                TextButton(
+                    onClick = { onRemove(place) },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Remove place")
                 }
             }
         }
     }
+}
+
+/**
+ * What a place is called. Takes the state rather than its value so that typing invalidates this and
+ * nothing above it: the editor's column holds a map that cannot skip a recomposition, and would
+ * re-run its whole input diff per character.
+ */
+@Composable
+private fun PlaceNameField(name: MutableState<String>) {
+    OutlinedTextField(
+        value = name.value,
+        // `singleLine` lays the field out on one line but doesn't police what arrives: paste a block
+        // of text and everything past the first break is stored, and saved, where it can't be seen.
+        // Breaks (and the indentation around them) fold into single spaces instead.
+        onValueChange = { name.value = it.replace(LINE_BREAK_RUN, " ") },
+        singleLine = true,
+        label = { Text("Place name") },
+        // Place names are proper nouns — capitalize each word.
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+    )
 }
 
 /**
@@ -1267,7 +1306,7 @@ private fun PlaceRowCard(
         tint = placeDiscTint(category),
         iconDescription = category?.label,
         discAlpha = placeDiscAlpha(category),
-        title = summary.place?.label ?: "Unnamed place",
+        title = summary.place?.label ?: "Detected stop",
         titleColor = placeTitleColor(named),
         subtitle = AnnotatedString(placeSubtitle(summary)),
     )

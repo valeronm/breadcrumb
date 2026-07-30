@@ -48,7 +48,16 @@ object PlaceResolver {
      * fields identify a place, and the two cannot name the same cluster differently.
      */
     private fun placeKey(placeId: Long?, position: StayDeriver.Endpoint): String =
-        placeId?.let { "place:$it" } ?: "cluster:%.5f,%.5f".format(position.lat, position.lon)
+        placeId?.let(::keyOf) ?: "cluster:%.5f,%.5f".format(position.lat, position.lon)
+
+    /**
+     * The key a row that has just been inserted will answer to, before any derivation has seen it.
+     * Its one caller is a screen that asked for a place to be created and has to follow it there:
+     * [reacquire] can only track a cluster through naming by *position*, and a pin the user placed by
+     * hand is exactly the case where the position moved — leaving the id as the only thing that still
+     * identifies what was named. This stays the single source of the format either way.
+     */
+    fun keyOf(placeId: Long): String = "place:$placeId"
 
     class ResolvedStay(
         /**
@@ -118,8 +127,10 @@ object PlaceResolver {
          */
         val pin: StayDeriver.Endpoint get() = if (isNamed) anchor else endpointCentroid ?: anchor
 
-        /** This place's stable identity — see [placeKey]. */
-        val key: String get() = placeKey(place?.id, pin)
+        /** This place's stable identity — see [placeKey]. Held rather than computed per read: an
+         *  unnamed cluster's key is a formatted string, and it is read once per row by a list key,
+         *  once per candidate by [reacquire]'s scan, and again by every timeline row. */
+        val key: String = placeKey(place?.id, pin)
     }
 
     /**

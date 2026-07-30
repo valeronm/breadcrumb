@@ -361,6 +361,25 @@ class PlaceResolverTest {
         assertTrue(named === PlaceResolver.reacquire(listOf(named), before.key, previous = before))
     }
 
+    @Test fun `a place created at a hand-placed pin is followed by its id, not its position`() {
+        // The editor creates a place at whatever pin the user placed, and that is the one case the
+        // positional fallback cannot cover: the row exists, but nothing in the fresh list sits where
+        // the cluster did, so the screen would hold the cluster it opened on and go on offering to
+        // create the place that already exists.
+        val stays = listOf(stay(at(0.0)), stay(at(20.0)))
+        val before = summarize(stays, emptyList()).single()
+        val handPlaced = at(60.0)
+        val after = summarize(stays, listOf(place(7, "Home", handPlaced)))
+        val named = after.single { it.place?.label == "Home" }
+
+        assertTrue("the pin really did move", named.pin != before.pin)
+        assertNull(
+            "position cannot find it, which is why the id is followed instead",
+            PlaceResolver.reacquire(after, before.key, previous = before)?.place,
+        )
+        assertTrue(named === PlaceResolver.reacquire(after, PlaceResolver.keyOf(7), previous = before))
+    }
+
     @Test fun `a summary whose pin also moved keeps what the screen had`() {
         // Both readings fail: the key is dead and no pin matches. Emptying the screen would be the
         // wrong answer — a derivation in flight is not the same as a place that stopped existing.

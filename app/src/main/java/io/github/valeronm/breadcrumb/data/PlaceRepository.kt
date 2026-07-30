@@ -4,7 +4,6 @@ import android.content.Context
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
-import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -29,17 +28,12 @@ class PlaceRepository(context: Context, db: AppDatabase = AppDatabase.get(contex
         lat: Double,
         lon: Double,
         now: Long,
-    ): Long =
-        dao.insert(
-            Place(
-                label = label, lat = lat, lon = lon, createdAt = now,
-                radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
-            ),
-        )
+        radiusM: Double,
+    ): Long = dao.insert(Place(label = label, lat = lat, lon = lon, createdAt = now, radiusM = radiusM))
 
-    suspend fun rename(id: Long, label: String) = dao.rename(id, label)
-
-    suspend fun setRadius(id: Long, radiusM: Double) = dao.setRadius(id, radiusM)
+    /** Everything the editor commits about an existing place, as one row write — see [PlaceDao.update]. */
+    suspend fun save(id: Long, label: String, lat: Double, lon: Double, radiusM: Double) =
+        dao.update(id, label, lat, lon, radiusM)
 
     /**
      * Tag what the place is for; null untags. Clustering reads only the pin and radius, so unlike a
@@ -48,9 +42,6 @@ class PlaceRepository(context: Context, db: AppDatabase = AppDatabase.get(contex
      * Callers should skip the write when nothing changed.
      */
     suspend fun setCategory(id: Long, category: PlaceCategory?) = dao.setCategory(id, category?.code)
-
-    /** Explicit pin move (the re-center action) — the only path that ever changes a pin. */
-    suspend fun setPin(id: Long, lat: Double, lon: Double) = dao.setPin(id, lat, lon)
 
     suspend fun delete(id: Long) = dao.delete(id)
 

@@ -65,6 +65,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -295,6 +296,14 @@ private fun MainScreen(
     // a snackbar mid-timer and the undo with it.
     val snackbarHostState = remember { SnackbarHostState() }
     val undo = rememberUndoSnackbar(snackbarHostState)
+    // One removal, two entry points (the Places list's swipe and the editor's button): a place goes,
+    // and the way back is the Undo — which has to be raised from this host, not from a screen that
+    // may be dismissed by the same tap. Deleting removes only the label; the stays stay, as a
+    // detected stop again, and restoring re-pins the row exactly as it was.
+    val removePlace: (Place) -> Unit = { place ->
+        viewModel.deletePlace(place.id)
+        undo.show("\"${place.label}\" deleted") { viewModel.restorePlace(place) }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // The tabbed UI stays composed underneath so it can be previewed during the back gesture.
@@ -413,8 +422,8 @@ private fun MainScreen(
 
                     HomeTab.PLACES -> PlacesTab(
                         viewModel = viewModel,
-                        undo = undo,
                         onOpenPlace = { placeDetailKey = it },
+                        onRemovePlace = removePlace,
                     )
                 }
             }
@@ -438,8 +447,17 @@ private fun MainScreen(
             viewModel = viewModel,
             snapshot = placeDetailSnapshot,
             onResolved = { s ->
-                placeDetailSnapshot = s
-                if (placeDetailKey != null && placeDetailKey != s.key) placeDetailKey = s.key
+                // Only a summary the fresh list actually held may re-key the screen: `reacquire`
+                // hands back this very snapshot when neither the key nor the pin matched anything yet
+                // (a derivation still catching up), and following *that* key would rewrite it back to
+                // the cluster a place was just created from — after which a create that moved the pin
+                // never resolves again.
+                if (s !== placeDetailSnapshot) {
+                    placeDetailSnapshot = s
+                    // The layer stays composed through its exit animation, so a derivation landing
+                    // then must not resurrect a key the close just cleared.
+                    if (placeDetailKey != null && placeDetailKey != s.key) placeDetailKey = s.key
+                }
             },
             onClose = { placeDetailKey = null },
             onOpenVisit = { stay ->
@@ -454,7 +472,20 @@ private fun MainScreen(
         PlaceEditOverlay(
             layer = placeEditLayer,
             viewModel = viewModel,
+            snapshot = placeDetailSnapshot,
             onClose = { editingArea = false },
+            // The row's id is the only thing that identifies a just-created place until a derivation
+            // has run — by position it can't be followed, a hand-placed pin being exactly what may
+            // have moved. Re-keyed onto the row, the screen under the editor flips from the detected
+            // stop to the place as soon as the derivation lands.
+            onCreated = { id -> placeDetailKey = PlaceResolver.keyOf(id) },
+            // Both layers go with it: the editor and the detail underneath are both about a row that
+            // no longer exists, and the detail's key (`place:<id>`) would resolve against nothing.
+            onRemove = { place ->
+                editingArea = false
+                placeDetailKey = null
+                removePlace(place)
+            },
         )
 
         SettingsPagesOverlay(
@@ -590,12 +621,18 @@ private fun PlaceDetailOverlay(
 private fun PlaceEditOverlay(
     layer: OverlayLayerState<String>,
     viewModel: TrackListViewModel,
+    snapshot: PlaceResolver.PlaceSummary?,
     onClose: () -> Unit,
+    onCreated: (Long) -> Unit,
+    onRemove: (Place) -> Unit,
 ) {
     OverlayFrame(layer) { editKey ->
         val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
-        // No snapshot fallback: a named place's key is `place:<id>`, which nothing here can move.
-        val summary = rememberPlaceSummary(placeSummaries, editKey, null)
+        // The detail screen's own snapshot, shared: a named place's key is `place:<id>` and nothing
+        // can move it, but a cluster being named here is keyed `cluster:<n>` — an index a
+        // re-derivation is free to reassign, which without the fallback would drop the editor
+        // mid-edit.
+        val summary = rememberPlaceSummary(placeSummaries, editKey, snapshot)
         summary?.let { detail ->
             // Keyed on the place, not on the summaries: those take a new identity on every
             // derivation, and redoing this would hand the map fresh neighbor, dot and rival lists
@@ -622,6 +659,8 @@ private fun PlaceEditOverlay(
                 rivals = neighborhood.rivals,
                 viewModel = viewModel,
                 onClose = onClose,
+                onCreated = onCreated,
+                onRemove = onRemove,
             )
         }
     }

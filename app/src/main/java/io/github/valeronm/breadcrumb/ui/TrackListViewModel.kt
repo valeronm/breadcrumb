@@ -238,22 +238,44 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlaceCategorySuggester.Untrained)
 
-    fun renamePlace(id: Long, label: String) {
-        val trimmed = label.trim()
-        if (trimmed.isEmpty()) return
-        viewModelScope.launch { placeRepository.rename(id, trimmed) }
-    }
-
     /**
-     * Name an unnamed cluster from the Places screen — pins a place at its centroid. Always
-     * untagged: naming and categorizing are separate steps, because what a place is called is what
-     * the category suggestion is read from.
+     * Everything the place editor decides, committed as **one** row write: a name, where the place
+     * sits and how far it reaches. [existing] null creates the place — always untagged, because
+     * naming and categorizing are separate steps and the category suggestion is read off the name.
+     *
+     * An unchanged place writes nothing. That guard belongs here rather than at the button: every
+     * write invalidates `places` and re-runs the derivation each screen reads, and a pin or a radius
+     * moving re-clusters the whole history — so what counts as "changed" is a data-layer question,
+     * not something a Done tap should be trusted to have asked.
+     *
+     * [onCreated] gets the inserted row's id, and only on a create. Creating is the one act that
+     * changes a place's key, and until a derivation has run that id is all that identifies the row:
+     * [PlaceResolver.reacquire] can otherwise only follow a named cluster by position, which a
+     * hand-placed pin has just moved. Handed to the caller rather than broadcast, so the screen that
+     * asked is the screen that follows it.
      */
-    fun createPlace(lat: Double, lon: Double, label: String) {
+    fun savePlace(
+        existing: Place?,
+        label: String,
+        pin: StayDeriver.Endpoint,
+        radiusM: Double,
+        onCreated: (Long) -> Unit,
+    ) {
         val trimmed = label.trim()
         if (trimmed.isEmpty()) return
+        val unchanged = existing != null &&
+            trimmed == existing.label &&
+            pin.lat == existing.lat &&
+            pin.lon == existing.lon &&
+            radiusM == existing.radiusM
+        if (unchanged) return
         viewModelScope.launch {
-            placeRepository.create(trimmed, lat, lon, System.currentTimeMillis())
+            val now = System.currentTimeMillis()
+            if (existing == null) {
+                onCreated(placeRepository.create(trimmed, pin.lat, pin.lon, now, radiusM))
+            } else {
+                placeRepository.save(existing.id, trimmed, pin.lat, pin.lon, radiusM)
+            }
         }
     }
 
@@ -272,16 +294,6 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun setPlaceCategory(id: Long, category: PlaceCategory?) {
         viewModelScope.launch { placeRepository.setCategory(id, category) }
-    }
-
-    /** Set a place's capture radius; the derivation re-runs and re-clusters reactively. */
-    fun setPlaceRadius(id: Long, radiusM: Double) {
-        viewModelScope.launch { placeRepository.setRadius(id, radiusM) }
-    }
-
-    /** Move a place's pin (re-center action); clustering and stays re-derive around it. */
-    fun setPlacePin(id: Long, lat: Double, lon: Double) {
-        viewModelScope.launch { placeRepository.setPin(id, lat, lon) }
     }
 
     /**
