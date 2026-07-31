@@ -23,7 +23,10 @@ python3 -m http.server -d web 8000
   one at a time so a multi-hundred-MB export never needs a whole-file `JSON.parse`.
 - `js/import-worker.js` — off-thread import: gunzip (`DecompressionStream`) → parse → typed
   arrays per track (time/lonlat/ignore-reason/flags/speed/…) + a Douglas-Peucker-simplified
-  overview geometry → IndexedDB. Import happens once per file; reopening the page is instant.
+  overview geometry per stretch the recorder watched → IndexedDB. This is also where a segment break
+  is normalized onto the good fix that resumed recording (the app's `SegmentBreaks`, at the layer
+  that reads its database), so every drawing path downstream asks a plain per-point question and
+  none of them carries state. Import happens once per file; reopening the page is instant.
   Bumping `DB_VERSION` in `js/db.js` drops the stores, so the backup has to be dropped in again —
   they are a cache of the file, not a second copy of the history.
 - `js/stays.js` — the app's stay derivation (`StayDeriver` + `PlaceClusterer` +
@@ -67,9 +70,11 @@ python3 -m http.server -d web 8000
   satellite fix) are markers in the app's own legend colors, while the recorder's *overrun* — good
   fixes of a phone that had already arrived — is a grayed leg hanging off the path, anchored to the
   fix either side so it meets the line. A corner legend names whichever of those a selected track
-  actually has. The path itself is one polyline: a segment break records that the recorder stopped
-  watching, not that the phone stopped moving, and the app draws through it on the map for the same
-  reason its distance counts that ground.
+  actually has. The path is cut wherever a segment break records that the recorder stopped watching:
+  the ground across one was covered — distance counts it, here as in the app — but nobody traced it,
+  and a line drawn through it claims a route that was never observed. Both maps are cut the same way:
+  the segmentation is decided once at import, so the overview's simplified geometries come as one line
+  per watched stretch rather than one per track.
 
   The sidebar is the app's **timeline**, not a track list: tracks interleaved with the derived
   stays and gaps, newest first, each interval sliced at midnight so every row falls inside one day.
@@ -79,10 +84,16 @@ python3 -m http.server -d web 8000
 ```bash
 node web/test/draw-test.mjs                                  # hand-built cases, no file needed
 node web/test/stays-test.mjs                                 # ditto — the derivation's decision table
-node web/test/parse-test.mjs <breadcrumb-export.json.gz>
-node web/test/convert-test.mjs <breadcrumb-export.json.gz>
+node web/test/segments-test.mjs                              # ditto — what import does with a break
+node web/test/parse-test.mjs <breadcrumb-export.json.gz>     # holds the export whole, as its oracle
+node web/test/convert-test.mjs <breadcrumb-export.json.gz>   # streamed, so any size runs
 ```
 
 `stays-test.mjs` mirrors the app's own `StayDeriverTest` case for case, on the same flat-earth
 distance stub — the two suites are how the viewer and the app are held to one answer about what
 counts as the same place.
+
+`parse-test.mjs` checks the incremental parser against a whole-file `JSON.parse` of the same export,
+at several chunk sizes plus a one-character feed. Its oracle is what caps it: `JSON.parse` needs the
+text as one string, so an export whose decompressed text passes V8's ~512 MB limit can't be used
+here. That costs nothing — chunk size is what varies the parser's states, not file length.

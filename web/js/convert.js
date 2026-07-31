@@ -9,6 +9,13 @@ const OVERVIEW_TOLERANCE_DEG = 1e-4;
 
 // Flags bitmask per point. Whether a point is ignored is NOT a flag: the reason byte below carries
 // that, and one value of it means "on the path" — two places saying the same thing could disagree.
+//
+// Stored NORMALIZED, not as the export wrote it: a break marks the boundary the recorder resumed at,
+// and the export can leave it on a fix nothing draws — the first fix after a pause is exactly the
+// cold-start stray the app's jump rule rejects, and a merge marks the later track's first point
+// whatever its state. So convert() moves a break off an ignored fix onto the first good one after it
+// and clears the original, exactly as the app's SegmentBreaks does on the way out of its database.
+// Every reader then gets to ask a plain per-point question, and none of them carries state.
 export const FLAG_SEGMENT_START = 1;
 
 // Why a point is off the path, mirroring the app's IgnoreReason. The distinction is the whole point
@@ -66,11 +73,15 @@ export function convertTrack(track, f) {
   const flags = new Uint8Array(n);
   const reasons = new Uint8Array(n);
 
-  const good = []; // flat lon/lat of non-ignored points, for the overview geometry and bbox
+  // The good fixes as flat lon/lat, cut into the stretches the recorder actually watched: one
+  // simplified line each, since simplifying across a break would let a leg nobody drew decide which
+  // fixes either side of it survive. The bbox spans them all — a break moves no fix.
+  const watched = [];
   let minLon = Infinity;
   let minLat = Infinity;
   let maxLon = -Infinity;
   let maxLat = -Infinity;
+  let carriedBreak = false;
   for (let i = 0; i < n; i++) {
     const p = raw[i];
     const lat = p[f.lat];
@@ -82,18 +93,23 @@ export function convertTrack(track, f) {
     speed[i] = p[f.speed] ?? NaN;
     accuracy[i] = p[f.accuracy] ?? NaN;
     const ignored = p[f.ignored] === 1;
-    flags[i] = p[f.segmentStart] === 1 ? FLAG_SEGMENT_START : 0;
+    if (p[f.segmentStart] === 1) carriedBreak = true;
     reasons[i] = ignored ? (REASON_BY_CODE[p[f.ignoreReason]] ?? REASON_ACCURACY) : REASON_NONE;
-    if (!ignored) {
-      good.push(lon, lat);
-      if (lon < minLon) minLon = lon;
-      if (lat < minLat) minLat = lat;
-      if (lon > maxLon) maxLon = lon;
-      if (lat > maxLat) maxLat = lat;
-    }
+    if (ignored) continue;
+    // The break belongs to the boundary, so it lands here whichever row the export wrote it on.
+    if (carriedBreak) flags[i] = FLAG_SEGMENT_START;
+    if (carriedBreak || !watched.length) watched.push([]);
+    carriedBreak = false;
+    watched.at(-1).push(lon, lat);
+    if (lon < minLon) minLon = lon;
+    if (lat < minLat) minLat = lat;
+    if (lon > maxLon) maxLon = lon;
+    if (lat > maxLat) maxLat = lat;
   }
 
-  const overview = simplify(good, OVERVIEW_TOLERANCE_DEG);
+  const overview = watched
+    .filter((segment) => segment.length >= 4)
+    .map((segment) => simplify(segment, OVERVIEW_TOLERANCE_DEG).buffer);
   const row = {
     id: track.id,
     activityType: track.activityType,
@@ -110,8 +126,10 @@ export function convertTrack(track, f) {
     startLon: track.startLon ?? null,
     endLat: track.endLat ?? null,
     endLon: track.endLon ?? null,
-    bbox: good.length ? [minLon, minLat, maxLon, maxLat] : null,
-    overview: overview.buffer,
+    bbox: watched.length ? [minLon, minLat, maxLon, maxLat] : null,
+    // One simplified line per watched stretch — several where the recording was interrupted, and the
+    // usual one where it wasn't.
+    overview,
   };
   // Geometry (what rendering a track needs) is stored separately from the metric arrays so
   // selecting a track never loads bytes it won't draw; the extras are kept for the planned

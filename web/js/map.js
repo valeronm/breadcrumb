@@ -1,9 +1,11 @@
 // The MapLibre map: an all-tracks overview (simplified geometries, colored by activity) with a
 // full-resolution layer for the selected track. Mirrors the app's map conventions where they matter:
-// Protomaps basemap, the path as one polyline, rejected fixes as markers colored by why they were
-// rejected, and the recorder's overrun as a grayed leg hanging off the path rather than as noise.
+// Protomaps basemap, the path cut where the recorder stopped watching, rejected fixes as markers
+// colored by why they were rejected, and the recorder's overrun as a grayed leg hanging off the
+// path rather than as noise.
 
 import {
+  FLAG_SEGMENT_START,
   REASON_NONE, REASON_ACCURACY, REASON_JUMP, REASON_NO_GNSS, REASON_EDGE_STAY,
 } from "./convert.js";
 import { metersBetween } from "./geo.js";
@@ -294,17 +296,22 @@ function whenLoaded(map, fn) {
   else map.once("load", fn);
 }
 
-/** Rebuilds the overview from track rows ({id, activityType, overview: ArrayBuffer}). */
+/** Rebuilds the overview from track rows ({id, activityType, overview: ArrayBuffer[]}) — one feature
+ * per watched stretch, so a track the recorder stopped watching mid-journey spans the gap here no
+ * more than it does at full resolution. Every feature carries the track's id, so a click or a
+ * selection still addresses the whole track. */
 export function setOverview(map, tracks) {
   whenLoaded(map, () => {
     const features = [];
     const bounds = new maplibregl.LngLatBounds();
     for (const t of tracks) {
-      const coords = new Float64Array(t.overview);
-      if (coords.length < 4) continue;
-      const line = [];
-      for (let i = 0; i < coords.length; i += 2) line.push([coords[i], coords[i + 1]]);
-      features.push(lineFeature(line, { id: t.id, color: activityColor(t.activityType) }));
+      const color = activityColor(t.activityType);
+      for (const segment of t.overview) {
+        const coords = new Float64Array(segment);
+        const line = [];
+        for (let i = 0; i < coords.length; i += 2) line.push([coords[i], coords[i + 1]]);
+        features.push(lineFeature(line, { id: t.id, color }));
+      }
       if (t.bbox) {
         bounds.extend([t.bbox[0], t.bbox[1]]);
         bounds.extend([t.bbox[2], t.bbox[3]]);
@@ -386,40 +393,48 @@ function circleRing(center, radiusM) {
 }
 
 /** Splits a track's points the three ways they are drawn, mirroring the app's own split: the path,
- * the fixes rejected for quality, and the recorder's overrun grouped into runs. The path is ONE
- * polyline — a segment break says the recorder stopped watching, not that the phone stopped
- * moving; the app draws straight through it for the same reason and its distance counts that
- * ground, and where the break matters (GPX segments) the flag is carried, not the drawing. Each
- * overrun run is anchored to the good fix either side, so the grayed leg meets the path instead of
- * floating short of it; a run between two good fixes — what a merge leaves buried mid-track — is
+ * the fixes rejected for quality, and the recorder's overrun grouped into runs. The path comes back
+ * as SEVERAL polylines, cut wherever a segment break says the recorder stopped watching: the ground
+ * across one was covered — distance counts it, here as in the app — but nobody traced it, and a line
+ * drawn through it claims a route that was never observed. The flag is read straight off the fix,
+ * convert() having already moved it onto the good fix that resumed; nothing here carries state.
+ * Each overrun run is anchored to the good fix either side, so the grayed leg meets the path instead
+ * of floating short of it — except across a break, where anchoring it would draw the very leg the
+ * path just refused to. A run between two good fixes — what a merge leaves buried mid-track — is
  * connected on both sides rather than dropped: it is still recording the app knows about, and a
  * viewer that draws nothing there is the one place its own data goes missing.
  * Exported for the node test; nothing else outside this module calls it. */
-export function splitForDrawing(lonlat, reasons, n) {
-  const path = [];
+export function splitForDrawing(lonlat, reasons, flags, n) {
+  const paths = [];
   const rejected = [];
   const overruns = [];
+  let current = null;
   let run = null;
   for (let i = 0; i < n; i++) {
     const c = [lonlat[i * 2], lonlat[i * 2 + 1]];
     const reason = reasons[i];
+    const resumes = (flags[i] & FLAG_SEGMENT_START) !== 0;
     if (reason === REASON_NONE) {
       if (run) {
-        run.push(c); // close it onto the fix that resumes the path
+        if (!resumes) run.push(c); // close it onto the fix that resumes the path
         overruns.push(run);
         run = null;
       }
-      path.push(c);
+      if (resumes || !current) {
+        current = [];
+        paths.push(current);
+      }
+      current.push(c);
     } else if (reason === REASON_EDGE_STAY) {
       // A rejected fix inside a stay doesn't end it — the phone was still parked.
-      if (!run) run = path.length ? [path.at(-1)] : [];
+      if (!run) run = current?.length ? [current.at(-1)] : [];
       run.push(c);
     } else {
       rejected.push(pointFeature(c, { reason }));
     }
   }
   if (run) overruns.push(run);
-  return { path, rejected, overruns };
+  return { paths, rejected, overruns };
 }
 
 /**
@@ -431,20 +446,22 @@ export function showTrack(map, track, geometry) {
   // Imports before the reason byte existed can't reach here (the store version forces a re-import),
   // so a missing array would be a bug, not an old file.
   const reasons = new Uint8Array(geometry.reasons);
-  const { path, rejected, overruns } = splitForDrawing(lonlat, reasons, geometry.count);
+  const flags = new Uint8Array(geometry.flags);
+  const { paths, rejected, overruns } = splitForDrawing(lonlat, reasons, flags, geometry.count);
 
   whenLoaded(map, () => {
     const color = activityColor(track.activityType);
     clearSelectionSources(map);
     map.getSource("selected").setData(
-      fc(path.length >= 2 ? [lineFeature(path, { color })] : []),
+      fc(paths.filter((p) => p.length >= 2).map((p) => lineFeature(p, { color }))),
     );
     map.getSource("overrun").setData(fc(overruns.filter((r) => r.length >= 2).map(lineFeature)));
     map.getSource("ignored").setData(fc(rejected));
     paintOverview(map, track.id);
-    // The good fixes the trip ran between, including a single one the line above can't draw. A
-    // track with nothing but ignored fixes has no endpoints to judge places by, so it mutes none.
-    paintPlaces(map, path.length ? [path[0], path.at(-1)] : null);
+    // The good fixes the trip ran between, including a single one the line above can't draw — the
+    // trip's own two ends, not each segment's, however many breaks fall in between. A track with
+    // nothing but ignored fixes has no endpoints to judge places by, so it mutes none.
+    paintPlaces(map, paths.length ? [paths[0][0], paths.at(-1).at(-1)] : null);
     if (track.bbox) {
       map.fitBounds([[track.bbox[0], track.bbox[1]], [track.bbox[2], track.bbox[3]]], {
         padding: 64,

@@ -1,13 +1,13 @@
 // Parses a real export and converts every track, checking the typed-array shapes against the
-// source data. Run: node web/test/convert-test.mjs <export.json.gz>
+// source data. Streamed rather than loaded, so it runs on a full history — the decompressed text of
+// one is past the longest string V8 will make.
+// Run: node web/test/convert-test.mjs <export.json.gz>
 import assert from "node:assert/strict";
 import { BackupParser } from "../js/backup-parse.js";
 import {
   indexFields, convertTrack, FLAG_SEGMENT_START, REASON_NONE, REASON_EDGE_STAY,
 } from "../js/convert.js";
-import { loadExportText, feed } from "./helpers.mjs";
-
-const text = loadExportText(process.argv, "node convert-test.mjs");
+import { feedExport } from "./helpers.mjs";
 
 const t0 = performance.now();
 let fields = null;
@@ -48,15 +48,17 @@ const parser = new BackupParser({
       const [minLon, minLat, maxLon, maxLat] = row.bbox;
       assert.ok(minLon <= maxLon && minLat <= maxLat);
     }
-    const overview = new Float64Array(row.overview);
-    assert.ok(overview.length / 2 <= n - trackIgnored || overview.length === 0);
-    overviewPoints += overview.length / 2;
+    // One line per watched stretch, and simplification only ever drops vertices — so the whole
+    // overview is still bounded by the track's good fixes however many breaks cut it.
+    const overviewCount = row.overview.reduce((sum, b) => sum + new Float64Array(b).length / 2, 0);
+    assert.ok(overviewCount <= n - trackIgnored);
+    overviewPoints += overviewCount;
     ignored += trackIgnored;
     tracks++;
     points += n;
   },
 });
-feed(parser, text, 1 << 20);
+await feedExport(parser, process.argv, "node convert-test.mjs");
 const ms = performance.now() - t0;
 
 // A file whose pointFields lack a mandatory field must be rejected, not imported as NaN tracks.
