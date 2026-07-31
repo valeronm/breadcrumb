@@ -77,8 +77,20 @@ verification:
 3. Hand off with a short test plan: where to navigate, what the change should look like, and what
    would indicate a regression — pointing at concrete tracks/places found in the device data beats
    generic instructions. Mining the data for such cases is encouraged:
-   read-only adb — logcat, pulling a copy of the app's DB (`adb exec-out run-as
-   io.github.valeronm.breadcrumb.debug cat databases/tracks.db`) — is fine. Screenshots are not:
+   read-only adb — logcat, pulling a copy of the app's DB — is fine. **Pull all three files**, not
+   just `tracks.db`: Room runs in WAL mode, so a recent commit can still be sitting in
+   `tracks.db-wal` and a lone main file reads as though it never happened — which bites exactly when
+   investigating something that just occurred.
+
+   ```bash
+   for f in tracks.db tracks.db-wal tracks.db-shm; do
+     adb exec-out run-as io.github.valeronm.breadcrumb.debug cat databases/$f > $f
+   done
+   ```
+
+   Open `tracks.db` from the directory holding all three and SQLite replays the log on open. A track
+   still missing its `endedAt` after that is genuinely dangling (a process death mid-recording, which
+   an install causes), not merely uncheckpointed. Screenshots are not:
    `screencap` grabs whatever is currently on the phone's screen, which can expose personal info
    from other apps — take one only when the user asks for it.
 
