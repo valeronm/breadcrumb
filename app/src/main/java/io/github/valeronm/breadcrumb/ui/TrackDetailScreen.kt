@@ -148,9 +148,8 @@ internal fun TrackMapScreen(
     val activity = remember(summary) {
         summary?.let { ActivityType.ofName(it.activityType) }
     }
-    val colorModes = remember(points, summary?.source) {
-        availableColorModes(points.orEmpty(), TrackOrigin.fromCode(summary?.source))
-    }
+    val source = TrackOrigin.fromCode(summary?.source)
+    val colorModes = remember(points, source) { availableColorModes(points.orEmpty(), source) }
     var selectedMode by remember { mutableStateOf(ColorMode.SPEED) }
     // The points arrive after the first composition, so a mode can be selected and then turn out to
     // have nothing behind it — on a track opened from a metric the last one had.
@@ -270,7 +269,13 @@ internal fun TrackMapScreen(
                     ) {
                         val blocks = if (graph != null) 3 else 2
                         Card(Modifier.fillMaxWidth(), shape = groupedRowShape(0, blocks)) {
-                            ColorModeSelector(colorMode, colorModes) { selectedMode = it }
+                            ColorModeSelector(
+                                colorMode,
+                                colorModes,
+                                // Only the import is named: a recording is what a track is, and a
+                                // word on every other one would say nothing.
+                                caption = "Imported".takeIf { source == TrackOrigin.IMPORTED },
+                            ) { selectedMode = it }
                         }
                         // The map card takes the stretch.
                         Card(Modifier.weight(1f).fillMaxWidth(), shape = groupedRowShape(1, blocks)) {

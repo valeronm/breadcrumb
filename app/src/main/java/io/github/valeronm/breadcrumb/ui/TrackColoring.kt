@@ -21,6 +21,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -270,25 +271,50 @@ internal fun trackColoring(
     }
 }
 
-/** Horizontally-scrollable chips to pick how the track line is colored. */
+/**
+ * Horizontally-scrollable chips to pick how the track line is colored, with [caption] held at the
+ * card's trailing edge where the track has something to say about itself.
+ *
+ * A caption rather than a chip, and deliberately not tappable: it is here because this is the row an
+ * imported track comes up short in, so the word explaining that belongs beside the gap and not on a
+ * screen of its own. The top bar has no room for it (four actions share it) and the map's corners
+ * are spoken for by three legends. It sits **outside** the scroll — a trailing element inside one
+ * has no fixed edge to sit at, and would be reachable only by scrolling the chips to their end.
+ */
 @Composable
 internal fun ColorModeSelector(
     selected: ColorMode,
     modes: List<ColorMode>,
+    caption: String? = null,
     onSelect: (ColorMode) -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        for (mode in modes) {
-            FilterChip(
-                selected = mode == selected,
-                onClick = { onSelect(mode) },
-                label = { Text(mode.label) },
+        Row(
+            // The weight is what keeps the chips from pushing the caption off the card: they scroll
+            // within what is left over, rather than the row growing to fit them.
+            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            for (mode in modes) {
+                FilterChip(
+                    selected = mode == selected,
+                    onClick = { onSelect(mode) },
+                    label = { Text(mode.label) },
+                )
+            }
+        }
+        if (caption != null) {
+            Text(
+                caption,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
