@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,7 +42,6 @@ import io.github.valeronm.breadcrumb.domain.TimeRenderer
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.location.TrackingStatus
-import io.github.valeronm.breadcrumb.util.avgSpeedKmh
 import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.YearMonth
@@ -274,10 +274,13 @@ private fun CurrentTrackPreview(
     modifier: Modifier = Modifier,
 ) {
     val activity = status.activity
-    Card(modifier = modifier) {
-        Column {
-            // The map takes whatever height the card is given beyond the stats block.
-            Box(modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds()) {
+    // Two cards reading as one block, as the track screen's map and scrubber do: small gap, small
+    // corners where they meet. The seam is what lets the stats sit against the card's own width
+    // without the map's rounded corner cutting into the row.
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        // The map takes whatever height the card is given beyond the stats block.
+        Card(Modifier.fillMaxWidth().weight(1f), shape = groupedRowShape(0, 2)) {
+            Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
                 if (points.size >= 2) {
                     MapLibreTrackMap(points = points, activity = activity, directionalEnd = true)
                 } else {
@@ -289,26 +292,52 @@ private fun CurrentTrackPreview(
                     )
                 }
             }
-            Column(Modifier.padding(16.dp)) {
+        }
+        // Vertical padding only: the stats row below divides the card's own width, so an inset
+        // on it would leave the two outer columns wider than the inner ones by that much and
+        // put the rules off-centre. The title takes the inset it needs on its own.
+        Card(Modifier.fillMaxWidth(), shape = groupedRowShape(1, 2)) {
+            // Less above than below: the seam over the title adds to the gap, and the title's own
+            // line leading adds again, so equal padding reads top-heavy.
+            Column(Modifier.padding(top = 10.dp, bottom = 16.dp)) {
                 Text(
                     "Current track · ${status.activity?.label ?: "Idle"}",
+                    modifier = Modifier.padding(horizontal = 16.dp),
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Spacer(Modifier.height(8.dp))
                 // Live trip stats; the status flow updates per fix, which keeps these ticking.
                 val startedAt = status.startedAtMillis
-                val durationS = startedAt?.let { (System.currentTimeMillis() - it) / 1000.0 } ?: 0.0
-                val avgKmh = avgSpeedKmh(status.distanceMeters, durationS)
                 val units = LocalUnits.current
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    StatItem("Distance", units.distance(status.distanceMeters))
+                // Equal-width columns, not SpaceBetween: these values change every fix, and with
+                // content-sized cells the free space between them is redistributed on each change
+                // — every separator shifts as a digit is gained or lost. Weights pin the rules and
+                // let the text re-centre under them instead.
+                Row(
+                    // Intrinsic height so each separator spans this row's own cells — see
+                    // [StatSeparator], whose rule is sized by the row rather than by a constant.
+                    Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    StatItem("Distance", units.distance(status.distanceMeters), Modifier.weight(1f))
+                    StatSeparator()
                     StatItem(
                         "Duration",
                         startedAt?.let { formatDuration(it, System.currentTimeMillis()) } ?: "—",
+                        Modifier.weight(1f),
                     )
-                    StatItem("Speed", status.speedMps?.let { units.speedFromKmh(it * 3.6) } ?: "—")
-                    StatItem("Avg", if (avgKmh > 0) units.speedFromKmh(avgKmh) else "—")
-                    StatItem("Elevation", status.altitudeM?.let { units.shortDistance(it) } ?: "—")
+                    StatSeparator()
+                    StatItem(
+                        "Speed",
+                        status.speedMps?.let { units.speedFromKmh(it * 3.6) } ?: "—",
+                        Modifier.weight(1f),
+                    )
+                    StatSeparator()
+                    StatItem(
+                        "Elevation",
+                        status.altitudeM?.let { units.shortDistance(it) } ?: "—",
+                        Modifier.weight(1f),
+                    )
                 }
             }
         }
@@ -422,8 +451,8 @@ private fun AutoRecordControls(
 }
 
 @Composable
-private fun StatItem(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun StatItem(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, style = MaterialTheme.typography.titleMedium)
         Text(label, style = MaterialTheme.typography.labelSmall)
     }
