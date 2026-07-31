@@ -56,9 +56,10 @@ run the tests after touching anything they cover. **Room runs in these host test
 covered without a device — see `TrackRepositoryTest`, `Migration10To11Test`, and
 `TimelineInvalidationTest`. Robolectric emulates up to SDK 36 while the app targets 37, so its
 tests are pinned in `app/src/test/resources/robolectric.properties`; raise it when Robolectric
-catches up. **Robolectric's native runtime doesn't support Linux aarch64**, so on an arm64 dev box
+catches up. **Robolectric's native runtime ships no Linux aarch64 build**, so on an arm64 dev box
 every Room-backed test fails with an architecture assertion, whatever the change — that's the
-environment, not a regression, and CI is where those tests actually run.
+environment, not a regression. Run them with `-PqemuJdk`, which forks the test worker into an
+x86_64 JVM under qemu (see "Running the Room tests on arm64"); without it, CI is where they run.
 
 A domain rule must be tested through the params that **ship**. `EdgeStayDetectorTest` runs
 `EdgeStayDetector.BRIEF_STOP` (and `VEHICLE` where the activity floor is the point) rather than the
@@ -66,6 +67,37 @@ A domain rule must be tested through the params that **ship**. `EdgeStayDetector
 green through any change to the numbers the recorder actually runs. There are still no instrumented/UI tests: behavior above the data layer is verified by
 building and driving the app on a device/emulator (activity recognition needs real movement or an
 emulator route).
+
+### Running the Room tests on arm64
+
+`nativeruntime-dist-compat` carries `native/linux/x86_64/`, `native/mac/{aarch64,x86_64}/` and
+`native/windows/x86_64/` — no Linux arm64, and none of the published versions has one, so waiting
+for a Robolectric bump is not the fix. `-PqemuJdk` instead points the **test worker** at an x86_64
+JVM run under `qemu-x86_64`; the Gradle daemon and all compilation stay native, so only the fork
+pays. Once per machine:
+
+```bash
+sudo apt install qemu-user libc6-amd64-cross libstdc++6-amd64-cross libgcc-s1-amd64-cross
+./gradlew :app:provisionQemuTestJdk      # ~200 MB, pinned version + SHA-256
+./gradlew :app:testDebugUnitTest -PqemuJdk
+```
+
+`provisionQemuTestJdk` downloads a pinned Temurin build into `$GRADLE_USER_HOME/jdks/`, so nothing
+is tied to one machine's layout, and rewrites its `bin/java` as a wrapper exec'ing
+`qemu-x86_64 -L <sysroot> bin/java.real`. Overrides: `-PqemuBin`, `-PqemuSysroot`, and
+`-PqemuJdk=/path` for an entirely separate JVM. The build file carries the constraints that shaped
+it — why the `-L` prefix is baked into the wrapper, why the wrapper replaces `bin/java` in place,
+why provisioning can't be a task dependency, and why none of it is a Gradle toolchain — beside the
+code each one explains.
+
+Iterating on one Room test wants a filter, since the flag applies to the whole task:
+`-PqemuJdk --tests "*TrackRepositoryTest"`. The tax lands only where the work is real — the pure
+tests cost a second or two more, while the Robolectric classes, which on arm64 previously ran
+*nothing* (each aborting in `setUpApplicationState`), account for essentially all of the added
+minute. Emulation is not a second opinion on CI, though: it runs the same x86_64 code CI runs, so a
+green local run means the tests pass, not that they'd pass on some third platform. It buys no
+coverage either — JaCoCo doesn't see through Robolectric's sandbox classloader, so those classes
+read 0% however they exit.
 
 ## Testing on the device
 
@@ -378,7 +410,7 @@ legend code in `TrackColoring.kt` (cross-file symbols are `internal`, not `priva
 duration ladder in `DurationFormat.kt`. **No top-level `val` in these files may reach the Android
 framework eagerly** — Kotlin compiles them into one class initializer per file, so a single eager
 `android.graphics` call makes *every* pure function in that file unloadable from a plain JVM test,
-testable only under Robolectric, which on an arm64 box means not at all. `untaggedPinColor` is `by
+dragging a sandbox and an emulated JVM behind an arithmetic assertion. `untaggedPinColor` is `by
 lazy` for exactly this reason. That is the rule; which file a formatter sits in is then free. The track
 map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps
 vector basemap** (dark or light flavor following the app theme): **the track is one line feature per

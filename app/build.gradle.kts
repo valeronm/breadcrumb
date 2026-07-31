@@ -1,4 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.net.URI
+import java.security.DigestInputStream
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -24,6 +27,117 @@ val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) {
         keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+// Robolectric's native runtime ships no Linux arm64 build, so on an arm64 box every Room-backed
+// test dies in setUpApplicationState whatever the change. Forking the test worker — and only the
+// worker, so compilation stays native — into an x86_64 JVM under qemu makes them runnable there.
+// Opt-in via -PqemuJdk, because emulation costs the several hundred native tests wall-clock they
+// have no need to spend. Provision the JVM first with :app:provisionQemuTestJdk.
+val qemuJdkRelease = "jdk-21.0.12+8"
+val qemuJdkArchive = "OpenJDK21U-jdk_x64_linux_hotspot_21.0.12_8.tar.gz"
+val qemuJdkSha256 = "e4446ff06a276155697597cc0f1b15da004ff083f4964a35271ecee567177370"
+val qemuSysroot = providers.gradleProperty("qemuSysroot").getOrElse("/usr/x86_64-linux-gnu")
+
+// Under the Gradle user home rather than a path in this build, so it is shared between checkouts
+// and lands wherever GRADLE_USER_HOME points — the same place Gradle's own toolchain
+// auto-provisioning keeps JDKs.
+val qemuJdkDir = File(gradle.gradleUserHomeDir, "jdks/temurin-$qemuJdkRelease-linux-x64-qemu")
+
+// The launcher rather than the home, because that is what a JVM reads its own java.home from.
+val qemuJavaLauncher: File? =
+    providers.gradleProperty("qemuJdk").orNull
+        ?.ifBlank { qemuJdkDir.path }
+        ?.let { File(it, "bin/java") }
+        ?.also { launcher ->
+            require(launcher.exists()) {
+                "No x86_64 test JDK at ${launcher.parentFile.parent}. Provision one with " +
+                    "`./gradlew :app:provisionQemuTestJdk` (downloads ~200 MB), or point -PqemuJdk " +
+                    "at an existing one."
+            }
+        }
+
+// Not a toolchain: Gradle's JavaToolchainSpec cannot express a foreign architecture, and the
+// foojay resolver only ever offers builds for the host's own.
+tasks.register("provisionQemuTestJdk") {
+    group = "build setup"
+    description = "Downloads the x86_64 JDK that -PqemuJdk forks test workers into."
+    // Captured as values, not read through the enclosing script: a task action that touches the
+    // script instance holds a Project reference and fails to serialize for the configuration cache.
+    val target = qemuJdkDir
+    val sysroot = qemuSysroot
+    val archive = qemuJdkArchive
+    val sha256 = qemuJdkSha256
+    val url = "https://github.com/adoptium/temurin21-binaries/releases/download/" +
+        "${qemuJdkRelease.replace("+", "%2B")}/$archive"
+    val qemuOverride = providers.gradleProperty("qemuBin").orNull
+    val qemu = when (qemuOverride) {
+        null ->
+            (System.getenv("PATH")?.split(File.pathSeparator).orEmpty() + "/usr/bin")
+                .map { File(it, "qemu-x86_64") }
+                .firstOrNull(File::exists)
+        else -> File(qemuOverride).takeIf(File::exists)
+    }
+    // The emulator and sysroot are baked into the generated wrapper, so they belong in the
+    // up-to-date check as much as the archive does — without them, changing one re-runs green
+    // against a wrapper still pointing at the old one.
+    inputs.property("qemu", qemu?.path.orEmpty())
+    inputs.property("sysroot", sysroot)
+    inputs.property("sha256", sha256)
+    outputs.dir(target)
+    doLast {
+        val os = System.getProperty("os.name")
+        val arch = System.getProperty("os.arch")
+        check(os == "Linux" && arch !in setOf("amd64", "x86_64")) {
+            "Nothing to provision: Robolectric's native runtime already covers $arch on $os."
+        }
+        val emulator = checkNotNull(qemu) {
+            "qemu-x86_64 not found on PATH. On Debian/Ubuntu: sudo apt install qemu-user " +
+                "(or point -PqemuBin at one)"
+        }
+        check(File(sysroot, "lib/ld-linux-x86-64.so.2").exists()) {
+            "No x86_64 loader under $sysroot. On Debian/Ubuntu: sudo apt install " +
+                "libc6-amd64-cross libstdc++6-amd64-cross libgcc-s1-amd64-cross " +
+                "(or set -PqemuSysroot)"
+        }
+
+        // Staged beside the destination rather than in java.io.tmpdir, which is commonly a tmpfs
+        // and would hold the whole archive in RAM.
+        target.parentFile.mkdirs()
+        val tarball = File.createTempFile("temurin-x64", ".tar.gz", target.parentFile)
+        try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            DigestInputStream(URI(url).toURL().openStream(), digest).use { source ->
+                tarball.outputStream().use(source::copyTo)
+            }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            check(actual == sha256) { "Checksum mismatch for $archive: expected $sha256, got $actual" }
+
+            target.deleteRecursively()
+            target.mkdirs()
+            // tar rather than Gradle's tarTree, which flattens symlinks into empty files — the
+            // JDK's legal/ tree is built out of them.
+            val untar = ProcessBuilder(
+                "tar", "-xzf", tarball.path, "-C", target.path, "--strip-components=1",
+            ).inheritIO().start()
+            check(untar.waitFor() == 0) { "Extracting $archive failed" }
+        } finally {
+            tarball.delete()
+        }
+
+        // Two constraints, neither visible from the file this writes. The -L prefix is baked in
+        // rather than left to QEMU_LD_PREFIX because Gradle probes the executable while
+        // *configuring* the Test task, in an environment it passes no task env vars to. And the
+        // wrapper has to replace bin/java in place because a JVM derives java.home from its own
+        // executable's path — a launcher in a directory of its own resolves to a home with no JDK
+        // under it and never bootstraps.
+        val launcher = File(target, "bin/java")
+        val real = File(target, "bin/java.real")
+        launcher.renameTo(real)
+        launcher.writeText("#!/bin/sh\nexec ${emulator.path} -L $sysroot ${real.path} \"${'$'}@\"\n")
+        launcher.setExecutable(true)
+        logger.lifecycle("Provisioned $target — run tests with -PqemuJdk")
     }
 }
 
@@ -167,6 +281,7 @@ android {
                 it.testLogging {
                     exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
                 }
+                qemuJavaLauncher?.let { launcher -> it.executable = launcher.path }
             }
         }
     }
