@@ -573,7 +573,41 @@ private fun lineFeature(points: List<TrackPoint>, properties: JsonObject? = null
     }
 
 /**
- * The track as one feature per run of same-colored fixes.
+ * Where the drawn line starts and stops, as inclusive index ranges into [points]. Two things end a
+ * run, and they end it differently. A **color change** shares its boundary fix between the run that
+ * ends on it and the one that starts from it, so the two meet there and the line stays unbroken. A
+ * **segment break** does not: [TrackPoint.segmentStart] says nobody watched the ground between the
+ * previous fix and this one, so the run ends before it and the next starts on it, and the leg across
+ * is never drawn — the same fact that opens a fresh `<trkseg>` on export and lifts the pen on the
+ * metric graph. Distance still counts that leg; being unobserved is not being untravelled.
+ *
+ * A run needs two fixes to be a line, so nothing comes out where two cuts land together — a lone
+ * fix has no leg to draw.
+ */
+internal fun lineRuns(points: List<TrackPoint>, colors: IntArray): List<IntRange> {
+    val runs = ArrayList<IntRange>()
+    fun add(first: Int, untilExclusive: Int) {
+        if (untilExclusive - first >= 2) runs.add(first..untilExclusive - 1)
+    }
+    var from = 0
+    // colors[i] is the color of the leg *arriving* at i, per TrackColoring.colors — so a run's own
+    // color is the one at its last index, and index 0 has no leg to be colored by.
+    for (arrival in 1 until points.size) {
+        if (points[arrival].segmentStart) {
+            add(from, arrival)
+            from = arrival
+        } else if (arrival >= 2 && colors[arrival] != colors[arrival - 1]) {
+            add(from, arrival)
+            from = arrival - 1
+        }
+    }
+    add(from, points.size)
+    return runs
+}
+
+/**
+ * The track as one feature per run of same-colored fixes, cut where the recorder wasn't watching
+ * ([lineRuns]).
  *
  * Features rather than one polyline under a `line-gradient`, because a gradient is positioned along
  * the line's *length* while every other reading of the metric — the graph beside the map most of
@@ -587,30 +621,23 @@ private fun lineFeature(points: List<TrackPoint>, properties: JsonObject? = null
  * a zero-length feature is the first thing it drops.
  *
  * Runs, not a feature per fix: the ramp is banded (`RAMP_STEPS`), so a steady pace is one feature
- * instead of hundreds, and only a boundary fix is spent twice.
+ * instead of hundreds, and only a color boundary is spent twice — a break boundary is spent once,
+ * which is what leaves the gap.
  */
 private fun trackLineFeature(points: List<TrackPoint>, colors: IntArray): FeatureCollection {
     if (points.size < 2) return FeatureCollection.fromFeatures(emptyList())
-    val runs = ArrayList<Feature>()
+    val features = ArrayList<Feature>()
     // One properties object per *color*, not per run: a banded ramp has a few dozen, a track has
     // hundreds of runs, and a feature only ever reads them.
     val properties = HashMap<Int, JsonObject>()
-    fun addRun(from: Int, until: Int, color: Int) {
+    for (run in lineRuns(points, colors)) {
+        val color = colors[run.last]
         val props = properties.getOrPut(color) {
             JsonObject().apply { addProperty(COLOR_KEY, ColorUtils.colorToRgbaString(color)) }
         }
-        lineFeature(points.subList(from, until), props)?.let(runs::add)
+        lineFeature(points.subList(run.first, run.last + 1), props)?.let(features::add)
     }
-    var from = 0
-    // The color of the fix a leg *arrives* at, per TrackColoring.colors. A run therefore ends on
-    // the fix the next one starts from, and the two meet there.
-    for (arrival in 2 until points.size) {
-        if (colors[arrival] == colors[arrival - 1]) continue
-        addRun(from, arrival, colors[arrival - 1])
-        from = arrival - 1
-    }
-    addRun(from, points.size, colors[points.lastIndex])
-    return FeatureCollection.fromFeatures(runs)
+    return FeatureCollection.fromFeatures(features)
 }
 
 private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArray) {

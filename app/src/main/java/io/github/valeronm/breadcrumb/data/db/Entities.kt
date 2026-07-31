@@ -121,8 +121,8 @@ data class TrackPoint(
     val ignoreReason: String? = null,
     /**
      * True for the first point of a new segment within a track — i.e. the fix right after recording
-     * resumed from an auto-pause. Marks a GPX `<trkseg>` boundary; the gap before it isn't counted
-     * in distance (the segments are logically disconnected).
+     * resumed from an auto-pause, or the join a merge made. Nobody watched the ground on the leg
+     * into it, though distance counts that leg like any other: unobserved is not untravelled.
      */
     val segmentStart: Boolean = false,
 )
