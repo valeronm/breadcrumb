@@ -12,6 +12,7 @@ import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -31,6 +32,10 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class BackupRestoreTest {
+
+    /** Fixture rows declare a writer because every real row does — a row that doesn't is restored
+     *  with one reconstructed from its fixes, which is the legacy-file path, not this one. */
+    private val RECORDED = TrackOrigin.RECORDED.code
 
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val source = TestDb()
@@ -68,19 +73,19 @@ class BackupRestoreTest {
 
     @Test fun `a restored database matches the exported one, ids aside`() = runTest {
         // Two finished tracks with mixed points, a discarded one, and an open one.
-        val kept1 = source.dao.insertTrack(Track(activityType = "WALKING", startedAt = TEST_START))
+        val kept1 = source.dao.insertTrack(Track(source = RECORDED, activityType = "WALKING", startedAt = TEST_START))
         source.dao.insertPoints((0..4).map { source.point(kept1, it) })
         source.repository.finishTrack(kept1, TEST_START + 40_000L)
-        val kept2 = source.dao.insertTrack(Track(activityType = "RUNNING", startedAt = TEST_START + 100_000L))
+        val kept2 = source.dao.insertTrack(Track(source = RECORDED, activityType = "RUNNING", startedAt = TEST_START + 100_000L))
         source.dao.insertPoints(
             (0..4).map { source.point(kept2, it, ignored = it == 2, segmentStart = it == 3) },
         )
         source.repository.finishTrack(kept2, TEST_START + 140_000L)
-        val discarded = source.dao.insertTrack(Track(activityType = "WALKING", startedAt = TEST_START + 200_000L))
+        val discarded = source.dao.insertTrack(Track(source = RECORDED, activityType = "WALKING", startedAt = TEST_START + 200_000L))
         source.dao.insertPoints((0..4).map { source.point(discarded, it) })
         source.repository.finishTrack(discarded, TEST_START + 240_000L)
         source.repository.deleteTrack(discarded)
-        source.dao.insertTrack(Track(activityType = "WALKING", startedAt = TEST_START + 300_000L)) // open
+        source.dao.insertTrack(Track(source = RECORDED, activityType = "WALKING", startedAt = TEST_START + 300_000L)) // open
 
         // One categorized place and one untagged, so both branches of the place object are written:
         // an untagged place carries no `category` key at all.
@@ -154,7 +159,7 @@ class BackupRestoreTest {
         // restore asks the current detector rather than replaying an old verdict. This track has
         // no edge stay at all, so its flagged fix must come back on the path — and the aggregates
         // with it, or the row would describe points it no longer has.
-        val id = source.dao.insertTrack(Track(activityType = "WALKING", startedAt = TEST_START))
+        val id = source.dao.insertTrack(Track(source = RECORDED, activityType = "WALKING", startedAt = TEST_START))
         source.dao.insertPoints((0..4).map { source.point(id, it) })
         source.repository.finishTrack(id, TEST_START + 40_000L)
         val last = source.dao.allPointsFor(id).last()
