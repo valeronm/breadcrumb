@@ -69,10 +69,4 @@ class DurationFormatTest {
         assertEquals("1y", formatDurationMs(days(366)))
         assertEquals("1y 1mo", formatDurationMs(days(395)))
     }
-
-    /** Below a minute the seconds are the point — an edge stay starts at half a minute. */
-    @Test fun `the short form keeps seconds under a minute`() {
-        assertEquals("30s", formatShortDurationMs(30_000))
-        assertEquals("5h 30m", formatShortDurationMs(hours(5) + minutes(30)))
-    }
 }

@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -21,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,7 +36,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -52,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -64,7 +64,6 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DwellDetector
-import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
@@ -77,13 +76,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Date
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
-
-/** The map legend's line for a grayed edge: which side ran on, and for how long. */
-private fun overrunLabel(overrun: EdgeStayIgnore.Overrun): String {
-    val side =
-        if (overrun.side == EdgeStayDetector.Side.START) "Before the start" else "After the arrival"
-    return "$side · ${formatShortDurationMs(overrun.stayMs)}"
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -154,7 +146,7 @@ internal fun TrackMapScreen(
     // The points arrive after the first composition, so a mode can be selected and then turn out to
     // have nothing behind it — on a track opened from a metric the last one had.
     val colorMode = if (selectedMode in colorModes) selectedMode else ColorMode.SPEED
-    // Noisy (ignored) fixes are hidden by default; the warning toggle shows them with a legend.
+    // Noisy (ignored) fixes are hidden by default, behind the map's own chip.
     // A track with no drawable line is the exception — its noisy fixes are all there is to see, so
     // the default follows the points once they load, until the user says otherwise.
     var showNoisyOverride by remember(trackId) { mutableStateOf<Boolean?>(null) }
@@ -164,67 +156,21 @@ internal fun TrackMapScreen(
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
     var showTypeDialog by remember(trackId) { mutableStateOf(false) }
     var showSplitDialog by remember(trackId) { mutableStateOf(false) }
-    // Whether the selected point is a cut the repository would accept — false with no selection or
-    // one too close to an end to leave two drawable tracks — which grays the scissors rather than
-    // refusing the tap silently. A derived *Boolean*, deliberately unread here: the graph writes
-    // selectedIndex per drag event, so a read in this scope would recompose the whole Scaffold per
-    // touch move (the scrubber holds ~8 ms frames only because reads stay inside the two cards —
-    // see MetricPlot); read inside the actions lambda it keeps topBar memoized, changing only when
-    // the scissors actually flips.
-    val canSplit by remember(points) {
-        derivedStateOf {
-            val index = selectedIndex ?: return@derivedStateOf false
-            val count = points?.size ?: return@derivedStateOf false
-            TrackSplit.isLegalCut(index, count - index)
-        }
-    }
+    // Whether this track can be cut at all — a caller that handles the split, and a track that has
+    // finished, since a still-recording one's last edge is still moving.
+    val splittable = onSplit != null && summary?.endedAt != null
     Scaffold(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                title = {
-                    Column {
-                        Text(summary?.let { ActivityType.labelFor(it.activityType) } ?: "Track")
-                        if (summary != null) {
-                            Text(
-                                dateFormat.format(Date(summary.startedAt)) +
-                                    (summary.endedAt?.let { " – ${timeFormat.format(Date(it))}" } ?: ""),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
+                // The bar carries what the track *is*; when it happened is a line of its own below,
+                // where it reads at body size instead of as a caption under a title.
+                title = { Text(summary?.let { ActivityType.labelFor(it.activityType) } ?: "Track") },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
-                    if (!noisyPoints.isNullOrEmpty()) {
-                        IconButton(onClick = { showNoisyOverride = !showNoisy }) {
-                            Icon(
-                                Icons.Filled.Warning,
-                                contentDescription =
-                                if (showNoisy) "Hide noisy fixes" else "Show noisy fixes",
-                                tint = if (showNoisy) {
-                                    MaterialTheme.colorScheme.error
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
-                    }
                     if (summary != null) {
                         IconButton(onClick = { showTypeDialog = true }) {
                             Icon(Icons.Filled.Edit, contentDescription = "Change track type")
-                        }
-                    }
-                    // Splitting needs a point to cut at, so the scissors stays visible but
-                    // disabled until the graph has one — an action that appears and disappears
-                    // under the thumb while scrubbing is worse than one that grays.
-                    if (onSplit != null && summary?.endedAt != null) {
-                        IconButton(
-                            onClick = { showSplitDialog = true },
-                            enabled = canSplit,
-                        ) {
-                            Icon(Icons.Filled.ContentCut, contentDescription = "Split track here")
                         }
                     }
                     IconButton(onClick = {
@@ -250,10 +196,16 @@ internal fun TrackMapScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 else -> Column(
-                    Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    Modifier.fillMaxSize().padding(horizontal = 12.dp).padding(bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (summary != null) {
+                        Text(
+                            dateFormat.format(Date(summary.startedAt)) +
+                                (summary.endedAt?.let { " – ${timeFormat.format(Date(it))}" } ?: ""),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
                         Card(Modifier.fillMaxWidth()) { TrackStatsHeader(summary) }
                     }
                     val darkTheme = isSystemInDarkTheme()
@@ -261,24 +213,24 @@ internal fun TrackMapScreen(
                     val graph = remember(seams, colorMode, activity, darkTheme, units) {
                         metricGraphData(seams, colorMode, activity, darkTheme, units)
                     }
-                    // Metric chips, map, and scrubber read as one group: small gaps, small
-                    // corners between neighbors.
+                    // The chips carry no surface of their own: they are the control for the map
+                    // below, not a block of content beside it, and a card around a row of chips
+                    // reads as a third thing to look at.
+                    ColorModeSelector(
+                        colorMode,
+                        colorModes,
+                        // Only the import is named: a recording is what a track is, and a
+                        // word on every other one would say nothing.
+                        caption = "Imported".takeIf { source == TrackOrigin.IMPORTED },
+                    ) { selectedMode = it }
+                    // Map and scrubber read as one group: small gaps, small corners between them.
                     Column(
                         Modifier.weight(1f).fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        val blocks = if (graph != null) 3 else 2
-                        Card(Modifier.fillMaxWidth(), shape = groupedRowShape(0, blocks)) {
-                            ColorModeSelector(
-                                colorMode,
-                                colorModes,
-                                // Only the import is named: a recording is what a track is, and a
-                                // word on every other one would say nothing.
-                                caption = "Imported".takeIf { source == TrackOrigin.IMPORTED },
-                            ) { selectedMode = it }
-                        }
+                        val blocks = if (graph != null) 2 else 1
                         // The map card takes the stretch.
-                        Card(Modifier.weight(1f).fillMaxWidth(), shape = groupedRowShape(1, blocks)) {
+                        Card(Modifier.weight(1f).fillMaxWidth(), shape = groupedRowShape(0, blocks)) {
                             Box(Modifier.fillMaxSize().clipToBounds()) {
                                 MapLibreTrackMap(
                                     points = load.good,
@@ -298,21 +250,29 @@ internal fun TrackMapScreen(
                                     // Top-right, clear of the color-metric legend (bottom-right).
                                     NoisyLegend(load.noisy, Modifier.align(Alignment.TopEnd).padding(12.dp))
                                 }
-                                if (dwells.isNotEmpty() || overruns.isNotEmpty()) {
-                                    // Top-left: the noisy legend owns the top-right corner.
-                                    DwellLegend(
-                                        dwells, overruns,
-                                        Modifier.align(Alignment.TopStart).padding(12.dp),
-                                    )
+                                if (!noisyPoints.isNullOrEmpty()) {
+                                    // On the map rather than in the bar: it shows and hides marks
+                                    // drawn here.
+                                    MapFilterChip(selected = showNoisy, label = "Noisy points") {
+                                        showNoisyOverride = !showNoisy
+                                    }
                                 }
                             }
                         }
                         if (graph != null) {
-                            Card(Modifier.fillMaxWidth(), shape = groupedRowShape(2, 3)) {
+                            Card(Modifier.fillMaxWidth(), shape = groupedRowShape(1, blocks)) {
                                 MetricGraph(
                                     graph = graph,
                                     selectedIndex = selectedIndex,
                                     onSelect = { selectedIndex = it },
+                                    // The cut is offered on the scrubber, beside the fix it would
+                                    // cut at. Null where splitting doesn't apply at all.
+                                    onSplitRequested = { showSplitDialog = true }.takeIf { splittable },
+                                    // Both halves of "can this be cut" stay here, with the track
+                                    // they are about: the plot renders the offer it is handed.
+                                    canCutAt = { index ->
+                                        TrackSplit.isLegalCut(index, (points?.size ?: 0) - index)
+                                    },
                                     modifier = Modifier.fillMaxWidth().height(130.dp),
                                 )
                             }
@@ -357,9 +317,8 @@ internal fun TrackMapScreen(
         load = trackPoints,
         seams = seams,
         summary = summary,
-        // Read only while the dialog is up: a selection read in this scope on every drag event would
-        // put the scrubber's writes back in front of the whole Scaffold, which is what `canSplit`
-        // exists to avoid.
+        // Read only while the dialog is up: the scrubber writes the selection per drag event, so a
+        // read in this scope would recompose the whole Scaffold on every touch move.
         cutIndex = if (showSplitDialog) selectedIndex else null,
         onSplit = onSplit,
         onDismiss = { showSplitDialog = false },
@@ -504,6 +463,46 @@ private fun MetricPlot(
 }
 
 /**
+ * The cut on offer at the scrubbed fix: what is there, and the action on it. Shown only between
+ * gestures (see `offerCut`), and **disabled rather than absent** where the cut is illegal — a rule
+ * the user meets by aiming at it is worth stating, and an offer that simply fails to appear reads
+ * as a missed gesture.
+ */
+@Composable
+private fun CutOffer(reading: String, canCut: Boolean, onCut: () -> Unit, modifier: Modifier) {
+    val actionColor =
+        if (canCut) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    // The surface every other thing that floats over this screen's map already wears — the legends
+    // and the ramp — so what it reads against is a property of the app rather than of this one card.
+    // The clip is what keeps the ripple inside those corners; it takes the surface's own shape.
+    LegendSurface(
+        modifier
+            .clip(legendShape)
+            .clickable(enabled = canCut, onClick = onCut),
+    ) {
+        Text(
+            reading,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.ContentCut,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = actionColor,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                if (canCut) "Split here" else "Too close to the end",
+                style = MaterialTheme.typography.labelMedium,
+                color = actionColor,
+            )
+        }
+    }
+}
+
+/**
  * The selected color metric over the track's time span, stroked point-to-point in the map line's
  * colors, with a time axis; missing values and segment starts break the line. Tap/drag picks the
  * nearest point ([onSelect]), drawn as a cursor with a value/time readout; the caller highlights
@@ -514,6 +513,11 @@ private fun MetricGraph(
     graph: MetricGraphData,
     selectedIndex: Int?,
     onSelect: (Int?) -> Unit,
+    /** Open the split confirmation for the scrubbed fix; null where the track can't be cut. */
+    onSplitRequested: (() -> Unit)?,
+    /** Whether a cut at this index is one the repository would accept — the caller's rule, since
+     *  the track it applies to is the caller's, not the plot's. */
+    canCutAt: (Int) -> Boolean,
     modifier: Modifier,
 ) {
     // Remembered: MetricGraph recomposes per touch event while scrubbing, and the min/max scan
@@ -571,10 +575,30 @@ private fun MetricGraph(
                 pointTick.onChange(index)
                 onSelect(index)
             }
+            // The cut offer rides the *end* of a gesture: raised on a tap or when a drag lifts,
+            // dropped the moment the next one starts, so it never sits under the finger that is
+            // still choosing. Two flips per gesture, not one per touch event — this card holds its
+            // frame budget only because scrubbing recomposes as little as possible.
+            var offerCut by remember { mutableStateOf(false) }
             // The selection, bounds-checked once for both the cursor and the readout below.
             val sel = selectedIndex?.takeIf { it in graph.points.indices }
             val selValue = sel?.let { graph.values[it] }
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+
+            // Where a fix falls across the plot, 0..1 — the one reading of the time axis, so the
+            // cursor line and the offer beside it cannot land in different places.
+            fun xFraction(index: Int) =
+                ((graph.points[index].timestamp - t0) / tSpan).coerceIn(0f, 1f)
+            // The plot's own width, for placing the cut offer beside the cursor. Read back off the
+            // layout rather than asked for with BoxWithConstraints, whose subcomposition would run
+            // over the whole plot on every measure — and the plot remeasures per touch event.
+            var plotWidth by remember { mutableStateOf(0.dp) }
+            val density = LocalDensity.current
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .onSizeChanged { with(density) { plotWidth = it.width.toDp() } },
+            ) {
                 // Static plot in its own skippable composable: scrubbing recomposes MetricGraph per
                 // touch event, and redrawing the full multi-thousand-segment polyline each time
                 // makes long tracks feel laggy. Only the cursor overlay below redraws.
@@ -585,10 +609,15 @@ private fun MetricGraph(
                         .pointerInput(graph) {
                             detectTapGestures { offset ->
                                 select(indexAt(offset.x, size.width.toFloat()))
+                                offerCut = true
                             }
                         }
                         .pointerInput(graph) {
-                            detectHorizontalDragGestures { change, _ ->
+                            detectHorizontalDragGestures(
+                                onDragStart = { offerCut = false },
+                                onDragEnd = { offerCut = true },
+                                onDragCancel = { offerCut = false },
+                            ) { change, _ ->
                                 change.consume()
                                 select(indexAt(change.position.x, size.width.toFloat()))
                             }
@@ -596,7 +625,7 @@ private fun MetricGraph(
                 ) {
                     val h = size.height - 2 * padPx
                     if (sel != null && selValue != null) {
-                        val x = (graph.points[sel].timestamp - t0) / tSpan * size.width
+                        val x = xFraction(sel) * size.width
                         val y = padPx + h - ((selValue - minV) / span) * h
                         drawLine(
                             cursorColor.copy(alpha = 0.6f),
@@ -620,14 +649,36 @@ private fun MetricGraph(
                     color = labelColor,
                 )
                 if (sel != null && selValue != null) {
-                    Text(
-                        "%.0f %s · %s".format(
-                            selValue, graph.unit,
-                            timeFormat.format(Date(graph.points[sel].timestamp)),
-                        ),
-                        modifier = Modifier.align(Alignment.TopEnd).padding(horizontal = 8.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
+                    val reading = "%.0f %s · %s".format(
+                        selValue, graph.unit,
+                        timeFormat.format(Date(graph.points[sel].timestamp)),
                     )
+                    if (offerCut && onSplitRequested != null) {
+                        // Beside the cut line, never over it: the line is what the offer is about,
+                        // and a card on top of it hides the answer to "where exactly". It takes the
+                        // roomier side, so the cursor's own half decides — and each side is placed
+                        // by padding against the opposite edge, which needs no measuring of the
+                        // card and cannot push it out of the plot.
+                        val cursor = plotWidth * xFraction(sel)
+                        val gap = 10.dp
+                        CutOffer(
+                            reading = reading,
+                            canCut = canCutAt(sel),
+                            onCut = onSplitRequested,
+                            modifier = if (cursor < plotWidth / 2) {
+                                Modifier.align(Alignment.CenterStart).padding(start = cursor + gap, end = gap)
+                            } else {
+                                Modifier.align(Alignment.CenterEnd).padding(end = plotWidth - cursor + gap, start = gap)
+                            },
+                        )
+                    } else {
+                        // While the finger is still choosing, the reading alone, out of its way.
+                        Text(
+                            reading,
+                            modifier = Modifier.align(Alignment.TopEnd).padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
                 }
             }
             Row(
@@ -657,39 +708,6 @@ private fun noisyLegendEntry(reason: IgnoreReason?): Pair<String, Color> = when 
     // EDGE_STAY never reaches here (it is loaded separately and drawn as the grayed overrun);
     // it shares the default marker rather than adding a legend row for an impossible case.
     IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, null -> "Low accuracy" to Color(0xFFFF8F00)
-}
-
-/**
- * Detected stops: one row per in-track dwell — "14:36 – 16:10 · 1h 34m" — then the grayed edges,
- * named for what they are (recording that outlasted the journey) rather than dated like a visit.
- */
-@Composable
-private fun DwellLegend(
-    dwells: List<DwellDetector.Dwell>,
-    overruns: List<EdgeStayIgnore.Overrun>,
-    modifier: Modifier,
-) {
-    LegendSurface(modifier) {
-        Text(
-            "Stops",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        for (d in dwells) {
-            Text(
-                "${timeFormat.format(Date(d.entryTs))} – ${timeFormat.format(Date(d.exitTs))}" +
-                    " · ${formatDuration(d.entryTs, d.exitTs)}",
-                style = MaterialTheme.typography.labelSmall,
-            )
-        }
-        for (o in overruns) {
-            Text(
-                overrunLabel(o),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
 }
 
 /** Legend for the noisy-fix markers: one row per rejection reason present in [noisyPoints]. */

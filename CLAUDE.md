@@ -379,7 +379,11 @@ mechanism serving that and none survives being tidied alone; `trackLineFeature` 
 Three more layers ride on the same map — the detected in-track stops as
 place-style capture circles *under* the line, the recorder's overrun grayed off the track's
 ends, read back from the stored flags rather than re-detected, and the **named places at the path's
-two ends** (`RoutePlaces`), each a labeled pin over the capture area that claimed that end. Those end
+two ends** (`RoutePlaces`), each a labeled pin over the capture area that claimed that end. The
+first two are **deliberately unlabelled**: a legend listing each dwell's clock times and the
+overrun's duration was tried and removed, because a panel of times over the route says less than
+the shapes do and covers the map saying it. Their meaning is in where they sit and how they're
+drawn, and restoring the text is a decision to take again rather than an oversight to fix. Those end
 places come off the stored rows (`storedPlaces`) rather than the derived summaries, so a route is
 annotated without waiting behind the clustering, and they never move the camera — the route is the
 subject. Three rules a reader can't infer from the layers: the **pin keeps its full colour while its

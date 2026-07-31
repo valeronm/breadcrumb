@@ -4,12 +4,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,9 +36,13 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarDuration
@@ -49,6 +57,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -106,6 +115,58 @@ internal fun IconSwitch(
         },
     )
 }
+
+/**
+ * Chips occupy an invisible touch target (48dp minimum) around their 32dp visual height; an inset
+ * that should read from a chip's *visible* edge subtracts this overshoot.
+ */
+internal val chipHalo: Dp
+    @Composable get() = ((LocalMinimumInteractiveComponentSize.current - FilterChipDefaults.Height) / 2)
+        .coerceAtLeast(0.dp)
+
+/** Single-choice/filter chip: checkmark when selected. */
+@Composable
+internal fun FilterToggleChip(selected: Boolean, label: String, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) },
+        leadingIcon = selectedCheck(selected),
+    )
+}
+
+/**
+ * A filter over what a map draws, in the map's top-left corner — the whole thing, corner and inset
+ * included, because *where* it sits is as much the idiom as how it looks. The Places map's rare
+ * stops and the track map's noisy points are the same control over different maps.
+ *
+ * Elevated on an opaque surface: the default chip tones all but vanish against a basemap. The inset
+ * subtracts [chipHalo] so the visible gap is the 12dp it looks like rather than 12dp from the
+ * invisible touch target.
+ */
+@Composable
+internal fun BoxScope.MapFilterChip(selected: Boolean, label: String, onClick: () -> Unit) {
+    Box(Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 12.dp - chipHalo)) {
+        ElevatedFilterChip(
+            selected = selected,
+            onClick = onClick,
+            label = { Text(label) },
+            leadingIcon = selectedCheck(selected),
+            colors = FilterChipDefaults.elevatedFilterChipColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+            ),
+            elevation = FilterChipDefaults.elevatedFilterChipElevation(elevation = 3.dp),
+        )
+    }
+}
+
+private fun selectedCheck(selected: Boolean): (@Composable () -> Unit)? =
+    if (selected) {
+        { Icon(Icons.Filled.Check, contentDescription = null, Modifier.size(18.dp)) }
+    } else {
+        null
+    }
 
 /**
  * Corner shape for a row in a day group: large outer corners on the group's first/last edge,
@@ -619,11 +680,31 @@ internal fun HeaderStat(label: String, value: String, modifier: Modifier = Modif
     }
 }
 
+/**
+ * A hairline between two figures in a row of them — the height of the cells beside it, not of the
+ * row's padding, so they read as separated without the card gaining a grid that looks like it
+ * continues past its own edge.
+ *
+ * The row it sits in must be measured at [IntrinsicSize.Min] for `fillMaxHeight` to mean the
+ * tallest cell rather than the whole row: one rule sized to each row's own type scale, instead of a
+ * constant tuned against one of them and overhanging the other.
+ */
+@Composable
+internal fun StatSeparator() {
+    VerticalDivider(Modifier.fillMaxHeight(), color = MaterialTheme.colorScheme.outlineVariant)
+}
+
 /** The detail screens' stats header: equal-width label→value cells in one padded row. */
 @Composable
 internal fun StatHeaderRow(vararg stats: Pair<String, String>) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-        for ((label, value) in stats) HeaderStat(label, value, Modifier.weight(1f))
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        stats.forEachIndexed { index, (label, value) ->
+            if (index > 0) StatSeparator()
+            HeaderStat(label, value, Modifier.weight(1f))
+        }
     }
 }
 

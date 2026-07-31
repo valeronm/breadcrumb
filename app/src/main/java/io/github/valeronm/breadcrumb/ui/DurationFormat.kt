@@ -23,11 +23,6 @@ internal fun formatDuration(startedAt: Long, endedAt: Long?): String {
     return formatDurationMs(end - startedAt)
 }
 
-/** Minute-rounded like [formatDurationMs], except below a minute, where seconds are the point —
- *  edge stays start at half a minute and "0m" would say nothing. */
-internal fun formatShortDurationMs(durationMs: Long): String =
-    if (durationMs < 60_000L) "${durationMs / 1000}s" else formatDurationMs(durationMs)
-
 /**
  * A duration at whatever scale it happens to be, in at most two units.
  *

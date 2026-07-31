@@ -273,13 +273,13 @@ internal fun trackColoring(
 
 /**
  * Horizontally-scrollable chips to pick how the track line is colored, with [caption] held at the
- * card's trailing edge where the track has something to say about itself.
+ * row's trailing edge where the track has something to say about itself.
  *
  * A caption rather than a chip, and deliberately not tappable: it is here because this is the row an
  * imported track comes up short in, so the word explaining that belongs beside the gap and not on a
- * screen of its own. The top bar has no room for it (four actions share it) and the map's corners
- * are spoken for by three legends. It sits **outside** the scroll — a trailing element inside one
- * has no fixed edge to sit at, and would be reachable only by scrolling the chips to their end.
+ * screen of its own — and not in the top bar, which carries what the track *is* rather than what its
+ * fixes are. It sits **outside** the scroll — a trailing element inside one has no fixed edge to sit
+ * at, and would be reachable only by scrolling the chips to their end.
  */
 @Composable
 internal fun ColorModeSelector(
@@ -289,14 +289,14 @@ internal fun ColorModeSelector(
     onSelect: (ColorMode) -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+        // No inset of its own: the row sits on the page beside cards, not inside one, so its own
+        // padding would push the chips in from the edge every neighbour lines up on.
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
-            // The weight is what keeps the chips from pushing the caption off the card: they scroll
+            // The weight is what keeps the chips from pushing the caption off the edge: they scroll
             // within what is left over, rather than the row growing to fit them.
             modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -355,11 +355,15 @@ internal fun TrackLegend(legend: Legend, modifier: Modifier) {
     }
 }
 
+/** [LegendSurface]'s corners, shared so a caller that has to clip to them — a tappable one, for its
+ *  ripple — cannot be left clipping to the shape this used to have. */
+internal val legendShape = RoundedCornerShape(8.dp)
+
 @Composable
 internal fun LegendSurface(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
+        shape = legendShape,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
         tonalElevation = 3.dp,
         shadowElevation = 3.dp,

@@ -41,10 +41,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -208,11 +205,6 @@ internal fun PlacesTab(
         }
     }
 
-    // Chips occupy an invisible touch target (48dp minimum) around their 32dp visual height;
-    // insets that should read from a chip's *visible* edge subtract this overshoot.
-    val chipHalo = ((LocalMinimumInteractiveComponentSize.current - FilterChipDefaults.Height) / 2)
-        .coerceAtLeast(0.dp)
-
     // The search field keeps focus (and the keyboard) until something takes it away. Two gestures
     // should: a tap that no row or control claimed, and the first scroll of the list — by then the
     // user is reading results rather than typing. Only in list mode, so the map's own touch handling
@@ -264,7 +256,7 @@ internal fun PlacesTab(
                 modifier = Modifier.padding(horizontal = 16.dp),
             ) {
                 PlacesSort.entries.forEach { option ->
-                    PlacesChip(
+                    FilterToggleChip(
                         selected = sort == option,
                         label = option.label,
                         onClick = {
@@ -337,22 +329,10 @@ internal fun PlacesTab(
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
-                    // The filter rides on the map it declutters, top-left like the chips row in
-                    // the list view; the halo subtraction keeps the visible gap at 12dp.
-                    Box(
-                        Modifier
-                            .align(Alignment.TopStart)
-                            .padding(start = 12.dp, top = 12.dp - chipHalo),
-                    ) {
-                        PlacesChip(
-                            selected = showRareStops,
-                            label = RARE_STOPS_LABEL,
-                            onClick = {
-                                showRareStops = !showRareStops
-                                AppSettings.setPlacesShowRareStops(context, showRareStops)
-                            },
-                            onMap = true,
-                        )
+                    // The filter rides on the map it declutters.
+                    MapFilterChip(selected = showRareStops, label = RARE_STOPS_LABEL) {
+                        showRareStops = !showRareStops
+                        AppSettings.setPlacesShowRareStops(context, showRareStops)
                     }
                 }
             }
@@ -443,40 +423,6 @@ private fun PlacesSearchField(
                 }
             }
         }
-    }
-}
-
-/**
- * Single-choice/filter chip in the Places header idiom: checkmark when selected. [onMap] switches
- * to an elevated chip on an opaque surface with a shadow (the track-map legend's recipe) — the
- * default tones all but vanish against the basemap.
- */
-@Composable
-private fun PlacesChip(selected: Boolean, label: String, onClick: () -> Unit, onMap: Boolean = false) {
-    val leadingIcon: (@Composable () -> Unit)? = if (selected) {
-        { Icon(Icons.Filled.Check, contentDescription = null, Modifier.size(18.dp)) }
-    } else {
-        null
-    }
-    if (onMap) {
-        ElevatedFilterChip(
-            selected = selected,
-            onClick = onClick,
-            label = { Text(label) },
-            leadingIcon = leadingIcon,
-            colors = FilterChipDefaults.elevatedFilterChipColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-            ),
-            elevation = FilterChipDefaults.elevatedFilterChipElevation(elevation = 3.dp),
-        )
-    } else {
-        FilterChip(
-            selected = selected,
-            onClick = onClick,
-            label = { Text(label) },
-            leadingIcon = leadingIcon,
-        )
     }
 }
 
