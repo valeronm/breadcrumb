@@ -156,6 +156,9 @@ class TrackQualityTest {
     /** A carried journey at roughly 20 km/h — the case the cross-check exists for. */
     private val CARRIED = Motion.Moving(5.6)
 
+    /** A brisk walk, ~5.8 km/h — a pace the walking label explains perfectly well. */
+    private val BRISK_WALK = Motion.Moving(1.6)
+
     @Test fun `measured ground speed lifts a carrier's fixes over the pedestrian ceiling`() {
         // 11.2 m in 2 s = 20.2 km/h — the deck's own cruise, and rejected as a teleport on the
         // label alone, though the whole crossing is made of steps like it.
@@ -215,6 +218,14 @@ class TrackQualityTest {
         assertFalse(TrackQuality.motionOverrules(DRIVING, CARRIED))
         assertFalse(TrackQuality.motionOverrules(WALKING, Motion.Unknown))
         assertFalse(TrackQuality.motionOverrules(WALKING, Motion.Stopped))
+    }
+
+    @Test fun `a walking pace does not overrule the walking label`() {
+        // The margin the ceiling keeps is not this predicate's to spend: at 2.5x a brisk walk clears
+        // WALKING's 12 km/h on the margin alone, and the recorder announced "Moving" on ordinary
+        // walks. The ceiling still keeps its margin — being generous there only ever keeps a fix.
+        assertFalse(TrackQuality.motionOverrules(WALKING, BRISK_WALK))
+        assertTrue(TrackQuality.jumpCeilingKmh(WALKING, BRISK_WALK) > TrackQuality.jumpCeilingKmh(WALKING))
     }
 
     @Test fun `the group ceiling is the most permissive of the group's labels`() {

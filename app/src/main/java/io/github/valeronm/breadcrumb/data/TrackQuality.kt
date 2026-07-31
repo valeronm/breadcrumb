@@ -46,13 +46,18 @@ object TrackQuality {
     }
 
     /**
-     * Whether [motion] overrules [activity]'s own ceiling — measured ground speed the label cannot
-     * explain. The one statement of the condition the recorder's "Moving" display hangs on, kept
-     * next to the ceilings it compares so a change to either moves both.
+     * Whether [motion] overrules [activity] — the measured ground speed is one the label cannot
+     * explain at all. Compared against the label's ceiling **unmargined**, unlike [jumpCeilingKmh]:
+     * the margin exists so a generous ceiling admits a fix the window average lags behind, and being
+     * generous there costs nothing, because the worst case is a fix kept. Here the generosity is
+     * spent the other way — this is the recorder claiming out loud that the journey is not what the
+     * label says — and at [MOTION_CEILING_FACTOR] a brisk walk clears WALKING's ceiling on the
+     * margin alone, which is the claim being made about most walks. A ceiling may guess; a statement
+     * may not.
      */
     fun motionOverrules(activity: ActivityType, motion: Motion): Boolean {
         val moving = motion as? Motion.Moving ?: return false
-        return derivedCeilingKmh(moving) > labelCeilingKmh(activity)
+        return moving.speedKmh > labelCeilingKmh(activity)
     }
 
     /** The ceiling the measured pace argues for — margined for window-average lag, clamped. */
