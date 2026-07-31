@@ -32,13 +32,9 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
-import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackRepository
-import io.github.valeronm.breadcrumb.data.TrackStats
-import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.CarrierEvidence
 import io.github.valeronm.breadcrumb.domain.DeafnessWarning
 import io.github.valeronm.breadcrumb.domain.GnssSnapshot
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
@@ -50,7 +46,6 @@ import io.github.valeronm.breadcrumb.domain.RecordingAction
 import io.github.valeronm.breadcrumb.domain.StaleReadingOracle
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackController
-import io.github.valeronm.breadcrumb.domain.TrackGroup
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.ui.MainActivity
@@ -111,18 +106,17 @@ class LocationRecordingService : Service() {
     private val gate = ActivityGate()
     private val controller = TrackController()
 
-    // The second witness: what the position stream says the ground is doing, so a "you have
-    // stopped" reading can be weighed against it rather than believed on sight. Touched only under
-    // [mutex] — every path that feeds it, reads it or restarts it runs there, [startLocationUpdates]
-    // included (it is always reached through a withContext from inside the lock).
-    private val confirmer = MovementConfirmer(AndroidDistance)
+    // The fix path itself: platform fixes in, point rows and a motion verdict out, with no Android
+    // in it so it can be exercised off the device ([FixIngest]). It owns what accumulates across a
+    // track — the movement witness, the carrier case against the track's label, and the running
+    // aggregates. Touched only under [mutex]: every path that feeds it, reads it or restarts it
+    // runs there, [startLocationUpdates] included (always reached through a withContext from
+    // inside the lock).
+    private val ingest = FixIngest(AndroidDistance)
 
-    // The witness's case that the open track's label is wrong ([CarrierEvidence]): fed per fix
-    // alongside the verdict, judged once when the track closes. [openTrackActivity] is the
-    // *track's* label as opened — a same-group activity switch keeps the track's original label,
-    // so neither the evidence bar nor the rename verdict may follow the confirmed activity. Both
-    // touched only under [mutex].
-    private val carrierEvidence = CarrierEvidence()
+    // [openTrackActivity] is the *track's* label as opened — a same-group activity switch keeps the
+    // track's original label, so neither the carrier-evidence bar nor its rename verdict may follow
+    // the confirmed activity. Touched only under [mutex].
     private var openTrackActivity: ActivityType? = null
 
     // Set while the service is armed; duplicate ACTION_STARTs while armed are no-ops.
@@ -150,12 +144,6 @@ class LocationRecordingService : Service() {
 
     @Volatile private var trackStartedAt = 0L
 
-    // The open track's running aggregates. The same accumulator the repository folds the stored
-    // points through when the track is finished ([TrackStats]) — so the total the user watches on
-    // the Record card and the one written to the track row can't drift apart. Touched only under
-    // [mutex]; its [TrackStats.Accumulator.lastGood] is also the bad-fix jump check's baseline.
-    private var accumulator = TrackStats.Accumulator()
-
     // The live GPS request's listener; non-null == GPS is on.
     @Volatile private var gpsListener: LocationListenerCompat? = null
 
@@ -170,13 +158,12 @@ class LocationRecordingService : Service() {
     private var motionListener: TriggerEventListener? = null
     private var passiveListener: LocationListenerCompat? = null
 
-    // GNSS cross-check: elapsedRealtime (ms) of the last real satellite fix seen while GPS is on.
-    // 0 until the receiver first locks this session; used to reject fixes that have no recent
-    // satellite backing (see [isGnssBacked]).
+    // What the receiver last said about the satellites, handed to [FixIngest] with each batch. These
+    // are written from the GnssStatus callback's own thread and read by the ingest coroutine, which
+    // is what the volatility is for — the ingest keeps no copy.
     @Volatile private var lastGnssFixElapsedMs = 0L
     private var gnssCallback: GnssStatusCompat.Callback? = null
 
-    // Latest GnssStatus-derived quality, snapshotted for the next fix's metadata (null until seen).
     @Volatile private var lastGnssSatsInFix: Int? = null
 
     @Volatile private var lastGnssCn0Top4: Float? = null
@@ -184,11 +171,6 @@ class LocationRecordingService : Service() {
     // --- Auto-pause / stitch resources (all touched only under [mutex]) ---
     // While paused, [activeTrackId] stays open (GPS off) so a brief stop can be stitched back into
     // the same track when the same activity resumes within the configured window.
-    private var pendingSegmentStart = false           // mark the first good fix after a resume as a new segment
-
-    // Last fix's accuracy and whether the gate rejected it — the "waiting for GPS" card's feedback.
-    private var lastFixAccuracyM: Float? = null
-    private var lastFixRejectedByAccuracy = false
 
     override fun onCreate() {
         super.onCreate()
@@ -349,14 +331,12 @@ class LocationRecordingService : Service() {
     }
 
     /**
-     * The one place the cross-check's verdict is produced, so the one place its setting is read:
-     * every consultation defines a [Motion.Unknown] case identical to the pre-witness behaviour, so
-     * the off switch is this branch alone and nothing downstream knows one exists. The confirmer is
-     * fed even while off (a ring push of arithmetic), so enabling acts at once, without a warm-up
-     * window. Caller holds [mutex].
+     * The one place the cross-check's setting is read, so the one place it branches: every
+     * consultation defines a [Motion.Unknown] case identical to the pre-witness behaviour, and
+     * nothing downstream knows a switch exists. Caller holds [mutex].
      */
     private fun motionVerdict(atMs: Long): Motion =
-        if (Settings.motionCrossCheck(this)) confirmer.verdict(atMs) else Motion.Unknown
+        ingest.verdict(atMs, Settings.motionCrossCheck(this))
 
     /**
      * Reconsider a reading the ground contradicted, and apply it if the contradiction has cleared.
@@ -479,7 +459,7 @@ class LocationRecordingService : Service() {
                 // Same motion family (e.g. walking ⇄ running): keep the track and its label, just
                 // break a new segment at the boundary. GPS is already running.
                 DebugLog.i(TAG, "  -> ${action.activity} continues track $activeTrackId (same family); new segment")
-                pendingSegmentStart = true
+                ingest.markSegmentStart()
                 controller.onRecording(action.activity)
             }
         }
@@ -527,18 +507,14 @@ class LocationRecordingService : Service() {
     /** Continue the paused track: GPS back on, accumulators kept; the first fix begins a new segment. */
     private suspend fun resumeTrack(activity: ActivityType) {
         controller.onRecording(activity)
-        pendingSegmentStart = true
+        ingest.markSegmentStart()
         withContext(Dispatchers.Main) { startLocationUpdates() }
     }
 
     private suspend fun openTrack(activity: ActivityType) {
-        accumulator = TrackStats.Accumulator()
-        pendingSegmentStart = false
-        lastFixAccuracyM = null
-        lastFixRejectedByAccuracy = false
+        ingest.onTrackOpened(activity)
         noFixGuard.onTrackOpened()
         openTrackActivity = activity
-        carrierEvidence.restart(TrackQuality.groupCeilingKmh(activity))
         val startedAt = now()
         trackStartedAt = startedAt
         activeTrackId = repository.startTrack(activity, startedAt)
@@ -637,16 +613,16 @@ class LocationRecordingService : Service() {
         Settings.setLastHeartbeatMs(this, now())
         val id = activeTrackId ?: return
         // A paused track ended when its last fix arrived, not now — don't count the idle gap.
-        val endedAt = if (controller.isPaused) accumulator.lastGood?.timestamp ?: now() else now()
+        val endedAt = if (controller.isPaused) ingest.lastGood?.timestamp ?: now() else now()
         activeTrackId = null
         controller.onClosed()
-        pendingSegmentStart = false
+        ingest.onTrackClosed()
         noFixGuard.onStopped()
         // The evidence verdict travels into the finish transaction: which labels rename, and to
         // what, is the domain's decision (CarrierEvidence.renameFor) — a proven carried journey on
         // a foot label finishes as "Moving" with its warm-up jump flags restored. The evidence is
         // restarted when a track opens, so nothing carries over.
-        val renameTo = openTrackActivity?.let { carrierEvidence.renameFor(it) }
+        val renameTo = openTrackActivity?.let { ingest.renameFor(it) }
         openTrackActivity = null
         repository.finishTrack(id, endedAt, renameTo)
     }
@@ -668,7 +644,7 @@ class LocationRecordingService : Service() {
         // read — and emptied here, since this path also runs on a resume, on a new track and on
         // every no-fix probe retry, and fixes from before such a gap describe a different stretch
         // of the journey. An empty window abstains, i.e. behaves as if there were no cross-check.
-        confirmer.restart(MovementConfirmer.forSampling(intervalSec))
+        ingest.restartConfirmer(MovementConfirmer.forSampling(intervalSec))
         val lm = locationManager ?: return
         val request = LocationRequestCompat.Builder(intervalMs)
             .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
@@ -864,10 +840,6 @@ class LocationRecordingService : Service() {
         lastGnssCn0Top4 = null
     }
 
-    /** Whether [loc] is backed by a recent real satellite fix — see [GnssSnapshot.backed]. */
-    private fun isGnssBacked(loc: Location): Boolean =
-        GnssSnapshot.backed(lastGnssFixElapsedMs, loc.elapsedRealtimeNanos / 1_000_000L, GNSS_FIX_MAX_AGE_MS)
-
     // Fixes are ingested under [mutex] so they serialize with activity changes (which retarget the
     // current track) instead of racing them.
     private fun handleLocations(locations: List<Location>) {
@@ -875,99 +847,53 @@ class LocationRecordingService : Service() {
         scope.launch { mutex.withLock { ingestLocations(locations) } }
     }
 
+    /** The platform's own absence conventions (`hasX()`), answered once, at the Android boundary. */
+    private fun Location.toFix() = Fix(
+        latitude = latitude,
+        longitude = longitude,
+        altitude = if (hasAltitude()) altitude else null,
+        accuracy = if (hasAccuracy()) accuracy else null,
+        speed = if (hasSpeed()) speed else null,
+        bearing = if (hasBearing()) bearing else null,
+        // The platform occasionally reports no time at all; arrival time is the closest thing to it.
+        timeMs = if (time > 0) time else now(),
+        verticalAccuracy = if (hasVerticalAccuracy()) verticalAccuracyMeters else null,
+        speedAccuracy = if (hasSpeedAccuracy()) speedAccuracyMetersPerSecond else null,
+        bearingAccuracy = if (hasBearingAccuracy()) bearingAccuracyDegrees else null,
+        elapsedRealtimeMs = elapsedRealtimeNanos / 1_000_000L,
+    )
+
     private suspend fun ingestLocations(locations: List<Location>) {
-        val maxAccuracyM = Settings.accuracyGateM(this).toFloat()
-        val requireGnss = Settings.requireGnssFix(this)
-        // The last fix's verdict, handed to the publish below so the display doesn't walk the
-        // confirmer's window a second time per fix — the verdict is O(window), and this path runs
-        // per second.
-        var lastMotion: Motion? = null
-        // One insert per batch — the platform listener's List overload can deliver several
-        // buffered fixes at once.
-        val batch = ArrayList<TrackPoint>(locations.size)
-        for (loc in locations) {
-            val trackId = activeTrackId ?: return
-            val candidate = TrackPoint(
-                trackId = trackId,
-                latitude = loc.latitude,
-                longitude = loc.longitude,
-                altitude = if (loc.hasAltitude()) loc.altitude else null,
-                accuracy = if (loc.hasAccuracy()) loc.accuracy else null,
-                speed = if (loc.hasSpeed()) loc.speed else null,
-                bearing = if (loc.hasBearing()) loc.bearing else null,
-                timestamp = if (loc.time > 0) loc.time else now(),
-                verticalAccuracy = if (loc.hasVerticalAccuracy()) loc.verticalAccuracyMeters else null,
-                speedAccuracy = if (loc.hasSpeedAccuracy()) loc.speedAccuracyMetersPerSecond else null,
-                bearingAccuracy = if (loc.hasBearingAccuracy()) loc.bearingAccuracyDegrees else null,
-                satellitesInFix = lastGnssSatsInFix,
-                cn0 = lastGnssCn0Top4,
-            )
-            // The first good fix after a resume begins a new segment: disconnect it from the previous
-            // segment so the paused gap isn't jump-checked or counted in distance.
-            val segStart = pendingSegmentStart
-            val baseline = if (segStart) null else accumulator.lastGood
-            // Bad fixes are still stored (with the reason), just excluded from distance and the
-            // good-point baseline. The rule weighs all three reasons and their order; this reports
-            // the platform evidence for one of them (null = the cross-check is off).
-            // The motion verdict is taken against the ground as it stood *before* this fix joined
-            // the window, so a fix can never be part of the evidence that clears it.
-            val gates = TrackQuality.Gates(
-                maxAccuracyM,
-                if (requireGnss) isGnssBacked(loc) else null,
-                motionVerdict(candidate.timestamp),
-            )
-            val reason = TrackQuality.badFixReason(baseline, candidate, gate.confirmed, gates)
-            // The feed contract ([MovementConfirmer]): every fix that cleared the *label-independent*
-            // gates, and only those. A jump-flagged fix is included deliberately — its rejection came
-            // from the activity ceiling, which is the very thing the witness exists to second-guess,
-            // and withholding it would make the witness inherit that error.
-            if (reason != IgnoreReason.ACCURACY && reason != IgnoreReason.NO_GNSS) {
-                confirmer.onFix(candidate.timestamp, candidate.latitude, candidate.longitude)
+        val trackId = activeTrackId ?: return
+        val ingested = ingest.onFixes(
+            trackId = trackId,
+            fixes = locations.map { it.toFix() },
+            gate = GateState(gate.confirmed, stillParked = gate.parked != null),
+            settings = IngestSettings(
+                maxAccuracyM = Settings.accuracyGateM(this).toFloat(),
+                requireGnss = Settings.requireGnssFix(this),
+                crossCheckMotion = Settings.motionCrossCheck(this),
+            ),
+            gnss = GnssState(lastGnssSatsInFix, lastGnssCn0Top4, lastGnssFixElapsedMs),
+        )
+        for (point in ingested.points) {
+            if (point.ignoreReason == IgnoreReason.NO_GNSS.code) {
+                DebugLog.i(TAG, "fix dropped — no recent GNSS backing (acc=${point.accuracy})")
             }
-            // The same verdict, folded into the carrier evidence the track is judged by at finish.
-            carrierEvidence.onSample(candidate.timestamp, gates.motion, gate.parked != null)
-            lastMotion = gates.motion
-            if (reason == IgnoreReason.NO_GNSS) {
-                DebugLog.i(TAG, "fix dropped — no recent GNSS backing (acc=${candidate.accuracy})")
-            }
-            val bad = reason != null
-            lastFixAccuracyM = candidate.accuracy
-            lastFixRejectedByAccuracy = reason == IgnoreReason.ACCURACY
-            val point = candidate.copy(
-                ignored = bad,
-                ignoreReason = reason?.code,
-                segmentStart = segStart && !bad,
-            )
-            // Every fix goes through the accumulator, ignored ones included — it applies the same
-            // rule (skip ignored, detach at a segment start) the finished track is recomputed with.
-            accumulator.add(point)
-            if (!bad) {
-                if (segStart) pendingSegmentStart = false
-                noFixGuard.onFixAccepted(SystemClock.elapsedRealtime())
-            }
-            batch.add(point)
         }
+        // Once per batch rather than per accepted fix: the guard only records *when* a fix last
+        // arrived, and a batch's fixes are delivered together.
+        if (ingested.accepted > 0) noFixGuard.onFixAccepted(SystemClock.elapsedRealtime())
         // The only database write of the hot path: the points themselves. The track row is not
         // touched — a write to `tracks` per fix would wake every timeline query once a second (see
         // [TrackDao]), for a row nothing reads while the track is open. Its aggregates are computed
         // from these points when the track is finished; the live figures the UI shows come from the
-        // accumulator, via [TrackingStatus] below.
-        if (batch.isNotEmpty()) repository.addPoints(batch)
-        publishStatus(lastMotion)
-    }
-
-    /**
-     * While the verdict overrules a foot label (measured ground speed its ceiling can't explain),
-     * the Record card and notification say "Moving" ([ActivityType.UNKNOWN]) instead. Display only,
-     * structurally so: computed downstream of every decision, feeding neither gate, controller nor
-     * ceiling, and recomputed at every publish rather than a mode to exit, so it reverts by itself
-     * when the verdict drops out; with the cross-check off the verdict is [Motion.Unknown] and the
-     * substitution never triggers. A parked STILL keeps the *confirmed* activity on the foot label
-     * — exactly when the card should say "Moving" — so the same test covers that stretch.
-     */
-    private fun displayActivity(confirmed: ActivityType, motion: Motion): ActivityType {
-        if (confirmed.trackGroup != TrackGroup.FOOT) return confirmed
-        return if (TrackQuality.motionOverrules(confirmed, motion)) ActivityType.UNKNOWN else confirmed
+        // ingest's accumulator, via [TrackingStatus] below.
+        if (ingested.points.isNotEmpty()) repository.addPoints(ingested.points)
+        // The batch's last verdict, handed to the publish so the display doesn't walk the
+        // confirmer's window a second time per fix — the verdict is O(window), and this path runs
+        // per second.
+        publishStatus(ingested.motion)
     }
 
     /**
@@ -976,7 +902,7 @@ class LocationRecordingService : Service() {
      * verdict is produced here.
      */
     private fun publishStatus(motion: Motion? = null) {
-        val activity = displayActivity(gate.confirmed, motion ?: motionVerdict(now()))
+        val activity = ingest.displayActivity(gate.confirmed, motion ?: motionVerdict(now()))
         val rec = activity.recording
         // The controller's phase is the one record of a pause, deadline included — read both off it
         // rather than mirroring the deadline in a field the pause/resume paths must keep in step.
@@ -984,7 +910,7 @@ class LocationRecordingService : Service() {
         val suspended = rec && noFixGuard.suspended
         // Held in locals because the notification below is classified from the very same values the
         // UI receives — two surfaces reading one set of inputs, not each sampling its own.
-        val points = if (rec) accumulator.pointCount else 0
+        val points = if (rec) ingest.pointCount else 0
         val deaf = deafnessWarning.warned
         TrackingStatus.update {
             it.copy(
@@ -992,11 +918,11 @@ class LocationRecordingService : Service() {
                 activity = activity,
                 recording = rec,
                 activeTrackId = activeTrackId,
-                distanceMeters = if (rec) accumulator.distanceMeters else 0.0,
+                distanceMeters = if (rec) ingest.distanceMeters else 0.0,
                 points = points,
                 startedAtMillis = if (rec && trackStartedAt > 0) trackStartedAt else null,
-                speedMps = if (rec) accumulator.lastGood?.speed else null,
-                altitudeM = if (rec) accumulator.lastGood?.altitude else null,
+                speedMps = if (rec) ingest.lastGood?.speed else null,
+                altitudeM = if (rec) ingest.lastGood?.altitude else null,
                 deaf = deaf,
                 gpsSuspended = suspended,
                 gpsSuspendedSinceMillis = when {
@@ -1006,8 +932,8 @@ class LocationRecordingService : Service() {
                 },
                 pausedActivity = paused?.activity,
                 pausedUntilMillis = paused?.resumeDeadlineMs,
-                lastFixAccuracyM = if (rec) lastFixAccuracyM else null,
-                lastFixRejectedByAccuracy = rec && lastFixRejectedByAccuracy,
+                lastFixAccuracyM = if (rec) ingest.lastFixAccuracyM else null,
+                lastFixRejectedByAccuracy = rec && ingest.lastFixRejectedByAccuracy,
             )
         }
         // One classification, shared with the Record tab's card: the pure [recordCardState] decides
@@ -1168,12 +1094,11 @@ class LocationRecordingService : Service() {
         private const val STALE_READING_ADVANCE_MS = 1_000L
         private const val STALE_RESTART_MIN_GAP_MS = 5 * 60_000L
 
-        // A fix counts as GNSS-backed when a satellite fix using at least this many satellites
-        // occurred within [GNSS_FIX_MAX_AGE_MS] of it. Four is the minimum for a genuine 3D fix;
-        // below that the position isn't independently satellite-determined. Tunables for field-testing
-        // the cross-check against the tunnel/underpass fabrication case.
+        // How many satellites make a status report count as a real fix at all — four is the minimum
+        // for a genuine 3D one; below that the position isn't independently satellite-determined.
+        // How *stale* such a fix may be and still back a location is the rule's own, and lives with
+        // it in [FixIngest.GNSS_FIX_MAX_AGE_MS].
         private const val GNSS_MIN_SATELLITES_IN_FIX = 4
-        private const val GNSS_FIX_MAX_AGE_MS = 5_000L
         private const val PASSIVE_INTERVAL_MS = 30_000L
 
         fun start(context: Context) {
