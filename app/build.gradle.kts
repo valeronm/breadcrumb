@@ -230,4 +230,8 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("androidx.test:core:1.7.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+    // Streams a backup export in the recorder replay (FixIngestReplayTest). MapLibre's geojson
+    // already pulls gson in transitively; declared here so a map-library bump can't take the test
+    // suite's JSON reader with it.
+    testImplementation("com.google.code.gson:gson:2.10.1")
 }
