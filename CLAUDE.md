@@ -328,8 +328,9 @@ and "not computed yet" — measured at ~0.5 s over a six-million-point history. 
 resolved to a "mixed" one, because a split of a mixed track would stamp both halves mixed, and the
 reconstruction can't recognise mixedness at all — a recorded track may hold fixes the platform gave no
 radius for, which is exactly what half an import looks like. This is also the answer `track_points.provider`
-carried until v12 dropped it as uninformative: true of the recorder, which had stopped using more than
-one provider, and overlooked that the import path was writing a distinct value into that same column.
+carried until v12 dropped it, the column having gone uninformative for the recorder once raw GNSS was
+its only source — the import path's own value went with it, knowingly, against the fixes staying
+tellable apart by their absent fix-quality metadata. They are: that is the rule the v15 fill runs.
 Besides that refusal it is read by `availableColorModes`, which offers a track only the colour metrics
 that can say something — **two filters, because a dead metric has two causes**: the source rules out the
 recorder's own fix-quality readings (accuracy, satellites, signal) for an import as a *kind*, whatever
