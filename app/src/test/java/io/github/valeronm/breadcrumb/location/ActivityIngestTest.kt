@@ -360,6 +360,110 @@ class ActivityIngestTest {
         }
     }
 
+    // --- The no-fix give-up guard -----------------------------------------------
+
+    @Test fun `a probe that runs its window with nothing accepted hands GPS to the cheap signals`() {
+        startWalking()
+        noFixGuard.onProbeStarted(E0)
+
+        val out = core.onGnssTick(T0 + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
+
+        assertEquals(
+            listOf(Effect.StopGps, Effect.ArmResumeSignals(NoFixGuard.RETRY_BASE_MS), Effect.Publish),
+            out,
+        )
+        assertTrue(noFixGuard.suspended)
+    }
+
+    @Test fun `moving ground vetoes the give-up, however long the probe has run`() {
+        reading(ActivityType.DRIVING, T0)
+        noFixGuard.onProbeStarted(E0)
+        // Fixes are arriving and the ground is provably moving: the guard's premise — GPS cannot get
+        // a fix here — is simply false, whatever its own window says.
+        driveFrom(T0, until = T0 + MINUTE)
+
+        val out = core.onGnssTick(T0 + MINUTE, E0 + GIVE_UP_MS, GIVE_UP_MS, crossChecked)
+
+        assertTrue("GPS stays on", out.isEmpty())
+        assertFalse(noFixGuard.suspended)
+    }
+
+    @Test fun `a paused track's silence is not a failed probe`() {
+        startWalking()
+        noFixGuard.onProbeStarted(E0)
+        reading(ActivityType.STILL, T0 + MINUTE)
+
+        val out = core.onGnssTick(T0 + MINUTE + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
+
+        assertTrue("the pause owns the silence, and its own wake", out.isEmpty())
+        assertFalse(noFixGuard.suspended)
+    }
+
+    @Test fun `a promotion that pauses the track leaves the resume signals unarmed`() {
+        // The hazard: a pause stops GPS and arms its own resume-deadline wake, so arming the no-fix
+        // signals on top would leave one track with two mechanisms waiting to revive it.
+        reading(ActivityType.DRIVING, T0)
+        driveFrom(T0, until = T0 + MINUTE)
+        reading(ActivityType.STILL, T0 + MINUTE, crossCheckMotion = true)
+        noFixGuard.onProbeStarted(E0)
+
+        // The carrier has stopped: the window has aged out, so the hold is released here, on the way
+        // down — this tick is the last one there will be until GPS comes back.
+        val arrivedAt = T0 + 3 * MINUTE
+        val out = core.onGnssTick(arrivedAt, E0 + GIVE_UP_MS, GIVE_UP_MS, crossChecked)
+
+        assertTrue("the held stop lands", core.isPaused)
+        assertTrue("and only the pause waits on it", out.none { it is Effect.ArmResumeSignals })
+        assertEquals(
+            listOf(Effect.StopGps, Effect.SchedulePauseWake(arrivedAt + RESUME_WINDOW_MS), Effect.Publish),
+            out,
+        )
+        assertFalse(noFixGuard.suspended)
+    }
+
+    @Test fun `a resume signal probes again`() {
+        givenGpsSuspended()
+
+        val out = core.onResumeSignal(E0 + GIVE_UP_MS + NoFixGuard.RETRY_BASE_MS, respectBackoff = true)
+
+        assertEquals(listOf(Effect.EnsureGps, Effect.Publish), out)
+    }
+
+    @Test fun `motion too soon after a failed probe re-arms the trigger instead of probing`() {
+        givenGpsSuspended()
+
+        val out = core.onResumeSignal(E0 + GIVE_UP_MS + 1, respectBackoff = true)
+
+        assertEquals(
+            "the one-shot trigger has fired and disarmed itself; the passive listener still stands",
+            listOf(Effect.ArmSignificantMotion),
+            out,
+        )
+    }
+
+    @Test fun `a passive fix ignores the backoff, being evidence rather than a suggestion`() {
+        givenGpsSuspended()
+
+        val out = core.onResumeSignal(E0 + GIVE_UP_MS + 1, respectBackoff = false)
+
+        assertEquals(listOf(Effect.EnsureGps, Effect.Publish), out)
+    }
+
+    @Test fun `a signal arriving while GPS was never suspended asks for nothing`() {
+        startWalking()
+        noFixGuard.onProbeStarted(E0)
+
+        assertTrue(core.onResumeSignal(E0 + GIVE_UP_MS, respectBackoff = false).isEmpty())
+    }
+
+    /** A walk whose probe ran its window with nothing accepted, so GPS is off and waiting. */
+    private fun givenGpsSuspended() {
+        startWalking()
+        noFixGuard.onProbeStarted(E0)
+        core.onGnssTick(T0 + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
+        assertTrue("fixture precondition", noFixGuard.suspended)
+    }
+
     // --- Deafness ---------------------------------------------------------------
 
     @Test fun `a stale but advancing reading proves the registration deaf`() {
@@ -421,6 +525,10 @@ class ActivityIngestTest {
 
         /** 90 km/h — ordinary road speed, well under the 220 km/h ceiling a DRIVING label carries. */
         const val VEHICLE_MPS = 25.0
+
+        /** The guard's clock is monotonic and unrelated to [T0]; only differences are ever read. */
+        const val E0 = 500_000L
+        const val GIVE_UP_MS = 120_000L
 
         /** Just inside [ActivityIngest.STALE_RESTART_MIN_GAP_MS], which the rule compares strictly. */
         const val STALE_RESTART_GAP_MS = ActivityIngest.STALE_RESTART_MIN_GAP_MS

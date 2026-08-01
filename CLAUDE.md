@@ -157,11 +157,15 @@ The pieces below only make sense together — read them as a unit.
 - **The two paths that decide anything have no Android in them, and the service is what performs
   what they decide.** `FixIngest` is the fix path (platform fixes in, point rows and a motion verdict
   out); `ActivityIngest` is the activity path (readings in, a list of `Effect`s out — `EnsureGps`,
-  `OpenTrack`, `CloseTrack`, `SchedulePauseWake`, …). Between them they own everything that persists
-  across a track: the movement witness, the carrier case, the running aggregates, the activity gate,
-  the track controller and the deafness bookkeeping. Both were lifted out because the rules each had
-  a suite while the *loops that sequence them* had none, and those loops decide where tracks begin
-  and end — previously answerable only by walking around with the phone.
+  `OpenTrack`, `CloseTrack`, `SchedulePauseWake`, `ArmResumeSignals`, …), and the no-fix give-up
+  guard's consultations run there too (`onGnssTick` / `onResumeSignal`). Between them they own
+  everything that persists across a track: the movement witness, the carrier case, the running
+  aggregates, the activity gate, the track controller and the deafness bookkeeping. Both were lifted
+  out because the rules each had a suite while the *loops that sequence them* had none, and those
+  loops decide where tracks begin and end — previously answerable only by walking around with the
+  phone. What is left of `NoFixGuard` in the service is only what belongs to its own resources: the
+  probe clock starts where GPS actually starts, the pre-give-up filter is deliberately raced
+  off-mutex, and the fix and publish paths read it.
   Two invariants hold the effect half together. **The core commits its own state as it builds the
   list, while the effects are only described**, so `LocationRecordingService.dispatch` must run every
   effect and run them in order; dropping or reordering one leaves the core believing something that
@@ -172,7 +176,10 @@ The pieces below only make sense together — read them as a unit.
   on lives with the service anyway, since a start is refused outright without the fine-location
   grant. The service keeps the track *id*, deliberately: nothing in the decisions needs it (the
   controller's phase is what answers "is a track open"), which is what lets the core stay
-  synchronous while the insert it asks for is awaited.
+  synchronous while the insert it asks for is awaited. `ArmResumeSignals` is separate from `StopGps`
+  for a related reason: a pause stops GPS *and* arms its own resume-deadline wake, so folding the
+  two together would leave one track with two mechanisms waiting to revive it — which is also why a
+  promotion that pauses the track suppresses the give-up that was under way.
 - `ActivityRecognitionManager` registers Activity Transition updates (and a one-shot activity
   *snapshot* on arming). Results arrive at `ActivityTransitionReceiver`, which forwards the detected
   `ActivityType` to `LocationRecordingService.instance` (it does not start the service).

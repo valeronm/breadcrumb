@@ -35,6 +35,22 @@ sealed interface Effect {
 
     data object StopGps : Effect
 
+    /**
+     * GPS is off for want of a fix rather than for want of a journey — arm the cheap signals that
+     * say conditions may have changed. Deliberately not folded into [StopGps]: a pause stops GPS
+     * too, and arms its own resume-deadline wake, so arming these on top would leave one track with
+     * two mechanisms waiting to revive it. [retryGatedMs] is how long a motion-triggered retry is
+     * held off, which is what the backoff bought and the only thing that explains a signal being
+     * heard and ignored.
+     */
+    data class ArmResumeSignals(val retryGatedMs: Long) : Effect
+
+    /**
+     * Re-arm the one-shot motion trigger alone. It has just fired and disarmed itself while the
+     * passive listener is still armed, so the pair would be the wrong request.
+     */
+    data object ArmSignificantMotion : Effect
+
     /** Insert the track row. The id it returns is the dispatcher's to hold — nothing here needs it. */
     data class OpenTrack(val activity: ActivityType, val startedAt: Long) : Effect
 
@@ -188,6 +204,49 @@ class ActivityIngest(
         close(nowMs, out)
         out += Effect.Publish
         return out
+    }
+
+    /**
+     * A `GnssStatus` tick's worth of "has this probe run [giveUpMs] with nothing to show?" — the
+     * engine reports about once a second while searching, which is why the guard needs no timer of
+     * its own and cannot be Doze-deferred while GPS is off. [elapsedMs] is monotonic (the guard's
+     * only clock: a probe outlives a wall-clock step), [nowMs] is wall time for everything else.
+     * Empty unless the probe has genuinely failed; the caller's own resources — is GPS even on, is a
+     * track open — are its guard to keep, and this one keeps the recorder's.
+     */
+    fun onGnssTick(
+        nowMs: Long,
+        elapsedMs: Long,
+        giveUpMs: Long,
+        settings: ActivitySettings,
+    ): List<Effect> {
+        // A paused track turned GPS off for its own reasons and is waiting on its own deadline.
+        if (controller.isPaused) return emptyList()
+        val motion = motionVerdict(nowMs, settings.crossCheckMotion)
+        if (!noFixGuard.shouldGiveUp(elapsedMs, giveUpMs, motion)) return emptyList()
+        // GPS is about to go, and with it the tick that would ever revisit a held reading — so it is
+        // reconsidered here, on the way down. The veto inside [NoFixGuard.shouldGiveUp] is what makes
+        // that honest: reaching this line means fixes have genuinely ceased, so there is no longer
+        // any moving ground to contradict a stop.
+        val out = ArrayList(onMotion(motion, nowMs, settings))
+        // The promotion may have paused the track, which stops GPS and arms the pause's own wake.
+        if (controller.isPaused) return out
+        out += Effect.StopGps
+        out += Effect.ArmResumeSignals(noFixGuard.onGaveUp(elapsedMs))
+        out += Effect.Publish
+        return out
+    }
+
+    /**
+     * A cheap signal says conditions may have changed. [respectBackoff] is false for evidence that
+     * stands on its own — a passive fix delivered to another app proves the sky is visible — and
+     * true for motion, which merely suggests it. Empty when GPS is not suspended at all.
+     */
+    fun onResumeSignal(elapsedMs: Long, respectBackoff: Boolean): List<Effect> {
+        if (!noFixGuard.suspended) return emptyList()
+        // Too soon after the last failed probe; keep listening for motion instead.
+        if (!noFixGuard.shouldProbe(elapsedMs, respectBackoff)) return listOf(Effect.ArmSignificantMotion)
+        return listOf(Effect.EnsureGps, Effect.Publish)
     }
 
     /** Disarming: close whatever is open, without a publish — the caller resets the status wholesale. */

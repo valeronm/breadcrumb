@@ -334,6 +334,17 @@ class LocationRecordingService : Service() {
 
                 Effect.StopGps -> withContext(Dispatchers.Main) { stopLocationUpdates() }
 
+                is Effect.ArmResumeSignals -> {
+                    DebugLog.i(
+                        TAG,
+                        "no-fix guard: probe gave up — GPS off " +
+                            "(motion retry gated ${effect.retryGatedMs / 1000}s)",
+                    )
+                    withContext(Dispatchers.Main) { armResumeSignals() }
+                }
+
+                Effect.ArmSignificantMotion -> withContext(Dispatchers.Main) { armSignificantMotion() }
+
                 is Effect.OpenTrack -> {
                     trackStartedAt = effect.startedAt
                     activeTrackId = repository.startTrack(effect.activity, effect.startedAt)
@@ -595,29 +606,12 @@ class LocationRecordingService : Service() {
         if (gpsListener == null || !noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return
         scope.launch {
             mutex.withLock {
-                if (gpsListener == null || activeTrackId == null || core.isPaused) return@withLock
-                val motion = motionVerdict(now())
-                if (!noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs, motion)) return@withLock
-                // GPS is about to go, and with it the tick that would ever revisit a held reading —
-                // so it is reconsidered here, on the way down. The veto above is what makes that
-                // honest: reaching this line means fixes have genuinely ceased, so there is no
-                // longer any moving ground to contradict a stop.
-                promoteParkedReading(motion)
-                // A promotion may have paused the track, and [pauseTrack] both stops GPS and arms
-                // its own resume-deadline wake. Carrying on would arm the no-fix resume signals on
-                // top of that, leaving one track with two mechanisms waiting to revive it.
-                if (core.isPaused) return@withLock
-                val backoffMs = noFixGuard.onGaveUp(SystemClock.elapsedRealtime())
-                DebugLog.i(
-                    TAG,
-                    "no-fix guard: no accepted fix in ${giveUpMs / 1000}s — GPS off" +
-                        " (motion retry gated ${backoffMs / 1000}s)",
+                // This service's own resources, so its own guard — whether a *pause* rules the
+                // give-up out is the recorder's, and [ActivityIngest.onGnssTick] keeps it.
+                if (gpsListener == null || activeTrackId == null) return@withLock
+                dispatch(
+                    core.onGnssTick(now(), SystemClock.elapsedRealtime(), giveUpMs, activitySettings()),
                 )
-                withContext(Dispatchers.Main) {
-                    stopLocationUpdates()
-                    armResumeSignals()
-                }
-                publishStatus()
             }
         }
     }
@@ -626,15 +620,9 @@ class LocationRecordingService : Service() {
     private fun onNoFixResumeSignal(reason: String, respectBackoff: Boolean) {
         scope.launch {
             mutex.withLock {
-                if (!noFixGuard.suspended) return@withLock
-                if (!noFixGuard.shouldProbe(SystemClock.elapsedRealtime(), respectBackoff)) {
-                    // Too soon after the last failed probe; keep listening for motion instead.
-                    withContext(Dispatchers.Main) { armSignificantMotion() }
-                    return@withLock
-                }
-                DebugLog.i(TAG, "no-fix guard: probing again ($reason)")
-                withContext(Dispatchers.Main) { startLocationUpdates() }
-                publishStatus()
+                val effects = core.onResumeSignal(SystemClock.elapsedRealtime(), respectBackoff)
+                if (Effect.EnsureGps in effects) DebugLog.i(TAG, "no-fix guard: probing again ($reason)")
+                dispatch(effects)
             }
         }
     }
