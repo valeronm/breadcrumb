@@ -25,6 +25,9 @@ object Settings {
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_UNIT_CHOICE = "unit_choice"
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
+    private const val KEY_APP_LOCK = "app_lock"
+    private const val KEY_APP_LOCK_GRACE_SEC = "app_lock_grace_sec"
+    private const val KEY_BLOCK_SCREENSHOTS = "block_screenshots"
 
     // The key string doesn't match the edge-stay name and must stay that way: a renamed key reads
     // back 0 on every installed device and re-walks the whole history for nothing.
@@ -66,6 +69,12 @@ object Settings {
     // significant-motion trigger, a passive GPS fix, or an activity transition suggests trying
     // again. See LocationRecordingService. 0 = never give up.
     const val DEFAULT_GPS_GIVE_UP_SEC = 240
+
+    // How long the app may sit in the background before the lock re-engages. Not zero: the app
+    // sends itself to the background through its own flows — the document and folder pickers, the
+    // permission deep-link into system settings, the maps-app action from a place — and prompting
+    // again on the way back from each of those is what makes a lock unusable.
+    const val DEFAULT_APP_LOCK_GRACE_SEC = 30
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -187,6 +196,35 @@ object Settings {
 
     fun setGpsGiveUpSec(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_GPS_GIVE_UP_SEC, value) }
+    }
+
+    // --- Privacy -------------------------------------------------------------
+
+    /** Whether opening the app asks for the fingerprint or device PIN. Gates the UI only —
+     *  recording, the watchdog and the boot resume run whether or not the app is locked. */
+    fun appLock(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_APP_LOCK, false)
+
+    fun setAppLock(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_APP_LOCK, enabled) }
+    }
+
+    /** Background time (seconds) after which the app lock re-engages. 0 = every time. */
+    fun appLockGraceSec(context: Context): Int =
+        prefs(context).getInt(KEY_APP_LOCK_GRACE_SEC, DEFAULT_APP_LOCK_GRACE_SEC)
+
+    fun setAppLockGraceSec(context: Context, value: Int) {
+        prefs(context).edit { putInt(KEY_APP_LOCK_GRACE_SEC, value) }
+    }
+
+    /** Whether the window is marked secure, which blocks screenshots *and* the recents thumbnail.
+     *  Independent of [appLock]: the thumbnail is a map of where its user was, and the price of
+     *  hiding it is losing your own screenshots. */
+    fun blockScreenshots(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_BLOCK_SCREENSHOTS, false)
+
+    fun setBlockScreenshots(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_BLOCK_SCREENSHOTS, enabled) }
     }
 
     /** Display units, stored by [io.github.valeronm.breadcrumb.util.UnitChoice] name (the UI owns

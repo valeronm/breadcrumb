@@ -298,6 +298,10 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.documentfile:documentfile:1.1.0")
 
+    // The app lock's prompt. It hosts itself in a fragment, which is why MainActivity is a
+    // FragmentActivity rather than a bare ComponentActivity — the only reason.
+    implementation("androidx.biometric:biometric:1.1.0")
+
     // Lifecycle + foreground service helpers
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")

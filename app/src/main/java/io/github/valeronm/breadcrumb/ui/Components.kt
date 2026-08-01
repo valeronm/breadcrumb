@@ -284,12 +284,17 @@ internal class Pref<T>(initial: T, val default: T, private val persist: (T) -> U
 internal fun <T> rememberPref(default: T, load: () -> T, save: (T) -> Unit): Pref<T> =
     remember { Pref(load(), default, save) }
 
-/** Settings row with a title, explanatory subtitle and an [IconSwitch]. */
+/**
+ * Settings row with a title, explanatory subtitle and an [IconSwitch]. A row the device can't
+ * currently satisfy stays visible with its switch disabled and the precondition in the subtitle —
+ * the same shape `KeepScreenOnRow` uses for "available while charging".
+ */
 @Composable
 internal fun SwitchSettingRow(
     title: String,
     subtitle: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
@@ -305,7 +310,7 @@ internal fun SwitchSettingRow(
             )
         }
         Spacer(Modifier.width(12.dp))
-        IconSwitch(checked = checked, onCheckedChange = onCheckedChange)
+        IconSwitch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

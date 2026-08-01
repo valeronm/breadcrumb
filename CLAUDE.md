@@ -304,7 +304,7 @@ stays, then track stats), and `sweepEdgeStays` says why a sweep is not one.
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
 stacked layers for place detail, the Settings sub-pages (sampling, point quality, auto-pause, GPS
-search, track filtering, Recently deleted, Logs), and discarded-track detail — each
+search, track filtering, privacy, Recently deleted, Logs), and discarded-track detail — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
 one layer at a time). The Compose code is split one file per screen, all in the `ui` package:
 `MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in

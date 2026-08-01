@@ -44,6 +44,7 @@ import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.UnitChoice
+import io.github.valeronm.breadcrumb.util.canAuthenticate
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /** A Settings sub-page stacked above the Settings hub (shares one overlay slot in MainScreen). */
@@ -53,6 +54,7 @@ internal enum class SettingsPage {
     AutoPause,
     GpsSearch,
     TrackFiltering,
+    Privacy,
     RecentlyDeleted,
     Logs,
 }
@@ -136,6 +138,17 @@ internal fun SettingsScreen(
                             }
                         }
                     }
+                },
+            )
+            Spacer(Modifier.height(24.dp))
+            Text("Privacy", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            GroupedRows(
+                {
+                    NavRow(
+                        "App lock",
+                        subtitle = "Unlocking to open the app, and hiding it from screenshots",
+                    ) { onOpenPage(SettingsPage.Privacy) }
                 },
             )
             Spacer(Modifier.height(24.dp))
@@ -390,6 +403,84 @@ internal fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
         )
     }
 }
+
+/** The grace choices, in seconds. Not a slider: these are four named behaviours, not a range. */
+private val LOCK_GRACE_CHOICES = listOf(0, 30, 60, 300)
+
+@Composable
+internal fun PrivacySettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val graceSec = rememberPref(
+        AppSettings.DEFAULT_APP_LOCK_GRACE_SEC,
+        { AppSettings.appLockGraceSec(context) },
+    ) { AppSettings.setAppLockGraceSec(context, it) }
+    // Not remembered: a user sent away to set a screen lock comes back to this same screen, and a
+    // cached "you have none" would still be telling them to go and do what they just did.
+    val lockable = context.canAuthenticate()
+    SettingsSubPage("Privacy", onBack, listOf(graceSec)) {
+        SettingsPageDescription(
+            "Recording is never locked — tracks keep being recorded whether or not the app is.",
+        )
+        GroupedRows(
+            { RequireUnlockRow(context, lockable, graceSec) },
+            {
+                SwitchSettingRow(
+                    title = "Block screenshots",
+                    subtitle = "Also hides the app's preview in the recent-apps switcher, which " +
+                        "otherwise shows a map of where you were.",
+                    checked = Privacy.blockScreenshots,
+                    onCheckedChange = { Privacy.setBlockScreenshots(context, it) },
+                )
+            },
+        )
+    }
+}
+
+@Composable
+private fun RequireUnlockRow(context: Context, lockable: Boolean, graceSec: Pref<Int>) {
+    SwitchSettingRow(
+        title = "Require unlock",
+        subtitle = if (lockable) {
+            "Opening the app asks for your fingerprint or device PIN."
+        } else {
+            "Set a screen lock on this device first."
+        },
+        // A lock this device can't open would be a lockout with no way back to the history.
+        checked = lockable && Privacy.lockEnabled,
+        enabled = lockable,
+        onCheckedChange = { Privacy.setLockEnabled(context, it) },
+    )
+    if (lockable && Privacy.lockEnabled) LockGraceChips(graceSec)
+}
+
+@Composable
+private fun LockGraceChips(graceSec: Pref<Int>) {
+    Spacer(Modifier.height(12.dp))
+    Text("Lock again", style = MaterialTheme.typography.bodyMedium)
+    Text(
+        "Leaving the app briefly — to pick a file or grant a permission — shouldn't ask again.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        for (seconds in LOCK_GRACE_CHOICES) {
+            FilterChip(
+                selected = seconds == graceSec.value,
+                onClick = { graceSec.set(seconds) },
+                label = { Text(lockGraceLabel(seconds)) },
+            )
+        }
+    }
+}
+
+// Zero is the one choice the duration ladder can't spell: it renders as "Off", which here would
+// read as "never lock again" rather than "lock the moment you leave".
+private fun lockGraceLabel(sec: Int): String =
+    if (sec == 0) "Immediately" else "After ${durationSettingLabel(sec)}"
 
 /** Hub row that opens the GPX picker directly; the subtitle doubles as import progress. */
 @Composable

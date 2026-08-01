@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.view.Window
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -58,6 +59,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -81,7 +83,12 @@ import io.github.valeronm.breadcrumb.util.requestIgnoreBatteryOptimization
 import kotlinx.coroutines.launch
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
-class MainActivity : ComponentActivity() {
+private fun Window.setFlag(flag: Int, on: Boolean) {
+    if (on) addFlags(flag) else clearFlags(flag)
+}
+
+/** A FragmentActivity only because [PrivacyGate]'s biometric prompt hosts itself in a fragment. */
+class MainActivity : FragmentActivity() {
 
     /** GPX URIs handed to us via share/open-with, waiting for the UI to import them. */
     private val pendingGpxImport = mutableStateOf<List<Uri>?>(null)
@@ -90,10 +97,20 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         consumeGpxIntent(intent)
+        Privacy.load(this)
         setContent {
             AppTheme {
                 var unitChoice by remember {
                     mutableStateOf(UnitChoice.fromName(AppSettings.unitChoice(this)))
+                }
+                // FLAG_SECURE covers screenshots and the recents thumbnail together — the window
+                // either holds still-sensitive content or it doesn't, and the system draws no
+                // distinction between who is capturing it.
+                LaunchedEffect(Privacy.blockScreenshots) {
+                    window.setFlag(
+                        WindowManager.LayoutParams.FLAG_SECURE,
+                        Privacy.blockScreenshots,
+                    )
                 }
                 // The configuration locale, not Locale.getDefault(): composition observes it, so a
                 // mid-process language switch re-resolves the Automatic units choice.
@@ -101,9 +118,11 @@ class MainActivity : ComponentActivity() {
                 CompositionLocalProvider(
                     LocalUnits provides unitChoice.resolve(locale.country),
                 ) {
-                    MainScreen(pendingGpxImport, unitChoice) {
-                        unitChoice = it
-                        AppSettings.setUnitChoice(this, it.name)
+                    PrivacyGate {
+                        MainScreen(pendingGpxImport, unitChoice) {
+                            unitChoice = it
+                            AppSettings.setUnitChoice(this, it.name)
+                        }
                     }
                 }
             }
@@ -156,8 +175,12 @@ private fun MainScreen(
     val viewModel: TrackListViewModel = viewModel()
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
 
-    LaunchedEffect(pendingGpxImport.value) {
+    // Waits for the lock rather than relying on the gate: PrivacyGate draws over this composition
+    // instead of replacing it, so an import shared in while the app is locked would otherwise run
+    // and report itself behind the lock screen. Unlocking re-runs the effect.
+    LaunchedEffect(pendingGpxImport.value, Privacy.unlocked) {
         val uris = pendingGpxImport.value ?: return@LaunchedEffect
+        if (Privacy.isLocked(context)) return@LaunchedEffect
         pendingGpxImport.value = null
         viewModel.importExport.importGpx(uris) { result ->
             Toast.makeText(context, gpxImportMessage(result), Toast.LENGTH_LONG).show()
@@ -170,12 +193,7 @@ private fun MainScreen(
     var keepScreenOn by remember { mutableStateOf(AppSettings.keepScreenOnCharging(context)) }
     val window = (context as? ComponentActivity)?.window
     LaunchedEffect(charging, keepScreenOn, window) {
-        if (window == null) return@LaunchedEffect
-        if (charging && keepScreenOn) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        } else {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
+        window?.setFlag(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, charging && keepScreenOn)
     }
 
     // Permission state, refreshed whenever the activity resumes (e.g. back from Settings).
@@ -701,6 +719,7 @@ private fun SettingsPagesOverlay(
             SettingsPage.AutoPause -> AutoPauseSettingsScreen(onBack = onClose)
             SettingsPage.GpsSearch -> GpsSearchSettingsScreen(onBack = onClose)
             SettingsPage.TrackFiltering -> TrackFilteringSettingsScreen(onBack = onClose)
+            SettingsPage.Privacy -> PrivacySettingsScreen(onBack = onClose)
             SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
                 viewModel = viewModel,
                 onBack = onClose,
