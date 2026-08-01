@@ -33,17 +33,12 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
-import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.DeafnessWarning
 import io.github.valeronm.breadcrumb.domain.GnssSnapshot
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.MovementConfirmer
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
-import io.github.valeronm.breadcrumb.domain.ReadingClock
-import io.github.valeronm.breadcrumb.domain.RecordingAction
-import io.github.valeronm.breadcrumb.domain.StaleReadingOracle
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackController
 import io.github.valeronm.breadcrumb.domain.recordCardState
@@ -100,40 +95,32 @@ class LocationRecordingService : Service() {
         }
     }
 
-    // Two small state machines own the logic; this service owns only the resources below, and wires
-    // them together. The gate debounces raw readings into a trusted activity; the controller turns
-    // that into track lifecycle actions. All access is under [mutex].
-    private val gate = ActivityGate()
-    private val controller = TrackController()
-
-    // The fix path itself: platform fixes in, point rows and a motion verdict out, with no Android
-    // in it so it can be exercised off the device ([FixIngest]). It owns what accumulates across a
-    // track — the movement witness, the carrier case against the track's label, and the running
-    // aggregates. Touched only under [mutex]: every path that feeds it, reads it or restarts it
-    // runs there, [startLocationUpdates] included (always reached through a withContext from
-    // inside the lock).
+    // The fix path: platform fixes in, point rows and a motion verdict out, with no Android in it so
+    // it can be exercised off the device ([FixIngest]). It owns what accumulates across a track —
+    // the movement witness, the carrier case against the track's label, and the running aggregates.
+    // Touched only under [mutex]: every path that feeds it, reads it or restarts it runs there,
+    // [startLocationUpdates] included (always reached through a withContext from inside the lock).
     private val ingest = FixIngest(AndroidDistance)
 
-    // [openTrackActivity] is the *track's* label as opened — a same-group activity switch keeps the
-    // track's original label, so neither the carrier-evidence bar nor its rename verdict may follow
-    // the confirmed activity. Touched only under [mutex].
-    private var openTrackActivity: ActivityType? = null
+    // The no-fix give-up guard's decisions (when to give up, backoff gating, what a resume signal
+    // means) live in the pure [NoFixGuard]; this service owns only the side effects — GPS on/off,
+    // the significant-motion sensor, and the passive listener, all further down. Guard state is
+    // touched under [mutex] except the benign racy pre-check in [maybeGiveUpOnNoFix]. Declared here
+    // because both paths move it, and [core] below reads it at construction.
+    private val noFixGuard = NoFixGuard()
+
+    // The activity path, likewise Android-free: readings in, [Effect]s out. It owns the gate that
+    // debounces raw readings into a trusted activity, the controller that turns those into track
+    // lifecycle decisions, and the deafness bookkeeping. This service performs what it decides and
+    // nothing more — see [dispatch], which is the only place those effects are carried out.
+    private val core = ActivityIngest(ingest, noFixGuard)
 
     // Set while the service is armed; duplicate ACTION_STARTs while armed are no-ops.
     @Volatile private var armed = false
 
-    // When the current armed session began, and when the stale-reading oracle last forced a
-    // re-registration — see the deafness check in [onReadingArrived].
+    // When the current armed session began — the deafness oracle reads it to tell a replay of a
+    // transition GMS never delivered from one that simply predates this session.
     @Volatile private var armedAtMs = 0L
-    private var lastStaleRestartMs = 0L
-
-    // Warns the user when activity detection stops responding; see [DeafnessWarning] for why it
-    // takes two detections. Its replay window is timed against the manager's registration stamp,
-    // since a re-registration's replay is indistinguishable from a live delivery.
-    private val deafnessWarning = DeafnessWarning(
-        liveMaxAgeMs = STALE_READING_RESTART_MS,
-        replayWindowMs = REGISTRATION_REPLAY_WINDOW_MS,
-    )
 
     // True once any transition reading has been applied since the last arm. Read by
     // [ActivityTransitionReceiver] to drop the arm-time snapshot once the transition stream has
@@ -148,11 +135,6 @@ class LocationRecordingService : Service() {
     @Volatile private var gpsListener: LocationListenerCompat? = null
 
     // --- No-fix give-up guard ---
-    // The decisions (when to give up, backoff gating, what a resume signal means) live in the pure
-    // [NoFixGuard]; this service owns only the side effects — GPS on/off, the significant-motion
-    // sensor, and the passive listener. Guard state is touched under [mutex] except the benign
-    // racy pre-check in [maybeGiveUpOnNoFix].
-    private val noFixGuard = NoFixGuard()
     private var sensorManager: SensorManager? = null
     private var motionSensor: Sensor? = null
     private var motionListener: TriggerEventListener? = null
@@ -245,7 +227,7 @@ class LocationRecordingService : Service() {
                 )
                 livenessRepository.recordArmed(now())
                 startHeartbeat()
-                gate.onArmed()
+                core.onArmed()
                 publishStatus()
             }
             clearDeafnessWarning()
@@ -274,8 +256,8 @@ class LocationRecordingService : Service() {
         activityManager.stop()
         scope.launch {
             mutex.withLock {
-                closeCurrentTrack()
-                gate.onArmed()
+                dispatch(core.closeOpenTrack(now()))
+                core.onArmed()
                 heartbeatJob?.cancel()
                 heartbeatJob = null
                 Settings.setLastHeartbeatMs(this@LocationRecordingService, now())
@@ -288,9 +270,6 @@ class LocationRecordingService : Service() {
             }
         }
     }
-
-    // Sanitizes AR event timestamps into gate reading times; see [ReadingClock].
-    private val readingClock = ReadingClock()
 
     /**
      * Called by [ActivityTransitionReceiver] when Play Services reports a transition. [eventTimeMs]
@@ -317,18 +296,94 @@ class LocationRecordingService : Service() {
 
     private suspend fun applyActivity(raw: ActivityType, eventTimeMs: Long?) {
         val nowMs = now()
-        val readingMs = onReadingArrived(eventTimeMs, nowMs)
-        // Debounce the raw reading into a trusted activity signal; nothing to apply if the trusted
-        // activity didn't move — or if the ground contradicts it, in which case the gate holds it
-        // until [promoteParkedReading] finds it credible.
-        val previous = gate.confirmed
-        val changed = gate.onReading(raw, motionVerdict(nowMs))
-        if (changed == null) {
-            gate.parked?.let { DebugLog.i(TAG, "motion cross-check: holding $it — the ground is still moving") }
-            return
+        val was = core.confirmed
+        val wasPaused = core.isPaused
+        val effects = core.onReading(
+            raw = raw,
+            eventTimeMs = eventTimeMs,
+            nowMs = nowMs,
+            registration = Registration(armedAtMs, ActivityRecognitionManager.lastRegisteredAtMs),
+            settings = activitySettings(),
+        )
+        if (core.confirmed != was) {
+            logTransition(was, core.confirmed, wasPaused, readingLagMs(effects, nowMs))
+        } else {
+            core.parked?.let { DebugLog.i(TAG, "motion cross-check: holding $it — the ground is still moving") }
         }
-        applyConfirmed(previous, changed, readingMs, nowMs - readingMs)
+        dispatch(effects)
     }
+
+    /** The settings a pass is decided under, read here because this is where they live. */
+    private fun activitySettings() = ActivitySettings(
+        resumeWindowMs = Settings.resumeWindowSec(this) * 1000L,
+        crossCheckMotion = Settings.motionCrossCheck(this),
+    )
+
+    /**
+     * Perform what [ActivityIngest] decided, in the order it decided it. It commits its own state
+     * as it builds the list, so every effect must run and run in order — see [Effect]. This is the
+     * only place the activity path touches Android.
+     */
+    private suspend fun dispatch(effects: List<Effect>) {
+        for (effect in effects) {
+            when (effect) {
+                // A request, not a restart: several branches of one pass can ask, and starting twice
+                // would tear the GPS request down and rebuild it mid-track.
+                Effect.EnsureGps ->
+                    if (gpsListener == null) withContext(Dispatchers.Main) { startLocationUpdates() }
+
+                Effect.StopGps -> withContext(Dispatchers.Main) { stopLocationUpdates() }
+
+                is Effect.OpenTrack -> {
+                    trackStartedAt = effect.startedAt
+                    activeTrackId = repository.startTrack(effect.activity, effect.startedAt)
+                    DebugLog.i(TAG, "  -> opened ${effect.activity} track $activeTrackId")
+                }
+
+                is Effect.CloseTrack -> {
+                    DebugLog.i(TAG, "  -> closing track $activeTrackId")
+                    activeTrackId?.let { repository.finishTrack(it, effect.endedAt, effect.renameTo) }
+                    activeTrackId = null
+                }
+
+                is Effect.SchedulePauseWake -> scope.launch {
+                    delay(effect.deadlineMs - now())
+                    // Logic-free wake: a stale deadline (after a resume, fresh start, or newer
+                    // pause) returns no effects from [ActivityIngest.onTick].
+                    finalizeExpiredPause()
+                }
+
+                is Effect.RestartRegistration -> {
+                    DebugLog.w(
+                        TAG,
+                        "reading ${effect.readingLateMs / 1000}s late " +
+                            "(advanced ${effect.advancedMs}ms) — registration deaf, re-registering",
+                    )
+                    activityManager.restart()
+                }
+
+                is Effect.DeafWarning ->
+                    if (effect.show) {
+                        showDeafnessWarning()
+                    } else {
+                        DebugLog.i(TAG, "live delivery resumed — withdrawing the detection warning")
+                        clearDeafnessWarning()
+                    }
+
+                is Effect.StampReading ->
+                    TrackingStatus.update { it.copy(lastReadingAtMillis = effect.readingMs) }
+
+                Effect.StampHeartbeat -> Settings.setLastHeartbeatMs(this, now())
+
+                Effect.Publish -> publishStatus()
+            }
+        }
+    }
+
+    /** How late the reading behind this pass was, for the log line; zero when none was involved. */
+    private fun readingLagMs(effects: List<Effect>, nowMs: Long): Long =
+        effects.firstNotNullOfOrNull { (it as? Effect.StampReading)?.readingMs }
+            ?.let { nowMs - it } ?: 0L
 
     /**
      * The one place the cross-check's setting is read, so the one place it branches: every
@@ -336,22 +391,20 @@ class LocationRecordingService : Service() {
      * nothing downstream knows a switch exists. Caller holds [mutex].
      */
     private fun motionVerdict(atMs: Long): Motion =
-        ingest.verdict(atMs, Settings.motionCrossCheck(this))
+        core.motionVerdict(atMs, Settings.motionCrossCheck(this))
 
     /**
      * Reconsider a reading the ground contradicted, and apply it if the contradiction has cleared.
      * Caller holds [mutex].
      */
     private suspend fun promoteParkedReading(motion: Motion) {
-        val previous = gate.confirmed
-        val promoted = gate.onMotion(motion) ?: return
-        DebugLog.i(TAG, "motion cross-check: releasing the held $promoted")
-        // **The promotion's own time, not the reading's.** The controller measures the resume
-        // window from the time it is given, and a reading held longer than that window would
-        // promote into a pause that had already lapsed — the holding silently replacing the resume
-        // window instead of preceding it. The hold is evidence the stop had not begun yet, so the
-        // window that follows it is the first one measuring an actual stop.
-        applyConfirmed(previous, promoted, now(), readingLagMs = 0L)
+        val was = core.confirmed
+        val wasPaused = core.isPaused
+        val effects = core.onMotion(motion, now(), activitySettings())
+        if (effects.isEmpty()) return
+        DebugLog.i(TAG, "motion cross-check: releasing the held ${core.confirmed}")
+        logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L)
+        dispatch(effects)
     }
 
     /**
@@ -360,166 +413,25 @@ class LocationRecordingService : Service() {
      * off-mutex pre-check (as in [maybeGiveUpOnNoFix]) costs at most one tick's delay (~1 s) on a stale read.
      */
     private fun checkParkedReading() {
-        if (gate.parked == null) return
+        if (core.parked == null) return
         scope.launch { mutex.withLock { promoteParkedReading(motionVerdict(now())) } }
     }
 
     /**
-     * The preamble every Play-Services *reading* runs: sanitize the event's own time, let the
-     * deafness oracle judge it, stamp the liveness the Record card shows; returns the reading time
-     * the gate and controller work in. Separate from [applyConfirmed]: an activity applied with no
-     * reading behind it must not touch the oracle, whose job is noticing when readings stop arriving.
+     * [wasPaused] and the activity either side are sampled before the pass: [ActivityIngest] commits
+     * as it decides, so by the time this runs its state already describes the outcome. The line
+     * reports the change, not the result of it.
      */
-    private suspend fun onReadingArrived(eventTimeMs: Long?, nowMs: Long): Long {
-        // The gate gets the event's own (sanitized) time, not the apply time: readings drained
-        // late from a frozen queue must keep their real spacing, or a stop and a return ten
-        // minutes apart would land inside the resume window and stitch through a genuine stop.
-        val lastReadingMs = readingClock.lastReadingMs
-        val readingMs = readingClock.sanitize(eventTimeMs, nowMs, READING_MAX_AGE_MS)
-        // Deafness oracle: a stale-yet-clock-advancing reading applied while armed can only have
-        // arrived via replay of a transition GMS never delivered live — proof the registration is
-        // deaf (a package update or a GMS restart kills it silently). The advance must clear
-        // STALE_READING_ADVANCE_MS so a repeat of an already-applied event can't fire a spurious
-        // restart (see [StaleReadingOracle]).
-        if (StaleReadingOracle.provesDeaf(
-                eventTimeMs, readingMs, lastReadingMs, armedAtMs, nowMs,
-                STALE_READING_RESTART_MS, STALE_READING_ADVANCE_MS,
-            )
-        ) {
-            // The restart is rate-limited; the detection is not. A detection that arrives while a
-            // restart is still within its cooldown is the interesting one — it means the last
-            // restart didn't take, which is what the user needs telling about.
-            if (nowMs - lastStaleRestartMs > STALE_RESTART_MIN_GAP_MS) {
-                lastStaleRestartMs = nowMs
-                DebugLog.w(
-                    TAG,
-                    "reading ${(nowMs - readingMs) / 1000}s late " +
-                        "(advanced ${readingMs - lastReadingMs}ms) — registration deaf, re-registering",
-                )
-                activityManager.restart()
-            }
-            if (deafnessWarning.onDeafDetected()) {
-                showDeafnessWarning()
-                publishStatus()
-            }
-        } else if (
-            deafnessWarning.onReading(
-                nowMs - readingMs, nowMs - ActivityRecognitionManager.lastRegisteredAtMs,
-            )
-        ) {
-            DebugLog.i(TAG, "live delivery resumed — withdrawing the detection warning")
-            clearDeafnessWarning()
-            publishStatus()
-        }
-        // Every delivery — even a NoChange — proves activity detection is alive; the Record
-        // tab's standing-by card surfaces this.
-        TrackingStatus.update { it.copy(lastReadingAtMillis = readingMs) }
-        return readingMs
-    }
-
-    /**
-     * The apply tail: a confirmed activity change becomes a track action and its side effects.
-     * [atMs] is when the change is taken to have happened — the controller measures the pause
-     * deadline from it — and [readingLagMs] only colours the log line.
-     */
-    private suspend fun applyConfirmed(
+    private fun logTransition(
         previous: ActivityType,
-        changed: ActivityType,
-        atMs: Long,
+        activity: ActivityType,
+        wasPaused: Boolean,
         readingLagMs: Long,
     ) {
-        // The controller compares the change's own time against the pause deadline, so a
-        // late-drained reading can't stitch through a genuine stop even if the pause wake never
-        // fired.
-        logTransition(previous, changed, readingLagMs)
-        val action = controller.onActivity(
-            changed, atMs, Settings.resumeWindowSec(this) * 1000L,
-        )
-        when (action) {
-            RecordingAction.Noop -> Unit
-            is RecordingAction.Pause -> {
-                DebugLog.i(TAG, "  -> pausing track $activeTrackId")
-                pauseTrack(action.pausedActivity, action.resumeDeadlineMs)
-            }
-            RecordingAction.Finalize -> {
-                // Unreachable from a reading (expiry only comes from a tick); for totality.
-                DebugLog.i(TAG, "  -> finalizing track $activeTrackId")
-                closeCurrentTrack()
-            }
-            RecordingAction.Resume -> {
-                DebugLog.i(TAG, "  -> resuming paused track $activeTrackId")
-                resumeTrack(changed)
-            }
-            is RecordingAction.StartNew -> {
-                DebugLog.i(TAG, "  -> starting new ${action.activity} track")
-                closeCurrentTrack()
-                openTrack(action.activity)
-            }
-            is RecordingAction.ContinueSameTrack -> {
-                // Same motion family (e.g. walking ⇄ running): keep the track and its label, just
-                // break a new segment at the boundary. GPS is already running.
-                DebugLog.i(TAG, "  -> ${action.activity} continues track $activeTrackId (same family); new segment")
-                ingest.markSegmentStart()
-                controller.onRecording(action.activity)
-            }
-        }
-        // A confirmed moving reading while the no-fix guard has GPS off is a resume signal too
-        // (Resume/StartNew restart GPS themselves; this covers confirmations that map to Noop).
-        if (noFixGuard.suspended && gate.confirmed.recording && gpsListener == null) {
-            DebugLog.i(TAG, "no-fix guard: probing again (activity ${gate.confirmed})")
-            withContext(Dispatchers.Main) { startLocationUpdates() }
-        }
-        publishStatus()
-    }
-
-    private fun logTransition(previous: ActivityType, activity: ActivityType, readingLagMs: Long) {
         // Surface a materially late reading (Doze drain, replay recovery) — it explains why a
         // track decision doesn't line up with the log line's own timestamp.
         val lag = if (readingLagMs > 5_000) " reading=-${readingLagMs / 1000}s" else ""
-        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$activeTrackId paused=${controller.isPaused}$lag)")
-    }
-
-    /** Stop GPS but keep the track open; a wake at [resumeDeadlineMs] finalizes it if unresumed. */
-    private suspend fun pauseTrack(trackActivity: ActivityType, resumeDeadlineMs: Long) {
-        withContext(Dispatchers.Main) { stopLocationUpdates() }
-        noFixGuard.onStopped()
-        controller.onPaused(trackActivity, resumeDeadlineMs)
-        scope.launch {
-            delay(resumeDeadlineMs - now())
-            // Logic-free wake: a stale deadline (after a resume, fresh start, or newer pause)
-            // is a no-op inside finalizeExpiredPause.
-            finalizeExpiredPause()
-        }
-    }
-
-    /**
-     * Close a paused track whose resume window has passed. Only [finalizeExpiredPause] may call this:
-     * the close must pair with its [publishStatus], or UI and notification keep showing a stale pause
-     * while every later publish early-outs (the controller is no longer paused). Caller holds [mutex].
-     */
-    private suspend fun finalizeIfPauseExpired(): Boolean {
-        if (controller.onTick(now()) != RecordingAction.Finalize) return false
-        DebugLog.i(TAG, "pause expired — finalizing track $activeTrackId")
-        closeCurrentTrack()
-        return true
-    }
-
-    /** Continue the paused track: GPS back on, accumulators kept; the first fix begins a new segment. */
-    private suspend fun resumeTrack(activity: ActivityType) {
-        controller.onRecording(activity)
-        ingest.markSegmentStart()
-        withContext(Dispatchers.Main) { startLocationUpdates() }
-    }
-
-    private suspend fun openTrack(activity: ActivityType) {
-        ingest.onTrackOpened(activity)
-        noFixGuard.onTrackOpened()
-        openTrackActivity = activity
-        val startedAt = now()
-        trackStartedAt = startedAt
-        activeTrackId = repository.startTrack(activity, startedAt)
-        controller.onRecording(activity)
-        withContext(Dispatchers.Main) { startLocationUpdates() }
+        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$activeTrackId paused=$wasPaused$lag)")
     }
 
     // --- Registration watchdog ---
@@ -590,9 +502,16 @@ class LocationRecordingService : Service() {
      * keeps the UI and notification in sync.
      */
     fun finalizeExpiredPause() {
-        if (!controller.isPaused) return
+        if (!core.isPaused) return
         scope.launch {
-            mutex.withLock { if (finalizeIfPauseExpired()) publishStatus() }
+            mutex.withLock {
+                val effects = core.onTick(now())
+                if (effects.isEmpty()) return@withLock
+                DebugLog.i(TAG, "pause expired — finalizing track $activeTrackId")
+                // The close carries its own publish, so it cannot land while the UI and the
+                // notification keep showing a pause the controller has already left.
+                dispatch(effects)
+            }
         }
     }
 
@@ -606,25 +525,6 @@ class LocationRecordingService : Service() {
                 Settings.setLastHeartbeatMs(this@LocationRecordingService, now())
             }
         }
-    }
-
-    private suspend fun closeCurrentTrack() {
-        withContext(Dispatchers.Main) { stopLocationUpdates() }
-        Settings.setLastHeartbeatMs(this, now())
-        val id = activeTrackId ?: return
-        // A paused track ended when its last fix arrived, not now — don't count the idle gap.
-        val endedAt = if (controller.isPaused) ingest.lastGood?.timestamp ?: now() else now()
-        activeTrackId = null
-        controller.onClosed()
-        ingest.onTrackClosed()
-        noFixGuard.onStopped()
-        // The evidence verdict travels into the finish transaction: which labels rename, and to
-        // what, is the domain's decision (CarrierEvidence.renameFor) — a proven carried journey on
-        // a foot label finishes as "Moving" with its warm-up jump flags restored. The evidence is
-        // restarted when a track opens, so nothing carries over.
-        val renameTo = openTrackActivity?.let { ingest.renameFor(it) }
-        openTrackActivity = null
-        repository.finishTrack(id, endedAt, renameTo)
     }
 
     // The source is the platform GPS provider, not Play Services' fused provider: fused
@@ -695,7 +595,7 @@ class LocationRecordingService : Service() {
         if (gpsListener == null || !noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return
         scope.launch {
             mutex.withLock {
-                if (gpsListener == null || activeTrackId == null || controller.isPaused) return@withLock
+                if (gpsListener == null || activeTrackId == null || core.isPaused) return@withLock
                 val motion = motionVerdict(now())
                 if (!noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs, motion)) return@withLock
                 // GPS is about to go, and with it the tick that would ever revisit a held reading —
@@ -706,7 +606,7 @@ class LocationRecordingService : Service() {
                 // A promotion may have paused the track, and [pauseTrack] both stops GPS and arms
                 // its own resume-deadline wake. Carrying on would arm the no-fix resume signals on
                 // top of that, leaving one track with two mechanisms waiting to revive it.
-                if (controller.isPaused) return@withLock
+                if (core.isPaused) return@withLock
                 val backoffMs = noFixGuard.onGaveUp(SystemClock.elapsedRealtime())
                 DebugLog.i(
                     TAG,
@@ -868,7 +768,7 @@ class LocationRecordingService : Service() {
         val ingested = ingest.onFixes(
             trackId = trackId,
             fixes = locations.map { it.toFix() },
-            gate = GateState(gate.confirmed, stillParked = gate.parked != null),
+            gate = GateState(core.confirmed, stillParked = core.parked != null),
             settings = IngestSettings(
                 maxAccuracyM = Settings.accuracyGateM(this).toFloat(),
                 requireGnss = Settings.requireGnssFix(this),
@@ -902,16 +802,16 @@ class LocationRecordingService : Service() {
      * verdict is produced here.
      */
     private fun publishStatus(motion: Motion? = null) {
-        val activity = ingest.displayActivity(gate.confirmed, motion ?: motionVerdict(now()))
+        val activity = ingest.displayActivity(core.confirmed, motion ?: motionVerdict(now()))
         val rec = activity.recording
         // The controller's phase is the one record of a pause, deadline included — read both off it
         // rather than mirroring the deadline in a field the pause/resume paths must keep in step.
-        val paused = controller.phase as? TrackController.Phase.Paused
+        val paused = core.phase as? TrackController.Phase.Paused
         val suspended = rec && noFixGuard.suspended
         // Held in locals because the notification below is classified from the very same values the
         // UI receives — two surfaces reading one set of inputs, not each sampling its own.
         val points = if (rec) ingest.pointCount else 0
-        val deaf = deafnessWarning.warned
+        val deaf = core.deaf
         TrackingStatus.update {
             it.copy(
                 tracking = true,
@@ -1026,8 +926,8 @@ class LocationRecordingService : Service() {
 
     /** Withdraw the warning and forget the episode. Cheap no-op when nothing was ever posted. */
     private fun clearDeafnessWarning() {
-        if (deafnessWarning.warned) notificationManager?.cancel(ALERT_NOTIFICATION_ID)
-        deafnessWarning.reset()
+        if (core.deaf) notificationManager?.cancel(ALERT_NOTIFICATION_ID)
+        core.forgetDeafness()
     }
 
     private fun buildNotification(title: String, text: String): Notification = NotificationCompat.Builder(this, App.CHANNEL_ID)
@@ -1072,27 +972,9 @@ class LocationRecordingService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val ALERT_NOTIFICATION_ID = 1002
 
-        // A reading this soon after a registration is its replay. Comfortably over the settle
-        // ActivityRecognitionManager waits before re-requesting.
-        private const val REGISTRATION_REPLAY_WINDOW_MS = 5_000L
         private const val TAG = "Breadcrumb"
         private const val HEARTBEAT_INTERVAL_MS = 15 * 60_000L
         private const val WATCHDOG_INTERVAL_MS = 15 * 60_000L
-
-        // Age cap for trusting an AR event's own timestamp (see [ReadingClock]): far above any
-        // real Doze drain delay, below the garbage stamps GMS can emit (22.5 h).
-        private const val READING_MAX_AGE_MS = 6 * 60 * 60_000L
-
-        // Stale-reading deafness oracle: live transition deliveries arrive 0–5 s after their
-        // event; one this late while armed could only have come from a registration replay.
-        private const val STALE_READING_RESTART_MS = 60_000L
-
-        // The reading must advance the clock by at least this much to count — a bare > lets a repeat
-        // of an already-applied event, whose wall-clock stamp drifts a few ms across a long still
-        // stretch, fire a spurious restart; a real missed transition advances by seconds. See
-        // [StaleReadingOracle].
-        private const val STALE_READING_ADVANCE_MS = 1_000L
-        private const val STALE_RESTART_MIN_GAP_MS = 5 * 60_000L
 
         // How many satellites make a status report count as a real fix at all — four is the minimum
         // for a genuine 3D one; below that the position isn't independently satellite-determined.

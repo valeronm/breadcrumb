@@ -64,9 +64,19 @@ x86_64 JVM under qemu (see "Running the Room tests on arm64"); without it, CI is
 A domain rule must be tested through the params that **ship**. `EdgeStayDetectorTest` runs
 `EdgeStayDetector.BRIEF_STOP` (and `VEHICLE` where the activity floor is the point) rather than the
 `Params()` constructor defaults, which no production path uses: a suite pinning the defaults passes
-green through any change to the numbers the recorder actually runs. There are still no instrumented/UI tests: behavior above the data layer is verified by
-building and driving the app on a device/emulator (activity recognition needs real movement or an
-emulator route).
+green through any change to the numbers the recorder actually runs.
+
+The recorder's own two loops are covered off the device by `FixIngestTest` and `ActivityIngestTest`
+(both in `src/test/…/location/`, both plain JVM — the cores carry no Android). The activity one
+asserts on the returned `Effect` list, so a case reads as the sequence the recorder should perform:
+what a stop schedules, whether a return stitches or splits, that a late-drained reading is timed by
+its own event but stamps its tracks at the wall clock, and that the deafness restart stays inside its
+five-minute floor while the detection behind it does not. `FixIngestReplayTest` is a different kind
+of check — it replays a backup export's recorded fixes through `FixIngest` and demands the same
+verdicts the recorder stored, so the oracle is the real history rather than a fixture; it needs
+`BREADCRUMB_EXPORT` set and skips without one. There are still no instrumented/UI tests: behavior
+above these two cores is verified by building and driving the app on a device/emulator (arming,
+notifications and the sensors still need real movement or an emulator route).
 
 ### Running the Room tests on arm64
 
@@ -144,6 +154,25 @@ The pieces below only make sense together — read them as a unit.
   Android 12+ background-FGS-start restrictions. A broadcast hands work to the live instance; it
   never starts one, with a single exception: the watchdog's self-heal below, which is legal only
   because an alarm carries a temporary power-allowlist window.
+- **The two paths that decide anything have no Android in them, and the service is what performs
+  what they decide.** `FixIngest` is the fix path (platform fixes in, point rows and a motion verdict
+  out); `ActivityIngest` is the activity path (readings in, a list of `Effect`s out — `EnsureGps`,
+  `OpenTrack`, `CloseTrack`, `SchedulePauseWake`, …). Between them they own everything that persists
+  across a track: the movement witness, the carrier case, the running aggregates, the activity gate,
+  the track controller and the deafness bookkeeping. Both were lifted out because the rules each had
+  a suite while the *loops that sequence them* had none, and those loops decide where tracks begin
+  and end — previously answerable only by walking around with the phone.
+  Two invariants hold the effect half together. **The core commits its own state as it builds the
+  list, while the effects are only described**, so `LocationRecordingService.dispatch` must run every
+  effect and run them in order; dropping or reordering one leaves the core believing something that
+  never happened. And **`EnsureGps` asks for a state rather than commanding a transition** — the
+  dispatcher starts GPS only if it isn't already on. That is not tidiness: several branches of one
+  pass can want GPS (a resume plus a no-fix re-probe), starting twice tears the request down and
+  rebuilds it, emptying the movement witness's window mid-track, and the truth about whether GPS is
+  on lives with the service anyway, since a start is refused outright without the fine-location
+  grant. The service keeps the track *id*, deliberately: nothing in the decisions needs it (the
+  controller's phase is what answers "is a track open"), which is what lets the core stay
+  synchronous while the insert it asks for is awaited.
 - `ActivityRecognitionManager` registers Activity Transition updates (and a one-shot activity
   *snapshot* on arming). Results arrive at `ActivityTransitionReceiver`, which forwards the detected
   `ActivityType` to `LocationRecordingService.instance` (it does not start the service).
