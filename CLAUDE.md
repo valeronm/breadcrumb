@@ -180,6 +180,18 @@ The pieces below only make sense together — read them as a unit.
   for a related reason: a pause stops GPS *and* arms its own resume-deadline wake, so folding the
   two together would leave one track with two mechanisms waiting to revive it — which is also why a
   promotion that pauses the track suppresses the give-up that was under way.
+- **What is left in the service is platform, and it is split by surface**, so each piece fits on a
+  screen and the service reads as wiring: `RecorderNotifications` (both channels, both ids, the
+  re-post dedupe and the alert), `WatchdogAlarm` (the 15-minute wake), `ResumeSignals` (the
+  significant-motion trigger and the passive listener — its API is named by the two effects that ask
+  for it), and `GnssWatch` (the satellite reduction, publishing one `GnssState` rather than a field
+  per reading so a batch can't take a satellite count from one report and a fix timestamp from the
+  next). These buy readability, not testability: they wrap final platform classes and stay
+  host-untestable. Two things deliberately did *not* move. `startLocationUpdates` is the junction of
+  four collaborators — settings, the guard's probe clock, the confirmer's window, the fix listener —
+  so wrapping it relocates coupling rather than removing it. And `stopLocationUpdates` stays the one
+  place GPS, the satellite watch and the resume signals are torn down together; split across three
+  objects that invariant becomes a call sequence someone can half-perform.
 - `ActivityRecognitionManager` registers Activity Transition updates (and a one-shot activity
   *snapshot* on arming). Results arrive at `ActivityTransitionReceiver`, which forwards the detected
   `ActivityType` to `LocationRecordingService.instance` (it does not start the service).
@@ -525,7 +537,8 @@ cross-checks it.
   registration in place, while `restart()` tears it down and rebuilds it on a fresh token, and only
   arming and a proven-deaf verdict do that.
 - The `alerts` notification channel is the second channel, separate from the ongoing tracking one:
-  transient, `IMPORTANCE_DEFAULT`, used only for the deafness warning (id 1002). The "persistent
+  transient, `IMPORTANCE_DEFAULT`, used only for the deafness warning (id 1002, posted by
+  `RecorderNotifications` along with everything else in the shade). The "persistent
   notification" rules above are about the foreground service's channel, not this one.
 - Background location requires the user to grant **"Allow all the time"**, which on Android 11+ is only
   grantable from the app's system settings page (the permission UI deep-links there).

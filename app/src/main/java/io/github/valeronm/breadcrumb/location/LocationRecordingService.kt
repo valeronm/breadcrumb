@@ -2,39 +2,24 @@ package io.github.valeronm.breadcrumb.location
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.AlarmManager
-import android.app.Notification
-import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.ServiceInfo
-import android.hardware.Sensor
-import android.hardware.SensorManager
-import android.hardware.TriggerEvent
-import android.hardware.TriggerEventListener
 import android.location.Location
 import android.location.LocationManager
-import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
-import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import androidx.core.location.GnssStatusCompat
 import androidx.core.location.LocationListenerCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.location.LocationRequestCompat
-import io.github.valeronm.breadcrumb.App
-import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.GnssSnapshot
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.MovementConfirmer
@@ -43,7 +28,6 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackController
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
-import io.github.valeronm.breadcrumb.ui.MainActivity
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.hasLocationPermission
 import io.github.valeronm.breadcrumb.util.isGranted
@@ -82,6 +66,11 @@ class LocationRecordingService : Service() {
     private lateinit var livenessRepository: LivenessRepository
     private lateinit var activityManager: ActivityRecognitionManager
     private var locationManager: LocationManager? = null
+
+    // The platform surfaces this service owns but decides nothing about: what it puts in the shade,
+    // and the alarm that wakes it while Doze holds every coroutine timer frozen.
+    private val notifications = RecorderNotifications(this)
+    private val watchdogAlarm = WatchdogAlarm(this)
 
     // --- Liveness heartbeat (evidence for stay derivation) ---
     // A periodic "still alive" timestamp in Settings; a restart finding it stale materializes an
@@ -134,21 +123,16 @@ class LocationRecordingService : Service() {
     // The live GPS request's listener; non-null == GPS is on.
     @Volatile private var gpsListener: LocationListenerCompat? = null
 
-    // --- No-fix give-up guard ---
-    private var sensorManager: SensorManager? = null
-    private var motionSensor: Sensor? = null
-    private var motionListener: TriggerEventListener? = null
-    private var passiveListener: LocationListenerCompat? = null
-
-    // What the receiver last said about the satellites, handed to [FixIngest] with each batch. These
-    // are written from the GnssStatus callback's own thread and read by the ingest coroutine, which
-    // is what the volatility is for — the ingest keeps no copy.
-    @Volatile private var lastGnssFixElapsedMs = 0L
-    private var gnssCallback: GnssStatusCompat.Callback? = null
-
-    @Volatile private var lastGnssSatsInFix: Int? = null
-
-    @Volatile private var lastGnssCn0Top4: Float? = null
+    // The cheap signals the no-fix guard falls back on, and the satellite watch whose ~1/s tick is
+    // what drives that guard in the first place. Both are live only while GPS is, and
+    // [stopLocationUpdates] is the single place all three are torn down together.
+    private val resumeSignals = ResumeSignals(this) { reason, respectBackoff ->
+        onNoFixResumeSignal(reason, respectBackoff)
+    }
+    private val gnss = GnssWatch(this) {
+        maybeGiveUpOnNoFix()
+        checkParkedReading()
+    }
 
     // --- Auto-pause / stitch resources (all touched only under [mutex]) ---
     // While paused, [activeTrackId] stays open (GPS off) so a brief stop can be stitched back into
@@ -161,8 +145,6 @@ class LocationRecordingService : Service() {
         livenessRepository = LivenessRepository(this)
         activityManager = ActivityRecognitionManager(this)
         locationManager = getSystemService(LocationManager::class.java)
-        sensorManager = getSystemService(SensorManager::class.java)
-        motionSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)
         // Must be dynamic: ACTION_SHUTDOWN is not on the API-26+ implicit-broadcast exemption
         // list, so a manifest receiver would never fire.
         ContextCompat.registerReceiver(
@@ -206,8 +188,8 @@ class LocationRecordingService : Service() {
         armedAtMs = now()
         transitionSinceArm = false
         DebugLog.i(TAG, "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)})")
-        startForegroundWithNotification("Idle", "Nothing to record")
-        scheduleWatchdog()
+        notifications.startForeground("Idle", "Nothing to record")
+        watchdogAlarm.schedule()
         TrackingStatus.update { it.copy(tracking = true) }
 
         // Start armed but paused — recording begins when a moving activity transition arrives.
@@ -251,7 +233,7 @@ class LocationRecordingService : Service() {
     private fun handleStop() {
         armed = false
         DebugLog.i(TAG, "handleStop: disarming")
-        cancelWatchdog()
+        watchdogAlarm.cancel()
         clearDeafnessWarning()
         activityManager.stop()
         scope.launch {
@@ -265,7 +247,7 @@ class LocationRecordingService : Service() {
             }
             withContext(Dispatchers.Main) {
                 TrackingStatus.reset()
-                ServiceCompat.stopForeground(this@LocationRecordingService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                notifications.stopForeground()
                 stopSelf()
             }
         }
@@ -340,10 +322,10 @@ class LocationRecordingService : Service() {
                         "no-fix guard: probe gave up — GPS off " +
                             "(motion retry gated ${effect.retryGatedMs / 1000}s)",
                     )
-                    withContext(Dispatchers.Main) { armResumeSignals() }
+                    withContext(Dispatchers.Main) { resumeSignals.armAll() }
                 }
 
-                Effect.ArmSignificantMotion -> withContext(Dispatchers.Main) { armSignificantMotion() }
+                Effect.ArmSignificantMotion -> withContext(Dispatchers.Main) { resumeSignals.armMotionOnly() }
 
                 is Effect.OpenTrack -> {
                     trackStartedAt = effect.startedAt
@@ -375,7 +357,7 @@ class LocationRecordingService : Service() {
 
                 is Effect.DeafWarning ->
                     if (effect.show) {
-                        showDeafnessWarning()
+                        notifications.warnDeaf()
                     } else {
                         DebugLog.i(TAG, "live delivery resumed — withdrawing the detection warning")
                         clearDeafnessWarning()
@@ -445,34 +427,6 @@ class LocationRecordingService : Service() {
         DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$activeTrackId paused=$wasPaused$lag)")
     }
 
-    // --- Registration watchdog ---
-    // The GMS transition registration can die with no error surfacing (replays keep answering while
-    // live delivery stops), so while armed an alarm re-registers every interval; the replay of the
-    // current activity recovers a missed transition within one tick. Alarm-based because Doze
-    // freezes coroutine timers — exactly when transitions go missing.
-    private val watchdogIntent: PendingIntent by lazy {
-        PendingIntent.getBroadcast(
-            this,
-            2,
-            Intent(this, WatchdogReceiver::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-
-    private fun scheduleWatchdog() {
-        // setAndAllowWhileIdle needs no exact-alarm grant; in deep Doze while-idle alarms are
-        // throttled to roughly one per 15 min per app, which matches the interval anyway.
-        getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(
-            AlarmManager.ELAPSED_REALTIME_WAKEUP,
-            SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL_MS,
-            watchdogIntent,
-        )
-    }
-
-    private fun cancelWatchdog() {
-        getSystemService(AlarmManager::class.java).cancel(watchdogIntent)
-    }
-
     /**
      * Called by [WatchdogReceiver] on the armed-session alarm. [onDone] fires once the
      * re-registration has been handed to GMS — the receiver holds its wakelock open until then.
@@ -485,7 +439,7 @@ class LocationRecordingService : Service() {
         DebugLog.i(TAG, "watchdog: re-registering transition updates")
         // A free heartbeat: the alarm fires even in Doze, where the heartbeat coroutine is frozen.
         Settings.setLastHeartbeatMs(this, now())
-        scheduleWatchdog()
+        watchdogAlarm.schedule()
         // The alarm fires in Doze, where the pause wake's coroutine delay does not — so this is
         // also where a pause whose window quietly expired gets closed.
         finalizeExpiredPause()
@@ -576,7 +530,7 @@ class LocationRecordingService : Service() {
             listener,
         )
         DebugLog.i(TAG, "location updates started")
-        registerGnssStatus()
+        gnss.register()
     }
 
     // MissingPermission suppressed for removeUpdates: it performs no permission check (the compat
@@ -588,8 +542,8 @@ class LocationRecordingService : Service() {
         val listener = gpsListener
         if (lm != null && listener != null) LocationManagerCompat.removeUpdates(lm, listener)
         gpsListener = null
-        unregisterGnssStatus()
-        disarmResumeSignals()
+        gnss.unregister()
+        resumeSignals.disarm()
     }
 
     // --- No-fix give-up guard -------------------------------------------------
@@ -627,107 +581,6 @@ class LocationRecordingService : Service() {
         }
     }
 
-    private fun armResumeSignals() {
-        armSignificantMotion()
-        armPassiveListener()
-    }
-
-    // MissingPermission suppressed for the same reason as [stopLocationUpdates]: removeUpdates
-    // checks nothing, and teardown must run whatever the grant state.
-    @SuppressLint("MissingPermission")
-    private fun disarmResumeSignals() {
-        motionListener?.let { listener ->
-            motionListener = null
-            motionSensor?.let { sensor -> sensorManager?.cancelTriggerSensor(listener, sensor) }
-        }
-        passiveListener?.let { listener ->
-            locationManager?.let { LocationManagerCompat.removeUpdates(it, listener) }
-        }
-        passiveListener = null
-    }
-
-    /** One-shot hardware trigger that fires on walking/driving-scale motion, then disarms itself. */
-    private fun armSignificantMotion() {
-        if (motionListener != null) return
-        val sm = sensorManager ?: return
-        val sensor = motionSensor ?: return
-        val listener = object : TriggerEventListener() {
-            override fun onTrigger(event: TriggerEvent?) {
-                motionListener = null // one-shot: already disarmed by the sensor framework
-                onNoFixResumeSignal("significant motion", respectBackoff = true)
-            }
-        }
-        if (sm.requestTriggerSensor(listener, sensor)) motionListener = listener
-    }
-
-    /** Free ride on other apps' fixes: a GPS fix delivered to anyone proves the sky is visible. */
-    @SuppressLint("MissingPermission")
-    private fun armPassiveListener() {
-        if (passiveListener != null) return
-        if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) return
-        val lm = locationManager ?: return
-        val listener = object : LocationListenerCompat {
-            override fun onLocationChanged(location: Location) {
-                if (location.provider == LocationManager.GPS_PROVIDER) {
-                    onNoFixResumeSignal("passive GPS fix", respectBackoff = false)
-                }
-            }
-        }
-        passiveListener = listener
-        LocationManagerCompat.requestLocationUpdates(
-            lm,
-            LocationManager.PASSIVE_PROVIDER,
-            LocationRequestCompat.Builder(PASSIVE_INTERVAL_MS)
-                .setQuality(LocationRequestCompat.QUALITY_LOW_POWER)
-                .build(),
-            ContextCompat.getMainExecutor(this),
-            listener,
-        )
-    }
-
-    /**
-     * Track real satellite fixes alongside the location stream, for the [isGnssBacked] cross-check (a
-     * provider may report a position without satellite backing — e.g. dead-reckoned in a tunnel — with
-     * optimistic accuracy that slips the accuracy gate) and per-point quality metadata (satellites-in-fix,
-     * C/N0). Registered whenever GPS is on regardless of the cross-check toggle, which only gates *rejection*.
-     */
-    @SuppressLint("MissingPermission")
-    private fun registerGnssStatus() {
-        if (gnssCallback != null) return
-        if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) return
-        val lm = locationManager ?: return
-        val callback = object : GnssStatusCompat.Callback() {
-            // Reused across callbacks — the reduction must stay allocation-free at ~1/s. Safe to
-            // share: the main executor delivers status updates one at a time.
-            private val snapshot = GnssSnapshot()
-
-            override fun onSatelliteStatusChanged(status: GnssStatusCompat) {
-                snapshot.reset()
-                for (i in 0 until status.satelliteCount) {
-                    snapshot.add(status.usedInFix(i), status.getCn0DbHz(i))
-                }
-                lastGnssSatsInFix = snapshot.usedInFix
-                lastGnssCn0Top4 = snapshot.topCn0Mean()
-                if (snapshot.usedInFix >= GNSS_MIN_SATELLITES_IN_FIX) {
-                    lastGnssFixElapsedMs = SystemClock.elapsedRealtime()
-                }
-                maybeGiveUpOnNoFix()
-                checkParkedReading()
-            }
-        }
-        gnssCallback = callback
-        LocationManagerCompat.registerGnssStatusCallback(lm, ContextCompat.getMainExecutor(this), callback)
-    }
-
-    private fun unregisterGnssStatus() {
-        val cb = gnssCallback ?: return
-        locationManager?.let { LocationManagerCompat.unregisterGnssStatusCallback(it, cb) }
-        gnssCallback = null
-        // Don't carry stale satellite metadata into the next track's first fixes.
-        lastGnssSatsInFix = null
-        lastGnssCn0Top4 = null
-    }
-
     // Fixes are ingested under [mutex] so they serialize with activity changes (which retarget the
     // current track) instead of racing them.
     private fun handleLocations(locations: List<Location>) {
@@ -762,7 +615,7 @@ class LocationRecordingService : Service() {
                 requireGnss = Settings.requireGnssFix(this),
                 crossCheckMotion = Settings.motionCrossCheck(this),
             ),
-            gnss = GnssState(lastGnssSatsInFix, lastGnssCn0Top4, lastGnssFixElapsedMs),
+            gnss = gnss.state,
         )
         for (point in ingested.points) {
             if (point.ignoreReason == IgnoreReason.NO_GNSS.code) {
@@ -846,87 +699,14 @@ class LocationRecordingService : Service() {
             // every second, since [lastNotified] dedupes on the text itself.
             live = null,
         )
-        updateNotification(text.title, text.detailLine())
+        notifications.update(text.title, text.detailLine())
     }
 
-    // --- Notifications -------------------------------------------------------
-
-    // Last content posted, so repeat publishStatus() calls with an unchanged state don't re-post.
-    private var lastNotified: Pair<String, String>? = null
-
-    private fun startForegroundWithNotification(title: String, text: String) {
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-        } else {
-            0
-        }
-        lastNotified = title to text
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(title, text), type)
-    }
-
-    private fun updateNotification(title: String, text: String) {
-        if (lastNotified == title to text) return
-        lastNotified = title to text
-        notificationManager?.notify(NOTIFICATION_ID, buildNotification(title, text))
-    }
-
-    private val notificationManager by lazy {
-        ContextCompat.getSystemService(this, android.app.NotificationManager::class.java)
-    }
-
-    // The notification's PendingIntents never change, so build them once and reuse across
-    // notification rebuilds (each getActivity/getService is a round-trip to the system).
-    private val openIntent: PendingIntent by lazy {
-        PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-    private val stopIntent: PendingIntent by lazy {
-        PendingIntent.getService(
-            this,
-            1,
-            Intent(this, LocationRecordingService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-
-    /** Escalate the deafness the Record card already shows, for when the app isn't open. */
-    private fun showDeafnessWarning() {
-        DebugLog.w(TAG, "activity detection not responding — notifying the user")
-        val text = "Trips may be missed or start late. Restarting the phone usually fixes it."
-        notificationManager?.notify(
-            ALERT_NOTIFICATION_ID,
-            NotificationCompat.Builder(this, App.ALERT_CHANNEL_ID)
-                .setContentTitle("Activity detection stalled")
-                .setContentText(text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-                .setSmallIcon(R.drawable.ic_notification)
-                .setCategory(NotificationCompat.CATEGORY_ERROR)
-                // Deliberately not auto-cancelling: the condition outlives the tap, and dismissing
-                // it must not be the only way to make the warning go away.
-                .setContentIntent(openIntent)
-                .build(),
-        )
-    }
-
-    /** Withdraw the warning and forget the episode. Cheap no-op when nothing was ever posted. */
+    /** Withdraw the warning and forget the episode — the notification's half and the recorder's. */
     private fun clearDeafnessWarning() {
-        if (core.deaf) notificationManager?.cancel(ALERT_NOTIFICATION_ID)
+        notifications.clearDeafWarning()
         core.forgetDeafness()
     }
-
-    private fun buildNotification(title: String, text: String): Notification = NotificationCompat.Builder(this, App.CHANNEL_ID)
-        .setContentTitle(title)
-        .setContentText(text)
-        .setSmallIcon(R.drawable.ic_notification)
-        .setOngoing(true)
-        .setOnlyAlertOnce(true)
-        .setContentIntent(openIntent)
-        .addAction(0, "Stop", stopIntent)
-        .build()
 
     private fun now() = System.currentTimeMillis()
 
@@ -957,19 +737,14 @@ class LocationRecordingService : Service() {
 
         const val ACTION_START = "io.github.valeronm.breadcrumb.START"
         const val ACTION_STOP = "io.github.valeronm.breadcrumb.STOP"
-        private const val NOTIFICATION_ID = 1001
-        private const val ALERT_NOTIFICATION_ID = 1002
 
         private const val TAG = "Breadcrumb"
         private const val HEARTBEAT_INTERVAL_MS = 15 * 60_000L
-        private const val WATCHDOG_INTERVAL_MS = 15 * 60_000L
 
         // How many satellites make a status report count as a real fix at all — four is the minimum
         // for a genuine 3D one; below that the position isn't independently satellite-determined.
         // How *stale* such a fix may be and still back a location is the rule's own, and lives with
         // it in [FixIngest.GNSS_FIX_MAX_AGE_MS].
-        private const val GNSS_MIN_SATELLITES_IN_FIX = 4
-        private const val PASSIVE_INTERVAL_MS = 30_000L
 
         fun start(context: Context) {
             // Never start the location foreground service without location permission — the platform
