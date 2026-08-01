@@ -19,7 +19,8 @@ import io.github.valeronm.breadcrumb.util.DebugLog
  * Everything the recorder puts in the shade: the ongoing foreground notification whose wording
  * follows the recording state, and the transient alert raised when activity detection stalls. The
  * recorder decides *what* to say; this decides whether saying it again is worth an IPC, and holds
- * the two ids, the two channels and the intents that never change.
+ * the two ids and the intents that never change. The channels themselves belong to [App], which
+ * creates both at startup — a notification can be posted long before this exists.
  *
  * Takes the [Service] rather than a `Context` because entering and leaving the foreground is a
  * property of the service itself, not of the notification it does it with.

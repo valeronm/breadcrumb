@@ -512,7 +512,9 @@ private fun addEndPlacePinImages(ctx: Context, style: Style, places: List<Place>
  * place's own reach, its neighbours', the stops detected inside a track, and the places at that
  * track's ends. All of them are "ground that counts as one spot", so all of them read as one species,
  * and only opacity says which of them the screen is about — [addContextCircleLayers] for the ones it
- * isn't.
+ * isn't. On a track's map that puts the dwell circles at full strength while an end place's ring
+ * recedes: a dwell is *this track's* own evidence, where the ring belongs to a place the track
+ * merely arrived in.
  */
 private fun addCaptureCircleLayers(
     style: Style,

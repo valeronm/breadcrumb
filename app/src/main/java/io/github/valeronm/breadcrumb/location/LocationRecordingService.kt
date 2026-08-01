@@ -125,7 +125,9 @@ class LocationRecordingService : Service() {
 
     // The cheap signals the no-fix guard falls back on, and the satellite watch whose ~1/s tick is
     // what drives that guard in the first place. Both are live only while GPS is, and
-    // [stopLocationUpdates] is the single place all three are torn down together.
+    // [stopLocationUpdates] is the single place all three are torn down together — deliberately not
+    // split across the three objects, where the invariant would become a call sequence someone can
+    // half-perform.
     private val resumeSignals = ResumeSignals(this, ::onNoFixResumeSignal)
     private val gnss = GnssWatch(this) {
         maybeGiveUpOnNoFix()
@@ -385,9 +387,10 @@ class LocationRecordingService : Service() {
         if (core.parked == null) return
         scope.launch {
             mutex.withLock {
-                // Read once and shared with the verdict below. A hold has no cap by design, so this
-                // runs every GNSS tick for as long as one lasts, and the settings would otherwise be
-                // re-read a second for a promotion that usually doesn't happen.
+                // Read once and shared with the verdict below. A hold has no cap by design — a fresh
+                // verdict tells a stale hold from a crossing still under way and a deadline cannot —
+                // so this runs every GNSS tick for as long as one lasts, and the settings would
+                // otherwise be re-read a second for a promotion that usually doesn't happen.
                 val settings = activitySettings()
                 val nowMs = now()
                 val was = core.confirmed
@@ -490,6 +493,11 @@ class LocationRecordingService : Service() {
     // to us), batches delivery minutes late in screen-off power saving, and its Wi-Fi/cell/
     // dead-reckoning fixes are exactly what [isGnssBacked] rejects. There is deliberately no fused
     // fallback for GNSS-opaque venues: venue time should surface as a stay, not a noisy track.
+    //
+    // This stays in the service rather than moving into a wrapper beside the four platform classes:
+    // it is a junction of settings, the guard's probe clock, the confirmer's window, the satellite
+    // watch and the fix listener, so wrapping it would take all five in and relocate the coupling
+    // rather than remove it.
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
         if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) return

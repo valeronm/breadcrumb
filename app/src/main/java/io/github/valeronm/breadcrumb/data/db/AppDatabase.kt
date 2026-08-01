@@ -159,7 +159,9 @@ abstract class AppDatabase : RoomDatabase() {
 
         /**
          * v12 drops `track_points.provider` (the fused path gone, raw GPS is the only live source,
-         * the column carried no information). minSdk 26's SQLite predates `ALTER TABLE … DROP
+         * the column carried no information). What it could still have told apart — a recorded fix
+         * from an imported one — the fixes answer without it, by whether they carry fix-quality
+         * metadata at all; that is the rule the v15 `source` fill runs. minSdk 26's SQLite predates `ALTER TABLE … DROP
          * COLUMN`, so the table is rebuilt (new table, copy, drop, rename) and the composite index
          * recreated; the DDL must match the entity annotations exactly or Room's schema validation
          * crashes at open.

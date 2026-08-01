@@ -23,6 +23,11 @@ import java.time.ZoneId
  * Android-free; nothing is persisted — stays re-derive from tracks + liveness on read, so history
  * backfills automatically and track deletions self-heal.
  *
+ * **This rule is ported.** The web companion viewer derives the same timeline from a backup export
+ * (`web/js/stays.js`, a port of this and [PlaceClusterer], tested case for case against
+ * `StayDeriverTest`), so a rule that moves here moves there or the two disagree about the same
+ * history.
+ *
  * **However brief, a stop the endpoints agree on is a stay — there is no minimum duration here, and
  * a five-minute floor was tried and taken back out.** A stop is what a *place* accumulates visits
  * from, so suppressing the short ones costs the Places feature the recurring lunch stop and the

@@ -681,7 +681,9 @@ internal fun PlaceDetailScreen(
  * different heights, and a `MapView` is a `TextureView` — handed a new size it scales its
  * last-rendered frame into the new box until it has one of its own, the pin visibly stretching to
  * an oval. Nothing fixes that inside one shared map (hiding is too late, the scaled frame was
- * rendered before the hide; animating the height makes it every frame instead of one); a map per
+ * rendered before the hide; animating the height makes it every frame instead of one; sequencing
+ * against `OnDidFinishRenderingFrame` spares the markers but not the basemap, and costs two frames
+ * of latency); a map per
  * screen is never resized, so there is nothing to hide, sequence or animate around. Its own camera
  * is the point rather than the price: this screen opens framed on the circle, in a state the radius
  * can be judged in, wherever the detail map below was panned. Backing out is the layer's own

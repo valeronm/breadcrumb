@@ -57,7 +57,10 @@ sealed interface Effect {
      */
     data object ArmSignificantMotion : Effect
 
-    /** Insert the track row. The id it returns is the dispatcher's to hold — nothing here needs it. */
+    /**
+     * Insert the track row. The id it returns is the dispatcher's to hold — nothing here needs it,
+     * which is what lets this core stay synchronous while the insert it asks for is awaited.
+     */
     data class OpenTrack(val activity: ActivityType, val startedAt: Long) : Effect
 
     /**

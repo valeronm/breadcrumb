@@ -20,7 +20,9 @@ object PlaceClusterer {
      * A pre-existing anchor — a stored place pin — with its own capture radius. **A value**: two
      * seeds describing the same pin are the same seed, which is what lets a caller ask whether a
      * fresh reading of the places table would cluster any differently by comparing the projections
-     * rather than the rows. Compared by value nowhere inside this object, which indexes seeds
+     * rather than the rows. As a plain class it would compare by identity, and a
+     * `distinctUntilChanged` over freshly built seeds would differ every time — gating nothing, and
+     * saying nothing about it. Compared by value nowhere inside this object, which indexes seeds
      * positionally throughout.
      */
     data class Seed(

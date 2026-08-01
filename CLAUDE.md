@@ -31,18 +31,12 @@ The Gradle and AGP versions are pinned and coupled — if you upgrade one, move 
 compatible pair, not one alone.
 
 Code style is enforced by **ktlint** (`./gradlew :app:ktlintCheck`, auto-fix with
-`:app:ktlintFormat`; CI runs the check). The config lives in `.editorconfig`: `intellij_idea`
-code style to match the hand formatting, line length unenforced, and a few layout-preference
-rules disabled deliberately (argument wrapping, one-line signatures, UPPER_CASE fixture vals,
-column-aligned fixture comments). The disables are choices, not oversights — re-enabling one
-is a style decision to raise with the user, not a cleanup.
-
-Code smells are checked by **detekt** (`./gradlew :app:detekt`; CI runs it): default rules
-minus the style-preference ones (`config/detekt/detekt.yml` — magic numbers, size thresholds
-and composable naming/params are off, for the same reasons as the ktlint disables), with
-`app/detekt-baseline.xml` grandfathering the findings that predate adoption — only new
-findings fail. After fixing a baselined finding, regenerate with `:app:detektBaseline`;
-a refactor that moves baselined code can resurface its entry as new, which is intended.
+`:app:ktlintFormat`) and code smells by **detekt** (`./gradlew :app:detekt`); CI runs both. Each
+config says which rules it turns off and why — `.editorconfig` and `config/detekt/detekt.yml`. What
+neither can say: **the disables are choices, not oversights**, so re-enabling one is a style
+decision to raise with the user, not a cleanup. After fixing a finding held by
+`app/detekt-baseline.xml`, regenerate with `:app:detektBaseline`; a refactor that moves baselined
+code can resurface its entry as new, which is intended.
 
 ## Unit tests
 
@@ -71,20 +65,16 @@ The recorder's own two loops are covered off the device by `FixIngestTest` and `
 asserts on the returned `Effect` list, so a case reads as the sequence the recorder should perform:
 what a stop schedules, whether a return stitches or splits, that a late-drained reading is timed by
 its own event but stamps its tracks at the wall clock, and that the deafness restart stays inside its
-five-minute floor while the detection behind it does not. `FixIngestReplayTest` is a different kind
-of check — it replays a backup export's recorded fixes through `FixIngest` and demands the same
-verdicts the recorder stored, so the oracle is the real history rather than a fixture; it needs
-`BREADCRUMB_EXPORT` set and skips without one. There are still no instrumented/UI tests: behavior
-above these two cores is verified by building and driving the app on a device/emulator (arming,
-notifications and the sensors still need real movement or an emulator route).
+five-minute floor while the detection behind it does not. There are no instrumented/UI tests:
+behavior above these two cores is verified by building and driving the app on a device/emulator
+(arming and the notification wording need only the app running; activity recognition needs real
+movement or an emulator route).
 
 ### Running the Room tests on arm64
 
 `nativeruntime-dist-compat` carries `native/linux/x86_64/`, `native/mac/{aarch64,x86_64}/` and
 `native/windows/x86_64/` — no Linux arm64, and none of the published versions has one, so waiting
-for a Robolectric bump is not the fix. `-PqemuJdk` instead points the **test worker** at an x86_64
-JVM run under `qemu-x86_64`; the Gradle daemon and all compilation stay native, so only the fork
-pays. Once per machine:
+for a Robolectric bump is not the fix. Once per machine:
 
 ```bash
 sudo apt install qemu-user libc6-amd64-cross libstdc++6-amd64-cross libgcc-s1-amd64-cross
@@ -102,9 +92,9 @@ code each one explains.
 
 Iterating on one Room test wants a filter, since the flag applies to the whole task:
 `-PqemuJdk --tests "*TrackRepositoryTest"`. The tax lands only where the work is real — the pure
-tests cost a second or two more, while the Robolectric classes, which on arm64 previously ran
-*nothing* (each aborting in `setUpApplicationState`), account for essentially all of the added
-minute. Emulation is not a second opinion on CI, though: it runs the same x86_64 code CI runs, so a
+tests cost a second or two more, while the Robolectric classes — the only ones that need the
+emulation at all — account for essentially all of the added minute. Emulation is not a second
+opinion on CI, though: it runs the same x86_64 code CI runs, so a
 green local run means the tests pass, not that they'd pass on some third platform. It buys no
 coverage either — JaCoCo doesn't see through Robolectric's sandbox classloader, so those classes
 read 0% however they exit.
@@ -132,7 +122,7 @@ verification:
 
    Open `tracks.db` from the directory holding all three and SQLite replays the log on open. A track
    still missing its `endedAt` after that is genuinely dangling (a process death mid-recording, which
-   an install causes), not merely uncheckpointed. Screenshots are not:
+   an install causes), not merely uncheckpointed. Screenshots are a different matter:
    `screencap` grabs whatever is currently on the phone's screen, which can expose personal info
    from other apps — take one only when the user asks for it.
 
@@ -154,86 +144,49 @@ The pieces below only make sense together — read them as a unit.
   Android 12+ background-FGS-start restrictions. A broadcast hands work to the live instance; it
   never starts one, with a single exception: the watchdog's self-heal below, which is legal only
   because an alarm carries a temporary power-allowlist window.
-- **The two paths that decide anything have no Android in them, and the service is what performs
-  what they decide.** `FixIngest` is the fix path (platform fixes in, point rows and a motion verdict
-  out); `ActivityIngest` is the activity path (readings in, a list of `Effect`s out — `EnsureGps`,
-  `OpenTrack`, `CloseTrack`, `SchedulePauseWake`, `ArmResumeSignals`, …), and the no-fix give-up
-  guard's consultations run there too (`onGnssTick` / `onResumeSignal`). Between them they own
-  everything that persists across a track: the movement witness, the carrier case, the running
-  aggregates, the activity gate, the track controller and the deafness bookkeeping. Both were lifted
-  out because the rules each had a suite while the *loops that sequence them* had none, and those
-  loops decide where tracks begin and end — previously answerable only by walking around with the
-  phone. What is left of `NoFixGuard` in the service is only what belongs to its own resources: the
-  probe clock starts where GPS actually starts, the pre-give-up filter is deliberately raced
-  off-mutex, and the fix and publish paths read it.
-  Two invariants hold the effect half together. **The core commits its own state as it builds the
-  list, while the effects are only described**, so `LocationRecordingService.dispatch` must run every
-  effect and run them in order; dropping or reordering one leaves the core believing something that
-  never happened. And **`EnsureGps` asks for a state rather than commanding a transition** — the
-  dispatcher starts GPS only if it isn't already on. That is not tidiness: several branches of one
-  pass can want GPS (a resume plus a no-fix re-probe), starting twice tears the request down and
-  rebuilds it, emptying the movement witness's window mid-track, and the truth about whether GPS is
-  on lives with the service anyway, since a start is refused outright without the fine-location
-  grant. The service keeps the track *id*, deliberately: nothing in the decisions needs it (the
-  controller's phase is what answers "is a track open"), which is what lets the core stay
-  synchronous while the insert it asks for is awaited. `ArmResumeSignals` is separate from `StopGps`
-  for a related reason: a pause stops GPS *and* arms its own resume-deadline wake, so folding the
-  two together would leave one track with two mechanisms waiting to revive it — which is also why a
-  promotion that pauses the track suppresses the give-up that was under way.
-- **What is left in the service is platform, and it is split by surface**, so each piece fits on a
-  screen and the service reads as wiring: `RecorderNotifications` (both channels, both ids, the
-  re-post dedupe and the alert), `WatchdogAlarm` (the 15-minute wake), `ResumeSignals` (the
-  significant-motion trigger and the passive listener — its API is named by the two effects that ask
-  for it), and `GnssWatch` (the satellite reduction, publishing one `GnssState` rather than a field
-  per reading so a batch can't take a satellite count from one report and a fix timestamp from the
-  next). These buy readability, not testability: they wrap final platform classes and stay
-  host-untestable. Two things deliberately did *not* move. `startLocationUpdates` is the junction of
-  four collaborators — settings, the guard's probe clock, the confirmer's window, the fix listener —
-  so wrapping it relocates coupling rather than removing it. And `stopLocationUpdates` stays the one
-  place GPS, the satellite watch and the resume signals are torn down together; split across three
-  objects that invariant becomes a call sequence someone can half-perform.
+- **The two paths that decide anything have no Android in them, and the service performs what they
+  decide.** `FixIngest` is the fix path; `ActivityIngest` is the activity path (readings in, a list
+  of `Effect`s out), and the no-fix give-up guard's consultations run there too (`onGnssTick` /
+  `onResumeSignal`). Between them they own everything that persists across a track, while the
+  service keeps the platform resources and the open track's id. The rules each have their own
+  suite; these two are where the *loops that sequence them* live, so a fixture can drive them with
+  no phone. `NoFixGuard` is shared by both paths and the service. The invariants binding core to
+  dispatcher — every effect run and run in order, `EnsureGps` asking for a state rather than
+  commanding a transition, `ArmResumeSignals` not folded into `StopGps` — are on `Effect` and its
+  members.
+- **The service's platform surface is split by concern**, so each piece fits on a screen and the
+  service reads as wiring: `RecorderNotifications` (the shade), `WatchdogAlarm` (the 15-minute
+  wake), `ResumeSignals`, `GnssWatch`. These buy readability, not testability: they wrap final
+  platform classes and are host-untestable. `startLocationUpdates` and `stopLocationUpdates`
+  deliberately stay in the service; each says why.
 - `ActivityRecognitionManager` registers Activity Transition updates (and a one-shot activity
   *snapshot* on arming). Results arrive at `ActivityTransitionReceiver`, which forwards the detected
   `ActivityType` to `LocationRecordingService.instance` (it does not start the service).
-- `WatchdogReceiver` fires on an alarm every 15 min while armed, and does four things the coroutine
-  timers can't be trusted with in Doze: re-*requests* the transition registration (see the deafness
-  bullet under Conventions — a request, never a restart), stamps a heartbeat, closes a pause whose
-  resume window lapsed while the wake was frozen, and restarts the service if the armed flag is set
-  but the service is dead.
-- **A receiver holds its broadcast open (`goAsync`) until the service has applied the reading.**
-  Returning from `onReceive` releases the broadcast's wakelock, and Doze then freezes the apply
-  coroutine: the reading is logged on time but applied minutes later, which puts a walking tail on a
-  drive track and stitches through a real stop. Both receivers do this; don't "simplify" it away.
+- `WatchdogReceiver` fires on an alarm every 15 min while armed, and does five things the coroutine
+  timers can't be trusted with in Doze: re-*requests* the transition registration (a request, never
+  a restart), stamps a heartbeat, closes a pause whose resume window lapsed while the wake was
+  frozen, revisits a held reading, and restarts the service if the armed flag is set but the
+  service is dead.
+- **Both receivers hold their broadcast open (`goAsync`) until the service has applied the
+  reading** — each receiver's KDoc says what breaks otherwise. Don't "simplify" it away.
 - Lifecycle: arming (`ACTION_START`) puts the service in a **paused** state (no track, GPS off) and
   fires the snapshot; recording only begins on a *moving* activity. Each continuous stretch of
-  movement is one `Track`: activities in the same `TrackGroup` (walking ⇄ running)
-  share a track, a cross-group switch closes one and opens the next, and STILL pauses with a
-  **resume window** — a same-group return before the deadline stitches back into the open track,
-  and the window lapsing finalizes it. `START_STICKY` + the persisted armed flag resume after
-  process death; `BootReceiver` resumes after reboot.
+  movement is one `Track`; how a reading continues, splits, pauses or finalizes it is
+  `TrackController`'s state machine. `START_STICKY` + the persisted armed flag resume after process
+  death; `BootReceiver` resumes after reboot and app update.
 
-**Activity Recognition describes the user's body, not the journey**, and three recorder decisions
-read it as though it described the journey: when to pause, where tracks split, and which jump
-ceiling judges a fix. Aboard anything that carries the phone the body genuinely is still while the
-ground moves at vehicle speed, so a crossing is paused away, fragmented, and has its fixes rejected
-as teleports. `MovementConfirmer` is the second witness: a trailing window of accepted fixes
-answering only *is the ground moving?* (`Motion.Moving` / `Stopped` / `Unknown`). **`Unknown` is
-both the fallback and the off switch** — every consultation must define an `Unknown` case identical
-to the pre-witness behaviour, so the setting branches at exactly one place (the service's
-`motionVerdict`) and nothing downstream knows a switch exists. That invariant is what the untouched
-pre-change suites for `ActivityGate`, `TrackQuality` and `NoFixGuard` pin; a consultation that
-can't be expressed as a `Motion.Unknown`-defaulted parameter is a design smell, not a workaround.
-Four consultations exist: the gate **parks** a STILL the ground contradicts rather than dropping it
-(the AR stream is edge-triggered — a discarded stop is never re-announced), the jump ceiling rises
-to fit measured ground speed (clamped to the most permissive activity ceiling, since a lone teleport
-is fed to the confirmer like any other fix), a `Moving` verdict vetoes the no-fix give-up, and every
-path that turns GPS off re-evaluates the parked slot on the way down. Promotion rides the
-`GnssStatus` callback, with the 15-minute watchdog alarm as the guaranteed revisit — there is
-deliberately no parked-too-long cap, because a fresh verdict distinguishes a stale hold from a
-crossing still under way and a deadline cannot. **The feed contract is where the circularity
-hides:** the confirmer gets every fix that cleared the *label-independent* gates and only those, so
-`JUMP`-flagged fixes are included — they were rejected by the very label the witness exists to
-second-guess. Default off pending field data.
+**Activity Recognition describes the user's body, not the journey**, and pause, split and the jump
+ceiling all read it as the journey. `MovementConfirmer` is the recorder's second witness. **`Unknown`
+is both the fallback and the off switch** — every consultation defines an `Unknown` case identical to
+the pre-witness behaviour, so the setting branches at exactly one place
+(`ActivityIngest.motionVerdict`); a consultation that can't be expressed as a
+`Motion.Unknown`-defaulted parameter is a design smell, not a workaround. Each consulting rule's
+suite keeps its pre-witness half unedited above a divider, which is what pins the off state.
+**Exactly four consultations exist**, and that there are four and only four is the thing no one file
+says: the gate parks a contradicted STILL, the jump ceiling rises to fit measured ground speed, a
+`Moving` verdict vetoes the no-fix give-up, and every path that turns GPS off re-evaluates the parked
+slot on the way down. Promotion rides the `GnssStatus` callback, with the 15-minute watchdog alarm as
+the guaranteed revisit. Default off pending field data.
 
 **State bridge:** `location/TrackingStatus` is a process-wide `MutableStateFlow` the service writes
 and the UI collects — this is how live recording state reaches Compose without binding to the service.
@@ -244,20 +197,17 @@ pause/resume window), `ActivityGate` (signal filter) / `ActivityInterpreter` (tr
 interpretation), `ReadingClock` (event-time gating of activity readings), `NoFixGuard` (give up when
 GPS can't get a fix), `KeepRule`, `TrackMerge` (merge short same-activity stays), `StayDeriver` +
 `PlaceClusterer` + `PlaceResolver` (timeline stays and named places), `DwellDetector` (in-track stop
-detection — a read-only track-detail overlay, *and* stage 1 of the edge-stay rule below, so its
-params are not free to move; splitting tracks at stops is designed but
-not built), `EdgeStayDetector` (the recorder's overrun at a track's edges, where Activity
+detection — a read-only track-detail overlay, and stage 1 of the edge-stay rule below, which passes
+its own tuning; splitting tracks at a *detected* stop is designed but not
+built — the user's own cut ships), `EdgeStayDetector` (the recorder's overrun at a track's edges, where Activity
 Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to the points),
 `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
 `DeafnessWarning` (decide when to tell the user about it), `MovementConfirmer` (the recording
 pipeline's second witness — see below), `PlaceCategorySuggester` (guess a place's category from
-what the user called it — see below), `RoutePlaces` (the named places at a track's two ends: the
-nearest place whose own capture radius covers each end, on the same predicate that admits a stay, so
-narrowing a place stops it claiming arrivals exactly as it keeps stops out). New behavior
-belongs here first, with a test, before wiring into the service or UI. The shared vocabulary lives
-here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, `PlaceCategory`, and the `DistanceFn` seam
-(production implementation `data/AndroidDistance`; the GMS `DetectedActivity` mapping is
-`location/DetectedActivities`). One deliberate impurity: domain functions take the Room entities
+what the user called it — see below), `RoutePlaces` (the named places at a track's two ends). New
+behavior belongs here first, with a test, before wiring into the service or UI. The shared
+vocabulary lives here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, `PlaceCategory`, and the
+`DistanceFn` seam (the GMS `DetectedActivity` mapping is `location/DetectedActivities`). One deliberate impurity: domain functions take the Room entities
 (`TrackPoint`, `TrackSummary`, `Place`) directly rather than a mapped domain model — the point walk
 runs over millions of rows, and a per-row mapping allocation buys nothing but layering purity. The
 `db` package must not import `domain` back (that would make the two one unit); entities carry no
@@ -266,40 +216,25 @@ domain defaults for the same reason.
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
 time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
 auto-pause resume window and its motion cross-check toggle, the GPS give-up timeout, and keep-track
-thresholds (min duration/length/extent). It also holds two pieces of recorder bookkeeping that
-aren't user settings at all: the liveness heartbeat timestamp, and the `EdgeStayDetector` rule
-version last swept — the latter is what makes `App.onCreate` re-derive the whole history.
-Sampling is read by the service when each track's GPS
-request starts; thresholds are read by the repository when a track finishes. `ActivityType`
-therefore only carries a label, a `recording` boolean, and a `TrackGroup` — sampling cadence is
-**not** per-activity anymore.
+thresholds (min duration/length/extent). It also holds recorder bookkeeping that isn't a user
+setting at all: the liveness heartbeat, and the two sweep rule versions (edge stays, track stats)
+that are what make `App.onCreate` re-derive the whole history. Sampling is read by the service when
+each track's GPS request starts; keep thresholds by the repository when a track finishes.
+`ActivityType` therefore only carries a label, a `recording` boolean, and a `TrackGroup`; sampling
+cadence is global.
 
-**Data** (`data/`): Room behind `TrackRepository`. The repository's `keepVerdict` (rule in
-`KeepRule`) decides whether a finished track is kept, soft-deleted as *discarded*, or — with 2 or
-fewer points in total, good and ignored counted together, so truly nothing to review — hard-deleted
-outright. Discarded (and user-deleted)
-tracks are reviewable and restorable from Settings → Recently deleted, auto-purged after 14 days;
-the keep check runs
-both on normal finish and via `finalizeDangling`, which also cleans up tracks left open by a crash
-(it skips `LocationRecordingService.activeTrackId`). **Merge copies its points and split reassigns
-them, and the asymmetry is deliberate**: `mergeTracks` turns two rows into one, so the originals are
-the only record of the pair and stay in Recently deleted (restorable, which is how a merge is undone);
-`splitTrack` keeps the original row *as the first half* and rehomes the later fixes onto one new
-track, because nothing needs preserving — every fix survives on one row or the other, and a copied
-original would leave a third row covering a period two live tracks already hold, restorable from a
-screen that offers a restore for everything on it. Don't unify them. `GpxExporter` (`data/export/`) builds GPX for
-share intents (`FileProvider`) or bulk-writes to a user-picked folder (Storage Access Framework);
-`GpxParser` imports GPX files shared/opened into the app. **An import is refused whenever the
-period is already taken**: `importTracks` skips a file's track as a *duplicate* when a track holds
-fixes at both exact ends of its span, and as *overlapping* when the spans merely intersect (a
-second path over one period double-counts its stats and hands stay derivation parallel journeys).
-Both checks read the points, not the track row's bounds — the row's move when the overrun comes off
-its edges — and both ignore soft-deleted rows, so a span covered only by Recently deleted imports. `BackupExporter`/`BackupImporter`
-(`data/export/`) are the full backup: one gzipped JSON file with every kept track's points
-(ignored ones and quality metadata included), places with their categories and liveness events — written from Settings,
-streamed both ways (one track's points in memory at a time), point rows as arrays keyed by a
-`pointFields` header so future exports stay restorable. Restore is offered only on the Timeline's
-empty state, deliberately: with existing tracks it would have to merge. The format also feeds the
+**Data** (`data/`): Room behind `TrackRepository`. A finished track is kept, soft-deleted as
+*discarded*, or hard-deleted outright (`keepVerdict`, rule in `KeepRule`). Discarded and
+user-deleted tracks are reviewable and restorable from Settings → Recently deleted, auto-purged
+after 14 days; the same check runs on normal finish and via `finalizeDangling`, which cleans up
+tracks left open by a crash. **A merge is undone by restoring its originals from Recently deleted;
+a split by `unsplitTracks`** — which is why `mergeTracks` copies its points while `splitTrack`
+reassigns them. `GpxExporter` (`data/export/`) builds GPX for share intents (`FileProvider`) or
+bulk-writes to a user-picked folder (Storage Access Framework); `GpxParser` imports GPX files
+shared/opened into the app, and `importTracks` refuses a file whose period an existing track
+already covers. `BackupExporter`/`BackupImporter` (`data/export/`) are the full backup — one
+gzipped JSON file with every kept track's points, places and liveness events, streamed both ways.
+Restore is offered only on the Timeline's empty state. The format also feeds the
 web companion viewer in `web/` (see its own README) — a change to it is a change to that viewer's
 input, and the viewer draws off-path fixes by the same conventions this app does *and derives the
 same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `web/js/stays.js`, tested case for case
@@ -309,127 +244,50 @@ Places tab.
 **A place row holds what the user said about a spot, and only that** — its name, its capture radius,
 and its `category` (`PlaceCategory.code`, null = untagged). Everything else about a place is derived
 on read. **A category and a name feed nothing on the way to a stay**, and the plumbing is built to
-say so: clustering reads a place's pin and its reach and nothing else — `PlaceClusterer.seedsOf` is
-that projection, and `Seed` is a **value**, so the derivation is gated by comparing seed lists
-(`pinnedRows` in `TrackListViewModel`, pinned by `PlaceDerivationGateTest`) rather than the rows.
-Gating on the row re-clusters the whole history whenever a place is renamed or tagged — for fields it
-never reads — and the user watches it happen, because everything a place's screen shows waits behind
-that walk. Two traps sit in this gate. **`Seed` must keep value equality**: as a plain class it
-compared by identity, so a `distinctUntilChanged` over freshly built seeds differed every time and
-silently gated nothing. And a fresher reading of the rows may only be **matched by id onto the list
-the clustering was built from**, never substituted for it — `PlaceResolver` resolves a cluster to a
-place *positionally* (`seedIndex`), so pairing a cached derivation with a list a delete has reindexed
-labels stays with the wrong places until the re-clustering lands.
-Three rules hold the vocabulary
-together. The **codes are permanent** — they reach the DB column *and* the backup format the web
-viewer reads — while the `label` beside each is display text, free to reword. The column keeps the
-**raw string, mapped in the domain** (`Place.placeCategory`, following the `activityType` /
-`IgnoreReason.code` precedent), so a code this build doesn't know reads as untagged but survives a
-backup round trip instead of being erased. And **untagged is a first-class state, not one more
-category**: there is deliberately no `Other`, because it would collect precisely the places worth
-finding again while saying nothing about them. Three categories carry `inTimeTotals = false` and so
-stay out of the timeline's per-day totals (`dayCategoryTotals`) — `HOME`, which as the baseline every
-day returns to would dwarf the line it shares, plus `PARKING` and `GAS_STATION`, which are transient:
-somewhere passed through on the way to the thing, with no purpose of their own for a total to report. The set is closed and not user-extensible — per-category
-totals only compare over a vocabulary that doesn't drift, and every entry owes a glyph (`ui/CategoryIcons`,
-where an `ImageVector` can live and the domain package can't) plus a `PlaceCategoryGroup`, the coarse
-five (home & people / errands / routine / away / transient) that **color coding** reads: a categorized
-place wears its *group's* color, never its own, so a list reads as a pattern instead of a legend to
-memorize, and untagged stays neutral (`placeDiscTint`). It is a derived categorical palette (M3 has no
-categorical roles): fixed saturation and lightness, only the hue rotates, so no group outweighs
-another. **The two categorical palettes are separated by surface, not by tone**: `activityColor`'s hue
-per activity belongs to the Record tab, which holds no places at all, while everywhere places share
-the screen (the Timeline and what it opens) travel takes one neutral (`travelColor`) so the coding is
-the places' — an activity hue there competes while saying nothing the row's glyph doesn't (car, boots,
-bike are distinct shapes), and a day's shape is in where the user stopped. `CATEGORY_SAT` sitting below
-`ACTIVITY_SAT` is only the fallback should a screen ever show both. The web viewer colors per activity
-throughout: its map draws overlapping *lines*, with no glyph to tell them apart. `TrackColoring`'s
-per-activity ramps are untouched and unrelated — they encode speed, not identity. Those glyphs were chosen as a *set*:
-no vehicle silhouette (a timeline row already spends those on the track's activity) and one building
-only (Home has it, so Work is a briefcase).
+say so: the derivation is gated on `PlaceClusterer.seedsOf` — a place's pin and its reach — rather
+than on the rows (`pinnedRows` in `TrackListViewModel`, pinned by `PlaceDerivationGateTest`), and a
+fresher reading of the rows is **matched by id onto the list the clustering was built from**, never
+substituted for it, because `PlaceResolver` resolves positionally.
+
+The vocabulary is a closed set of permanent codes stored raw and mapped in the domain
+(`Place.placeCategory`, following the `activityType` / `IgnoreReason.code` precedent), with untagged
+a first-class state rather than an `Other`; three categories stay out of the timeline's per-day
+totals (`dayCategoryTotals`). Every entry owes a glyph (`ui/CategoryIcons`, where an `ImageVector`
+can live and the domain package can't) and a `PlaceCategoryGroup` — the coarse five the **colour
+coding** reads. `ui/Components.kt` holds both categorical palettes and the rule separating them by
+surface; the web viewer instead colours per activity throughout, its map drawing overlapping *lines*
+with no glyph to tell them apart.
 
 **Naming a place and categorizing it are two steps, because the second is read off the first.**
-`PlaceCategorySuggester` learns from the places the user has already tagged — naive Bayes over word
-tokens and character 3/4-grams — and offers an untagged place's likely categories as one-tap chips on
-its detail screen, beside the row that opens the full picker. Training on *one person's* names is what
-makes a model this small work: place names are proper nouns, and a general vocabulary would have to
-know every shop brand on earth, where one user's names rhyme with each other. Names arrive through
-`PlaceSearch.fold`, so an accent is invisible here exactly as it is to search — two normalizations
-would be the app disagreeing with itself about what counts as the same place. **Silence is a supported
-answer**: a name built of unrecognized features scores every category at its prior, so the suggester
-gates on the share of features it knows at all and says nothing below the floor — which also subsumes
-the cold start, an untrained model recognizing nothing on a fresh install without a threshold of its
-own. The margin decides *how many* chips, not whether to show any: a low margin means the answer is
-probably among the top few, which is the case chips exist for. Retraining is recounting, so it rebuilds
-whenever the places table changes and there is no model to persist, version or migrate. Two things the
-UI owes it: chips show only while a place is untagged (a tagged place has an answer, and re-suggesting
-against it invites tapping the model's opinion over the user's), and a tap is held optimistically until
-the stored row agrees — the suggester reloads faster than the derivation, so an untagged place held
-against a model that has just been trained on the tag being written is a chip for the category the
-user has already chosen.
+`PlaceCategorySuggester` learns from the places the user has already tagged and offers an untagged
+place's likely categories as one-tap chips on its detail screen, beside the row that opens the full
+picker; `TrackListViewModel.categorySuggester` retrains it off `placeRows` rather than the
+derivation.
 
-**An ignored point is one that isn't part of the path — for either of two reasons.** The recorder's
-bad-fix rule (`TrackQuality`: accuracy, jump, no-GNSS) rejects fixes it doesn't trust; `EdgeStayIgnore`
-flags the good fixes recorded past the stop at a track's edges (`IgnoreReason.EDGE_STAY`), applied
-automatically when a track is finished, imported, merged, split, restored, or retyped across the
-foot/vehicle line (the activity picks the detector's tuning — `EdgeStayDetector.paramsFor` — so a
-retype that changes it re-derives the track), and the track's `startedAt`/
-`endedAt` pulled in to the boundary fix with it. Both drop out of distance, endpoints, the drawn
-line and GPX export while keeping their rows, so the operation destroys nothing and is undone by
-clearing a flag. Two invariants hold it together: detection runs on the points with the edge flags
-*cleared* (never on its own output, or the track walks backwards one sweep at a time), and a flag
-survives only where the rule still re-derives it — every flag is reconsidered wherever it sits, so
-the overrun a merge buries mid-track goes back to the path rather than sitting off it on a verdict
-nothing will re-examine. `TrackRepository.sweepEdgeStays` re-derives the
-whole history whenever `EdgeStayDetector.RULE_VERSION` outruns the version last swept — standing
-infrastructure, not one of the one-shot backfills below, so bumping that version is part of
-changing the rule.
+**An ignored point is one that isn't part of the path — for either of two reasons**: the recorder's
+bad-fix rule, and `EdgeStayIgnore`'s `IgnoreReason.EDGE_STAY` for good fixes recorded past the stop
+at a track's edges (`IgnoreReason` holds the distinction). The second is applied automatically
+wherever a track's points change — finished, imported, merged, split, restored, or retyped across
+the foot/vehicle line — with the track's `startedAt`/`endedAt` pulled in to the boundary fix,
+and `TrackRepository.sweepEdgeStays` re-derives the whole history when
+`EdgeStayDetector.RULE_VERSION` moves.
 
 **The track row carries its points' aggregates, and the recorder must never write it.** Distance,
-point/ignored counts and the first/last good coordinates live as columns on `tracks`, written only
-by `TrackRepository.refreshStats` (from `TrackStats`, the one point walk — the recorder accumulates
-through the same code, so live and stored totals can't drift) when a track is *finished, merged,
-split, imported, retyped, or has its overrun re-derived*. Those are the only events that change a track's
-points — so when the *walk* changes instead, `TrackRepository.sweepStats` re-walks the history,
-driven by `TrackStats.RULE_VERSION` exactly as the edge-stay sweep is driven by its detector's.
-Bumping that version is part of changing what the walk counts (currently: the leg spanning a
-segment break is travel — nothing teleports, so ground between two trusted fixes was covered
-whether or not the recorder was watching). This is a performance invariant, not a
-convenience: Room invalidates per
-table, so an observed query that reads `track_points` — or a per-fix write to `tracks` — is re-run
-on **every GPS fix**, scanning the whole point history once a second for a result that can't have
-changed (open tracks have no `endedAt` and are in none of these queries). The observed queries must
-therefore read `tracks` only, and the hot path writes nothing but the point rows; an open track's
-aggregates are meaningless by design, and finishing it (including `finalizeDangling` after a crash)
-recomputes them. `TimelineInvalidationTest` fails if either half is broken. The UI collects with
-`collectAsStateWithLifecycle` for the same reason — a backgrounded Compose tree keeps collecting
-otherwise, and the process outlives the UI by weeks.
+point/ignored counts and the first/last good coordinates are columns on `tracks`, written only by
+`TrackRepository.refreshStats` and re-walked history-wide by `TrackRepository.sweepStats` when
+`TrackStats.RULE_VERSION` moves. This is a performance invariant spanning three files, not a
+convenience: the observed queries (`TrackDao`) must read `tracks` only, and the recorder's hot path
+must write nothing but point rows — `TimelineInvalidationTest` fails if either half is broken, and
+each of the three says why. The UI collects with `collectAsStateWithLifecycle` for the same reason —
+a backgrounded Compose tree keeps collecting otherwise, and the process outlives the UI by weeks.
 
-**A track's writer is declared, not measured** — the one thing said *about the fixes* that is not
-measured from them. `source` (`TrackOrigin.code`, null = unknown, as untagged is for a place) is set
-by whoever inserts the row — the recorder in `startTrack`, the GPX import, a backup restore, and
-merge/split handing it on to the rows they create. Provenance is a fact known at insert; the fixes merely trace
-it, and re-deriving from the trace would make a workaround permanent. `TrackOrigin.inferFrom` *is*
-that trace — the recorder stores an accuracy radius per fix, a parsed GPX has none to store — and it
-exists only where the declaration is missing: the v15 migration fills pre-existing rows with it
-expressed as SQL, and a restore falls back to it for a backup written before `source` shipped (the
-format is additive, so old files stay restorable without a version bump and older builds skip the key).
-The fill runs **in the migration rather than as a backfill pass** so null never means both "unknown"
-and "not computed yet" — measured at ~0.5 s over a six-million-point history. Two codes and no third:
-**a merge across writers is refused** (`TrackMerge.plan`, beside its same-activity rule) rather than
-resolved to a "mixed" one, because a split of a mixed track would stamp both halves mixed, and the
-reconstruction can't recognise mixedness at all — a recorded track may hold fixes the platform gave no
-radius for, which is exactly what half an import looks like. This is also the answer `track_points.provider`
-carried until v12 dropped it, the column having gone uninformative for the recorder once raw GNSS was
-its only source — the import path's own value went with it, knowingly, against the fixes staying
-tellable apart by their absent fix-quality metadata. They are: that is the rule the v15 fill runs.
-Besides that refusal it is read by `availableColorModes`, which offers a track only the colour metrics
-that can say something — **two filters, because a dead metric has two causes**: the source rules out the
-recorder's own fix-quality readings (accuracy, satellites, signal) for an import as a *kind*, whatever
-a parser is later taught to fill in, and the fixes rule out what this particular track lacks, which
-the source cannot answer for (a GPX may or may not carry elevation; a recording taken with no
-`GnssStatus` to count from is a recording still). Speed is never ruled out — it falls back to position
-over time — so the row is never empty.
+**A track's writer is declared, not measured.** `source` (`TrackOrigin.code`) is set by whoever
+inserts the row — the recorder in `startTrack`, the GPX import, a backup restore, and merge/split
+handing it on to the rows they create. `TrackOrigin.inferFrom` reconstructs it only where no
+declaration exists: the v15 migration's SQL fill, and a backup file carrying no `source` key. Two
+codes and no third — `TrackMerge.plan` refuses a merge across writers rather than inventing a
+"mixed" one. Besides that refusal it is read by `availableColorModes` (`ui/TrackColoring`), which
+drops the colour metrics an import can't carry.
 
 **Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*
 rows and a Room SQL migration can't express the logic, add a repository pass and run it from
@@ -438,12 +296,10 @@ rows and a Room SQL migration can't express the logic, add a repository pass and
 any screen) because the background service can keep the process alive for weeks without the UI
 opening. Make the pass idempotent — a crash between the work and the flag write means it re-runs.
 Delete the pass, its flag, and any DAO queries only it used once the installed base has run it;
-the pre-DB-v5 ignore-reason backfill, the drive-start leading-stray repair (both dropped
-2026-07-13) and the point-starved-track purge (dropped 2026-07-17) followed this pattern —
-see git history for a template. **No backfill is live right now**: `App.onCreate` runs the
-discarded-track retention purge and the two versioned sweeps (edge stays, then track stats), none
-of which is one — a sweep is standing infrastructure that re-runs whenever its rule's version
-moves, not a pass to delete.
+`git log --grep=backfill` holds worked examples to copy from (the ignore-reason backfill, the
+drive-start leading-stray repair, the point-starved-track purge). **No backfill is live right
+now**: `App.onCreate` runs the discarded-track retention purge and the two versioned sweeps (edge
+stays, then track stats), and `sweepEdgeStays` says why a sweep is not one.
 
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
@@ -464,30 +320,15 @@ map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps
 vector basemap** (dark or light flavor following the app theme): **the track is one line feature per
 run of same-colored fixes**, colored by the selected metric (ramp luminance also theme-dependent),
 start/end and noisy-fix markers sit on a symbol layer, and switching the color metric rebuilds the
-line's source without moving the camera. Deliberately not a `line-gradient`, which positions color
-along the line's *length* where every other reading of the metric — the graph beside it above all —
-is positioned along its *time*, so a slow stretch shrinks to nothing on the map while filling the
-graph. The banded ramp, the source's simplification tolerance and the layer's round caps are one
-mechanism serving that and none survives being tidied alone; `trackLineFeature` says why.
-Three more layers ride on the same map — the detected in-track stops as
-place-style capture circles *under* the line, the recorder's overrun grayed off the track's
-ends, read back from the stored flags rather than re-detected, and the **named places at the path's
-two ends** (`RoutePlaces`), each a labeled pin over the capture area that claimed that end. The
-first two are **deliberately unlabelled**: a legend listing each dwell's clock times and the
-overrun's duration was tried and removed, because a panel of times over the route says less than
-the shapes do and covers the map saying it. Their meaning is in where they sit and how they're
-drawn, and restoring the text is a decision to take again rather than an oversight to fix. Those end
-places come off the stored rows (`storedPlaces`) rather than the derived summaries, so a route is
-annotated without waiting behind the clustering, and they never move the camera — the route is the
-subject. Three rules a reader can't infer from the layers: the **pin keeps its full colour while its
-ring recedes** (the pin answers where the journey went, the ring only says how far that place reaches,
-and the dwell circles stay full because a dwell is *this track's* evidence where the ring belongs to a
-place the track merely arrived in); at an end the **place outranks the recorder's own markers**, which
-is why the start/end markers are endpoint-dot sized and the pin draws over them; and the Places
-overview's zoom gating deliberately does *not* apply, being a property of a field of places framed to
-fit however far apart they are. The map renders in texture mode (a SurfaceView would ignore Compose
-clipping and bleed over rounded card corners), sits inside padded cards (so it never reaches the
-back-gesture edge strips), and is lifecycle-bound to the composition.
+line's source without moving the camera. Deliberately not a `line-gradient`: the banded ramp, the
+source's simplification tolerance and the layer's round caps are one mechanism serving that, and
+none survives being tidied alone — `trackLineFeature` says why. Three more layers ride on the same
+map — the detected in-track stops as place-style capture circles *under* the line, the recorder's
+overrun grayed off the track's ends, read back from the stored flags rather than re-detected, and
+the **named places at the path's two ends** (`RoutePlaces`), each a labeled pin over the capture
+area that claimed that end. The first two are **deliberately unlabelled** — their meaning is in
+where they sit and how they're drawn. A panel of times over the route says less than the shapes do
+and covers the map saying it, so labelling them is a decision to take, not an oversight to fix.
 
 ## Releases
 
@@ -525,20 +366,13 @@ cross-checks it.
 - **Activity recognition needs Google Play Services**, so this is intentionally not a FOSS/F-Droid
   build. A continuous foreground service + persistent notification is mandatory for background location
   — there is no "invisible" mode.
-- **A GMS transition registration can go silently deaf** — it keeps reporting success, answering
-  snapshots and replaying on re-registration while never delivering live. Re-registration has been
-  field-disproven as a cure (a registration on a request code GMS had never seen came up dead while a
-  second install recovered on a reused one); the state sits in Play Services and only a device reboot
-  cleared it. So the app **detects and reports rather than repairs**: `StaleReadingOracle` spots it,
-  `DeafnessWarning` decides when to say so, and the user is told to reboot. Don't build anything that
-  assumes restarting the registration fixes this — that ground has been covered. This is *not* a rule
-  against re-registering: the watchdog re-*requests* updates every tick, and the replay that provokes
-  is exactly what feeds the oracle. The distinction is load-bearing — a request refreshes a healthy
-  registration in place, while `restart()` tears it down and rebuilds it on a fresh token, and only
-  arming and a proven-deaf verdict do that.
-- The `alerts` notification channel is the second channel, separate from the ongoing tracking one:
-  transient, `IMPORTANCE_DEFAULT`, used only for the deafness warning (id 1002, posted by
-  `RecorderNotifications` along with everything else in the shade). The "persistent
+- **A GMS transition registration can go silently deaf, and re-registration is not a cure** — the
+  app **detects and reports rather than repairs**: `StaleReadingOracle` spots it, `DeafnessWarning`
+  decides when to say so, and the user is told to reboot. Don't build anything that assumes
+  restarting the registration fixes this; `ActivityRecognitionManager.restart` carries the field
+  evidence. It is *not* a rule against re-registering — the watchdog re-*requests* every tick, and
+  that replay is what feeds the oracle; the request/restart line is drawn at the watchdog tick.
+- The `alerts` channel (`RecorderNotifications`) is a second, transient channel. The "persistent
   notification" rules above are about the foreground service's channel, not this one.
 - Background location requires the user to grant **"Allow all the time"**, which on Android 11+ is only
   grantable from the app's system settings page (the permission UI deep-links there).
@@ -556,64 +390,19 @@ cross-checks it.
   (`https://api.protomaps.com/styles/v5/{dark,light}/en.json?key=…`), verbatim except the API key
   in the tiles URL replaced with the `{PROTOMAPS_KEY}` placeholder. To refresh, re-fetch from that
   endpoint and re-apply the placeholder swap.
-- **Frame the map with `moveCamera`, not `easeCamera`** — the track view should open already fitted,
-  with no zoom-in animation. Framing runs once per map instance (guarded by a `BooleanArray`) so
-  switching the color metric recolors without re-centring; the live preview refreshes the source
-  geometry on point-list growth but re-frames only when the current position leaves the central 80%
-  of the viewport, so a user pan/zoom survives. See `MapLibreTrackMap`.
-- **Never resize a `MapView` — give each screen its own.** In texture mode it scales its
-  last-rendered frame into the new box until it has one of its own, so a marker visibly stretches;
-  on a place map the pin becomes an oval. There is no fix from inside a shared map: hiding what is
-  drawn is too late (the frame being scaled was rendered *before* the hide), animating the height
-  makes it every frame instead of one, and sequencing against `OnDidFinishRenderingFrame` spares
-  the markers but not the basemap and costs two frames of latency. Two screens that want the map at
-  different sizes are two layers with a map each. A fresh map means a fresh camera, and that is the
-  point rather than the price: an editor should open framed on what it edits. **The place detail
-  screen carries no map** — one small enough to sit above the visits is framed on the capture circle,
-  which cannot say where a place is, and repeats the category glyph already on the screen; both
-  questions belong elsewhere (`PlaceEditScreen` for the area, the maps-app action for where), so it
-  is the visits that get the room. **That holds only while the editor is reachable**, and for an
-  unnamed cluster it once wasn't: `Place.label` is non-null, so a cluster has no row, the area action
-  was hidden, and the one screen whose job is working out *what* a place is had no map and no controls
-  — only a link out to a maps app. So **`PlaceEditScreen` owns everything the user says about a
-  place** — name, capture radius and pin — and writes them as one row (an insert for a cluster,
-  `PlaceDao.update` for a place — never a setter per field, because every write invalidates `places`
-  and re-runs the derivation, and a pin and a radius are both `Seed` fields, so two writes are two
-  re-clusterings of the whole history for one Done tap; `TrackListViewModel.savePlace` also drops a
-  save that changed nothing, which is a data-layer question rather than a button's). **The detail
-  screen then reads and does not edit**, bar the category chips, which are read off the name and
-  belong beside the suggestions that produced them: its title is a heading, and its one edit action
-  wears a pencil rather than the target it had while it only tuned a radius. A cluster carries **no
-  edit action at all** — it is titled "Detected stop", nothing exists to edit, and its single filled
-  "Create place" button is the whole offer, at the emphasis a first step wants. Removing a place is
-  the Places list's swipe or the editor's own button under the map — both delete at once and answer
-  with an Undo, as this app does rather than asking first; the editor's dismisses its layer *and* the
-  detail underneath, because both are about a row that has gone and the detail's `place:<id>` key
-  would resolve against nothing, and the Undo is raised from the app's host so it outlives them.
-  A cleared *name* is still never a delete — Done just disables — and that separation is what having
-  an explicit Remove buys. **The pin is placed by long-pressing the map**, with the re-center action
-  as the shortcut beside it (snap to the middle of what the circle holds): the pin decides which
-  endpoints are held, so an answer derived from the held ones cannot be the only one on offer. A long
-  press because a tap is how a map is panned, and a pin move deliberately does *not* re-fit the camera
-  (only a radius change does) — re-fitting would slide the aimed-at point out from under the finger
-  that aimed at it, and re-zoom.
-  Creating a place from the editor means the layers can hold a cluster key that the create has just
-  killed, so **both halves of following it are needed**. `PlaceResolver.reacquire` tracks a named
-  cluster by *position* — which a hand-placed pin is exactly what may have moved, and then nothing in
-  the fresh list sits where the cluster did, leaving the screen on the stop it opened on, still
-  offering to create the place that now exists (pinned by `PlaceResolverTest`). So the view model
-  hands the inserted row's id to the caller (`savePlace(…, onCreated)`, the shape `mergeTracks` already
-  uses) and `MainScreen` re-keys the open screen onto it through `PlaceResolver.keyOf`; the id is the
-  only identity a create leaves behind before a derivation runs, and handing it back rather than
-  broadcasting it keeps "which screen follows this" with the screen that asked. **And a re-key must never follow a stale summary**: `reacquire` returns the
-  screen's own snapshot when nothing matched yet, and writing *that* key back would undo the re-key
-  and strand the screen for good — hence the identity guard in `onResolved`. The edit layer also
-  shares the detail screen's snapshot, since a `cluster:<n>` index is reassignable mid-edit.
-  The editor's **centre marker is a pin whether or not the row exists** (untagged until
-  tagged): it shows what saving produces, and the "named ⇒ dot" fallback left it the same marker as
-  the endpoint dots it sits among, in another hue — which is not a distinction, since these markers
-  are told apart by size and shape first.
-- **Marker symbol layers draw in source order** (`symbolZOrder(SYMBOL_Z_ORDER_SOURCE)`, set once on
-  the shared `markerSymbolLayer` base). The default stacks point symbols by screen position, so the
-  feature a collection deliberately appends last — a place's pin after its dots, a track's start/end
-  after the rejected fixes around them — is otherwise covered by whatever happens to sit lower.
+- **Frame the map with `moveCamera`, not `easeCamera`** — a map opens already fitted, never
+  animating in, and framing runs once per map instance. `fitCamera` in `MapLibreTrackMap` has the
+  live preview's re-frame rule.
+- **Never resize a `MapView` — give each screen its own.** A resized texture map stretches its last
+  frame (a pin becomes an oval) and nothing fixes it from inside a shared map; two screens that want
+  the map at different sizes are two layers with a map each, and the fresh camera is the point
+  rather than the price. `PlaceEditScreen`'s KDoc has the argument, including the rejected
+  alternatives.
+- **`PlaceEditScreen` owns everything the user says about a place** — name, capture radius and pin,
+  written as one row; the detail screen reads and does not edit, bar the category chips. A detected
+  stop has no row, so it carries no edit action, only "Create place" — and following that create
+  needs both halves: `TrackListViewModel.savePlace(…, onCreated)` hands back the inserted id, and
+  `MainScreen` re-keys the open screen onto it through `PlaceResolver.keyOf`. The screens carry the
+  rest.
+- **Marker symbol layers draw in source order**, set once on the shared `markerSymbolLayer` base,
+  which says why.
