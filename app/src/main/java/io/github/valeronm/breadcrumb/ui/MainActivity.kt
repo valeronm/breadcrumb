@@ -118,7 +118,7 @@ class MainActivity : FragmentActivity() {
                 CompositionLocalProvider(
                     LocalUnits provides unitChoice.resolve(locale.country),
                 ) {
-                    PrivacyGate {
+                    PrivacyGate(waitingImports = pendingGpxImport.value?.size ?: 0) {
                         MainScreen(pendingGpxImport, unitChoice) {
                             unitChoice = it
                             AppSettings.setUnitChoice(this, it.name)

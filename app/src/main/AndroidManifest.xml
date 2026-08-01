@@ -45,9 +45,19 @@
         android:theme="@style/Theme.ActivityGpsTracker"
         tools:targetApi="34">
 
+        <!--
+            singleTask, because this is one activity and everything above it is an overlay: an
+            "open with" must reach the *live* instance and bring its task forward. Left undeclared,
+            the launch mode is `standard`, and then whether a GPX opens the running app, stacks a
+            second copy, or lands in the caller's task without ever coming forward is decided by
+            the calling app's flags and whatever task state happens to exist — which is how the
+            same action foregrounds the app on one attempt and does nothing visible on the next.
+            It is also what makes onNewIntent below fire at all.
+        -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.ActivityGpsTracker">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

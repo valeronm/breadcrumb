@@ -128,8 +128,23 @@ internal object Privacy {
  * the moment the system snapshots the window the app is still unlocked, and hiding that is what
  * the separate screenshot setting is for.
  */
+/**
+ * What the lock says about work the gate is holding back, or null when it holds none. A deferred
+ * import is invisible otherwise: the file opens, nothing happens, and the reason only emerges if
+ * the user happens to authenticate.
+ *
+ * Said in two places, because the prompt is a sheet drawn over the lock screen and hides it: the
+ * screen's copy is what a user who dismissed the prompt reads, the prompt's is what everyone else
+ * does.
+ */
+internal fun pendingImportNote(files: Int): String? = when {
+    files <= 0 -> null
+    files == 1 -> "A GPX file is waiting to be imported."
+    else -> "$files GPX files are waiting to be imported."
+}
+
 @Composable
-internal fun PrivacyGate(content: @Composable () -> Unit) {
+internal fun PrivacyGate(waitingImports: Int = 0, content: @Composable () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -156,12 +171,12 @@ internal fun PrivacyGate(content: @Composable () -> Unit) {
 
     Box(Modifier.fillMaxSize()) {
         content()
-        if (activity != null && Privacy.isLocked(context)) LockScreen(activity)
+        if (activity != null && Privacy.isLocked(context)) LockScreen(activity, waitingImports)
     }
 }
 
 @Composable
-private fun LockScreen(activity: FragmentActivity) {
+private fun LockScreen(activity: FragmentActivity, waitingImports: Int) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var prompting by remember { mutableStateOf(true) }
 
@@ -172,6 +187,7 @@ private fun LockScreen(activity: FragmentActivity) {
         lifecycleOwner.lifecycle.withStarted {}
         authenticate(
             activity,
+            waitingImports,
             onSuccess = { Privacy.markUnlocked() },
             onDismissed = { prompting = false },
         )
@@ -194,6 +210,15 @@ private fun LockScreen(activity: FragmentActivity) {
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
             )
+            pendingImportNote(waitingImports)?.let { note ->
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    note,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
             if (!prompting) {
                 Spacer(Modifier.height(16.dp))
                 Button(onClick = { prompting = true }) { Text("Unlock") }
@@ -204,6 +229,7 @@ private fun LockScreen(activity: FragmentActivity) {
 
 private fun authenticate(
     activity: FragmentActivity,
+    waitingImports: Int,
     onSuccess: () -> Unit,
     onDismissed: () -> Unit,
 ) {
@@ -219,10 +245,10 @@ private fun authenticate(
             override fun onAuthenticationError(code: Int, message: CharSequence) = onDismissed()
         },
     )
-    prompt.authenticate(promptInfo())
+    prompt.authenticate(promptInfo(waitingImports))
 }
 
-private fun promptInfo(): BiometricPrompt.PromptInfo {
+private fun promptInfo(waitingImports: Int): BiometricPrompt.PromptInfo {
     val builder = BiometricPrompt.PromptInfo.Builder()
         .setTitle("Unlock Breadcrumb")
         .setSubtitle("Your location history is locked")
@@ -230,6 +256,9 @@ private fun promptInfo(): BiometricPrompt.PromptInfo {
         // for authorizing a payment, friction for opening a viewer that is read-only until the
         // user acts. Fingerprint is unaffected: an active modality never had the extra tap.
         .setConfirmationRequired(false)
+    // The prompt covers the lock screen entirely, so whatever that screen says about work being
+    // held back has to be repeated here or it is read only by someone who dismisses the prompt.
+    pendingImportNote(waitingImports)?.let(builder::setDescription)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         // No negative button may be set alongside DEVICE_CREDENTIAL — the credential fallback is
         // the negative button.
