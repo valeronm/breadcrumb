@@ -72,9 +72,9 @@ class ActivityIngestTest {
     }
 
     /** Puts a walk on the road: the track is open, GPS is on, and one fix has landed. */
-    private fun startWalking(atMs: Long = T0) {
-        reading(ActivityType.WALKING, atMs)
-        fix(atMs, 0.0)
+    private fun startWalking() {
+        reading(ActivityType.WALKING, T0)
+        fix(T0, 0.0)
     }
 
     // --- Opening, pausing, stitching -------------------------------------------
@@ -112,7 +112,6 @@ class ActivityIngestTest {
             out,
         )
         assertTrue("the track stays open across the stop", core.isPaused)
-        assertTrue("no close", out.none { it is Effect.CloseTrack })
     }
 
     @Test fun `a same-family return inside the window stitches back into the open track`() {
@@ -169,10 +168,12 @@ class ActivityIngestTest {
     @Test fun `a same-family switch keeps the track and only breaks a segment`() {
         startWalking()
 
-        val out = reading(ActivityType.RUNNING, T0 + MINUTE)
-
-        assertEquals(listOf(Effect.StampReading(T0 + MINUTE), Effect.Publish), out)
-        assertTrue("GPS is already on, so nothing is asked of it", out.none { it == Effect.EnsureGps })
+        // No EnsureGps in the list: GPS is already running, and a same-family switch only breaks a
+        // segment — so nothing here asks anything of it.
+        assertEquals(
+            listOf(Effect.StampReading(T0 + MINUTE), Effect.Publish),
+            reading(ActivityType.RUNNING, T0 + MINUTE),
+        )
     }
 
     @Test fun `a reading the gate already believes asks for nothing but the liveness stamp`() {
@@ -424,7 +425,7 @@ class ActivityIngestTest {
     @Test fun `a resume signal probes again`() {
         givenGpsSuspended()
 
-        val out = core.onResumeSignal(E0 + GIVE_UP_MS + NoFixGuard.RETRY_BASE_MS, respectBackoff = true)
+        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + NoFixGuard.RETRY_BASE_MS)
 
         assertEquals(listOf(Effect.EnsureGps, Effect.Publish), out)
     }
@@ -432,7 +433,7 @@ class ActivityIngestTest {
     @Test fun `motion too soon after a failed probe re-arms the trigger instead of probing`() {
         givenGpsSuspended()
 
-        val out = core.onResumeSignal(E0 + GIVE_UP_MS + 1, respectBackoff = true)
+        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + 1)
 
         assertEquals(
             "the one-shot trigger has fired and disarmed itself; the passive listener still stands",
@@ -444,7 +445,7 @@ class ActivityIngestTest {
     @Test fun `a passive fix ignores the backoff, being evidence rather than a suggestion`() {
         givenGpsSuspended()
 
-        val out = core.onResumeSignal(E0 + GIVE_UP_MS + 1, respectBackoff = false)
+        val out = core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS + 1)
 
         assertEquals(listOf(Effect.EnsureGps, Effect.Publish), out)
     }
@@ -453,7 +454,7 @@ class ActivityIngestTest {
         startWalking()
         noFixGuard.onProbeStarted(E0)
 
-        assertTrue(core.onResumeSignal(E0 + GIVE_UP_MS, respectBackoff = false).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS).isEmpty())
     }
 
     /** A walk whose probe ran its window with nothing accepted, so GPS is off and waiting. */
@@ -477,7 +478,8 @@ class ActivityIngestTest {
         deafReading(atMs = T0)
         // Inside the cooldown. The detection still counts — a deafness that survives a restart is
         // exactly what the user needs telling about — so this is the reading that raises the alert.
-        val second = deafReading(atMs = T0 + STALE_RESTART_GAP_MS)
+        // Exactly the gap: the rule compares strictly, so this is still inside the cooldown.
+        val second = deafReading(atMs = T0 + ActivityIngest.STALE_RESTART_MIN_GAP_MS)
 
         assertTrue(
             "no second restart inside the cooldown",
@@ -494,7 +496,7 @@ class ActivityIngestTest {
     @Test fun `a restart is allowed again once the cooldown has passed`() {
         deafReading(atMs = T0)
 
-        val later = deafReading(atMs = T0 + STALE_RESTART_GAP_MS + 2)
+        val later = deafReading(atMs = T0 + ActivityIngest.STALE_RESTART_MIN_GAP_MS + 1)
 
         assertTrue(later.any { it is Effect.RestartRegistration })
     }
@@ -509,13 +511,12 @@ class ActivityIngestTest {
     )
 
     /**
-     * Ground moving at 10 m/s for 30 s. Shaped to what [io.github.valeronm.breadcrumb.domain.MovementConfirmer]
-     * needs before it will say anything at all — four fixes, a 20 s span, and 40 m between the
-     * window's averaged halves — so a thinner fixture abstains and proves nothing.
+     * Thirty seconds of moving ground — comfortably past what
+     * [io.github.valeronm.breadcrumb.domain.MovementConfirmer] needs before it will say anything at
+     * all (four fixes, a 20 s span, 40 m between the window's averaged halves), so a thinner fixture
+     * would abstain and prove nothing.
      */
-    private fun feedVehicleSpeedGround() {
-        for (sec in 0..30 step 5) fix(T0 + sec * 1000L, sec * 10.0)
-    }
+    private fun feedVehicleSpeedGround() = driveFrom(T0, until = T0 + 30_000)
 
     private companion object {
         const val T0 = 1_700_000_000_000L
@@ -529,8 +530,5 @@ class ActivityIngestTest {
         /** The guard's clock is monotonic and unrelated to [T0]; only differences are ever read. */
         const val E0 = 500_000L
         const val GIVE_UP_MS = 120_000L
-
-        /** Just inside [ActivityIngest.STALE_RESTART_MIN_GAP_MS], which the rule compares strictly. */
-        const val STALE_RESTART_GAP_MS = ActivityIngest.STALE_RESTART_MIN_GAP_MS
     }
 }

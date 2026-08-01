@@ -126,17 +126,11 @@ class LocationRecordingService : Service() {
     // The cheap signals the no-fix guard falls back on, and the satellite watch whose ~1/s tick is
     // what drives that guard in the first place. Both are live only while GPS is, and
     // [stopLocationUpdates] is the single place all three are torn down together.
-    private val resumeSignals = ResumeSignals(this) { reason, respectBackoff ->
-        onNoFixResumeSignal(reason, respectBackoff)
-    }
+    private val resumeSignals = ResumeSignals(this, ::onNoFixResumeSignal)
     private val gnss = GnssWatch(this) {
         maybeGiveUpOnNoFix()
         checkParkedReading()
     }
-
-    // --- Auto-pause / stitch resources (all touched only under [mutex]) ---
-    // While paused, [activeTrackId] stays open (GPS off) so a brief stop can be stitched back into
-    // the same track when the same activity resumes within the configured window.
 
     override fun onCreate() {
         super.onCreate()
@@ -288,7 +282,7 @@ class LocationRecordingService : Service() {
             settings = activitySettings(),
         )
         if (core.confirmed != was) {
-            logTransition(was, core.confirmed, wasPaused, readingLagMs(effects, nowMs))
+            logTransition(was, core.confirmed, wasPaused, nowMs - core.lastReadingMs)
         } else {
             core.parked?.let { DebugLog.i(TAG, "motion cross-check: holding $it — the ground is still moving") }
         }
@@ -373,11 +367,6 @@ class LocationRecordingService : Service() {
         }
     }
 
-    /** How late the reading behind this pass was, for the log line; zero when none was involved. */
-    private fun readingLagMs(effects: List<Effect>, nowMs: Long): Long =
-        effects.firstNotNullOfOrNull { (it as? Effect.StampReading)?.readingMs }
-            ?.let { nowMs - it } ?: 0L
-
     /**
      * The one place the cross-check's setting is read, so the one place it branches: every
      * consultation defines a [Motion.Unknown] case identical to the pre-witness behaviour, and
@@ -387,27 +376,31 @@ class LocationRecordingService : Service() {
         core.motionVerdict(atMs, Settings.motionCrossCheck(this))
 
     /**
-     * Reconsider a reading the ground contradicted, and apply it if the contradiction has cleared.
-     * Caller holds [mutex].
-     */
-    private suspend fun promoteParkedReading(motion: Motion) {
-        val was = core.confirmed
-        val wasPaused = core.isPaused
-        val effects = core.onMotion(motion, now(), activitySettings())
-        if (effects.isEmpty()) return
-        DebugLog.i(TAG, "motion cross-check: releasing the held ${core.confirmed}")
-        logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L)
-        dispatch(effects)
-    }
-
-    /**
-     * A tick's worth of "is that held reading credible yet?". Cheap when nothing is held — always so
-     * with the cross-check off, since parking takes a verdict and it is then [Motion.Unknown]. The
-     * off-mutex pre-check (as in [maybeGiveUpOnNoFix]) costs at most one tick's delay (~1 s) on a stale read.
+     * A tick's worth of "is that held reading credible yet?", and the release when it is. Cheap when
+     * nothing is held — always so with the cross-check off, since parking takes a verdict and it is
+     * then [Motion.Unknown]. The off-mutex pre-check (as in [maybeGiveUpOnNoFix]) costs at most one
+     * tick's delay (~1 s) on a stale read.
      */
     private fun checkParkedReading() {
         if (core.parked == null) return
-        scope.launch { mutex.withLock { promoteParkedReading(motionVerdict(now())) } }
+        scope.launch {
+            mutex.withLock {
+                // Read once and shared with the verdict below. A hold has no cap by design, so this
+                // runs every GNSS tick for as long as one lasts, and the settings would otherwise be
+                // re-read a second for a promotion that usually doesn't happen.
+                val settings = activitySettings()
+                val nowMs = now()
+                val was = core.confirmed
+                val wasPaused = core.isPaused
+                val effects = core.onMotion(
+                    core.motionVerdict(nowMs, settings.crossCheckMotion), nowMs, settings,
+                )
+                if (effects.isEmpty()) return@withLock
+                DebugLog.i(TAG, "motion cross-check: releasing the held ${core.confirmed}")
+                logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L)
+                dispatch(effects)
+            }
+        }
     }
 
     /**
@@ -560,9 +553,9 @@ class LocationRecordingService : Service() {
         if (gpsListener == null || !noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return
         scope.launch {
             mutex.withLock {
-                // This service's own resources, so its own guard — whether a *pause* rules the
-                // give-up out is the recorder's, and [ActivityIngest.onGnssTick] keeps it.
-                if (gpsListener == null || activeTrackId == null) return@withLock
+                // GPS is this service's own resource, so its own guard; whether the recording rules
+                // the give-up out is the recorder's, and [ActivityIngest.onGnssTick] keeps it.
+                if (gpsListener == null) return@withLock
                 dispatch(
                     core.onGnssTick(now(), SystemClock.elapsedRealtime(), giveUpMs, activitySettings()),
                 )
@@ -571,11 +564,11 @@ class LocationRecordingService : Service() {
     }
 
     /** A cheap signal says conditions may have changed — turn GPS back on and try again. */
-    private fun onNoFixResumeSignal(reason: String, respectBackoff: Boolean) {
+    private fun onNoFixResumeSignal(signal: ResumeSignals.Signal) {
         scope.launch {
             mutex.withLock {
-                val effects = core.onResumeSignal(SystemClock.elapsedRealtime(), respectBackoff)
-                if (Effect.EnsureGps in effects) DebugLog.i(TAG, "no-fix guard: probing again ($reason)")
+                val effects = core.onResumeSignal(signal, SystemClock.elapsedRealtime())
+                if (Effect.EnsureGps in effects) DebugLog.i(TAG, "no-fix guard: probing again ($signal)")
                 dispatch(effects)
             }
         }
@@ -740,11 +733,6 @@ class LocationRecordingService : Service() {
 
         private const val TAG = "Breadcrumb"
         private const val HEARTBEAT_INTERVAL_MS = 15 * 60_000L
-
-        // How many satellites make a status report count as a real fix at all — four is the minimum
-        // for a genuine 3D one; below that the position isn't independently satellite-determined.
-        // How *stale* such a fix may be and still back a location is the rule's own, and lives with
-        // it in [FixIngest.GNSS_FIX_MAX_AGE_MS].
 
         fun start(context: Context) {
             // Never start the location foreground service without location permission — the platform

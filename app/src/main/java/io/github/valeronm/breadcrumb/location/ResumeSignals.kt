@@ -17,10 +17,9 @@ import io.github.valeronm.breadcrumb.util.isGranted
 
 /**
  * The two cheap ways to hear that conditions may have changed while GPS is off after a failed
- * probe — neither of which costs a GPS engine. [onSignal] carries how much the signal is worth:
- * significant motion merely suggests the phone has gone somewhere, so it respects the guard's
- * backoff, while a GPS fix the platform delivered to some other app is proof the sky is visible and
- * bypasses it.
+ * probe — neither of which costs a GPS engine. This reports only *which* fired; what a signal is
+ * worth is recorder policy and lives with the guard that acts on it, so it can be exercised off the
+ * device rather than asserted here.
  *
  * The recorder decides *when* these should be listening — [ArmResumeSignals][Effect.ArmResumeSignals]
  * and [ArmSignificantMotion][Effect.ArmSignificantMotion] are its two requests, and this owns only
@@ -29,8 +28,11 @@ import io.github.valeronm.breadcrumb.util.isGranted
  */
 class ResumeSignals(
     private val context: Context,
-    private val onSignal: (reason: String, respectBackoff: Boolean) -> Unit,
+    private val onSignal: (Signal) -> Unit,
 ) {
+
+    /** Which cheap signal fired. */
+    enum class Signal { MOTION, PASSIVE_FIX }
 
     private val sensors by lazy { context.getSystemService(SensorManager::class.java) }
     private val motionSensor by lazy { sensors?.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION) }
@@ -53,7 +55,7 @@ class ResumeSignals(
         val listener = object : TriggerEventListener() {
             override fun onTrigger(event: TriggerEvent?) {
                 motionListener = null // one-shot: already disarmed by the sensor framework
-                onSignal("significant motion", true)
+                onSignal(Signal.MOTION)
             }
         }
         if (sm.requestTriggerSensor(listener, sensor)) motionListener = listener
@@ -74,7 +76,7 @@ class ResumeSignals(
         passiveListener = null
     }
 
-    /** Free ride on other apps' fixes: a GPS fix delivered to anyone proves the sky is visible. */
+    /** Free ride on other apps' fixes: the platform delivering one to anyone means the sky is up. */
     @SuppressLint("MissingPermission")
     private fun armPassive() {
         if (passiveListener != null) return
@@ -82,7 +84,7 @@ class ResumeSignals(
         val lm = locations ?: return
         val listener = object : LocationListenerCompat {
             override fun onLocationChanged(location: Location) {
-                if (location.provider == LocationManager.GPS_PROVIDER) onSignal("passive GPS fix", false)
+                if (location.provider == LocationManager.GPS_PROVIDER) onSignal(Signal.PASSIVE_FIX)
             }
         }
         passiveListener = listener

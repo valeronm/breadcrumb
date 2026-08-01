@@ -20,6 +20,12 @@ import io.github.valeronm.breadcrumb.domain.TrackController
  * fails partway leaves the core believing something that never happened. That is the standing price
  * of describing effects rather than performing them, and it is why [EnsureGps] asks for a state
  * rather than commanding a transition.
+ *
+ * **[NoFixGuard] is the one exception, deliberately.** Its probe clock starts where GPS actually
+ * starts, which is inside the dispatch of [EnsureGps] — so a pass reads a guard that still describes
+ * the world before the pass. That is the right way round (a probe that never started must not be
+ * timed as though it had), but it means the guard is the one piece of state a pass cannot assume it
+ * has already moved.
  */
 sealed interface Effect {
 
@@ -141,6 +147,9 @@ class ActivityIngest(
 
     val confirmed: ActivityType get() = gate.confirmed
     val parked: ActivityType? get() = gate.parked
+
+    /** The last reading's own sanitized time — how late it was is what a log line wants to say. */
+    val lastReadingMs: Long get() = readingClock.lastReadingMs
     val phase: TrackController.Phase get() = controller.phase
     val isPaused: Boolean get() = controller.isPaused
     val deaf: Boolean get() = deafnessWarning.warned
@@ -211,8 +220,8 @@ class ActivityIngest(
      * engine reports about once a second while searching, which is why the guard needs no timer of
      * its own and cannot be Doze-deferred while GPS is off. [elapsedMs] is monotonic (the guard's
      * only clock: a probe outlives a wall-clock step), [nowMs] is wall time for everything else.
-     * Empty unless the probe has genuinely failed; the caller's own resources — is GPS even on, is a
-     * track open — are its guard to keep, and this one keeps the recorder's.
+     * Empty unless the probe has genuinely failed. Whether GPS is even on is the caller's own
+     * resource and its guard to keep; everything about the recording belongs here.
      */
     fun onGnssTick(
         nowMs: Long,
@@ -220,8 +229,11 @@ class ActivityIngest(
         giveUpMs: Long,
         settings: ActivitySettings,
     ): List<Effect> {
-        // A paused track turned GPS off for its own reasons and is waiting on its own deadline.
-        if (controller.isPaused) return emptyList()
+        // The phase is what says a track exists, as it is in [close] — not the id the dispatcher
+        // holds, which after a failed insert says the opposite and would hold the give-up off for
+        // the rest of the outing. A paused track, meanwhile, turned GPS off for its own reasons and
+        // is waiting on its own deadline.
+        if (controller.phase == TrackController.Phase.Idle || controller.isPaused) return emptyList()
         val motion = motionVerdict(nowMs, settings.crossCheckMotion)
         if (!noFixGuard.shouldGiveUp(elapsedMs, giveUpMs, motion)) return emptyList()
         // GPS is about to go, and with it the tick that would ever revisit a held reading — so it is
@@ -238,12 +250,14 @@ class ActivityIngest(
     }
 
     /**
-     * A cheap signal says conditions may have changed. [respectBackoff] is false for evidence that
-     * stands on its own — a passive fix delivered to another app proves the sky is visible — and
-     * true for motion, which merely suggests it. Empty when GPS is not suspended at all.
+     * A cheap signal says conditions may have changed. What each is worth is decided here rather
+     * than where it is registered: a passive fix is the platform having produced one somewhere, so
+     * it stands on its own evidence and ignores the backoff, while motion merely suggests the phone
+     * has gone somewhere and must wait its turn. Empty when GPS is not suspended at all.
      */
-    fun onResumeSignal(elapsedMs: Long, respectBackoff: Boolean): List<Effect> {
+    fun onResumeSignal(signal: ResumeSignals.Signal, elapsedMs: Long): List<Effect> {
         if (!noFixGuard.suspended) return emptyList()
+        val respectBackoff = signal == ResumeSignals.Signal.MOTION
         // Too soon after the last failed probe; keep listening for motion instead.
         if (!noFixGuard.shouldProbe(elapsedMs, respectBackoff)) return listOf(Effect.ArmSignificantMotion)
         return listOf(Effect.EnsureGps, Effect.Publish)
@@ -344,10 +358,11 @@ class ActivityIngest(
                 controller.onRecording(action.activity)
             }
         }
-        // A confirmed moving reading while the no-fix guard has GPS off is a resume signal too — but
-        // only where nothing above already asked. This never doubled up while the two sat on adjacent
-        // lines, because a branch that starts GPS clears the suspension on the way through; the
-        // suspension is now still standing here, since the start happens when the list is walked.
+        // A confirmed moving reading while the no-fix guard has GPS off is a resume signal too. The
+        // two checks guard different things and neither subsumes the other: the dispatcher's asks
+        // whether GPS is on *now*, across passes and after a permission refusal, while this one asks
+        // whether this pass has already said so — [resume] asks for GPS without clearing the
+        // suspension, and the suspension only lifts when the probe it describes actually starts.
         if (noFixGuard.suspended && gate.confirmed.recording && Effect.EnsureGps !in out) {
             out += Effect.EnsureGps
         }
@@ -407,22 +422,23 @@ class ActivityIngest(
     companion object {
         // A reading this soon after a registration is its replay. Comfortably over the settle
         // ActivityRecognitionManager waits before re-requesting.
-        const val REGISTRATION_REPLAY_WINDOW_MS = 5_000L
+        private const val REGISTRATION_REPLAY_WINDOW_MS = 5_000L
 
         // Age cap for trusting an AR event's own timestamp (see [ReadingClock]): far above any
         // real Doze drain delay, below the garbage stamps GMS can emit (22.5 h).
-        const val READING_MAX_AGE_MS = 6 * 60 * 60_000L
+        private const val READING_MAX_AGE_MS = 6 * 60 * 60_000L
 
         // Stale-reading deafness oracle: live transition deliveries arrive 0–5 s after their
         // event; one this late while armed could only have come from a registration replay.
-        const val STALE_READING_RESTART_MS = 60_000L
+        private const val STALE_READING_RESTART_MS = 60_000L
 
         // The reading must advance the clock by at least this much to count — a bare > lets a repeat
         // of an already-applied event, whose wall-clock stamp drifts a few ms across a long still
         // stretch, fire a spurious restart; a real missed transition advances by seconds. See
         // [StaleReadingOracle].
-        const val STALE_READING_ADVANCE_MS = 1_000L
+        private const val STALE_READING_ADVANCE_MS = 1_000L
 
+        /** How long a forced re-registration holds off the next one. Read by the suite that pins it. */
         const val STALE_RESTART_MIN_GAP_MS = 5 * 60_000L
     }
 }
