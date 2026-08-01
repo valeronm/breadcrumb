@@ -27,6 +27,7 @@ class ActivityIngestTest {
     private val core = ActivityIngest(ingest, noFixGuard)
 
     private val settings = ActivitySettings(resumeWindowMs = RESUME_WINDOW_MS, crossCheckMotion = false)
+    private val crossChecked = settings.copy(crossCheckMotion = true)
 
     /**
      * A reading whose event time is its apply time — the ordinary live delivery. The registration is
@@ -297,6 +298,68 @@ class ActivityIngestTest {
         )
     }
 
+    // --- The crossing the cross-check exists for --------------------------------
+
+    @Test fun `a drive Activity Recognition calls stationary is held, not paused`() {
+        reading(ActivityType.DRIVING, T0)
+        driveFrom(T0, until = T0 + MINUTE)
+
+        // Aboard a carrier the body genuinely is still while the journey is not. Acting on the
+        // label would pause the recorder mid-drive and turn GPS off for the rest of it.
+        val out = reading(ActivityType.STILL, T0 + MINUTE, crossCheckMotion = true)
+
+        assertEquals("nothing acted on", listOf(Effect.StampReading(T0 + MINUTE)), out)
+        assertEquals("the stop is held rather than dropped", ActivityType.STILL, core.parked)
+        assertFalse("the drive is still recording", core.isPaused)
+        assertEquals("under its own label", ActivityType.DRIVING, core.confirmed)
+    }
+
+    @Test fun `a crossing costs the drive neither a split nor a pause`() {
+        reading(ActivityType.DRIVING, T0)
+        val out = ArrayList<Effect>()
+        // Nine minutes of moving ground, with a stationary announcement every third minute — the
+        // edge-triggered stream repeating a stop the ground keeps contradicting.
+        for (minute in 1..9) {
+            driveFrom(T0 + (minute - 1) * MINUTE + 1000L, until = T0 + minute * MINUTE)
+            if (minute % 3 == 0) out += reading(ActivityType.STILL, T0 + minute * MINUTE, crossCheckMotion = true)
+        }
+
+        assertTrue("one track throughout", out.none { it is Effect.OpenTrack || it is Effect.CloseTrack })
+        assertTrue("and never paused", out.none { it is Effect.SchedulePauseWake })
+        assertFalse(core.isPaused)
+        assertEquals(ActivityType.DRIVING, core.confirmed)
+    }
+
+    @Test fun `the drive's real end releases the held stop, timed from the release`() {
+        reading(ActivityType.DRIVING, T0)
+        driveFrom(T0, until = T0 + MINUTE)
+        reading(ActivityType.STILL, T0 + MINUTE, crossCheckMotion = true)
+
+        // The carrier actually stops, so fixes cease and the window ages out to abstention — which
+        // releases the hold, overruling the activity stream taking positive evidence to sustain.
+        val arrivedAt = T0 + 3 * MINUTE
+        val out = core.onMotion(core.motionVerdict(arrivedAt, crossCheckMotion = true), arrivedAt, crossChecked)
+
+        assertNull("the slot is emptied", core.parked)
+        assertTrue("and the stop finally lands", core.isPaused)
+        // Timed from the held reading instead, the deadline would be T0 + 2m30s — already past, so
+        // the promotion would close the track outright rather than open a window on it. The hold is
+        // evidence the stop had not begun yet; the window after it is the first measuring a real one.
+        assertEquals(
+            Effect.SchedulePauseWake(arrivedAt + RESUME_WINDOW_MS),
+            out.first { it is Effect.SchedulePauseWake },
+        )
+    }
+
+    /** Vehicle-speed ground: a fix a second at [VEHICLE_MPS], positioned off [T0] so calls chain. */
+    private fun driveFrom(fromMs: Long, until: Long) {
+        var atMs = fromMs
+        while (atMs <= until) {
+            fix(atMs, (atMs - T0) / 1000.0 * VEHICLE_MPS)
+            atMs += 1000L
+        }
+    }
+
     // --- Deafness ---------------------------------------------------------------
 
     @Test fun `a stale but advancing reading proves the registration deaf`() {
@@ -355,6 +418,9 @@ class ActivityIngestTest {
         const val MINUTE = 60_000L
         const val HOUR = 60 * MINUTE
         const val RESUME_WINDOW_MS = 90_000L
+
+        /** 90 km/h — ordinary road speed, well under the 220 km/h ceiling a DRIVING label carries. */
+        const val VEHICLE_MPS = 25.0
 
         /** Just inside [ActivityIngest.STALE_RESTART_MIN_GAP_MS], which the rule compares strictly. */
         const val STALE_RESTART_GAP_MS = ActivityIngest.STALE_RESTART_MIN_GAP_MS
