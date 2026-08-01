@@ -1,33 +1,20 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
-import android.content.res.Configuration
-import android.graphics.Color
 import android.graphics.RectF
-import android.util.Log
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.gson.JsonObject
-import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.Place
@@ -40,22 +27,12 @@ import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.placeCategory
-import org.maplibre.android.MapLibre
-import org.maplibre.android.camera.CameraPosition
-import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.geometry.LatLngBounds
-import org.maplibre.android.maps.MapLibreMap
-import org.maplibre.android.maps.MapLibreMapOptions
-import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
-import org.maplibre.android.offline.OfflineManager
 import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
-import org.maplibre.android.style.layers.PropertyValue
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonOptions
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -64,9 +41,6 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
-import org.maplibre.geojson.Polygon
-import kotlin.math.cos
-import kotlin.math.sin
 
 /**
  * Renders a track on a Protomaps vector basemap (MapLibre GL Native), dark or light flavor per the app
@@ -243,158 +217,6 @@ private class AppliedTrackInputs {
     var framed = false
 }
 
-/**
- * Shared host for the map composables: owns the [MapView], loads the Protomaps style once, routes
- * later recompositions to [onUpdate], and runs [onMapReady] before the style loads (one-time map
- * setup like click listeners); callers keep their own last-applied state — this only removes boilerplate.
- */
-@Composable
-private fun MapLibreStyledMap(
-    modifier: Modifier = Modifier,
-    onMapReady: (MapLibreMap) -> Unit = {},
-    onStyleLoaded: (Context, MapLibreMap, Style) -> Unit,
-    onUpdate: (MapLibreMap, Style) -> Unit,
-) {
-    val mapView = rememberMapLibreMapView()
-    val host = remember(mapView) { MapHost() }
-    // The style loads asynchronously; inputs that arrive in the meantime recompose while the
-    // style is still null, so their update is skipped. Route the callback through the host so the
-    // load applies the *latest* composition's data, not what the first composition captured.
-    host.onStyleLoaded = onStyleLoaded
-    val zoom = remember { mutableFloatStateOf(0f) }
-    Box(modifier) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { mapView },
-            update = { view ->
-                if (!host.inited) {
-                    host.inited = true
-                    view.getMapAsync { map ->
-                        host.map = map
-                        val readZoom = { zoom.floatValue = map.cameraPosition.zoom.toFloat() }
-                        if (BuildConfig.DEV_TOOLS) map.addOnCameraMoveListener(readZoom)
-                        onMapReady(map)
-                        map.setStyle(Style.Builder().fromJson(loadProtomapsStyle(view.context))) { style ->
-                            host.onStyleLoaded(view.context, map, style)
-                            // The opening frame is a moveCamera, which lands before this listener
-                            // exists to hear it.
-                            if (BuildConfig.DEV_TOOLS) readZoom()
-                        }
-                    }
-                } else {
-                    val map = host.map
-                    val style = map?.style ?: return@AndroidView
-                    onUpdate(map, style)
-                }
-            },
-        )
-        if (BuildConfig.DEV_TOOLS) {
-            ZoomReadout(zoom, Modifier.align(Alignment.BottomEnd).padding(8.dp))
-        }
-    }
-}
-
-/**
- * The live camera zoom, dev builds only — every threshold on these maps (marker size ramp, when a
- * pin earns its glyph) is a zoom number, and they can't be judged against a map that won't say
- * which zoom it is at.
- *
- * It takes the state rather than its value so the read happens *here*: read a level up and every
- * camera frame would invalidate the map host, whose `update` lambda then re-runs each caller's
- * whole diff mid-pinch — in the `perf` build, which exists to measure exactly that.
- */
-@Composable
-private fun ZoomReadout(zoom: FloatState, modifier: Modifier = Modifier) {
-    LegendSurface(modifier) {
-        Text("z %.1f".format(zoom.floatValue), style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-/**
- * Per-[MapView] mutable state held outside Compose's snapshot system — the map and its one-shot
- * init flag, plus the latest style-loaded callback. Same role as the `Applied*Inputs` holders
- * below: a remembered plain object, not a snapshot state, so writing it never recomposes.
- */
-private class MapHost {
-    var map: MapLibreMap? = null
-    var inited = false
-    var onStyleLoaded: (Context, MapLibreMap, Style) -> Unit = { _, _, _ -> }
-}
-
-/**
- * How much basemap MapLibre may keep in its ambient tile cache (`files/mbgl-offline.db`). The
- * library default (~a tenth of this) is a few screenfuls: Protomaps vector tiles average ~45 KiB,
- * so it fills at roughly a thousand and LRU-evicts what a session just viewed — reopening a track
- * an hour later re-downloads its tiles, and with map data the app's only network use, that
- * eviction *is* the data bill. This holds several times a day's worth of viewing. Nothing is
- * pinned: a ceiling raise, not an offline region — the cache stays opportunistic, and ground the
- * map has never shown still needs a connection.
- */
-private const val AMBIENT_CACHE_BYTES = 250L * 1024 * 1024
-
-/** Set once per process — the ceiling is a property of the shared file source, not of a map. */
-@Volatile private var ambientCacheCeilingRaised = false
-
-private fun raiseAmbientCacheCeiling(ctx: Context) {
-    if (ambientCacheCeilingRaised) return
-    ambientCacheCeilingRaised = true
-    OfflineManager.getInstance(ctx.applicationContext)
-        .setMaximumAmbientCacheSize(
-            AMBIENT_CACHE_BYTES,
-            object : OfflineManager.FileSourceCallback {
-                override fun onSuccess() = Unit
-
-                // Not fatal: the cache keeps working at whatever ceiling it already had.
-                override fun onError(message: String) {
-                    Log.w("Breadcrumb", "Could not raise the map tile cache ceiling: $message")
-                }
-            },
-        )
-}
-
-/** A MapLibre [MapView] whose lifecycle follows the composition's [LocalLifecycleOwner]. */
-@Composable
-private fun rememberMapLibreMapView(): MapView {
-    val ctx = LocalContext.current
-    val mapView = remember {
-        MapLibre.getInstance(ctx)
-        raiseAmbientCacheCeiling(ctx)
-        // Texture mode instead of the default SurfaceView: a SurfaceView composites in its own
-        // layer and ignores Compose clipping, so it would bleed over rounded card corners. The
-        // cards' side padding also keeps the map out of the back-gesture edge strips, so no
-        // edge-swipe handling is needed on the view itself.
-        val options = MapLibreMapOptions.createFromAttributes(ctx)
-            .textureMode(true)
-            // Shown until the first rendered frame; defaults to white, which flashes hard
-            // against a dark UI.
-            .foregroundLoadColor(styleBackgroundColor(ctx))
-        MapView(ctx, options).apply {
-            onCreate(null)
-            onStart()
-            onResume()
-        }
-    }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, mapView) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> mapView.onStart()
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                Lifecycle.Event.ON_STOP -> mapView.onStop()
-                else -> Unit
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose {
-            lifecycle.removeObserver(observer)
-            mapView.onStop()
-            mapView.onDestroy()
-        }
-    }
-    return mapView
-}
-
 private const val TRACK_SOURCE = "track-src"
 private const val TRACK_LAYER = "track-layer"
 private const val MARKER_SOURCE = "marker-src"
@@ -506,54 +328,6 @@ private fun addEndPlacePinImages(ctx: Context, style: Style, places: List<Place>
         style.addImage(placePinImage(category, withGlyph = true), glyphedPinBitmap(ctx, category))
     }
 }
-
-/**
- * The capture-circle look — translucent fill + dashed outline — shared by every ring on every map: a
- * place's own reach, its neighbours', the stops detected inside a track, and the places at that
- * track's ends. All of them are "ground that counts as one spot", so all of them read as one species,
- * and only opacity says which of them the screen is about — [addContextCircleLayers] for the ones it
- * isn't. On a track's map that puts the dwell circles at full strength while an end place's ring
- * recedes: a dwell is *this track's* own evidence, where the ring belongs to a place the track
- * merely arrived in.
- */
-private fun addCaptureCircleLayers(
-    style: Style,
-    sourceId: String,
-    fillLayerId: String,
-    lineLayerId: String,
-    vararg extraProps: PropertyValue<*>,
-) {
-    style.addLayer(
-        FillLayer(fillLayerId, sourceId).withProperties(
-            PropertyFactory.fillColor(CIRCLE_FILL),
-            *extraProps,
-        ),
-    )
-    style.addLayer(
-        LineLayer(lineLayerId, sourceId).withProperties(
-            PropertyFactory.lineColor(CIRCLE_LINE),
-            PropertyFactory.lineWidth(1.5f),
-            PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
-            *extraProps,
-        ),
-    )
-}
-
-/**
- * [addCaptureCircleLayers] for a ring the screen is *not* about — a neighbouring place beside the one
- * being edited, the reach of the place at a track's end. One function so the weight of "context" is
- * set once for every surface that has some, rather than each remembering to pass the pair.
- */
-private fun addContextCircleLayers(
-    style: Style,
-    sourceId: String,
-    fillLayerId: String,
-    lineLayerId: String,
-) = addCaptureCircleLayers(
-    style, sourceId, fillLayerId, lineLayerId,
-    PropertyFactory.fillOpacity(CONTEXT_AREA_OPACITY),
-    PropertyFactory.lineOpacity(CONTEXT_AREA_OPACITY),
-)
 
 /**
  * What the once-per-map fit frames: the track line's points — or, when there's no drawable line,
@@ -715,75 +489,6 @@ private fun addMarkers(
 }
 
 /**
- * Shared base of the marker layers: an icon per feature, drawn in source order — the load-bearing
- * part: left to itself a symbol layer stacks point symbols by screen position, so the lower marker
- * covers the rest, and a collection with a hierarchy in it ends with the marker that matters most (a
- * place's pin among its dots, a track's start/end among rejected fixes). Overlap and placement are
- * off likewise: these are markers, not labels competing for room.
- */
-private fun markerSymbolLayer(id: String, source: String): SymbolLayer =
-    SymbolLayer(id, source).withProperties(
-        PropertyFactory.symbolZOrder(Property.SYMBOL_Z_ORDER_SOURCE),
-        PropertyFactory.iconImage(Expression.get(ICON_KEY)),
-        PropertyFactory.iconAllowOverlap(true),
-        PropertyFactory.iconIgnorePlacement(true),
-        PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
-    )
-
-/** The track's marker and selection layers: markers that turn to face along the ground track. */
-private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
-    markerSymbolLayer(id, source).withProperties(
-        // Rotate with the map so the droplet keeps pointing along the ground-track bearing.
-        PropertyFactory.iconRotate(Expression.get("bearing")),
-        PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
-    )
-
-/**
- * How far a place's name sits below its anchor, in ems of [PropertyFactory.textSize] — at the 12
- * used here, ~14 dp. Measured against the *pin* rather than the text, and squeezed from both sides:
- * a full-size pin is `PIN_BASE_DP * PIN_MAX_SCALE` ≈ 28 dp, so its lower half reaches ~14 dp below
- * centre and less than this draws the name through it, while a couple of dp more and the name stops
- * reading as *this pin's* and starts looking like a caption adrift under it. The usable range is
- * about a third of an em wide and this sits at the bottom of it.
- *
- * Flat rather than ramped by zoom: the place map draws pins at full size, and a field of places shows
- * names only from [LABEL_ZOOM], by which point the size ramp has the pin at ~0.9 — so the most this
- * is ever out by is a dp of extra gap at one zoom stop, never an overlap.
- */
-private const val PLACE_LABEL_OFFSET_EM = 1.2f
-
-/** Labeled pin layer, shared by every map that draws a place: a marker plus a label under it. */
-private fun labeledSymbolLayer(ctx: Context, id: String, source: String): SymbolLayer {
-    val dark = isDarkUi(ctx)
-    return markerSymbolLayer(id, source).withProperties(
-        // Named features carry a label under the pin; other features have an empty string.
-        PropertyFactory.textField(Expression.get("label")),
-        PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
-        PropertyFactory.textSize(12f),
-        PropertyFactory.textColor(if (dark) "#C8CFC6" else "#38423B"),
-        PropertyFactory.textHaloColor(if (dark) "#14211A" else "#F0F2EE"),
-        PropertyFactory.textHaloWidth(1.2f),
-        PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
-        PropertyFactory.textOffset(arrayOf(0f, PLACE_LABEL_OFFSET_EM)),
-        PropertyFactory.textOptional(true),
-        // Context recedes twice over: a muted pin gives up most of its chroma in the bitmap it
-        // names *and* some of its ink here, which is what separates it from its neighbours' circles
-        // as well as from the subject. The label can only give up ink, being neutral in both themes
-        // with no chroma to drain. Keyed on the property being present, so a collection that never
-        // writes it — the all-places overview, a track's end places — is unaffected without knowing
-        // the rule exists.
-        PropertyFactory.iconOpacity(mutedOpacity()),
-        PropertyFactory.textOpacity(mutedOpacity()),
-    )
-}
-
-private fun mutedOpacity(): Expression = Expression.switchCase(
-    Expression.has(MUTED_KEY),
-    Expression.literal(NEIGHBOR_MUTED_OPACITY),
-    Expression.literal(1f),
-)
-
-/**
  * The graph-scrubber selection: its own source/layer so updates don't rebuild the marker set.
  * A droplet pointing along the fix's bearing where one was recorded, else the plain dot.
  */
@@ -808,89 +513,24 @@ private fun addSelectionLayer(ctx: Context, style: Style, selected: TrackPoint?)
     style.addLayer(iconSymbolLayer(SELECT_LAYER, SELECT_SOURCE))
 }
 
+private const val BEARING_KEY = "bearing"
+
 private fun markerFeature(p: TrackPoint, icon: String, bearing: Float = 0f): Feature =
     Feature.fromGeometry(
         Point.fromLngLat(p.longitude, p.latitude),
         JsonObject().apply {
             addProperty(ICON_KEY, icon)
-            addProperty("bearing", bearing)
+            addProperty(BEARING_KEY, bearing)
         },
     )
 
-/** These bounds with their half-spans scaled by [factor] around the center. */
-private fun LatLngBounds.scaled(factor: Double): LatLngBounds {
-    val centerLat = (latitudeNorth + latitudeSouth) / 2
-    val centerLon = (longitudeEast + longitudeWest) / 2
-    val halfLat = (latitudeNorth - latitudeSouth) / 2 * factor
-    val halfLon = (longitudeEast - longitudeWest) / 2 * factor
-    return LatLngBounds.from(
-        centerLat + halfLat, centerLon + halfLon,
-        centerLat - halfLat, centerLon - halfLon,
+/** The track's marker and selection layers: markers that turn to face along the ground track. */
+private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
+    markerSymbolLayer(id, source).withProperties(
+        // Rotate with the map so the droplet keeps pointing along the ground-track bearing.
+        PropertyFactory.iconRotate(Expression.get(BEARING_KEY)),
+        PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
     )
-}
-
-/** Whether ([lat], [lon]) sits within the central [fraction] of these bounds. */
-private fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction: Double = 0.8): Boolean =
-    with(scaled(fraction)) {
-        lat in latitudeSouth..latitudeNorth && lon in longitudeWest..longitudeEast
-    }
-
-/**
- * Fits the camera to [positions]: ≥2 → bounds fit with 96px padding, exactly 1 → [singlePointZoom].
- * [headroom] > 1 zooms out beyond the exact fit (half-spans scaled around the center) — the live
- * re-fit needs it: a tight fit leaves the position at the viewport edge, re-framing on the next fix.
- */
-private fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom: Double, headroom: Double = 1.0) {
-    when {
-        // moveCamera (not easeCamera): the map should open already framed, with no zoom animation.
-        positions.size >= 2 -> {
-            val b = LatLngBounds.Builder()
-            positions.forEach { b.include(it) }
-            var bounds = b.build()
-            if (headroom > 1.0) bounds = bounds.scaled(headroom)
-            map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 96))
-        }
-        positions.size == 1 -> map.cameraPosition = CameraPosition.Builder()
-            .target(positions[0]).zoom(singlePointZoom).build()
-    }
-}
-
-/** Whether the UI is in dark mode — the single switch for basemap flavor and map ink colors. */
-private fun isDarkUi(ctx: Context): Boolean =
-    (ctx.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-        Configuration.UI_MODE_NIGHT_YES
-
-private val BACKGROUND_COLOR_RE = Regex("\"background-color\":\\s*\"(#[0-9a-fA-F]{6})\"")
-
-/** One flavor's resolved style: the key-injected JSON and its own background color. */
-private class StyleFlavor(val asset: String, val json: String, val backgroundColor: Int)
-
-/** The current flavor's resolved style, cached by asset name — read for every map creation. */
-private var cachedStyle: StyleFlavor? = null
-
-/**
- * The bundled official Protomaps style for the current theme (assets/protomaps-{dark,light}.json)
- * with the hosted-API key injected. The background color is scanned out on the same cache miss:
- * it is a constant of the flavor, and the document is ~268 KB — far too big to re-scan per map.
- */
-private fun styleFlavor(ctx: Context): StyleFlavor {
-    val asset = if (isDarkUi(ctx)) "protomaps-dark.json" else "protomaps-light.json"
-    cachedStyle?.let { if (it.asset == asset) return it }
-    val json = ctx.assets.open(asset).bufferedReader().use { it.readText() }
-        .replace("{PROTOMAPS_KEY}", BuildConfig.PROTOMAPS_API_KEY)
-    val background = BACKGROUND_COLOR_RE.find(json)
-        ?.groupValues?.get(1)?.let(android.graphics.Color::parseColor)
-        ?: android.graphics.Color.DKGRAY
-    return StyleFlavor(asset, json, background).also { cachedStyle = it }
-}
-
-private fun loadProtomapsStyle(ctx: Context): String = styleFlavor(ctx).json
-
-/**
- * The style's own `background` layer color — used as the pre-render placeholder so a style
- * refresh can't desync the load flash from the basemap.
- */
-private fun styleBackgroundColor(ctx: Context): Int = styleFlavor(ctx).backgroundColor
 
 // --- Place map ----------------------------------------------------------------------------------
 
@@ -1054,26 +694,6 @@ private class AppliedPlaceInputs {
     var rivalAreas: List<PlaceClusterer.Seed>? = null
 }
 
-/**
- * A capture area on a map that is not *about* that area — a neighbouring place beside the one being
- * edited, and the reach of the place at a track's end. Faint enough to read as context rather than as
- * a second subject.
- *
- * At a track's end this is deliberately not matched by the pin above it, which keeps its full colour:
- * the pin answers where the journey began and ended, and the ring only says how far that place
- * reaches — the same information the place's own screen exists to show. Muting the ring alone is what
- * lets the answer stay loud while its footnote recedes.
- */
-private const val CONTEXT_AREA_OPACITY = 0.35f
-
-/**
- * The ink a neighbouring place's pin and label keep. Gentler than [CONTEXT_AREA_OPACITY], and gentler
- * than it would be if it worked alone: the pin has already given up most of its saturation (see
- * `categoryMutedPinColor`), so this is the second half of a recede rather than the whole of one, and
- * a neighbour still has to be identifiable — which is the entire reason it is drawn.
- */
-private const val NEIGHBOR_MUTED_OPACITY = 0.7f
-
 private const val PLACE_RIVAL_SOURCE = "place-rival-src"
 private const val PLACE_RIVAL_FILL = "place-rival-fill"
 private const val PLACE_RIVAL_LINE = "place-rival-line"
@@ -1081,11 +701,6 @@ private const val PLACE_RIVAL_LINE = "place-rival-line"
 private const val PLACE_CIRCLE_SOURCE = "place-circle-src"
 private const val PLACE_CIRCLE_FILL = "place-circle-fill"
 private const val PLACE_CIRCLE_LINE = "place-circle-line"
-
-/** Feature property names shared by the marker features and the icon expressions above. */
-private const val ICON_KEY = "icon"
-private const val MUTED_KEY = "muted"
-private const val DISTANCE_KEY = "dm"
 
 /** The image a feature takes once it is drawn big enough to carry a glyph — see [GLYPH_ZOOM]. */
 private const val GLYPH_KEY = "glyph"
@@ -1100,8 +715,6 @@ private const val PLACE_MARKER_LAYER = "place-marker-layer"
 private const val IMG_ENDPOINT = "marker-endpoint"
 private const val IMG_ENDPOINT_BRIEF = "marker-endpoint-brief"
 private const val IMG_NEIGHBOR = "marker-neighbor"
-private const val CIRCLE_FILL = 0x2E5B9BF0
-private const val CIRCLE_LINE = 0x995B9BF0.toInt()
 
 private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent) {
     // Rivals first, so this place's own circle reads on top of them where they overlap.
@@ -1180,23 +793,6 @@ private fun neighborFeature(n: PlaceMarker): Feature = endpointFeature(
     muted = true,
 )
 
-private fun endpointFeature(
-    e: StayDeriver.Endpoint,
-    icon: String,
-    label: String? = null,
-    distanceM: Double? = null,
-    muted: Boolean = false,
-): Feature =
-    Feature.fromGeometry(
-        Point.fromLngLat(e.lon, e.lat),
-        JsonObject().apply {
-            addProperty(ICON_KEY, icon)
-            addProperty("label", label ?: "")
-            distanceM?.let { addProperty(DISTANCE_KEY, it) }
-            if (muted) addProperty(MUTED_KEY, true)
-        },
-    )
-
 /**
  * The marker layer's icon property: only features carrying a distance (capture dots) resolve against
  * the radius; the rest keep their written icon. Keyed on the property being *present*, not a sentinel
@@ -1214,31 +810,6 @@ private fun markerIconProperty(radiusM: Double) = PropertyFactory.iconImage(
         Expression.get(ICON_KEY),
     ),
 )
-
-/**
- * A capture area per seed, each as its own polygon — the named neighbours a radius is judged against,
- * or the places at a track's ends. Taken as [PlaceClusterer.Seed]s because a pin and its reach are all
- * a ring needs, which is the same projection the clustering reads. Empty is a valid, common answer.
- */
-private fun captureAreaCollection(seeds: List<PlaceClusterer.Seed>): FeatureCollection =
-    FeatureCollection.fromFeatures(seeds.map { circleFeature(it.anchor, it.radiusM) })
-
-/** A meter-true circle approximated by a 72-gon (fine at place zoom levels). */
-private fun circleFeature(center: StayDeriver.Endpoint, radiusM: Double): Feature {
-    val ring = (0..72).map { i ->
-        val theta = 2 * Math.PI * i / 72
-        val (lat, lon) = offsetMeters(center, radiusM * sin(theta), radiusM * cos(theta))
-        Point.fromLngLat(lon, lat)
-    }
-    return Feature.fromGeometry(Polygon.fromLngLats(listOf(ring)))
-}
-
-/** [e] displaced by meters north/east into a (lat, lon) pair — flat-earth, fine at circle scale. */
-private fun offsetMeters(e: StayDeriver.Endpoint, northM: Double, eastM: Double): Pair<Double, Double> {
-    val lat = e.lat + northM / 111_320.0
-    val lon = e.lon + eastM / (111_320.0 * cos(Math.toRadians(e.lat)))
-    return lat to lon
-}
 
 // --- All-places overview map ---------------------------------------------------------------
 
@@ -1356,7 +927,7 @@ private fun addOverviewLayers(ctx: Context, style: Style, places: List<OverviewP
                 Expression.step(
                     Expression.zoom(),
                     Expression.literal(""),
-                    Expression.stop(LABEL_ZOOM, Expression.get("label")),
+                    Expression.stop(LABEL_ZOOM, Expression.get(LABEL_KEY)),
                 ),
             ),
         ),
@@ -1409,21 +980,9 @@ private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
                     addProperty(KIND_KEY, if (p.marker.label != null) KIND_PIN else KIND_DOT)
                     addProperty(ICON_KEY, markerIcon(p.marker, withGlyph = false, unnamed = dot))
                     addProperty(GLYPH_KEY, markerIcon(p.marker, withGlyph = true, unnamed = dot))
-                    addProperty("label", p.marker.label ?: "")
+                    addProperty(LABEL_KEY, p.marker.label ?: "")
                     addProperty("key", p.key)
                 },
             )
         },
     )
-
-private fun framePlace(map: MapLibreMap, center: StayDeriver.Endpoint, radiusM: Double) {
-    val (north, _) = offsetMeters(center, radiusM, 0.0)
-    val (south, _) = offsetMeters(center, -radiusM, 0.0)
-    val (_, east) = offsetMeters(center, 0.0, radiusM)
-    val (_, west) = offsetMeters(center, 0.0, -radiusM)
-    val bounds = LatLngBounds.Builder()
-        .include(LatLng(north, east))
-        .include(LatLng(south, west))
-        .build()
-    map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 64))
-}
