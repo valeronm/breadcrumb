@@ -396,7 +396,9 @@ internal fun durationSettingLabel(sec: Int): String = when {
     else -> "${sec / 60}m ${sec % 60}s"
 }
 
-private val dayAndHourMinute by PerLocale { DateTimeFormatter.ofPattern("MMM d, HH:mm", it) }
+// Day before month, as every other date in the app reads it. The `MMM d` this replaced was the one
+// outlier, inherited from the formatter it grew out of rather than chosen.
+private val dayAndHourMinute by PerLocale { DateTimeFormatter.ofPattern("d MMM HH:mm", it) }
 
 /** A date and clock time in [zone] — [timeAt]'s longer form, for a screen naming one moment. */
 internal fun dateTimeAt(epochMs: Long, zone: ZoneId): String =
@@ -405,9 +407,8 @@ internal fun dateTimeAt(epochMs: Long, zone: ZoneId): String =
 private val hourMinute by PerLocale { DateTimeFormatter.ofPattern("HH:mm", it) }
 
 /**
- * A clock time in [zone] — **the clock format every screen that shows one goes through**, so a
- * change to it lands everywhere at once. (`DiscardedScreens` still carries its own date-and-time
- * pattern, in the other field order; folding it in is a rendering change, not a refactor.)
+ * A clock time in [zone] — **the app's only clock format**, so a change to it lands everywhere at
+ * once, and [dateTimeAt] is the only date-and-time one.
  *
  * Deliberately not a shared [SimpleDateFormat] with a zone set on it, which is what this replaced:
  * that class carries a mutable calendar, so one instance retimed per row is a data race between two

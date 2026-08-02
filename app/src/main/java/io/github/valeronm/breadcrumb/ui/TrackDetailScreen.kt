@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -381,13 +382,26 @@ private fun SplitConfirmation(
         (cutIndex + 1 until seams.points.size).sumOf { seams.meters[it] }
     }
     val units = LocalUnits.current
-    fun half(from: Long, to: Long, points: Int, meters: Double) =
-        "${timeAt(from, zone)} – ${timeAt(to, zone)} · " +
-            "${units.distance(meters)} · $points points"
+    val reader = timelineZone()
+    val shiftColor = zoneShiftColor
+    fun half(from: Long, to: Long, points: Int, meters: Double) = buildAnnotatedString {
+        appendTime(from, zone, reader, shiftColor)
+        append(" – ")
+        appendTime(to, zone, reader, shiftColor)
+        append(" · ${units.distance(meters)} · $points points")
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Filled.ContentCut, contentDescription = null) },
-        title = { Text("Split at ${timeAt(plan.cutTs, zone)}?") },
+        title = {
+            Text(
+                buildAnnotatedString {
+                    append("Split at ")
+                    appendTime(plan.cutTs, zone, reader, shiftColor)
+                    append("?")
+                },
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(half(summary.startedAt, plan.firstEndTs, plan.firstGoodPoints, firstMeters))
@@ -491,7 +505,7 @@ private fun MetricPlot(
  * as a missed gesture.
  */
 @Composable
-private fun CutOffer(reading: String, canCut: Boolean, onCut: () -> Unit, modifier: Modifier) {
+private fun CutOffer(reading: AnnotatedString, canCut: Boolean, onCut: () -> Unit, modifier: Modifier) {
     val actionColor =
         if (canCut) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     // The surface every other thing that floats over this screen's map already wears — the legends
@@ -546,6 +560,8 @@ private fun MetricGraph(
     zone: ZoneId,
     modifier: Modifier,
 ) {
+    val reader = timelineZone()
+    val shiftColor = zoneShiftColor
     // Remembered: MetricGraph recomposes per touch event while scrubbing, and the min/max scan
     // is O(points) — the series is immutable per graph instance.
     val (minV, maxV) = remember(graph) {
@@ -675,10 +691,10 @@ private fun MetricGraph(
                     color = labelColor,
                 )
                 if (sel != null && selValue != null) {
-                    val reading = "%.0f %s · %s".format(
-                        selValue, graph.unit,
-                        timeAt(graph.points[sel].timestamp, zone),
-                    )
+                    val reading = buildAnnotatedString {
+                        append("%.0f %s · ".format(selValue, graph.unit))
+                        appendTime(graph.points[sel].timestamp, zone, reader, shiftColor)
+                    }
                     if (offerCut && onSplitRequested != null) {
                         // Beside the cut line, never over it: the line is what the offer is about,
                         // and a card on top of it hides the answer to "where exactly". It takes the
@@ -711,6 +727,13 @@ private fun MetricGraph(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
+                // The axis alone carries no offsets, and not merely to stay quiet: **marking a label
+                // would assert the whole track ran on the start's clock**, which for one that
+                // crossed a border is false after the crossing — and where that happened is not
+                // known here. It would take resolving a zone per fix to find the instant the clock
+                // flipped, and the axis deliberately reads nothing but the two bounds. So the axis
+                // stays what it is, a continuum on one declared clock, and the header above states
+                // that clock and the arrival's, both marked.
                 Text(timeAt(t0, zone), style = MaterialTheme.typography.labelSmall, color = labelColor)
                 Text(
                     timeAt(t0 + (tSpan / 2).toLong(), zone),

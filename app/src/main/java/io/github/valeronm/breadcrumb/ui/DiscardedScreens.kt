@@ -34,10 +34,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.util.PerLocale
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 /**
  * "Recently deleted": every soft-deleted track — deleted by the user, filtered by the keep
@@ -105,8 +101,7 @@ internal fun DiscardedTracksScreen(
                         )
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            val started = Instant.ofEpochMilli(t.startedAt)
-                                .atZone(ZoneId.systemDefault()).format(discardedWhenFormat)
+                            val started = dateTimeAt(t.startedAt, timelineZone())
                             Text(
                                 "${activity.label} · $started",
                                 style = MaterialTheme.typography.bodyLarge,
@@ -181,5 +176,3 @@ private fun purgeCountdown(discardedAt: Long, nowMs: Long): String {
         else -> "$left days left"
     }
 }
-
-private val discardedWhenFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM HH:mm", it) }
