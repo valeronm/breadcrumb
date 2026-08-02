@@ -95,6 +95,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
 import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
@@ -613,6 +614,10 @@ internal fun PlaceDetailScreen(
             Modifier.fillMaxSize().padding(inner).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // Directly under the name it qualifies, before anything the user has a say in: where a
+            // place is is a fact about it, where the category and the counts are what has been made
+            // of it.
+            PlaceLocality(summary.anchor, viewModel)
             // What this is for and what it adds up to, held above the visits rather than read once
             // and scrolled past — the counts summarise the list moving under them, and the chip is
             // the screen's one control. Above the list rather than a sticky header inside it: at
@@ -1129,6 +1134,45 @@ private fun CategoryRow(
         onClick = onClick,
     )
 }
+
+/**
+ * Where in the world this place is — the city holding its pin, and the country. The one thing on
+ * this screen the user did not say and the recorder did not measure: it comes from the bundled
+ * gazetteer, which is also why it arrives a beat late rather than with the rest of the page. Absent
+ * rather than apologetic when nothing can be resolved (a coordinate at sea, an atlas that failed to
+ * read); the screen reads perfectly well without it.
+ */
+@Composable
+private fun PlaceLocality(at: StayDeriver.Endpoint, viewModel: TrackListViewModel) {
+    val locale = LocalConfiguration.current.locales[0]
+    val city by produceState<CityAtlas.City?>(null, at) { value = viewModel.cityAt(at) }
+    val label = city?.let {
+        val country = Locale.Builder().setRegion(it.country).build().getDisplayCountry(locale)
+        // Widest first, and the flag leading it: mid-line it splits the row in two, where at the
+        // head it is the line's own glyph. No globe beside a line that already names a country, and
+        // no flag where the country cannot be named either.
+        if (country.isEmpty()) it.name else "${flagOf(it.country)} $country, ${it.name}"
+    } ?: return
+    Text(
+        label,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 4.dp),
+    )
+}
+
+/**
+ * A country's flag, built from its code rather than looked up: a regional-indicator pair *is* the
+ * flag, so every country the gazetteer knows has one without a table to keep in step. A device with
+ * no glyph for a given pair renders the two letters instead, which is the same information.
+ */
+private fun flagOf(country: String): String {
+    if (country.length != 2 || !country.all { it in 'A'..'Z' }) return ""
+    return country.map { Character.toChars(REGIONAL_INDICATOR_A + (it - 'A')).concatToString() }
+        .joinToString("")
+}
+
+private const val REGIONAL_INDICATOR_A = 0x1F1E6
 
 @Composable
 private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {

@@ -17,6 +17,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
@@ -38,6 +39,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The places table, admitted only when a reading would cluster differently from the last one —
@@ -403,6 +405,15 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      *  grayed off its ends. The overrun is read back from the rows, never re-detected: the screen
      *  shows what the track says it is. */
     suspend fun getTrackPoints(trackId: Long): TrackPoints = repository.trackPointsFor(trackId)
+
+    /**
+     * Which city a coordinate sits in — the containing one, so a place inside a capital says the
+     * capital rather than its arrondissement. The first caller pays for reading the gazetteer, hence
+     * a suspend function off the main thread rather than a value a composable can simply read.
+     */
+    suspend fun cityAt(at: StayDeriver.Endpoint): CityAtlas.City? = withContext(Dispatchers.Default) {
+        Cities.atlas(getApplication()).naming(at.lat, at.lon, AndroidDistance)
+    }
 }
 
 private fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(
