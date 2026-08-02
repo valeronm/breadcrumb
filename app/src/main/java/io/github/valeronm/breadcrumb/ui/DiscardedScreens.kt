@@ -69,8 +69,8 @@ internal fun DiscardedTracksScreen(
     ) { inner ->
         if (tracks.isEmpty()) {
             EmptyState(
-                "Nothing here. Deleted and filtered-out tracks stay restorable " +
-                    "for $DISCARDED_RETENTION_DAYS days.",
+                "No deleted tracks. They appear here when you delete one or a keep rule filters " +
+                    "one out, and stay restorable for $DISCARDED_RETENTION_DAYS days.",
                 Modifier.padding(inner).fillMaxSize().padding(horizontal = 24.dp),
             )
         } else {

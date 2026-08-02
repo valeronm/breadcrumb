@@ -531,7 +531,19 @@ internal fun DerivingState(modifier: Modifier = Modifier) {
     }
 }
 
-/** Centered placeholder for a list with nothing to show, plus optional content below the message. */
+/**
+ * Centered placeholder for a list with nothing to show, plus optional content below the message.
+ *
+ * **[message] reads "No <things> yet. They appear here <when>."** — the fact, then the thing that
+ * fills it. A screen that only states the fact leaves the reader to guess whether they are waiting
+ * on the app or the app is waiting on them, and every one of these lists fills itself as a
+ * consequence of something: recording capturing movement, a place being tagged Home, a track ending
+ * inside a capture area.
+ *
+ * Two kinds of message deliberately do *not* take that shape, and both are on the Places tab: a list
+ * emptied by a **filter or a search** says which filter emptied it, because the history behind it is
+ * not empty at all and "no places yet" would be a lie. Say what the reader can act on.
+ */
 @Composable
 internal fun EmptyState(
     message: String,

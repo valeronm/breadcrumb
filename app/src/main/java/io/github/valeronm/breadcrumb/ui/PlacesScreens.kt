@@ -289,7 +289,7 @@ internal fun PlacesTab(
             DerivingState(Modifier.weight(1f).fillMaxWidth())
         } else if (sorted.isEmpty()) {
             EmptyState(
-                "No places yet. Stays and places you name show up here.",
+                "No places yet. They appear here once recording finds somewhere you stopped.",
                 Modifier.weight(1f).fillMaxWidth().padding(24.dp),
             )
         } else if (showMap) {
@@ -657,7 +657,10 @@ internal fun PlaceDetailScreen(
             }
             Card(Modifier.fillMaxWidth()) { PlaceStatsHeader(summary) }
             if (summary.stays.isEmpty()) {
-                EmptyState("No visits yet", Modifier.weight(1f).fillMaxWidth())
+                EmptyState(
+                    "No visits yet. They appear here when a track starts or ends inside this place.",
+                    Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp),
+                )
             } else {
                 // The scroller the collapsing title reads. Lazy because a long-lived place
                 // accumulates visits by the hundred.

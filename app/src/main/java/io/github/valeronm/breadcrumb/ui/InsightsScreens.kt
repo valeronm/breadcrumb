@@ -43,8 +43,8 @@ internal fun InsightsTab(viewModel: TrackListViewModel, onOpenDay: (LocalDate) -
         // while the history is still being read is the worse of the two to get wrong.
         rows == null -> DerivingState(Modifier.fillMaxSize())
         rows.isEmpty() -> EmptyState(
-            "No journeys yet.\n\nA journey is a run of nights spent away from home — tag a place " +
-                "as Home in Places, and any nights spent elsewhere gather here.",
+            "No journeys yet. They appear here once you tag a place as Home in Places — any " +
+                "run of nights spent elsewhere is a journey.",
             Modifier.fillMaxSize().padding(32.dp),
         )
         else -> TravelsList(rows, onOpenDay)

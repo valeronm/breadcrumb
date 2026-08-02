@@ -785,7 +785,7 @@ private fun EmptyTracksState(viewModel: TrackListViewModel) {
     }
     EmptyState(
         if (progress == null) {
-            "No tracks yet. They'll appear here once recording captures some movement."
+            "No tracks yet. They appear here once recording captures some movement."
         } else {
             "Restoring your backup — the timeline will appear when it finishes."
         },

@@ -617,7 +617,10 @@ internal fun LogsScreen(onBack: () -> Unit) {
         },
     ) { inner ->
         if (entries.isEmpty()) {
-            EmptyState("No logs yet — arm recording and move around.", Modifier.padding(inner).fillMaxSize())
+            EmptyState(
+                "No logs yet. They appear here once recording is armed and you move.",
+                Modifier.padding(inner).fillMaxSize(),
+            )
         } else {
             // Newest first so the latest events are visible without scrolling.
             LazyColumn(modifier = Modifier.padding(inner).fillMaxSize().padding(horizontal = 12.dp)) {
