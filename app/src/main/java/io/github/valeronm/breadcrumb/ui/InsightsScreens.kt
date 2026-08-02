@@ -54,7 +54,7 @@ internal fun InsightsTab(viewModel: TrackListViewModel, onOpenDay: (LocalDate) -
 /** Journeys newest first, in year sections — the deriver hands them over oldest first. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TravelsList(travels: List<TravelSummary>, onOpenDay: (LocalDate) -> Unit) {
+private fun TravelsList(travels: List<TravelNaming.Summary>, onOpenDay: (LocalDate) -> Unit) {
     val zone = timelineZone()
     val today = LocalDate.now(zone)
     // Journeys are dated by the days they cover, never by their nights: a one-night journey covers
@@ -94,10 +94,10 @@ private fun TravelsList(travels: List<TravelSummary>, onOpenDay: (LocalDate) -> 
 private class YearSection(
     val year: Int,
     val figures: String,
-    val rows: List<Pair<TravelSummary, List<LocalDate>>>,
+    val rows: List<Pair<TravelNaming.Summary, List<LocalDate>>>,
 )
 
-private fun figuresOf(ofYear: List<Pair<TravelSummary, List<LocalDate>>>): String {
+private fun figuresOf(ofYear: List<Pair<TravelNaming.Summary, List<LocalDate>>>): String {
     val travels = ofYear.map { (row, _) -> row }
     return listOf(
         count(travels.size, "journey", "journeys"),
@@ -127,7 +127,7 @@ private fun YearHeading(section: YearSection) {
 
 @Composable
 private fun TravelRow(
-    summary: TravelSummary,
+    summary: TravelNaming.Summary,
     days: List<LocalDate>,
     today: LocalDate,
     shape: RoundedCornerShape,

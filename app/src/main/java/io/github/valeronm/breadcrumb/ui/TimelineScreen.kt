@@ -663,9 +663,9 @@ private class DayGroup(val date: LocalDate, val label: String, val items: List<T
  * Two travels can share a boundary day (arrived home in the morning, left again that evening); the
  * later one wins it, which is also the one whose band the reader is scrolling into.
  */
-private class AwayDay(val summary: TravelSummary, val ordinal: Int, val dayCount: Int)
+private class AwayDay(val summary: TravelNaming.Summary, val ordinal: Int, val dayCount: Int)
 
-private fun awayDaysOf(travels: List<TravelSummary>, zone: ZoneId): Map<LocalDate, AwayDay> =
+private fun awayDaysOf(travels: List<TravelNaming.Summary>, zone: ZoneId): Map<LocalDate, AwayDay> =
     buildMap {
         for (summary in travels) {
             val days = TravelDeriver.daysCovered(summary.travel, zone)
