@@ -30,7 +30,7 @@ object PlaceResolver {
      * else the preview judges a circle against neighbors never collected — so it moves only with
      * those slider stops.
      */
-    const val NEIGHBOR_CONTEXT_M = 1_200.0
+    const val NEIGHBOR_CONTEXT_M = 2_000.0
 
     /**
      * How far the endpoint mean has to sit from the pin before re-centering is worth offering.

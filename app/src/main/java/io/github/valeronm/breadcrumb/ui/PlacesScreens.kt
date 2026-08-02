@@ -736,7 +736,7 @@ internal fun PlaceEditScreen(
     }
     // Down to 25 m (75 ft, the step-aligned stop nearest it): a doorway-scale place needs a circle
     // tighter than GPS scatter, and narrowing one is also how it stops claiming a neighbour's stops.
-    val radiusScale = rememberDistanceScale(SliderStops(25, 500, 25), SliderStops(75, 1650, 75))
+    val radiusScale = rememberDistanceScale(SliderStops(25, 750, 25), SliderStops(75, 2475, 75))
     val maxRadiusM = radiusScale.metersOf(radiusScale.range.endInclusive).toDouble()
     // Prepared once per pin, not per drag step — whether a neighbor keeps an endpoint has nothing to
     // do with our radius, and a per-step scan made a place with a few thousand endpoints around it

@@ -296,7 +296,7 @@ class PlaceResolverTest {
             stayAt(at(0.0), 1_000, 2_000),      // Home
             stayAt(at(400.0), 3_000, 4_000),    // Office
             stayAt(at(800.0), 5_000, 6_000),    // an unnamed cluster, still in reach
-            stayAt(at(2_000.0), 7_000, 8_000),  // past the context radius
+            stayAt(at(PlaceResolver.NEIGHBOR_CONTEXT_M + 500), 7_000, 8_000), // past the context radius
         )
         return summarize(stays, places)
     }
