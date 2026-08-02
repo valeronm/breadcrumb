@@ -843,9 +843,10 @@ private fun SweepBanner(progress: SweepStatus.Progress, modifier: Modifier = Mod
 }
 
 /**
- * A derived stationary period between two tracks. A resolved place shows its label, an unnamed
- * recurring cluster shows its visit count. Tap → name. (The derivation's observed/inferred
- * provenance is deliberately NOT rendered: the customer can't act on it either way.)
+ * A derived stationary period between two tracks. A resolved place shows its label, an unnamed one
+ * the city it sits in, and an unnamed recurring cluster its visit count as well. Tap → name. (The
+ * derivation's observed/inferred provenance is deliberately NOT rendered: the customer can't act on
+ * it either way.)
  */
 @Composable
 private fun StayRow(
@@ -950,9 +951,11 @@ private fun StayCard(
         discAlpha = placeDiscAlpha(category),
         badge = if (mergeable) Icons.Filled.Pause else null,
         badgeDescription = if (mergeable) "Short stop, can be merged away" else null,
-        // The place leads; when (with midnight slices phrased humanly) is the metadata line.
-        // Merge-eligible stays (always unnamed) name the situation instead.
-        title = place?.label ?: if (mergeable) "Short stop" else "Stayed",
+        // The place leads; when (with midnight slices phrased humanly) is the metadata line. The
+        // gazetteer's city stands in where the user has said nothing, dimmed by `named` below so a
+        // worked-out name never reads as one they chose. A merge-eligible stop the gazetteer can't
+        // reach names the situation instead.
+        title = place?.name ?: if (mergeable) "Short stop" else "Stayed",
         titleColor = placeTitleColor(named),
         subtitle = buildAnnotatedString {
             append(timePhrase)
@@ -1089,7 +1092,7 @@ private fun GapPlaceLine(place: PlaceResolver.ResolvedStay?, onOpenPlace: (Strin
         }
         Spacer(Modifier.width(16.dp))
         Text(
-            text = place.label ?: "unnamed place",
+            text = place.name ?: "unnamed place",
             style = MaterialTheme.typography.titleMedium,
             color = placeTitleColor(named = place.label != null),
             maxLines = 1,

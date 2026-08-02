@@ -145,7 +145,8 @@ object TravelNaming {
      * person's — their own home or someone else's ([PlaceCategoryGroup.HOME_PEOPLE]).
      *
      * This is the one surface where a user's own name for a place is *not* the better answer, which
-     * is why the usual precedence is inverted here. A hotel is named after where someone slept, and a
+     * is why the usual precedence — [PlaceResolver.ResolvedStay.name], which every row naming a
+     * single stop goes through — is inverted here. A hotel is named after where someone slept, and a
      * journey is not to a hotel: it is to the city the hotel is in, and "Hotel Ibis" tells the reader
      * nothing they meant by going. A person's place is the exception because visiting them genuinely
      * is the destination — a week at a parent's reads better as their name than as the name of their

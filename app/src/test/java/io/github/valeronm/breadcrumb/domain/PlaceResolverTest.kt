@@ -121,6 +121,46 @@ class PlaceResolverTest {
         assertEquals(at(500.0), passThrough.centroid)
     }
 
+    /** A gazetteer that names every cluster it is built from, so a test can name them all at once. */
+    private fun gazetteerOver(clusters: List<PlaceClusterer.Cluster>, vararg names: String) =
+        clusters.mapIndexed { index, cluster -> cluster.centroid to names[index] }.toMap()
+
+    @Test fun `the city names a cluster nobody named, and never one they did`() {
+        val stays = listOf(stay(at(0.0)), stay(at(500.0)))
+        val places = listOf(place(7, "Home", at(0.0)))
+        val (stamped, clusters) = withClusters(stays, places)
+        // The gazetteer is handed whole — including the seeded cluster's own centroid, which the
+        // resolver must decline to use. A caller that pre-filtered would be deciding "claimed" for
+        // itself, which is exactly what this pins.
+        val cities = gazetteerOver(clusters, "Hometown", "Seaside")
+        val resolved = PlaceResolver.resolveClusters(stamped, clusters, places, cities)
+
+        assertEquals("Home", resolved[0].name)
+        assertNull("a place's own name is not to be second-guessed by a gazetteer", resolved[0].city)
+        assertEquals("Seaside", resolved[1].name)
+        assertNull(resolved[1].label)
+    }
+
+    @Test fun `an unnamed cluster the gazetteer cannot place stays unnamed`() {
+        val stays = listOf(stay(at(0.0)))
+        val (stamped, clusters) = withClusters(stays, emptyList())
+        // The open sea, and the caller that asked for no naming at all: both must resolve to null
+        // rather than to an empty string a row would render as a blank title.
+        assertNull(PlaceResolver.resolveClusters(stamped, clusters, emptyList(), emptyMap()).single().name)
+        assertNull(PlaceResolver.resolveClusters(stamped, clusters, emptyList()).single().name)
+    }
+
+    @Test fun `a city follows its cluster rather than its position`() {
+        // The guard against the index-parallel list this once was: reversing the clusters must
+        // reverse the names with them, since each is keyed by the centroid it belongs to.
+        val stays = listOf(stay(at(0.0)), stay(at(500.0)))
+        val (stamped, clusters) = withClusters(stays, emptyList())
+        val cities = gazetteerOver(clusters, "Hometown", "Seaside")
+        val reversed = PlaceResolver.resolveClusters(stamped, clusters.reversed(), emptyList(), cities)
+
+        assertEquals(listOf("Seaside", "Hometown"), reversed.map { it.name })
+    }
+
     // --- summarize -----------------------------------------------------------
 
     private val NOW = 100_000L
@@ -154,6 +194,18 @@ class PlaceResolverTest {
         ).single()
         assertEquals(NOW, s.lastSeenMs)
         assertEquals(NOW - 40_000, s.totalMs)
+    }
+
+    @Test fun `a summary is named the same way a resolved stay is`() {
+        val stays = listOf(stayAt(at(0.0), 1_000, 2_000), stayAt(at(500.0), 3_000, 4_000))
+        val places = listOf(place(7, "Home", at(0.0)))
+        val (stamped, clusters) = withClusters(stays, places)
+        val cities = gazetteerOver(clusters, "Hometown", "Seaside")
+        val summaries = PlaceResolver.summarize(stamped, clusters, places, NOW, cities)
+
+        assertEquals("Home", summaries.single { it.isNamed }.name)
+        assertNull(summaries.single { it.isNamed }.city)
+        assertEquals("Seaside", summaries.single { !it.isNamed }.name)
     }
 
     @Test fun `a named place with no stays is still listed with zero`() {

@@ -16,9 +16,11 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * Asked of the *fixes*, not of the derived timeline. The stay either side of a track resolves to a
  * place through the full clustering, which also holds anchors this cannot see — an organic cluster
  * founded by some earlier visit can sit nearer an end than the pin does, and clustering would send
- * the stay there. But an organic cluster has no name and no pin, so on a map it is nothing to draw:
- * the named answer is the only one this can show, and it is reached without waiting behind the most
- * expensive computation in the app.
+ * the stay there. But an organic cluster has no pin, so on a map it is nothing to draw: the named
+ * answer is the only one this can show, and it is reached without waiting behind the most expensive
+ * computation in the app. It can be *called* something — the timeline and the Places list fall back
+ * to the city a cluster sits in ([PlaceResolver.ResolvedStay.name]) — and a label over a route's end
+ * is still a claim that a place is there, which a city is not.
  *
  * Ignored fixes are the caller's business — pass the points that are drawn, so an end that moved when
  * the overrun came off it is the end the map marks.

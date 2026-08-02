@@ -102,6 +102,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         /** The same track bounds the derivation ran on — kept because a night spent moving is
          *  covered by no interval, and only a track can place it ([TravelDeriver]). */
         val tracks: List<StayDeriver.TrackEnd>,
+        /** Which city each cluster's centroid sits in — see [citiesOf]. */
+        val cities: Map<StayDeriver.Endpoint, String>,
     )
 
     /** One derivation run's inputs and outputs, shared by [timeline] and [places]. */
@@ -110,6 +112,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val places: List<Place>,
         val now: Long,
         val tracks: List<StayDeriver.TrackEnd>,
+        val cities: Map<StayDeriver.Endpoint, String>,
     ) {
         /** The unsliced stays, extracted once — every downstream flow needs them. */
         val stays: List<StayDeriver.Stay> = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
@@ -132,20 +135,58 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     ) { endpoints, events, places, activeStartedAt ->
         val now = System.currentTimeMillis()
         val trackEnds = endpoints.map { it.toTrackEnd() }
-        Clustered(
-            StayDeriver.derive(
-                tracks = trackEnds,
-                liveness = events.mapNotNull { it.toLiveness() },
-                nowMs = now,
-                activeTrack = activeStartedAt?.let { StayDeriver.ActiveTrack(it) },
-                distance = AndroidDistance,
-                placePins = PlaceClusterer.seedsOf(places),
-            ),
-            places,
-            now,
-            trackEnds,
+        val derivation = StayDeriver.derive(
+            tracks = trackEnds,
+            liveness = events.mapNotNull { it.toLiveness() },
+            nowMs = now,
+            activeTrack = activeStartedAt?.let { StayDeriver.ActiveTrack(it) },
+            distance = AndroidDistance,
+            placePins = PlaceClusterer.seedsOf(places),
         )
+        Clustered(derivation, places, now, trackEnds, citiesOf(derivation.clusters))
     }.flowOn(Dispatchers.Default)
+
+    /**
+     * Last pass's answers, so a re-clustering only pays for the centroids that moved. Rebuilt from
+     * the clustering each pass rather than added to: a cluster's centroid is the mean of its
+     * members, so every finished track nudges one, and a memo that only grew would collect an entry
+     * per nudge for as long as the process lives — which is weeks.
+     *
+     * A null value is an answer (nothing in the gazetteer reaches there), not a miss, so the lookup
+     * below asks [Map.containsKey]. Written only from the [clustered] flow, which is one coroutine;
+     * nothing else may touch it.
+     */
+    private var cityByCentroid: Map<StayDeriver.Endpoint, CityAtlas.City?> = emptyMap()
+
+    /**
+     * Where each cluster sits, for the resolvers to hand to the clusters that need a name. Every
+     * cluster is looked up, including the ones a place already claims — **whether a city may name a
+     * cluster is [PlaceResolver]'s to decide**, and a second opinion here is how the two come to
+     * disagree. The waste is one lookup per named place, against a table walk this skips entirely
+     * for every unmoved cluster.
+     *
+     * Runs beside the clustering rather than where the rows are built: the resolvers re-run on
+     * writes that leave the clustering untouched — a rename, a track's activity retyped — and a
+     * lookup is three walks of a 160,000-row table.
+     */
+    private fun citiesOf(clusters: List<PlaceClusterer.Cluster>): Map<StayDeriver.Endpoint, String> {
+        val previous = cityByCentroid
+        val resolved = HashMap<StayDeriver.Endpoint, CityAtlas.City?>(clusters.size)
+        val named = HashMap<StayDeriver.Endpoint, String>(clusters.size)
+        for (cluster in clusters) {
+            val at = cluster.centroid
+            if (at in resolved) continue
+            val city = if (previous.containsKey(at)) previous[at] else cityOf(at)
+            resolved[at] = city
+            city?.let { named[at] = it.name }
+        }
+        cityByCentroid = resolved
+        return named
+    }
+
+    /** The gazetteer's reading of one coordinate — the single spelling of it in this file. */
+    private fun cityOf(at: StayDeriver.Endpoint): CityAtlas.City? =
+        Cities.atlas(getApplication()).naming(at.lat, at.lon, AndroidDistance)
 
     // Freshening the rows *over* the clustering's own is what makes a tag cheap: the pins are
     // unchanged, so the cached derivation is reused and only what reads a label or category runs
@@ -160,6 +201,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             clustering.places.map { byId[it.id] ?: it },
             clustering.now,
             clustering.tracks,
+            clustering.cities,
         )
     }
         // A places write that moved a pin re-emits both sides; the first carries a list the patch
@@ -183,7 +225,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     val timeline: StateFlow<List<TimelineItem>?> = combine(trackRows, derived) { summaries, d ->
         // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
         // as 3 visits. Cluster ids survive the slicing copies, so items look up directly.
-        val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places)
+        val clusterPlaces =
+            PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
         // Each track paired with its chronological successor, keyed by the track an interval
         // follows — what merging the two tracks around a short interval needs. observeSummaries
         // returns newest first, so chronological order is a reversed *view*: no re-sort of the
@@ -255,7 +298,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * reads "not yet" as "nothing" tells the user their history is empty while it is being read.
      */
     val places: StateFlow<List<PlaceResolver.PlaceSummary>?> = derived.map { d ->
-        PlaceResolver.summarize(d.stays, d.derivation.clusters, d.places, d.now)
+        PlaceResolver.summarize(d.stays, d.derivation.clusters, d.places, d.now, d.cities)
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -412,7 +455,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * a suspend function off the main thread rather than a value a composable can simply read.
      */
     suspend fun cityAt(at: StayDeriver.Endpoint): CityAtlas.City? = withContext(Dispatchers.Default) {
-        Cities.atlas(getApplication()).naming(at.lat, at.lon, AndroidDistance)
+        // Past [cityByCentroid] deliberately: a screen asks from its own coroutine, and that memo
+        // belongs to the derivation's. One lookup for one open screen is not worth sharing state
+        // across threads for.
+        cityOf(at)
     }
 }
 

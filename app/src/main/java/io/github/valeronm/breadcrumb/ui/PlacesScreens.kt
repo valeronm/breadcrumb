@@ -178,12 +178,20 @@ internal fun PlacesTab(
         // Zero-visit pass-through clusters exist for gap-side detail pages, never for this tab.
         places
             .filter { it.isNamed || it.visitCount > 0 }
-            // Tiebreak: named before unnamed, then by label — stable across recompositions.
-            .sortedWith(comparator.thenBy { it.place?.label?.lowercase(Locale.getDefault()) ?: "￿" })
+            // Tiebreak: named before unnamed — a name the user chose outranks one worked out for
+            // them — then alphabetically by whatever the row displays, so the derived tail is
+            // ordered rather than left in whatever order the clustering produced it. Stable across
+            // recompositions either way.
+            .sortedWith(
+                comparator
+                    .thenBy { if (it.isNamed) 0 else 1 }
+                    .thenBy { it.name?.lowercase(Locale.getDefault()) ?: "￿" },
+            )
     }
     // Search narrows the *list* only, so it sits with the list's chrome and the map keeps whatever
-    // it was showing — the same split the sort chips and the rare-stops chip already follow. An
-    // unnamed cluster drops out of any non-empty query: it has no name to match.
+    // it was showing — the same split the sort chips and the rare-stops chip already follow. It
+    // matches whatever the row displays, which for an unnamed cluster is the city the gazetteer put
+    // it in: a name on screen that a search for it doesn't return reads as a broken search.
     var query by remember { mutableStateOf("") }
     // What the map draws — the list below shows `sorted` whole, since it has no chip and demoting
     // rows there would bury places under a rule the screen gives no way to see or turn off. Note
@@ -194,15 +202,15 @@ internal fun PlacesTab(
     }
     // Folded once per list change rather than once per place per keystroke: accent-stripping is an
     // NFD normalisation and a regex pass, and this list is the whole named history.
-    val foldedLabels = remember(sorted) {
-        sorted.map { it.place?.label?.let(PlaceSearch::fold) }
+    val foldedNames = remember(sorted) {
+        sorted.map { it.name?.let(PlaceSearch::fold) }
     }
-    val listed = remember(sorted, foldedLabels, query) {
+    val listed = remember(sorted, foldedNames, query) {
         val needle = PlaceSearch.fold(query)
         if (needle.isEmpty()) {
             sorted
         } else {
-            sorted.filterIndexed { index, _ -> foldedLabels[index]?.contains(needle) == true }
+            sorted.filterIndexed { index, _ -> foldedNames[index]?.contains(needle) == true }
         }
     }
 
@@ -1298,7 +1306,9 @@ private fun PlaceRowCard(
         tint = placeDiscTint(category),
         iconDescription = category?.label,
         discAlpha = placeDiscAlpha(category),
-        title = summary.place?.label ?: "Detected stop",
+        // The gazetteer's city stands in where the user has said nothing, dimmed by `named` so a
+        // worked-out name never reads as one they chose — the same rule the timeline's rows follow.
+        title = summary.name ?: "Detected stop",
         titleColor = placeTitleColor(named),
         subtitle = AnnotatedString(placeSubtitle(summary)),
     )

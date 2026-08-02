@@ -59,6 +59,22 @@ object PlaceResolver {
      */
     fun keyOf(placeId: Long): String = "place:$placeId"
 
+    /**
+     * What to call a stop: **the user's own name for it, else the city it sits in.**
+     *
+     * The precedence is the opposite of [TravelNaming]'s, and deliberately so. A journey is to a
+     * city and not to the hotel someone slept in, so there the city wins; a stop here *is* the
+     * hotel — the exact spot, with its own arrival and departure — and a name the user chose for it
+     * is the better answer by every measure. The city is what the app can say when nobody has said
+     * anything, and a reader still needs the label to tell the two apart: a derived name must not
+     * render as one the user gave.
+     *
+     * Private for the reason [placeKey] is: [ResolvedStay] and [PlaceSummary] can describe the same
+     * cluster on two screens at once, and a rule each decided for itself is how one stop comes to be
+     * called two things.
+     */
+    private fun displayName(place: Place?, city: String?): String? = place?.label ?: city
+
     class ResolvedStay(
         /**
          * The matched place, or null for an unnamed cluster — the row itself rather than a copy
@@ -71,9 +87,17 @@ object PlaceResolver {
         val visitCount: Int,
         /** Cluster centroid — where a new place would be pinned when the user names this stay. */
         val centroid: StayDeriver.Endpoint,
+        /**
+         * The city this cluster sits in, for a cluster no place claimed — null when the caller
+         * offered no gazetteer, and always null where [place] is set, since the label answers first.
+         */
+        val city: String? = null,
     ) {
         /** The matched place's label, or null for an unnamed cluster. */
         val label: String? get() = place?.label
+
+        /** What to call this stop — see [displayName], which decides it for both readings. */
+        val name: String? get() = displayName(place, city)
 
         /** The matched place's id — non-null exactly when [label] is. */
         val placeId: Long? get() = place?.id
@@ -115,8 +139,13 @@ object PlaceResolver {
         val endpointCentroid: StayDeriver.Endpoint?,
         /** This place's individual visits (unsliced), newest first — the detail screen's history. */
         val stays: List<StayDeriver.Stay> = emptyList(),
+        /** The city this cluster sits in, for a cluster no place claimed — see [ResolvedStay.city]. */
+        val city: String? = null,
     ) {
         val isNamed: Boolean get() = place != null
+
+        /** What to call this place — see [displayName], which decides it for both readings. */
+        val name: String? get() = displayName(place, city)
 
         /**
          * Where this place sits: the pin once named, until then the mean of what it captured —
@@ -169,18 +198,32 @@ object PlaceResolver {
      * Resolution of *every* endpoint cluster, indexed by cluster id — stays look up by
      * [StayDeriver.Stay.clusterId], gaps by their side cluster ids (whose clusters may have no
      * stays at all; those resolve with a zero visit count).
+     *
+     * [cities] is the gazetteer's answer for a cluster's centroid, keyed by that centroid — a lookup
+     * and deliberately **not** a list parallel to [clusters]. An index-parallel array is the one
+     * coupling this file exists to avoid (see the class KDoc): it cannot be checked, it survives a
+     * caller that filters or reorders clusters, and what it produces is one cluster's city printed
+     * on another. Empty for the callers that want the resolution and not the naming.
+     *
+     * **Which clusters a city may name is decided here and nowhere else** — a cluster a place
+     * claimed keeps none, since the label answers first ([displayName]). Callers pass the whole
+     * gazetteer and let this rule do the choosing; one that pre-filtered would be a second opinion
+     * on what "claimed" means, and [matchedPlace] is private precisely so there is only one.
      */
     fun resolveClusters(
         stays: List<StayDeriver.Stay>,
         clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
+        cities: Map<StayDeriver.Endpoint, String> = emptyMap(),
     ): List<ResolvedStay> {
         val visitsByCluster = stays.groupingBy { it.clusterId }.eachCount()
         return clusters.mapIndexed { clusterId, cluster ->
+            val place = matchedPlace(cluster, places)
             ResolvedStay(
-                place = matchedPlace(cluster, places),
+                place = place,
                 visitCount = visitsByCluster[clusterId] ?: 0,
                 centroid = cluster.centroid,
+                city = if (place == null) cities[cluster.centroid] else null,
             )
         }
     }
@@ -194,12 +237,16 @@ object PlaceResolver {
      * stray can be named or swallowed by widening a neighbor; keeping them off the Places tab is
      * that screen's presentation filter, not this layer's. Runs over unsliced stays so counts and
      * durations are exact; order: named (input order) then unnamed (chronological), the UI sorting.
+     *
+     * [cities] is the gazetteer, keyed and applied exactly as [resolveClusters] describes — so a
+     * cluster reads the same on the Places list as it does on a timeline row.
      */
     fun summarize(
         stays: List<StayDeriver.Stay>,
         clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
         nowMs: Long,
+        cities: Map<StayDeriver.Endpoint, String> = emptyMap(),
     ): List<PlaceSummary> {
         val staysByCluster = stays.groupBy { it.clusterId }
         val namedAgg = HashMap<Long, Agg>()   // placeId -> aggregate over its matching clusters
@@ -222,6 +269,7 @@ object PlaceResolver {
                     anchor = cluster.anchor, radiusM = cluster.radiusM, endpoints = cluster.members,
                     endpointCentroid = cluster.endpointMean,
                     stays = members.sortedByDescending { it.start },
+                    city = cities[cluster.centroid],
                 )
             } else if (count > 0) {
                 // Zero-stay seeded clusters add nothing: the place row below reports null/zero
