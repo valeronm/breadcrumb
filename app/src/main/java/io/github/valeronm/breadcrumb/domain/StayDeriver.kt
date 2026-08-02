@@ -507,7 +507,19 @@ sealed interface TimelineItem {
 
     data class TrackItem(
         val summary: TrackSummary,
+        /** Where it set off — the clock it is filed and starts on. */
         override val zone: ZoneId? = null,
+        /**
+         * Where it arrived. **A track is the one recorded row that can cross a border** — a stay
+         * sits in one place by definition — so its two ends are read on their own clocks and the
+         * crossing shows, rather than being flattened onto the departure's and hidden.
+         *
+         * Null means *unattached*, exactly as [zone] does, and never "the same as [zone]": a track
+         * that began and ended on one clock carries that clock twice. Encoding sameness as null
+         * would give the word a second meaning here that it does not have on [GapItem], forty lines
+         * down, where null means the row does not speak for that end at all.
+         */
+        val endZone: ZoneId? = null,
     ) : TimelineItem {
         override val startedAt get() = summary.startedAt
     }

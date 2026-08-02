@@ -117,7 +117,6 @@ import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
@@ -527,7 +526,14 @@ internal fun PlaceDetailScreen(
     val context = LocalContext.current
     val place = summary.place
     val suggester by viewModel.categorySuggester.collectAsStateWithLifecycle()
-    val zone = ZoneId.systemDefault()
+    // The place's own clock, not the reader's — a visit abroad is read here exactly as the timeline
+    // row for that same visit reads it, and the two disagreeing was worse than either alone. One
+    // value, so the month grouping, the day headings and the times can't drift apart.
+    //
+    // No offset tag beside them, unlike the timeline: every row on this screen is the same place, so
+    // no two times here can look alike and mean different things, and the locality line under the
+    // title already says which country's clock this is.
+    val zone = zoneOrDevice(summary.zoneId)
     val nowMs = remember { System.currentTimeMillis() }
     // Stays arrive newest first, so groupBy preserves month order and in-month order.
     val visitGroups = remember(summary.stays) {
@@ -1267,14 +1273,14 @@ private fun VisitRowContent(stay: StayDeriver.Stay, zone: ZoneId, nowMs: Long) {
 
 /** "18:18 – 08:30 +1" — the marker counts midnights crossed; the row title carries the start day. */
 private fun visitTimeRange(stay: StayDeriver.Stay, zone: ZoneId): String {
-    val start = timeFormat.format(Date(stay.start))
+    val start = timeAt(stay.start, zone)
     val end = stay.end ?: return "since $start"
     val nights = ChronoUnit.DAYS.between(
         stay.start.toLocalDate(zone),
         end.toLocalDate(zone),
     )
     val rollover = if (nights > 0) " +$nights" else ""
-    return "$start – ${timeFormat.format(Date(end))}$rollover"
+    return "$start – ${timeAt(end, zone)}$rollover"
 }
 
 private val visitDayFormat by PerLocale { DateTimeFormatter.ofPattern("EEE d", it) }

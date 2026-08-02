@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
@@ -142,13 +143,16 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-        private val zoneByTrack: Map<Long, ZoneId> by lazy {
-            tracks.associate { it.trackId to zoneOfCluster(it.start?.let(clusterOfEndpoint::get)) }
+        /** Each track's two ends, on their own clocks — a track can cross a border. */
+        private val zonesByTrack: Map<Long, Pair<ZoneId, ZoneId>> by lazy {
+            val zoneAt = { at: StayDeriver.Endpoint? -> zoneOfCluster(at?.let(clusterOfEndpoint::get)) }
+            tracks.associate { it.trackId to (zoneAt(it.start) to zoneAt(it.end)) }
         }
 
         fun zoneOfCluster(id: Int?): ZoneId = id?.let(zoneByCluster::getOrNull) ?: timelineZone()
 
-        fun zoneOfTrack(trackId: Long): ZoneId = zoneByTrack[trackId] ?: timelineZone()
+        fun zonesOfTrack(trackId: Long): Pair<ZoneId, ZoneId> =
+            zonesByTrack[trackId] ?: (timelineZone() to timelineZone())
     }
 
     /** The places table, read once for every reader below rather than observed per consumer. */
@@ -287,7 +291,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             StayDeriver.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
         ).map { item ->
             when (item) {
-                is TimelineItem.TrackItem -> item.copy(zone = d.zoneOfTrack(item.summary.id))
+                is TimelineItem.TrackItem -> d.zonesOfTrack(item.summary.id).let { (from, to) ->
+                    item.copy(zone = from, endZone = to)
+                }
                 // The zones already rode in on the slice; only what the places table says is added.
                 is TimelineItem.GapItem -> item.copy(
                     fromPlace = item.gap.fromClusterId?.let(clusterPlaces::getOrNull),
@@ -492,6 +498,19 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      *  grayed off its ends. The overrun is read back from the rows, never re-detected: the screen
      *  shows what the track says it is. */
     suspend fun getTrackPoints(trackId: Long): TrackPoints = repository.trackPointsFor(trackId)
+
+    /**
+     * The clocks a track's two ends ran on — **the same answer its timeline row reads**, taken off
+     * the same derivation rather than resolved again. A screen that resolved the coordinates for
+     * itself would agree almost always and disagree at a boundary, and a track whose times change
+     * on the way from the row into its own screen is the thing this exists to prevent.
+     *
+     * Reads the shared derivation's replay rather than starting one: the timeline is collected above
+     * every overlay, so there is always a subscriber and this returns without suspending. A track
+     * the derivation never saw — a discarded one, which the endpoint query filters out — answers
+     * with the device's clock, which is the right answer rather than a missing one.
+     */
+    suspend fun zonesOfTrack(trackId: Long): Pair<ZoneId, ZoneId> = derived.first().zonesOfTrack(trackId)
 
     /**
      * Which city a coordinate sits in — the containing one, so a place inside a capital says the

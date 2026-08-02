@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.data.AndroidDistance
@@ -74,7 +75,7 @@ import io.github.valeronm.breadcrumb.util.UnitSystem
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.util.Date
+import java.time.ZoneId
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -103,6 +104,14 @@ internal fun TrackMapScreen(
     val trackPoints by produceState<TrackPoints?>(initialValue = null, trackId, summary) {
         value = viewModel.getTrackPoints(trackId)
     }
+    // The clocks this track's two ends ran on, so opening a row does not change the times it showed.
+    // Seeded with the reader's until the derivation answers — a track that never left home is
+    // already right, and one that did corrects itself in the time the query takes.
+    val reader = timelineZone()
+    val zones by produceState(reader to reader, trackId) {
+        value = viewModel.zonesOfTrack(trackId)
+    }
+    val (startZone, endZone) = zones
     val points = trackPoints?.good
     val noisyPoints = trackPoints?.noisy
     val stayPoints = trackPoints?.edgeStay.orEmpty()
@@ -200,9 +209,17 @@ internal fun TrackMapScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (summary != null) {
+                        // Each end on its own clock, marked where it differs from the reader's — a
+                        // track can cross a border, and the row this screen opened from says so.
+                        val shiftColor = zoneShiftColor
                         Text(
-                            dateFormat.format(Date(summary.startedAt)) +
-                                (summary.endedAt?.let { " – ${timeFormat.format(Date(it))}" } ?: ""),
+                            buildAnnotatedString {
+                                appendDateTime(summary.startedAt, startZone, reader, shiftColor)
+                                summary.endedAt?.let { endedAt ->
+                                    append(" – ")
+                                    appendTime(endedAt, endZone, reader, shiftColor)
+                                }
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
@@ -263,6 +280,7 @@ internal fun TrackMapScreen(
                             Card(Modifier.fillMaxWidth(), shape = groupedRowShape(1, blocks)) {
                                 MetricGraph(
                                     graph = graph,
+                                    zone = startZone,
                                     selectedIndex = selectedIndex,
                                     onSelect = { selectedIndex = it },
                                     // The cut is offered on the scrubber, beside the fix it would
@@ -320,6 +338,7 @@ internal fun TrackMapScreen(
         // Read only while the dialog is up: the scrubber writes the selection per drag event, so a
         // read in this scope would recompose the whole Scaffold on every touch move.
         cutIndex = if (showSplitDialog) selectedIndex else null,
+        zone = startZone,
         onSplit = onSplit,
         onDismiss = { showSplitDialog = false },
     )
@@ -338,6 +357,9 @@ private fun SplitConfirmation(
     seams: TrackQuality.Seams,
     summary: TrackSummary?,
     cutIndex: Int?,
+    /** The clock the cut and both halves are stated on — the track's start, as the graph's axis
+     *  is: a cut is a point on that axis, not an arrival. */
+    zone: ZoneId,
     onSplit: ((Long) -> Unit)?,
     onDismiss: () -> Unit,
 ) {
@@ -360,12 +382,12 @@ private fun SplitConfirmation(
     }
     val units = LocalUnits.current
     fun half(from: Long, to: Long, points: Int, meters: Double) =
-        "${timeFormat.format(Date(from))} – ${timeFormat.format(Date(to))} · " +
+        "${timeAt(from, zone)} – ${timeAt(to, zone)} · " +
             "${units.distance(meters)} · $points points"
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Filled.ContentCut, contentDescription = null) },
-        title = { Text("Split at ${timeFormat.format(Date(plan.cutTs))}?") },
+        title = { Text("Split at ${timeAt(plan.cutTs, zone)}?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(half(summary.startedAt, plan.firstEndTs, plan.firstGoodPoints, firstMeters))
@@ -518,6 +540,10 @@ private fun MetricGraph(
     /** Whether a cut at this index is one the repository would accept — the caller's rule, since
      *  the track it applies to is the caller's, not the plot's. */
     canCutAt: (Int) -> Boolean,
+    /** The clock the time axis is read on — **the track's start**, even where it ended on another.
+     *  The axis is one continuum, and labelling its far end on the arrival's clock would make it
+     *  read as non-monotonic; the header above states both ends, which is where the crossing shows. */
+    zone: ZoneId,
     modifier: Modifier,
 ) {
     // Remembered: MetricGraph recomposes per touch event while scrubbing, and the min/max scan
@@ -651,7 +677,7 @@ private fun MetricGraph(
                 if (sel != null && selValue != null) {
                     val reading = "%.0f %s · %s".format(
                         selValue, graph.unit,
-                        timeFormat.format(Date(graph.points[sel].timestamp)),
+                        timeAt(graph.points[sel].timestamp, zone),
                     )
                     if (offerCut && onSplitRequested != null) {
                         // Beside the cut line, never over it: the line is what the offer is about,
@@ -685,14 +711,14 @@ private fun MetricGraph(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(timeFormat.format(Date(t0)), style = MaterialTheme.typography.labelSmall, color = labelColor)
+                Text(timeAt(t0, zone), style = MaterialTheme.typography.labelSmall, color = labelColor)
                 Text(
-                    timeFormat.format(Date(t0 + (tSpan / 2).toLong())),
+                    timeAt(t0 + (tSpan / 2).toLong(), zone),
                     style = MaterialTheme.typography.labelSmall,
                     color = labelColor,
                 )
                 Text(
-                    timeFormat.format(Date(t0 + tSpan.toLong())),
+                    timeAt(t0 + tSpan.toLong(), zone),
                     style = MaterialTheme.typography.labelSmall,
                     color = labelColor,
                 )

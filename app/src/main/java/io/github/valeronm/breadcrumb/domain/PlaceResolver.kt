@@ -159,6 +159,10 @@ object PlaceResolver {
         /** The city this place sits in, named or not — see [locality]. */
         val city: String? get() = locality?.name
 
+        /** The zone this place's clock runs on, or null where nothing places it — a visit here is
+         *  read on it, the same as the timeline row for that visit. */
+        val zoneId: String? get() = locality?.zoneId
+
         /** What to call this place — see [displayName], which decides it for both readings. */
         val name: String? get() = displayName(place, city)
 

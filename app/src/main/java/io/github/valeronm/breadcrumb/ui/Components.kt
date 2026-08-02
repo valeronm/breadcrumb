@@ -73,9 +73,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.core.graphics.ColorUtils
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
@@ -391,19 +396,24 @@ internal fun durationSettingLabel(sec: Int): String = when {
     else -> "${sec / 60}m ${sec % 60}s"
 }
 
-internal val dateFormat by PerLocale { SimpleDateFormat("MMM d, HH:mm", it) }
+private val dayAndHourMinute by PerLocale { DateTimeFormatter.ofPattern("MMM d, HH:mm", it) }
 
-internal val timeFormat by PerLocale { SimpleDateFormat("HH:mm", it) }
+/** A date and clock time in [zone] — [timeAt]'s longer form, for a screen naming one moment. */
+internal fun dateTimeAt(epochMs: Long, zone: ZoneId): String =
+    Instant.ofEpochMilli(epochMs).atZone(zone).format(dayAndHourMinute)
 
 private val hourMinute by PerLocale { DateTimeFormatter.ofPattern("HH:mm", it) }
 
 /**
- * A clock time in [zone] — what a row shows when the zone it happened in is not the device's.
+ * A clock time in [zone] — **the clock format every screen that shows one goes through**, so a
+ * change to it lands everywhere at once. (`DiscardedScreens` still carries its own date-and-time
+ * pattern, in the other field order; folding it in is a rendering change, not a refactor.)
  *
- * Not [timeFormat] with a zone set on it: [SimpleDateFormat] carries a mutable calendar, so a shared
- * instance retimed per row is a data race between two rows in different zones and a wrong time in
- * whichever loses. [java.time.format.DateTimeFormatter] is immutable, which is what makes one
- * instance safe to share across rows that disagree about the clock.
+ * Deliberately not a shared [SimpleDateFormat] with a zone set on it, which is what this replaced:
+ * that class carries a mutable calendar, so one instance retimed per row is a data race between two
+ * rows in different zones and a wrong time in whichever loses. [DateTimeFormatter] is immutable,
+ * which is what makes one instance safe across rows that disagree about the clock. Callers with no
+ * place behind them pass the device's zone and read exactly as before.
  */
 internal fun timeAt(epochMs: Long, zone: ZoneId): String =
     Instant.ofEpochMilli(epochMs).atZone(zone).format(hourMinute)
@@ -431,6 +441,62 @@ internal fun zoneShiftLabel(epochMs: Long, zone: ZoneId, reader: ZoneId): String
     val hours = abs(minutes) / 60
     val rest = abs(minutes) % 60
     return if (rest == 0) "$sign${hours}h" else "$sign${hours}h$rest"
+}
+
+/** The muted treatment a zone shift wears wherever it appears — quieter than the time it trails,
+ *  because it answers a question the reader only sometimes has. */
+internal val zoneShiftColor: Color
+    @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+
+/**
+ * A clock time in [zone] with its offset from [reader] raised against it — **the one way a time
+ * reaches a screen**, and therefore the whole rule: a thing that is a time is marked, and a thing
+ * that is not is not.
+ *
+ * A duration takes no marker under it, which is the point. An hour is an hour in every zone, so an
+ * offset trailing "2h 11m" qualifies something that has no clock behind it and reads as nonsense;
+ * marking one of two times instead only says the *other* end was somewhere else. The cost is a row
+ * abroad repeating the same offset twice, which is the honest shape of a row whose two ends really
+ * do both sit on that clock.
+ *
+ * Raised and shrunk rather than set level with the text: the offset annotates the time it follows
+ * the way a footnote marker attaches to a word. Level with it, it reads as one more figure among the
+ * duration and the visit count, and where two times each carry one the eye cannot tell which belongs
+ * to which. Raised, it attaches, and needs no separator to do it.
+ *
+ * **[color] is passed rather than read**, so that nothing `@Composable` is called inside
+ * [buildAnnotatedString]. Kotlin allows it — the builder lambda is inline, so it inherits the
+ * composable context — but the composition groups it generates do not line up with the ones the
+ * enclosing scope expects, and the symptom is a span absent on first paint that appears once the row
+ * is rebuilt. Resolve [zoneShiftColor] in the composable body and hand it in.
+ */
+internal fun AnnotatedString.Builder.appendTime(
+    epochMs: Long,
+    zone: ZoneId,
+    reader: ZoneId,
+    color: Color,
+) = appendMarked(timeAt(epochMs, zone), epochMs, zone, reader, color)
+
+/** [appendTime]'s longer form, for a screen naming one moment — see [dateTimeAt]. */
+internal fun AnnotatedString.Builder.appendDateTime(
+    epochMs: Long,
+    zone: ZoneId,
+    reader: ZoneId,
+    color: Color,
+) = appendMarked(dateTimeAt(epochMs, zone), epochMs, zone, reader, color)
+
+private fun AnnotatedString.Builder.appendMarked(
+    text: String,
+    epochMs: Long,
+    zone: ZoneId,
+    reader: ZoneId,
+    color: Color,
+) {
+    append(text)
+    val shift = zoneShiftLabel(epochMs, zone, reader) ?: return
+    withStyle(SpanStyle(color = color, baselineShift = BaselineShift.Superscript, fontSize = 0.75.em)) {
+        append(shift)
+    }
 }
 
 /** The screens' shared top-bar back arrow. */

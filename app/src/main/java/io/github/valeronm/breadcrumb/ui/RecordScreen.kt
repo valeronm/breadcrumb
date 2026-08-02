@@ -46,7 +46,6 @@ import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
-import java.util.Date
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -356,7 +355,7 @@ private fun RecorderStateCard(state: RecordCardState, status: TrackingStatus.Sta
         }
     }
     // Remembered: this composable re-runs on every 1 Hz tick.
-    val render = remember { TimeRenderer(clock = { timeFormat.format(Date(it)) }, duration = ::formatDurationMs) }
+    val render = remember { TimeRenderer(clock = { timeAt(it, timelineZone()) }, duration = ::formatDurationMs) }
     // The live surface: the detail counts down and quotes figures, joined onto the title as one line.
     val text = recorderText(
         state = state,
