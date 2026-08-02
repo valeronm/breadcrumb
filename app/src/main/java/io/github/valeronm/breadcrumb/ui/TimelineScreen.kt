@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Refresh
@@ -92,6 +93,8 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
+import io.github.valeronm.breadcrumb.domain.TravelDeriver
+import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
 import io.github.valeronm.breadcrumb.util.PerLocale
 import kotlinx.coroutines.delay
@@ -113,6 +116,9 @@ internal fun TracksTab(
     undo: UndoSnackbar,
     visitTarget: StayDeriver.Stay?,
     onVisitTargetShown: () -> Unit,
+    /** A day to land on, sent by a journey tapped on the Insights tab. */
+    dayTarget: LocalDate?,
+    onDayTargetShown: () -> Unit,
     /** Bumped each time the Timeline tab is tapped while already open — send the list to the top. */
     homeRequest: Int,
     onOpen: (Long) -> Unit,
@@ -147,14 +153,16 @@ internal fun TracksTab(
     val sweep by SweepStatus.state.collectAsStateWithLifecycle()
 
     val groups = remember(items) { groupTimelineByDay(items) }
+    val travels by viewModel.travels.collectAsStateWithLifecycle()
+    val awayDays = remember(travels) { awayDaysOf(travels.orEmpty(), timelineZone()) }
     val listState = rememberLazyListState()
     // Day label -> its header's lazy-item index: the fast scroller jumps between these anchors.
     val dayAnchors = remember(groups) {
         buildList {
             var index = 0
-            groups.forEach { (label, dayItems) ->
-                add(label to index)
-                index += dayItems.size + 1
+            groups.forEach { group ->
+                add(group.label to index)
+                index += group.items.size + 1
             }
         }
     }
@@ -183,12 +191,12 @@ internal fun TracksTab(
     LaunchedEffect(visitTarget) {
         val target = visitTarget ?: return@LaunchedEffect
         val hit = groups.indices.firstNotNullOfOrNull { g ->
-            val i = groups[g].second.indexOfFirst {
+            val i = groups[g].items.indexOfFirst {
                 it is TimelineItem.StayItem &&
                     it.stay.afterTrackId == target.afterTrackId &&
                     it.stay.start == target.start
             }
-            if (i >= 0) (dayAnchors[g].second + 1 + i) to groups[g].second[i] else null
+            if (i >= 0) (dayAnchors[g].second + 1 + i) to groups[g].items[i] else null
         }
         if (hit != null) {
             // One row above the stay so it sits below the sticky day header, not under it.
@@ -200,6 +208,16 @@ internal fun TracksTab(
             dayAnchors.firstOrNull { it.first == label }?.let { listState.scrollToItem(it.second) }
         }
         onVisitTargetShown()
+    }
+    // Land on a journey tapped on the Insights tab. The target is its *latest* day, where the block
+    // starts as the eye meets it, the rows running newest first. A journey whose last day holds no
+    // rows of its own falls to the newest day that does — groups descend, so that is the first one
+    // at or before it.
+    LaunchedEffect(dayTarget, groups) {
+        val date = dayTarget ?: return@LaunchedEffect
+        val group = groups.indexOfFirst { it.date <= date }.takeIf { it >= 0 } ?: groups.lastIndex
+        if (group >= 0) listState.scrollToItem(dayAnchors[group].second)
+        onDayTargetShown()
     }
     // Resolved once for the rows below, and it is the same zone the deriver sliced these intervals
     // in — see [timelineZone].
@@ -222,14 +240,20 @@ internal fun TracksTab(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
+                // No padding at the top: content padding does not clip, so rows scroll *through* it
+                // while the sticky header pins below it, leaving a strip where the day being left
+                // behind shows above the day being read. The header's own top padding gives the
+                // list its breathing room instead, and rows now pass under an opaque header.
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
                 // Rows within a day sit tight so the group reads as one visual block.
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                groups.forEach { (label, dayItems) ->
+                groups.forEach { group ->
+                    val dayItems = group.items
                     val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
-                    stickyHeader(key = "header:$label") {
-                        DayHeader(label, dayTracks, dayItems) {
+                    val away = awayDays[group.date]
+                    stickyHeader(key = "header:${group.label}") {
+                        DayHeader(group.label, dayTracks, dayItems, away) {
                             viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
                                 if (intent != null) context.startActivity(intent)
                             }
@@ -463,12 +487,50 @@ internal fun dayActivityTotals(tracks: List<TrackSummary>): List<DayActivityTota
         }
         .sortedByDescending { it.meters }
 
+/**
+ * The journey a day belongs to, above its date. **Repeated on every day of that journey**, which is
+ * the point: a sticky header holds one row at a time, so a heading that appeared once at the top of
+ * the block would scroll away and leave the days under it unattributed. Repeating it means whatever
+ * day is stuck to the top always says which journey it is part of.
+ *
+ * Named by where the journey was spent, falling back to the plain fact of being away when nothing in
+ * it can be named. Nights and distance are not here — they would repeat on every header of a journey
+ * to say something that does not change, and the Insights tab states them once.
+ *
+ * **How the nights were placed is deliberately not shown**: a journey resting partly on unobserved
+ * nights looks the same as one observed throughout, because the difference is not something a reader
+ * can act on. Provenance stays on the model, exactly as [StayDeriver.Provenance] does for stay rows.
+ */
+@Composable
+private fun TravelHeading(away: AwayDay) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(bottom = 2.dp),
+    ) {
+        // Shared with the Travel place category on purpose: a chip on a place and a heading over a
+        // run of days are read in different places, and the same glyph means "a trip" in both.
+        Icon(
+            Icons.Filled.Luggage,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier.size(14.dp),
+        )
+        Text(
+            TravelNaming.label(away.summary.destinations, away.summary.travel.nightCount),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.tertiary,
+        )
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DayHeader(
     label: String,
     dayTracks: List<TrackSummary>,
     dayItems: List<TimelineItem>,
+    away: AwayDay?,
     onShare: () -> Unit,
 ) {
     val totals = remember(dayTracks) { dayActivityTotals(dayTracks) }
@@ -483,16 +545,32 @@ private fun DayHeader(
             .background(MaterialTheme.colorScheme.background)
             .padding(top = 14.dp, bottom = 6.dp),
     ) {
+        away?.let { TravelHeading(it) }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                label,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                // Which day of the journey this is — the band above carries the journey itself, so
+                // this says only where in it the reader has scrolled to. Same size as the date it
+                // continues, the tint alone telling the two apart.
+                away?.let {
+                    Text(
+                        "· Day ${it.ordinal} of ${it.dayCount} away",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+            }
             // Share exports the day's tracks as GPX — nothing to offer on a day with only stays.
             if (dayTracks.isNotEmpty()) {
                 // Compact: a full 48dp/24dp action on every header outweighs the content rows.
@@ -564,15 +642,36 @@ private fun DayTotal(icon: ImageVector, description: String?, tint: Color, text:
     }
 }
 
-private fun groupTimelineByDay(items: List<TimelineItem>): List<Pair<String, List<TimelineItem>>> {
+private fun groupTimelineByDay(items: List<TimelineItem>): List<DayGroup> {
     val zone = timelineZone()
     val today = LocalDate.now(zone)
     // groupBy preserves encounter order, and items arrive newest-first, so days stay descending.
     // Midnight-spanning stays were already sliced per day by the deriver.
     return items
         .groupBy { it.startedAt.toLocalDate(zone) }
-        .map { (date, list) -> dayLabel(date, today) to list }
+        .map { (date, list) -> DayGroup(date, dayLabel(date, today), list) }
 }
+
+/** One day's rows. The date rides along with the label because a label is for reading and a date
+ *  is what answers whether the day falls inside a travel. */
+private class DayGroup(val date: LocalDate, val label: String, val items: List<TimelineItem>)
+
+/**
+ * A day inside a travel: which one, where in it, and whether it is that travel's *latest* day —
+ * the rows run newest-first, so that is the day the band announcing the travel sits above.
+ *
+ * Two travels can share a boundary day (arrived home in the morning, left again that evening); the
+ * later one wins it, which is also the one whose band the reader is scrolling into.
+ */
+private class AwayDay(val summary: TravelSummary, val ordinal: Int, val dayCount: Int)
+
+private fun awayDaysOf(travels: List<TravelSummary>, zone: ZoneId): Map<LocalDate, AwayDay> =
+    buildMap {
+        for (summary in travels) {
+            val days = TravelDeriver.daysCovered(summary.travel, zone)
+            days.forEachIndexed { index, date -> put(date, AwayDay(summary, index + 1, days.size)) }
+        }
+    }
 
 /**
  * The zone a timeline is sliced and read in. **One source, because two readings would disagree**:

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Route
@@ -81,6 +82,7 @@ import io.github.valeronm.breadcrumb.util.foregroundPermissions
 import io.github.valeronm.breadcrumb.util.isBatteryOptimizationIgnored
 import io.github.valeronm.breadcrumb.util.requestIgnoreBatteryOptimization
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 private fun Window.setFlag(flag: Int, on: Boolean) {
@@ -156,6 +158,7 @@ private enum class HomeTab(val title: String, val label: String, val icon: Image
     RECORD("Breadcrumb", "Record", Icons.Filled.MyLocation),
     TRACKS("Timeline", "Timeline", Icons.Filled.Route),
     PLACES("Places", "Places", Icons.Filled.Place),
+    INSIGHTS("Insights", "Insights", Icons.Filled.Insights),
 }
 
 /** Track detail or the Settings hub: the full-screen pages a tab opens directly onto. */
@@ -263,6 +266,7 @@ private fun MainScreen(
     var editingArea by remember { mutableStateOf(false) }
     // A visit tapped on the place detail: the Timeline scrolls to this stay when it next composes.
     var timelineVisitTarget by remember { mutableStateOf<StayDeriver.Stay?>(null) }
+    var timelineDayTarget by remember { mutableStateOf<LocalDate?>(null) }
     // Tapping the Timeline tab while it is already open sends the list home. A counter, not a
     // boolean: two taps in a row are two requests, and a flag the receiver has to clear back to
     // false would swallow the second.
@@ -429,6 +433,8 @@ private fun MainScreen(
                         undo = undo,
                         visitTarget = timelineVisitTarget,
                         onVisitTargetShown = { timelineVisitTarget = null },
+                        dayTarget = timelineDayTarget,
+                        onDayTargetShown = { timelineDayTarget = null },
                         homeRequest = timelineHomeRequest,
                         onOpen = { mainPage = MainPage.TrackDetail(it) },
                         onOpenPlace = { placeDetailKey = it },
@@ -442,6 +448,13 @@ private fun MainScreen(
                         viewModel = viewModel,
                         onOpenPlace = { placeDetailKey = it },
                         onRemovePlace = removePlace,
+                    )
+                    HomeTab.INSIGHTS -> InsightsTab(
+                        viewModel = viewModel,
+                        onOpenDay = { day ->
+                            timelineDayTarget = day
+                            selectedTab = HomeTab.TRACKS
+                        },
                     )
                 }
             }

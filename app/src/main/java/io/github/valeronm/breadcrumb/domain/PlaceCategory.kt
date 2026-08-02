@@ -48,6 +48,13 @@ enum class PlaceCategory(
      * the stay row: a car park is still worth pinning, and its stay still says what it is.
      */
     val inTimeTotals: Boolean = true,
+    /**
+     * Whether a stop here counts as somewhere a journey went. A fuel stop and a motorway service
+     * area are the road itself, not a place on it: they would name journeys after villages nobody
+     * saw and count them as cities visited. [PARKING] deliberately still counts — for a history
+     * recorded by car, the car park is the evidence of being in the city it sits in.
+     */
+    val visited: Boolean = true,
 ) {
     // Home & people
     FRIENDS_FAMILY("friends_family", "Friends & family", PlaceCategoryGroup.HOME_PEOPLE),
@@ -83,7 +90,12 @@ enum class PlaceCategory(
 
     /** Filling up. Split from [SERVICES] because a fuel stop is an errand's punctuation, not the
      *  errand — and like [PARKING], time there is passed through rather than spent. */
-    GAS_STATION("gas_station", "Gas station", PlaceCategoryGroup.TRANSIENT, inTimeTotals = false),
+    GAS_STATION("gas_station", "Gas station", PlaceCategoryGroup.TRANSIENT, inTimeTotals = false, visited = false),
+
+    /** The motorway stop with the fuel, the coffee and the car park together. Split from
+     *  [GAS_STATION] because it holds hours rather than minutes and would otherwise name the
+     *  journey passing it. */
+    SERVICE_AREA("service_area", "Service area", PlaceCategoryGroup.TRANSIENT, inTimeTotals = false, visited = false),
     ;
 
     companion object {

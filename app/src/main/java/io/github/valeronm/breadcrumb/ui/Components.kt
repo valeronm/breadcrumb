@@ -206,7 +206,7 @@ internal fun relativeDay(epochMs: Long, compact: Boolean): String {
     }
 }
 
-private val compactDayFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM", it) }
+internal val compactDayFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM", it) }
 
 private val compactDayYearFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM yyyy", it) }
 

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.data.Cities
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.PlaceRepository
 import io.github.valeronm.breadcrumb.data.TrackPoints
@@ -16,13 +17,18 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
 import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
+import io.github.valeronm.breadcrumb.domain.TravelDeriver
+import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.placeCategory
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -94,6 +100,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val derivation: StayDeriver.Derivation,
         val places: List<Place>,
         val now: Long,
+        /** The same track bounds the derivation ran on — kept because a night spent moving is
+         *  covered by no interval, and only a track can place it ([TravelDeriver]). */
+        val tracks: List<StayDeriver.TrackEnd>,
     )
 
     /** One derivation run's inputs and outputs, shared by [timeline] and [places]. */
@@ -101,6 +110,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val derivation: StayDeriver.Derivation,
         val places: List<Place>,
         val now: Long,
+        val tracks: List<StayDeriver.TrackEnd>,
     ) {
         /** The unsliced stays, extracted once — every downstream flow needs them. */
         val stays: List<StayDeriver.Stay> = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
@@ -122,9 +132,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         TrackingStatus.state.map { if (it.recording) it.startedAtMillis else null }.distinctUntilChanged(),
     ) { endpoints, events, places, activeStartedAt ->
         val now = System.currentTimeMillis()
+        val trackEnds = endpoints.map { it.toTrackEnd() }
         Clustered(
             StayDeriver.derive(
-                tracks = endpoints.map { it.toTrackEnd() },
+                tracks = trackEnds,
                 liveness = events.mapNotNull { it.toLiveness() },
                 nowMs = now,
                 activeTrack = activeStartedAt?.let { StayDeriver.ActiveTrack(it) },
@@ -133,6 +144,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             ),
             places,
             now,
+            trackEnds,
         )
     }.flowOn(Dispatchers.Default)
 
@@ -144,7 +156,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     // still in the clustering.
     private val derived: Flow<Derived> = combine(clustered, placeRows) { clustering, fresh ->
         val byId = fresh.associateBy { it.id }
-        Derived(clustering.derivation, clustering.places.map { byId[it.id] ?: it }, clustering.now)
+        Derived(
+            clustering.derivation,
+            clustering.places.map { byId[it.id] ?: it },
+            clustering.now,
+            clustering.tracks,
+        )
     }
         // A places write that moved a pin re-emits both sides; the first carries a list the patch
         // above has just restored to what the previous emission held, and re-deriving the timeline
@@ -199,6 +216,139 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * The runs of nights spent away from home, oldest first — what the Timeline marks its days with.
+     * Rides the shared derivation rather than collecting anything of its own, and costs one sample
+     * per night in the history, which is nothing beside the clustering it maps off.
+     *
+     * **Null until the first derivation lands**, for the reason given on [timeline]: empty is a real
+     * answer — a history with no tagged home has no journeys — and a screen that cannot tell it from
+     * "not yet" tells the user they have never travelled while their history is still being read.
+     */
+    val travels: StateFlow<List<TravelSummary>?> = derived.map { d ->
+        val travels = TravelDeriver.derive(
+            TravelDeriver.Timeline(d.derivation, d.tracks),
+            TravelDeriver.homeOf(d.places, d.derivation.clusters, d.derivation.intervals),
+            d.now,
+            AndroidDistance,
+        )
+        // The gazetteer is 4 MB of heap; a history with no travels in it never asks for one.
+        if (travels.isEmpty()) return@map emptyList()
+        // One naming pass for the whole emission: the same hotel names every journey that stayed
+        // there, and a fortnight in one city asks about hundreds of track ends that resolve to the
+        // same handful of coordinates.
+        val gazetteer = Gazetteer(Cities.atlas(getApplication()), d.places)
+        travels.map { summaryOf(it, d, gazetteer) }
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Everywhere a journey was spent, ranked by [TravelNaming] — every place that earned a share of
+     * it, not the one place that happened to hold the most hours. Names are summed before ranking,
+     * so a city stayed in twice is one place someone went rather than two smaller ones.
+     *
+     * Empty when nothing in the journey can be named: one assembled entirely from gaps holds no
+     * stay to name it by.
+     */
+    private fun summaryOf(travel: TravelDeriver.Travel, d: Derived, gazetteer: Gazetteer): TravelSummary {
+        val timeByName = LinkedHashMap<String, Long>()
+        val cities = LinkedHashSet<String>()
+        val countries = LinkedHashSet<String>()
+        for ((clusterId, ms) in travel.clusterStayMs) {
+            val cluster = d.derivation.clusters.getOrNull(clusterId) ?: continue
+            val at = cluster.endpointMean ?: cluster.anchor
+            val city = gazetteer.cityAt(at)
+            val place = cluster.seedIndex?.let { d.places.getOrNull(it) }
+            // A country crossed is a country visited even when the only stop in it was for fuel, so
+            // countries are counted from every cluster; a city is not visited by refuelling in it.
+            city?.let { countries += it.country }
+            if (place?.placeCategory?.visited == false) continue
+            city?.let { cities += it.name }
+            val name = nameOf(place) { city?.name } ?: continue
+            timeByName[name] = (timeByName[name] ?: 0L) + ms
+        }
+        addTimeMoving(travel, d, gazetteer, timeByName)
+        return TravelSummary(travel, TravelNaming.ranked(timeByName), cities, countries)
+    }
+
+    /**
+     * The atlas with this emission's places beside it, answering "what is this coordinate called"
+     * once per coordinate. Every journey asks about the same hotels and the same track ends, and each
+     * answer is three walks of a 160,000-row table.
+     */
+    private class Gazetteer(private val atlas: CityAtlas, val places: List<Place>) {
+        private val seeds = PlaceClusterer.seedsOf(places)
+        private val cities = HashMap<StayDeriver.Endpoint, CityAtlas.City?>()
+        private val pins = HashMap<StayDeriver.Endpoint, Place?>()
+
+        fun cityAt(at: StayDeriver.Endpoint): CityAtlas.City? =
+            cities.getOrPut(at) { atlas.naming(at.lat, at.lon, AndroidDistance) }
+
+        /** The named place whose capture area holds [at], if any. */
+        fun pinAt(at: StayDeriver.Endpoint): Place? =
+            pins.getOrPut(at) {
+                PlaceClusterer.nearestSeedIndex(at.lat, at.lon, seeds, AndroidDistance)
+                    ?.let { places.getOrNull(it) }
+            }
+    }
+
+    /**
+     * Credits a place with the tracks that **begin and end in it** — walking a city all day is time
+     * spent in that city, and without it a place is only worth the pauses between its tracks.
+     *
+     * That distinction is the whole rule: a walk around a town starts and ends in the same place, so
+     * it counts; the drive from one town to the next starts and ends in different ones and counts for
+     * neither, which is right — nobody spent that hour anywhere.
+     *
+     * It matters most for the recording still to come. A day on foot is mostly tracks broken by
+     * five-minute pauses, so measured by stays alone the city someone spent it in barely registers,
+     * while the car park at either end holds minutes.
+     */
+    private fun addTimeMoving(
+        travel: TravelDeriver.Travel,
+        d: Derived,
+        gazetteer: Gazetteer,
+        timeByName: MutableMap<String, Long>,
+    ) {
+        fun nameAt(at: StayDeriver.Endpoint?): String? {
+            if (at == null) return null
+            val place = gazetteer.pinAt(at)
+            if (place?.placeCategory?.visited == false) return null
+            return nameOf(place) { gazetteer.cityAt(at)?.name }
+        }
+        // Tracks are in time order, so the journey's own are a slice rather than a filter — every
+        // journey would otherwise walk the whole history to discard all but a few hours of it.
+        val from = d.tracks.indexOfFirst { it.endedAt > travel.windowStart }
+        if (from < 0) return
+        for (index in from until d.tracks.size) {
+            val track = d.tracks[index]
+            if (track.startedAt >= travel.windowEnd) break
+            val overlap = minOf(track.endedAt, travel.windowEnd) - maxOf(track.startedAt, travel.windowStart)
+            if (overlap <= 0L) continue
+            val name = nameAt(track.start) ?: continue
+            if (name != nameAt(track.end)) continue
+            timeByName[name] = (timeByName[name] ?: 0L) + overlap
+        }
+    }
+
+    /**
+     * What one stop on a journey is called: **the city it sits in**, except where the place is a
+     * person's — their own home or someone else's ([PlaceCategoryGroup.HOME_PEOPLE]).
+     *
+     * This is the one surface where a user's own name for a place is *not* the better answer, which
+     * is why the usual precedence is inverted here. A hotel is named after where you slept, and a
+     * journey is not to a hotel: it is to the city the hotel is in, and "Hotel Ibis" tells the
+     * reader nothing they meant by going. A person's place is the exception because visiting them
+     * genuinely is the destination — a week at a parent's reads better as their name than as the
+     * name of their village.
+     */
+    private inline fun nameOf(place: Place?, city: () -> String?): String? {
+        // The city is asked for only when it can win — a person's place answers without one, and
+        // resolving a coordinate is three walks of the gazetteer.
+        if (place?.placeCategory?.group == PlaceCategoryGroup.HOME_PEOPLE) return place.label
+        return city() ?: place?.label
+    }
 
     /**
      * Every cluster's aggregate stats — visited places for the Places screen plus zero-visit
@@ -360,6 +510,29 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      *  shows what the track says it is. */
     suspend fun getTrackPoints(trackId: Long): TrackPoints = repository.trackPointsFor(trackId)
 }
+
+/**
+ * A journey with what to call it. The name is resolved outside the domain deliberately: naming needs
+ * the gazetteer asset and the places table, and [TravelDeriver] is a rule about nights that must not
+ * know either.
+ */
+class TravelSummary(
+    val travel: TravelDeriver.Travel,
+    /** Everywhere the journey was spent, most time first; empty when nothing can name it. */
+    val destinations: List<String>,
+    /**
+     * Every city the journey touched, whatever it was called on the way — a place too brief to
+     * headline a journey was still somewhere its traveller went, and a stop the user named
+     * themselves still sits in a city. Counted, never displayed as the journey's name.
+     */
+    val cities: Set<String>,
+    /**
+     * ISO 3166-1 alpha-2 codes the journey touched. Taken from every cluster it holds, not only the
+     * ones that earned a name — a country crossed is a country visited, whether or not the stop
+     * there was long enough to be worth naming the trip after.
+     */
+    val countries: Set<String>,
+)
 
 private fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(
     trackId = id,

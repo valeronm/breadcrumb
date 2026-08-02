@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.ShoppingBasket
+import androidx.compose.material.icons.filled.Signpost
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -55,6 +56,7 @@ internal val PlaceCategory.icon: ImageVector
         PlaceCategory.ENTERTAINMENT -> Icons.Filled.LocalActivity
         PlaceCategory.SIGHTSEEING -> Icons.Filled.AccountBalance
         PlaceCategory.GAS_STATION -> Icons.Filled.LocalGasStation
+        PlaceCategory.SERVICE_AREA -> Icons.Filled.Signpost
         PlaceCategory.PARKING -> Icons.Filled.LocalParking
         PlaceCategory.WORK -> Icons.Filled.Work
     }
