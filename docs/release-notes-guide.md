@@ -29,6 +29,27 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
    - ✅ "Empty tracks are deleted right away, not left in Recently deleted"
    - ❌ "Truly empty tracks are now deleted immediately instead of piling up
      in Recently deleted — existing ones are cleaned up on first launch"
+
+   Three faults keep recurring, all of them caught in review rather than in
+   writing — so check for them deliberately:
+
+   **Call the thing what the app calls it.** A bullet that *describes* a screen
+   element instead of naming it was written from the code; the reader can only
+   match the note to what they see if both use the same word.
+   - ✅ "Detected stops are named after their city"
+   - ❌ "Stops you never named show the city they are in"
+
+   **Don't let a bullet trail off on a preposition.** Reading each one aloud
+   catches this in a second; re-reading them does not.
+   - ✅ "Times abroad show in local time"
+   - ❌ "Times show on the clock of the place they happened in"
+
+   **One change per bullet.** An "and" joining two unrelated changes reads as
+   neither. Usually the answer is not to split it but to drop the lesser half —
+   if it didn't earn its own bullet, it doesn't earn half of one.
+   - ✅ "The track map breaks the line where recording paused"
+   - ❌ "A track's screen says where its fixes came from and where recording
+     stopped watching"
 4. Keep it under Play's **500 characters per language**. 2–4 bullets is the
    sweet spot; if there are more, the release is probably overdue anyway.
 
@@ -49,3 +70,9 @@ What's new:
 - Building the bundle: push a `v1.0-vc<N>` tag on the bump commit — the
   Release workflow builds the signed `.aab` and attaches it to a GitHub
   Release (it fails if N doesn't match the committed `versionCode`).
+- **Never build the release locally.** The bundle that ships is the workflow's:
+  it alone has the upload keystore and the Protomaps key from repo secrets, so
+  a local `assembleRelease` is not the artifact under any circumstances. Running
+  one before the bump is committed is worse than pointless — `git describe`
+  stamps it `-dirty`, so it validates a build that could not have shipped
+  anyway. The sequence is bump → commit → tag → push tag → wait for CI.
