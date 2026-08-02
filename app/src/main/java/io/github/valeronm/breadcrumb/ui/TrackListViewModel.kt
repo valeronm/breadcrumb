@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.ZoneId
 
 /**
  * The places table, admitted only when a reading would cluster differently from the last one —
@@ -102,8 +103,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         /** The same track bounds the derivation ran on — kept because a night spent moving is
          *  covered by no interval, and only a track can place it ([TravelDeriver]). */
         val tracks: List<StayDeriver.TrackEnd>,
-        /** Which city each cluster's centroid sits in — see [citiesOf]. */
-        val cities: Map<StayDeriver.Endpoint, String>,
+        /** Where each cluster's centroid sits, as the gazetteer has it — see [citiesOf]. */
+        val cities: Map<StayDeriver.Endpoint, CityAtlas.City>,
     )
 
     /** One derivation run's inputs and outputs, shared by [timeline] and [places]. */
@@ -112,10 +113,42 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val places: List<Place>,
         val now: Long,
         val tracks: List<StayDeriver.TrackEnd>,
-        val cities: Map<StayDeriver.Endpoint, String>,
+        val cities: Map<StayDeriver.Endpoint, CityAtlas.City>,
     ) {
         /** The unsliced stays, extracted once — every downstream flow needs them. */
         val stays: List<StayDeriver.Stay> = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
+
+        /**
+         * The clock each cluster runs on, in the clustering's order. Resolved once per derivation
+         * rather than per lookup: `ZoneId.of` parses and allocates, the timeline asks per interval
+         * *and* again per emitted slice, and every row of a history then holds its own equal-but-
+         * distinct instance. Lazy because only the timeline asks.
+         */
+        private val zoneByCluster: List<ZoneId> by lazy {
+            derivation.clusters.map { zoneOrDevice(cities[it.centroid]?.zoneId) }
+        }
+
+        /**
+         * Which cluster each endpoint fell into. **A track's start is already a member of one** —
+         * the derivation clusters every track endpoint — so a track reads its clock off the cluster
+         * that claimed it rather than paying a fresh gazetteer walk per track, which for a
+         * mostly-imported history is thousands of walks for answers already in hand.
+         */
+        private val clusterOfEndpoint: Map<StayDeriver.Endpoint, Int> by lazy {
+            buildMap {
+                derivation.clusters.forEachIndexed { index, cluster ->
+                    for (member in cluster.members) put(member, index)
+                }
+            }
+        }
+
+        private val zoneByTrack: Map<Long, ZoneId> by lazy {
+            tracks.associate { it.trackId to zoneOfCluster(it.start?.let(clusterOfEndpoint::get)) }
+        }
+
+        fun zoneOfCluster(id: Int?): ZoneId = id?.let(zoneByCluster::getOrNull) ?: timelineZone()
+
+        fun zoneOfTrack(trackId: Long): ZoneId = zoneByTrack[trackId] ?: timelineZone()
     }
 
     /** The places table, read once for every reader below rather than observed per consumer. */
@@ -143,11 +176,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             distance = AndroidDistance,
             placePins = PlaceClusterer.seedsOf(places),
         )
-        Clustered(derivation, places, now, trackEnds, citiesOf(derivation.clusters))
+        Clustered(derivation, places, now, trackEnds, citiesOf(derivation.clusters.map { it.centroid }))
     }.flowOn(Dispatchers.Default)
 
     /**
-     * Last pass's answers, so a re-clustering only pays for the centroids that moved. Rebuilt from
+     * Last pass's answers, so a re-clustering only pays for the coordinates that moved. Rebuilt from
      * the clustering each pass rather than added to: a cluster's centroid is the mean of its
      * members, so every finished track nudges one, and a memo that only grew would collect an entry
      * per nudge for as long as the process lives — which is weeks.
@@ -156,32 +189,32 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * below asks [Map.containsKey]. Written only from the [clustered] flow, which is one coroutine;
      * nothing else may touch it.
      */
-    private var cityByCentroid: Map<StayDeriver.Endpoint, CityAtlas.City?> = emptyMap()
+    private var cityByPoint: Map<StayDeriver.Endpoint, CityAtlas.City?> = emptyMap()
 
     /**
-     * Where each cluster sits, for the resolvers to hand to the clusters that need a name. Every
-     * cluster is looked up, including the ones a place already claims — **whether a city may name a
-     * cluster is [PlaceResolver]'s to decide**, and a second opinion here is how the two come to
-     * disagree. The waste is one lookup per named place, against a table walk this skips entirely
-     * for every unmoved cluster.
+     * Where each of [points] sits, for the readers that need a name or a clock off it. Cluster
+     * centroids go in claimed or not: a label says what the user calls a spot, never which country
+     * it is in or what time it is there, and what a label *does* outrank is [PlaceResolver]'s to
+     * decide.
      *
      * Runs beside the clustering rather than where the rows are built: the resolvers re-run on
      * writes that leave the clustering untouched — a rename, a track's activity retyped — and a
      * lookup is three walks of a 160,000-row table.
      */
-    private fun citiesOf(clusters: List<PlaceClusterer.Cluster>): Map<StayDeriver.Endpoint, String> {
-        val previous = cityByCentroid
-        val resolved = HashMap<StayDeriver.Endpoint, CityAtlas.City?>(clusters.size)
-        val named = HashMap<StayDeriver.Endpoint, String>(clusters.size)
-        for (cluster in clusters) {
-            val at = cluster.centroid
+    private fun citiesOf(
+        points: List<StayDeriver.Endpoint>,
+    ): Map<StayDeriver.Endpoint, CityAtlas.City> {
+        val previous = cityByPoint
+        val resolved = HashMap<StayDeriver.Endpoint, CityAtlas.City?>(points.size)
+        val found = HashMap<StayDeriver.Endpoint, CityAtlas.City>(points.size)
+        for (at in points) {
             if (at in resolved) continue
             val city = if (previous.containsKey(at)) previous[at] else cityOf(at)
             resolved[at] = city
-            city?.let { named[at] = it.name }
+            city?.let { found[at] = it }
         }
-        cityByCentroid = resolved
-        return named
+        cityByPoint = resolved
+        return found
     }
 
     /** The gazetteer's reading of one coordinate — the single spelling of it in this file. */
@@ -237,14 +270,25 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         // Stays and short gaps merge on the same rule, decided over the intervals as derived —
         // the rows below are per-day slices, whose bounds are the display's, not the stop's.
         val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
+        // A stay's two ends are one place, so it answers with one clock twice. A gap answers with
+        // the clock at each end, which is what lets the slicer cut an unrecorded crossing into the
+        // day it left and the day it landed — and stamp each half with the end it speaks for, so
+        // nothing downstream has to work that out again.
+        val zoneOfCluster = { id: Int? -> d.zoneOfCluster(id) }
+        val zonesOfInterval = { interval: StayDeriver.Interval ->
+            when (interval) {
+                is StayDeriver.Stay -> zoneOfCluster(interval.clusterId).let { it to it }
+                is StayDeriver.Gap ->
+                    zoneOfCluster(interval.fromClusterId) to zoneOfCluster(interval.toClusterId)
+            }
+        }
         StayDeriver.interleave(
             summaries,
-            // The zone every reader of these bounds asks its own questions in — a slice seam is only
-            // recognisable as one against the zone it was cut in. See timelineZone().
-            StayDeriver.slicePerDay(d.derivation.intervals, timelineZone(), d.now),
+            StayDeriver.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
         ).map { item ->
             when (item) {
-                is TimelineItem.TrackItem -> item
+                is TimelineItem.TrackItem -> item.copy(zone = d.zoneOfTrack(item.summary.id))
+                // The zones already rode in on the slice; only what the places table says is added.
                 is TimelineItem.GapItem -> item.copy(
                     fromPlace = item.gap.fromClusterId?.let(clusterPlaces::getOrNull),
                     toPlace = item.gap.toClusterId?.let(clusterPlaces::getOrNull),

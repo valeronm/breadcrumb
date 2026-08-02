@@ -26,7 +26,10 @@ import java.time.ZoneId
  * **This rule is ported.** The web companion viewer derives the same timeline from a backup export
  * (`web/js/stays.js`, a port of this and [PlaceClusterer], tested case for case against
  * `StayDeriverTest`), so a rule that moves here moves there or the two disagree about the same
- * history.
+ * history. **[slicePerDay] is the deliberate exception**: which clock a row is read on comes from
+ * the bundled gazetteer, and a backup file carries no zones, so the viewer reads every row on the
+ * reader's own clock. That is a difference in *display*, not in which stays exist — everything
+ * above this line is still one rule in two implementations.
  *
  * **However brief, a stop the endpoints agree on is a stay — there is no minimum duration here, and
  * a five-minute floor was tried and taken back out.** A stop is what a *place* accumulates visits
@@ -340,24 +343,85 @@ object StayDeriver {
      * Splits intervals at local midnights so each piece falls inside one calendar day (a
      * 20:00–09:00 stay renders in both days with clamped bounds). An ongoing stay keeps its null
      * end on the final (today's) slice.
+     *
+     * **[zonesOf] answers per interval, not once**, because a midnight is a fact about where someone
+     * was and not about the device reading the history back: a stay abroad ends its day on that
+     * country's clock. A caller that hands back one constant zone for everything gets the whole
+     * history cut on that clock, which is the old behaviour exactly.
+     *
+     * It answers with the clocks the interval's **two ends** ran on, and they are usually the same
+     * one — every stay sits in a single place, which is what makes its own midnights the right cut.
+     *
+     * Where they differ the interval is an unrecorded **crossing**, and it is cut **once**, at the
+     * start of the arrival's own day: a departure half that belongs to the day it left, and an
+     * arrival half that belongs to the day it landed. It is not cut per day beyond that, and
+     * deliberately — cutting a crossing at either end's midnights throughout files the same absence
+     * under two headings, once on the calendar the departure's clock was keeping and once on the
+     * arrival's, and no choice of which end to file by removes that. What this costs is a crossing
+     * spanning whole days in between: those days are folded into the departure half rather than
+     * marked one by one.
+     *
+     * Every reader of a bound this produced must ask [zonesOf] the same question about the same
+     * interval, or a row will contradict the day it was filed under.
      */
-    fun slicePerDay(intervals: List<Interval>, zone: ZoneId, nowMs: Long): List<Interval> =
+    fun slicePerDay(
+        intervals: List<Interval>,
+        zonesOf: (Interval) -> Pair<ZoneId, ZoneId>,
+        nowMs: Long,
+    ): List<Slice> =
         intervals.flatMap { interval ->
+            val (zone, endZone) = zonesOf(interval)
+            if (zone != endZone) return@flatMap crossingHalves(interval, zone, endZone, nowMs)
             val end = interval.end ?: nowMs
-            val slices = mutableListOf<Interval>()
+            val slices = mutableListOf<Slice>()
             var sliceStart = interval.start
             while (true) {
-                val nextMidnight = Instant.ofEpochMilli(sliceStart).atZone(zone)
-                    .toLocalDate().plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+                val nextMidnight = midnightAfter(sliceStart, zone)
                 if (end <= nextMidnight) {
-                    slices += copyWith(interval, sliceStart, interval.end)
+                    slices += Slice(copyWith(interval, sliceStart, interval.end), zone, zone)
                     break
                 }
-                slices += copyWith(interval, sliceStart, nextMidnight)
+                slices += Slice(copyWith(interval, sliceStart, nextMidnight), zone, zone)
                 sliceStart = nextMidnight
             }
             slices
         }
+
+    /**
+     * A crossing as its two halves — everything up to the arrival's local midnight, and the arrival's
+     * own day. One piece when the whole crossing already sits inside the arrival's day, which is the
+     * ordinary short hop: there is no second day to give a row to, so one piece speaks for both ends.
+     *
+     * Each half is stamped with the end it speaks for and null for the other, at the point of
+     * cutting — the only place that knows. A caller recovering it afterwards by comparing bounds
+     * would be re-deciding what was decided here, and would have to be corrected in step with any
+     * change to where the cut lands.
+     */
+    private fun crossingHalves(
+        interval: Interval,
+        departureZone: ZoneId,
+        arrivalZone: ZoneId,
+        nowMs: Long,
+    ): List<Slice> {
+        val end = interval.end ?: nowMs
+        val arrivalDayStart = startOfDay(end, arrivalZone)
+        if (arrivalDayStart <= interval.start) return listOf(Slice(interval, departureZone, arrivalZone))
+        return listOf(
+            Slice(copyWith(interval, interval.start, arrivalDayStart), departureZone, null),
+            Slice(copyWith(interval, arrivalDayStart, interval.end), null, arrivalZone),
+        )
+    }
+
+    /** Local midnight opening the day [epochMs] falls in. The one arithmetic here that DST rides
+     *  on, so it is written once and [midnightAfter] is the only variant. */
+    private fun startOfDay(epochMs: Long, zone: ZoneId): Long =
+        Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate().atStartOfDay(zone)
+            .toInstant().toEpochMilli()
+
+    /** Local midnight closing the day [epochMs] falls in — see [startOfDay]. */
+    private fun midnightAfter(epochMs: Long, zone: ZoneId): Long =
+        Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate().plusDays(1).atStartOfDay(zone)
+            .toInstant().toEpochMilli()
 
     private fun copyWith(interval: Interval, start: Long, end: Long?): Interval = when (interval) {
         is Stay -> interval.copy(start = start, end = end)
@@ -368,14 +432,14 @@ object StayDeriver {
      * Merges the DESC track list with derived intervals into one DESC timeline. On a start-time
      * tie the interval sorts newer (it extends past the shared instant; the track ended at it).
      */
-    fun interleave(summaries: List<TrackSummary>, intervals: List<Interval>): List<TimelineItem> {
-        val descIntervals = intervals.asReversed()
-        val out = ArrayList<TimelineItem>(summaries.size + intervals.size)
+    fun interleave(summaries: List<TrackSummary>, slices: List<Slice>): List<TimelineItem> {
+        val descSlices = slices.asReversed()
+        val out = ArrayList<TimelineItem>(summaries.size + slices.size)
         var t = 0
         var v = 0
-        while (t < summaries.size || v < descIntervals.size) {
+        while (t < summaries.size || v < descSlices.size) {
             val track = summaries.getOrNull(t)
-            val interval = descIntervals.getOrNull(v)
+            val interval = descSlices.getOrNull(v)?.interval
             val takeInterval = when {
                 interval == null -> false
                 track == null -> true
@@ -386,9 +450,16 @@ object StayDeriver {
                 else -> interval.end == null
             }
             if (takeInterval) {
-                out += when (val iv = descIntervals[v++]) {
-                    is Stay -> TimelineItem.StayItem(iv)
-                    is Gap -> TimelineItem.GapItem(iv)
+                val slice = descSlices[v++]
+                out += when (val iv = slice.interval) {
+                    // A stay sits in one place, so its two ends answer with the same clock and the
+                    // slicer set both; either reads it.
+                    is Stay -> TimelineItem.StayItem(iv, zone = slice.departureZone)
+                    is Gap -> TimelineItem.GapItem(
+                        iv,
+                        departureZone = slice.departureZone,
+                        arrivalZone = slice.arrivalZone,
+                    )
                 }
             } else {
                 out += TimelineItem.TrackItem(summaries[t++])
@@ -396,13 +467,48 @@ object StayDeriver {
         }
         return out
     }
+
+    /**
+     * One row's worth of an interval, with the clock each of its ends runs on.
+     *
+     * **Null means this piece does not speak for that end** — a crossing's departure half carries no
+     * arrival clock, because the arrival is a row of its own under its own day's heading. Everything
+     * that happens in one place carries the same clock twice.
+     */
+    data class Slice(
+        val interval: Interval,
+        val departureZone: ZoneId?,
+        val arrivalZone: ZoneId?,
+    )
 }
 
 /** One row of the day-grouped timeline: a recorded track, a derived stay, or a data gap. */
 sealed interface TimelineItem {
     val startedAt: Long
 
-    data class TrackItem(val summary: TrackSummary) : TimelineItem {
+    /**
+     * The instant deciding which day this row is filed under — its start, and its start for
+     * everything that happens in one place. A row spanning two calendars overrides it; see
+     * [GapItem.filedAt] for why an arrival wins over a departure there.
+     *
+     * Sorting is still by [startedAt]: this moves a row's *heading*, never its position.
+     */
+    val filedAt: Long get() = startedAt
+
+    /**
+     * The clock this row ran on — the zone of the place it happened in, attached after derivation
+     * beside the place resolution; null only if attachment wasn't run.
+     *
+     * **It must be the zone [StayDeriver.slicePerDay] cut this row's bounds in.** A bound clamped to
+     * one midnight and read back against another is a row contradicting the day it is filed under,
+     * which is the whole reason the zone rides the row rather than being looked up per reader.
+     */
+    val zone: ZoneId?
+
+    data class TrackItem(
+        val summary: TrackSummary,
+        override val zone: ZoneId? = null,
+    ) : TimelineItem {
         override val startedAt get() = summary.startedAt
     }
 
@@ -412,6 +518,7 @@ sealed interface TimelineItem {
         val place: PlaceResolver.ResolvedStay? = null,
         /** Non-null when this short same-activity stay can be closed by merging its two tracks. */
         val merge: TrackMerge.Plan? = null,
+        override val zone: ZoneId? = null,
     ) : TimelineItem {
         override val startedAt get() = stay.start
     }
@@ -424,7 +531,48 @@ sealed interface TimelineItem {
         val toPlace: PlaceResolver.ResolvedStay? = null,
         /** Non-null when this short same-activity gap can be closed by merging its two tracks. */
         val merge: TrackMerge.Plan? = null,
+        /**
+         * The clocks this row's two ends run on, **null where the row does not speak for that end**
+         * — see [StayDeriver.Slice], which sets them.
+         *
+         * A gap is the one row whose ends routinely differ: an unrecorded crossing is exactly what a
+         * gap between two airports is, and it is cut into the day it left and the day it landed, one
+         * end each. Four states, and every one of them is read off these two:
+         * an ordinary absence carries the same clock twice; a departure half carries no arrival
+         * clock; an arrival half no departure clock; and a hop that landed on the day it left
+         * carries two different clocks on one row, being the only row that has to state both.
+         */
+        val departureZone: ZoneId? = null,
+        val arrivalZone: ZoneId? = null,
     ) : TimelineItem {
         override val startedAt get() = gap.start
+
+        /** The clock the row is read and filed on: the end it arrives at, or its departure where it
+         *  speaks for no arrival. */
+        override val zone get() = arrivalZone ?: departureZone
+
+        /** True where the two ends run on genuinely different clocks — a crossing this row states
+         *  whole, so each end needs its own time and the row has no single one. */
+        val spansClocks get() = departureZone != null &&
+            arrivalZone != null &&
+            departureZone != arrivalZone
+
+        /**
+         * **A crossing's arrival half is filed under the day it landed**; everything else by where
+         * it began, like every other row.
+         *
+         * The row following an arrival is whatever was recorded on getting there — the taxi from the
+         * airport — and it belongs to the arrival's day. File the arrival half by where it *began*
+         * and a heading lands between the two, leaving an arrival at 19:16 under yesterday while the
+         * 19:16 taxi sits under today. Nothing can sort between a gap's ends, there being no
+         * recording in it, so this moves a heading and never the order.
+         *
+         * An ordinary absence must **not** take this: it was cut per day, and each piece already
+         * ends at the midnight opening the *next* day, so filing one by its end puts every slice a
+         * day late and lands two of them on the day the gap finally ended. It is told apart by
+         * carrying a departure clock — an arrival half is the only piece that does not.
+         */
+        override val filedAt get() =
+            if (departureZone == null && arrivalZone != null) gap.end else gap.start
     }
 }

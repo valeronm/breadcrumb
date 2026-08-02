@@ -123,20 +123,22 @@ class PlaceResolverTest {
 
     /** A gazetteer that names every cluster it is built from, so a test can name them all at once. */
     private fun gazetteerOver(clusters: List<PlaceClusterer.Cluster>, vararg names: String) =
-        clusters.mapIndexed { index, cluster -> cluster.centroid to names[index] }.toMap()
+        clusters.mapIndexed { index, cluster ->
+            cluster.centroid to CityAtlas.City(names[index], "XX", "Etc/GMT-3", 20_000, 0.0)
+        }.toMap()
 
-    @Test fun `the city names a cluster nobody named, and never one they did`() {
+    @Test fun `a label outranks the city as a name, and nothing else about the place`() {
         val stays = listOf(stay(at(0.0)), stay(at(500.0)))
         val places = listOf(place(7, "Home", at(0.0)))
         val (stamped, clusters) = withClusters(stays, places)
-        // The gazetteer is handed whole — including the seeded cluster's own centroid, which the
-        // resolver must decline to use. A caller that pre-filtered would be deciding "claimed" for
-        // itself, which is exactly what this pins.
         val cities = gazetteerOver(clusters, "Hometown", "Seaside")
         val resolved = PlaceResolver.resolveClusters(stamped, clusters, places, cities)
 
         assertEquals("Home", resolved[0].name)
-        assertNull("a place's own name is not to be second-guessed by a gazetteer", resolved[0].city)
+        // Naming a spot says nothing about where on earth it is: the city and the clock survive it,
+        // and a stay at a named place abroad still has to render on that country's time.
+        assertEquals("Hometown", resolved[0].city)
+        assertEquals("Etc/GMT-3", resolved[0].zoneId)
         assertEquals("Seaside", resolved[1].name)
         assertNull(resolved[1].label)
     }
@@ -204,7 +206,8 @@ class PlaceResolverTest {
         val summaries = PlaceResolver.summarize(stamped, clusters, places, NOW, cities)
 
         assertEquals("Home", summaries.single { it.isNamed }.name)
-        assertNull(summaries.single { it.isNamed }.city)
+        // A named row carries its locality too — the Places list reads a clock off it, not a name.
+        assertEquals("Hometown", summaries.single { it.isNamed }.city)
         assertEquals("Seaside", summaries.single { !it.isNamed }.name)
     }
 

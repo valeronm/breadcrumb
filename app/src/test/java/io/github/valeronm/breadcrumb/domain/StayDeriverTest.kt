@@ -391,12 +391,24 @@ class StayDeriverTest {
     private val utc = ZoneId.of("UTC")
     private val DAY = 24 * 60 * MIN
 
+    /** The pieces alone: most cases below are about where the cuts land, not which clock each end
+     *  of a piece ran on — the crossing cases ask [StayDeriver.slicePerDay] for that directly. */
+    private fun sliced(
+        intervals: List<StayDeriver.Interval>,
+        zones: (StayDeriver.Interval) -> Pair<ZoneId, ZoneId>,
+        nowMs: Long,
+    ): List<StayDeriver.Interval> = StayDeriver.slicePerDay(intervals, zones, nowMs).map { it.interval }
+
+    /** Intervals as slices that happened in one place — what everything but a crossing is. */
+    private fun oneClock(vararg intervals: StayDeriver.Interval) =
+        intervals.map { StayDeriver.Slice(it, utc, utc) }
+
     @Test fun `a midnight-spanning stay splits into per-day slices with clamped bounds`() {
         val stay = Stay(
             start = 20 * 60 * MIN, end = DAY + 9 * 60 * MIN, location = home,
             provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0,
         )
-        val slices = StayDeriver.slicePerDay(listOf(stay), utc, nowMs = 2 * DAY)
+        val slices = sliced(listOf(stay), { utc to utc }, nowMs = 2 * DAY)
         assertEquals(2, slices.size)
         assertEquals(20 * 60 * MIN, slices[0].start)
         assertEquals(DAY, slices[0].end)
@@ -410,7 +422,7 @@ class StayDeriverTest {
             start = 20 * 60 * MIN, end = null, location = home,
             provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0,
         )
-        val slices = StayDeriver.slicePerDay(listOf(stay), utc, nowMs = DAY + 9 * 60 * MIN)
+        val slices = sliced(listOf(stay), { utc to utc }, nowMs = DAY + 9 * 60 * MIN)
         assertEquals(2, slices.size)
         assertEquals(DAY, slices[0].end)
         assertNull(slices[1].end)
@@ -421,7 +433,7 @@ class StayDeriverTest {
             start = 10 * 60 * MIN, end = 11 * 60 * MIN,
             reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
         )
-        assertEquals(listOf<StayDeriver.Interval>(gap), StayDeriver.slicePerDay(listOf(gap), utc, 2 * DAY))
+        assertEquals(listOf<StayDeriver.Interval>(gap), sliced(listOf(gap), { utc to utc }, 2 * DAY))
     }
 
     @Test fun `a midnight-spanning gap slices like a stay does`() {
@@ -431,7 +443,7 @@ class StayDeriverTest {
             start = 20 * 60 * MIN, end = DAY + 3 * 60 * MIN,
             reason = GapReason.UNKNOWN_ENDPOINT, afterTrackId = 1,
         )
-        val slices = StayDeriver.slicePerDay(listOf(gap), utc, 2 * DAY)
+        val slices = sliced(listOf(gap), { utc to utc }, 2 * DAY)
         assertEquals(2, slices.size)
         assertEquals(DAY, slices[0].end)
         assertEquals(DAY + 3 * 60 * MIN, slices[1].end)
@@ -446,12 +458,104 @@ class StayDeriverTest {
             .plusHours(20).toInstant().toEpochMilli()
         val end = java.time.LocalDate.of(2026, 3, 29).atStartOfDay(lisbon)
             .plusHours(12).toInstant().toEpochMilli()
-        val slices = StayDeriver.slicePerDay(
-            listOf(Stay(start, end, home, Provenance.OBSERVED, 1, clusterId = 0)), lisbon, end + DAY,
+        val slices = sliced(
+            listOf(Stay(start, end, home, Provenance.OBSERVED, 1, clusterId = 0)), { lisbon to lisbon }, end + DAY,
         )
         assertEquals(2, slices.size)
         assertTrue(slices[0].end!! <= slices[1].start)
         assertEquals(end, slices[1].end)
+    }
+
+    @Test fun `each interval is cut on its own zone, not the list's`() {
+        // The same wall-clock evening in two places nine hours apart: one has already passed
+        // midnight where it happened, the other has not. A single zone for the list gets one of
+        // them wrong whichever it picks.
+        val tokyo = ZoneId.of("Asia/Tokyo")
+        val evening = java.time.LocalDate.of(2026, 7, 18).atStartOfDay(tokyo)
+            .plusHours(20).toInstant().toEpochMilli()
+        val abroad = Stay(evening, evening + 8 * 60 * MIN, home, Provenance.OBSERVED, 1, clusterId = 0)
+        val athome = Stay(evening, evening + 8 * 60 * MIN, home, Provenance.OBSERVED, 2, clusterId = 1)
+        val zones = mapOf(1L to tokyo, 2L to utc)
+
+        val slices = sliced(
+            listOf(abroad, athome),
+            { zones.getValue((it as Stay).afterTrackId).let { z -> z to z } },
+            evening + DAY,
+        )
+
+        // 20:00–04:00 in Tokyo crosses that country's midnight and splits; the same instants are
+        // 11:00–19:00 in UTC and do not.
+        assertEquals(2, slices.count { (it as Stay).afterTrackId == 1L })
+        assertEquals(1, slices.count { (it as Stay).afterTrackId == 2L })
+    }
+
+    @Test fun `a crossing is cut into the day it left and the day it landed`() {
+        // The shape of a flight: an absence beginning on one clock and ending on another, a day
+        // later. It gets one row per end, each falling on the day that end happened, so the arrival
+        // sits beside whatever was recorded on getting there rather than under yesterday.
+        val newYork = ZoneId.of("America/New_York")
+        val lisbonZone = ZoneId.of("Europe/Lisbon")
+        val lisbonEvening = java.time.LocalDate.of(2024, 10, 20).atStartOfDay(lisbonZone)
+            .plusHours(21).toInstant().toEpochMilli()
+        val crossing = Gap(
+            start = lisbonEvening, end = lisbonEvening + 26 * 60 * MIN,
+            reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
+        )
+
+        val halves =
+            StayDeriver.slicePerDay(listOf(crossing), { lisbonZone to newYork }, lisbonEvening + 3 * DAY)
+
+        assertEquals(2, halves.size)
+        assertEquals(crossing.start, halves[0].interval.start)
+        assertEquals(crossing.end, halves[1].interval.end)
+        // Each half is stamped with the end it speaks for and null for the other, at the point of
+        // cutting — so nothing downstream has to work out which half it is holding.
+        assertEquals(lisbonZone, halves[0].departureZone)
+        assertNull(halves[0].arrivalZone)
+        assertNull(halves[1].departureZone)
+        assertEquals(newYork, halves[1].arrivalZone)
+        // The cut is the arrival's own midnight, so the second half is that day and nothing else.
+        val cut = halves[1].interval.start
+        assertEquals(halves[0].interval.end, cut)
+        assertEquals(
+            java.time.LocalTime.MIDNIGHT,
+            java.time.Instant.ofEpochMilli(cut).atZone(newYork).toLocalTime(),
+        )
+        assertEquals(
+            java.time.Instant.ofEpochMilli(crossing.end).atZone(newYork).toLocalDate(),
+            java.time.Instant.ofEpochMilli(halves[1].interval.end!!).atZone(newYork).toLocalDate(),
+        )
+    }
+
+    @Test fun `a crossing that lands on the day it left stays one row`() {
+        // A short hop across a border: there is no second day to give a row to, so one row states
+        // both of its ends.
+        val newYork = ZoneId.of("America/New_York")
+        val chicago = ZoneId.of("America/Chicago")
+        val noon = java.time.LocalDate.of(2024, 10, 20).atStartOfDay(newYork)
+            .plusHours(12).toInstant().toEpochMilli()
+        val hop = Gap(
+            start = noon, end = noon + 3 * 60 * MIN,
+            reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
+        )
+
+        val slices = StayDeriver.slicePerDay(listOf(hop), { newYork to chicago }, noon + DAY)
+
+        // One piece, and it speaks for both ends — the row has to state each on its own clock.
+        assertEquals(listOf<StayDeriver.Interval>(hop), slices.map { it.interval })
+        assertEquals(newYork, slices.single().departureZone)
+        assertEquals(chicago, slices.single().arrivalZone)
+    }
+
+    @Test fun `an absence that stays on one clock is cut like anything else`() {
+        // The other half of the rule above: same zone at both ends is an ordinary coverage gap, and
+        // a day it runs through must still be able to say so.
+        val gap = Gap(
+            start = 20 * 60 * MIN, end = DAY + 3 * 60 * MIN,
+            reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
+        )
+
+        assertEquals(2, sliced(listOf(gap), { utc to utc }, 2 * DAY).size)
     }
 
     // --- interleave ------------------------------------------------------------
@@ -462,7 +566,7 @@ class StayDeriverTest {
             summary(1, startedAt = 60 * MIN),
         )
         val stay = Stay(120 * MIN, 240 * MIN, home, Provenance.OBSERVED, 1, clusterId = 0)
-        val items = StayDeriver.interleave(summaries, listOf(stay))
+        val items = StayDeriver.interleave(summaries, oneClock(stay))
         assertEquals(
             listOf(240 * MIN, 120 * MIN, 60 * MIN),
             items.map { it.startedAt },
@@ -473,7 +577,7 @@ class StayDeriverTest {
     @Test fun `on a start-time tie an ongoing interval sorts newer than the track`() {
         val summaries = listOf(summary(1, startedAt = 60 * MIN))
         val stay = Stay(60 * MIN, null, home, Provenance.OBSERVED, 1, clusterId = 0)
-        val items = StayDeriver.interleave(summaries, listOf(stay))
+        val items = StayDeriver.interleave(summaries, oneClock(stay))
         assertTrue(items[0] is TimelineItem.StayItem)
         assertTrue(items[1] is TimelineItem.TrackItem)
     }
@@ -483,7 +587,7 @@ class StayDeriverTest {
         // below that track — between the pair — not above it.
         val summaries = listOf(summary(2, startedAt = 120 * MIN), summary(1, startedAt = 60 * MIN))
         val seam = Stay(120 * MIN, 120 * MIN, home, Provenance.OBSERVED, 1, clusterId = 0)
-        val items = StayDeriver.interleave(summaries, listOf(seam))
+        val items = StayDeriver.interleave(summaries, oneClock(seam))
         assertTrue(items[0] is TimelineItem.TrackItem)
         assertTrue(items[1] is TimelineItem.StayItem)
         assertTrue(items[2] is TimelineItem.TrackItem)
@@ -497,7 +601,7 @@ class StayDeriverTest {
         val summaries = listOf(summary(2, startedAt = 240 * MIN))
         val gap = Gap(120 * MIN, 180 * MIN, GapReason.MOVED_UNRECORDED, afterTrackId = 1)
 
-        val items = StayDeriver.interleave(summaries, listOf(gap))
+        val items = StayDeriver.interleave(summaries, oneClock(gap))
 
         assertEquals(2, items.size)
         assertTrue(items[0] is TimelineItem.TrackItem)

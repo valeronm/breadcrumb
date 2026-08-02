@@ -88,13 +88,25 @@ object PlaceResolver {
         /** Cluster centroid — where a new place would be pinned when the user names this stay. */
         val centroid: StayDeriver.Endpoint,
         /**
-         * The city this cluster sits in, for a cluster no place claimed — null when the caller
-         * offered no gazetteer, and always null where [place] is set, since the label answers first.
+         * Where on earth this cluster sits, as the gazetteer has it — the row itself rather than a
+         * copy per attribute, following [place]: what a spot is called and which clock it runs on
+         * are two questions about one answer, and a third should not need a field here. Null only
+         * when the caller offered no gazetteer, or when nothing in it reaches this coordinate.
+         *
+         * **Filled whether or not a place claims the cluster.** A user names a spot; they do not
+         * decide which country it is in or what time it is there, and "Mum's" in Tokyo runs on
+         * Tokyo's clock. What a label outranks is the *name* below, and nothing else.
          */
-        val city: String? = null,
+        val locality: CityAtlas.City? = null,
     ) {
         /** The matched place's label, or null for an unnamed cluster. */
         val label: String? get() = place?.label
+
+        /** The city this cluster sits in, named or not — see [locality]. */
+        val city: String? get() = locality?.name
+
+        /** The zone this stop's clock ran on, or null where nothing places it. */
+        val zoneId: String? get() = locality?.zoneId
 
         /** What to call this stop — see [displayName], which decides it for both readings. */
         val name: String? get() = displayName(place, city)
@@ -139,10 +151,13 @@ object PlaceResolver {
         val endpointCentroid: StayDeriver.Endpoint?,
         /** This place's individual visits (unsliced), newest first — the detail screen's history. */
         val stays: List<StayDeriver.Stay> = emptyList(),
-        /** The city this cluster sits in, for a cluster no place claimed — see [ResolvedStay.city]. */
-        val city: String? = null,
+        /** Where on earth this place sits, as the gazetteer has it — see [ResolvedStay.locality]. */
+        val locality: CityAtlas.City? = null,
     ) {
         val isNamed: Boolean get() = place != null
+
+        /** The city this place sits in, named or not — see [locality]. */
+        val city: String? get() = locality?.name
 
         /** What to call this place — see [displayName], which decides it for both readings. */
         val name: String? get() = displayName(place, city)
@@ -203,27 +218,25 @@ object PlaceResolver {
      * and deliberately **not** a list parallel to [clusters]. An index-parallel array is the one
      * coupling this file exists to avoid (see the class KDoc): it cannot be checked, it survives a
      * caller that filters or reorders clusters, and what it produces is one cluster's city printed
-     * on another. Empty for the callers that want the resolution and not the naming.
+     * on another. Empty for the callers that want the resolution and not the gazetteer.
      *
-     * **Which clusters a city may name is decided here and nowhere else** — a cluster a place
-     * claimed keeps none, since the label answers first ([displayName]). Callers pass the whole
-     * gazetteer and let this rule do the choosing; one that pre-filtered would be a second opinion
-     * on what "claimed" means, and [matchedPlace] is private precisely so there is only one.
+     * Applied to every cluster, claimed or not ([ResolvedStay.locality]) — a label is a name, not a
+     * statement about where on earth the spot is. What a label outranks lives in [displayName], and
+     * there only, so there is exactly one rule about it and no gate here to disagree with it.
      */
     fun resolveClusters(
         stays: List<StayDeriver.Stay>,
         clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
-        cities: Map<StayDeriver.Endpoint, String> = emptyMap(),
+        cities: Map<StayDeriver.Endpoint, CityAtlas.City> = emptyMap(),
     ): List<ResolvedStay> {
         val visitsByCluster = stays.groupingBy { it.clusterId }.eachCount()
         return clusters.mapIndexed { clusterId, cluster ->
-            val place = matchedPlace(cluster, places)
             ResolvedStay(
-                place = place,
+                place = matchedPlace(cluster, places),
                 visitCount = visitsByCluster[clusterId] ?: 0,
                 centroid = cluster.centroid,
-                city = if (place == null) cities[cluster.centroid] else null,
+                locality = cities[cluster.centroid],
             )
         }
     }
@@ -246,7 +259,7 @@ object PlaceResolver {
         clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
         nowMs: Long,
-        cities: Map<StayDeriver.Endpoint, String> = emptyMap(),
+        cities: Map<StayDeriver.Endpoint, CityAtlas.City> = emptyMap(),
     ): List<PlaceSummary> {
         val staysByCluster = stays.groupBy { it.clusterId }
         val namedAgg = HashMap<Long, Agg>()   // placeId -> aggregate over its matching clusters
@@ -269,7 +282,7 @@ object PlaceResolver {
                     anchor = cluster.anchor, radiusM = cluster.radiusM, endpoints = cluster.members,
                     endpointCentroid = cluster.endpointMean,
                     stays = members.sortedByDescending { it.start },
-                    city = cities[cluster.centroid],
+                    locality = cities[cluster.centroid],
                 )
             } else if (count > 0) {
                 // Zero-stay seeded clusters add nothing: the place row below reports null/zero
@@ -299,6 +312,9 @@ object PlaceResolver {
                 endpoints = cluster?.members ?: emptyList(),
                 endpointCentroid = cluster?.endpointMean,
                 stays = agg?.stays?.sortedByDescending { it.start } ?: emptyList(),
+                // From the cluster the pin seeded, not the pin: the gazetteer was asked about
+                // centroids, and a seeded cluster with no members has the two in the same spot.
+                locality = cluster?.let { cities[it.centroid] },
             )
         }
         return named + unnamed

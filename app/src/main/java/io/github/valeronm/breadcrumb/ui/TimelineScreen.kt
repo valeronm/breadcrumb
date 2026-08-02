@@ -80,8 +80,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -103,7 +105,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Date
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -203,25 +204,30 @@ internal fun TracksTab(
             listState.scrollToItem(hit.first - 1)
             highlightKey = hit.second.rowKey()
         } else {
-            val zone = timelineZone()
-            val label = dayLabel(target.start.toLocalDate(zone), LocalDate.now(zone))
-            dayAnchors.firstOrNull { it.first == label }?.let { listState.scrollToItem(it.second) }
+            // By instant, not by date: the target arrives from a place screen carrying no zone, and
+            // dating it on the device's clock would miss the day a foreign stay was filed under.
+            // Groups descend, so the first whose oldest row is at or before the target holds it.
+            groups.indexOfFirst { it.items.last().startedAt <= target.start }
+                .takeIf { it >= 0 }
+                ?.let { listState.scrollToItem(dayAnchors[it].second) }
         }
         onVisitTargetShown()
     }
     // Land on a journey tapped on the Insights tab. The target is its *latest* day, where the block
-    // starts as the eye meets it, the rows running newest first. A journey whose last day holds no
-    // rows of its own falls to the newest day that does — groups descend, so that is the first one
-    // at or before it.
+    // starts as the eye meets it, the rows running newest first.
+    //
+    // The exact day is looked for before the nearest one because the dates are no longer monotonic:
+    // a westward crossing can put an earlier date on a later row (leave Tokyo on the 18th, land in
+    // Honolulu on the 17th), so "the first group at or before" can walk past the day that is
+    // actually there. It stays as the fallback for a journey whose last day holds no rows at all.
     LaunchedEffect(dayTarget, groups) {
         val date = dayTarget ?: return@LaunchedEffect
-        val group = groups.indexOfFirst { it.date <= date }.takeIf { it >= 0 } ?: groups.lastIndex
+        val group = groups.indexOfFirst { it.date == date }.takeIf { it >= 0 }
+            ?: groups.indexOfFirst { it.date <= date }.takeIf { it >= 0 }
+            ?: groups.lastIndex
         if (group >= 0) listState.scrollToItem(dayAnchors[group].second)
         onDayTargetShown()
     }
-    // Resolved once for the rows below, and it is the same zone the deriver sliced these intervals
-    // in — see [timelineZone].
-    val zone = timelineZone()
     // Both interval rows offer the same merge, so they share one handler rather than two copies
     // of the undo wiring.
     val onMerge = { plan: TrackMerge.Plan ->
@@ -252,7 +258,10 @@ internal fun TracksTab(
                     val dayItems = group.items
                     val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
                     val away = awayDays[group.date]
-                    stickyHeader(key = "header:${group.label}") {
+                    // Keyed by the run's own newest instant, not by its label: a date can appear
+                    // twice now (a westward crossing lives the same date twice), and two headers
+                    // sharing a key is a hard crash in a lazy list rather than a cosmetic clash.
+                    stickyHeader(key = "header:${group.items.first().startedAt}") {
                         DayHeader(group.label, dayTracks, dayItems, away) {
                             viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
                                 if (intent != null) context.startActivity(intent)
@@ -265,6 +274,7 @@ internal fun TracksTab(
                             is TimelineItem.TrackItem -> TrackRow(
                                 track = item.summary,
                                 shape = shape,
+                                zone = item.clock,
                                 onOpen = { onOpen(item.summary.id) },
                                 onDelete = {
                                     val id = item.summary.id
@@ -281,14 +291,15 @@ internal fun TracksTab(
                             is TimelineItem.StayItem -> StayRow(
                                 item = item,
                                 shape = shape,
-                                zone = zone,
+                                zone = item.clock,
                                 highlighted = item.rowKey() == highlightKey,
                                 onMerge = onMerge,
                                 onClick = {
                                     item.place?.let { onOpenPlace(it.key) }
                                 },
                             )
-                            is TimelineItem.GapItem -> GapRow(item, shape, zone, onOpenPlace, onMerge)
+                            is TimelineItem.GapItem ->
+                                GapRow(item, shape, item.clock, onOpenPlace, onMerge)
                         }
                     }
                 }
@@ -642,19 +653,38 @@ private fun DayTotal(icon: ImageVector, description: String?, tint: Color, text:
     }
 }
 
-private fun groupTimelineByDay(items: List<TimelineItem>): List<DayGroup> {
-    val zone = timelineZone()
-    val today = LocalDate.now(zone)
-    // groupBy preserves encounter order, and items arrive newest-first, so days stay descending.
-    // Midnight-spanning stays were already sliced per day by the deriver.
-    return items
-        .groupBy { it.startedAt.toLocalDate(zone) }
-        .map { (date, list) -> DayGroup(date, dayLabel(date, today), list) }
+/**
+ * The rows cut into days, each dated on **its own clock** — a stay abroad falls under the day it was
+ * lived in, not the one the device was having.
+ *
+ * Grouped by *runs* rather than by value, which is the whole difference from a global calendar: once
+ * each row answers on its own zone the dates are no longer a partition. Flying east to west, the
+ * 18th happens twice with the crossing between; flying the other way, a date is skipped. `groupBy`
+ * would weld the two halves of a repeated date into one heading with a flight's worth of rows
+ * between them, in the wrong order — so a repeat has to be allowed to stand as two days, because
+ * that is what it was.
+ */
+internal fun groupTimelineByDay(items: List<TimelineItem>): List<DayGroup> {
+    val today = LocalDate.now(timelineZone())
+    val groups = mutableListOf<DayGroup>()
+    var run = mutableListOf<TimelineItem>()
+    var date: LocalDate? = null
+    for (item in items) {
+        val itemDate = item.filedOn
+        if (itemDate != date) {
+            date?.let { groups += DayGroup(it, dayLabel(it, today), run) }
+            run = mutableListOf()
+            date = itemDate
+        }
+        run += item
+    }
+    date?.let { groups += DayGroup(it, dayLabel(it, today), run) }
+    return groups
 }
 
 /** One day's rows. The date rides along with the label because a label is for reading and a date
  *  is what answers whether the day falls inside a travel. */
-private class DayGroup(val date: LocalDate, val label: String, val items: List<TimelineItem>)
+internal class DayGroup(val date: LocalDate, val label: String, val items: List<TimelineItem>)
 
 /**
  * A day inside a travel: which one, where in it, and whether it is that travel's *latest* day —
@@ -674,13 +704,39 @@ private fun awayDaysOf(travels: List<TravelNaming.Summary>, zone: ZoneId): Map<L
     }
 
 /**
- * The zone a timeline is sliced and read in. **One source, because two readings would disagree**:
- * `slicePerDay` clamps a bound to midnight in the zone it is given, and every row that reads a bound
- * back — the day grouping, and the wording that tells a slice seam from a real end — has to ask the
- * same question of the same zone. Resolved per call rather than captured, so a device that changes
- * zone mid-process moves the slicing and the reading together.
+ * The zone to read a row in when nothing places it — an import with no usable endpoint, a stop in
+ * the middle of an ocean, a gazetteer row this Android's tz database has never heard of. Resolved
+ * per call rather than captured, so a device that changes zone mid-process moves with it.
+ *
+ * It is no longer *the* timeline zone: a row is sliced and read in the zone of the place it happened
+ * in ([TimelineItem.zone]), which is the only way a stay abroad ends its day when that country's day
+ * ended. What survives from when this was one global zone is the invariant behind it — whatever
+ * clock a row's bounds were clamped to, every reader of those bounds must ask the same one.
  */
 internal fun timelineZone(): ZoneId = ZoneId.systemDefault()
+
+/**
+ * A gazetteer zone id as a [ZoneId], falling back to the device's where it can't be one.
+ *
+ * The ids ship inside a checked-in asset while the tz database ships with Android, so the two drift
+ * apart on their own schedules: a zone renamed upstream (`Europe/Kiev` → `Europe/Kyiv`) or dropped
+ * leaves the asset naming something this device cannot resolve. That is a wrong clock on one row,
+ * which is worth a fallback; it is not worth taking the timeline down for, which is what letting
+ * [ZoneId.of] throw here would do.
+ */
+internal fun zoneOrDevice(zoneId: String?): ZoneId =
+    zoneId?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: timelineZone()
+
+/** The clock to read a row on: the one it was sliced in, or the device's where nothing placed it.
+ *  One reading, because a row dated on one clock and timed on another contradicts itself. */
+internal val TimelineItem.clock: ZoneId get() = zone ?: timelineZone()
+
+/**
+ * The day a row is filed under. Filing takes **two** values — which instant, and on whose clock —
+ * and pairing them is the whole of it: `filedAt` with the device's zone, or `startedAt` with the
+ * row's own, both type-check and both are wrong. So the pairing is written once, here.
+ */
+internal val TimelineItem.filedOn: LocalDate get() = filedAt.toLocalDate(clock)
 
 /** A bound the day slicing put there, rather than a time anything happened at — in [zone], which
  *  must be the zone the slicing used ([timelineZone]). */
@@ -760,6 +816,7 @@ private fun EmptyTracksState(viewModel: TrackListViewModel) {
 private fun TrackRow(
     track: TrackSummary,
     shape: RoundedCornerShape,
+    zone: ZoneId,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
     onReplay: (() -> Unit)? = null,
@@ -775,8 +832,12 @@ private fun TrackRow(
         onDismiss = onDelete,
     ) {
         val activity = ActivityType.ofName(track.activityType)
-        val start = timeFormat.format(Date(track.startedAt))
-        val timeLine = track.endedAt?.let { "$start – ${timeFormat.format(Date(it))}" } ?: start
+        // Both ends on the departure's clock: a track that crossed a zone would otherwise report a
+        // duration its own two times contradict, and the duration is the honest figure of the two.
+        val start = timeAt(track.startedAt, zone)
+        val timeLine = track.endedAt?.let { "$start – ${timeAt(it, zone)}" } ?: start
+        val shift = zoneShiftLabel(track.startedAt, zone, timelineZone())
+        val shiftColor = zoneShiftColor
         ListRowCard(
             // Long-press replays the track, which Card's own onClick can't express.
             modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
@@ -789,7 +850,10 @@ private fun TrackRow(
             title = "${ActivityType.labelFor(track.activityType)} · " +
                 LocalUnits.current.distance(track.distanceMeters),
             titleColor = MaterialTheme.colorScheme.onSurface,
-            subtitle = AnnotatedString("$timeLine · ${formatDuration(track.startedAt, track.endedAt)}"),
+            subtitle = buildAnnotatedString {
+                append("$timeLine · ${formatDuration(track.startedAt, track.endedAt)}")
+                appendZoneShift(shift, shiftColor)
+            },
         )
     }
 }
@@ -925,22 +989,28 @@ private fun StayCard(
     // Accent means categorized here as it does on the Places list (placeDiscTint) — one rule, so the
     // same place can't read as accented on one screen and neutral on the other.
     val tint = placeDiscTint(category)
-    val start = timeFormat.format(Date(stay.start))
+    val start = timeAt(stay.start, zone)
     val end = stay.end
     val startsAtMidnight = isLocalMidnight(stay.start, zone)
     val endsAtMidnight = end != null && isLocalMidnight(end, zone)
+    // Ongoing from midnight = all of today so far; completed midnight-to-midnight slices of a
+    // multi-day stay read the same. Named once: the phrase and the offset's suppression below are
+    // one decision, and split in two they can disagree — "All day" with an offset qualifying it.
+    val allDay = startsAtMidnight && (end == null || endsAtMidnight)
     val timePhrase = when {
-        // Ongoing from midnight = all of today so far; completed midnight-to-midnight
-        // slices of a multi-day stay read the same.
-        startsAtMidnight && (end == null || endsAtMidnight) -> "All day"
+        allDay -> "All day"
         end == null -> "$start – now"
-        startsAtMidnight -> "Until ${timeFormat.format(Date(end))}"
+        startsAtMidnight -> "Until ${timeAt(end, zone)}"
         endsAtMidnight -> "From $start"
         // A stop the recorder only caught the tail end of lands on one clock minute at
         // both bounds; "09:11 – 09:11" reads as a rendering fault rather than a moment.
-        else -> timeFormat.format(Date(end)).let { if (it == start) start else "$start – $it" }
+        else -> timeAt(end, zone).let { if (it == start) start else "$start – $it" }
     }
     val visits = place?.visitCount?.takeIf { !named && it >= PlaceResolver.NOTABLE_VISIT_MIN }
+    // No clock time on the row, nothing for an offset to qualify: "All day  +8h" reads as though
+    // the day itself were shifted. A day is a day wherever it was spent.
+    val shift = if (allDay) null else zoneShiftLabel(stay.start, zone, timelineZone())
+    val shiftColor = zoneShiftColor
     ListRowCard(
         shape = shape,
         onClick = onClick,
@@ -972,9 +1042,41 @@ private fun StayCard(
             if (visits != null) {
                 append(" · " + visitCountLabel(visits))
             }
+            appendZoneShift(shift, shiftColor)
         },
     )
 }
+
+/**
+ * Appends how far this row's clock sat from the reader's own, muted, or nothing when they agree.
+ *
+ * Muted rather than plain because it answers a question the reader only sometimes has: the times
+ * beside it are already the ones that were on the wall there, which is the thing they came for. It
+ * earns its place by stopping two identical-looking clock times from meaning different things, and
+ * it is not the row's subject.
+ *
+ * **Takes the label and the colour rather than reading either**, so that nothing `@Composable` is
+ * called inside [buildAnnotatedString]. Kotlin allows it — the builder lambda is inline, so it
+ * inherits the composable context — but the composition groups it generates do not line up with the
+ * ones the enclosing scope expects, and the symptom is a span that is absent on first paint and
+ * appears once the row is rebuilt. Resolve both values in the composable body and pass them in.
+ */
+private fun AnnotatedString.Builder.appendZoneShift(shift: String?, color: Color) {
+    if (shift == null) return
+    append(SHIFT_GAP)
+    withStyle(SpanStyle(color = color)) { append(shift) }
+}
+
+/** [shift] trailing this line, or the line unchanged where there is nothing to say. The one place
+ *  the separator is decided, so a styled row and a plain one can't space it differently. */
+internal fun String.withShift(shift: String?): String = if (shift == null) this else this + SHIFT_GAP + shift
+
+private const val SHIFT_GAP = "  "
+
+/** The muted treatment a zone shift wears wherever it appears — quieter than the line it trails,
+ *  because it answers a question the reader only sometimes has. */
+internal val zoneShiftColor: Color
+    @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
 
 /**
  * Movement the recorder missed: neighboring track endpoints disagree. Deliberately subdued — most
@@ -1015,19 +1117,45 @@ private fun GapCard(
     // way): the gap runs on into the neighbouring day, so this slice knows neither how long the
     // absence was nor where it ended. Each side is named only on the day that side happened —
     // otherwise every day of a three-day gap claims the arrival, two days before it happened.
-    val startsAtMidnight = isLocalMidnight(gap.start, zone)
-    val endsAtMidnight = isLocalMidnight(gap.end, zone)
+    // A crossing's halves were cut at the arrival's midnight, not at one of their own, so neither
+    // holds a seam: each states the end it speaks for and says nothing about the other, which is
+    // sitting under its own day's heading elsewhere in the list.
+    // A crossing's halves were cut at the arrival's midnight, not at one of their own, so neither
+    // holds a seam: each states the end it speaks for and says nothing about the other, which is
+    // sitting under its own day's heading elsewhere in the list.
+    //
+    // Which reduces the whole card to two questions — does this row hold the real departure, and
+    // does it hold the real arrival — answered once here and read everywhere below.
+    val reader = timelineZone()
+    val ordinary = !item.spansClocks
+    val holdsDeparture =
+        item.departureZone != null && !(ordinary && isLocalMidnight(gap.start, zone))
+    val holdsArrival =
+        item.arrivalZone != null && !(ordinary && isLocalMidnight(gap.end, zone))
     val extent = when {
-        startsAtMidnight && endsAtMidnight -> "all day"
-        startsAtMidnight -> "until ${timeFormat.format(Date(gap.end))}"
-        endsAtMidnight -> "from ${timeFormat.format(Date(gap.start))}"
-        else -> formatDurationMs(gap.end - gap.start)
+        holdsDeparture && holdsArrival -> formatDurationMs(gap.end - gap.start)
+        holdsDeparture -> "from ${timeAt(gap.start, zone)}"
+        holdsArrival -> "until ${timeAt(gap.end, zone)}"
+        else -> "all day"
     }
-    val arrival = if (endsAtMidnight) null else item.toPlace
-    val departure = if (startsAtMidnight) null else item.fromPlace
+    val shift = when {
+        // Neither end, so no clock time on the line: an offset there qualifies nothing, and the
+        // stay row suppresses its own for the same reason.
+        !holdsDeparture && !holdsArrival -> null
+        // Two clocks on one row — each end states its own beside its own place, below.
+        item.spansClocks -> null
+        else -> zoneShiftLabel(gap.start, zone, reader)
+    }
+    val arrival = if (holdsArrival) item.toPlace else null
+    val departure = if (holdsDeparture) item.fromPlace else null
+    // Both ends on one row only where a hop landed on the day it left; each then needs its own
+    // clock, since the line between them can carry only one.
+    val arrivalAt = if (item.spansClocks) gapEndTime(gap.end, zone, reader) else null
+    val departureAt = item.departureZone?.takeIf { item.spansClocks }
+        ?.let { gapEndTime(gap.start, it, reader) }
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
-            GapPlaceLine(arrival, onOpenPlace)
+            GapPlaceLine(arrival, arrivalAt, onOpenPlace)
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1056,24 +1184,37 @@ private fun GapCard(
                 }
                 Spacer(Modifier.width(16.dp))
                 Text(
-                    "missing recording · $extent",
+                    "missing recording · $extent".withShift(shift),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
             }
-            GapPlaceLine(departure, onOpenPlace)
+            GapPlaceLine(departure, departureAt, onOpenPlace)
         }
     }
 }
+
+/** When one end of a crossing happened, on that end's own clock — the shift trailing it where the
+ *  reader's clock differs, joined the one way [withShift] joins them everywhere. */
+private fun gapEndTime(epochMs: Long, zone: ZoneId, reader: ZoneId): String =
+    timeAt(epochMs, zone).withShift(zoneShiftLabel(epochMs, zone, reader))
 
 /**
  * One side of a gap: a full-width tappable line (pin glyph + place name, ripple across the row
  * like every other tappable row) opening the place's detail — stay-less clusters have zero-visit
  * rows (summarize emits every cluster), so every known side opens. An unknown side renders
  * nothing; its position tells the story.
+ *
+ * [at] is set only on a crossing, where each end runs on its own clock and the row has no single one
+ * to state above the connector. It trails the name rather than leading it: which two places the
+ * absence lies between is what the row is for, and the times qualify them.
  */
 @Composable
-private fun GapPlaceLine(place: PlaceResolver.ResolvedStay?, onOpenPlace: (String) -> Unit) {
+private fun GapPlaceLine(
+    place: PlaceResolver.ResolvedStay?,
+    at: String?,
+    onOpenPlace: (String) -> Unit,
+) {
     if (place == null) return
     Row(
         modifier = Modifier
@@ -1097,6 +1238,16 @@ private fun GapPlaceLine(place: PlaceResolver.ResolvedStay?, onOpenPlace: (Strin
             color = placeTitleColor(named = place.label != null),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
         )
+        if (at != null) {
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = at,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
     }
 }

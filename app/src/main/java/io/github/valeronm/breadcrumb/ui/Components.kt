@@ -94,6 +94,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import kotlin.math.abs
 
 /** Settings-style switch with a check/cross icon in the thumb mirroring its state. */
 @Composable
@@ -393,6 +394,44 @@ internal fun durationSettingLabel(sec: Int): String = when {
 internal val dateFormat by PerLocale { SimpleDateFormat("MMM d, HH:mm", it) }
 
 internal val timeFormat by PerLocale { SimpleDateFormat("HH:mm", it) }
+
+private val hourMinute by PerLocale { DateTimeFormatter.ofPattern("HH:mm", it) }
+
+/**
+ * A clock time in [zone] — what a row shows when the zone it happened in is not the device's.
+ *
+ * Not [timeFormat] with a zone set on it: [SimpleDateFormat] carries a mutable calendar, so a shared
+ * instance retimed per row is a data race between two rows in different zones and a wrong time in
+ * whichever loses. [java.time.format.DateTimeFormatter] is immutable, which is what makes one
+ * instance safe to share across rows that disagree about the clock.
+ */
+internal fun timeAt(epochMs: Long, zone: ZoneId): String =
+    Instant.ofEpochMilli(epochMs).atZone(zone).format(hourMinute)
+
+/**
+ * How far [zone]'s clock sat from the reader's own at [epochMs] — `+8h`, `-5h30` — or null when
+ * they agree and there is nothing to say.
+ *
+ * **Both zones are read at that instant, not today.** A trip last July is compared against what the
+ * reader's own clock said last July, so summer time on either side is already in the answer and a
+ * past row does not shift when either place next changes its clocks.
+ *
+ * A difference, deliberately, and not the UTC offset: `+8h` answers "how much later than me was it
+ * there", which is the question someone reading their own history has. `+09:00` answers a question
+ * about UTC that nobody asked, and leaves the arithmetic to the reader.
+ */
+internal fun zoneShiftLabel(epochMs: Long, zone: ZoneId, reader: ZoneId): String? {
+    // The common case by far — a history mostly spent where its reader is — and the offsets below
+    // reach the same conclusion the long way, once per row per recomposition.
+    if (zone == reader) return null
+    val at = Instant.ofEpochMilli(epochMs)
+    val minutes = (zone.rules.getOffset(at).totalSeconds - reader.rules.getOffset(at).totalSeconds) / 60
+    if (minutes == 0) return null
+    val sign = if (minutes > 0) "+" else "−"
+    val hours = abs(minutes) / 60
+    val rest = abs(minutes) % 60
+    return if (rest == 0) "$sign${hours}h" else "$sign${hours}h$rest"
+}
 
 /** The screens' shared top-bar back arrow. */
 @Composable
