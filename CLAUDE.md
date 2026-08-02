@@ -204,7 +204,9 @@ Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to 
 `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
 `DeafnessWarning` (decide when to tell the user about it), `MovementConfirmer` (the recording
 pipeline's second witness — see below), `PlaceCategorySuggester` (guess a place's category from
-what the user called it — see below), `RoutePlaces` (the named places at a track's two ends). New
+what the user called it — see below), `RoutePlaces` (the named places at a track's two ends),
+`TravelDeriver` + `TravelNaming` (journeys away from home — see below) and `CityAtlas` (the offline
+gazetteer they are named from). New
 behavior belongs here first, with a test, before wiring into the service or UI. The shared
 vocabulary lives here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, `PlaceCategory`, and the
 `DistanceFn` seam (the GMS `DetectedActivity` mapping is `location/DetectedActivities`). One deliberate impurity: domain functions take the Room entities
@@ -212,6 +214,33 @@ vocabulary lives here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, `PlaceCa
 runs over millions of rows, and a per-row mapping allocation buys nothing but layering purity. The
 `db` package must not import `domain` back (that would make the two one unit); entities carry no
 domain defaults for the same reason.
+
+**A journey is a run of nights, and every rule about one is a rule about placing a night**
+(`TravelDeriver`). A night is *away* when the cluster holding it is not one home's — cluster
+identity, never a distance, so there is no radius to sit just inside or outside and a hotel five
+minutes down the road is as much a journey as one abroad. Home is the **set** of `HOME`-tagged
+places (their pins seed the clustering, so each one's capture radius draws its own boundary), and
+with nothing tagged the cluster holding the most nights stands in. Nights are sampled at 03:00 on
+**solar** time derived from longitude — no zone was ever recorded and today's device zone slices a
+past trip abroad at the wrong hours, while an offset off by up to ~1.5 h cannot change which bed
+someone was in. A night at home splits a run in two; a night nothing can place (a gap whose two
+sides disagree) is carried through a run but can neither open nor close one. **Days are nights + 1**
+and a journey's figures come only from its own days: the bounds are the days `daysCovered` marks,
+trimmed by the home stays either side but never stretched by them, because the night someone flies
+the interval covering their last night at home is a *gap* and the last stay at home can be a day
+earlier.
+
+**What a journey is called is decided apart from what it is** (`TravelNaming` + the naming pass in
+`TrackListViewModel`): places ranked by time spent, anything under two hours dropped, at most three
+named. Time spent means stays **plus tracks that begin and end in the same place** — a day walking a
+city is mostly movement, and by stays alone that city scores less than the car park. The floor is
+absolute rather than a share of the journey, because a share halves when one place resolves to two
+names and both then vanish. Names come from the gazetteer, not from the user's own labels — the
+exception is a `HOME`/`FRIENDS_FAMILY` place, where visiting the person *is* the destination — since
+a label sits on a parking spot the recorder happened to stop at, and on-foot recording will scatter
+that one label into many small clusters. `PlaceCategory.visited` marks the stops that are the road
+rather than a place on it (fuel, service areas); parking deliberately still counts, being the only
+evidence a car-borne history has of being in a city.
 
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
 time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
@@ -301,14 +330,15 @@ drive-start leading-stray repair, the point-starved-track purge). **No backfill 
 now**: `App.onCreate` runs the discarded-track retention purge and the two versioned sweeps (edge
 stays, then track stats), and `sweepEdgeStays` says why a sweep is not one.
 
-**UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places) Scaffold
+**UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places / Insights) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
 stacked layers for place detail, the Settings sub-pages (sampling, point quality, auto-pause, GPS
 search, track filtering, privacy, Recently deleted, Logs), and discarded-track detail — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
 one layer at a time). The Compose code is split one file per screen, all in the `ui` package:
 `MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in
-`RecordScreen`/`TimelineScreen`/`PlacesScreens`/`TrackDetailScreen`/`SettingsScreens`/
+`RecordScreen`/`TimelineScreen`/`PlacesScreens`/`InsightsScreens`/`TrackDetailScreen`/
+`SettingsScreens`/
 `DiscardedScreens`, with shared widgets and formatters in `Components.kt` and the color-ramp/
 legend code in `TrackColoring.kt` (cross-file symbols are `internal`, not `private`), and the
 duration ladder in `DurationFormat.kt`. **No top-level `val` in these files may reach the Android
@@ -385,6 +415,16 @@ cross-checks it.
   `protomapsApiKey=…` (gitignored), surfaced as `BuildConfig.PROTOMAPS_API_KEY`, and injected into the
   bundled style at load time (`{PROTOMAPS_KEY}` placeholder in `assets/protomaps-{dark,light}.json`).
   A fresh checkout needs that line added or the basemap won't load.
+- **The gazetteer is a bundled asset** (`assets/cities.bin`, ~4 MB): GeoNames `cities1000` — every
+  populated place of 1,000+ **and every administrative seat whatever its size**, which is why that
+  file rather than the smaller `cities5000`, a historic village being exactly what a journey gets
+  named after. Packed by `tools/pack_cities.py` (its docstring is the format spec) and checked in, so
+  a fresh checkout and CI need no network; regenerate only to take a newer dump. **CC BY 4.0 — the
+  credit in Settings is a licence requirement, not decoration.** Feature codes decide nothing about
+  what a place *is*: Paris's arrondissements are plain `PPL`, same as any town, so districts are
+  separated from towns by the naming heuristic in `CityAtlas` (a window plus a population dominance
+  factor) and not by the data. The rows carry an IANA zone that nothing reads yet — it is there so
+  rendering past trips in the zone they happened in needs no second download.
 - **The basemap styles are bundled assets** (`assets/protomaps-dark.json` / `protomaps-light.json`,
   picked by theme) — the official flavors as served by the hosted API's style endpoint
   (`https://api.protomaps.com/styles/v5/{dark,light}/en.json?key=…`), verbatim except the API key
