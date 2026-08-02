@@ -311,12 +311,18 @@ each of the three says why. The UI collects with `collectAsStateWithLifecycle` f
 a backgrounded Compose tree keeps collecting otherwise, and the process outlives the UI by weeks.
 
 **A track's writer is declared, not measured.** `source` (`TrackOrigin.code`) is set by whoever
-inserts the row — the recorder in `startTrack`, the GPX import, a backup restore, and merge/split
-handing it on to the rows they create. `TrackOrigin.inferFrom` reconstructs it only where no
-declaration exists: the v15 migration's SQL fill, and a backup file carrying no `source` key. Two
-codes and no third — `TrackMerge.plan` refuses a merge across writers rather than inventing a
-"mixed" one. Besides that refusal it is read by `availableColorModes` (`ui/TrackColoring`), which
-drops the colour metrics an import can't carry.
+inserts the row — the recorder in `startTrack`, the GPX import, the add-trip form
+(`insertManualTrack`, a `manual` track: two typed endpoints and nothing between), a backup restore,
+and merge/split handing it on to the rows they create. `TrackOrigin.inferFrom` reconstructs it only
+where no declaration exists: the v15 migration's SQL fill, and a backup file carrying no `source`
+key (a source-less manual track reads as imported there — a path, not a measurement, which is the
+honest half of the truth). Three codes and no fourth — `TrackMerge.plan` refuses a merge across
+writers rather than inventing a "mixed" one, which also keeps typed endpoints from being absorbed
+into measured fixes. Besides that refusal it is read by `availableColorModes` (`ui/TrackColoring`),
+which drops the colour metrics an import or a manual entry can't carry. Manual tracks bypass the
+keep thresholds like imports do — `KeepRule`'s two-point purge floor would otherwise delete every
+one on arrival — and their two points are stamped exactly at the row's bounds so the edge-stay
+boundary fix and the stats sweep have nothing to rewrite.
 
 **Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*
 rows and a Room SQL migration can't express the logic, add a repository pass and run it from
@@ -333,7 +339,8 @@ stays, then track stats), and `sweepEdgeStays` says why a sweep is not one.
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places / Insights) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
 stacked layers for place detail, the Settings sub-pages (sampling, point quality, auto-pause, GPS
-search, track filtering, privacy, Recently deleted, Logs), and discarded-track detail — each
+search, track filtering, privacy, Recently deleted, Logs), discarded-track detail, and the add-trip
+form (`AddTripScreen`, opened from the Timeline tab's top-bar "+") — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
 one layer at a time). The Compose code is split one file per screen, all in the `ui` package:
 `MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in
@@ -423,8 +430,10 @@ cross-checks it.
   credit in Settings is a licence requirement, not decoration.** Feature codes decide nothing about
   what a place *is*: Paris's arrondissements are plain `PPL`, same as any town, so districts are
   separated from towns by the naming heuristic in `CityAtlas` (a window plus a population dominance
-  factor) and not by the data. The rows carry an IANA zone that nothing reads yet — it is there so
-  rendering past trips in the zone they happened in needs no second download.
+  factor) and not by the data. The rows carry an IANA zone, read in two places: the timeline's
+  per-cluster clocks (`TrackListViewModel` resolves each cluster's centroid to a city and shows
+  stay/track times on that zone's clock) and the add-trip form, which interprets each end's typed
+  departure/arrival time in the zone of the city its pin resolves to.
 - **The basemap styles are bundled assets** (`assets/protomaps-dark.json` / `protomaps-light.json`,
   picked by theme) — the official flavors as served by the hosted API's style endpoint
   (`https://api.protomaps.com/styles/v5/{dark,light}/en.json?key=…`), verbatim except the API key

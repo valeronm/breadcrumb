@@ -19,6 +19,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
+import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -75,6 +76,10 @@ internal fun MapLibreTrackMap(
     // …and the seam walk that coloring was built from ([TrackQuality.Seams]). Null = walk it here
     // (the live preview, which has no graph).
     precomputedSeams: TrackQuality.Seams? = null,
+    // Draw each leg along the great circle its two fixes imply, and frame the bow it adds — for a
+    // manual track, whose straight projected segment would be a route nothing travelled. Display
+    // geometry only: the coloring, seams and markers stay on the stored fixes.
+    greatCircleLegs: Boolean = false,
 ) {
     val darkTheme = isSystemInDarkTheme()
     val units = LocalUnits.current
@@ -101,7 +106,7 @@ internal fun MapLibreTrackMap(
                 // pins over it so it can't cover them.
                 addEndPlaceAreas(style, endPlaces)
                 addDwellLayers(style, dwells)
-                addTrackLine(style, points, colors)
+                addTrackLine(style, points, colors, greatCircleLegs)
                 addEdgeStayLayer(style, overruns, darkTheme) // over the line, off its ends
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
                 // Over the recorder's own markers: at an end the two land within a capture radius of
@@ -109,7 +114,7 @@ internal fun MapLibreTrackMap(
                 // scrubber's selection alone draws over it — that one is under the user's thumb.
                 addEndPlacePins(ctx, style, endPlaces)
                 addSelectionLayer(ctx, style, selectedPoint)
-                frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
+                frameTo(map, framePositions(points, noisyPoints, greatCircleLegs), singlePointZoom = 15.0)
                 // Stamped here as well as drawn: otherwise the first update sees no applied input
                 // and rebuilds every source the load just built.
                 applied.points = points
@@ -127,7 +132,8 @@ internal fun MapLibreTrackMap(
                 val moved = applied.points !== points || applied.noisy !== noisyPoints
                 if (applied.colors !== colors) {
                     applied.colors = colors
-                    style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(trackLineFeature(points, colors))
+                    style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)
+                        ?.setGeoJson(trackLineFeature(points, colors, greatCircleLegs))
                 }
                 // Refresh geometry when the track grows (the live "current track" preview).
                 if (moved) {
@@ -177,7 +183,7 @@ internal fun MapLibreTrackMap(
                         ?.setGeoJson(endPlaceCollection(endPlaces))
                 }
                 if (!applied.framed) {
-                    frameTo(map, framePositions(points, noisyPoints), singlePointZoom = 15.0)
+                    frameTo(map, framePositions(points, noisyPoints, greatCircleLegs), singlePointZoom = 15.0)
                     applied.framed = true
                 }
             },
@@ -326,20 +332,51 @@ private fun addEndPlacePinImages(ctx: Context, style: Style, places: List<Place>
 }
 
 /**
- * What the once-per-map fit frames: the track line's points — or, when there's no drawable line,
- * whatever markers there are (noisy fixes included), so a bad-points-only track doesn't open on a
- * world view.
+ * What the once-per-map fit frames: the track line's positions — the drawn ones, so a great-circle
+ * leg's poleward bow stays in frame — or, when there's no drawable line, whatever markers there
+ * are (noisy fixes included), so a bad-points-only track doesn't open on a world view.
  */
-private fun framePositions(points: List<TrackPoint>, noisyPoints: List<TrackPoint>): List<LatLng> =
-    (if (points.size >= 2) points else points + noisyPoints).map { LatLng(it.latitude, it.longitude) }
+private fun framePositions(
+    points: List<TrackPoint>,
+    noisyPoints: List<TrackPoint>,
+    greatCircleLegs: Boolean,
+): List<LatLng> =
+    if (points.size >= 2) {
+        linePositions(points, greatCircleLegs).map { LatLng(it.latitude(), it.longitude()) }
+    } else {
+        (points + noisyPoints).map { LatLng(it.latitude, it.longitude) }
+    }
+
+/**
+ * The positions a run of fixes is drawn through: the fixes themselves, or with [greatCircleLegs]
+ * each leg densified along its great circle ([GreatCircle.arc]). Each arc starts from the previous
+ * *drawn* position rather than the raw fix, so the unwrapped longitudes stay continuous across an
+ * antimeridian however many legs cross it.
+ */
+private fun linePositions(points: List<TrackPoint>, greatCircleLegs: Boolean): List<Point> {
+    if (!greatCircleLegs || points.size < 2) {
+        return points.map { Point.fromLngLat(it.longitude, it.latitude) }
+    }
+    val out = ArrayList<StayDeriver.Endpoint>()
+    out += StayDeriver.Endpoint(points[0].latitude, points[0].longitude)
+    for (i in 1 until points.size) {
+        val arc = GreatCircle.arc(out.last(), StayDeriver.Endpoint(points[i].latitude, points[i].longitude))
+        for (j in 1 until arc.size) out += arc[j]
+    }
+    return out.map { Point.fromLngLat(it.lon, it.lat) }
+}
 
 /** The points as one polyline, or null below the two positions a GeoJSON LineString needs. */
-private fun lineFeature(points: List<TrackPoint>, properties: JsonObject? = null): Feature? =
+private fun lineFeature(
+    points: List<TrackPoint>,
+    properties: JsonObject? = null,
+    greatCircleLegs: Boolean = false,
+): Feature? =
     if (points.size < 2) {
         null
     } else {
         Feature.fromGeometry(
-            LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) }),
+            LineString.fromLngLats(linePositions(points, greatCircleLegs)),
             properties,
         )
     }
@@ -396,7 +433,11 @@ internal fun lineRuns(points: List<TrackPoint>, colors: IntArray): List<IntRange
  * instead of hundreds, and only a color boundary is spent twice — a break boundary is spent once,
  * which is what leaves the gap.
  */
-private fun trackLineFeature(points: List<TrackPoint>, colors: IntArray): FeatureCollection {
+private fun trackLineFeature(
+    points: List<TrackPoint>,
+    colors: IntArray,
+    greatCircleLegs: Boolean = false,
+): FeatureCollection {
     if (points.size < 2) return FeatureCollection.fromFeatures(emptyList())
     val features = ArrayList<Feature>()
     // One properties object per *color*, not per run: a banded ramp has a few dozen, a track has
@@ -407,18 +448,22 @@ private fun trackLineFeature(points: List<TrackPoint>, colors: IntArray): Featur
         val props = properties.getOrPut(color) {
             JsonObject().apply { addProperty(COLOR_KEY, ColorUtils.colorToRgbaString(color)) }
         }
-        lineFeature(points.subList(run.first, run.last + 1), props)?.let(features::add)
+        lineFeature(points.subList(run.first, run.last + 1), props, greatCircleLegs)?.let(features::add)
     }
     return FeatureCollection.fromFeatures(features)
 }
 
-private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArray) {
+private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArray, greatCircleLegs: Boolean) {
     // A run of a slow stretch spans metres — sub-pixel on any view of a whole track — and a GeoJSON
     // source simplifies per tile, which drops a feature that small outright. The one long polyline
     // this replaced survived it because simplification keeps a long line's shape.
     // Turning simplification off is what lets a stop keep its color at all; see trackLineFeature.
     style.addSource(
-        GeoJsonSource(TRACK_SOURCE, trackLineFeature(points, colors), GeoJsonOptions().withTolerance(0f)),
+        GeoJsonSource(
+            TRACK_SOURCE,
+            trackLineFeature(points, colors, greatCircleLegs),
+            GeoJsonOptions().withTolerance(0f),
+        ),
     )
     style.addLayer(
         LineLayer(TRACK_LAYER, TRACK_SOURCE).withProperties(

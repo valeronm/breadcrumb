@@ -131,6 +131,19 @@ class BackupImporterTest {
         assertEquals("imported", parse(json).tracks.single().first.source)
     }
 
+    @Test fun `a manual trip's declaration survives the round trip its fixes would misread`() {
+        // Typed endpoints carry no accuracy, so the reconstruction would call this an import —
+        // the declared code must win, and it does by the same rule as any other value.
+        val json = """
+            {"format":"breadcrumb-export","version":1,"exportedAt":1,
+             "pointFields":["timestamp","lat","lon","accuracy"],
+             "tracks":[{"id":1,"activityType":"FLIGHT","startedAt":1,"endedAt":2,
+                        "source":"manual","points":[[1000,1.05,-2.05,null],[2000,1.5,-1.0,null]]}],
+             "places":[],"liveness":[]}
+        """.trimIndent()
+        assertEquals("manual", parse(json).tracks.single().first.source)
+    }
+
     @Test fun `a foreign json file is rejected`() {
         val e = assertThrows(IllegalArgumentException::class.java) {
             parse("""{"format":"something-else","version":1,"pointFields":[],"tracks":[]}""")

@@ -46,6 +46,15 @@ class TrackMergeTest {
         assertNull(TrackMerge.plan(recorded, imported, intervalStart = 0, intervalEnd = 60_000))
     }
 
+    @Test fun `a manual trip merges with neither a recording nor an import`() {
+        // Two typed endpoints absorbed into measured fixes would leave a row no writer describes.
+        val manual = track(1, "WALKING", 0, TrackOrigin.MANUAL.code)
+        val recorded = track(2, "WALKING", 300_000, TrackOrigin.RECORDED.code)
+        val imported = track(2, "WALKING", 300_000, TrackOrigin.IMPORTED.code)
+        assertNull(TrackMerge.plan(manual, recorded, intervalStart = 0, intervalEnd = 60_000))
+        assertNull(TrackMerge.plan(manual, imported, intervalStart = 0, intervalEnd = 60_000))
+    }
+
     @Test fun `same source on both sides merges as usual`() {
         val first = track(1, "WALKING", 0, TrackOrigin.IMPORTED.code)
         val second = track(2, "WALKING", 300_000, TrackOrigin.IMPORTED.code)

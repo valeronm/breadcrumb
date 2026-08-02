@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -56,6 +57,34 @@ class TrackSourceTest {
         val id = dao.allTrackIds().single()
         assertEquals(TrackOrigin.IMPORTED.code, dao.track(id)!!.source)
         assertEquals(TrackOrigin.IMPORTED, TrackOrigin.inferFrom(dao.allPointsFor(id)))
+    }
+
+    @Test fun `a manual trip declares itself, and its typed ends would misread as an import`() = runTest {
+        val result = repository.insertManualTrack(
+            ActivityType.FLIGHT,
+            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.0, -2.0), TEST_START),
+            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), TEST_START + 3 * 3_600_000L),
+        )
+
+        val id = (result as TrackRepository.ManualInsertResult.Inserted).trackId
+        assertEquals(TrackOrigin.MANUAL.code, dao.track(id)!!.source)
+        // No accuracy on a typed endpoint, so the fixes alone read "a path, not a measurement" —
+        // which is why the declaration, carried by the backup format, must never be dropped.
+        assertEquals(TrackOrigin.IMPORTED, TrackOrigin.inferFrom(dao.allPointsFor(id)))
+    }
+
+    @Test fun `delete and restore keep the manual declaration`() = runTest {
+        val result = repository.insertManualTrack(
+            ActivityType.FLIGHT,
+            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.0, -2.0), TEST_START),
+            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), TEST_START + 3 * 3_600_000L),
+        )
+        val id = (result as TrackRepository.ManualInsertResult.Inserted).trackId
+
+        repository.deleteTrack(id)
+        repository.restoreTrack(id)
+
+        assertEquals(TrackOrigin.MANUAL.code, dao.track(id)!!.source)
     }
 
     @Test fun `a merge hands the writer on to the track it creates`() = runTest {

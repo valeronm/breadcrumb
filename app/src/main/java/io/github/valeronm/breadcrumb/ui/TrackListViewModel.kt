@@ -436,6 +436,21 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * Insert the trip the add-trip form describes. [onResult] gets the repository's verdict either
+     * way — the form stays open on a refusal, so it must hear about one.
+     */
+    fun addManualTrack(
+        activityType: ActivityType,
+        origin: TrackRepository.ManualEnd,
+        destination: TrackRepository.ManualEnd,
+        onResult: (TrackRepository.ManualInsertResult) -> Unit,
+    ) {
+        viewModelScope.launch {
+            onResult(repository.insertManualTrack(activityType, origin, destination))
+        }
+    }
+
+    /**
      * Merge the two tracks bracketing a short same-activity stay or gap (closing it). [onMerged] gets
      * the new track's id — the undo snackbar needs it to unmerge.
      */
@@ -523,6 +538,15 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         // across threads for.
         cityOf(at)
     }
+
+    /**
+     * Gazetteer cities matching a typed name — the add-trip form's pin search. The first call pays
+     * for the atlas's folded-name index on top of the atlas itself, hence suspend and off-main.
+     */
+    suspend fun searchCities(query: String, limit: Int): List<CityAtlas.Hit> =
+        withContext(Dispatchers.Default) {
+            Cities.atlas(getApplication()).searchByName(query, limit)
+        }
 }
 
 private fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(

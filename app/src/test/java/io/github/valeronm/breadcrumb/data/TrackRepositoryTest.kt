@@ -38,19 +38,6 @@ class TrackRepositoryTest {
     private suspend fun goodPoints(trackId: Long): List<TrackPoint> =
         dao.allPointsFor(trackId).filterNot { it.ignored }
 
-    /** What the stored aggregates should be, recomputed from the track's points on the spot. */
-    private suspend fun assertStatsMatchPoints(trackId: Long) {
-        val track = dao.track(trackId)!!
-        val expected = TrackStats.of(dao.allPointsFor(trackId))
-        assertEquals(expected.pointCount, track.pointCount)
-        assertEquals(expected.ignoredCount, track.ignoredCount)
-        assertEquals(expected.distanceMeters, track.distanceMeters, 0.5)
-        assertEquals(expected.startLat, track.startLat)
-        assertEquals(expected.startLon, track.startLon)
-        assertEquals(expected.endLat, track.endLat)
-        assertEquals(expected.endLon, track.endLon)
-    }
-
     @Test fun `finishing a track writes the aggregates the recorder never wrote`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
         repository.addPoints((0..5).map { test.point(id, it) })
@@ -63,7 +50,7 @@ class TrackRepositoryTest {
         assertNotNull(track.endedAt)
         assertNull("a real walk must not be discarded", track.discardedAt)
         assertEquals(6, track.pointCount)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `ignored fixes are counted separately and excluded from the endpoints`() = runTest {
@@ -84,7 +71,7 @@ class TrackRepositoryTest {
         assertEquals(4, track.pointCount)
         assertEquals(1, track.ignoredCount)
         assertEquals(1.001, track.startLat!!, 1e-9) // the first *good* point, not the stray
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     // --- The carrier rename at finish ---------------------------------------
@@ -114,7 +101,7 @@ class TrackRepositoryTest {
         assertEquals(ActivityType.UNKNOWN.name, track.activityType)
         assertNull("a proven carrier is a real journey", track.discardedAt)
         assertEquals("the warm-up flags came back", 6, goodPoints(id).size)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `a rename to the label the track already carries is the plain finish`() = runTest {
@@ -125,7 +112,7 @@ class TrackRepositoryTest {
 
         val track = dao.track(id)!!
         assertEquals(ActivityType.WALKING.name, track.activityType)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `a finish without evidence is the finish it always was`() = runTest {
@@ -145,7 +132,7 @@ class TrackRepositoryTest {
         val track = dao.track(id)!!
         assertEquals(ActivityType.WALKING.name, track.activityType)
         assertEquals("the jump flag stands", 1, track.ignoredCount)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     /**
@@ -162,7 +149,7 @@ class TrackRepositoryTest {
         val track = dao.track(id)!!
         assertNotNull("the dangling track is closed", track.endedAt)
         assertNull("and kept — its distance came from the points, not the stale row", track.discardedAt)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `the track being recorded is left alone by finalizeDangling`() = runTest {
@@ -190,7 +177,7 @@ class TrackRepositoryTest {
 
         val track = dao.track(id)!!
         assertEquals(Track.REASON_FILTERED, track.discardReason)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `a track with two points or fewer is purged outright, not discarded`() = runTest {
@@ -214,7 +201,7 @@ class TrackRepositoryTest {
         val track = dao.track(id)!!
         assertEquals(Track.REASON_FILTERED, track.discardReason)
         assertEquals(5, track.ignoredCount)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `merging two tracks recomputes the merged track's aggregates`() = runTest {
@@ -231,7 +218,7 @@ class TrackRepositoryTest {
         assertEquals(8, merged.pointCount)
         // Recomputed over the whole merged path, the leg across the join included — a sum of the
         // two originals' distances would leave that out.
-        assertStatsMatchPoints(mergedId)
+        test.assertStatsMatchPoints(mergedId)
         assertEquals(Track.REASON_MERGED, dao.track(first)!!.discardReason)
         assertEquals(Track.REASON_MERGED, dao.track(second)!!.discardReason)
     }
@@ -251,7 +238,7 @@ class TrackRepositoryTest {
         assertEquals(1, track.ignoredCount)
         assertEquals(5, track.pointCount)
         assertEquals(1.001, track.startLat!!, 1e-9) // the stray is no longer the start
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     // --- Edge stays -----------------------------------------------------------------------------
@@ -312,7 +299,7 @@ class TrackRepositoryTest {
         assertTrue(track.endedAt!! in walkEndTs..(walkEndTs + 60_000))
         // ...and that is where the last good fix is, so the row and the points agree.
         assertEquals(track.endedAt, goodPoints(id).last().timestamp)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
         assertEquals(
             repository.trackPointsFor(id).edgeStay.map { it.id },
             dao.allPointsFor(id).filter { it.timestamp > track.endedAt!! }.map { it.id },
@@ -351,7 +338,7 @@ class TrackRepositoryTest {
         assertTrue(walk.startedAt in (walkStartTs - 60_000)..(walkStartTs + 30_000))
         assertEquals(walk.startedAt, goodPoints(id).first().timestamp)
         assertTrue(repository.trackPointsFor(id).edgeStay.all { it.timestamp < walk.startedAt })
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `the sweep hands back fixes the current rule does not flag`() = runTest {
@@ -371,7 +358,7 @@ class TrackRepositoryTest {
         assertEquals(0, restored.ignoredCount)
         // The raw end time is gone with the old cut, so the clock goes back to the last fix.
         assertEquals(TEST_START + 89 * 10_000L, restored.endedAt)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     /** A parked vehicle's settling drift: a 30 m excursion out and back on a 60 s cycle, at the
@@ -401,7 +388,7 @@ class TrackRepositoryTest {
         assertTrue("the parked tail is off the path", after.ignoredCount > 60)
         // The clock ends where the drive did, and the row's aggregates followed the flags.
         assertTrue(after.endedAt!! < TEST_START + 40 * 10_000L)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `retyping within the same tuning leaves the stored verdict alone`() = runTest {
@@ -439,7 +426,7 @@ class TrackRepositoryTest {
         assertEquals("the whole track is back on the path", 0, after.ignoredCount)
         assertEquals(8, after.pointCount)
         assertTrue("the restored half counts toward the distance", after.distanceMeters > rejected)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `retyping to a slower activity flags nothing`() = runTest {
@@ -529,7 +516,7 @@ class TrackRepositoryTest {
         assertEquals("the buried overrun is back on the path", 0, merged.ignoredCount)
         assertEquals("every copied fix counts", 96 + 60, merged.pointCount)
         assertTrue(dao.allPointsFor(mergedId).none { it.ignored })
-        assertStatsMatchPoints(mergedId)
+        test.assertStatsMatchPoints(mergedId)
     }
 
     @Test fun `an imported GPX track ending in a linger is trimmed via derived speed`() = runTest {
@@ -563,7 +550,7 @@ class TrackRepositoryTest {
         val walkEndTs = TEST_START + 59 * 10_000L
         assertTrue(head.endedAt!! in walkEndTs..(walkEndTs + 90_000))
         assertTrue(repository.trackPointsFor(importedId).edgeStay.isNotEmpty())
-        assertStatsMatchPoints(importedId)
+        test.assertStatsMatchPoints(importedId)
         // The file's own span no longer matches the track's, so the duplicate check has to work
         // off the points — or the same file would import again as a second copy.
         assertEquals(0, repository.importTracks(file).imported)
@@ -643,7 +630,7 @@ class TrackRepositoryTest {
             val track = dao.track(id)!!
             assertNull("back on the timeline", track.discardedAt)
             assertNull(track.discardReason)
-            assertStatsMatchPoints(id)
+            test.assertStatsMatchPoints(id)
         }
     }
 
@@ -684,8 +671,8 @@ class TrackRepositoryTest {
         // The cut fix opens the second track rather than closing the first.
         assertEquals(cut, dao.track(split.secondId)!!.startedAt)
         assertTrue(dao.allPointsFor(id).last().timestamp < cut)
-        assertStatsMatchPoints(id)
-        assertStatsMatchPoints(split.secondId)
+        test.assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(split.secondId)
     }
 
     @Test fun `a cut at a stop takes the parked fixes off both halves' paths`() = runTest {
@@ -704,7 +691,7 @@ class TrackRepositoryTest {
             val ignored = dao.allPointsFor(halfId).filter { it.ignored }
             assertTrue("the parked fixes come off the path", ignored.isNotEmpty())
             assertTrue(ignored.all { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
-            assertStatsMatchPoints(halfId)
+            test.assertStatsMatchPoints(halfId)
         }
     }
 
@@ -734,7 +721,7 @@ class TrackRepositoryTest {
         assertEquals(before.startedAt, reunited.startedAt)
         assertEquals(before.pointCount, reunited.pointCount)
         assertEquals(before.distanceMeters, reunited.distanceMeters, 0.5)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `a user delete is soft, and restore undoes it`() = runTest {
@@ -747,7 +734,7 @@ class TrackRepositoryTest {
         val restored = dao.track(id)!!
         assertNull(restored.discardedAt)
         assertNull(restored.discardReason)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `the retention purge deletes only tracks discarded before the window`() = runTest {
@@ -787,7 +774,7 @@ class TrackRepositoryTest {
         assertEquals("TAXI", after.activityType)
         assertEquals(before.pointCount, after.pointCount)
         assertEquals(before.distanceMeters, after.distanceMeters, 0.0)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     // --- Import finalize, leading strays: the loop and its bound ---------------------------------
@@ -808,7 +795,7 @@ class TrackRepositoryTest {
         assertEquals(2, track.ignoredCount)
         assertEquals(6, track.pointCount)
         assertEquals(1.002, track.startLat!!, 1e-9) // the first real fix is the start now
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `finalize stops at its safety bound even when more strays lead the track`() = runTest {
@@ -825,7 +812,7 @@ class TrackRepositoryTest {
         assertEquals(5, repository.finalizeImportedTrack(id))
 
         assertEquals(5, dao.track(id)!!.ignoredCount)
-        assertStatsMatchPoints(id)
+        test.assertStatsMatchPoints(id)
     }
 
     // --- Keep thresholds: the extent gate -------------------------------------------------------

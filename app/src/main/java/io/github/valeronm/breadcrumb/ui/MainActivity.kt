@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
@@ -271,6 +272,9 @@ private fun MainScreen(
     // boolean: two taps in a row are two requests, and a flag the receiver has to clear back to
     // false would swallow the second.
     var timelineHomeRequest by remember { mutableIntStateOf(0) }
+    // The add-trip form, opened from the Timeline tab's top bar. A flag: everything the form
+    // holds is local to it, so there is no content to key the layer by.
+    var addingTrip by remember { mutableStateOf(false) }
 
     // The stack, declared bottom-up. A layer's `over` is the one it opens on top of; that single
     // mention decides everything stacking implies: which gesture back reaches, which page blurs
@@ -311,6 +315,13 @@ private fun MainScreen(
         content = placeDetailKey?.takeIf { editingArea },
         over = placeLayer,
         onDismiss = { editingArea = false },
+    )
+    // The add-trip form, over the tabs like place detail: back discards the half-entered trip by
+    // construction, nothing having been written until its check mark.
+    val addTripLayer = rememberOverlayLayer(
+        content = Unit.takeIf { addingTrip },
+        over = tabsLayer,
+        onDismiss = { addingTrip = false },
     )
 
     // Undo snackbars for the swipe actions on the Timeline and Places lists. Owned here, not in the
@@ -356,6 +367,13 @@ private fun MainScreen(
                         }
                     },
                     actions = {
+                        // Only where the trip would land: the Timeline is the one tab that shows
+                        // what a manual entry changes.
+                        if (selectedTab == HomeTab.TRACKS) {
+                            IconButton(onClick = { addingTrip = true }) {
+                                Icon(Icons.Filled.Add, contentDescription = "Add missing trip")
+                            }
+                        }
                         IconButton(onClick = { mainPage = MainPage.Settings }) {
                             Icon(Icons.Filled.Settings, contentDescription = "Settings")
                         }
@@ -531,6 +549,24 @@ private fun MainScreen(
             viewModel = viewModel,
             onClose = { discardedTrackId = null },
         )
+
+        AddTripOverlay(
+            layer = addTripLayer,
+            viewModel = viewModel,
+            onClose = { addingTrip = false },
+        )
+    }
+}
+
+/** The add-trip form, over the tabs — back lands on the Timeline that opened it. */
+@Composable
+private fun AddTripOverlay(
+    layer: OverlayLayerState<Unit>,
+    viewModel: TrackListViewModel,
+    onClose: () -> Unit,
+) {
+    OverlayFrame(layer) {
+        AddTripScreen(viewModel = viewModel, onClose = onClose)
     }
 }
 

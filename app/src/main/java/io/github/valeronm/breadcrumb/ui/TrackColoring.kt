@@ -68,6 +68,9 @@ private fun speedScaleFor(activity: ActivityType, units: UnitSystem): SpeedScale
         units.bySpeedUnit(kmh = SpeedScale(6f, 16f), mph = SpeedScale(4f, 10f))
     ActivityType.WALKING, ActivityType.STILL ->
         units.bySpeedUnit(kmh = SpeedScale(2f, 8f), mph = SpeedScale(1f, 5f))
+    // A cruise holds near one speed for hours; anchors wide enough that climb and descent shade.
+    ActivityType.FLIGHT ->
+        units.bySpeedUnit(kmh = SpeedScale(200f, 1000f), mph = SpeedScale(150f, 650f))
 }
 
 // --- Track line coloring by metric ------------------------------------------------------------
@@ -93,13 +96,17 @@ enum class ColorMode(val label: String, val recorderOnly: Boolean) {
  * kind, not as an observation — asked of the writer rather than tested against one origin, so a
  * writer added later answers for itself. An unknown writer claims nothing and rules out nothing. The rest is decided by the fixes,
  * which the source can't answer for: a GPX may or may not carry elevation, and a recording taken
- * without a satellite count is a recording still. [ColorMode.SPEED] is never ruled out — it falls
- * back to position over time (`TrackQuality.pointSpeedsKmh`), so a track that draws a line has it,
- * and a track that draws none is left a chip rather than an empty row.
+ * without a satellite count is a recording still. [ColorMode.SPEED] is never ruled out by the
+ * *fixes* — it falls back to position over time (`TrackQuality.pointSpeedsKmh`), so a track that
+ * draws a line has it — but a writer whose motion is implied rather than observed
+ * ([TrackOrigin.measuresMotion]) rules it out as a kind too, which is how a manual track ends up
+ * with no metrics at all and the screens that consult this render no selector for one.
  */
 internal fun availableColorModes(points: List<TrackPoint>, source: TrackOrigin?): List<ColorMode> =
     ColorMode.entries.filter { mode ->
-        !(mode.recorderOnly && source?.measuresFixQuality == false) && mode.carriedBy(points)
+        !(mode.recorderOnly && source?.measuresFixQuality == false) &&
+            !(mode == ColorMode.SPEED && source?.measuresMotion == false) &&
+            mode.carriedBy(points)
     }
 
 /** Exhaustive on purpose, like [metricSeries] it mirrors: a metric added later answers this too. */

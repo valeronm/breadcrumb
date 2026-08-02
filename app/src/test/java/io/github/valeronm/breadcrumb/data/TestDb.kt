@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import org.junit.Assert.assertEquals
 
 /** Fixed epoch millis for test tracks — a real timestamp, so durations read sensibly. */
 const val TEST_START = 1_700_000_000_000L
@@ -22,6 +23,22 @@ class TestDb {
     val dao = db.trackDao()
 
     fun close() = db.close()
+
+    /**
+     * What the stored aggregates should be, recomputed from the track's points on the spot — the
+     * one invariant every path that touches points is measured against (see [TrackRepositoryTest]).
+     */
+    suspend fun assertStatsMatchPoints(trackId: Long) {
+        val track = dao.track(trackId)!!
+        val expected = TrackStats.of(dao.allPointsFor(trackId))
+        assertEquals(expected.pointCount, track.pointCount)
+        assertEquals(expected.ignoredCount, track.ignoredCount)
+        assertEquals(expected.distanceMeters, track.distanceMeters, 0.5)
+        assertEquals(expected.startLat, track.startLat)
+        assertEquals(expected.startLon, track.startLon)
+        assertEquals(expected.endLat, track.endLat)
+        assertEquals(expected.endLon, track.endLon)
+    }
 
     /**
      * A fix on a northbound line: [index] steps ~110 m apart at 10 s intervals, so a handful of

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsBoat
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material3.AlertDialog
@@ -99,6 +100,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 import kotlin.math.abs
 
 /** Settings-style switch with a check/cross icon in the thumb mirroring its state. */
@@ -214,7 +216,12 @@ internal fun relativeDay(epochMs: Long, compact: Boolean): String {
 
 internal val compactDayFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM", it) }
 
-private val compactDayYearFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM yyyy", it) }
+internal val compactDayYearFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM yyyy", it) }
+
+/** The device-locale display name of an ISO 3166-1 alpha-2 code, empty when it resolves to
+ *  nothing — each caller decides what an unresolvable country should read as. */
+internal fun countryNameOf(code: String, locale: Locale): String =
+    Locale.Builder().setRegion(code).build().getDisplayCountry(locale)
 
 private val monthOfYearFormat by PerLocale { DateTimeFormatter.ofPattern("MMM yyyy", it) }
 
@@ -838,6 +845,7 @@ internal fun activityIcon(activity: ActivityType?): ImageVector = when (activity
     ActivityType.DRIVING -> Icons.Filled.DirectionsCar
     ActivityType.TAXI -> Icons.Filled.LocalTaxi
     ActivityType.FERRY -> Icons.Filled.DirectionsBoat
+    ActivityType.FLIGHT -> Icons.Filled.Flight
     // Route, not Place: the pin means "a stay" in the timeline, and UNKNOWN tracks (e.g. a GPX
     // import without a <type>) are still movement.
     else -> Icons.Filled.Route
@@ -861,6 +869,7 @@ internal fun activityColor(activity: ActivityType?): Color = when (activity) {
     ActivityType.DRIVING -> Color.hsl(210f, ACTIVITY_SAT, ACTIVITY_LUM) // blue
     ActivityType.TAXI -> Color.hsl(48f, ACTIVITY_SAT, ACTIVITY_LUM)     // taxi yellow
     ActivityType.FERRY -> Color.hsl(330f, ACTIVITY_SAT, ACTIVITY_LUM)   // magenta
+    ActivityType.FLIGHT -> Color.hsl(195f, ACTIVITY_SAT, ACTIVITY_LUM)  // sky cyan
     ActivityType.CYCLING -> Color.hsl(165f, ACTIVITY_SAT, ACTIVITY_LUM) // teal-green
     ActivityType.RUNNING -> Color.hsl(30f, ACTIVITY_SAT, ACTIVITY_LUM)  // orange
     ActivityType.WALKING -> Color.hsl(275f, ACTIVITY_SAT, ACTIVITY_LUM) // violet

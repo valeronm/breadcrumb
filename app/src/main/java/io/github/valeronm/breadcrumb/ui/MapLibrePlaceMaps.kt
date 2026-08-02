@@ -15,6 +15,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.PropertyFactory
@@ -348,10 +349,7 @@ internal fun MapLibrePlacesMap(
         modifier = modifier,
         onMapReady = { map ->
             map.addOnMapClickListener { latLng ->
-                val screen = map.projection.toScreenLocation(latLng)
-                val touch = RectF(screen.x - 36, screen.y - 36, screen.x + 36, screen.y + 36)
-                val key = map.queryRenderedFeatures(touch, OVERVIEW_LAYER)
-                    .firstOrNull()?.getStringProperty(PLACE_KEY)
+                val key = featureNear(map, latLng, OVERVIEW_LAYER)?.getStringProperty(PLACE_KEY)
                 if (key != null) applied.onOpen(key)
                 key != null
             }
@@ -369,6 +367,14 @@ internal fun MapLibrePlacesMap(
             }
         },
     )
+}
+
+/** The topmost feature of [layer] within a finger's reach of [latLng], or null — the one tap
+ *  hit-test every marker layer here shares, 36 px of slop included. */
+private fun featureNear(map: MapLibreMap, latLng: LatLng, layer: String): Feature? {
+    val screen = map.projection.toScreenLocation(latLng)
+    val touch = RectF(screen.x - 36, screen.y - 36, screen.x + 36, screen.y + 36)
+    return map.queryRenderedFeatures(touch, layer).firstOrNull()
 }
 
 /** Last-applied input of the all-places overview map. */
@@ -501,3 +507,118 @@ private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
             )
         },
     )
+
+// --- Trip-endpoints map ---------------------------------------------------------------------
+
+private const val TRIP_MARKER_SOURCE = "trip-marker-src"
+private const val TRIP_MARKER_LAYER = "trip-marker-layer"
+
+/** Last-applied inputs of the trip map; the two pins are one pair, always redrawn together. */
+private class AppliedTripInputs {
+    var pins: Pair<StayDeriver.Endpoint?, StayDeriver.Endpoint?>? = null
+    var places: List<OverviewPlace>? = null
+}
+
+/**
+ * The add-trip form's map: the user's places as the field the overview map draws — **the
+ * first-class way to pick an end**, a tap selecting one — with the trip's own two labeled pins
+ * above them and a long press placing the active pin anywhere else. No capture circles and no
+ * endpoint dots, which is why [MapLibrePlaceMap] isn't bent to draw it. The trip pins are the
+ * untagged place pin: the marker vocabulary already means "a spot the user named", and these are
+ * two of those in the making.
+ */
+@Composable
+internal fun MapLibreTripMap(
+    origin: StayDeriver.Endpoint?,
+    destination: StayDeriver.Endpoint?,
+    places: List<OverviewPlace>,
+    onLongPress: (StayDeriver.Endpoint) -> Unit,
+    /** A tap on a place's pin, reported at the pin's own spot rather than the finger's. */
+    onPlaceTap: (StayDeriver.Endpoint) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val applied = remember { AppliedTripInputs() }
+    // Both listeners are attached once to a map outliving recompositions — they must read the
+    // current callbacks, or a press would land on whichever end was active when the map was built.
+    val longPress by rememberUpdatedState(onLongPress)
+    val placeTap by rememberUpdatedState(onPlaceTap)
+    MapLibreStyledMap(
+        modifier = modifier,
+        onMapReady = { map ->
+            map.addOnMapLongClickListener { at ->
+                longPress(StayDeriver.Endpoint(at.latitude, at.longitude))
+                true
+            }
+            map.addOnMapClickListener { latLng ->
+                val point = featureNear(map, latLng, OVERVIEW_LAYER)?.geometry() as? Point
+                if (point != null) {
+                    placeTap(StayDeriver.Endpoint(point.latitude(), point.longitude()))
+                }
+                point != null
+            }
+        },
+        onStyleLoaded = { ctx, map, style ->
+            applied.pins = origin to destination
+            applied.places = places
+            // The overview map's own layers, ids and all — a style belongs to one MapView, so the
+            // names can't collide, and the places here are exactly that map's field of pins.
+            addOverviewLayers(ctx, style, places)
+            style.addSource(GeoJsonSource(TRIP_MARKER_SOURCE, tripMarkerCollection(origin, destination)))
+            style.addLayer(labeledSymbolLayer(ctx, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
+            frameTripMap(map, origin, destination, places, opening = true)
+        },
+        onUpdate = { map, style ->
+            if (applied.places !== places) {
+                applied.places = places
+                style.getSourceAs<GeoJsonSource>(OVERVIEW_SOURCE)
+                    ?.setGeoJson(overviewCollection(places))
+            }
+            if (applied.pins != origin to destination) {
+                applied.pins = origin to destination
+                style.getSourceAs<GeoJsonSource>(TRIP_MARKER_SOURCE)
+                    ?.setGeoJson(tripMarkerCollection(origin, destination))
+                frameTripMap(map, origin, destination, places, opening = false)
+            }
+        },
+    )
+}
+
+private fun tripMarkerCollection(
+    origin: StayDeriver.Endpoint?,
+    destination: StayDeriver.Endpoint?,
+): FeatureCollection {
+    val pin = placePinImage(null, withGlyph = true)
+    return FeatureCollection.fromFeatures(
+        listOfNotNull(
+            origin?.let { endpointFeature(it, pin, "Origin") },
+            destination?.let { endpointFeature(it, pin, "Destination") },
+        ),
+    )
+}
+
+/**
+ * Frames the trip pins only when one sits outside the view's central region: a long-pressed pin is
+ * already under the user's eye and yanking the camera would fight the gesture, while a pin picked
+ * by name can land anywhere on the globe. On opening with no pins yet the camera fits the place
+ * field instead — the ground the user's history is on is where a trip's ends are picked from.
+ */
+private fun frameTripMap(
+    map: MapLibreMap,
+    origin: StayDeriver.Endpoint?,
+    destination: StayDeriver.Endpoint?,
+    places: List<OverviewPlace>,
+    opening: Boolean,
+) {
+    val pins = listOfNotNull(origin, destination).map { LatLng(it.lat, it.lon) }
+    if (pins.isEmpty()) {
+        if (opening && places.isNotEmpty()) {
+            frameTo(map, places.map { LatLng(it.marker.location.lat, it.marker.location.lon) }, singlePointZoom = 13.0)
+        }
+        return
+    }
+    if (!opening) {
+        val visible = map.projection.visibleRegion.latLngBounds
+        if (pins.all { visible.containsWithMargin(it.latitude, it.longitude) }) return
+    }
+    frameTo(map, pins, singlePointZoom = 9.0)
+}

@@ -25,6 +25,8 @@ class ActivityTypeTest {
         assertFalse(ActivityType.CYCLING.sharesTrackWith(ActivityType.DRIVING))
         assertFalse(ActivityType.DRIVING.sharesTrackWith(ActivityType.STILL))
         assertFalse(ActivityType.UNKNOWN.sharesTrackWith(ActivityType.WALKING))
+        // AIR is its own family, so a flight never absorbs the drive to the airport.
+        assertFalse(ActivityType.FLIGHT.sharesTrackWith(ActivityType.DRIVING))
     }
 
     // --- Persisted-name lookups ----------------------------------------------
@@ -40,6 +42,7 @@ class ActivityTypeTest {
     fun `labelFor uses the label for known names and title-cases legacy ones`() {
         assertEquals("Walking", ActivityType.labelFor("WALKING"))
         assertEquals("Stationary", ActivityType.labelFor("STILL"))
+        assertEquals("Flight", ActivityType.labelFor("FLIGHT"))
         assertEquals("Hovercraft", ActivityType.labelFor("HOVERCRAFT"))
     }
 }

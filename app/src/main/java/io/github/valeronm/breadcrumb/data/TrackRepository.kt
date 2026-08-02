@@ -15,6 +15,7 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
+import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.util.DebugLog
@@ -136,6 +137,66 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             )
         }
         return GpxImportCounts(imported, duplicates, overlapping)
+    }
+
+    /** One typed end of a manual track — where the user says the leg began or ended, and when. */
+    class ManualEnd(val at: StayDeriver.Endpoint, val timestampMs: Long)
+
+    sealed class ManualInsertResult {
+        class Inserted(val trackId: Long) : ManualInsertResult()
+
+        /** The span intersects an existing track's fixes — refused, the same rule as a GPX
+         *  overlap: two paths over one period double-count stats and leave stay derivation
+         *  reconciling parallel journeys. */
+        object Overlapping : ManualInsertResult()
+    }
+
+    /**
+     * Inserts a track the user typed in: two points, two times, nothing between. Keep thresholds
+     * deliberately do NOT apply, like [importTracks] — an explicit entry is kept as-is, and the
+     * two-point purge floor ([KeepRule]) would otherwise delete every manual track on arrival.
+     * The points are stamped exactly at the track's own bounds: the edge-stay boundary fix widens
+     * a row to its points' envelope, so a point outside the declared span would move the track's
+     * clock on the next sweep.
+     */
+    suspend fun insertManualTrack(
+        activityType: ActivityType,
+        origin: ManualEnd,
+        destination: ManualEnd,
+    ): ManualInsertResult {
+        val spanning = dao.countTracksSpanning(origin.timestampMs, destination.timestampMs) > 0
+        if (spanning || dao.countTracksOverlapping(origin.timestampMs, destination.timestampMs) > 0) {
+            return ManualInsertResult.Overlapping
+        }
+        val trackId = db.withTransaction {
+            val id = dao.insertTrack(
+                Track(
+                    activityType = activityType.name,
+                    startedAt = origin.timestampMs,
+                    endedAt = destination.timestampMs,
+                    source = TrackOrigin.MANUAL.code,
+                ),
+            )
+            dao.insertPoints(
+                listOf(origin, destination).map { end ->
+                    TrackPoint(
+                        trackId = id,
+                        latitude = end.at.lat,
+                        longitude = end.at.lon,
+                        altitude = null,
+                        accuracy = null,
+                        speed = null,
+                        bearing = null,
+                        timestamp = end.timestampMs,
+                        segmentStart = false,
+                    )
+                },
+            )
+            id
+        }
+        finalizeImportedTrack(trackId)
+        DebugLog.i(TAG, "manual track: ${activityType.name} inserted as #$trackId")
+        return ManualInsertResult.Inserted(trackId)
     }
 
     /**
@@ -740,6 +801,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * bypass live ingest filtering, so each stray leading point ([TrackQuality.leadingPointIsJump] —
      * the drive-start cold-start artifact) is flagged an ignored JUMP fix, looping while strays lead;
      * then the overrun comes off the edges and the missing aggregates are computed. Returns the dropped count.
+     * Manual tracks finalize through here too: on two points every stage is a no-op except the
+     * aggregates, which is exactly what they need.
      */
     suspend fun finalizeImportedTrack(trackId: Long): Int {
         var dropped = 0

@@ -20,7 +20,8 @@ import kotlin.math.roundToInt
  *
  * Held as the raw bytes rather than decoded into objects: a row is six fields read by offset when
  * one is wanted, and 160,000 of them as instances would cost more heap than the file. Only the
- * winning row's name is ever turned into a String.
+ * winning row's name is ever turned into a String — with one exception: the first name search
+ * folds every name once into its own index ([searchByName]).
  */
 class CityAtlas private constructor(
     private val bytes: ByteArray,
@@ -44,6 +45,102 @@ class CityAtlas private constructor(
     )
 
     val size: Int get() = rowCount
+
+    /** A name-search hit — where the named place sits, for a screen placing a pin by it. */
+    class Hit(
+        val name: String,
+        /** ISO 3166-1 alpha-2. */
+        val country: String,
+        val lat: Double,
+        val lon: Double,
+    )
+
+    /** The folded names as one string plus per-row offsets into it — [searchByName]'s index. */
+    private class FoldedNames(val text: String, val starts: IntArray)
+
+    /** Built on the first search, kept for the process; a benign race — two builders agree. */
+    @Volatile
+    private var foldedNames: FoldedNames? = null
+
+    /**
+     * The rows whose names contain [query], by [PlaceSearch]'s rules (substring,
+     * case- and accent-insensitive): prefix matches before infix ones, each bucket most populous
+     * first, at most [limit]. The first call folds every name into one searchable string — about
+     * twice the names blob in heap (UTF-16 over UTF-8), paid only if a search ever happens — after
+     * which a query is a string scan and a handful of row reads.
+     */
+    fun searchByName(query: String, limit: Int): List<Hit> {
+        val needle = PlaceSearch.fold(query)
+        if (needle.length < MIN_QUERY_CHARS || limit <= 0) return emptyList()
+        val names = foldedNames()
+        val prefix = mutableListOf<Int>()
+        val infix = mutableListOf<Int>()
+        var at = names.text.indexOf(needle)
+        while (at >= 0) {
+            val row = rowAtOffset(names.starts, at)
+            // indexOf finds the leftmost hit, so one running past this row's end is a false match
+            // spanning two names — and no real one can sit earlier in the row to go back for.
+            if (at + needle.length <= names.starts[row + 1]) {
+                (if (at == names.starts[row]) prefix else infix) += row
+            }
+            at = names.text.indexOf(needle, names.starts[row + 1])
+        }
+        return (mostPopulous(prefix, limit) + mostPopulous(infix, limit)).take(limit).map { row ->
+            Hit(name = nameAt(row), country = countryAt(row), lat = latOf(row), lon = lonOf(row))
+        }
+    }
+
+    /**
+     * The [limit] most populous of [rows], most populous first — a bounded slate kept by insertion,
+     * the [COUNTRY_VOTES] pattern: a two-letter query matches tens of thousands of rows, and a full
+     * sort re-decodes the population field on every comparison for an order only the head of is read.
+     */
+    private fun mostPopulous(rows: List<Int>, limit: Int): List<Int> {
+        val size = minOf(rows.size, limit)
+        if (size == 0) return emptyList()
+        val bestRows = IntArray(size)
+        val bestPops = IntArray(size) { -1 }
+        for (row in rows) {
+            val pop = populationAt(row)
+            var slot = size - 1
+            if (pop <= bestPops[slot]) continue
+            while (slot > 0 && bestPops[slot - 1] < pop) {
+                bestPops[slot] = bestPops[slot - 1]
+                bestRows[slot] = bestRows[slot - 1]
+                slot--
+            }
+            bestPops[slot] = pop
+            bestRows[slot] = row
+        }
+        return bestRows.toList()
+    }
+
+    /**
+     * Folded per row rather than as one pass over the blob: folding can change a name's length, so
+     * each row's offsets have to be measured on its own folded text.
+     */
+    private fun foldedNames(): FoldedNames {
+        foldedNames?.let { return it }
+        val out = StringBuilder(nameStarts[rowCount])
+        val starts = IntArray(rowCount + 1)
+        for (row in 0 until rowCount) {
+            starts[row] = out.length
+            out.append(PlaceSearch.fold(nameAt(row)))
+        }
+        starts[rowCount] = out.length
+        return FoldedNames(out.toString(), starts).also { foldedNames = it }
+    }
+
+    /** The row whose folded name holds [offset]: the last row starting at or before it. */
+    private fun rowAtOffset(starts: IntArray, offset: Int): Int {
+        var lo = 0
+        var hi = starts.size - 2
+        while (lo < hi) {
+            val mid = (lo + hi + 1) ushr 1
+            if (starts[mid] <= offset) lo = mid else hi = mid - 1
+        }
+        return lo
+    }
 
     /**
      * The city that should *name* this coordinate: the most populous one within [NAME_WINDOW_M] of
@@ -220,15 +317,22 @@ class CityAtlas private constructor(
 
     private fun cityAt(row: Int, distanceM: Double): City {
         val at = rowsAt + row * ROW_BYTES
-        val nameFrom = namesAt + nameStarts[row]
         return City(
-            name = String(bytes, nameFrom, nameStarts[row + 1] - nameStarts[row], StandardCharsets.UTF_8),
-            country = String(bytes, at + 10, 2, StandardCharsets.US_ASCII),
+            name = nameAt(row),
+            country = countryAt(row),
             zoneId = zones[u16(at + 12)],
             population = u16(at + 8) * 1_000,
             distanceM = distanceM,
         )
     }
+
+    private fun nameAt(row: Int): String {
+        val from = namesAt + nameStarts[row]
+        return String(bytes, from, nameStarts[row + 1] - nameStarts[row], StandardCharsets.UTF_8)
+    }
+
+    private fun countryAt(row: Int): String =
+        String(bytes, rowsAt + row * ROW_BYTES + 10, 2, StandardCharsets.US_ASCII)
 
     /**
      * The least distance a row this far north or south could possibly be at. Meridian meters per
@@ -289,6 +393,10 @@ class CityAtlas private constructor(
 
         /** How many of the nearest places vote on which country a coordinate is in. */
         private const val COUNTRY_VOTES = 5
+
+        /** A folded needle shorter than this matches a meaningless fraction of the atlas — a
+         *  one-char query hits tens of thousands of rows for a ranking no single letter asked. */
+        private const val MIN_QUERY_CHARS = 2
 
         /** How far out those voters may be gathered from, and how far a same-country name may sit. */
         private const val COUNTRY_REACH_M = 25_000.0

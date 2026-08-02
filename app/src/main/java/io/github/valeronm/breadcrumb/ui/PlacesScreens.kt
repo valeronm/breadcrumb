@@ -378,10 +378,11 @@ internal fun PlacesTab(
  * this composable's to set. Filtering is live; with nothing to submit, the keyboard's Done dismisses itself.
  */
 @Composable
-private fun PlacesSearchField(
+internal fun PlacesSearchField(
     query: String,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    placeholder: String = "Search places",
 ) {
     Surface(
         modifier = modifier.height(40.dp),
@@ -411,7 +412,7 @@ private fun PlacesSearchField(
                 )
                 if (query.isEmpty()) {
                     Text(
-                        "Search places",
+                        placeholder,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1164,7 +1165,7 @@ private fun PlaceLocality(at: StayDeriver.Endpoint, viewModel: TrackListViewMode
     val locale = LocalConfiguration.current.locales[0]
     val city by produceState<CityAtlas.City?>(null, at) { value = viewModel.cityAt(at) }
     val label = city?.let {
-        val country = Locale.Builder().setRegion(it.country).build().getDisplayCountry(locale)
+        val country = countryNameOf(it.country, locale)
         // Widest first, and the flag leading it: mid-line it splits the row in two, where at the
         // head it is the line's own glyph. No globe beside a line that already names a country, and
         // no flag where the country cannot be named either.

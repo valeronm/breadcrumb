@@ -5,6 +5,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.Motion
+import io.github.valeronm.breadcrumb.domain.TrackGroup
 
 /**
  * Pure track geometry and fix-quality math over recorded [TrackPoint]s — distance, bounding extent,
@@ -32,11 +33,12 @@ object TrackQuality {
      * doubt, never withdraw one the label already granted); [MOTION_CEILING_FACTOR] is generous on
      * purpose ([Motion.Moving.speedMps] is a window *average*, and a carrier accelerating or
      * rounding a headland is instantaneously well above it — a tight margin would reject exactly
-     * those fixes); and it is clamped to the most permissive ceiling any activity carries, because
-     * a lone teleport is fed to the confirmer like any other fix (the feed contract that keeps the
-     * witness from inheriting the error it checks) and can carry a window to [Motion.Moving] on its
-     * own — at worst a fix is judged as though the track were a drive, a ceiling the recorder
-     * already grants on a label alone. [Motion.Unknown] — the cross-check switched off, or the sky
+     * those fixes); and it is clamped to the most permissive ceiling any *ground* activity carries
+     * ([MAX_CEILING_KMH], which excludes the AIR group), because a lone teleport is fed to the
+     * confirmer like any other fix (the feed contract that keeps the witness from inheriting the
+     * error it checks) and can carry a window to [Motion.Moving] on its own — at worst a fix is
+     * judged as though the track were a drive, a ceiling the recorder already grants on a label
+     * alone. [Motion.Unknown] — the cross-check switched off, or the sky
      * blocked — leaves the label's ceiling exactly as it was.
      */
     fun jumpCeilingKmh(activity: ActivityType, motion: Motion = Motion.Unknown): Double {
@@ -80,13 +82,24 @@ object TrackQuality {
         // so a crossing's teleports are caught by a bar its own speeds can't reach.
         ActivityType.FERRY -> 120.0
         ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN -> 220.0
+        // Real jet ground speeds: ~900 km/h cruise, and a strong jet stream pushes past 1200.
+        // Honest so a retype to FLIGHT hands back in-flight fixes the road ceiling rejected
+        // ([jumpRestores], the FERRY precedent) — and safe to be, because the AIR group is
+        // excluded from [MAX_CEILING_KMH].
+        ActivityType.FLIGHT -> 1300.0
     }
 
     /** How far above the observed window average a fix may still be believed. */
     private const val MOTION_CEILING_FACTOR = 2.5
 
-    /** Derived, not written down: the clamp is "no more than some label already allows". */
-    private val MAX_CEILING_KMH = ActivityType.entries.maxOf { labelCeilingKmh(it) }
+    /** Derived, not written down: the clamp is "no more than some *ground* label already allows".
+     *  The AIR group is excluded on purpose — this clamps the ceiling a teleport-poisoned motion
+     *  window can argue for, and letting such a window claim flight speed would admit almost any
+     *  teleport. A real flight doesn't need the raise: its own label already carries the sky's
+     *  ceiling. */
+    private val MAX_CEILING_KMH = ActivityType.entries
+        .filterNot { it.trackGroup == TrackGroup.AIR }
+        .maxOf { labelCeilingKmh(it) }
 
     fun distanceMeters(a: TrackPoint, b: TrackPoint, distance: DistanceFn = AndroidDistance): Double =
         distance.meters(a.latitude, a.longitude, b.latitude, b.longitude)

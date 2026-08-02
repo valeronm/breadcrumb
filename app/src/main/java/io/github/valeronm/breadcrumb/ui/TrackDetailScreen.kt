@@ -228,19 +228,28 @@ internal fun TrackMapScreen(
                     }
                     val darkTheme = isSystemInDarkTheme()
                     val units = LocalUnits.current
-                    val graph = remember(seams, colorMode, activity, darkTheme, units) {
-                        metricGraphData(seams, colorMode, activity, darkTheme, units)
+                    // No modes means no graph and no chips — a manual track's typed fixes carry no
+                    // metric at all, and which writers can say that is availableColorModes's call,
+                    // not this screen's.
+                    val graph = remember(seams, colorMode, activity, darkTheme, units, colorModes) {
+                        if (colorModes.isEmpty()) {
+                            null
+                        } else {
+                            metricGraphData(seams, colorMode, activity, darkTheme, units)
+                        }
                     }
                     // The chips carry no surface of their own: they are the control for the map
                     // below, not a block of content beside it, and a card around a row of chips
                     // reads as a third thing to look at.
-                    ColorModeSelector(
-                        colorMode,
-                        colorModes,
-                        // Only the import is named: a recording is what a track is, and a
-                        // word on every other one would say nothing.
-                        caption = "Imported".takeIf { source == TrackOrigin.IMPORTED },
-                    ) { selectedMode = it }
+                    if (colorModes.isNotEmpty()) {
+                        ColorModeSelector(
+                            colorMode,
+                            colorModes,
+                            // Only the import is named: a recording is what a track is, and a
+                            // word on every other one would say nothing.
+                            caption = "Imported".takeIf { source == TrackOrigin.IMPORTED },
+                        ) { selectedMode = it }
+                    }
                     // Map and scrubber read as one group: small gaps, small corners between them.
                     Column(
                         Modifier.weight(1f).fillMaxWidth(),
@@ -262,6 +271,9 @@ internal fun TrackMapScreen(
                                     endPlaces = endPlaces,
                                     precomputedColoring = graph?.coloring,
                                     precomputedSeams = seams,
+                                    // A manual track's legs are typed, not travelled — drawn along
+                                    // the great circle rather than as projected chords.
+                                    greatCircleLegs = source == TrackOrigin.MANUAL,
                                     modifier = Modifier.fillMaxSize(),
                                 )
                                 if (showNoisy) {

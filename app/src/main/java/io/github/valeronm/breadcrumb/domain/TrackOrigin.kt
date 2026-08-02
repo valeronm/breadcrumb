@@ -12,12 +12,23 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * code this build doesn't know, which reads as unknown and survives a backup round trip instead of
  * being rewritten to something this build prefers.
  */
-enum class TrackOrigin(val code: String, val measuresFixQuality: Boolean) {
+enum class TrackOrigin(
+    val code: String,
+    val measuresFixQuality: Boolean,
+    /** Whether the fixes' motion was observed rather than implied: a typed pair of endpoints
+     *  implies one constant speed, an assumption no metric should be drawn from — where even a
+     *  GPX with no speed field still carries real positions over real times. */
+    val measuresMotion: Boolean,
+) {
     /** The recorder's own fixes, each with what the receiver said about its own measurement. */
-    RECORDED("recorded", measuresFixQuality = true),
+    RECORDED("recorded", measuresFixQuality = true, measuresMotion = true),
 
     /** Parsed from a GPX file the user shared into the app: a path, not a measurement of one. */
-    IMPORTED("imported", measuresFixQuality = false),
+    IMPORTED("imported", measuresFixQuality = false, measuresMotion = true),
+
+    /** Two endpoints the user typed into the add-trip form — a leg nothing recorded, held as a
+     *  track so the timeline and journeys read it like any other. */
+    MANUAL("manual", measuresFixQuality = false, measuresMotion = false),
     ;
 
     companion object {
@@ -37,7 +48,9 @@ enum class TrackOrigin(val code: String, val measuresFixQuality: Boolean) {
          * What it cannot see: our own GPX export re-imported reads [IMPORTED], which is at least
          * honest — those rows no longer hold what the recorder measured — and a track holding both
          * writers' fixes reads [RECORDED], being indistinguishable from a recording whose platform
-         * withheld some radii. Null when there are no points at all: no evidence, so no answer.
+         * withheld some radii. A [MANUAL] track's typed endpoints carry no radius either, so a
+         * source-less copy of one reads [IMPORTED] — also honest: a path, not a measurement.
+         * Null when there are no points at all: no evidence, so no answer.
          */
         fun inferFrom(points: List<TrackPoint>): TrackOrigin? = when {
             points.isEmpty() -> null

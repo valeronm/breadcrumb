@@ -246,11 +246,24 @@ class TrackQualityTest {
     @Test fun `no verdict can lift a fix above what some label already allows`() {
         // A lone teleport is fed to the confirmer like any other fix, so one can carry a window to
         // Moving on its own. The clamp is what bounds the cost: at worst the fix is judged as
-        // though the track were a drive.
+        // though the track were a drive — a *drive*, not a flight: FLIGHT's ceiling is excluded
+        // from the clamp, or a poisoned window could argue its way to admitting near-anything.
         val absurd = Motion.Moving(1_000.0)
         assertEquals(
             TrackQuality.jumpCeilingKmh(DRIVING),
             TrackQuality.jumpCeilingKmh(WALKING, absurd),
+            0.0,
+        )
+    }
+
+    @Test fun `the flight ceiling is the sky's, and no ground group inherits it`() {
+        // A jet's ground speed with a strong tailwind passes 1200 km/h; a retype to FLIGHT must be
+        // able to hand those fixes back, so the label's own ceiling has to clear them...
+        assertTrue(TrackQuality.jumpCeilingKmh(ActivityType.FLIGHT) > 1_200.0)
+        // ...while the vehicle group's bar stays a road's — AIR is a group of its own.
+        assertEquals(
+            TrackQuality.jumpCeilingKmh(DRIVING),
+            TrackQuality.groupCeilingKmh(DRIVING),
             0.0,
         )
     }
@@ -471,6 +484,17 @@ class TrackQualityTest {
             flagged(2, 38.0, IgnoreReason.JUMP),
         )
         assertEquals(setOf(1), TrackQuality.jumpRestores(pts, ActivityType.CYCLING, alongPath))
+    }
+
+    @Test fun `a retype to flight hands back the fixes a road ceiling rejected`() {
+        // 900 km/h steps: cruise, recorded from a window seat and flagged under any ground label.
+        val pts = listOf(
+            onPath(0, 0.0),
+            flagged(1, 250.0, IgnoreReason.JUMP),
+            flagged(2, 500.0, IgnoreReason.JUMP),
+        )
+        assertTrue(TrackQuality.jumpRestores(pts, DRIVING, alongPath).isEmpty())
+        assertEquals(setOf(1, 2), TrackQuality.jumpRestores(pts, ActivityType.FLIGHT, alongPath))
     }
 
     @Test fun `a flag with no good fix before it stands`() {

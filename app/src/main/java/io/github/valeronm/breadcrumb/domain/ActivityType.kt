@@ -32,6 +32,11 @@ enum class ActivityType(
     /** Never detected either (a crossing reads as IN_VEHICLE, or as nothing at all when the boat
      *  carries the phone rather than the other way round) — assigned by hand on the track page. */
     FERRY("Ferry", true, TrackGroup.VEHICLE),
+
+    /** Never detected — assigned by hand on the track page, and what the add-trip form writes for
+     *  a flight entered after the fact. Its own [TrackGroup] on purpose: a flight's speed ceiling
+     *  must not become any ground group's (see the ceilings in `TrackQuality`). */
+    FLIGHT("Flight", true, TrackGroup.AIR),
     STILL("Stationary", false, TrackGroup.STILL),
     UNKNOWN("Moving", true, TrackGroup.UNKNOWN),
     ;
@@ -54,4 +59,4 @@ enum class ActivityType(
 }
 
 /** Coarse motion family used to decide whether an activity switch splits the track. */
-enum class TrackGroup { FOOT, BICYCLE, VEHICLE, STILL, UNKNOWN }
+enum class TrackGroup { FOOT, BICYCLE, VEHICLE, AIR, STILL, UNKNOWN }

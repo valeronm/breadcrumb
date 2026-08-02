@@ -92,8 +92,12 @@ object EdgeStayDetector {
      * *name* (the value a track row carries), so a row naming a type this build no longer has falls
      * to [BRIEF_STOP] rather than needing a caller to handle it.
      */
-    fun paramsFor(activityTypeName: String): Params =
-        if (ActivityType.ofName(activityTypeName)?.trackGroup == TrackGroup.VEHICLE) VEHICLE else BRIEF_STOP
+    fun paramsFor(activityTypeName: String): Params = when (ActivityType.ofName(activityTypeName)?.trackGroup) {
+        // AIR rides the vehicle tuning: a recorded flight's edge overrun is gate and taxi time,
+        // drift at a vehicle's standstill pace rather than a pedestrian dwell.
+        TrackGroup.VEHICLE, TrackGroup.AIR -> VEHICLE
+        else -> BRIEF_STOP
+    }
 
     /**
      * Bumped whenever detection changes what it would find — a new stage, a moved threshold, a

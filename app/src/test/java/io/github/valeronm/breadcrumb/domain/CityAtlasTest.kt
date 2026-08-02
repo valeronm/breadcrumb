@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.domain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.charset.StandardCharsets
 
@@ -124,6 +125,43 @@ class CityAtlasTest {
         )
 
         assertEquals("Seat of nowhere", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+    }
+
+    @Test fun `name search folds accents and ranks prefix hits before larger infix ones`() {
+        val atlas = atlasOf(
+            row("Lisbon", 0.0, pop = 500),
+            row("East Lisbon", 10_000.0, pop = 900),
+            row("Lisburn", 20_000.0, pop = 40),
+            row("Móra d'Ebre", 30_000.0, pop = 7),
+        )
+
+        // Prefix hits first (by population), then infix ones — a bigger "East Lisbon" must not
+        // outrank the city someone typed the start of.
+        assertEquals(
+            listOf("Lisbon", "Lisburn", "East Lisbon"),
+            atlas.searchByName("Lis", limit = 10).map { it.name },
+        )
+        assertEquals(listOf("Lisbon", "Lisburn"), atlas.searchByName("lis", limit = 2).map { it.name })
+        // An accented name is reachable from the plain keys, and hands back where it sits.
+        val mora = atlas.searchByName("mora", limit = 5).single()
+        assertEquals("Móra d'Ebre", mora.name)
+        assertEquals(ORIGIN_LAT, mora.lat, 1e-5)
+        assertTrue(atlas.searchByName("nowhere at all", limit = 5).isEmpty())
+        assertTrue(atlas.searchByName("   ", limit = 5).isEmpty())
+        // A single letter would rank tens of thousands of rows nobody asked it to.
+        assertTrue(atlas.searchByName("l", limit = 5).isEmpty())
+    }
+
+    @Test fun `a match spanning two adjacent names is nobody's hit`() {
+        // The index is one concatenated string, so a needle can straddle the seam between names.
+        val atlas = atlasOf(
+            TestCity(ORIGIN_LAT, lonAt(0.0), 5, "XX", "Etc/GMT", "Abcd"),
+            TestCity(ORIGIN_LAT + 1.0, lonAt(0.0), 5, "XX", "Etc/GMT", "Cdef"),
+        )
+
+        assertTrue(atlas.searchByName("dc", limit = 5).isEmpty())
+        // ...while a needle sitting inside either single name still finds it.
+        assertEquals(listOf("Cdef", "Abcd"), atlas.searchByName("cd", limit = 5).map { it.name })
     }
 
     @Test fun `an empty atlas names nothing rather than failing`() {
