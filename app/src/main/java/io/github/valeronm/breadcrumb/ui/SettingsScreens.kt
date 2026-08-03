@@ -188,6 +188,14 @@ internal fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // Likewise a licence term: ODbL asks for the credit wherever OSM-derived results show.
+            Text(
+                "Online search © OpenStreetMap contributors, ODbL",
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -430,6 +438,10 @@ internal fun PrivacySettingsScreen(onBack: () -> Unit) {
         SettingsPageDescription(
             "Recording is never locked — tracks keep being recorded whether or not the app is.",
         )
+        val onlineSearch = rememberPref(
+            true,
+            { AppSettings.isOnlinePlaceSearch(context) },
+        ) { AppSettings.setOnlinePlaceSearch(context, it) }
         GroupedRows(
             { RequireUnlockRow(context, lockable, graceSec) },
             {
@@ -439,6 +451,16 @@ internal fun PrivacySettingsScreen(onBack: () -> Unit) {
                         "otherwise shows a map of where you were.",
                     checked = Privacy.blockScreenshots,
                     onCheckedChange = { Privacy.setBlockScreenshots(context, it) },
+                )
+            },
+            {
+                SwitchSettingRow(
+                    title = "Online place search",
+                    subtitle = "Lets the add-trip form find hotels and addresses by name. Typed " +
+                        "searches are sent to photon.komoot.io (OpenStreetMap); off keeps " +
+                        "search fully on this device.",
+                    checked = onlineSearch.value,
+                    onCheckedChange = { onlineSearch.set(it) },
                 )
             },
         )

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
@@ -57,8 +58,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.CityAtlas
@@ -74,24 +77,36 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 
-/** What the add-trip form offers: carried transport plus the generic — a two-point straight line
- *  says nothing about a walk, and foot journeys are what the recorder is for. */
+/** What the add-trip form offers: every movement type, carried transport first — a trip goes
+ *  missing because nothing recorded it, and that happens to walks as readily as to flights. */
 private val MANUAL_TRIP_TYPES = listOf(
     ActivityType.FLIGHT,
+    ActivityType.TRANSIT,
     ActivityType.FERRY,
     ActivityType.TAXI,
     ActivityType.DRIVING,
+    ActivityType.WALKING,
+    ActivityType.RUNNING,
+    ActivityType.CYCLING,
     ActivityType.UNKNOWN,
 )
 
 private const val HOUR_MS = 3_600_000L
 
-/** Where an empty end's pickers open with nothing better to go on. */
-private fun noonToday(zone: ZoneId): ZonedDateTime = LocalDate.now(zone).atTime(12, 0).atZone(zone)
+/** Where an empty end's pickers open: noon of [day] when the Timeline supplied the day the user
+ *  was looking at, today's noon with nothing better to go on. */
+private fun noonOf(day: LocalDate?, zone: ZoneId): ZonedDateTime =
+    (day ?: LocalDate.now(zone)).atTime(12, 0).atZone(zone)
 
 /** One end of the trip being entered — a pin and a wall-clock time, each settable in any order. */
 private class TripEnd {
     var pin by mutableStateOf<StayDeriver.Endpoint?>(null)
+
+    /** The name the pin was picked by, when it came from the online search — what a place created
+     *  from this end on commit will be called. Null for a pin placed any other way: a hand-placed
+     *  pin has no name to give, a saved place already is one, and a picked *city* must not become
+     *  a 150 m capture circle at its centroid. */
+    var placeName by mutableStateOf<String?>(null)
     var date by mutableStateOf<LocalDate?>(null)
     var time by mutableStateOf<LocalTime?>(null)
 
@@ -121,6 +136,8 @@ private class TimeEdit(val end: TripEnd, val label: String, val zone: ZoneId, va
 @Composable
 internal fun AddTripScreen(
     viewModel: TrackListViewModel,
+    /** The day the Timeline showed when the form opened — the pickers' starting day. */
+    initialDay: LocalDate?,
     onClose: () -> Unit,
 ) {
     val origin = remember { TripEnd() }
@@ -154,18 +171,16 @@ internal fun AddTripScreen(
 
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    val placeActivePin = { at: StayDeriver.Endpoint ->
+    fun placePin(at: StayDeriver.Endpoint, placeName: String? = null) {
         // Placing a pin — from a search result, a map pin or a long press — is done with the
         // field: drop its focus and the keyboard with it, or the results list closes onto a
         // keyboard covering the cards it just filled in.
         focusManager.clearFocus()
         keyboard?.hide()
-        if (placingDestination) {
-            destination.pin = at
-        } else {
-            origin.pin = at
-            if (destination.pin == null) placingDestination = true
-        }
+        val end = if (placingDestination) destination else origin
+        end.pin = at
+        end.placeName = placeName
+        if (end === origin && destination.pin == null) placingDestination = true
     }
 
     Scaffold(
@@ -183,8 +198,14 @@ internal fun AddTripScreen(
                             if (departMs == null || arriveMs == null) return@IconButton
                             viewModel.addManualTrack(
                                 activity,
-                                TrackRepository.ManualEnd(from, departMs),
-                                TrackRepository.ManualEnd(to, arriveMs),
+                                TrackListViewModel.ManualTripEnd(
+                                    TrackRepository.ManualEnd(from, departMs),
+                                    origin.placeName,
+                                ),
+                                TrackListViewModel.ManualTripEnd(
+                                    TrackRepository.ManualEnd(to, arriveMs),
+                                    destination.placeName,
+                                ),
                             ) { result ->
                                 when (result) {
                                     is TrackRepository.ManualInsertResult.Inserted -> onClose()
@@ -255,6 +276,15 @@ internal fun AddTripScreen(
                     viewModel.searchCities(query, limit = 6)
                 }
             }
+            val onlineHits by produceState(emptyList<OnlinePlaceSearch.Hit>(), query) {
+                value = if (query.isBlank()) {
+                    emptyList()
+                } else {
+                    // A longer settle than the local scans: this one puts the query on the wire.
+                    delay(400)
+                    viewModel.searchOnline(query, near = origin.pin ?: destination.pin)
+                }
+            }
             PlacesSearchField(
                 query = query,
                 onQueryChange = { query = it },
@@ -267,8 +297,8 @@ internal fun AddTripScreen(
                         origin = origin.pin,
                         destination = destination.pin,
                         places = placeField,
-                        onLongPress = placeActivePin,
-                        onPlaceTap = placeActivePin,
+                        onLongPress = ::placePin,
+                        onPlaceTap = ::placePin,
                         modifier = Modifier.fillMaxSize(),
                     )
                     LegendSurface(Modifier.align(Alignment.TopStart).padding(8.dp)) {
@@ -294,7 +324,7 @@ internal fun AddTripScreen(
                                         label = place.label,
                                         detail = null,
                                     ) {
-                                        placeActivePin(StayDeriver.Endpoint(place.lat, place.lon))
+                                        placePin(StayDeriver.Endpoint(place.lat, place.lon))
                                         query = ""
                                     }
                                 }
@@ -304,11 +334,44 @@ internal fun AddTripScreen(
                                         label = hit.name,
                                         detail = countryDisplayName(hit.country),
                                     ) {
-                                        placeActivePin(StayDeriver.Endpoint(hit.lat, hit.lon))
+                                        placePin(StayDeriver.Endpoint(hit.lat, hit.lon))
                                         query = ""
                                     }
                                 }
-                                if (placeMatches.isEmpty() && cityHits.isEmpty()) {
+                                // Below the local sections, minus what they already show — the
+                                // geocoder returns big cities too, and "Lisbon" twice reads as a
+                                // glitch, not as two sources. Deduped against itself as well:
+                                // Photon hands back distinct OSM objects (a suburb, its station)
+                                // whose rows would read identically.
+                                val online = remember(cityHits, onlineHits) {
+                                    val cities = cityHits.map { PlaceSearch.fold(it.name) }.toSet()
+                                    onlineHits.filter { PlaceSearch.fold(it.name) !in cities }
+                                        .distinctBy {
+                                            PlaceSearch.fold(it.name) to PlaceSearch.fold(it.locality.orEmpty())
+                                        }
+                                }
+                                for (hit in online) {
+                                    PinSearchResult(
+                                        icon = Icons.Filled.TravelExplore,
+                                        label = hit.name,
+                                        detail = hit.locality,
+                                    ) {
+                                        // The one pick that knows its own name — carried so the
+                                        // commit can create the place this end will have stayed at.
+                                        placePin(StayDeriver.Endpoint(hit.lat, hit.lon), hit.name)
+                                        query = ""
+                                    }
+                                }
+                                if (online.isNotEmpty()) {
+                                    // ODbL's credit, at the results it applies to.
+                                    Text(
+                                        "Online results © OpenStreetMap",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                    )
+                                }
+                                if (placeMatches.isEmpty() && cityHits.isEmpty() && online.isEmpty()) {
                                     Text(
                                         "No matches",
                                         style = MaterialTheme.typography.bodySmall,
@@ -330,7 +393,7 @@ internal fun AddTripScreen(
                 active = !placingDestination,
                 onActivate = { placingDestination = false },
                 onEditTime = {
-                    editing = TimeEdit(origin, "Departure", originZone, noonToday(originZone))
+                    editing = TimeEdit(origin, "Departure", originZone, noonOf(initialDay, originZone))
                 },
             )
             TripEndCard(
@@ -347,7 +410,7 @@ internal fun AddTripScreen(
                     editing = TimeEdit(
                         destination, "Arrival", destinationZone,
                         departMs?.let { Instant.ofEpochMilli(it + HOUR_MS).atZone(destinationZone) }
-                            ?: noonToday(destinationZone),
+                            ?: noonOf(initialDay, destinationZone),
                     )
                 },
             )
@@ -429,7 +492,7 @@ private fun PinSearchResult(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onPick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Icon(
             icon,
@@ -438,14 +501,24 @@ private fun PinSearchResult(
             modifier = Modifier.size(18.dp),
         )
         Spacer(Modifier.width(12.dp))
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-        if (detail != null) {
-            Spacer(Modifier.weight(1f))
+        // Stacked, not side by side: a hotel's name and a spelled-out locality routinely overrun
+        // one line between them, and two texts sharing a row collide instead of wrapping.
+        Column {
             Text(
-                detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                label,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            if (detail != null) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

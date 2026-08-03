@@ -47,6 +47,20 @@ export function titleCase(s) {
   return s.charAt(0) + s.slice(1).toLowerCase();
 }
 
+/** Display label for a stored activity code — ActivityType.labelFor's port: the code is the
+ * permanent vocabulary, the label is what the app rewords (FERRY covers any waterborne carrier,
+ * hence "Boat"); anything unmapped title-cases, the same fallback the app applies. */
+const ACTIVITY_LABELS = {
+  FERRY: "Boat",
+  TRANSIT: "Public transit",
+  STILL: "Stationary",
+  UNKNOWN: "Moving",
+};
+
+export function activityLabel(code) {
+  return ACTIVITY_LABELS[code] ?? titleCase(code);
+}
+
 function visitLabel(n) {
   return n === 1 ? "1 visit" : `${n} visits`;
 }
@@ -71,6 +85,7 @@ const CATEGORY_LABELS = {
   sightseeing: "Sightseeing",
   gas_station: "Gas station",
   parking: "Parking",
+  transit: "Transit",
   work: "Work",
 };
 

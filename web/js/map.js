@@ -17,6 +17,8 @@ export const ACTIVITY_COLORS = {
   DRIVING: "#60a5fa",
   TAXI: "#38bdf8",
   FERRY: "#f472b6",
+  TRANSIT: "#818cf8",
+  FLIGHT: "#22d3ee",
   UNKNOWN: "#9ca3af",
 };
 

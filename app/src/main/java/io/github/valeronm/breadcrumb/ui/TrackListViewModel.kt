@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Cities
 import io.github.valeronm.breadcrumb.data.LivenessRepository
+import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.PlaceRepository
 import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackRepository
@@ -436,17 +437,55 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Insert the trip the add-trip form describes. [onResult] gets the repository's verdict either
-     * way — the form stays open on a refusal, so it must hear about one.
+     * Places for the trip ends the form picked *by name* — created only where no existing place
+     * already claims the spot: a pin inside a place's capture radius is that place
+     * ([PlaceClusterer.nearestSeedIndex], the rule's one author), and a second row there would
+     * split its stays. Sequential, with each create joining the seed list, so a round trip's two
+     * identical ends yield one place. Default radius, untagged — naming and categorizing stay
+     * separate steps, and the editor is where a circle gets judged.
+     */
+    private suspend fun createTripPlaces(named: List<Pair<String, StayDeriver.Endpoint>>) {
+        // The rows the screen is already collecting — warm by the time a trip commits.
+        val seeds = PlaceClusterer.seedsOf(storedPlaces.value).toMutableList()
+        for ((label, at) in named) {
+            val trimmed = label.trim()
+            if (trimmed.isEmpty()) continue
+            if (PlaceClusterer.nearestSeedIndex(at.lat, at.lon, seeds, AndroidDistance) != null) continue
+            placeRepository.create(
+                trimmed, at.lat, at.lon,
+                System.currentTimeMillis(), PlaceClusterer.DEFAULT_RADIUS_M,
+            )
+            seeds += PlaceClusterer.Seed(at, PlaceClusterer.DEFAULT_RADIUS_M)
+        }
+    }
+
+    /** One trip end as the form commits it: the typed end, and the name it was picked by —
+     *  non-null exactly when the pin came from a named search hit and should become a place. */
+    class ManualTripEnd(val end: TrackRepository.ManualEnd, val placeName: String?)
+
+    /**
+     * Insert the trip the add-trip form describes; an end picked by name becomes a place once the
+     * insert lands — the policy lives with the commit, not in a button. [onResult] gets the
+     * repository's verdict either way — the form stays open on a refusal, so it must hear about
+     * one.
      */
     fun addManualTrack(
         activityType: ActivityType,
-        origin: TrackRepository.ManualEnd,
-        destination: TrackRepository.ManualEnd,
+        origin: ManualTripEnd,
+        destination: ManualTripEnd,
         onResult: (TrackRepository.ManualInsertResult) -> Unit,
     ) {
         viewModelScope.launch {
-            onResult(repository.insertManualTrack(activityType, origin, destination))
+            val result = repository.insertManualTrack(activityType, origin.end, destination.end)
+            if (result is TrackRepository.ManualInsertResult.Inserted) {
+                createTripPlaces(
+                    listOfNotNull(
+                        origin.placeName?.let { it to origin.end.at },
+                        destination.placeName?.let { it to destination.end.at },
+                    ),
+                )
+            }
+            onResult(result)
         }
     }
 
@@ -546,6 +585,16 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun searchCities(query: String, limit: Int): List<CityAtlas.Hit> =
         withContext(Dispatchers.Default) {
             Cities.atlas(getApplication()).searchByName(query, limit)
+        }
+
+    /**
+     * Online geocoder results for the same search — hotels, addresses, the names no bundled data
+     * carries. The Privacy switch and the failure-is-absence contract are [OnlinePlaceSearch]'s
+     * own; this only moves the blocking fetch off the caller's dispatcher.
+     */
+    suspend fun searchOnline(query: String, near: StayDeriver.Endpoint?): List<OnlinePlaceSearch.Hit> =
+        withContext(Dispatchers.IO) {
+            OnlinePlaceSearch.search(getApplication(), query, near)
         }
 }
 

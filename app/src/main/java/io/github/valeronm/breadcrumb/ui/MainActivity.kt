@@ -275,6 +275,10 @@ private fun MainScreen(
     // The add-trip form, opened from the Timeline tab's top bar. A flag: everything the form
     // holds is local to it, so there is no content to key the layer by.
     var addingTrip by remember { mutableStateOf(false) }
+    // The day the Timeline showed when the form was opened — its pickers start there, a trip
+    // added while looking at a day usually being a trip on it.
+    val timelineViewedDay = remember { TimelineViewedDay() }
+    var addTripDay by remember { mutableStateOf<LocalDate?>(null) }
 
     // The stack, declared bottom-up. A layer's `over` is the one it opens on top of; that single
     // mention decides everything stacking implies: which gesture back reaches, which page blurs
@@ -370,7 +374,10 @@ private fun MainScreen(
                         // Only where the trip would land: the Timeline is the one tab that shows
                         // what a manual entry changes.
                         if (selectedTab == HomeTab.TRACKS) {
-                            IconButton(onClick = { addingTrip = true }) {
+                            IconButton(onClick = {
+                                addTripDay = timelineViewedDay.read()
+                                addingTrip = true
+                            }) {
                                 Icon(Icons.Filled.Add, contentDescription = "Add missing trip")
                             }
                         }
@@ -454,6 +461,7 @@ private fun MainScreen(
                         dayTarget = timelineDayTarget,
                         onDayTargetShown = { timelineDayTarget = null },
                         homeRequest = timelineHomeRequest,
+                        viewedDay = timelineViewedDay,
                         onOpen = { mainPage = MainPage.TrackDetail(it) },
                         onOpenPlace = { placeDetailKey = it },
                         onReplay = { track ->
@@ -553,6 +561,7 @@ private fun MainScreen(
         AddTripOverlay(
             layer = addTripLayer,
             viewModel = viewModel,
+            initialDay = addTripDay,
             onClose = { addingTrip = false },
         )
     }
@@ -563,10 +572,11 @@ private fun MainScreen(
 private fun AddTripOverlay(
     layer: OverlayLayerState<Unit>,
     viewModel: TrackListViewModel,
+    initialDay: LocalDate?,
     onClose: () -> Unit,
 ) {
     OverlayFrame(layer) {
-        AddTripScreen(viewModel = viewModel, onClose = onClose)
+        AddTripScreen(viewModel = viewModel, initialDay = initialDay, onClose = onClose)
     }
 }
 

@@ -16,6 +16,7 @@ class ActivityTypeTest {
         assertTrue(ActivityType.RUNNING.sharesTrackWith(ActivityType.WALKING))
         assertTrue(ActivityType.DRIVING.sharesTrackWith(ActivityType.TAXI))
         assertTrue(ActivityType.DRIVING.sharesTrackWith(ActivityType.FERRY))
+        assertTrue(ActivityType.DRIVING.sharesTrackWith(ActivityType.TRANSIT))
         assertTrue(ActivityType.CYCLING.sharesTrackWith(ActivityType.CYCLING))
     }
 
@@ -43,6 +44,7 @@ class ActivityTypeTest {
         assertEquals("Walking", ActivityType.labelFor("WALKING"))
         assertEquals("Stationary", ActivityType.labelFor("STILL"))
         assertEquals("Flight", ActivityType.labelFor("FLIGHT"))
+        assertEquals("Public transit", ActivityType.labelFor("TRANSIT"))
         assertEquals("Hovercraft", ActivityType.labelFor("HOVERCRAFT"))
     }
 }

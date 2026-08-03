@@ -28,6 +28,7 @@ object Settings {
     private const val KEY_APP_LOCK = "app_lock"
     private const val KEY_APP_LOCK_GRACE_SEC = "app_lock_grace_sec"
     private const val KEY_BLOCK_SCREENSHOTS = "block_screenshots"
+    private const val KEY_ONLINE_PLACE_SEARCH = "online_place_search"
 
     // The key string doesn't match the edge-stay name and must stay that way: a renamed key reads
     // back 0 on every installed device and re-walks the whole history for nothing.
@@ -97,6 +98,15 @@ object Settings {
 
     fun setKeepScreenOnCharging(context: Context, enabled: Boolean) {
         prefs(context).edit { putBoolean(KEY_KEEP_SCREEN_ON_CHARGING, enabled) }
+    }
+
+    /** Whether the add-trip search may send typed queries to the online geocoder
+     *  ([OnlinePlaceSearch]) — the one feature that puts anything but tile fetches on the wire. */
+    fun isOnlinePlaceSearch(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ONLINE_PLACE_SEARCH, true)
+
+    fun setOnlinePlaceSearch(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_ONLINE_PLACE_SEARCH, enabled) }
     }
 
     /** Whether the user has armed automatic, activity-driven recording. */

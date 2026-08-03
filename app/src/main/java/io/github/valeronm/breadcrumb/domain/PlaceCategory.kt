@@ -88,6 +88,11 @@ enum class PlaceCategory(
     // Passing through
     PARKING("parking", "Parking", PlaceCategoryGroup.TRANSIENT, inTimeTotals = false),
 
+    /** A subway platform, a bus stop, a railway station — the network's own furniture. Time there
+     *  is waiting rather than spent, and unlike [PARKING] it is no evidence of a visit either: a
+     *  journey must not be named after the interchange it changed trains at. */
+    TRANSIT("transit", "Transit", PlaceCategoryGroup.TRANSIENT, inTimeTotals = false, visited = false),
+
     /** Filling up. Split from [SERVICES] because a fuel stop is an errand's punctuation, not the
      *  errand — and like [PARKING], time there is passed through rather than spent. */
     GAS_STATION("gas_station", "Gas station", PlaceCategoryGroup.TRANSIENT, inTimeTotals = false, visited = false),

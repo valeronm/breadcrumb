@@ -37,8 +37,8 @@ object TrackQuality {
      * ([MAX_CEILING_KMH], which excludes the AIR group), because a lone teleport is fed to the
      * confirmer like any other fix (the feed contract that keeps the witness from inheriting the
      * error it checks) and can carry a window to [Motion.Moving] on its own — at worst a fix is
-     * judged as though the track were a drive, a ceiling the recorder already grants on a label
-     * alone. [Motion.Unknown] — the cross-check switched off, or the sky
+     * judged as though the track were a train ride, a ceiling the recorder already grants on a
+     * label alone. [Motion.Unknown] — the cross-check switched off, or the sky
      * blocked — leaves the label's ceiling exactly as it was.
      */
     fun jumpCeilingKmh(activity: ActivityType, motion: Motion = Motion.Unknown): Double {
@@ -78,10 +78,15 @@ object TrackQuality {
         ActivityType.WALKING, ActivityType.STILL -> 12.0
         ActivityType.RUNNING -> 30.0
         ActivityType.CYCLING -> 70.0
-        // Above any ferry afloat (a fast catamaran cruises ~70), and well under the road ceiling,
-        // so a crossing's teleports are caught by a bar its own speeds can't reach.
+        // Above anything afloat — a fast catamaran cruises ~70, a cruise ship ~40 — and well under
+        // the road ceiling, so a crossing's teleports are caught by a bar its own speeds can't reach.
         ActivityType.FERRY -> 120.0
         ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN -> 220.0
+        // High-speed rail in service runs ~320, so a retype to transit can hand back a crossing's
+        // fixes ([jumpRestores]) — and since a train ride is detected and labeled as a *vehicle*
+        // live, this being the vehicle family's most permissive ceiling is what lets the motion
+        // witness admit real rail speeds under a driving label instead of flagging the whole ride.
+        ActivityType.TRANSIT -> 350.0
         // Real jet ground speeds: ~900 km/h cruise, and a strong jet stream pushes past 1200.
         // Honest so a retype to FLIGHT hands back in-flight fixes the road ceiling rejected
         // ([jumpRestores], the FERRY precedent) — and safe to be, because the AIR group is

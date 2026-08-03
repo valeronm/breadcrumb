@@ -415,8 +415,12 @@ cross-checks it.
   grantable from the app's system settings page (the permission UI deep-links there).
 - `applicationId` is permanent once published; the `${applicationId}.fileprovider` authority and
   notification/manifest pieces derive from it, so don't hardcode the package elsewhere.
-- All data is local; the only network use is map data — Protomaps vector tiles (hosted API) plus the
-  glyphs/sprite from `protomaps.github.io`. There is no server sync (a possible future feature — the
+- All data is local; the network carries map data — Protomaps vector tiles (hosted API) plus the
+  glyphs/sprite from `protomaps.github.io` — and one deliberate exception: the add-trip form's
+  **online place search** (`data/OnlinePlaceSearch`, photon.komoot.io, OpenStreetMap data), which
+  sends the typed query and nothing else, treats every failure as "no results", and is switchable
+  off on the Privacy settings page. The ODbL credit in Settings and at the results is a licence
+  requirement, like the GeoNames one. There is no server sync (a possible future feature — the
   Settings page is where server URL/key fields would go).
 - **The Protomaps hosted-API key is not committed.** It lives in `local.properties` as
   `protomapsApiKey=…` (gitignored), surfaced as `BuildConfig.PROTOMAPS_API_KEY`, and injected into the

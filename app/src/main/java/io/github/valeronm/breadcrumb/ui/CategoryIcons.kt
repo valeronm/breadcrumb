@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.DepartureBoard
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Handyman
 import androidx.compose.material.icons.filled.Home
@@ -58,6 +59,8 @@ internal val PlaceCategory.icon: ImageVector
         PlaceCategory.GAS_STATION -> Icons.Filled.LocalGasStation
         PlaceCategory.SERVICE_AREA -> Icons.Filled.Signpost
         PlaceCategory.PARKING -> Icons.Filled.LocalParking
+        // The departure board, not a bus or a train — the no-vehicle rule above.
+        PlaceCategory.TRANSIT -> Icons.Filled.DepartureBoard
         PlaceCategory.WORK -> Icons.Filled.Work
     }
 

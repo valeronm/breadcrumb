@@ -14,7 +14,7 @@ import {
   PLACE_RADIUS_M,
 } from "./stays.js";
 import {
-  stayMeta, gapMeta, formatTime, formatDay, formatDate, formatDistance, formatDurationMs, titleCase,
+  stayMeta, gapMeta, formatTime, formatDay, formatDate, formatDistance, formatDurationMs, activityLabel,
 } from "./format.js";
 
 const $ = (id) => document.getElementById(id);
@@ -233,7 +233,7 @@ function trackRow(t) {
   dot.style.background = activityColor(t.activityType);
   const label = document.createElement("span");
   label.className = "label";
-  label.textContent = `${titleCase(t.activityType)} · ${formatTime(t.startedAt)}`;
+  label.textContent = `${activityLabel(t.activityType)} · ${formatTime(t.startedAt)}`;
   const stats = document.createElement("span");
   stats.className = "stats";
   stats.textContent = `${formatDistance(t.distanceMeters)} · ${formatDurationMs(t.endedAt - t.startedAt)}`;

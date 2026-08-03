@@ -29,9 +29,17 @@ enum class ActivityType(
      *  track page to mark rides where the user was a passenger. */
     TAXI("Taxi", true, TrackGroup.VEHICLE),
 
-    /** Never detected either (a crossing reads as IN_VEHICLE, or as nothing at all when the boat
-     *  carries the phone rather than the other way round) — assigned by hand on the track page. */
-    FERRY("Ferry", true, TrackGroup.VEHICLE),
+    /** Any waterborne carrier — a ferry, a catamaran, a cruise ship. Never detected (a crossing
+     *  reads as IN_VEHICLE, or as nothing at all when the vessel carries the phone rather than the
+     *  other way round) — assigned by hand on the track page or the add-trip form. The name is the
+     *  permanent stored code from when it meant only ferries; the label is what broadened. */
+    FERRY("Boat", true, TrackGroup.VEHICLE),
+
+    /** Carried by the public network — bus, tram, subway, train. Never detected as itself (a ride
+     *  reads as IN_VEHICLE, like any drive) — assigned by hand on the track page or the add-trip
+     *  form. In the vehicle family on purpose: that is how its rides are detected and labeled
+     *  live, and its rail ceiling is then the family's most permissive (see `TrackQuality`). */
+    TRANSIT("Public transit", true, TrackGroup.VEHICLE),
 
     /** Never detected — assigned by hand on the track page, and what the add-trip form writes for
      *  a flight entered after the fact. Its own [TrackGroup] on purpose: a flight's speed ceiling

@@ -58,6 +58,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -106,6 +107,16 @@ import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * The day whose rows top the Timeline's viewport, published for the top bar's add-trip action —
+ * a trip added while looking at a day is usually a trip on it. Read on tap rather than observed:
+ * a plain holder, not snapshot state, so scrolling recomposes nothing above the tab. [read]
+ * returns null wherever there is no list to ask (the empty and restoring states).
+ */
+internal class TimelineViewedDay {
+    var read: () -> LocalDate? = { null }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun TracksTab(
@@ -120,11 +131,16 @@ internal fun TracksTab(
     onDayTargetShown: () -> Unit,
     /** Bumped each time the Timeline tab is tapped while already open — send the list to the top. */
     homeRequest: Int,
+    viewedDay: TimelineViewedDay,
     onOpen: (Long) -> Unit,
     onOpenPlace: (String) -> Unit,
     onReplay: (TrackSummary) -> Unit,
 ) {
     val context = LocalContext.current
+
+    // No list, no day — the empty and restoring branches below return before the real reader is
+    // installed, and a closure left over from a previous composition would read dead state.
+    viewedDay.read = { null }
 
     // Held on the empty/progress screen for the whole restore, not just while the list is empty:
     // the first inserted batch would otherwise replace this screen (and its progress text) with a
@@ -164,6 +180,18 @@ internal fun TracksTab(
                 index += group.items.size + 1
             }
         }
+    }
+    // The topmost visible item's group: the last anchor at or above it — the anchors are parallel
+    // to [groups], so the span arithmetic stays theirs alone. Run only when the holder is asked,
+    // never per scroll frame.
+    viewedDay.read = {
+        val first = listState.firstVisibleItemIndex
+        dayAnchors.indexOfLast { it.second <= first }.takeIf { it >= 0 }?.let { groups[it].date }
+    }
+    // The holder outlives this tab (it belongs to the top bar's scope): a closure left behind
+    // would pin the whole day-group derivation of a list no longer on screen.
+    DisposableEffect(viewedDay) {
+        onDispose { viewedDay.read = { null } }
     }
     // Back to today. The value this tab composed with is not a request — only a later bump is, and
     // the list starts at the top anyway (a tab switch re-composes this from scratch). One immutable

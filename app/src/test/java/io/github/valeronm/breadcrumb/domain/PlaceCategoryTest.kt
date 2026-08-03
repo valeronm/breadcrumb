@@ -66,7 +66,8 @@ class PlaceCategoryTest {
                     PlaceCategory.ENTERTAINMENT,
                 ),
                 PlaceCategoryGroup.TRANSIENT to listOf(
-                    PlaceCategory.PARKING, PlaceCategory.GAS_STATION, PlaceCategory.SERVICE_AREA,
+                    PlaceCategory.PARKING, PlaceCategory.TRANSIT,
+                    PlaceCategory.GAS_STATION, PlaceCategory.SERVICE_AREA,
                 ),
             ),
             PlaceCategory.entries.groupBy { it.group },
@@ -81,7 +82,7 @@ class PlaceCategoryTest {
     @Test fun `only home and the transient stops stay out of time totals`() {
         assertEquals(
             listOf(
-                PlaceCategory.HOME, PlaceCategory.PARKING,
+                PlaceCategory.HOME, PlaceCategory.PARKING, PlaceCategory.TRANSIT,
                 PlaceCategory.GAS_STATION, PlaceCategory.SERVICE_AREA,
             ),
             PlaceCategory.entries.filterNot { it.inTimeTotals },
@@ -89,14 +90,14 @@ class PlaceCategoryTest {
     }
 
     /**
-     * Which stops are the road rather than a place on it, pinned: fuel and a service area name no
-     * journey and count as no city visited. **A car park is not one of them** — a history recorded
-     * by car has the car park standing for the city it sits in, and dropping it would cost that city
-     * its name.
+     * Which stops are the road rather than a place on it, pinned: fuel, a service area and a
+     * transit stop name no journey and count as no city visited. **A car park is not one of
+     * them** — a history recorded by car has the car park standing for the city it sits in, and
+     * dropping it would cost that city its name.
      */
     @Test fun `only the roadside stops go unvisited`() {
         assertEquals(
-            listOf(PlaceCategory.GAS_STATION, PlaceCategory.SERVICE_AREA),
+            listOf(PlaceCategory.TRANSIT, PlaceCategory.GAS_STATION, PlaceCategory.SERVICE_AREA),
             PlaceCategory.entries.filterNot { it.visited },
         )
     }

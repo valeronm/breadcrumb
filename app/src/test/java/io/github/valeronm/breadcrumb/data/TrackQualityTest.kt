@@ -230,14 +230,16 @@ class TrackQualityTest {
 
     @Test fun `the group ceiling is the most permissive of the group's labels`() {
         // The carrier-evidence speed channel measures against this: a run inside a walking-labelled
-        // track sustains speeds above WALKING's own ceiling, so the group's is the honest bar.
+        // track sustains speeds above WALKING's own ceiling, so the group's is the honest bar. For
+        // the vehicle family that bar is rail's — a train ride is detected and labeled IN_VEHICLE,
+        // so a drive-labelled window sustaining rail speed is a train, not a teleport.
         assertEquals(
             TrackQuality.jumpCeilingKmh(ActivityType.RUNNING),
             TrackQuality.groupCeilingKmh(WALKING),
             0.0,
         )
         assertEquals(
-            TrackQuality.jumpCeilingKmh(DRIVING),
+            TrackQuality.jumpCeilingKmh(ActivityType.TRANSIT),
             TrackQuality.groupCeilingKmh(DRIVING),
             0.0,
         )
@@ -246,11 +248,12 @@ class TrackQualityTest {
     @Test fun `no verdict can lift a fix above what some label already allows`() {
         // A lone teleport is fed to the confirmer like any other fix, so one can carry a window to
         // Moving on its own. The clamp is what bounds the cost: at worst the fix is judged as
-        // though the track were a drive — a *drive*, not a flight: FLIGHT's ceiling is excluded
-        // from the clamp, or a poisoned window could argue its way to admitting near-anything.
+        // though the track were a train ride — a *train*, not a flight: FLIGHT's ceiling is
+        // excluded from the clamp, or a poisoned window could argue its way to admitting
+        // near-anything.
         val absurd = Motion.Moving(1_000.0)
         assertEquals(
-            TrackQuality.jumpCeilingKmh(DRIVING),
+            TrackQuality.jumpCeilingKmh(ActivityType.TRANSIT),
             TrackQuality.jumpCeilingKmh(WALKING, absurd),
             0.0,
         )
@@ -260,12 +263,23 @@ class TrackQualityTest {
         // A jet's ground speed with a strong tailwind passes 1200 km/h; a retype to FLIGHT must be
         // able to hand those fixes back, so the label's own ceiling has to clear them...
         assertTrue(TrackQuality.jumpCeilingKmh(ActivityType.FLIGHT) > 1_200.0)
-        // ...while the vehicle group's bar stays a road's — AIR is a group of its own.
+        // ...while the vehicle group's bar tops out at rail's — AIR is a group of its own.
         assertEquals(
-            TrackQuality.jumpCeilingKmh(DRIVING),
+            TrackQuality.jumpCeilingKmh(ActivityType.TRANSIT),
             TrackQuality.groupCeilingKmh(DRIVING),
             0.0,
         )
+    }
+
+    @Test fun `a retype to public transit hands back the rail-speed fixes a road ceiling rejected`() {
+        // 270 km/h steps: high-speed rail, flagged under any road label.
+        val pts = listOf(
+            onPath(0, 0.0),
+            flagged(1, 75.0, IgnoreReason.JUMP),
+            flagged(2, 150.0, IgnoreReason.JUMP),
+        )
+        assertTrue(TrackQuality.jumpRestores(pts, DRIVING, alongPath).isEmpty())
+        assertEquals(setOf(1, 2), TrackQuality.jumpRestores(pts, ActivityType.TRANSIT, alongPath))
     }
 
     // --- distanceMeters just delegates to the DistanceFn ----------------
