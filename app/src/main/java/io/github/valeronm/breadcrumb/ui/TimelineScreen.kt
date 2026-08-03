@@ -624,9 +624,11 @@ private fun DayHeader(
             }
         }
         // Day totals per recorded activity, in the row style: tinted glyph + distance · duration.
-        Row(
+        // Wrapping, whole figures at a time: a travel day holds a flight, a train, a walk and a
+        // drive at once, and a row would crush whatever doesn't fit into a one-character column.
+        FlowRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             val units = LocalUnits.current
             for (total in totals) {
@@ -638,9 +640,8 @@ private fun DayHeader(
                 )
             }
         }
-        // Where the day went, under what it covered — a second line rather than more of the first,
-        // which doesn't wrap and would clip a day holding several of each. Wrapping here because a
-        // varied day has more categories than a day has activities.
+        // Where the day went, under what it covered — its own line rather than more of the one
+        // above, so places and movement never interleave when either wraps.
         if (categoryTotals.isNotEmpty()) {
             FlowRow(
                 modifier = Modifier.padding(top = 2.dp),
