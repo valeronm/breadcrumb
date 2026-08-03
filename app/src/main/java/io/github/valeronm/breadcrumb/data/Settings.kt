@@ -27,6 +27,7 @@ object Settings {
     private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
     private const val KEY_APP_LOCK = "app_lock"
     private const val KEY_APP_LOCK_GRACE_SEC = "app_lock_grace_sec"
+    private const val KEY_APP_LOCK_TRUSTS_KEYGUARD = "app_lock_trusts_keyguard"
     private const val KEY_BLOCK_SCREENSHOTS = "block_screenshots"
     private const val KEY_ONLINE_PLACE_SEARCH = "online_place_search"
 
@@ -225,6 +226,21 @@ object Settings {
 
     fun setAppLockGraceSec(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_APP_LOCK_GRACE_SEC, value) }
+    }
+
+    /**
+     * Whether dismissing the phone's own keyguard counts as unlocking the app too — off by default,
+     * because with it on the app lock stops being a second factor: anyone who can open the phone can
+     * open the history, which for a shared PIN or a second enrolled face is a real person and not a
+     * hypothetical one. On, the app is left alone when the keyguard has been through since it was
+     * last seen, and the phone handed over already unlocked is unaffected — no keyguard was dismissed,
+     * so [appLockGraceSec] still re-locks it.
+     */
+    fun appLockTrustsKeyguard(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_APP_LOCK_TRUSTS_KEYGUARD, false)
+
+    fun setAppLockTrustsKeyguard(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_APP_LOCK_TRUSTS_KEYGUARD, enabled) }
     }
 
     /** Whether the window is marked secure, which blocks screenshots *and* the recents thumbnail.

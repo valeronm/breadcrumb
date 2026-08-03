@@ -434,7 +434,11 @@ internal fun PrivacySettingsScreen(onBack: () -> Unit) {
     // Not remembered: a user sent away to set a screen lock comes back to this same screen, and a
     // cached "you have none" would still be telling them to go and do what they just did.
     val lockable = context.canAuthenticate()
-    SettingsSubPage("Privacy", onBack, listOf(graceSec)) {
+    val trustsKeyguard = rememberPref(
+        false,
+        { AppSettings.appLockTrustsKeyguard(context) },
+    ) { AppSettings.setAppLockTrustsKeyguard(context, it) }
+    SettingsSubPage("Privacy", onBack, listOf(graceSec, trustsKeyguard)) {
         SettingsPageDescription(
             "Recording is never locked — tracks keep being recorded whether or not the app is.",
         )
@@ -443,7 +447,7 @@ internal fun PrivacySettingsScreen(onBack: () -> Unit) {
             { AppSettings.isOnlinePlaceSearch(context) },
         ) { AppSettings.setOnlinePlaceSearch(context, it) }
         GroupedRows(
-            { RequireUnlockRow(context, lockable, graceSec) },
+            { RequireUnlockRow(context, lockable, graceSec, trustsKeyguard) },
             {
                 SwitchSettingRow(
                     title = "Block screenshots",
@@ -468,7 +472,12 @@ internal fun PrivacySettingsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun RequireUnlockRow(context: Context, lockable: Boolean, graceSec: Pref<Int>) {
+private fun RequireUnlockRow(
+    context: Context,
+    lockable: Boolean,
+    graceSec: Pref<Int>,
+    trustsKeyguard: Pref<Boolean>,
+) {
     SwitchSettingRow(
         title = "Require unlock",
         subtitle = if (lockable) {
@@ -481,7 +490,20 @@ private fun RequireUnlockRow(context: Context, lockable: Boolean, graceSec: Pref
         enabled = lockable,
         onCheckedChange = { Privacy.setLockEnabled(context, it) },
     )
-    if (lockable && Privacy.lockEnabled) LockGraceChips(graceSec)
+    if (lockable && Privacy.lockEnabled) {
+        LockGraceChips(graceSec)
+        Spacer(Modifier.height(12.dp))
+        // What the switch costs is said in the subtitle rather than left to be worked out: it is
+        // the difference between a lock that stands on its own and one that rests on the phone's.
+        SwitchSettingRow(
+            title = "Trust the phone's unlock",
+            subtitle = "Skip the app's prompt when the phone itself has been unlocked since you " +
+                "last left the app — no second unlock right after the first. Off, the app is " +
+                "locked even to someone who can open the phone.",
+            checked = trustsKeyguard.value,
+            onCheckedChange = { trustsKeyguard.set(it) },
+        )
+    }
 }
 
 @Composable

@@ -101,6 +101,7 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         consumeGpxIntent(intent)
         Privacy.load(this)
+        watchKeyguard(this)
         setContent {
             AppTheme {
                 var unitChoice by remember {
