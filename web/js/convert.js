@@ -113,6 +113,9 @@ export function convertTrack(track, f) {
   const row = {
     id: track.id,
     activityType: track.activityType,
+    // The declared writer (TrackOrigin.code, null where the file names none) — read by the map,
+    // which draws a manual track's typed legs along great circles rather than as projected chords.
+    source: track.source ?? null,
     startedAt: track.startedAt,
     endedAt: track.endedAt,
     distanceMeters: track.distanceMeters,

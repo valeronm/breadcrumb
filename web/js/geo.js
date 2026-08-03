@@ -89,3 +89,62 @@ export function reachBound(lat, lon, distance) {
       || Math.abs(otherLon - lon) * lonPerDegree > reach;
   };
 }
+
+// GreatCircle — the app's rule for drawing a manual track's leg: a straight segment in projected
+// space is a route nothing travelled, so the leg is drawn along the shorter great-circle arc.
+// Spherical on purpose (this shapes a line, it measures nothing), same constants as the app's.
+
+/** Arc samples per radian of central angle — one point per ~1.2° keeps a hemisphere-scale arc
+ * smooth at a few dozen points. */
+const ARC_SAMPLES_PER_RADIAN = 48;
+const ARC_MAX_SAMPLES = 96;
+/** Under this central angle (~11 km) a straight segment and the arc are the same line. */
+const ARC_MIN_ANGLE_RAD = 0.001;
+
+/**
+ * The shorter great-circle arc from [latA, lonA] to [latB, lonB] inclusive, ends exact, as
+ * `[lon, lat]` pairs (GeoJSON order). Longitudes come out unwrapped — continuous past ±180° — so
+ * a crossing draws as one line, not a full-width zigzag; MapLibre takes them as they are.
+ * Degenerate spans hand back just the two ends: a span too short for the bow to be visible, and
+ * an antipodal pair, where every direction is a shortest path and drawing one would be invention.
+ */
+export function greatCircleArc(latA, lonA, latB, lonB) {
+  const toVec = (latDeg, lonDeg) => {
+    const lat = latDeg * Math.PI / 180;
+    const lon = lonDeg * Math.PI / 180;
+    return [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)];
+  };
+  const a = toVec(latA, lonA);
+  const b = toVec(latB, lonB);
+  const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+  const angle = Math.acos(dot);
+  if (angle < ARC_MIN_ANGLE_RAD || angle > Math.PI - ARC_MIN_ANGLE_RAD) {
+    return [[lonA, latA], [lonB, latB]];
+  }
+  const steps = Math.min(ARC_MAX_SAMPLES, Math.max(2, Math.round(angle * ARC_SAMPLES_PER_RADIAN)));
+  const sinAngle = Math.sin(angle);
+  const out = [];
+  let prevLon = lonA;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const wa = Math.sin((1 - t) * angle) / sinAngle;
+    const wb = Math.sin(t * angle) / sinAngle;
+    const x = wa * a[0] + wb * b[0];
+    const y = wa * a[1] + wb * b[1];
+    const z = wa * a[2] + wb * b[2];
+    const lat = Math.asin(Math.min(1, Math.max(-1, z))) * 180 / Math.PI;
+    let lon = Math.atan2(y, x) * 180 / Math.PI;
+    // Unwrap against the previous sample; steps are a few degrees apart, so a jump near 360 is
+    // the atan2 seam, never the path.
+    while (lon - prevLon > 180) lon -= 360;
+    while (prevLon - lon > 180) lon += 360;
+    prevLon = lon;
+    out.push([lon, lat]);
+  }
+  // The ends are the caller's own values, not the slerp's rounding of them — the last one shifted
+  // onto the unwrapped turn the walk ended on.
+  out[0] = [lonA, latA];
+  const turns = Math.round((out[out.length - 1][0] - lonB) / 360);
+  out[out.length - 1] = [lonB + 360 * turns, latB];
+  return out;
+}

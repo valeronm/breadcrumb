@@ -8,7 +8,7 @@ import {
   FLAG_SEGMENT_START,
   REASON_NONE, REASON_ACCURACY, REASON_JUMP, REASON_NO_GNSS, REASON_EDGE_STAY,
 } from "./convert.js";
-import { metersBetween } from "./geo.js";
+import { greatCircleArc, metersBetween } from "./geo.js";
 
 export const ACTIVITY_COLORS = {
   WALKING: "#4ade80",
@@ -282,6 +282,21 @@ function lineFeature(coordinates, properties = {}) {
   return { type: "Feature", properties, geometry: { type: "LineString", coordinates } };
 }
 
+/** A manual track's typed legs drawn along their great circles ([greatCircleArc]) — the app's
+ * display rule, applied at the same depth: the stored geometry stays the two typed fixes, only
+ * the line the map draws is densified. Each leg starts from the previous drawn position, so the
+ * unwrapped longitudes stay continuous across an antimeridian however many legs cross it. */
+function arcLine(line) {
+  if (line.length < 2) return line;
+  const out = [line[0]];
+  for (let i = 1; i < line.length; i++) {
+    const from = out[out.length - 1];
+    const arc = greatCircleArc(from[1], from[0], line[i][1], line[i][0]);
+    for (let j = 1; j < arc.length; j++) out.push(arc[j]);
+  }
+  return out;
+}
+
 function pointFeature(coordinates, properties = {}) {
   return { type: "Feature", properties, geometry: { type: "Point", coordinates } };
 }
@@ -310,8 +325,9 @@ export function setOverview(map, tracks) {
       const color = activityColor(t.activityType);
       for (const segment of t.overview) {
         const coords = new Float64Array(segment);
-        const line = [];
+        let line = [];
         for (let i = 0; i < coords.length; i += 2) line.push([coords[i], coords[i + 1]]);
+        if (t.source === "manual") line = arcLine(line);
         features.push(lineFeature(line, { id: t.id, color }));
       }
       if (t.bbox) {
@@ -453,9 +469,10 @@ export function showTrack(map, track, geometry) {
 
   whenLoaded(map, () => {
     const color = activityColor(track.activityType);
+    const drawn = track.source === "manual" ? paths.map(arcLine) : paths;
     clearSelectionSources(map);
     map.getSource("selected").setData(
-      fc(paths.filter((p) => p.length >= 2).map((p) => lineFeature(p, { color }))),
+      fc(drawn.filter((p) => p.length >= 2).map((p) => lineFeature(p, { color }))),
     );
     map.getSource("overrun").setData(fc(overruns.filter((r) => r.length >= 2).map(lineFeature)));
     map.getSource("ignored").setData(fc(rejected));

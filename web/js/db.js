@@ -10,7 +10,7 @@ const DB_NAME = "breadcrumb-viewer";
 // Bumped whenever a stored record's shape changes: the upgrade drops the stores, so the backup has
 // to be dropped in again. Cheaper than reading half-populated records — the stores are a cache of
 // the file, and every field here is derived from it.
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const STORES = ["meta", "tracks", "geometry", "extras"];
 
 function req(request) {
