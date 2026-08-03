@@ -533,8 +533,9 @@ internal fun MapLibreTripMap(
     destination: StayDeriver.Endpoint?,
     places: List<OverviewPlace>,
     onLongPress: (StayDeriver.Endpoint) -> Unit,
-    /** A tap on a place's pin, reported at the pin's own spot rather than the finger's. */
-    onPlaceTap: (StayDeriver.Endpoint) -> Unit,
+    /** A tap on a place's pin, reported at the pin's own spot rather than the finger's, with the
+     *  place's label where the feature carries one — what the pick was picked *by*. */
+    onPlaceTap: (StayDeriver.Endpoint, String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val applied = remember { AppliedTripInputs() }
@@ -550,9 +551,14 @@ internal fun MapLibreTripMap(
                 true
             }
             map.addOnMapClickListener { latLng ->
-                val point = featureNear(map, latLng, OVERVIEW_LAYER)?.geometry() as? Point
+                val feature = featureNear(map, latLng, OVERVIEW_LAYER)
+                val point = feature?.geometry() as? Point
                 if (point != null) {
-                    placeTap(StayDeriver.Endpoint(point.latitude(), point.longitude()))
+                    placeTap(
+                        StayDeriver.Endpoint(point.latitude(), point.longitude()),
+                        // Unnamed features carry an empty label, not an absent one.
+                        feature.getStringProperty(LABEL_KEY)?.takeIf { it.isNotEmpty() },
+                    )
                 }
                 point != null
             }

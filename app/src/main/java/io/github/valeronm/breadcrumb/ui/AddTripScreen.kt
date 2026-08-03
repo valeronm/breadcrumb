@@ -58,6 +58,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -102,10 +104,11 @@ private fun noonOf(day: LocalDate?, zone: ZoneId): ZonedDateTime =
 private class TripEnd {
     var pin by mutableStateOf<StayDeriver.Endpoint?>(null)
 
-    /** The name the pin was picked by, when it came from the online search — what a place created
-     *  from this end on commit will be called. Null for a pin placed any other way: a hand-placed
-     *  pin has no name to give, a saved place already is one, and a picked *city* must not become
-     *  a 150 m capture circle at its centroid. */
+    /** The name the pin was picked *by* — a saved place's label, or an online hit's name — shown
+     *  on the end's card, and what a place created from this end on commit will be called (a spot
+     *  an existing place already covers creates nothing, which is what makes carrying a saved
+     *  place's label here safe). Null for a hand-placed pin, which has no name to give, and for a
+     *  picked *city*, which must not become a 150 m capture circle at its centroid. */
     var placeName by mutableStateOf<String?>(null)
     var date by mutableStateOf<LocalDate?>(null)
     var time by mutableStateOf<LocalTime?>(null)
@@ -324,7 +327,7 @@ internal fun AddTripScreen(
                                         label = place.label,
                                         detail = null,
                                     ) {
-                                        placePin(StayDeriver.Endpoint(place.lat, place.lon))
+                                        placePin(StayDeriver.Endpoint(place.lat, place.lon), place.label)
                                         query = ""
                                     }
                                 }
@@ -548,7 +551,11 @@ private fun TripEndCard(
     onEditTime: () -> Unit,
 ) {
     val pin = end.pin
+    // What the pin was picked by outranks where it resolved to: "JFK Airport" says more than the
+    // city holding it, and the zone line below still names the clock.
+    val pickedName = end.placeName
     val locality = when {
+        pickedName != null -> pickedName
         city != null -> "${city.name}, ${countryDisplayName(city.country)}"
         pin != null -> "Pin placed"
         else -> "No pin yet"
@@ -573,16 +580,25 @@ private fun TripEndCard(
                     locality,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             // Rendered off the same instant the row will store, in the app's own formats — the
-            // year included, because a hand-entered trip is usually months old.
+            // year included, because a hand-entered trip is usually months old — and the time
+            // marked with its shift from the reader's clock, exactly as the timeline will mark
+            // the committed trip's.
             val at = end.epochIn(zone)
+            val reader = timelineZone()
+            val shiftColor = zoneShiftColor
             Text(
                 if (at != null) {
-                    "$timeLabel ${at.toLocalDate(zone).format(compactDayYearFormat)}, ${timeAt(at, zone)}"
+                    buildAnnotatedString {
+                        append("$timeLabel ${at.toLocalDate(zone).format(compactDayYearFormat)}, ")
+                        appendTime(at, zone, reader, shiftColor)
+                    }
                 } else {
-                    "Set ${timeLabel.lowercase()} time"
+                    AnnotatedString("Set ${timeLabel.lowercase()} time")
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (pin != null) {
@@ -592,12 +608,18 @@ private fun TripEndCard(
                 },
                 modifier = Modifier.clickable(enabled = pin != null, onClick = onEditTime),
             )
-            if (pin != null) {
-                Text(
-                    "Local time: ${zone.id}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            // Which clock the pickers will write on, said before a time exists to carry the
+            // mark — as an offset from the reader's own, the way the timeline says it, never as
+            // a zone id. Gone once a time is set (the superscript above takes over), and absent
+            // entirely on the reader's own clock, where there is nothing to warn about.
+            if (pin != null && at == null) {
+                zoneShiftLabel(System.currentTimeMillis(), zone, reader)?.let { shift ->
+                    Text(
+                        "Times on the local clock, $shift from yours",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
