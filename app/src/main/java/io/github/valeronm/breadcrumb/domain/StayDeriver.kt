@@ -533,6 +533,20 @@ sealed interface TimelineItem {
         override val zone: ZoneId? = null,
     ) : TimelineItem {
         override val startedAt get() = stay.start
+
+        /**
+         * A row about a *join* rather than about being anywhere: two tracks sharing an instant leave
+         * a stay of no duration between them — a split's cut, or a hand-entered trip landing exactly
+         * on the absence it fills — and this one has nothing to say about it.
+         *
+         * Such a seam earns its row only while it carries the offer to undo the join, which is why
+         * this asks after [merge] rather than after the writers either side: refusing across writers
+         * is one of three things [TrackMerge.plan] refuses on, and a seam whose offer was refused for
+         * either of the others says exactly as little. Read by the timeline, which drops these; the
+         * derivation still emits them, and every count taken off it — a place's visits above all —
+         * is unchanged by what a list chooses to draw.
+         */
+        val isBareSeam: Boolean get() = merge == null && stay.end == stay.start
     }
 
     data class GapItem(

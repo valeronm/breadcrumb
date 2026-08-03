@@ -12,6 +12,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver.Provenance
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
 import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -592,6 +593,21 @@ class StayDeriverTest {
         assertTrue(items[1] is TimelineItem.StayItem)
         assertTrue(items[2] is TimelineItem.TrackItem)
         assertEquals(2L, (items[0] as TimelineItem.TrackItem).summary.id)
+    }
+
+    @Test fun `a seam is a row only while it carries the offer to undo the join`() {
+        // Two tracks sharing an instant leave a stay of no duration between them. It says nothing
+        // about where anyone was, so what it is worth is whatever it offers: with a merge plan it
+        // is the way back from the join, and with none it is a row about nothing.
+        val seam = Stay(120 * MIN, 120 * MIN, home, Provenance.OBSERVED, 1, clusterId = 0)
+        val bare = TimelineItem.StayItem(seam)
+
+        assertTrue(bare.isBareSeam)
+        assertFalse(bare.copy(merge = TrackMerge.Plan(earlierId = 1, laterId = 2)).isBareSeam)
+        // A stop of any length is a stop, offer or no offer.
+        assertFalse(TimelineItem.StayItem(seam.copy(end = 121 * MIN)).isBareSeam)
+        // Nor is the ongoing stay one: it has no end, which is not the same as ending where it began.
+        assertFalse(TimelineItem.StayItem(seam.copy(end = null)).isBareSeam)
     }
 
     @Test fun `intervals older than every track still reach the timeline`() {

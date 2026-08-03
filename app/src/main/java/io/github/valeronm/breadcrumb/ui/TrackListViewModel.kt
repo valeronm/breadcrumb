@@ -290,7 +290,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         StayDeriver.interleave(
             summaries,
             StayDeriver.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
-        ).map { item ->
+        ).mapNotNull { item ->
             when (item) {
                 is TimelineItem.TrackItem -> d.zonesOfTrack(item.summary.id).let { (from, to) ->
                     item.copy(zone = from, endZone = to)
@@ -301,10 +301,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                     toPlace = item.gap.toClusterId?.let(clusterPlaces::getOrNull),
                     merge = mergePlans[item.gap.afterTrackId],
                 )
+                // Dropped after the offer is attached, never before: whether a seam is worth a row
+                // is a question about the offer it would carry — see [TimelineItem.StayItem.isBareSeam].
                 is TimelineItem.StayItem -> item.copy(
                     place = clusterPlaces.getOrNull(item.stay.clusterId),
                     merge = mergePlans[item.stay.afterTrackId],
-                )
+                ).takeUnless { it.isBareSeam }
             }
         }
     }.flowOn(Dispatchers.Default)
