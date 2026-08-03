@@ -272,13 +272,13 @@ private fun MainScreen(
     // boolean: two taps in a row are two requests, and a flag the receiver has to clear back to
     // false would swallow the second.
     var timelineHomeRequest by remember { mutableIntStateOf(0) }
-    // The add-trip form, opened from the Timeline tab's top bar. A flag: everything the form
-    // holds is local to it, so there is no content to key the layer by.
-    var addingTrip by remember { mutableStateOf(false) }
+    // The add-trip form's input, which is also the flag that it is open: the top bar opens it on
+    // the day the Timeline was showing, a gap row on the ends that row already knows. Everything
+    // the form does with it stays local to the form until its check mark.
+    var tripDraft by remember { mutableStateOf<TripDraft?>(null) }
     // The day the Timeline showed when the form was opened — its pickers start there, a trip
     // added while looking at a day usually being a trip on it.
     val timelineViewedDay = remember { TimelineViewedDay() }
-    var addTripDay by remember { mutableStateOf<LocalDate?>(null) }
 
     // The stack, declared bottom-up. A layer's `over` is the one it opens on top of; that single
     // mention decides everything stacking implies: which gesture back reaches, which page blurs
@@ -320,12 +320,14 @@ private fun MainScreen(
         over = placeLayer,
         onDismiss = { editingArea = false },
     )
-    // The add-trip form, over the tabs like place detail: back discards the half-entered trip by
-    // construction, nothing having been written until its check mark.
+    // The trip form: back discards the half-entered trip by construction, nothing having been
+    // written until its check mark. Stacked on the track detail rather than on the tabs, because a
+    // manual track is edited *from* that screen and back must return to it — and a form opened from
+    // the Timeline sits above a page that isn't there, which is the tabs showing through anyway.
     val addTripLayer = rememberOverlayLayer(
-        content = Unit.takeIf { addingTrip },
-        over = tabsLayer,
-        onDismiss = { addingTrip = false },
+        content = tripDraft,
+        over = mainPageLayer,
+        onDismiss = { tripDraft = null },
     )
 
     // Undo snackbars for the swipe actions on the Timeline and Places lists. Owned here, not in the
@@ -375,8 +377,7 @@ private fun MainScreen(
                         // what a manual entry changes.
                         if (selectedTab == HomeTab.TRACKS) {
                             IconButton(onClick = {
-                                addTripDay = timelineViewedDay.read()
-                                addingTrip = true
+                                tripDraft = TripDraft(day = timelineViewedDay.read())
                             }) {
                                 Icon(Icons.Filled.Add, contentDescription = "Add missing trip")
                             }
@@ -464,6 +465,7 @@ private fun MainScreen(
                         viewedDay = timelineViewedDay,
                         onOpen = { mainPage = MainPage.TrackDetail(it) },
                         onOpenPlace = { placeDetailKey = it },
+                        onAddTrip = { tripDraft = it },
                         onReplay = { track ->
                             TrackReplayer.start(context, track.id)
                             selectedTab = HomeTab.RECORD
@@ -497,6 +499,7 @@ private fun MainScreen(
             undo = undo,
             onClose = { mainPage = null },
             onOpenPage = { settingsPage = it },
+            onEditTrip = { tripDraft = it },
         )
 
         PlaceDetailOverlay(
@@ -561,8 +564,7 @@ private fun MainScreen(
         AddTripOverlay(
             layer = addTripLayer,
             viewModel = viewModel,
-            initialDay = addTripDay,
-            onClose = { addingTrip = false },
+            onClose = { tripDraft = null },
         )
     }
 }
@@ -570,13 +572,12 @@ private fun MainScreen(
 /** The add-trip form, over the tabs — back lands on the Timeline that opened it. */
 @Composable
 private fun AddTripOverlay(
-    layer: OverlayLayerState<Unit>,
+    layer: OverlayLayerState<TripDraft>,
     viewModel: TrackListViewModel,
-    initialDay: LocalDate?,
     onClose: () -> Unit,
 ) {
-    OverlayFrame(layer) {
-        AddTripScreen(viewModel = viewModel, initialDay = initialDay, onClose = onClose)
+    OverlayFrame(layer) { draft ->
+        AddTripScreen(viewModel = viewModel, draft = draft, onClose = onClose)
     }
 }
 
@@ -599,9 +600,10 @@ private fun DiscardedTrackOverlay(
             summary = discardedTracks.firstOrNull { it.track.id == trackId }?.track,
             viewModel = viewModel,
             onBack = onClose,
-            // No splitting here: these tracks are on their way out of the timeline, not being
-            // organized on it.
+            // No splitting or editing here: these tracks are on their way out of the timeline, not
+            // being organized on it. A deleted trip is restored first and edited after.
             onSplit = null,
+            onEditTrip = null,
         )
     }
 }
@@ -620,6 +622,7 @@ private fun MainPageOverlay(
     undo: UndoSnackbar,
     onClose: () -> Unit,
     onOpenPage: (SettingsPage) -> Unit,
+    onEditTrip: (TripDraft) -> Unit,
 ) {
     OverlayFrame(layer) { rendered ->
         when (rendered) {
@@ -640,6 +643,9 @@ private fun MainPageOverlay(
                     }
                     onClose()
                 },
+                // The form stacks *on* this screen, so it stays open underneath and shows the
+                // rewritten track when the form closes over it.
+                onEditTrip = onEditTrip,
             )
 
             MainPage.Settings -> SettingsScreen(

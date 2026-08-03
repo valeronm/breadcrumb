@@ -66,7 +66,7 @@ class TrackSourceTest {
             TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), TEST_START + 3 * 3_600_000L),
         )
 
-        val id = (result as TrackRepository.ManualInsertResult.Inserted).trackId
+        val id = (result as TrackRepository.ManualTrackResult.Saved).trackId
         assertEquals(TrackOrigin.MANUAL.code, dao.track(id)!!.source)
         // No accuracy on a typed endpoint, so the fixes alone read "a path, not a measurement" —
         // which is why the declaration, carried by the backup format, must never be dropped.
@@ -79,7 +79,7 @@ class TrackSourceTest {
             TrackRepository.ManualEnd(StayDeriver.Endpoint(1.0, -2.0), TEST_START),
             TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), TEST_START + 3 * 3_600_000L),
         )
-        val id = (result as TrackRepository.ManualInsertResult.Inserted).trackId
+        val id = (result as TrackRepository.ManualTrackResult.Saved).trackId
 
         repository.deleteTrack(id)
         repository.restoreTrack(id)

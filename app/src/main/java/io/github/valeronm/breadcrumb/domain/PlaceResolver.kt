@@ -75,6 +75,15 @@ object PlaceResolver {
      */
     private fun displayName(place: Place?, city: String?): String? = place?.label ?: city
 
+    /**
+     * **Where a place sits: the pin once named, [whileUnnamed] until then.** The two readings below
+     * describe the same stop on two screens, so they ask this rather than each holding a ternary —
+     * a refinement to one of a matched pair is how one stop comes to be drawn at two coordinates,
+     * and there is no test that can catch it.
+     */
+    private fun pinOf(place: Place?, whileUnnamed: StayDeriver.Endpoint): StayDeriver.Endpoint =
+        place?.let { StayDeriver.Endpoint(it.lat, it.lon) } ?: whileUnnamed
+
     class ResolvedStay(
         /**
          * The matched place, or null for an unnamed cluster — the row itself rather than a copy
@@ -101,6 +110,10 @@ object PlaceResolver {
     ) {
         /** The matched place's label, or null for an unnamed cluster. */
         val label: String? get() = place?.label
+
+        /** Where this stop sits — see [pinOf]; unnamed, that is the middle of what the cluster
+         *  captured. */
+        val pin: StayDeriver.Endpoint get() = pinOf(place, centroid)
 
         /** The city this cluster sits in, named or not — see [locality]. */
         val city: String? get() = locality?.name
@@ -167,13 +180,13 @@ object PlaceResolver {
         val name: String? get() = displayName(place, city)
 
         /**
-         * Where this place sits: the pin once named, until then the mean of what it captured —
-         * exactly where naming would drop the pin. Derived, because a summary that carried it
-         * could hold a position its own anchor and endpoints disagree with. The fallback cannot
-         * fire — only a seeded cluster can be empty of endpoints, and a seeded cluster is named —
-         * it is there because the mean is typed nullable for that case.
+         * Where this place sits — see [pinOf]; unnamed, that is the mean of what it captured, which
+         * is exactly where naming would drop the pin. Derived, because a summary that carried it
+         * could hold a position its own anchor and endpoints disagree with. The [anchor] fallback
+         * cannot fire — only a seeded cluster can be empty of endpoints, and a seeded cluster is
+         * named — it is there because the mean is typed nullable for that case.
          */
-        val pin: StayDeriver.Endpoint get() = if (isNamed) anchor else endpointCentroid ?: anchor
+        val pin: StayDeriver.Endpoint get() = pinOf(place, endpointCentroid ?: anchor)
 
         /** This place's stable identity — see [placeKey]. Held rather than computed per read: an
          *  unnamed cluster's key is a formatted string, and it is read once per row by a list key,

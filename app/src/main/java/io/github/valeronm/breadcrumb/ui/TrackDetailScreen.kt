@@ -62,6 +62,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackQuality
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -70,6 +71,7 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.RoutePlaces
+import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.util.UnitSystem
@@ -92,6 +94,12 @@ internal fun TrackMapScreen(
      * defaulted so that a new caller has to say which it is instead of inheriting silence.
      */
     onSplit: ((Long) -> Unit)?,
+    /**
+     * Open the trip form on this track — offered only for a manual one, whose whole content is the
+     * two ends the form asks for. Null where the caller has nowhere to open it, and undefaulted for
+     * the reason [onSplit] is.
+     */
+    onEditTrip: ((TripDraft) -> Unit)?,
 ) {
     val context = LocalContext.current
     // One load of everything the screen draws (null = still reading), keyed on the row as well as
@@ -179,8 +187,26 @@ internal fun TrackMapScreen(
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
                     if (summary != null) {
-                        IconButton(onClick = { showTypeDialog = true }) {
-                            Icon(Icons.Filled.Edit, contentDescription = "Change track type")
+                        // One pencil, meaning "change what this track says it was". On a recorded or
+                        // imported track that is its type and nothing else — the fixes are a
+                        // measurement or a file's. A manual track is typed in whole, so the pencil
+                        // opens the form that typed it, type chips included; a second action beside
+                        // this one would offer the type from two places.
+                        val editTrip = onEditTrip?.takeIf { source == TrackOrigin.MANUAL }
+                        IconButton(
+                            onClick = {
+                                if (editTrip == null) {
+                                    showTypeDialog = true
+                                } else {
+                                    editTrip(tripDraftOf(summary, points, storedPlaces, startZone))
+                                }
+                            },
+                        ) {
+                            Icon(
+                                Icons.Filled.Edit,
+                                contentDescription =
+                                if (editTrip != null) "Edit trip" else "Change track type",
+                            )
                         }
                     }
                     IconButton(onClick = {
@@ -786,6 +812,36 @@ private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
             }
         }
     }
+}
+
+/**
+ * This manual track as the trip form's input: its two fixes and the bounds they were stamped at,
+ * under whatever the user calls those spots.
+ *
+ * The times come from the *row*, not from the points, though a manual track has them equal by
+ * construction — the row's bounds are the declaration, the points a restatement of it. A track still
+ * recording has no arrival to state and hands over none; the form asks for one.
+ */
+private fun tripDraftOf(
+    summary: TrackSummary,
+    points: List<TrackPoint>?,
+    places: List<Place>,
+    zone: ZoneId,
+): TripDraft {
+    fun endAt(point: TrackPoint?, atMs: Long) = TripDraftEnd(
+        at = point?.let { StayDeriver.Endpoint(it.latitude, it.longitude) },
+        // The user's own name for the spot where a place holds this end — so the card reads as the
+        // timeline does, and committing creates nothing: the place that would claim the pin is the
+        // one the name came from.
+        placeName = point?.let { RoutePlaces.holding(it, places, AndroidDistance)?.label },
+        timeMs = atMs,
+    )
+    return TripDraft(
+        day = summary.startedAt.toLocalDate(zone),
+        origin = endAt(points?.firstOrNull(), summary.startedAt),
+        destination = summary.endedAt?.let { endAt(points?.lastOrNull(), it) },
+        editing = EditedTrip(summary.id, ActivityType.ofName(summary.activityType)),
+    )
 }
 
 @Composable

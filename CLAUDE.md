@@ -324,6 +324,17 @@ keep thresholds like imports do — `KeepRule`'s two-point purge floor would oth
 one on arrival — and their two points are stamped exactly at the row's bounds so the edge-stay
 boundary fix and the stats sweep have nothing to rewrite.
 
+**A manual track is also the only one that can be rewritten** (`updateManualTrack`, reached by the
+track detail's pencil, which on any other track opens the type dialog instead): the same two pins and
+two times go back onto the row that produced them, replacing its fixes outright — which is exactly
+why `source` gates it, every other track's points being a measurement or a file's. Two things follow
+from rewriting in place: the row is excluded from its own overlap check (`NO_TRACK` where an insert
+excludes nothing), since the fixes it would collide with are the ones being replaced; and the write
+is otherwise an insert, `finalizeImportedTrack` included, because the aggregates and the overrun
+verdict are functions of the points and these are new points. An edit is deliberately **not**
+undoable — every value is in the form, unlike a merge or a delete, and the undo snackbar's host
+cannot reach the layer a commit lands back on.
+
 **Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*
 rows and a Room SQL migration can't express the logic, add a repository pass and run it from
 `App.onCreate`'s IO coroutine behind a `Settings` done-flag:
@@ -340,9 +351,15 @@ stays, then track stats), and `sweepEdgeStays` says why a sweep is not one.
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
 stacked layers for place detail, the Settings sub-pages (sampling, point quality, auto-pause, GPS
 search, track filtering, privacy, Recently deleted, Logs), discarded-track detail, and the add-trip
-form (`AddTripScreen`, opened from the Timeline tab's top-bar "+") — each
+form (`AddTripScreen`, opened from the Timeline tab's top-bar "+" or from a gap row) — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
-one layer at a time). The Compose code is split one file per screen, all in the `ui` package:
+one layer at a time). **What that form opens holding is a `TripDraft`**, which is also the state
+saying it is open: a gap row hands over the ends *it* speaks for and no others — the same two
+questions its card is drawn from — so a midnight slice seam never arrives as a departure time and a
+day an absence merely passes through offers nothing at all. Each end carries an instant rather than
+a wall clock, because the zone follows from resolving the pin (which the form does after opening)
+and because a bound rounded to the pickers' minute would overlap the track it was taken from. The
+trip type is deliberately *not* defaulted: it is the one thing neither end implies. The Compose code is split one file per screen, all in the `ui` package:
 `MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in
 `RecordScreen`/`TimelineScreen`/`PlacesScreens`/`InsightsScreens`/`TrackDetailScreen`/
 `SettingsScreens`/
@@ -418,9 +435,12 @@ cross-checks it.
 - All data is local; the network carries map data — Protomaps vector tiles (hosted API) plus the
   glyphs/sprite from `protomaps.github.io` — and one deliberate exception: the add-trip form's
   **online place search** (`data/OnlinePlaceSearch`, photon.komoot.io, OpenStreetMap data), which
-  sends the typed query and nothing else, treats every failure as "no results", and is switchable
-  off on the Privacy settings page. The ODbL credit in Settings and at the results is a licence
-  requirement, like the GeoNames one. There is no server sync (a possible future feature — the
+  sends the typed query and — where the form has a pin to bias by — that pin's coordinate, treats
+  every failure as "no results", and is switchable off on the Privacy settings page. **The
+  coordinate is a pin the user placed, never wherever the map happens to be looking**: the form's
+  own place list sorts by the map centre because re-ordering rows the device already holds discloses
+  nothing, and that is the whole reason the two use different anchors. The ODbL credit in Settings
+  and at the results is a licence requirement, like the GeoNames one. There is no server sync (a possible future feature — the
   Settings page is where server URL/key fields would go).
 - **The Protomaps hosted-API key is not committed.** It lives in `local.properties` as
   `protomapsApiKey=…` (gitignored), surfaced as `BuildConfig.PROTOMAPS_API_KEY`, and injected into the

@@ -44,8 +44,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -63,6 +65,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -100,25 +103,74 @@ private const val HOUR_MS = 3_600_000L
 private fun noonOf(day: LocalDate?, zone: ZoneId): ZonedDateTime =
     (day ?: LocalDate.now(zone)).atTime(12, 0).atZone(zone)
 
-/** One end of the trip being entered — a pin and a wall-clock time, each settable in any order. */
-private class TripEnd {
-    var pin by mutableStateOf<StayDeriver.Endpoint?>(null)
+/**
+ * What the form opens holding. The Timeline's top bar knows only which day was on screen; a gap
+ * row knows the places the absence lies between and when it ran, and hands over whichever of its
+ * two ends that row itself speaks for — a day the absence merely passes through offers neither.
+ */
+internal class TripDraft(
+    /** The day an end with no time of its own opens its pickers on. */
+    val day: LocalDate?,
+    val origin: TripDraftEnd? = null,
+    val destination: TripDraftEnd? = null,
+    /** Set where the form is restating a trip that already exists — see [EditedTrip]. */
+    val editing: EditedTrip? = null,
+)
+
+/**
+ * The manual track a form was opened on: its row is rewritten in place rather than a new one
+ * inserted, and [activity] — what it currently says it was — is the type the chips open on. That is
+ * the one exception to the form's rule that nothing preselects a type: an existing trip already
+ * carries an answer, and offering it as unset would ask the user to re-state what they are not here
+ * to change.
+ */
+internal class EditedTrip(val trackId: Long, val activity: ActivityType?)
+
+/**
+ * One end a caller can already fill in.
+ *
+ * [timeMs] is an instant rather than a wall clock, because neither half of a wall clock is
+ * available at the point one would be built: the zone comes from resolving the pin, which the form
+ * does after it opens, and the pickers' minute resolution would round the bound off the
+ * neighbouring track — a departure rounded back past that track's last fix overlaps it, and the
+ * insert refuses an overlap. Held exactly until a picked time replaces it, so a trip committed as
+ * drafted meets the recording on either side of the absence rather than a minute inside it.
+ */
+internal class TripDraftEnd(
+    /** Null where the caller knows when but not where — a gap side the recorder never got a fix for. */
+    val at: StayDeriver.Endpoint?,
+    /** The user's own name for the spot, never a derived one — see [TripEnd.placeName]. */
+    val placeName: String?,
+    val timeMs: Long,
+)
+
+/** One end of the trip being entered — a pin and a time, each settable in any order, and either of
+ *  them possibly already known to whoever opened the form ([TripDraftEnd]). */
+private class TripEnd(drafted: TripDraftEnd?) {
+    var pin by mutableStateOf(drafted?.at)
 
     /** The name the pin was picked *by* — a saved place's label, or an online hit's name — shown
      *  on the end's card, and what a place created from this end on commit will be called (a spot
      *  an existing place already covers creates nothing, which is what makes carrying a saved
      *  place's label here safe). Null for a hand-placed pin, which has no name to give, and for a
      *  picked *city*, which must not become a 150 m capture circle at its centroid. */
-    var placeName by mutableStateOf<String?>(null)
+    var placeName by mutableStateOf(drafted?.placeName)
     var date by mutableStateOf<LocalDate?>(null)
     var time by mutableStateOf<LocalTime?>(null)
 
-    /** The instant this end's wall clock names in [zone], or null until date and time are set. */
+    private val draftedAt = drafted?.timeMs
+
+    /** The instant this end names — its wall clock read in [zone] once one is set, until then the
+     *  one it was drafted with (see [TripDraftEnd]); null when it holds no time at all. */
     fun epochIn(zone: ZoneId): Long? {
-        val d = date ?: return null
-        val t = time ?: return null
+        val d = date ?: return draftedAt
+        val t = time ?: return draftedAt
         return ZonedDateTime.of(d, t, zone).toInstant().toEpochMilli()
     }
+
+    /** Where this end's pickers open: on the time it already holds, else [fallback]. */
+    fun pickerStart(zone: ZoneId, fallback: ZonedDateTime): ZonedDateTime =
+        epochIn(zone)?.let { Instant.ofEpochMilli(it).atZone(zone) } ?: fallback
 }
 
 /** One end's time being edited: which end the pickers write to, under which name, on whose clock,
@@ -134,23 +186,40 @@ private class TimeEdit(val end: TripEnd, val label: String, val zone: ZoneId, va
  * row stays disabled rather than guessing a zone. Everything is local until the check mark commits,
  * so backing out discards by construction — the [PlaceEditScreen] pattern, including the
  * screen-local snackbar host (the app's sits under this layer).
+ *
+ * What the form opens holding is [draft]'s — the ends a gap row could already fill in, or nothing
+ * but the day the Timeline was showing. **It is also how a manual trip is edited**
+ * ([TripDraft.editing]): the same two pins and two times, rewritten onto the row they came from,
+ * since what a hand-entered trip *is* and what the form asks for are the same thing.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AddTripScreen(
     viewModel: TrackListViewModel,
-    /** The day the Timeline showed when the form opened — the pickers' starting day. */
-    initialDay: LocalDate?,
+    draft: TripDraft,
     onClose: () -> Unit,
 ) {
-    val origin = remember { TripEnd() }
-    val destination = remember { TripEnd() }
-    var activity by remember { mutableStateOf(ActivityType.FLIGHT) }
-    // Which end the next long-press (or quick-pick) places. Placing the origin advances to the
-    // destination once, so the common path is two presses with no toggling.
-    var placingDestination by remember { mutableStateOf(false) }
+    // Keyed on the draft: a second gap's form can open while the first is still animating out, and
+    // an unkeyed remember would hand it the ends the last one was filled with.
+    val origin = remember(draft) { TripEnd(draft.origin) }
+    val destination = remember(draft) { TripEnd(draft.destination) }
+    // Unset unless the trip already exists (see [EditedTrip]). How a missing leg was made is the one
+    // thing nothing here can work out — the two ends are known on the gap path and say nothing about
+    // it — so a default would be a guess the user commits without reading.
+    var activity by remember(draft) { mutableStateOf(draft.editing?.activity) }
+    // Which end the next long-press (or quick-pick) places: the one still missing a pin, and the
+    // origin where both need one. Placing the origin advances to the destination once, so the
+    // common path is two presses with no toggling.
+    var placingDestination by remember(draft) {
+        mutableStateOf(origin.pin != null && destination.pin == null)
+    }
     var editing by remember { mutableStateOf<TimeEdit?>(null) }
     var editingDate by remember { mutableStateOf<LocalDate?>(null) }
+    var centerRequest by remember(draft) { mutableStateOf<MapCenterRequest?>(null) }
+    // Where the map is looking, as of its last settle — what the place search sorts around. Keyed
+    // like the ends beside it: a second form opening while the first animates out gets a map of its
+    // own, and would otherwise sort around wherever that one was left.
+    var mapCenter by remember(draft) { mutableStateOf<StayDeriver.Endpoint?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -169,8 +238,15 @@ internal fun AddTripScreen(
         departMs != null && departMs > System.currentTimeMillis() -> "Departure is in the future"
         else -> null
     }
-    // Set times imply set pins: the time row waits for a pin, and a pin cannot be unset.
-    val ready = departMs != null && arriveMs != null && error == null
+    // The pins are asked about separately rather than taken as implied by the times: a typed time
+    // does wait for its pin, but a drafted one arrives without asking (a gap side the recorder
+    // never fixed knows when it was and not where).
+    val ready = activity != null &&
+        origin.pin != null &&
+        destination.pin != null &&
+        departMs != null &&
+        arriveMs != null &&
+        error == null
 
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -186,21 +262,33 @@ internal fun AddTripScreen(
         if (end === origin && destination.pin == null) placingDestination = true
     }
 
+    // Tapping an end makes it the one the map places, and where it already has a pin takes the
+    // camera there: the end you can see is the one you are navigating away from to find the other,
+    // and on a form opened from a gap it is the only ground on screen worth starting from. Asked
+    // again on every tap, including a tap on the end that is already active — panning away and
+    // tapping the card is the way back.
+    fun activate(end: TripEnd) {
+        placingDestination = end === destination
+        end.pin?.let { centerRequest = MapCenterRequest(it) }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                title = { Text("Add missing trip") },
+                title = { Text(if (draft.editing != null) "Edit trip" else "Add missing trip") },
                 navigationIcon = { BackNavIcon(onClose) },
                 actions = {
                     IconButton(
                         onClick = {
+                            val type = activity ?: return@IconButton
                             val from = origin.pin ?: return@IconButton
                             val to = destination.pin ?: return@IconButton
                             if (departMs == null || arriveMs == null) return@IconButton
-                            viewModel.addManualTrack(
-                                activity,
+                            viewModel.saveManualTrack(
+                                draft.editing?.trackId,
+                                type,
                                 TrackListViewModel.ManualTripEnd(
                                     TrackRepository.ManualEnd(from, departMs),
                                     origin.placeName,
@@ -210,11 +298,17 @@ internal fun AddTripScreen(
                                     destination.placeName,
                                 ),
                             ) { result ->
-                                when (result) {
-                                    is TrackRepository.ManualInsertResult.Inserted -> onClose()
-                                    TrackRepository.ManualInsertResult.Overlapping -> scope.launch {
-                                        snackbarHostState.showSnackbar("Overlaps an existing track")
-                                    }
+                                val refusal = when (result) {
+                                    is TrackRepository.ManualTrackResult.Saved -> null
+                                    TrackRepository.ManualTrackResult.Overlapping ->
+                                        "Overlaps an existing track"
+                                    TrackRepository.ManualTrackResult.NotEditable ->
+                                        "This trip is no longer there"
+                                }
+                                if (refusal == null) {
+                                    onClose()
+                                } else {
+                                    scope.launch { snackbarHostState.showSnackbar(refusal) }
                                 }
                             }
                         },
@@ -261,12 +355,39 @@ internal fun AddTripScreen(
             }
             // Pre-folded once per list — PlaceSearch's contract for filtering per keystroke.
             val foldedLabels = remember(savedPlaces) { savedPlaces.map { PlaceSearch.fold(it.label) } }
-            val placeMatches = remember(query, savedPlaces, foldedLabels) {
+            // Nearest what the map is looking at first: a name is rarely unique across a history —
+            // "Home", "Hotel", the same shop in three cities — and the ground on screen is the only
+            // thing said about which one is meant. Falls back to the table's order until the map has
+            // settled once, which is the order this list had before there was anything to sort by.
+            val placeMatches = remember(query, savedPlaces, foldedLabels, mapCenter) {
                 val needle = PlaceSearch.fold(query)
                 if (needle.isEmpty()) {
                     emptyList()
                 } else {
-                    savedPlaces.filterIndexed { i, _ -> foldedLabels[i].contains(needle) }
+                    val matches = savedPlaces.filterIndexed { i, _ -> foldedLabels[i].contains(needle) }
+                    val from = mapCenter
+                    if (from == null) {
+                        matches
+                    } else {
+                        // Measured once per place and sorted on the answer: a comparator that
+                        // measured would run an ellipsoidal solve on both sides of every
+                        // comparison, and a one-letter query can match hundreds of places.
+                        matches.map { it to AndroidDistance.meters(from.lat, from.lon, it.lat, it.lon) }
+                            .sortedBy { (_, meters) -> meters }
+                            .map { (place, _) -> place }
+                    }
+                }
+            }
+            // Where each matched place sits, so a saved pin says as much about itself as a city or
+            // an online hit does — two spots the user called "Mum's" are told apart by nothing else.
+            // Filled in as rows appear and kept for the form's life: typing a name walks the same
+            // handful of places on every keystroke, and a stored null is an answer (nothing in the
+            // gazetteer reaches there), not a miss to retry.
+            val placeCities = remember { mutableStateMapOf<Long, CityAtlas.City?>() }
+            LaunchedEffect(placeMatches) {
+                for (place in placeMatches) {
+                    if (place.id in placeCities) continue
+                    placeCities[place.id] = viewModel.cityAt(StayDeriver.Endpoint(place.lat, place.lon))
                 }
             }
             val cityHits by produceState(emptyList<CityAtlas.Hit>(), query) {
@@ -302,6 +423,8 @@ internal fun AddTripScreen(
                         places = placeField,
                         onLongPress = ::placePin,
                         onPlaceTap = ::placePin,
+                        center = centerRequest,
+                        onCenterSettled = { mapCenter = it },
                         modifier = Modifier.fillMaxSize(),
                     )
                     LegendSurface(Modifier.align(Alignment.TopStart).padding(8.dp)) {
@@ -325,7 +448,7 @@ internal fun AddTripScreen(
                                     PinSearchResult(
                                         icon = Icons.Filled.Place,
                                         label = place.label,
-                                        detail = null,
+                                        detail = placeCities[place.id]?.let { localityLabel(it) },
                                     ) {
                                         placePin(StayDeriver.Endpoint(place.lat, place.lon), place.label)
                                         query = ""
@@ -394,9 +517,12 @@ internal fun AddTripScreen(
                 city = originCity,
                 zone = originZone,
                 active = !placingDestination,
-                onActivate = { placingDestination = false },
+                onActivate = { activate(origin) },
                 onEditTime = {
-                    editing = TimeEdit(origin, "Departure", originZone, noonOf(initialDay, originZone))
+                    editing = TimeEdit(
+                        origin, "Departure", originZone,
+                        origin.pickerStart(originZone, noonOf(draft.day, originZone)),
+                    )
                 },
             )
             TripEndCard(
@@ -406,14 +532,17 @@ internal fun AddTripScreen(
                 city = destinationCity,
                 zone = destinationZone,
                 active = placingDestination,
-                onActivate = { placingDestination = true },
+                onActivate = { activate(destination) },
                 onEditTime = {
                     // An hour past the departure, on the arrival's own clock: the pickers open a
                     // short scroll from any real arrival instead of at an arbitrary noon.
                     editing = TimeEdit(
                         destination, "Arrival", destinationZone,
-                        departMs?.let { Instant.ofEpochMilli(it + HOUR_MS).atZone(destinationZone) }
-                            ?: noonOf(initialDay, destinationZone),
+                        destination.pickerStart(
+                            destinationZone,
+                            departMs?.let { Instant.ofEpochMilli(it + HOUR_MS).atZone(destinationZone) }
+                                ?: noonOf(draft.day, destinationZone),
+                        ),
                     )
                 },
             )
@@ -526,6 +655,13 @@ private fun PinSearchResult(
     }
 }
 
+/** Where a spot is, as this form says it throughout: the gazetteer's city and its country spelled
+ *  out. One spelling, so a place named in the results list and the same place named on an end's
+ *  card cannot read as two different answers. */
+@Composable
+private fun localityLabel(city: CityAtlas.City): String =
+    "${city.name}, ${countryDisplayName(city.country)}"
+
 /** [countryNameOf] remembered per code — the ICU lookup would otherwise re-run for every result
  *  row on every keystroke — falling back to the raw code where it resolves to nothing. */
 @Composable
@@ -556,7 +692,7 @@ private fun TripEndCard(
     val pickedName = end.placeName
     val locality = when {
         pickedName != null -> pickedName
-        city != null -> "${city.name}, ${countryDisplayName(city.country)}"
+        city != null -> localityLabel(city)
         pin != null -> "Pin placed"
         else -> "No pin yet"
     }

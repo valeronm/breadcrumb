@@ -14,6 +14,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.placeCategory
+import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
@@ -517,7 +518,16 @@ private const val TRIP_MARKER_LAYER = "trip-marker-layer"
 private class AppliedTripInputs {
     var pins: Pair<StayDeriver.Endpoint?, StayDeriver.Endpoint?>? = null
     var places: List<OverviewPlace>? = null
+    var center: MapCenterRequest? = null
 }
+
+/**
+ * A request to put the camera on one spot, honoured once. **The instance is the request** — asking
+ * twice for the same coordinate is two of them, and a value the map could find equal to the last
+ * would be indistinguishable from no request at all, which is exactly the case here: the second tap
+ * on an end names the same pin as the first and still means "take me back there".
+ */
+internal class MapCenterRequest(val at: StayDeriver.Endpoint)
 
 /**
  * The add-trip form's map: the user's places as the field the overview map draws — **the
@@ -536,6 +546,15 @@ internal fun MapLibreTripMap(
     /** A tap on a place's pin, reported at the pin's own spot rather than the finger's, with the
      *  place's label where the feature carries one — what the pick was picked *by*. */
     onPlaceTap: (StayDeriver.Endpoint, String?) -> Unit,
+    /** Where the screen wants the camera, if anywhere — see [MapCenterRequest]. */
+    center: MapCenterRequest? = null,
+    /**
+     * What the map is looking at, reported once the camera stops — the ground the user has chosen to
+     * be over, which is what a search of their places is a search *around*. On settling rather than
+     * per frame: this feeds a sort, and re-ordering a list under a moving finger would be its own
+     * kind of wrong.
+     */
+    onCenterSettled: (StayDeriver.Endpoint) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val applied = remember { AppliedTripInputs() }
@@ -543,9 +562,14 @@ internal fun MapLibreTripMap(
     // current callbacks, or a press would land on whichever end was active when the map was built.
     val longPress by rememberUpdatedState(onLongPress)
     val placeTap by rememberUpdatedState(onPlaceTap)
+    val centerSettled by rememberUpdatedState(onCenterSettled)
     MapLibreStyledMap(
         modifier = modifier,
         onMapReady = { map ->
+            map.addOnCameraIdleListener {
+                val at = map.cameraPosition.target ?: return@addOnCameraIdleListener
+                centerSettled(StayDeriver.Endpoint(at.latitude, at.longitude))
+            }
             map.addOnMapLongClickListener { at ->
                 longPress(StayDeriver.Endpoint(at.latitude, at.longitude))
                 true
@@ -566,12 +590,20 @@ internal fun MapLibreTripMap(
         onStyleLoaded = { ctx, map, style ->
             applied.pins = origin to destination
             applied.places = places
+            // Whatever the screen was asking for when the map arrived is already answered by the
+            // framing below — a request outstanding at open would otherwise fire on top of it.
+            applied.center = center
             // The overview map's own layers, ids and all — a style belongs to one MapView, so the
             // names can't collide, and the places here are exactly that map's field of pins.
             addOverviewLayers(ctx, style, places)
             style.addSource(GeoJsonSource(TRIP_MARKER_SOURCE, tripMarkerCollection(origin, destination)))
             style.addLayer(labeledSymbolLayer(ctx, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
             frameTripMap(map, origin, destination, places, opening = true)
+            // The opening frame lands before the idle listener is there to hear it, so where the map
+            // came up is stated outright — otherwise nothing knows the centre until the first pan.
+            map.cameraPosition.target?.let {
+                centerSettled(StayDeriver.Endpoint(it.latitude, it.longitude))
+            }
         },
         onUpdate = { map, style ->
             if (applied.places !== places) {
@@ -584,6 +616,13 @@ internal fun MapLibreTripMap(
                 style.getSourceAs<GeoJsonSource>(TRIP_MARKER_SOURCE)
                     ?.setGeoJson(tripMarkerCollection(origin, destination))
                 frameTripMap(map, origin, destination, places, opening = false)
+            }
+            if (applied.center !== center) {
+                applied.center = center
+                // The zoom is left where the user put it: they asked to go somewhere, not to see it
+                // at some particular scale, and a map that re-zooms on every tap fights the hand
+                // that framed it.
+                center?.let { map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(it.at.lat, it.at.lon))) }
             }
         },
     )

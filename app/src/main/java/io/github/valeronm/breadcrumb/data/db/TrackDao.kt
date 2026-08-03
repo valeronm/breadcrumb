@@ -22,6 +22,9 @@ data class TrackStatsUpdate(
     val endLon: Double?,
 )
 
+/** Excludes no row from the overlap checks — no track has this id ([TrackDao.countTracksSpanning]). */
+const val NO_TRACK = 0L
+
 @Dao
 interface TrackDao {
 
@@ -44,6 +47,23 @@ interface TrackDao {
 
     @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId")
     suspend fun setActivityType(trackId: Long, activityType: String)
+
+    /**
+     * Restate a typed-in track: what it was and when it ran, in one write. Its points are replaced
+     * in the same transaction ([deletePointsFor]) — the bounds and the two fixes are one statement
+     * about a manual track, and a row whose bounds outran its points would be widened back by the
+     * next edge-stay sweep.
+     */
+    @Query(
+        "UPDATE tracks SET activityType = :activityType, startedAt = :startedAt, endedAt = :endedAt " +
+            "WHERE id = :trackId",
+    )
+    suspend fun setManualTrack(trackId: Long, activityType: String, startedAt: Long, endedAt: Long)
+
+    /** Drop every fix of a track, the row itself staying — a manual track's two points on the way
+     *  to being replaced by the two the user just typed. */
+    @Query("DELETE FROM track_points WHERE trackId = :trackId")
+    suspend fun deletePointsFor(trackId: Long)
 
     /** Soft-delete a keep-threshold-filtered track: finalise it and mark it discarded. */
     @Query(
@@ -146,32 +166,37 @@ interface TrackDao {
      * observed, so it may read `track_points` (the observed queries below may not). Soft-deleted
      * tracks are excluded, here and in [countTracksOverlapping]: Recently deleted is a holding pen
      * on the way out, not what the app has seen, so a span covered only by discarded rows imports.
+     *
+     * [exceptTrackId] is the row being rewritten, whose own fixes sit in the span it is moving to and
+     * are what the write replaces — a track edited in place would otherwise always collide with
+     * itself. Ids are positive, so an insert passes [NO_TRACK] and excludes nothing.
      */
     @Query(
         """
         SELECT COUNT(*) FROM tracks t
-        WHERE t.discardedAt IS NULL
+        WHERE t.discardedAt IS NULL AND t.id != :exceptTrackId
           AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp = :startedAt)
           AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp = :endedAt)
         """,
     )
-    suspend fun countTracksSpanning(startedAt: Long, endedAt: Long): Int
+    suspend fun countTracksSpanning(startedAt: Long, endedAt: Long, exceptTrackId: Long): Int
 
     /**
      * Overlap check for GPX import, asked once [countTracksSpanning] rules out an exact duplicate:
      * some track's own point span intersects the file's — a second path over a period already
      * covered. Both ends compare strictly: tracks merely touching at one instant don't overlap, or
      * a file split into back-to-back legs would import its first leg and reject the rest.
+     * [exceptTrackId] as above.
      */
     @Query(
         """
         SELECT COUNT(*) FROM tracks t
-        WHERE t.discardedAt IS NULL
+        WHERE t.discardedAt IS NULL AND t.id != :exceptTrackId
           AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp < :endedAt)
           AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp > :startedAt)
         """,
     )
-    suspend fun countTracksOverlapping(startedAt: Long, endedAt: Long): Int
+    suspend fun countTracksOverlapping(startedAt: Long, endedAt: Long, exceptTrackId: Long): Int
 
     @Query("SELECT * FROM tracks WHERE endedAt IS NULL")
     suspend fun openTracks(): List<Track>

@@ -464,20 +464,28 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     class ManualTripEnd(val end: TrackRepository.ManualEnd, val placeName: String?)
 
     /**
-     * Insert the trip the add-trip form describes; an end picked by name becomes a place once the
-     * insert lands — the policy lives with the commit, not in a button. [onResult] gets the
-     * repository's verdict either way — the form stays open on a refusal, so it must hear about
-     * one.
+     * Commit the trip the add-trip form describes — a new row, or [editing]'s rewritten in place —
+     * and an end picked by name becomes a place once it lands; the policy lives with the commit, not
+     * in a button. [onResult] gets the repository's verdict either way, the form staying open on a
+     * refusal, so it must hear about one.
+     *
+     * One entry point for both, because everything after the write is the same: which of the two it
+     * was is the presence of a track id and nothing else.
      */
-    fun addManualTrack(
+    fun saveManualTrack(
+        editing: Long?,
         activityType: ActivityType,
         origin: ManualTripEnd,
         destination: ManualTripEnd,
-        onResult: (TrackRepository.ManualInsertResult) -> Unit,
+        onResult: (TrackRepository.ManualTrackResult) -> Unit,
     ) {
         viewModelScope.launch {
-            val result = repository.insertManualTrack(activityType, origin.end, destination.end)
-            if (result is TrackRepository.ManualInsertResult.Inserted) {
+            val result = if (editing == null) {
+                repository.insertManualTrack(activityType, origin.end, destination.end)
+            } else {
+                repository.updateManualTrack(editing, activityType, origin.end, destination.end)
+            }
+            if (result is TrackRepository.ManualTrackResult.Saved) {
                 createTripPlaces(
                     listOfNotNull(
                         origin.placeName?.let { it to origin.end.at },

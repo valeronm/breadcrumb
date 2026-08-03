@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.withTransaction
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
+import io.github.valeronm.breadcrumb.data.db.NO_TRACK
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -90,11 +91,11 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         var duplicates = 0
         var overlapping = 0
         for (track in tracks) {
-            if (dao.countTracksSpanning(track.startedAt, track.endedAt) > 0) {
+            if (dao.countTracksSpanning(track.startedAt, track.endedAt, NO_TRACK) > 0) {
                 duplicates++
                 continue
             }
-            if (dao.countTracksOverlapping(track.startedAt, track.endedAt) > 0) {
+            if (dao.countTracksOverlapping(track.startedAt, track.endedAt, NO_TRACK) > 0) {
                 overlapping++
                 continue
             }
@@ -142,32 +143,30 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     /** One typed end of a manual track — where the user says the leg began or ended, and when. */
     class ManualEnd(val at: StayDeriver.Endpoint, val timestampMs: Long)
 
-    sealed class ManualInsertResult {
-        class Inserted(val trackId: Long) : ManualInsertResult()
+    sealed class ManualTrackResult {
+        class Saved(val trackId: Long) : ManualTrackResult()
 
         /** The span intersects an existing track's fixes — refused, the same rule as a GPX
          *  overlap: two paths over one period double-count stats and leave stay derivation
          *  reconciling parallel journeys. */
-        object Overlapping : ManualInsertResult()
+        object Overlapping : ManualTrackResult()
+
+        /** The row an edit named is gone, or was never a manual one — nothing was written. Only an
+         *  edit can meet this; the screen offering one has to say so rather than close on silence. */
+        object NotEditable : ManualTrackResult()
     }
 
     /**
      * Inserts a track the user typed in: two points, two times, nothing between. Keep thresholds
      * deliberately do NOT apply, like [importTracks] — an explicit entry is kept as-is, and the
      * two-point purge floor ([KeepRule]) would otherwise delete every manual track on arrival.
-     * The points are stamped exactly at the track's own bounds: the edge-stay boundary fix widens
-     * a row to its points' envelope, so a point outside the declared span would move the track's
-     * clock on the next sweep.
      */
     suspend fun insertManualTrack(
         activityType: ActivityType,
         origin: ManualEnd,
         destination: ManualEnd,
-    ): ManualInsertResult {
-        val spanning = dao.countTracksSpanning(origin.timestampMs, destination.timestampMs) > 0
-        if (spanning || dao.countTracksOverlapping(origin.timestampMs, destination.timestampMs) > 0) {
-            return ManualInsertResult.Overlapping
-        }
+    ): ManualTrackResult {
+        refusedSpan(origin, destination, exceptTrackId = NO_TRACK)?.let { return it }
         val trackId = db.withTransaction {
             val id = dao.insertTrack(
                 Track(
@@ -177,27 +176,79 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                     source = TrackOrigin.MANUAL.code,
                 ),
             )
-            dao.insertPoints(
-                listOf(origin, destination).map { end ->
-                    TrackPoint(
-                        trackId = id,
-                        latitude = end.at.lat,
-                        longitude = end.at.lon,
-                        altitude = null,
-                        accuracy = null,
-                        speed = null,
-                        bearing = null,
-                        timestamp = end.timestampMs,
-                        segmentStart = false,
-                    )
-                },
-            )
+            dao.insertPoints(manualPoints(id, origin, destination))
             id
         }
         finalizeImportedTrack(trackId)
         DebugLog.i(TAG, "manual track: ${activityType.name} inserted as #$trackId")
-        return ManualInsertResult.Inserted(trackId)
+        return ManualTrackResult.Saved(trackId)
     }
+
+    /**
+     * Rewrites a manual track to what the user now says it was — type, both ends, both times — in
+     * place, keeping its id. **Only a manual row may be rewritten**: every other track's points are
+     * a measurement or a file's, and this replaces them outright.
+     *
+     * The row is excluded from its own overlap check ([TrackDao.countTracksSpanning]); the fixes it
+     * would collide with are the ones being replaced. Nothing else here differs from an insert, the
+     * finalize pass included — the aggregates and the overrun verdict are functions of the points,
+     * and these are new points.
+     */
+    suspend fun updateManualTrack(
+        trackId: Long,
+        activityType: ActivityType,
+        origin: ManualEnd,
+        destination: ManualEnd,
+    ): ManualTrackResult {
+        val existing = dao.track(trackId)
+        if (existing == null || TrackOrigin.fromCode(existing.source) != TrackOrigin.MANUAL) {
+            return ManualTrackResult.NotEditable
+        }
+        refusedSpan(origin, destination, exceptTrackId = trackId)?.let { return it }
+        db.withTransaction {
+            dao.deletePointsFor(trackId)
+            dao.insertPoints(manualPoints(trackId, origin, destination))
+            dao.setManualTrack(
+                trackId, activityType.name, origin.timestampMs, destination.timestampMs,
+            )
+        }
+        finalizeImportedTrack(trackId)
+        DebugLog.i(TAG, "manual track: #$trackId rewritten as ${activityType.name}")
+        return ManualTrackResult.Saved(trackId)
+    }
+
+    /** [ManualTrackResult.Overlapping] where some other track already covers this span, else null. */
+    private suspend fun refusedSpan(
+        origin: ManualEnd,
+        destination: ManualEnd,
+        exceptTrackId: Long,
+    ): ManualTrackResult? {
+        val from = origin.timestampMs
+        val to = destination.timestampMs
+        val taken = dao.countTracksSpanning(from, to, exceptTrackId) > 0 ||
+            dao.countTracksOverlapping(from, to, exceptTrackId) > 0
+        return ManualTrackResult.Overlapping.takeIf { taken }
+    }
+
+    /**
+     * A manual track's two fixes. Stamped exactly at the row's own bounds: the edge-stay boundary fix
+     * widens a row to its points' envelope, so a point outside the declared span would move the
+     * track's clock on the next sweep — which is why insert and rewrite build them in one place.
+     */
+    private fun manualPoints(trackId: Long, origin: ManualEnd, destination: ManualEnd) =
+        listOf(origin, destination).map { end ->
+            TrackPoint(
+                trackId = trackId,
+                latitude = end.at.lat,
+                longitude = end.at.lon,
+                altitude = null,
+                accuracy = null,
+                speed = null,
+                bearing = null,
+                timestamp = end.timestampMs,
+                segmentStart = false,
+            )
+        }
 
     /**
      * Inserts a batch of backup tracks, points and all, under fresh ids in one transaction, so a

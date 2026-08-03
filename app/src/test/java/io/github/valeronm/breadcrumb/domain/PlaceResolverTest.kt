@@ -293,6 +293,21 @@ class PlaceResolverTest {
         assertEquals(1, summaries.count { !it.isNamed }) // the (900) stay is an unnamed cluster
     }
 
+    @Test fun `a resolved stop is placed at its pin once named, at its centroid until then`() {
+        // Where a stop *is* — what a route drawn to it starts from. The two answers only differ
+        // once a place has been named and the visits since have drifted off its pin, which is
+        // exactly when a caller reaching for the centroid would put the stop somewhere the user
+        // never said it was.
+        val places = listOf(place(1, "Home", at(0.0)))
+        val stays = listOf(stay(at(100.0)), stay(at(300.0)), stay(at(2_000.0)))
+        val resolved = resolve(stays, places)
+
+        assertEquals(at(0.0), resolved.getValue(stays[0].afterTrackId).pin)
+        val unnamed = resolved.getValue(stays[2].afterTrackId)
+        assertNull(unnamed.label)
+        assertEquals(unnamed.centroid, unnamed.pin)
+    }
+
     @Test fun `a named place's endpoint centroid is where its visits landed, not its pin`() {
         // The two positions a summary carries, and they are only interesting when they differ:
         // the anchor is where the pin was dropped, the centroid where the visits actually fell.

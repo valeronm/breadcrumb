@@ -34,13 +34,32 @@ object RoutePlaces {
      */
     fun ends(points: List<TrackPoint>, places: List<Place>, distance: DistanceFn): List<Place> {
         if (points.isEmpty()) return emptyList()
-        // Through the seeds, not the rows: a pin and its reach are the whole of what claims a
-        // coordinate, and reading the columns here would be a second reader of a place's geometry
-        // outside the one projection that is allowed to know them.
+        // One projection for both ends: it is the same pins answering the same question twice.
         val seeds = PlaceClusterer.seedsOf(places)
-        fun holderOf(point: TrackPoint): Place? =
-            PlaceClusterer.nearestSeedIndex(point.latitude, point.longitude, seeds, distance)
-                ?.let(places::get)
-        return listOfNotNull(holderOf(points.first()), holderOf(points.last())).distinctBy { it.id }
+        return listOfNotNull(
+            holderOf(points.first(), seeds, places, distance),
+            holderOf(points.last(), seeds, places, distance),
+        ).distinctBy { it.id }
     }
+
+    /**
+     * The place whose capture area holds [point], or null where none does — the question [ends] asks
+     * of each end, for a caller that needs the two answers apart rather than deduplicated into a set
+     * of pins to draw.
+     */
+    fun holding(point: TrackPoint, places: List<Place>, distance: DistanceFn): Place? =
+        holderOf(point, PlaceClusterer.seedsOf(places), places, distance)
+
+    // Through the seeds, not the rows: a pin and its reach are the whole of what claims a
+    // coordinate, and reading the columns here would be a second reader of a place's geometry
+    // outside the one projection that is allowed to know them. [seeds] must be [places]' own, in
+    // order — the index comes back positional.
+    private fun holderOf(
+        point: TrackPoint,
+        seeds: List<PlaceClusterer.Seed>,
+        places: List<Place>,
+        distance: DistanceFn,
+    ): Place? =
+        PlaceClusterer.nearestSeedIndex(point.latitude, point.longitude, seeds, distance)
+            ?.let(places::get)
 }

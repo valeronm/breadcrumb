@@ -41,6 +41,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Pause
@@ -134,6 +135,8 @@ internal fun TracksTab(
     viewedDay: TimelineViewedDay,
     onOpen: (Long) -> Unit,
     onOpenPlace: (String) -> Unit,
+    /** Open the add-trip form on an absence, holding whatever the gap row it came from knows. */
+    onAddTrip: (TripDraft) -> Unit,
     onReplay: (TrackSummary) -> Unit,
 ) {
     val context = LocalContext.current
@@ -326,7 +329,7 @@ internal fun TracksTab(
                                 },
                             )
                             is TimelineItem.GapItem ->
-                                GapRow(item, shape, item.clock, onOpenPlace, onMerge)
+                                GapRow(item, shape, item.clock, onOpenPlace, onMerge, onAddTrip)
                         }
                     }
                 }
@@ -1106,6 +1109,10 @@ private fun StayCard(
  * departure appears on the day it happened, the arrival on the day it happened, and a day the
  * absence merely passes through gets neither pin — a dashed line and "all day" is the whole card,
  * which is the honest amount the app knows about that day.
+ *
+ * The other way to close a gap is to say what happened in it, so the card offers the add-trip form
+ * pre-filled with the ends it holds — and a day holding neither offers nothing, having nothing to
+ * hand over.
  */
 @Composable
 private fun GapRow(
@@ -1114,11 +1121,12 @@ private fun GapRow(
     zone: ZoneId,
     onOpenPlace: (String) -> Unit,
     onMerge: (TrackMerge.Plan) -> Unit,
+    onAddTrip: (TripDraft) -> Unit,
 ) {
     // A gap short enough to be one outing the recorder split swipes away exactly as a short stop
     // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
     // absences and aren't swipeable.
-    MergeSwipeable(item.merge, shape, onMerge) { GapCard(item, shape, zone, onOpenPlace) }
+    MergeSwipeable(item.merge, shape, onMerge) { GapCard(item, shape, zone, onOpenPlace, onAddTrip) }
 }
 
 @Composable
@@ -1127,6 +1135,7 @@ private fun GapCard(
     shape: RoundedCornerShape,
     zone: ZoneId,
     onOpenPlace: (String) -> Unit,
+    onAddTrip: (TripDraft) -> Unit,
 ) {
     val gap = item.gap
     // A midnight bound is a slice seam, not a bound of the absence (StayRow reads its own the same
@@ -1153,6 +1162,24 @@ private fun GapCard(
     val arrivalAt = if (item.spansClocks) gapEndTime(gap.end, zone, reader, shiftColor) else null
     val departureAt = item.departureZone?.takeIf { item.spansClocks }
         ?.let { gapEndTime(gap.start, it, reader, shiftColor) }
+    // The trip this absence is missing, as far as this row can state it — the same two questions
+    // again, so an end the card doesn't name is an end the form isn't handed. A bound the slicer
+    // clamped to midnight is not a departure, and the place on the far side of a three-day absence
+    // is not this day's arrival; both would go into the form as fact and be committed unread.
+    // Built once per row rather than per composition — the ripple invalidates this card on every
+    // press, and nothing here is read until the "+" is tapped. The row's own data and the clock it
+    // is read on decide all of it, so those are the whole key.
+    val draft = remember(item, zone) {
+        if (!holdsDeparture && !holdsArrival) {
+            null
+        } else {
+            TripDraft(
+                day = item.filedOn,
+                origin = if (holdsDeparture) draftEndOf(departure, gap.start) else null,
+                destination = if (holdsArrival) draftEndOf(arrival, gap.end) else null,
+            )
+        }
+    }
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
             GapPlaceLine(arrival, arrivalAt, onOpenPlace)
@@ -1184,7 +1211,8 @@ private fun GapCard(
                 }
                 Spacer(Modifier.width(16.dp))
                 Text(
-                    buildAnnotatedString {
+                    modifier = Modifier.weight(1f),
+                    text = buildAnnotatedString {
                         append("missing recording · ")
                         // A duration says the same thing on any clock, so the two-end case states
                         // one and is marked nowhere; a half that states a real bound marks it, as
@@ -1206,11 +1234,28 @@ private fun GapCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
+                // The card's one action, so it carries the card's only accent — the same glyph the
+                // Timeline's own top bar opens the form with.
+                if (draft != null) {
+                    IconButton(onClick = { onAddTrip(draft) }) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "Add missing trip",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
             }
             GapPlaceLine(departure, departureAt, onOpenPlace)
         }
     }
 }
+
+/** One end of an absence as the add-trip form takes it: where the recorder left off (or came back),
+ *  under the name the user gave that spot, if any — a side it never got a fix for hands over its
+ *  time alone, and the form asks the map for the rest. */
+private fun draftEndOf(place: PlaceResolver.ResolvedStay?, atMs: Long) =
+    TripDraftEnd(at = place?.pin, placeName = place?.label, timeMs = atMs)
 
 /** When one end of a crossing happened, on that end's own clock, its offset raised against it. */
 private fun gapEndTime(epochMs: Long, zone: ZoneId, reader: ZoneId, shiftColor: Color) =
