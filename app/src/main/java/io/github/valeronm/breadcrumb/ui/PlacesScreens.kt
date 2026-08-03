@@ -86,10 +86,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -320,6 +323,10 @@ internal fun PlacesTab(
                                 brief = !summary.isNamed &&
                                     summary.stays.singleOrNull()
                                         ?.let { (it.afterTrackId to it.start) in mergeableStays } == true,
+                                // Only a named place's reach is drawn: it is a number the user set
+                                // and can judge against its neighbours here, where an unnamed
+                                // cluster's is the clusterer's default repeated under every dot.
+                                radiusM = summary.radiusM.takeIf { summary.isNamed },
                             )
                         }
                     }
@@ -632,7 +639,7 @@ internal fun PlaceDetailScreen(
             // Directly under the name it qualifies, before anything the user has a say in: where a
             // place is is a fact about it, where the category and the counts are what has been made
             // of it.
-            PlaceLocality(summary.anchor, viewModel)
+            PlaceLocality(summary.anchor, nowMs, viewModel)
             // What this is for and what it adds up to, held above the visits rather than read once
             // and scrolled past — the counts summarise the list moving under them, and the chip is
             // the screen's one control. Above the list rather than a sticky header inside it: at
@@ -1154,25 +1161,44 @@ private fun CategoryRow(
 }
 
 /**
- * Where in the world this place is — the city holding its pin, and the country. The one thing on
- * this screen the user did not say and the recorder did not measure: it comes from the bundled
- * gazetteer, which is also why it arrives a beat late rather than with the rest of the page. Absent
- * rather than apologetic when nothing can be resolved (a coordinate at sea, an atlas that failed to
- * read); the screen reads perfectly well without it.
+ * Where in the world this place is — the city holding its pin, the country, and how far its clock
+ * sits from the reader's. The one thing on this screen the user did not say and the recorder did not
+ * measure: it comes from the bundled gazetteer, which is also why it arrives a beat late rather than
+ * with the rest of the page. Absent rather than apologetic when nothing can be resolved (a coordinate
+ * at sea, an atlas that failed to read); the screen reads perfectly well without it.
+ *
+ * **The shift is said as of [nowMs], and says so**, because there is no offset a place simply *has*:
+ * two zones keep summer time on their own schedules, so a Tokyo hotel is nine hours from a European
+ * reader for seven months of the year and eight for the rest — and no single number can stand over a
+ * list of visits spanning both. What this answers is "where in the day is that place right now",
+ * which is a question about the place; what a visit was for the reader is a question about that
+ * visit, and [zoneShiftLabel] is asked at the instant either time.
  */
 @Composable
-private fun PlaceLocality(at: StayDeriver.Endpoint, viewModel: TrackListViewModel) {
+private fun PlaceLocality(at: StayDeriver.Endpoint, nowMs: Long, viewModel: TrackListViewModel) {
     val locale = LocalConfiguration.current.locales[0]
     val city by produceState<CityAtlas.City?>(null, at) { value = viewModel.cityAt(at) }
-    val label = city?.let {
-        val country = countryNameOf(it.country, locale)
-        // Widest first, and the flag leading it: mid-line it splits the row in two, where at the
-        // head it is the line's own glyph. No globe beside a line that already names a country, and
-        // no flag where the country cannot be named either.
-        if (country.isEmpty()) it.name else "${flagOf(it.country)} $country, ${it.name}"
-    } ?: return
+    val resolved = city ?: return
+    val country = countryNameOf(resolved.country, locale)
+    // Widest first, and the flag leading it: mid-line it splits the row in two, where at the
+    // head it is the line's own glyph. No globe beside a line that already names a country, and
+    // no flag where the country cannot be named either.
+    val label = if (country.isEmpty()) {
+        resolved.name
+    } else {
+        "${flagOf(resolved.country)} $country, ${resolved.name}"
+    }
+    // Off the city this line resolved, not off the summary's zone: one line, one answer about one
+    // spot. Nothing trails a place keeping the reader's own clock — see [zoneShiftLabel].
+    val shift = zoneShiftLabel(nowMs, zoneOrDevice(resolved.zoneId), timelineZone())
+    val shiftColor = zoneShiftColor
     Text(
-        label,
+        buildAnnotatedString {
+            append(label)
+            if (shift != null) {
+                withStyle(SpanStyle(color = shiftColor)) { append(" · $shift now") }
+            }
+        },
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(start = 4.dp),

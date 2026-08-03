@@ -330,6 +330,14 @@ internal class OverviewPlace(
     /** The place's only stay is a merge-eligible short stop (a likely split-track artifact,
      *  not a real visit) — unnamed dots render orange instead of blue. */
     val brief: Boolean = false,
+    /**
+     * How far this place reaches, where that is worth drawing — null draws no ring, which is the
+     * answer for every place on a map that shows none at all. **Whose reach earns one is the
+     * caller's**: a named place's radius is a number the user set on the edit screen and can compare
+     * against its neighbours, while an unnamed cluster's is the clusterer's default repeated over
+     * every dot on screen.
+     */
+    val radiusM: Double? = null,
 )
 
 /**
@@ -337,6 +345,10 @@ internal class OverviewPlace(
  * down the zoom range (see [overviewIconSize]) and framed to fit them all once on open. A pin is
  * colored by its category's group and shows the category's glyph at [GLYPH_ZOOM]. Tapping a marker
  * reports its key via [onOpen].
+ *
+ * Each place that claims a reach ([OverviewPlace.radiusM]) also gets it drawn, under the markers and
+ * in the weight a ring the screen is *not* about wears everywhere ([addContextCircleLayers]) — the
+ * subject here is the field of places, and an area is the annotation on one.
  */
 @Composable
 internal fun MapLibrePlacesMap(
@@ -357,6 +369,12 @@ internal fun MapLibrePlacesMap(
         },
         onStyleLoaded = { ctx, map, style ->
             applied.places = places
+            // Before the markers, so the pins keep the top: a ring is the ground a place claims and
+            // the marker is the place. Layers draw in the order they are added.
+            style.addSource(GeoJsonSource(OVERVIEW_CIRCLE_SOURCE, overviewCircles(places)))
+            addContextCircleLayers(style, OVERVIEW_CIRCLE_SOURCE, OVERVIEW_CIRCLE_FILL, OVERVIEW_CIRCLE_LINE)
+            style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
+            style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             addOverviewLayers(ctx, style, places)
             frameTo(map, places.map { LatLng(it.marker.location.lat, it.marker.location.lon) }, singlePointZoom = 13.0)
         },
@@ -365,10 +383,29 @@ internal fun MapLibrePlacesMap(
                 applied.places = places
                 style.getSourceAs<GeoJsonSource>(OVERVIEW_SOURCE)
                     ?.setGeoJson(overviewCollection(places))
+                style.getSourceAs<GeoJsonSource>(OVERVIEW_CIRCLE_SOURCE)
+                    ?.setGeoJson(overviewCircles(places))
             }
         },
     )
 }
+
+/**
+ * The zoom from which the overview map draws what a place reaches. A default capture radius is about
+ * five pixels across here — a ring rather than a dot behind a pin — and half that a stop further
+ * out, where a screenful of them reads as smudges under the markers. Set where the rings become
+ * *readable*, not where they become visible: the whole-history view this map opens on is far enough
+ * out that a place is a pin and nothing else, which is what that view is for.
+ */
+private const val OVERVIEW_CIRCLE_ZOOM = 12f
+
+/** The reach of every place that claims one; the rest of the field contributes nothing. */
+private fun overviewCircles(places: List<OverviewPlace>): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        places.mapNotNull { place ->
+            place.radiusM?.let { circleFeature(place.marker.location, it) }
+        },
+    )
 
 /** The topmost feature of [layer] within a finger's reach of [latLng], or null — the one tap
  *  hit-test every marker layer here shares, 36 px of slop included. */
@@ -388,6 +425,9 @@ private class AppliedOverviewInputs {
 
 private const val OVERVIEW_SOURCE = "places-overview-src"
 private const val OVERVIEW_LAYER = "places-overview-layer"
+private const val OVERVIEW_CIRCLE_SOURCE = "places-overview-circle-src"
+private const val OVERVIEW_CIRCLE_FILL = "places-overview-circle-fill"
+private const val OVERVIEW_CIRCLE_LINE = "places-overview-circle-line"
 private const val IMG_ENDPOINT_BRIEF = "marker-endpoint-brief"
 
 /** The place-detail key a tapped feature reports back through [MapLibrePlacesMap]'s `onOpen`. */
