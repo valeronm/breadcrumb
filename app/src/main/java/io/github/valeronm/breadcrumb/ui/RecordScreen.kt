@@ -429,7 +429,7 @@ private fun AutoRecordControls(
             MaterialTheme.colorScheme.surfaceContainerHighest
         },
         contentColor = if (autoOn) {
-            MaterialTheme.colorScheme.primary
+            MaterialTheme.colorScheme.onPrimaryContainer
         } else {
             MaterialTheme.colorScheme.onSurface
         },

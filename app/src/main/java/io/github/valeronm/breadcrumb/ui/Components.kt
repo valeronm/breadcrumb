@@ -115,6 +115,11 @@ internal fun IconSwitch(
         checked = checked,
         onCheckedChange = onCheckedChange,
         enabled = enabled,
+        // The check reads as the track showing through the thumb, which is the one pairing every
+        // palette keeps contrastive. The default `onPrimaryContainer` assumes a dark theme's
+        // containers are dark tones; a scheme that inverts them renders the glyph on a thumb of
+        // near-identical luminance.
+        colors = SwitchDefaults.colors(checkedIconColor = MaterialTheme.colorScheme.primary),
         thumbContent = {
             Icon(
                 if (checked) Icons.Filled.Check else Icons.Filled.Close,
