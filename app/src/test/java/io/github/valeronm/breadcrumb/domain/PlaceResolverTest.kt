@@ -293,6 +293,24 @@ class PlaceResolverTest {
         assertEquals(1, summaries.count { !it.isNamed }) // the (900) stay is an unnamed cluster
     }
 
+    @Test fun `a stop of no duration is not a visit, however brief a real one may be`() {
+        // The seam two tracks sharing an instant leave behind — a split's cut, or a trip entered by
+        // hand landing exactly on the absence it fills. It happened nowhere and lasted no time, so
+        // it must not push a cluster toward the visit count that surfaces it for naming. The
+        // one-millisecond stay beside it is the guard against this becoming a duration floor.
+        val places = listOf(place(7, "Home", at(0.0)))
+        val stays = listOf(
+            stayAt(at(0.0), start = 1_000, end = 3_000),   // a stop
+            stayAt(at(10.0), start = 4_000, end = 4_000),  // a seam: no time in it at all
+            stayAt(at(20.0), start = 5_000, end = 5_001),  // a millisecond, and still a stop
+        )
+
+        assertEquals(2, resolve(stays, places).getValue(stays[0].afterTrackId).visitCount)
+        val home = summarize(stays, places).single { it.isNamed }
+        assertEquals(2, home.visitCount)
+        assertEquals("the seam is no part of the place's history either", 2, home.stays.size)
+    }
+
     @Test fun `a resolved stop is placed at its pin once named, at its centroid until then`() {
         // Where a stop *is* — what a route drawn to it starts from. The two answers only differ
         // once a place has been named and the visits since have drifted off its pin, which is

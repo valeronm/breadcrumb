@@ -146,7 +146,12 @@ function buildTimeline(places, liveness) {
   // Resolve over the UNSLICED stays: after slicing, a 3-day stay would count as 3 visits.
   const stays = intervals.filter((i) => i.kind === "stay");
   clusterPlaces = resolveClusters(stays, clusters, places);
-  timeline = interleave(tracks, slicePerDay(intervals, nowMs));
+  // A stay of no duration is the seam between two tracks that share an instant, and it says nothing
+  // about where anyone was. The app keeps one only while it carries the offer to undo the join —
+  // there is no merging here, so every seam is a row about nothing. Dropped as the timeline is
+  // built, not while rendering: the rows are addressed by index from the map and the highlight.
+  timeline = interleave(tracks, slicePerDay(intervals, nowMs))
+    .filter((item) => item.kind !== "stay" || item.end !== item.start);
   return stays.length;
 }
 

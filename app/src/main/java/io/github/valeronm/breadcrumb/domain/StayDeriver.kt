@@ -556,9 +556,12 @@ sealed interface TimelineItem {
          * Such a seam earns its row only while it carries the offer to undo the join, which is why
          * this asks after [merge] rather than after the writers either side: refusing across writers
          * is one of three things [TrackMerge.plan] refuses on, and a seam whose offer was refused for
-         * either of the others says exactly as little. Read by the timeline, which drops these; the
-         * derivation still emits them, and every count taken off it — a place's visits above all —
-         * is unchanged by what a list chooses to draw.
+         * either of the others says exactly as little.
+         *
+         * The derivation still emits every seam — this is the timeline deciding what to draw, and
+         * the readers below it decide separately. [PlaceResolver] asks its own, narrower question of
+         * the same intervals (was anyone anywhere, rather than is this row worth a line), so a seam
+         * counts as no visit there whether or not a merge is offered here.
          */
         val isBareSeam: Boolean get() = merge == null && stay.end == stay.start
     }

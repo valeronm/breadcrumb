@@ -368,7 +368,15 @@ export function mapVisiblePlaces(resolved, showRareStops) {
  * Must run over the UNSLICED stays — after slicePerDay a 3-day stay would count as 3 visits. */
 export function resolveClusters(stays, clusters, places) {
   const visits = new Map();
-  for (const stay of stays) visits.set(stay.clusterId, (visits.get(stay.clusterId) ?? 0) + 1);
+  for (const stay of stays) {
+    // A stop of no duration is not a visit: two tracks sharing an instant leave a stay with no time
+    // in it — a split's cut, or a trip entered by hand landing exactly on the absence it fills — and
+    // that is a join between two tracks rather than time spent anywhere. Not a duration floor:
+    // however brief, a stop the endpoints agree on counts. The app drops the same interval in
+    // `PlaceResolver`, and for the same reason.
+    if (stay.end === stay.start) continue;
+    visits.set(stay.clusterId, (visits.get(stay.clusterId) ?? 0) + 1);
+  }
   return clusters.map((cluster, clusterId) => {
     const place = cluster.seedIndex == null ? null : places[cluster.seedIndex] ?? null;
     return {

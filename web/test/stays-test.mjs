@@ -299,6 +299,22 @@ assert.equal(
   assert.equal(resolved[stay.clusterId].placeId, 7);
   // Both the between-tracks stay and the tail stay sit at home.
   assert.equal(resolved[stay.clusterId].visitCount, 2);
+
+  // A stop of no duration is not a visit — the seam two tracks sharing an instant leave behind,
+  // which the app drops from its counts for the same reason. Not a duration floor: the
+  // one-millisecond stop beside it still counts.
+  const seam = { ...stay, start: 9_000, end: 9_000 };
+  const blink = { ...stay, start: 9_000, end: 9_001 };
+  assert.equal(
+    resolveClusters([...stays(intervals), seam], derived, places)[stay.clusterId].visitCount,
+    2,
+    "a seam adds nothing",
+  );
+  assert.equal(
+    resolveClusters([...stays(intervals), blink], derived, places)[stay.clusterId].visitCount,
+    3,
+    "however brief, a real stop counts",
+  );
 }
 
 // --- what a place is for -------------------------------------------------------------------------
