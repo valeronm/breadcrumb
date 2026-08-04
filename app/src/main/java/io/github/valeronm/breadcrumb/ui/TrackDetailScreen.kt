@@ -55,10 +55,13 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackQuality
@@ -74,7 +77,7 @@ import io.github.valeronm.breadcrumb.domain.RoutePlaces
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
-import io.github.valeronm.breadcrumb.util.UnitSystem
+import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -183,7 +186,12 @@ internal fun TrackMapScreen(
                 colors = canvasTopBarColors(),
                 // The bar carries what the track *is*; when it happened is a line of its own below,
                 // where it reads at body size instead of as a caption under a title.
-                title = { Text(summary?.let { ActivityType.labelFor(it.activityType) } ?: "Track") },
+                title = {
+                    Text(
+                        summary?.let { activityLabel(LocalContext.current, it.activityType) }
+                            ?: stringResource(R.string.track_title),
+                    )
+                },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
                     if (summary != null) {
@@ -204,8 +212,9 @@ internal fun TrackMapScreen(
                         ) {
                             Icon(
                                 Icons.Filled.Edit,
-                                contentDescription =
-                                if (editTrip != null) "Edit trip" else "Change track type",
+                                contentDescription = stringResource(
+                                    if (editTrip != null) R.string.track_edit_trip else R.string.track_change_type,
+                                ),
                             )
                         }
                     }
@@ -214,7 +223,10 @@ internal fun TrackMapScreen(
                             if (intent != null) context.startActivity(intent)
                         }
                     }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Share GPX")
+                        Icon(
+                            Icons.Filled.Share,
+                            contentDescription = stringResource(R.string.track_share_gpx),
+                        )
                     }
                 },
             )
@@ -227,7 +239,7 @@ internal fun TrackMapScreen(
                 // A track without a drawable line still gets the map when it has noisy fixes to
                 // mark — a bad-points-only track is exactly what the noisy overlay is for.
                 load.good.size < KeepRule.MIN_LINE_POINTS && load.noisy.isEmpty() -> Text(
-                    "Not enough points to draw this track on a map.",
+                    stringResource(R.string.track_too_few_points),
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -253,15 +265,15 @@ internal fun TrackMapScreen(
                         Card(Modifier.fillMaxWidth()) { TrackStatsHeader(summary) }
                     }
                     val darkTheme = isSystemInDarkTheme()
-                    val units = LocalUnits.current
                     // No modes means no graph and no chips — a manual track's typed fixes carry no
                     // metric at all, and which writers can say that is availableColorModes's call,
                     // not this screen's.
-                    val graph = remember(seams, colorMode, activity, darkTheme, units, colorModes) {
+                    val measures = LocalMeasures.current
+                    val graph = remember(seams, colorMode, activity, darkTheme, measures, colorModes) {
                         if (colorModes.isEmpty()) {
                             null
                         } else {
-                            metricGraphData(seams, colorMode, activity, darkTheme, units)
+                            metricGraphData(seams, colorMode, activity, darkTheme, measures)
                         }
                     }
                     // The chips carry no surface of their own: they are the control for the map
@@ -273,7 +285,8 @@ internal fun TrackMapScreen(
                             colorModes,
                             // Only the import is named: a recording is what a track is, and a
                             // word on every other one would say nothing.
-                            caption = "Imported".takeIf { source == TrackOrigin.IMPORTED },
+                            caption = stringResource(R.string.track_caption_imported)
+                                .takeIf { source == TrackOrigin.IMPORTED },
                         ) { selectedMode = it }
                     }
                     // Map and scrubber read as one group: small gaps, small corners between them.
@@ -309,7 +322,10 @@ internal fun TrackMapScreen(
                                 if (!noisyPoints.isNullOrEmpty()) {
                                     // On the map rather than in the bar: it shows and hides marks
                                     // drawn here.
-                                    MapFilterChip(selected = showNoisy, label = "Noisy points") {
+                                    MapFilterChip(
+                                        selected = showNoisy,
+                                        label = stringResource(R.string.track_filter_noisy),
+                                    ) {
                                         showNoisyOverride = !showNoisy
                                     }
                                 }
@@ -344,7 +360,7 @@ internal fun TrackMapScreen(
         AlertDialog(
             onDismissRequest = { showTypeDialog = false },
             icon = { Icon(activityIcon(activity), contentDescription = null) },
-            title = { Text("Track type") },
+            title = { Text(stringResource(R.string.track_type_dialog_title)) },
             text = {
                 Column {
                     // Selecting applies immediately: the summary flow re-emits and the title,
@@ -353,10 +369,10 @@ internal fun TrackMapScreen(
                     for (option in ActivityType.entries.filter { it.recording && it != ActivityType.UNKNOWN }) {
                         OptionRow(
                             icon = activityIcon(option),
-                            label = option.label,
+                            label = stringResource(option.labelRes),
                             tint = travelColor(),
                             selected = option == activity,
-                            selectedDescription = "Current type",
+                            selectedDescription = stringResource(R.string.track_type_current),
                         ) {
                             viewModel.setTrackActivity(trackId, option)
                             showTypeDialog = false
@@ -365,7 +381,9 @@ internal fun TrackMapScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showTypeDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showTypeDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
             },
         )
     }
@@ -419,34 +437,36 @@ private fun SplitConfirmation(
     val secondMeters = remember(seams, cutIndex) {
         (cutIndex + 1 until seams.points.size).sumOf { seams.meters[it] }
     }
-    val units = LocalUnits.current
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
-    fun half(from: Long, to: Long, points: Int, meters: Double) = buildAnnotatedString {
+    // All of these resolve before the builders below, none of which is a composable scope.
+    val splitAt = annotatedStringResource(
+        R.string.track_split_at,
+        markedTime(plan.cutTs, zone, reader, shiftColor),
+    )
+    val firstPoints = pluralStringResource(R.plurals.track_points, plan.firstGoodPoints, plan.firstGoodPoints)
+    val secondPoints =
+        pluralStringResource(R.plurals.track_points, plan.secondGoodPoints, plan.secondGoodPoints)
+    val firstDistance = distanceText(firstMeters)
+    val secondDistance = distanceText(secondMeters)
+    fun half(from: Long, to: Long, points: String, distance: String) = buildAnnotatedString {
         appendTime(from, zone, reader, shiftColor)
         append(" – ")
         appendTime(to, zone, reader, shiftColor)
-        append(" · ${units.distance(meters)} · $points points")
+        append(" · $distance · $points")
     }
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Filled.ContentCut, contentDescription = null) },
         title = {
-            Text(
-                buildAnnotatedString {
-                    append("Split at ")
-                    appendTime(plan.cutTs, zone, reader, shiftColor)
-                    append("?")
-                },
-            )
+            Text(splitAt)
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(half(summary.startedAt, plan.firstEndTs, plan.firstGoodPoints, firstMeters))
-                Text(half(plan.secondStartTs, trackEnd, plan.secondGoodPoints, secondMeters))
+                Text(half(summary.startedAt, plan.firstEndTs, firstPoints, firstDistance))
+                Text(half(plan.secondStartTs, trackEnd, secondPoints, secondDistance))
                 Text(
-                    "Both tracks keep every fix, and the stop between them appears on the " +
-                        "timeline. Undo puts the track back.",
+                    stringResource(R.string.track_split_explainer),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -456,9 +476,11 @@ private fun SplitConfirmation(
             TextButton(onClick = {
                 onDismiss()
                 onSplit(plan.cutTs)
-            }) { Text("Split") }
+            }) { Text(stringResource(R.string.track_split_confirm)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+        },
     )
 }
 
@@ -484,10 +506,10 @@ internal fun metricGraphData(
     mode: ColorMode,
     activity: ActivityType?,
     dark: Boolean,
-    units: UnitSystem,
+    measures: Measures,
 ): MetricGraphData? {
     val coloring = trackColoring(
-        seams.points, TrackQuality.pointSpeedsKmh(seams), mode, activity, dark, units,
+        seams.points, TrackQuality.pointSpeedsKmh(seams), mode, activity, dark, measures,
     )
     // The ramp already reached this verdict when it found nothing to scale.
     if (coloring.legend is Legend.None) return null
@@ -568,7 +590,7 @@ private fun CutOffer(reading: AnnotatedString, canCut: Boolean, onCut: () -> Uni
             )
             Spacer(Modifier.width(6.dp))
             Text(
-                if (canCut) "Split here" else "Too close to the end",
+                stringResource(if (canCut) R.string.track_split_here else R.string.track_split_too_close),
                 style = MaterialTheme.typography.labelMedium,
                 color = actionColor,
             )
@@ -788,13 +810,15 @@ private fun MetricGraph(
     }
 }
 
-// Chip colors match the marker drawables (ic_marker_noisy / _jump / _gnss).
-private fun noisyLegendEntry(reason: IgnoreReason?): Pair<String, Color> = when (reason) {
-    IgnoreReason.JUMP -> "Speed jump" to Color(0xFFE53935)
-    IgnoreReason.NO_GNSS -> "No satellite fix" to Color(0xFFAB47BC)
+// Chip colors match the marker drawables (ic_marker_noisy / _jump / _gnss) and so stay literal —
+// they answer to those files, not to the theme. Only the wording is a resource.
+private fun noisyLegendEntry(reason: IgnoreReason?): Pair<Int, Color> = when (reason) {
+    IgnoreReason.JUMP -> R.string.ignore_reason_jump to Color(0xFFE53935)
+    IgnoreReason.NO_GNSS -> R.string.ignore_reason_no_gnss to Color(0xFFAB47BC)
     // EDGE_STAY never reaches here (it is loaded separately and drawn as the grayed overrun);
     // it shares the default marker rather than adding a legend row for an impossible case.
-    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, null -> "Low accuracy" to Color(0xFFFF8F00)
+    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, null ->
+        R.string.ignore_reason_accuracy to Color(0xFFFF8F00)
 }
 
 /** Legend for the noisy-fix markers: one row per rejection reason present in [noisyPoints]. */
@@ -804,11 +828,11 @@ private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
         noisyPoints.map { noisyLegendEntry(IgnoreReason.fromCode(it.ignoreReason)) }.distinct()
     }
     LegendSurface(modifier) {
-        for ((label, color) in entries) {
+        for ((labelRes, color) in entries) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(color))
                 Spacer(Modifier.width(6.dp))
-                Text(label, style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(labelRes), style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -848,10 +872,11 @@ private fun tripDraftOf(
 private fun TrackStatsHeader(summary: TrackSummary) {
     val durationS = summary.endedAt?.let { (it - summary.startedAt) / 1000.0 } ?: 0.0
     val avgKmh = avgSpeedKmh(summary.distanceMeters, durationS)
-    val units = LocalUnits.current
     StatHeaderRow(
-        "Distance" to units.distance(summary.distanceMeters),
-        "Duration" to formatDuration(summary.startedAt, summary.endedAt),
-        "Avg speed" to if (avgKmh > 0) units.speedFromKmh(avgKmh) else "—",
+        stringResource(R.string.common_stat_distance) to distanceText(summary.distanceMeters),
+        stringResource(R.string.common_stat_duration) to
+            durationText(summary.startedAt, summary.endedAt),
+        stringResource(R.string.track_stat_avg_speed) to
+            if (avgKmh > 0) speedText(avgKmh) else stringResource(R.string.common_no_value),
     )
 }

@@ -20,20 +20,20 @@ class App : Application() {
         super.onCreate()
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "GPS tracking",
+            getString(R.string.channel_tracking),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "Ongoing notification shown while recording GPS tracks"
+            description = getString(R.string.channel_tracking_description)
             setShowBadge(false)
         }
         // Separate from the ongoing tracking notification: this one is rare, actionable, and
         // must not be silent — it is the only way the user learns recording has stopped working.
         val alerts = NotificationChannel(
             ALERT_CHANNEL_ID,
-            "Recording problems",
+            getString(R.string.channel_alerts),
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "Shown when automatic recording stops responding"
+            description = getString(R.string.channel_alerts_description)
         }
         // One transaction, not two: onCreate runs on every process start, including the cold
         // starts a transition broadcast or the watchdog alarm triggers.

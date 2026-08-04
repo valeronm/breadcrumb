@@ -27,9 +27,13 @@ object PlaceSearch {
      * Lowercased with diacritics dropped: decompose to NFD, so an accented letter becomes the plain
      * letter plus a combining mark, then drop the marks. Folding *both* sides makes the comparison
      * symmetric — an accented query finds an unaccented name just as the reverse does.
+     *
+     * [Locale.ROOT], not the device's: this is a comparison key, not text anyone reads, and the
+     * two sides must fold identically. A Turkish locale lowercases `I` to a dotless `ı`, so a
+     * device-locale fold makes a name and a query for it stop matching.
      */
     fun fold(text: String): String =
-        Normalizer.normalize(text.trim().lowercase(Locale.getDefault()), Normalizer.Form.NFD)
+        Normalizer.normalize(text.trim().lowercase(Locale.ROOT), Normalizer.Form.NFD)
             .replace(COMBINING_MARKS, "")
 
     private val COMBINING_MARKS = Regex("\\p{Mn}+")

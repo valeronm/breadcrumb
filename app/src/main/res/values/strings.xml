@@ -1,4 +1,67 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  The app's own name, and the wording shared by more than one screen. Everything else lives in a
+  strings_<screen>.xml beside this one, mirroring the one-file-per-screen split of `ui/`. The files
+  are a filing system only: Android merges every values/*.xml into one table, so a name has to be
+  unique across all of them and the prefixes are what keep them apart.
+-->
 <resources>
-    <string name="app_name">Breadcrumb</string>
+    <!-- A product name, not wording. Overridden per build variant to tell the launcher icons apart. -->
+    <string name="app_name" translatable="false">Breadcrumb</string>
+
+    <string name="common_back">Back</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_undo">Undo</string>
+    <string name="common_off">Off</string>
+    <string name="common_stop">Stop</string>
+    <!-- The swipe-to-delete action, read aloud on a place row and on a track row alike. -->
+    <string name="common_delete">Delete</string>
+    <!-- The check-mark that commits an editor. -->
+    <string name="common_done">Done</string>
+    <!-- Stat-cell labels, on the Record card and on a track's detail. -->
+    <string name="common_stat_distance">Distance</string>
+    <string name="common_stat_duration">Duration</string>
+    <!-- Stands in for a figure the recorder has no reading for yet. Punctuation, not wording. -->
+    <string name="common_no_value" translatable="false">—</string>
+
+    <!--
+      Relative days. Lowercase on purpose: these read inside a phrase ("First visit today"), and the
+      one place that heads a row with them capitalizes on render.
+    -->
+    <string name="relative_today">today</string>
+    <string name="relative_yesterday">yesterday</string>
+    <plurals name="relative_days_ago">
+        <item quantity="one">%d day ago</item>
+        <item quantity="other">%d days ago</item>
+    </plurals>
+    <!-- The same span where it must fit a stat cell. -->
+    <plurals name="relative_days_ago_compact">
+        <item quantity="one">%dd ago</item>
+        <item quantity="other">%dd ago</item>
+    </plurals>
+
+    <!-- Handing a coordinate to the device's maps app, when the device turns out to have none. -->
+    <string name="maps_no_app">No maps app to open this in</string>
+
+    <!-- Share sheet titles, raised from two screens. -->
+    <string name="share_gpx_track">Share GPX track</string>
+    <string name="share_gpx_tracks">Share GPX tracks</string>
+
+    <!-- GPX import result, joined with " · ". Shown from Settings and from an "open with". -->
+    <plurals name="gpx_imported">
+        <item quantity="one">Imported %d track</item>
+        <item quantity="other">Imported %d tracks</item>
+    </plurals>
+    <plurals name="gpx_duplicates">
+        <item quantity="one">%d duplicate skipped</item>
+        <item quantity="other">%d duplicates skipped</item>
+    </plurals>
+    <plurals name="gpx_overlapping">
+        <item quantity="one">%d overlapping skipped</item>
+        <item quantity="other">%d overlapping skipped</item>
+    </plurals>
+    <plurals name="gpx_failed">
+        <item quantity="one">%d failed</item>
+        <item quantity="other">%d failed</item>
+    </plurals>
 </resources>

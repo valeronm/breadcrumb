@@ -4,7 +4,7 @@ package io.github.valeronm.breadcrumb.domain
  * The witness's case that a track's label is wrong — accumulated time the position stream
  * contradicted the label's claim about the journey. A carried foot-labelled track *records*
  * completely (the widened jump ceiling keeps its fixes, the parked STILL keeps it open) yet still
- * calls itself "Walking"; evidence accrues from the first contradicting fix but deliberately
+ * carries its foot label; evidence accrues from the first contradicting fix but deliberately
  * commits only at finish, since one moment's evidence is one window's worth — the amount the
  * confirmer's feed contract documents as forgeable by a lone teleport — and verdicts flap by
  * design. Two channels, two ways to be aboard, either alone making the case:
@@ -52,7 +52,7 @@ class CarrierEvidence {
     /**
      * What the case, if [proven], renames a track labelled [label] to — null when not proven or not
      * a candidate. Only **foot-group** labels qualify (the cross-check parks STILL and weighs foot
-     * ceilings only); the target, [ActivityType.UNKNOWN] ("Moving"), names the movement, never the
+     * ceilings only); the target, [ActivityType.UNKNOWN], names the movement, never the
      * carrier — a drive already carries the ceiling and group this would grant, and renaming it
      * would discard real information.
      */

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="lock_screen_title">O Breadcrumb está bloqueado</string>
+    <string name="lock_screen_unlock">Desbloquear</string>
+    <string name="lock_prompt_title">Desbloquear o Breadcrumb</string>
+    <string name="lock_prompt_subtitle">O seu histórico de localização está bloqueado</string>
+    <!-- The "one" form carries the number: Portuguese counts 0 as singular. -->
+    <plurals name="lock_pending_imports">
+        <item quantity="one">Está %d ficheiro GPX à espera de ser importado.</item>
+        <item quantity="other">Estão %d ficheiros GPX à espera de serem importados.</item>
+    </plurals>
+</resources>

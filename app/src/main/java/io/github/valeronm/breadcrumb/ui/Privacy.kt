@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -40,6 +41,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.withStarted
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.util.APP_LOCK_AUTHENTICATORS
 import io.github.valeronm.breadcrumb.util.canAuthenticate
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
@@ -190,11 +192,16 @@ private var keyguardWatched = false
  * screen's copy is what a user who dismissed the prompt reads, the prompt's is what everyone else
  * does.
  */
-internal fun pendingImportNote(files: Int): String? = when {
-    files <= 0 -> null
-    files == 1 -> "A GPX file is waiting to be imported."
-    else -> "$files GPX files are waiting to be imported."
-}
+/**
+ * What the lock screen says about an import it is holding back, or null for the load-bearing case:
+ * a plain lock must never grow a line about files that aren't there.
+ */
+internal fun pendingImportNote(context: Context, files: Int): String? =
+    if (files <= 0) {
+        null
+    } else {
+        context.resources.getQuantityString(R.plurals.lock_pending_imports, files, files)
+    }
 
 @Composable
 internal fun PrivacyGate(waitingImports: Int = 0, content: @Composable () -> Unit) {
@@ -260,11 +267,11 @@ private fun LockScreen(activity: FragmentActivity, waitingImports: Int) {
             )
             Spacer(Modifier.height(16.dp))
             Text(
-                "Breadcrumb is locked",
+                stringResource(R.string.lock_screen_title),
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
             )
-            pendingImportNote(waitingImports)?.let { note ->
+            pendingImportNote(activity, waitingImports)?.let { note ->
                 Spacer(Modifier.height(8.dp))
                 Text(
                     note,
@@ -275,7 +282,9 @@ private fun LockScreen(activity: FragmentActivity, waitingImports: Int) {
             }
             if (!prompting) {
                 Spacer(Modifier.height(16.dp))
-                Button(onClick = { prompting = true }) { Text("Unlock") }
+                Button(onClick = { prompting = true }) {
+                    Text(stringResource(R.string.lock_screen_unlock))
+                }
             }
         }
     }
@@ -299,20 +308,20 @@ private fun authenticate(
             override fun onAuthenticationError(code: Int, message: CharSequence) = onDismissed()
         },
     )
-    prompt.authenticate(promptInfo(waitingImports))
+    prompt.authenticate(promptInfo(activity, waitingImports))
 }
 
-private fun promptInfo(waitingImports: Int): BiometricPrompt.PromptInfo {
+private fun promptInfo(context: Context, waitingImports: Int): BiometricPrompt.PromptInfo {
     val builder = BiometricPrompt.PromptInfo.Builder()
-        .setTitle("Unlock Breadcrumb")
-        .setSubtitle("Your location history is locked")
+        .setTitle(context.getString(R.string.lock_prompt_title))
+        .setSubtitle(context.getString(R.string.lock_prompt_subtitle))
         // Face and iris are passive, so the prompt asks for a confirming tap by default — right
         // for authorizing a payment, friction for opening a viewer that is read-only until the
         // user acts. Fingerprint is unaffected: an active modality never had the extra tap.
         .setConfirmationRequired(false)
     // The prompt covers the lock screen entirely, so whatever that screen says about work being
     // held back has to be repeated here or it is read only by someone who dismisses the prompt.
-    pendingImportNote(waitingImports)?.let(builder::setDescription)
+    pendingImportNote(context, waitingImports)?.let(builder::setDescription)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         // No negative button may be set alongside DEVICE_CREDENTIAL — the credential fallback is
         // the negative button.

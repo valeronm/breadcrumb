@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -60,11 +61,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.TrackRepository
@@ -176,7 +178,13 @@ private class TripEnd(drafted: TripDraftEnd?) {
 /** One end's time being edited: which end the pickers write to, under which name, on whose clock,
  *  and where they open when the end holds nothing yet ([fallback]). Carried as values so the
  *  dialog never has to recover an end's role by identity. */
-private class TimeEdit(val end: TripEnd, val label: String, val zone: ZoneId, val fallback: ZonedDateTime)
+private class TimeEdit(
+    val end: TripEnd,
+    /** The picker's heading, whole rather than a noun the dialog appends "time" to. */
+    @StringRes val titleRes: Int,
+    val zone: ZoneId,
+    val fallback: ZonedDateTime,
+)
 
 /**
  * Enter a trip nothing recorded — a flight, a leg with the phone dead — as two pins and two times,
@@ -234,10 +242,15 @@ internal fun AddTripScreen(
     val departMs = origin.epochIn(originZone)
     val arriveMs = destination.epochIn(destinationZone)
     val error = when {
-        departMs != null && arriveMs != null && arriveMs <= departMs -> "Arrival must be after departure"
-        departMs != null && departMs > System.currentTimeMillis() -> "Departure is in the future"
+        departMs != null && arriveMs != null && arriveMs <= departMs ->
+            stringResource(R.string.addtrip_error_order)
+        departMs != null && departMs > System.currentTimeMillis() ->
+            stringResource(R.string.addtrip_error_future)
         else -> null
     }
+    // Resolved here: the save callback below runs outside the composition.
+    val overlapsMessage = stringResource(R.string.addtrip_overlaps)
+    val goneMessage = stringResource(R.string.addtrip_gone)
     // The pins are asked about separately rather than taken as implied by the times: a typed time
     // does wait for its pin, but a drafted one arrives without asking (a gap side the recorder
     // never fixed knows when it was and not where).
@@ -277,7 +290,17 @@ internal fun AddTripScreen(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                title = { Text(if (draft.editing != null) "Edit trip" else "Add missing trip") },
+                title = {
+                    Text(
+                        stringResource(
+                            if (draft.editing != null) {
+                                R.string.addtrip_title_edit
+                            } else {
+                                R.string.addtrip_title_add
+                            },
+                        ),
+                    )
+                },
                 navigationIcon = { BackNavIcon(onClose) },
                 actions = {
                     IconButton(
@@ -300,10 +323,8 @@ internal fun AddTripScreen(
                             ) { result ->
                                 val refusal = when (result) {
                                     is TrackRepository.ManualTrackResult.Saved -> null
-                                    TrackRepository.ManualTrackResult.Overlapping ->
-                                        "Overlaps an existing track"
-                                    TrackRepository.ManualTrackResult.NotEditable ->
-                                        "This trip is no longer there"
+                                    TrackRepository.ManualTrackResult.Overlapping -> overlapsMessage
+                                    TrackRepository.ManualTrackResult.NotEditable -> goneMessage
                                 }
                                 if (refusal == null) {
                                     onClose()
@@ -314,7 +335,10 @@ internal fun AddTripScreen(
                         },
                         enabled = ready,
                     ) {
-                        Icon(Icons.Filled.Check, contentDescription = "Done")
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = stringResource(R.string.common_done),
+                        )
                     }
                 },
             )
@@ -336,7 +360,7 @@ internal fun AddTripScreen(
                     FilterChip(
                         selected = activity == type,
                         onClick = { activity = type },
-                        label = { Text(type.label) },
+                        label = { Text(stringResource(type.labelRes)) },
                         leadingIcon = {
                             Icon(activityIcon(type), contentDescription = null, Modifier.size(18.dp))
                         },
@@ -412,7 +436,7 @@ internal fun AddTripScreen(
             PlacesSearchField(
                 query = query,
                 onQueryChange = { query = it },
-                placeholder = "Search cities and places",
+                placeholder = stringResource(R.string.addtrip_search_placeholder),
                 modifier = Modifier.fillMaxWidth(),
             )
             Card(Modifier.weight(1f).fillMaxWidth()) {
@@ -429,8 +453,13 @@ internal fun AddTripScreen(
                     )
                     LegendSurface(Modifier.align(Alignment.TopStart).padding(8.dp)) {
                         Text(
-                            "Tap a place or long-press to set the " +
-                                if (placingDestination) "destination" else "origin",
+                            stringResource(
+                                if (placingDestination) {
+                                    R.string.addtrip_tap_destination
+                                } else {
+                                    R.string.addtrip_tap_origin
+                                },
+                            ),
                             style = MaterialTheme.typography.labelSmall,
                         )
                     }
@@ -491,7 +520,7 @@ internal fun AddTripScreen(
                                 if (online.isNotEmpty()) {
                                     // ODbL's credit, at the results it applies to.
                                     Text(
-                                        "Online results © OpenStreetMap",
+                                        stringResource(R.string.addtrip_osm_credit),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
@@ -499,7 +528,7 @@ internal fun AddTripScreen(
                                 }
                                 if (placeMatches.isEmpty() && cityHits.isEmpty() && online.isEmpty()) {
                                     Text(
-                                        "No matches",
+                                        stringResource(R.string.addtrip_no_matches),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -511,8 +540,9 @@ internal fun AddTripScreen(
                 }
             }
             TripEndCard(
-                title = "Origin",
-                timeLabel = "Departure",
+                titleRes = R.string.addtrip_origin,
+                atRes = R.string.addtrip_departure_at,
+                setTimeRes = R.string.addtrip_set_departure,
                 end = origin,
                 city = originCity,
                 zone = originZone,
@@ -520,14 +550,15 @@ internal fun AddTripScreen(
                 onActivate = { activate(origin) },
                 onEditTime = {
                     editing = TimeEdit(
-                        origin, "Departure", originZone,
+                        origin, R.string.addtrip_departure_time_title, originZone,
                         origin.pickerStart(originZone, noonOf(draft.day, originZone)),
                     )
                 },
             )
             TripEndCard(
-                title = "Destination",
-                timeLabel = "Arrival",
+                titleRes = R.string.addtrip_destination,
+                atRes = R.string.addtrip_arrival_at,
+                setTimeRes = R.string.addtrip_set_arrival,
                 end = destination,
                 city = destinationCity,
                 zone = destinationZone,
@@ -537,7 +568,7 @@ internal fun AddTripScreen(
                     // An hour past the departure, on the arrival's own clock: the pickers open a
                     // short scroll from any real arrival instead of at an arbitrary noon.
                     editing = TimeEdit(
-                        destination, "Arrival", destinationZone,
+                        destination, R.string.addtrip_arrival_time_title, destinationZone,
                         destination.pickerStart(
                             destinationZone,
                             departMs?.let { Instant.ofEpochMilli(it + HOUR_MS).atZone(destinationZone) }
@@ -581,9 +612,13 @@ internal fun AddTripScreen(
                                 }
                             },
                             enabled = dateState.selectedDateMillis != null,
-                        ) { Text("Next") }
+                        ) { Text(stringResource(R.string.addtrip_next)) }
                     },
-                    dismissButton = { TextButton(onClick = closeDialogs) { Text("Cancel") } },
+                    dismissButton = {
+                        TextButton(onClick = closeDialogs) {
+                            Text(stringResource(R.string.common_cancel))
+                        }
+                    },
                 ) { DatePicker(dateState) }
             } else {
                 val initial = end.time ?: edit.fallback.toLocalTime()
@@ -593,7 +628,7 @@ internal fun AddTripScreen(
                 )
                 TimePickerDialog(
                     onDismissRequest = closeDialogs,
-                    title = { Text("${edit.label} time") },
+                    title = { Text(stringResource(edit.titleRes)) },
                     confirmButton = {
                         TextButton(
                             onClick = {
@@ -601,9 +636,13 @@ internal fun AddTripScreen(
                                 end.time = LocalTime.of(timeState.hour, timeState.minute)
                                 closeDialogs()
                             },
-                        ) { Text("OK") }
+                        ) { Text(stringResource(R.string.addtrip_ok)) }
                     },
-                    dismissButton = { TextButton(onClick = closeDialogs) { Text("Cancel") } },
+                    dismissButton = {
+                        TextButton(onClick = closeDialogs) {
+                            Text(stringResource(R.string.common_cancel))
+                        }
+                    },
                 ) { TimePicker(timeState) }
             }
         }
@@ -677,8 +716,11 @@ private fun countryDisplayName(code: String): String {
  */
 @Composable
 private fun TripEndCard(
-    title: String,
-    timeLabel: String,
+    @StringRes titleRes: Int,
+    /** "Departure %s, " — prefixes the date, ahead of a clock time this card draws itself. */
+    @StringRes atRes: Int,
+    /** The whole invitation ("Set departure time"), not a noun something appends "time" to. */
+    @StringRes setTimeRes: Int,
     end: TripEnd,
     city: CityAtlas.City?,
     zone: ZoneId,
@@ -693,8 +735,8 @@ private fun TripEndCard(
     val locality = when {
         pickedName != null -> pickedName
         city != null -> localityLabel(city)
-        pin != null -> "Pin placed"
-        else -> "No pin yet"
+        pin != null -> stringResource(R.string.addtrip_pin_placed)
+        else -> stringResource(R.string.addtrip_no_pin)
     }
     OutlinedCard(
         onClick = onActivate,
@@ -710,7 +752,7 @@ private fun TripEndCard(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(titleRes), style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.weight(1f))
                 Text(
                     locality,
@@ -729,12 +771,13 @@ private fun TripEndCard(
             val shiftColor = zoneShiftColor
             Text(
                 if (at != null) {
-                    buildAnnotatedString {
-                        append("$timeLabel ${at.toLocalDate(zone).format(compactDayYearFormat)}, ")
-                        appendTime(at, zone, reader, shiftColor)
-                    }
+                    annotatedStringResource(
+                        atRes,
+                        at.toLocalDate(zone).format(compactDayYearFormat),
+                        markedTime(at, zone, reader, shiftColor),
+                    )
                 } else {
-                    AnnotatedString("Set ${timeLabel.lowercase()} time")
+                    AnnotatedString(stringResource(setTimeRes))
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (pin != null) {
@@ -751,7 +794,7 @@ private fun TripEndCard(
             if (pin != null && at == null) {
                 zoneShiftLabel(System.currentTimeMillis(), zone, reader)?.let { shift ->
                     Text(
-                        "Times on the local clock, $shift from yours",
+                        stringResource(R.string.addtrip_local_clock, shift),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="insights_empty">Ainda sem viagens. Aparecem aqui assim que marcar um local como Casa em Locais — qualquer série de noites passadas noutro sítio é uma viagem.</string>
+    <string name="insights_journey">Viagem</string>
+
+    <plurals name="insights_journeys">
+        <item quantity="one">%d viagem</item>
+        <item quantity="other">%d viagens</item>
+    </plurals>
+    <plurals name="insights_nights">
+        <item quantity="one">%d noite</item>
+        <item quantity="other">%d noites</item>
+    </plurals>
+    <plurals name="insights_cities">
+        <item quantity="one">%d cidade</item>
+        <item quantity="other">%d cidades</item>
+    </plurals>
+    <plurals name="insights_countries">
+        <item quantity="one">%d país</item>
+        <item quantity="other">%d países</item>
+    </plurals>
+</resources>

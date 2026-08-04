@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,14 +24,19 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -55,12 +61,23 @@ internal fun DiscardedTracksScreen(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                title = { Text("Recently deleted" + if (tracks.isEmpty()) "" else " (${tracks.size})") },
+                title = {
+                    Text(
+                        if (tracks.isEmpty()) {
+                            stringResource(R.string.discarded_title)
+                        } else {
+                            stringResource(R.string.discarded_title_count, tracks.size)
+                        },
+                    )
+                },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
                     if (tracks.isNotEmpty()) {
                         IconButton(onClick = { showClearDialog = true }) {
-                            Icon(Icons.Filled.DeleteForever, contentDescription = "Clear all")
+                            Icon(
+                                Icons.Filled.DeleteForever,
+                                contentDescription = stringResource(R.string.discarded_clear_all),
+                            )
                         }
                     }
                 },
@@ -69,16 +86,14 @@ internal fun DiscardedTracksScreen(
     ) { inner ->
         if (tracks.isEmpty()) {
             EmptyState(
-                "No deleted tracks. They appear here when you delete one or a keep rule filters " +
-                    "one out, and stay restorable for $DISCARDED_RETENTION_DAYS days.",
+                stringResource(R.string.discarded_empty, DISCARDED_RETENTION_DAYS),
                 Modifier.padding(inner).fillMaxSize().padding(horizontal = 24.dp),
             )
         } else {
             LazyColumn(modifier = Modifier.padding(inner).fillMaxSize().padding(horizontal = 16.dp)) {
                 item {
                     Text(
-                        "Tracks stay here for $DISCARDED_RETENTION_DAYS days, " +
-                            "then are removed forever.",
+                        stringResource(R.string.discarded_retention, DISCARDED_RETENTION_DAYS),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 12.dp),
@@ -103,22 +118,29 @@ internal fun DiscardedTracksScreen(
                         Column(Modifier.weight(1f)) {
                             val started = dateTimeAt(t.startedAt, timelineZone())
                             Text(
-                                "${activity.label} · $started",
+                                "${activityLabel(LocalContext.current, t.activityType)} · $started",
                                 style = MaterialTheme.typography.bodyLarge,
                             )
                             Text(
-                                "${t.pointCount} pts · ${LocalUnits.current.distance(t.distanceMeters)} · " +
-                                    formatDuration(t.startedAt, t.endedAt) +
-                                    // "excluded", not "noisy": the count covers both species —
-                                    // bad fixes and the recorder's overrun at the edges — and what
-                                    // they have in common is being left out of the path.
-                                    (if (t.ignoredCount > 0) " · ${t.ignoredCount} excluded" else ""),
+                                "${t.pointCount} pts · ${distanceText(t.distanceMeters)} · " +
+                                    durationText(t.startedAt, t.endedAt) +
+                                    // The separator stays in code, out of the wording: it is
+                                    // layout between two facts, not part of either.
+                                    if (t.ignoredCount > 0) {
+                                        " · " + pluralStringResource(
+                                            R.plurals.discarded_excluded,
+                                            t.ignoredCount,
+                                            t.ignoredCount,
+                                        )
+                                    } else {
+                                        ""
+                                    },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Text(
                                 listOfNotNull(
-                                    discardReasonLabel(row.discardReason),
+                                    discardReasonRes(row.discardReason)?.let { stringResource(it) },
                                     purgeCountdown(row.discardedAt, nowMs),
                                 ).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall,
@@ -128,7 +150,7 @@ internal fun DiscardedTracksScreen(
                         IconButton(onClick = { viewModel.restoreTrack(t.id) }) {
                             Icon(
                                 Icons.Filled.RestoreFromTrash,
-                                contentDescription = "Restore track",
+                                contentDescription = stringResource(R.string.discarded_restore),
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
@@ -142,13 +164,13 @@ internal fun DiscardedTracksScreen(
     if (showClearDialog) {
         ConfirmDialog(
             icon = Icons.Filled.DeleteForever,
-            title = "Clear Recently deleted?",
-            text = if (tracks.size == 1) {
-                "The one track here will be permanently deleted. This can't be undone."
-            } else {
-                "All ${tracks.size} tracks here will be permanently deleted. This can't be undone."
-            },
-            confirmLabel = "Delete all",
+            title = stringResource(R.string.discarded_clear_confirm_title),
+            text = pluralStringResource(
+                R.plurals.discarded_clear_confirm_body,
+                tracks.size,
+                tracks.size,
+            ),
+            confirmLabel = stringResource(R.string.discarded_delete_all),
             onConfirm = {
                 viewModel.purgeAllDiscarded()
                 showClearDialog = false
@@ -158,21 +180,24 @@ internal fun DiscardedTracksScreen(
     }
 }
 
-private fun discardReasonLabel(reason: String?): String? = when (reason) {
-    Track.REASON_DELETED -> "Deleted by you"
-    Track.REASON_FILTERED -> "Too short to keep"
-    Track.REASON_MERGED -> "Replaced by a merged track"
-    Track.REASON_TRIMMED -> "Stay split from a track"
+@StringRes
+private fun discardReasonRes(reason: String?): Int? = when (reason) {
+    Track.REASON_DELETED -> R.string.discarded_reason_deleted
+    Track.REASON_FILTERED -> R.string.discarded_reason_filtered
+    Track.REASON_MERGED -> R.string.discarded_reason_merged
+    Track.REASON_TRIMMED -> R.string.discarded_reason_trimmed
     else -> null
 }
 
 /** "9 days left" until the retention purge; clamps at "removal due". */
+@Composable
+@ReadOnlyComposable
 private fun purgeCountdown(discardedAt: Long, nowMs: Long): String {
     val daysGone = ((nowMs - discardedAt) / (24 * 60 * 60_000L)).toInt()
     val left = DISCARDED_RETENTION_DAYS - daysGone
-    return when {
-        left <= 0 -> "removal due"
-        left == 1 -> "1 day left"
-        else -> "$left days left"
+    return if (left <= 0) {
+        stringResource(R.string.discarded_removal_due)
+    } else {
+        pluralStringResource(R.plurals.discarded_days_left, left, left)
     }
 }

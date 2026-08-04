@@ -49,7 +49,7 @@ object TrackReplayer {
             val points = repository.pointsFor(trackId)
             if (points.size < 2) return@launch
             val activity = ActivityType.ofName(track.activityType) ?: ActivityType.UNKNOWN
-            val label = ActivityType.labelFor(track.activityType)
+            val label = activityLabel(appContext, track.activityType)
             // The recorder's accumulator, replayed: same walk, so the replayed distance matches what
             // the card showed live and what the track row stores.
             val accumulator = TrackStats.Accumulator()

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  European Portuguese. app_name is deliberately absent: a product name is not translated, and
+  leaving it out lets the base value (and the per-variant debug/perf suffixes) stand.
+-->
+<resources>
+    <string name="common_back">Voltar</string>
+    <string name="common_cancel">Cancelar</string>
+    <string name="common_undo">Anular</string>
+    <string name="common_off">Desligado</string>
+    <string name="common_stop">Parar</string>
+    <string name="common_delete">Eliminar</string>
+    <string name="common_done">Concluir</string>
+    <string name="common_stat_distance">Distância</string>
+    <string name="common_stat_duration">Duração</string>
+
+    <string name="relative_today">hoje</string>
+    <string name="relative_yesterday">ontem</string>
+    <plurals name="relative_days_ago">
+        <item quantity="one">há %d dia</item>
+        <item quantity="other">há %d dias</item>
+    </plurals>
+    <plurals name="relative_days_ago_compact">
+        <item quantity="one">há %dd</item>
+        <item quantity="other">há %dd</item>
+    </plurals>
+
+    <string name="maps_no_app">Não há nenhuma aplicação de mapas para abrir isto</string>
+
+    <string name="share_gpx_track">Partilhar trajeto GPX</string>
+    <string name="share_gpx_tracks">Partilhar trajetos GPX</string>
+
+    <plurals name="gpx_imported">
+        <item quantity="one">%d trajeto importado</item>
+        <item quantity="other">%d trajetos importados</item>
+    </plurals>
+    <plurals name="gpx_duplicates">
+        <item quantity="one">%d duplicado ignorado</item>
+        <item quantity="other">%d duplicados ignorados</item>
+    </plurals>
+    <plurals name="gpx_overlapping">
+        <item quantity="one">%d sobreposto ignorado</item>
+        <item quantity="other">%d sobrepostos ignorados</item>
+    </plurals>
+    <plurals name="gpx_failed">
+        <item quantity="one">%d falhou</item>
+        <item quantity="other">%d falharam</item>
+    </plurals>
+</resources>

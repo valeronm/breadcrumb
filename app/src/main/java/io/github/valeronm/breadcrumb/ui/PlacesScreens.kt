@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
+import androidx.annotation.StringRes
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -65,6 +66,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -85,6 +87,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -96,6 +100,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.CityAtlas
@@ -124,10 +129,10 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
-private enum class PlacesSort(val label: String) {
-    LAST_VISIT("Recent"),
-    MOST_VISITS("Most visits"),
-    TIME_SPENT("Time spent"),
+private enum class PlacesSort(@StringRes val labelRes: Int) {
+    LAST_VISIT(R.string.places_sort_recent),
+    MOST_VISITS(R.string.places_sort_most_visits),
+    TIME_SPENT(R.string.places_sort_time_spent),
     ;
 
     companion object {
@@ -136,9 +141,6 @@ private enum class PlacesSort(val label: String) {
             entries.find { it.name == AppSettings.placesSort(context) } ?: LAST_VISIT
     }
 }
-
-/** Label of the map's filter chip — the empty state below names it, so both read from here. */
-private const val RARE_STOPS_LABEL = "Rare stops"
 
 /** A line break with whatever indentation surrounds it — one space's worth of separation. */
 private val LINE_BREAK_RUN = Regex("[ \\t]*[\\r\\n]+[ \\t]*")
@@ -246,7 +248,11 @@ internal fun PlacesTab(
                 .padding(horizontal = 16.dp)
                 .padding(top = 12.dp, bottom = if (showMap) 12.dp else 12.dp - chipHalo),
         ) {
-            listOf(true to "Map", false to "List").forEachIndexed { index, (isMap, label) ->
+            val views = listOf(
+                true to stringResource(R.string.places_view_map),
+                false to stringResource(R.string.places_view_list),
+            )
+            views.forEachIndexed { index, (isMap, label) ->
                 SegmentedButton(
                     selected = showMap == isMap,
                     onClick = {
@@ -269,7 +275,7 @@ internal fun PlacesTab(
                 PlacesSort.entries.forEach { option ->
                     FilterToggleChip(
                         selected = sort == option,
-                        label = option.label,
+                        label = stringResource(option.labelRes),
                         onClick = {
                             sort = option
                             AppSettings.setPlacesSort(context, option.name)
@@ -292,7 +298,7 @@ internal fun PlacesTab(
             DerivingState(Modifier.weight(1f).fillMaxWidth())
         } else if (sorted.isEmpty()) {
             EmptyState(
-                "No places yet. They appear here once recording finds somewhere you stopped.",
+                stringResource(R.string.places_empty),
                 Modifier.weight(1f).fillMaxWidth().padding(24.dp),
             )
         } else if (showMap) {
@@ -334,7 +340,10 @@ internal fun PlacesTab(
                         // The filter, not the history, emptied this view — a bare basemap would
                         // read as "no places". The chip below stays on top of this message.
                         EmptyState(
-                            "Every place here is a rare stop. Turn on $RARE_STOPS_LABEL to see them.",
+                            stringResource(
+                                R.string.places_all_rare,
+                                stringResource(R.string.places_rare_stops),
+                            ),
                             Modifier.fillMaxSize().padding(24.dp),
                         )
                     } else {
@@ -345,7 +354,10 @@ internal fun PlacesTab(
                         )
                     }
                     // The filter rides on the map it declutters.
-                    MapFilterChip(selected = showRareStops, label = RARE_STOPS_LABEL) {
+                    MapFilterChip(
+                        selected = showRareStops,
+                        label = stringResource(R.string.places_rare_stops),
+                    ) {
                         showRareStops = !showRareStops
                         AppSettings.setPlacesShowRareStops(context, showRareStops)
                     }
@@ -355,7 +367,7 @@ internal fun PlacesTab(
             // The search emptied the list, not the history — say which, and leave the field above
             // it holding the query that did it.
             EmptyState(
-                "No place matches \"${query.trim()}\".",
+                stringResource(R.string.places_no_match, query.trim()),
                 Modifier.weight(1f).fillMaxWidth().padding(24.dp),
             )
         } else {
@@ -389,7 +401,7 @@ internal fun PlacesSearchField(
     query: String,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    placeholder: String = "Search places",
+    placeholder: String = stringResource(R.string.places_search_placeholder),
 ) {
     Surface(
         modifier = modifier.height(40.dp),
@@ -432,7 +444,7 @@ internal fun PlacesSearchField(
                 IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(32.dp)) {
                     Icon(
                         Icons.Filled.Close,
-                        contentDescription = "Clear search",
+                        contentDescription = stringResource(R.string.places_clear_search),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
                     )
@@ -461,7 +473,7 @@ private fun PlaceRow(
         containerColor = MaterialTheme.colorScheme.errorContainer,
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
         icon = Icons.Filled.Delete,
-        iconDescription = "Delete",
+        iconDescription = stringResource(R.string.common_delete),
         onDismiss = { onDelete(place) },
     ) {
         PlaceRowCard(summary, shape, onOpen)
@@ -547,7 +559,7 @@ internal fun PlaceDetailScreen(
     val visitGroups = remember(summary.stays) {
         summary.stays.groupBy { YearMonth.from(it.start.toLocalDate(zone)) }
     }
-    val title = place?.label ?: "Detected stop"
+    val title = place?.label ?: stringResource(R.string.place_detected_stop)
     // A bar that expands is only worth having when there is something to expand *to*. Most names fit
     // the one line a closed bar gives them, and for those the pull-down reveals the same words in
     // bigger type — an affordance that costs a gesture to learn and returns nothing. So the question
@@ -600,7 +612,7 @@ internal fun PlaceDetailScreen(
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.OpenInNew,
-                        contentDescription = "Open in maps app",
+                        contentDescription = stringResource(R.string.places_open_in_maps),
                     )
                 }
                 // Everything the user gets to say about a place — its name, its area, its pin — is
@@ -610,7 +622,10 @@ internal fun PlaceDetailScreen(
                 // doesn't exist — creating it is the button below, at the emphasis a first step wants.
                 if (place != null) {
                     IconButton(onClick = onAdjustArea) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Edit place")
+                        Icon(
+                            Icons.Filled.Edit,
+                            contentDescription = stringResource(R.string.places_edit),
+                        )
                     }
                 }
             }
@@ -661,12 +676,12 @@ internal fun PlaceDetailScreen(
                 Button(
                     onClick = onAdjustArea,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Create place") }
+                ) { Text(stringResource(R.string.places_create)) }
             }
             Card(Modifier.fillMaxWidth()) { PlaceStatsHeader(summary) }
             if (summary.stays.isEmpty()) {
                 EmptyState(
-                    "No visits yet. They appear here when a track starts or ends inside this place.",
+                    stringResource(R.string.places_no_visits_detail),
                     Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp),
                 )
             } else {
@@ -759,6 +774,7 @@ internal fun PlaceEditScreen(
     val undo = rememberUndoSnackbar(snackbarHostState)
     // Both ways of moving the pin are one step back: a jumped pin has nowhere obvious to return to,
     // where a slider can simply be dragged again.
+    val pinMoved = stringResource(R.string.places_pin_moved)
     val movePin: (StayDeriver.Endpoint, String) -> Unit = { target, message ->
         val was = pin
         pin = target
@@ -808,7 +824,7 @@ internal fun PlaceEditScreen(
                         // into the content as on the detail screen: this screen's content is a
                         // full-height map with nowhere to put a heading, and you arrive already
                         // knowing which place you opened, or what you came to do to a stop.
-                        place?.label ?: "Create place",
+                        place?.label ?: stringResource(R.string.places_create),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -823,8 +839,12 @@ internal fun PlaceEditScreen(
                         PlaceResolver.recenterTarget(pin, it, radiusM.toDouble(), AndroidDistance)
                     }
                     if (recenterTarget != null) {
-                        IconButton(onClick = { movePin(recenterTarget, "Pin re-centered") }) {
-                            Icon(Icons.Filled.FilterCenterFocus, contentDescription = "Re-center pin")
+                        val recentered = stringResource(R.string.places_pin_recentered)
+                        IconButton(onClick = { movePin(recenterTarget, recentered) }) {
+                            Icon(
+                                Icons.Filled.FilterCenterFocus,
+                                contentDescription = stringResource(R.string.places_recenter_pin),
+                            )
                         }
                     }
                     IconButton(
@@ -836,7 +856,10 @@ internal fun PlaceEditScreen(
                         // deleted — that offer belongs to the Remove button below.
                         enabled = nameGiven,
                     ) {
-                        Icon(Icons.Filled.Check, contentDescription = "Done")
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = stringResource(R.string.common_done),
+                        )
                     }
                 },
             )
@@ -865,7 +888,7 @@ internal fun PlaceEditScreen(
                         // held, so it needs an answer that isn't derived from the dots. A long press
                         // rather than a tap: a tap is how a map is panned, and this is one Undo away
                         // either way.
-                        onLongPress = { movePin(it, "Pin moved") },
+                        onLongPress = { movePin(it, pinMoved) },
                         modifier = Modifier.fillMaxSize(),
                     )
                     // Over the map's corner, not under the slider: this number is read *while*
@@ -878,7 +901,11 @@ internal fun PlaceEditScreen(
                     }
                     LegendSurface(Modifier.align(Alignment.TopStart).padding(8.dp)) {
                         Text(
-                            "$captured ${if (captured == 1) "endpoint" else "endpoints"}",
+                            pluralStringResource(
+                                R.plurals.places_captured_endpoints,
+                                captured,
+                                captured,
+                            ),
                             style = MaterialTheme.typography.labelSmall,
                         )
                     }
@@ -888,7 +915,11 @@ internal fun PlaceEditScreen(
             // and a hand on a slider above the map covers the circle it is sizing.
             Card(Modifier.fillMaxWidth()) {
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    SliderSetting("Capture radius", radiusM.roundToInt(), radiusScale) {
+                    SliderSetting(
+                        stringResource(R.string.places_capture_radius),
+                        radiusM.roundToInt(),
+                        radiusScale,
+                    ) {
                         radiusM = it.toFloat()
                     }
                 }
@@ -908,7 +939,7 @@ internal fun PlaceEditScreen(
                 ) {
                     Icon(Icons.Filled.Delete, contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Remove place")
+                    Text(stringResource(R.string.places_remove))
                 }
             }
         }
@@ -929,7 +960,7 @@ private fun PlaceNameField(name: MutableState<String>) {
         // Breaks (and the indentation around them) fold into single spaces instead.
         onValueChange = { name.value = it.replace(LINE_BREAK_RUN, " ") },
         singleLine = true,
-        label = { Text("Place name") },
+        label = { Text(stringResource(R.string.places_name_field)) },
         // Place names are proper nouns — capitalize each word.
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1057,13 +1088,15 @@ private fun PlaceCategorySection(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         suggestions.forEach { suggestion ->
-            CategoryChip(suggestion.label, suggestion.icon, placeDiscTint(suggestion)) {
+            CategoryChip(stringResource(suggestion.labelRes), suggestion.icon, placeDiscTint(suggestion)) {
                 picked = PickedCategory(suggestion)
                 onPick(suggestion)
             }
         }
         CategoryChip(
-            label = category?.label ?: if (suggestions.isEmpty()) "Set a category" else "More",
+            label = category?.let { stringResource(it.labelRes) } ?: stringResource(
+                if (suggestions.isEmpty()) R.string.place_category_set else R.string.place_category_more,
+            ),
             // Standing alone it wears the place glyph — untagged included, which `discIcon` is the
             // one place that decides. Beside suggestions it wears none: "More" has no category to
             // stand for, and a glyph about opening a picker says what the caret already says.
@@ -1113,7 +1146,7 @@ private fun CategorySheet(
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
             Text(
-                "What is it for?",
+                stringResource(R.string.places_category_question),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
             )
@@ -1126,7 +1159,7 @@ private fun CategorySheet(
                 if (option.group != heading) {
                     heading = option.group
                     Text(
-                        option.group.label,
+                        stringResource(option.group.labelRes),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 2.dp),
@@ -1150,12 +1183,12 @@ private fun CategoryRow(
 ) {
     OptionRow(
         icon = category.discIcon,
-        label = category?.label ?: "Not set",
+        label = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_category_unset),
         // The picker is where the color coding is learned, so a row wears its group's color.
         tint = placeDiscTint(category),
         labelColor = placeTitleColor(named = category != null),
         selected = selected,
-        selectedDescription = "Current category",
+        selectedDescription = stringResource(R.string.places_category_current),
         onClick = onClick,
     )
 }
@@ -1192,11 +1225,14 @@ private fun PlaceLocality(at: StayDeriver.Endpoint, nowMs: Long, viewModel: Trac
     // spot. Nothing trails a place keeping the reader's own clock — see [zoneShiftLabel].
     val shift = zoneShiftLabel(nowMs, zoneOrDevice(resolved.zoneId), timelineZone())
     val shiftColor = zoneShiftColor
+    // Worded before the builder, which is not a composable scope. The separator stays in code:
+    // it is layout between the place and its clock, not part of what either says.
+    val shiftNow = shift?.let { stringResource(R.string.places_shift_now, it) }
     Text(
         buildAnnotatedString {
             append(label)
-            if (shift != null) {
-                withStyle(SpanStyle(color = shiftColor)) { append(" · $shift now") }
+            if (shiftNow != null) {
+                withStyle(SpanStyle(color = shiftColor)) { append(" · $shiftNow") }
             }
         },
         style = MaterialTheme.typography.bodyMedium,
@@ -1220,10 +1256,14 @@ private const val REGIONAL_INDICATOR_A = 0x1F1E6
 
 @Composable
 private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {
+    val noValue = stringResource(R.string.common_no_value)
     StatHeaderRow(
-        "Visits" to if (summary.visitCount > 0) "${summary.visitCount}" else "—",
-        "Time there" to if (summary.totalMs > 0) formatDurationMs(summary.totalMs) else "—",
-        "Last visit" to (summary.lastSeenMs?.let { relativeDayCompact(it) } ?: "—"),
+        stringResource(R.string.places_stat_visits) to
+            if (summary.visitCount > 0) "${summary.visitCount}" else noValue,
+        stringResource(R.string.places_stat_time_there) to
+            if (summary.totalMs > 0) durationText(summary.totalMs) else noValue,
+        stringResource(R.string.places_stat_last_visit) to
+            (summary.lastSeenMs?.let { relativeDayCompact(it) } ?: noValue),
     )
 }
 
@@ -1266,7 +1306,7 @@ private fun LazyListScope.placeVisits(
         ?.lastOrNull()?.lastOrNull()?.let { first ->
             item(key = "first-visit") {
                 Text(
-                    "First visit ${relativeDay(first.start)}",
+                    stringResource(R.string.places_first_visit, relativeDay(first.start)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -1284,7 +1324,8 @@ private fun VisitRowContent(stay: StayDeriver.Stay, zone: ZoneId, nowMs: Long) {
     ) {
         Column(Modifier.weight(1f)) {
             Text(
-                visitDayFormat.format(Instant.ofEpochMilli(stay.start).atZone(zone)),
+                // The row's own heading, so it takes a capital like the timeline's day headers do.
+                visitDayFormat.format(Instant.ofEpochMilli(stay.start).atZone(zone)).standaloneCase(),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -1294,7 +1335,7 @@ private fun VisitRowContent(stay: StayDeriver.Stay, zone: ZoneId, nowMs: Long) {
             )
         }
         Text(
-            formatDurationMs((stay.end ?: nowMs) - stay.start),
+            durationText((stay.end ?: nowMs) - stay.start),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -1302,9 +1343,11 @@ private fun VisitRowContent(stay: StayDeriver.Stay, zone: ZoneId, nowMs: Long) {
 }
 
 /** "18:18 – 08:30 +1" — the marker counts midnights crossed; the row title carries the start day. */
+@Composable
+@ReadOnlyComposable
 private fun visitTimeRange(stay: StayDeriver.Stay, zone: ZoneId): String {
     val start = timeAt(stay.start, zone)
-    val end = stay.end ?: return "since $start"
+    val end = stay.end ?: return stringResource(R.string.places_visit_since, start)
     val nights = ChronoUnit.DAYS.between(
         stay.start.toLocalDate(zone),
         end.toLocalDate(zone),
@@ -1313,14 +1356,20 @@ private fun visitTimeRange(stay: StayDeriver.Stay, zone: ZoneId): String {
     return "$start – ${timeAt(end, zone)}$rollover"
 }
 
-private val visitDayFormat by PerLocale { DateTimeFormatter.ofPattern("EEE d", it) }
+private val visitDayFormat by PerLocale { localizedDateFormat("EEEd", it) }
 
-private val monthFormat by PerLocale { DateTimeFormatter.ofPattern("MMMM", it) }
+// `LLLL`, not `MMMM`: a month named on its own takes the stand-alone form, which in the Slavic
+// languages is the nominative — `MMMM` there yields the genitive a full date needs ("of July").
+private val monthFormat by PerLocale { DateTimeFormatter.ofPattern("LLLL", it) }
 
-private val monthYearFormat by PerLocale { DateTimeFormatter.ofPattern("MMMM yyyy", it) }
+// A month *with* its year is a phrase, not a bare noun, so this one keeps the format form — pt
+// writes "julho de 2026", and the connecting word arrives with the locale's own pattern.
+private val monthYearFormat by PerLocale { localizedDateFormat("yMMMM", it) }
 
+/** A month heading. Stands on its own, so it takes the capital its language gives it there. */
 internal fun monthLabel(month: YearMonth, today: LocalDate): String =
-    if (month.year == today.year) month.format(monthFormat) else month.format(monthYearFormat)
+    (if (month.year == today.year) month.format(monthFormat) else month.format(monthYearFormat))
+        .standaloneCase()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1340,21 +1389,27 @@ private fun PlaceRowCard(
         onClick = onClick,
         icon = category.discIcon,
         tint = placeDiscTint(category),
-        iconDescription = category?.label,
+        iconDescription = category?.let { stringResource(it.labelRes) },
         discAlpha = placeDiscAlpha(category),
         // The gazetteer's city stands in where the user has said nothing, dimmed by `named` so a
         // worked-out name never reads as one they chose — the same rule the timeline's rows follow.
-        title = summary.name ?: "Detected stop",
+        title = summary.name ?: stringResource(R.string.place_detected_stop),
         titleColor = placeTitleColor(named),
         subtitle = AnnotatedString(placeSubtitle(summary)),
     )
 }
 
+@Composable
+@ReadOnlyComposable
 private fun placeSubtitle(summary: PlaceResolver.PlaceSummary): String {
-    if (summary.visitCount == 0) return "No visits yet"
-    val total = formatDurationMs(summary.totalMs)
-    val lastVisit = summary.lastSeenMs?.let { "last visit ${relativeDayCompact(it)}" }
+    if (summary.visitCount == 0) return stringResource(R.string.place_no_visits)
+    val total = durationText(summary.totalMs)
+    val lastVisit = summary.lastSeenMs?.let {
+        stringResource(R.string.place_last_visit, relativeDayCompact(it))
+    }
     return listOfNotNull(visitCountLabel(summary.visitCount), lastVisit, total).joinToString(" · ")
 }
 
-internal fun visitCountLabel(n: Int): String = if (n == 1) "1 visit" else "$n visits"
+@Composable
+@ReadOnlyComposable
+internal fun visitCountLabel(n: Int): String = pluralStringResource(R.plurals.place_visits, n, n)

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.core.net.toUri
+import io.github.valeronm.breadcrumb.R
 import java.util.Locale
 
 /**
@@ -20,6 +21,6 @@ internal fun Context.openInMaps(lat: Double, lon: Double, label: String? = null)
         .onFailure {
             // A device with no maps app at all (bare emulator images have none) would otherwise
             // just swallow the tap.
-            Toast.makeText(this, "No maps app to open this in", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.maps_no_app, Toast.LENGTH_SHORT).show()
         }
 }

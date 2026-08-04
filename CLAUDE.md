@@ -434,6 +434,43 @@ cross-checks it.
   notification" rules above are about the foreground service's channel, not this one.
 - Background location requires the user to grant **"Allow all the time"**, which on Android 11+ is only
   grantable from the app's system settings page (the permission UI deep-links there).
+- **User-facing text is a resource; the layer that decides *what* to say holds no words.** Strings
+  live in `res/values/strings_<screen>.xml`, one file per `ui/` screen (Android merges them all, so
+  names must be unique across the set and the prefixes are what keep them apart). `domain/` and
+  `util/` hold no language at all: an enum carries a code and the UI maps it to a `@StringRes`
+  (`ui/CategoryLabels`, `ui/RecorderWords`), and a rule that needs a *sentence* takes a vocabulary
+  interface the host implements — `RecorderVocabulary`, `UnitSymbols`, `DurationSymbols`. That seam
+  is what keeps those suites on a plain JVM, and it is why they are interfaces rather than
+  formatters: the rounding, the duration ladder's rungs and the recorder's phrasing are this app's
+  decisions, and a measure/date formatter would re-decide them.
+- **Never assemble a sentence from parts.** No `"$verb $noun N of M"`, no `if (n == 1) "visit" else
+  "visits"`, no lowercasing a noun to slot it mid-sentence — word order, agreement and case are the
+  language's, not the caller's. One whole phrase per case, and `<plurals>` for anything counted.
+  A line built around a value no format string can carry — a clock time drawn with its own zone-shift
+  span — is still one whole phrase: `annotatedStringResource` (`ui/Components.kt`) splices styled
+  arguments into a resource's placeholders, so the time goes where the *translation* puts it. A word
+  that appears both alone and inside a sentence is **authored twice**, not transformed: an
+  `ActivityType` carries `labelRes` and `inlineLabelRes` (`ui/RecorderWords.kt`), because lower-casing
+  the label to slot it mid-sentence would decide a noun-capitalizing language's orthography for it.
+  `ResourceHygieneTest` pins three rules the compiler can't, reading the XML rather than the resource
+  table: **no resource carries edge whitespace** (one that needs it is a fragment, and a fragment
+  freezes word order — the quoting that used to preserve the space preserved the freeze with it),
+  every translation uses its original's placeholders, and `locales_config.xml` lists exactly the
+  `values-*` folders that exist (a language missing from it never reaches the system's per-app
+  language picker).
+- **Dates and measures follow the locale, units follow the country.** `localizedDateFormat` resolves
+  a pattern from a skeleton, and `standaloneCase` capitalizes a date that heads a section — Romance
+  languages lowercase months and weekdays, and the platform capitalizes them in that position.
+  Because that reaches `android.text.format.DateFormat`, **nothing a plain-JVM test can call may
+  format a date**: `groupTimelineByDay` returns dates and the screen renders them for exactly this
+  reason. `Measures` pairs the unit system with its symbols because the two come from different
+  halves of one locale — the country picks metric vs imperial, the language picks "km" vs "км".
+- **Logs are never localized.** `DebugLog` text, its tags, and the operation names handed to it
+  (`runExclusiveOp`'s `logLabel`) stay English whatever the device language. Settings → Logs showing
+  them in-app does not make them interface text: a log line sits beside untranslated platform
+  exception messages, and a fault that greps differently on two phones is worth less than one that
+  reads awkwardly on one. Notification and screen text beside a log call is the opposite — that is a
+  user surface and translates.
 - `applicationId` is permanent once published; the `${applicationId}.fileprovider` authority and
   notification/manifest pieces derive from it, so don't hardcode the package elsewhere.
 - All data is local; the network carries map data — Protomaps vector tiles (hosted API) plus the

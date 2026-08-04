@@ -31,14 +31,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.LiveFigures
 import io.github.valeronm.breadcrumb.domain.RecordCardState
-import io.github.valeronm.breadcrumb.domain.TimeRenderer
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.location.TrackingStatus
@@ -68,18 +70,16 @@ internal fun RecordTab(
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         when {
             !foregroundOk -> PermissionCard(
-                title = "Location & activity access needed",
-                body = "Grant location and physical-activity access so the app can detect " +
-                    "whether you're walking, driving or cycling and record GPS.",
-                button = "Grant permissions",
+                title = stringResource(R.string.record_perm_foreground_title),
+                body = stringResource(R.string.record_perm_foreground_body),
+                button = stringResource(R.string.record_perm_foreground_button),
                 onClick = onGrantForeground,
             )
 
             !backgroundOk -> PermissionCard(
-                title = "Allow background location",
-                body = "Set location access to \"Allow all the time\" so tracks keep recording " +
-                    "when the screen is off or the app is closed.",
-                button = "Allow in the background",
+                title = stringResource(R.string.record_perm_background_title),
+                body = stringResource(R.string.record_perm_background_body),
+                button = stringResource(R.string.record_perm_background_button),
                 onClick = onGrantBackground,
             )
 
@@ -88,10 +88,9 @@ internal fun RecordTab(
                 if (autoOn && !batteryOk) {
                     Spacer(Modifier.height(8.dp))
                     PermissionCard(
-                        title = "Keep recording in the background",
-                        body = "Allow this app to ignore battery optimization so Android " +
-                            "doesn't stop tracking after a while in the background.",
-                        button = "Allow unrestricted",
+                        title = stringResource(R.string.record_perm_battery_title),
+                        body = stringResource(R.string.record_perm_battery_body),
+                        button = stringResource(R.string.record_perm_battery_button),
                         onClick = onRequestBattery,
                     )
                 }
@@ -165,11 +164,13 @@ private fun RecordedStats(viewModel: TrackListViewModel) {
         tracks.map { it to it.startedAt.toLocalDate(zone) }
     }
     // Remembered: RecordTab recomposes on every status tick while visible.
-    val periods = remember(byDate, today) {
+    val todayLabel = stringResource(R.string.relative_today).standaloneCase()
+    val thisMonthLabel = stringResource(R.string.record_period_this_month)
+    val periods = remember(byDate, today, todayLabel, thisMonthLabel) {
         val prevMonth = YearMonth.from(today).minusMonths(1)
         listOf(
-            "Today" to byDate.filter { it.second == today },
-            "This month" to byDate.filter { it.second.year == today.year && it.second.month == today.month },
+            todayLabel to byDate.filter { it.second == today },
+            thisMonthLabel to byDate.filter { it.second.year == today.year && it.second.month == today.month },
             monthLabel(prevMonth, today) to byDate.filter { YearMonth.from(it.second) == prevMonth },
         )
     }
@@ -190,13 +191,12 @@ private fun PeriodStats(title: String, tracks: List<TrackSummary>) {
     if (tracks.isEmpty()) {
         Spacer(Modifier.height(8.dp))
         Text(
-            "No tracks yet.",
+            stringResource(R.string.record_no_tracks),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
         val totals = remember(tracks) { dayActivityTotals(tracks) }
-        val units = LocalUnits.current
         for (total in totals) {
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -205,18 +205,19 @@ private fun PeriodStats(title: String, tracks: List<TrackSummary>) {
                     // A hue each here, unlike the Timeline's neutral: this tab is about how the day
                     // moved, and no place shares the screen for the color to be taken from.
                     tint = activityColor(total.activity),
-                    contentDescription = total.activity?.label,
+                    contentDescription = total.activity?.let { stringResource(it.labelRes) },
                     size = 28.dp,
                     iconSize = 16.dp,
                 )
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    total.activity?.label ?: "Other",
+                    total.activity?.let { stringResource(it.labelRes) }
+                        ?: stringResource(R.string.activity_other),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    "${units.distance(total.meters)} · ${formatDurationMs(total.durationMs)}",
+                    "${distanceText(total.meters)} · ${durationText(total.durationMs)}",
                     style = MaterialTheme.typography.titleSmall,
                 )
             }
@@ -232,12 +233,12 @@ private fun ReplayBanner(replay: TrackReplayer.Replay, onStop: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "Replaying ${replay.trackLabel} at ${replay.speedX}×",
+            stringResource(R.string.record_replaying, replay.trackLabel, replay.speedX.toString()),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.tertiary,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = onStop) { Text("Stop") }
+        TextButton(onClick = onStop) { Text(stringResource(R.string.common_stop)) }
     }
 }
 
@@ -284,7 +285,7 @@ private fun CurrentTrackPreview(
                     MapLibreTrackMap(points = points, activity = activity, directionalEnd = true)
                 } else {
                     Text(
-                        "Waiting for GPS fix…",
+                        stringResource(R.string.record_waiting_for_fix),
                         modifier = Modifier.align(Alignment.Center),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -300,14 +301,17 @@ private fun CurrentTrackPreview(
             // line leading adds again, so equal padding reads top-heavy.
             Column(Modifier.padding(top = 10.dp, bottom = 16.dp)) {
                 Text(
-                    "Current track · ${status.activity?.label ?: "Idle"}",
+                    stringResource(
+                        R.string.record_current_track,
+                        status.activity?.let { stringResource(it.labelRes) }
+                            ?: stringResource(R.string.record_activity_idle),
+                    ),
                     modifier = Modifier.padding(horizontal = 16.dp),
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Spacer(Modifier.height(8.dp))
                 // Live trip stats; the status flow updates per fix, which keeps these ticking.
                 val startedAt = status.startedAtMillis
-                val units = LocalUnits.current
                 // Equal-width columns, not SpaceBetween: these values change every fix, and with
                 // content-sized cells the free space between them is redistributed on each change
                 // — every separator shifts as a digit is gained or lost. Weights pin the rules and
@@ -318,23 +322,28 @@ private fun CurrentTrackPreview(
                     Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    StatItem("Distance", units.distance(status.distanceMeters), Modifier.weight(1f))
-                    StatSeparator()
+                    val noValue = stringResource(R.string.common_no_value)
                     StatItem(
-                        "Duration",
-                        startedAt?.let { formatDuration(it, System.currentTimeMillis()) } ?: "—",
+                        stringResource(R.string.common_stat_distance),
+                        distanceText(status.distanceMeters),
                         Modifier.weight(1f),
                     )
                     StatSeparator()
                     StatItem(
-                        "Speed",
-                        status.speedMps?.let { units.speedFromKmh(it * 3.6) } ?: "—",
+                        stringResource(R.string.common_stat_duration),
+                        startedAt?.let { durationText(it, System.currentTimeMillis()) } ?: noValue,
                         Modifier.weight(1f),
                     )
                     StatSeparator()
                     StatItem(
-                        "Elevation",
-                        status.altitudeM?.let { units.shortDistance(it) } ?: "—",
+                        stringResource(R.string.record_stat_speed),
+                        status.speedMps?.let { speedText(it * 3.6) } ?: noValue,
+                        Modifier.weight(1f),
+                    )
+                    StatSeparator()
+                    StatItem(
+                        stringResource(R.string.record_stat_elevation),
+                        status.altitudeM?.let { shortDistanceText(it) } ?: noValue,
                         Modifier.weight(1f),
                     )
                 }
@@ -355,16 +364,16 @@ private fun RecorderStateCard(state: RecordCardState, status: TrackingStatus.Sta
         }
     }
     // Remembered: this composable re-runs on every 1 Hz tick.
-    val render = remember { TimeRenderer(clock = { timeAt(it, timelineZone()) }, duration = ::formatDurationMs) }
+    val context = LocalContext.current
+    val words = remember(context) { recorderWords(context) }
     // The live surface: the detail counts down and quotes figures, joined onto the title as one line.
-    val text = recorderText(
+    val text = words.recorderText(
         state = state,
         activity = status.activity,
         pausedActivity = status.pausedActivity,
         deaf = status.deaf,
         live = LiveFigures(
             nowMs = nowMs,
-            render = render,
             pausedUntilMs = status.pausedUntilMillis,
             lastReadingAtMs = status.lastReadingAtMillis,
             rejectedAccuracyM = status.lastFixAccuracyM?.takeIf { status.lastFixRejectedByAccuracy },
@@ -396,12 +405,18 @@ private fun KeepScreenOnRow(
     ) {
         Column(Modifier.weight(1f)) {
             Text(
-                "Keep screen on",
+                stringResource(R.string.record_keep_screen_on),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                if (charging) "While charging, with the app open." else "Available while charging.",
+                stringResource(
+                    if (charging) {
+                        R.string.record_keep_screen_on_charging
+                    } else {
+                        R.string.record_keep_screen_on_idle
+                    },
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -440,7 +455,7 @@ private fun AutoRecordControls(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Auto recording",
+                stringResource(R.string.record_auto_recording),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
             )

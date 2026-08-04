@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TimelineScreen: the Timeline tab's day headings and rows. -->
+<resources>
+    <!-- Empty state and backup restore -->
+    <string name="timeline_empty">No tracks yet. They appear here once recording captures some movement.</string>
+    <string name="timeline_restoring">Restoring your backup — the timeline will appear when it finishes.</string>
+    <string name="timeline_restore_button">Restore from backup</string>
+    <string name="timeline_restore_failed">Restore failed — not a Breadcrumb backup?</string>
+    <string name="timeline_restored">Restored %1$d tracks and %2$d places</string>
+    <string name="timeline_restoring_count">Restoring… %1$d tracks</string>
+    <string name="timeline_restoring_count_of">Restoring… %1$d of %2$d tracks</string>
+
+    <!-- The re-derivation sweeps. "Updating", not "Trimming": a sweep re-derives either way. -->
+    <string name="timeline_sweep_edge_stays">Updating recording overruns</string>
+    <string name="timeline_sweep_stats">Updating track distances</string>
+
+    <!--
+      What heads a journey the naming pass found no place for — the bare fact of having been away.
+      Also used by the Insights journey list, so both screens call one journey one thing.
+    -->
+    <plurals name="timeline_nights_away">
+        <item quantity="one">%d night away</item>
+        <item quantity="other">%d nights away</item>
+    </plurals>
+
+    <!-- Row actions, read aloud -->
+    <!-- Where in a journey the reader has scrolled to; the band above carries the journey itself. -->
+    <string name="timeline_away_day">· Day %1$d of %2$d away</string>
+    <string name="timeline_share_day">Share %1$s tracks</string>
+    <string name="timeline_scroll_to_day">Scroll to a day</string>
+    <string name="timeline_merge">Merge tracks</string>
+    <string name="timeline_undo_merged">Tracks merged</string>
+    <string name="timeline_undo_deleted">Track deleted</string>
+
+    <!--
+      Stay rows. The clock time is drawn rather than interpolated — it carries its own colour marks
+      for a zone shift — and reaches its slot through `annotatedStringResource`, so each of these is
+      a whole sentence and free to put the time wherever this language wants it.
+    -->
+    <string name="timeline_all_day">All day</string>
+    <string name="timeline_stay_since">%1$s – now</string>
+    <string name="timeline_stay_until">Until %1$s</string>
+    <string name="timeline_stay_from">From %1$s</string>
+    <string name="timeline_stay_between">%1$s – %2$s</string>
+    <string name="timeline_short_stop">Short stop</string>
+    <string name="timeline_short_stop_mergeable">Short stop, can be merged away</string>
+    <string name="timeline_stayed">Stayed</string>
+    <string name="timeline_unnamed_place">unnamed place</string>
+
+    <!--
+      Gap rows, one whole line per case rather than a lead-in and a tail: which bound the recording
+      lost is the difference between them, and that is not always a preposition swapped at the end.
+    -->
+    <string name="timeline_gap_lasting">missing recording · %1$s</string>
+    <string name="timeline_gap_from">missing recording · from %1$s</string>
+    <string name="timeline_gap_until">missing recording · until %1$s</string>
+    <string name="timeline_gap_all_day">missing recording · all day</string>
+</resources>

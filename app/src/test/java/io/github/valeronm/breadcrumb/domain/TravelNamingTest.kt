@@ -72,6 +72,17 @@ class TravelNamingTest {
         assertNull(TravelNaming.title(TravelNaming.ranked(emptyMap())))
     }
 
+    @Test fun `a journey nothing names falls back to its nights, for the host to word`() {
+        assertEquals(TravelLabel.NightsAway(3), TravelNaming.label(emptyList(), nightCount = 3))
+    }
+
+    @Test fun `a journey with destinations is headed by them, not by its nights`() {
+        assertEquals(
+            TravelLabel.Destinations("Somewhere"),
+            TravelNaming.label(listOf("Somewhere"), nightCount = 3),
+        )
+    }
+
     @Test fun `names with no time at all are kept rather than filtered to nothing`() {
         // A journey whose stays are all zero-length still happened somewhere; the floor is a
         // proportion, and a proportion of nothing must not empty the list.

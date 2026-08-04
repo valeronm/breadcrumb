@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -27,11 +28,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.MetricSmoother
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import kotlin.math.roundToInt
 
@@ -79,15 +83,20 @@ private fun speedScaleFor(activity: ActivityType, units: UnitSystem): SpeedScale
 // --- Track line coloring by metric ------------------------------------------------------------
 
 /** Which per-point metric the track line is colored by. */
-enum class ColorMode(val label: String, val recorderOnly: Boolean) {
-    SPEED("Speed", recorderOnly = false),
-    ELEVATION("Elevation", recorderOnly = false),
+enum class ColorMode(
+    @StringRes val labelRes: Int,
+    /** What the legend says when no fix in the track carries this metric. */
+    @StringRes val noDataRes: Int,
+    val recorderOnly: Boolean,
+) {
+    SPEED(R.string.color_mode_speed, R.string.color_no_speed_data, recorderOnly = false),
+    ELEVATION(R.string.color_mode_elevation, R.string.color_no_elevation_data, recorderOnly = false),
 
     // What the receiver said about its own fix at the moment it took it. A file describes a path,
     // not a measurement of one, so these belong to a recording however a parser is taught to read.
-    ACCURACY("Accuracy", recorderOnly = true),
-    SATELLITES("Satellites", recorderOnly = true),
-    CN0("Signal", recorderOnly = true),
+    ACCURACY(R.string.color_mode_accuracy, R.string.color_no_accuracy_data, recorderOnly = true),
+    SATELLITES(R.string.color_mode_satellites, R.string.color_no_satellite_data, recorderOnly = true),
+    CN0(R.string.color_mode_signal, R.string.color_no_signal_data, recorderOnly = true),
 }
 
 /**
@@ -129,8 +138,12 @@ internal sealed interface Legend {
     /** Continuous red→green→blue ramp with anchor labels. */
     data class Ramp(val left: String, val mid: String, val right: String) : Legend
 
-    /** No point in the track carries this metric. */
-    data class None(val message: String) : Legend
+    /**
+     * No point in the track carries this metric. Carries the message as a resource, not as text:
+     * the coloring is built off the composition (a `remember`, and the map's own layer build), so
+     * the words are resolved where the legend is drawn.
+     */
+    data class None(@StringRes val messageRes: Int) : Legend
 }
 
 /**
@@ -183,13 +196,13 @@ private fun rampColoring(
     redAt: Float,
     blueAt: Float,
     unit: String,
-    emptyMsg: String,
+    mode: ColorMode,
     dark: Boolean,
 ): TrackColoring {
     // Resolved once per coloring, not per point — Color.hsl is a real conversion.
     val noData = noDataArgb(dark)
     if (values.all { it == null }) {
-        return TrackColoring(IntArray(values.size) { noData }, Legend.None(emptyMsg), values, unit)
+        return TrackColoring(IntArray(values.size) { noData }, Legend.None(mode.noDataRes), values, unit)
     }
     val palette = rampPalette(rampLuminance(dark))
     val colors = IntArray(values.size) { rampColor(values[it], redAt, blueAt, palette, noData) }
@@ -203,17 +216,30 @@ private fun rampColoring(
  * The per-point value series for [mode] (null where a point lacks the metric) and its display
  * unit — the single mode→series/unit mapping, feeding both the graph and the map coloring.
  */
+// The display-system conversions at the precision a plotted series holds. Here rather than on
+// [UnitSystem], which measures in doubles: the float is the graph's concern, not the system's.
+private fun UnitSystem.plotSpeed(kmh: Float): Float = speedFrom(kmh.toDouble()).toFloat()
+
+private fun UnitSystem.plotShort(meters: Double): Float = shortFrom(meters).toFloat()
+
 private fun metricSeries(
     points: List<TrackPoint>,
     mode: ColorMode,
     speedsKmh: FloatArray,
-    units: UnitSystem,
-): Pair<List<Float?>, String> = when (mode) {
-    ColorMode.SPEED -> List(points.size) { units.fromKmh(speedsKmh[it]) } to units.speedUnit
-    ColorMode.ELEVATION -> points.map { it.altitude?.toFloat()?.let(units::fromMeters) } to units.shortUnit
-    ColorMode.ACCURACY -> points.map { it.accuracy?.let(units::fromMeters) } to units.shortUnit
-    ColorMode.SATELLITES -> points.map { it.satellitesInFix?.toFloat() } to "sat"
-    ColorMode.CN0 -> points.map { it.cn0 } to "dB"
+    measures: Measures,
+): Pair<List<Float?>, String> {
+    val units = measures.system
+    val symbols = measures.symbols
+    return when (mode) {
+        ColorMode.SPEED ->
+            List(points.size) { units.plotSpeed(speedsKmh[it]) } to symbols.of(units.speedUnitId)
+        ColorMode.ELEVATION ->
+            points.map { it.altitude?.let(units::plotShort) } to symbols.of(units.shortUnitId)
+        ColorMode.ACCURACY ->
+            points.map { it.accuracy?.toDouble()?.let(units::plotShort) } to symbols.of(units.shortUnitId)
+        ColorMode.SATELLITES -> points.map { it.satellitesInFix?.toFloat() } to "sat"
+        ColorMode.CN0 -> points.map { it.cn0 } to "dB"
+    }
 }
 
 /**
@@ -252,16 +278,17 @@ internal fun trackColoring(
     mode: ColorMode,
     activity: ActivityType?,
     dark: Boolean,
-    units: UnitSystem,
+    measures: Measures,
 ): TrackColoring {
+    val units = measures.system
     // Anchors are hand-rounded in the display unit (see SpeedScale), so the legend reads round
     // numbers in every system; the colors may sit a hair apart between systems as a result.
-    val (raw, unit) = metricSeries(points, mode, speedsKmh, units)
+    val (raw, unit) = metricSeries(points, mode, speedsKmh, measures)
     val values = plottedSeries(points, mode, raw)
     return when (mode) {
         ColorMode.SPEED -> {
             val s = speedScaleFor(activity ?: ActivityType.UNKNOWN, units)
-            rampColoring(values, s.min, s.max, unit, "No speed data", dark)
+            rampColoring(values, s.min, s.max, unit, mode, dark)
         }
         ColorMode.ELEVATION -> {
             // Anchors come from the track's own range; a zero-width span would make a flat track a
@@ -270,14 +297,14 @@ internal fun trackColoring(
             val present = values.filterNotNull()
             val lo = present.minOrNull() ?: 0f
             val span = ((present.maxOrNull() ?: 0f) - lo).coerceAtLeast(1f)
-            rampColoring(values, lo, lo + span, unit, "No elevation data", dark)
+            rampColoring(values, lo, lo + span, unit, mode, dark)
         }
         // Lower accuracy radius is better, so zero sits at the blue (good) end. The red anchor is
         // hand-rounded per display unit like the speed scales: 150 ft, not the converted 164.
         ColorMode.ACCURACY ->
-            rampColoring(values, units.byShortUnit(meters = 50f, feet = 150f), 0f, unit, "No accuracy data", dark)
-        ColorMode.SATELLITES -> rampColoring(values, 0f, 12f, unit, "No satellite data", dark)
-        ColorMode.CN0 -> rampColoring(values, 15f, 45f, unit, "No signal data", dark)
+            rampColoring(values, units.byShortUnit(meters = 50f, feet = 150f), 0f, unit, mode, dark)
+        ColorMode.SATELLITES -> rampColoring(values, 0f, 12f, unit, mode, dark)
+        ColorMode.CN0 -> rampColoring(values, 15f, 45f, unit, mode, dark)
     }
 }
 
@@ -316,7 +343,7 @@ internal fun ColorModeSelector(
                 FilterChip(
                     selected = mode == selected,
                     onClick = { onSelect(mode) },
-                    label = { Text(mode.label) },
+                    label = { Text(stringResource(mode.labelRes)) },
                 )
             }
         }
@@ -335,7 +362,7 @@ internal fun TrackLegend(legend: Legend, modifier: Modifier) {
     when (legend) {
         is Legend.None ->
             LegendSurface(modifier) {
-                Text(legend.message, style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(legend.messageRes), style = MaterialTheme.typography.labelSmall)
             }
         is Legend.Ramp ->
             LegendSurface(modifier) {

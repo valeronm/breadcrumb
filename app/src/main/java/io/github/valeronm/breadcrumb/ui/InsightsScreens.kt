@@ -19,9 +19,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import java.time.LocalDate
@@ -43,8 +46,7 @@ internal fun InsightsTab(viewModel: TrackListViewModel, onOpenDay: (LocalDate) -
         // while the history is still being read is the worse of the two to get wrong.
         rows == null -> DerivingState(Modifier.fillMaxSize())
         rows.isEmpty() -> EmptyState(
-            "No journeys yet. They appear here once you tag a place as Home in Places — any " +
-                "run of nights spent elsewhere is a journey.",
+            stringResource(R.string.insights_empty),
             Modifier.fillMaxSize().padding(32.dp),
         )
         else -> TravelsList(rows, onOpenDay)
@@ -66,7 +68,8 @@ private fun TravelsList(travels: List<TravelNaming.Summary>, onOpenDay: (LocalDa
             .toSortedMap(reverseOrder())
             // What a year came to is summed here, with the grouping, rather than inside the heading:
             // a sticky heading recomposes every time its section scrolls, and none of this moves.
-            .map { (year, ofYear) -> YearSection(year, figuresOf(ofYear), ofYear.asReversed()) }
+            // The heading still words the sums — that part is language, and it is cheap.
+            .map { (year, ofYear) -> yearSectionOf(year, ofYear) }
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -93,18 +96,26 @@ private fun TravelsList(travels: List<TravelNaming.Summary>, onOpenDay: (LocalDa
 /** One year's journeys, newest first, and what they came to. */
 private class YearSection(
     val year: Int,
-    val figures: String,
+    val journeys: Int,
+    val nights: Int,
+    val cities: Int,
+    val countries: Int,
     val rows: List<Pair<TravelNaming.Summary, List<LocalDate>>>,
 )
 
-private fun figuresOf(ofYear: List<Pair<TravelNaming.Summary, List<LocalDate>>>): String {
+private fun yearSectionOf(
+    year: Int,
+    ofYear: List<Pair<TravelNaming.Summary, List<LocalDate>>>,
+): YearSection {
     val travels = ofYear.map { (row, _) -> row }
-    return listOf(
-        count(travels.size, "journey", "journeys"),
-        count(travels.sumOf { it.travel.nightCount }, "night", "nights"),
-        count(travels.flatMap { it.cities }.toSet().size, "city", "cities"),
-        count(travels.flatMap { it.countries }.toSet().size, "country", "countries"),
-    ).joinToString(" · ")
+    return YearSection(
+        year = year,
+        journeys = travels.size,
+        nights = travels.sumOf { it.travel.nightCount },
+        cities = travels.flatMap { it.cities }.toSet().size,
+        countries = travels.flatMap { it.countries }.toSet().size,
+        rows = ofYear.asReversed(),
+    )
 }
 
 /** A year and what it came to. Sticky, so the figures stay with the journeys being read. */
@@ -118,7 +129,12 @@ private fun YearHeading(section: YearSection) {
     ) {
         Text(section.year.toString(), style = MaterialTheme.typography.titleMedium)
         Text(
-            section.figures,
+            listOf(
+                pluralStringResource(R.plurals.insights_journeys, section.journeys, section.journeys),
+                pluralStringResource(R.plurals.insights_nights, section.nights, section.nights),
+                pluralStringResource(R.plurals.insights_cities, section.cities, section.cities),
+                pluralStringResource(R.plurals.insights_countries, section.countries, section.countries),
+            ).joinToString(" · "),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -138,18 +154,16 @@ private fun TravelRow(
         shape = shape,
         icon = Icons.Filled.Luggage,
         tint = MaterialTheme.colorScheme.tertiary,
-        title = TravelNaming.label(summary.destinations, travel.nightCount),
+        title = travelTitle(TravelNaming.label(summary.destinations, travel.nightCount)),
         titleColor = MaterialTheme.colorScheme.onSurface,
         subtitle = AnnotatedString(
-            dateRange(days.first(), days.last(), today) +
-                " · ${count(travel.nightCount, "night", "nights")}",
+            dateRange(days.first(), days.last(), today) + " · " +
+                pluralStringResource(R.plurals.insights_nights, travel.nightCount, travel.nightCount),
         ),
-        iconDescription = "Journey",
+        iconDescription = stringResource(R.string.insights_journey),
         onClick = onOpen,
     )
 }
-
-private fun count(n: Int, one: String, many: String) = "$n ${if (n == 1) one else many}"
 
 /**
  * A journey's dates, dropping what the two ends share: "12–17 May", "28 Apr – 3 May 2019". Never a

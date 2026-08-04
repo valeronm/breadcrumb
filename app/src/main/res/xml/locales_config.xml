@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The languages this app ships. Declaring them turns on Android 13+'s per-app language picker, so
+  the app can be read in one language on a phone set to another — which is also how the English
+  wording stays reachable for checking a translation against.
+
+  `pt` is European Portuguese. Brazilian readers fall back to English rather than to a translation
+  written for the other side of the Atlantic; a `pt-rBR` folder is what would change that.
+-->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="pt" />
+</locale-config>

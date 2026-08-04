@@ -81,6 +81,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,6 +89,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.SweepStatus
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -104,7 +106,6 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -174,12 +175,17 @@ internal fun TracksTab(
     val travels by viewModel.travels.collectAsStateWithLifecycle()
     val awayDays = remember(travels) { awayDaysOf(travels.orEmpty(), timelineZone()) }
     val listState = rememberLazyListState()
-    // Day label -> its header's lazy-item index: the fast scroller jumps between these anchors.
-    val dayAnchors = remember(groups) {
+    // Resolved here because [dayLabel] is callable from a plain function and [stringResource] is not;
+    // each header then words itself, rather than reading its text out of a list it must stay aligned
+    // with. Day label -> its header's lazy-item index: what the fast scroller jumps between.
+    val todayText = stringResource(R.string.relative_today).standaloneCase()
+    val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
+    val today = LocalDate.now(timelineZone())
+    val dayAnchors = remember(groups, today, todayText, yesterdayText) {
         buildList {
             var index = 0
             groups.forEach { group ->
-                add(group.label to index)
+                add(dayLabel(group.date, today, todayText, yesterdayText) to index)
                 index += group.items.size + 1
             }
         }
@@ -258,10 +264,13 @@ internal fun TracksTab(
         onDayTargetShown()
     }
     // Both interval rows offer the same merge, so they share one handler rather than two copies
-    // of the undo wiring.
+    // of the undo wiring. Both undo messages are resolved here: the callbacks below run outside
+    // the composition.
+    val mergedMessage = stringResource(R.string.timeline_undo_merged)
+    val deletedMessage = stringResource(R.string.timeline_undo_deleted)
     val onMerge = { plan: TrackMerge.Plan ->
         viewModel.mergeTracks(plan) { mergedId ->
-            undo.show("Tracks merged") { viewModel.unmergeTracks(mergedId, plan) }
+            undo.show(mergedMessage) { viewModel.unmergeTracks(mergedId, plan) }
         }
     }
     Box(Modifier.fillMaxSize()) {
@@ -291,7 +300,8 @@ internal fun TracksTab(
                     // twice now (a westward crossing lives the same date twice), and two headers
                     // sharing a key is a hard crash in a lazy list rather than a cosmetic clash.
                     stickyHeader(key = "header:${group.items.first().startedAt}") {
-                        DayHeader(group.label, dayTracks, dayItems, away) {
+                        val label = dayLabel(group.date, today, todayText, yesterdayText)
+                        DayHeader(label, dayTracks, dayItems, away) {
                             viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
                                 if (intent != null) context.startActivity(intent)
                             }
@@ -309,7 +319,7 @@ internal fun TracksTab(
                                 onDelete = {
                                     val id = item.summary.id
                                     viewModel.delete(id)
-                                    undo.show("Track deleted") { viewModel.restoreTrack(id) }
+                                    undo.show(deletedMessage) { viewModel.restoreTrack(id) }
                                 },
                                 // DEBUG: long-press replays the track through the Record tab's live view.
                                 onReplay = if (BuildConfig.DEV_TOOLS) {
@@ -477,7 +487,7 @@ private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Filled.UnfoldMore,
-                        contentDescription = "Scroll to a day",
+                        contentDescription = stringResource(R.string.timeline_scroll_to_day),
                         tint = if (dragging) {
                             MaterialTheme.colorScheme.onPrimaryContainer
                         } else {
@@ -558,7 +568,7 @@ private fun TravelHeading(away: AwayDay) {
             modifier = Modifier.size(14.dp),
         )
         Text(
-            TravelNaming.label(away.summary.destinations, away.summary.travel.nightCount),
+            travelTitle(TravelNaming.label(away.summary.destinations, away.summary.travel.nightCount)),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.tertiary,
         )
@@ -606,7 +616,7 @@ private fun DayHeader(
                 // continues, the tint alone telling the two apart.
                 away?.let {
                     Text(
-                        "· Day ${it.ordinal} of ${it.dayCount} away",
+                        stringResource(R.string.timeline_away_day, it.ordinal, it.dayCount),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.tertiary,
                     )
@@ -618,7 +628,7 @@ private fun DayHeader(
                 IconButton(onClick = onShare, modifier = Modifier.size(36.dp)) {
                     Icon(
                         Icons.Filled.Share,
-                        contentDescription = "Share $label tracks",
+                        contentDescription = stringResource(R.string.timeline_share_day, label),
                         // Match the top bar's action-icon tint — plain onSurface reads too bright here.
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
@@ -633,13 +643,12 @@ private fun DayHeader(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            val units = LocalUnits.current
             for (total in totals) {
                 DayTotal(
                     icon = activityIcon(total.activity),
-                    description = total.activity?.label,
+                    description = total.activity?.let { stringResource(it.labelRes) },
                     tint = travelColor(),
-                    text = "${units.distance(total.meters)} · ${formatDurationMs(total.durationMs)}",
+                    text = "${distanceText(total.meters)} · ${durationText(total.durationMs)}",
                 )
             }
         }
@@ -654,11 +663,11 @@ private fun DayHeader(
                 for (total in categoryTotals) {
                     DayTotal(
                         icon = total.category.icon,
-                        description = total.category.label,
+                        description = stringResource(total.category.labelRes),
                         // Group color, as the rows below wear it — the totals line then reads as the
                         // same palette the day's stays were drawn in.
                         tint = categoryColor(total.category),
-                        text = formatDurationMs(total.durationMs),
+                        text = durationText(total.durationMs),
                     )
                 }
             }
@@ -696,26 +705,29 @@ private fun DayTotal(icon: ImageVector, description: String?, tint: Color, text:
  * that is what it was.
  */
 internal fun groupTimelineByDay(items: List<TimelineItem>): List<DayGroup> {
-    val today = LocalDate.now(timelineZone())
     val groups = mutableListOf<DayGroup>()
     var run = mutableListOf<TimelineItem>()
     var date: LocalDate? = null
     for (item in items) {
         val itemDate = item.filedOn
         if (itemDate != date) {
-            date?.let { groups += DayGroup(it, dayLabel(it, today), run) }
+            date?.let { groups += DayGroup(it, run) }
             run = mutableListOf()
             date = itemDate
         }
         run += item
     }
-    date?.let { groups += DayGroup(it, dayLabel(it, today), run) }
+    date?.let { groups += DayGroup(it, run) }
     return groups
 }
 
-/** One day's rows. The date rides along with the label because a label is for reading and a date
- *  is what answers whether the day falls inside a travel. */
-internal class DayGroup(val date: LocalDate, val label: String, val items: List<TimelineItem>)
+/**
+ * One day's rows, carrying the date and not a heading for it. Naming the day is [dayLabel]'s job on
+ * the screen: a date is what answers whether the day falls inside a travel, while a heading is
+ * language, and phrasing it here would put a locale-resolved formatter — which reaches the Android
+ * framework — inside a function whose whole point is being testable on a plain JVM.
+ */
+internal class DayGroup(val date: LocalDate, val items: List<TimelineItem>)
 
 /**
  * A day inside a travel: which one, where in it, and whether it is that travel's *latest* day —
@@ -780,16 +792,26 @@ internal fun TimelineItem.rowKey(): String = when (this) {
     is TimelineItem.GapItem -> "gap:${gap.start}"
 }
 
-private val dayHeaderFormat by PerLocale { DateTimeFormatter.ofPattern("EEEE, d MMM yyyy", it) }
+private val dayHeaderFormat by PerLocale { localizedDateFormat("EEEEdMMMy", it) }
 
-private val dayHeaderFormatThisYear by PerLocale { DateTimeFormatter.ofPattern("EEEE, d MMM", it) }
+private val dayHeaderFormatThisYear by PerLocale { localizedDateFormat("EEEEdMMM", it) }
 
-private fun dayLabel(date: LocalDate, today: LocalDate): String = when {
-    date == today -> "Today"
-    date == today.minusDays(1) -> "Yesterday"
+/**
+ * A day header stands on its own, so it takes the capital its language would give it there. The two
+ * relative names are passed in already resolved, which keeps this callable from inside a `remember`
+ * — [stringResource] is not.
+ */
+private fun dayLabel(
+    date: LocalDate,
+    today: LocalDate,
+    todayText: String,
+    yesterdayText: String,
+): String = when {
+    date == today -> todayText
+    date == today.minusDays(1) -> yesterdayText
     // The current year goes without saying.
-    date.year == today.year -> date.format(dayHeaderFormatThisYear)
-    else -> date.format(dayHeaderFormat)
+    date.year == today.year -> date.format(dayHeaderFormatThisYear).standaloneCase()
+    else -> date.format(dayHeaderFormat).standaloneCase()
 }
 
 /**
@@ -808,19 +830,17 @@ private fun EmptyTracksState(viewModel: TrackListViewModel) {
         if (uri == null) return@rememberLauncherForActivityResult
         viewModel.importExport.restoreBackup(uri) { summary ->
             val message = if (summary == null) {
-                "Restore failed — not a Breadcrumb backup?"
+                appContext.getString(R.string.timeline_restore_failed)
             } else {
-                "Restored ${summary.tracks} tracks and ${summary.places} places"
+                appContext.getString(R.string.timeline_restored, summary.tracks, summary.places)
             }
             Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
         }
     }
     EmptyState(
-        if (progress == null) {
-            "No tracks yet. They appear here once recording captures some movement."
-        } else {
-            "Restoring your backup — the timeline will appear when it finishes."
-        },
+        stringResource(
+            if (progress == null) R.string.timeline_empty else R.string.timeline_restoring,
+        ),
         Modifier.fillMaxSize().padding(24.dp),
     ) {
         Spacer(Modifier.height(16.dp))
@@ -830,11 +850,12 @@ private fun EmptyTracksState(viewModel: TrackListViewModel) {
                 restoreLauncher.launch(
                     arrayOf("application/gzip", "application/x-gzip", "application/octet-stream"),
                 )
-            }) { Text("Restore from backup") }
+            }) { Text(stringResource(R.string.timeline_restore_button)) }
         } else {
-            val total = restoring.tracksTotal?.let { " of $it" } ?: ""
             Text(
-                "Restoring… ${restoring.tracksDone}$total tracks",
+                restoring.tracksTotal?.let {
+                    stringResource(R.string.timeline_restoring_count_of, restoring.tracksDone, it)
+                } ?: stringResource(R.string.timeline_restoring_count, restoring.tracksDone),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -861,10 +882,11 @@ private fun TrackRow(
         containerColor = MaterialTheme.colorScheme.errorContainer,
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
         icon = Icons.Filled.Delete,
-        iconDescription = "Delete",
+        iconDescription = stringResource(R.string.common_delete),
         onDismiss = onDelete,
     ) {
         val activity = ActivityType.ofName(track.activityType)
+        val activityName = activityLabel(LocalContext.current, track.activityType)
         val reader = timelineZone()
         // Each end on its own clock where they differ — a track is the one recorded row that can
         // cross a border, and flattening it onto the departure's clock hides the crossing. The two
@@ -878,18 +900,20 @@ private fun TrackRow(
             // Activity token: a clear category cue that stays quiet.
             icon = activityIcon(activity),
             tint = travelColor(),
-            iconDescription = ActivityType.labelFor(track.activityType),
+            iconDescription = activityName,
             // What happened leads; when it happened is the metadata line.
-            title = "${ActivityType.labelFor(track.activityType)} · " +
-                LocalUnits.current.distance(track.distanceMeters),
+            title = "$activityName · " + distanceText(track.distanceMeters),
             titleColor = MaterialTheme.colorScheme.onSurface,
-            subtitle = buildAnnotatedString {
-                appendTime(track.startedAt, zone, reader, shiftColor)
-                track.endedAt?.let { endedAt ->
-                    append(" – ")
-                    appendTime(endedAt, endZone ?: zone, reader, shiftColor)
+            // Worded before the builder, which is not a composable scope.
+            subtitle = durationText(track.startedAt, track.endedAt).let { length ->
+                buildAnnotatedString {
+                    appendTime(track.startedAt, zone, reader, shiftColor)
+                    track.endedAt?.let { endedAt ->
+                        append(" – ")
+                        appendTime(endedAt, endZone ?: zone, reader, shiftColor)
+                    }
+                    append(" · $length")
                 }
-                append(" · ${formatDuration(track.startedAt, track.endedAt)}")
             },
         )
     }
@@ -916,10 +940,12 @@ private fun SweepBanner(progress: SweepStatus.Progress, modifier: Modifier = Mod
                 // is the backstop, not the plan. "Updating", not "Trimming" or "Correcting": a
                 // sweep re-derives, and hands back as readily as it takes.
                 Text(
-                    when (progress.kind) {
-                        SweepStatus.Kind.EDGE_STAYS -> "Updating recording overruns"
-                        SweepStatus.Kind.STATS -> "Updating track distances"
-                    },
+                    stringResource(
+                        when (progress.kind) {
+                            SweepStatus.Kind.EDGE_STAYS -> R.string.timeline_sweep_edge_stays
+                            SweepStatus.Kind.STATS -> R.string.timeline_sweep_stats
+                        },
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
@@ -988,7 +1014,7 @@ private fun MergeSwipeable(
         containerColor = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
         icon = Icons.AutoMirrored.Filled.CallMerge,
-        iconDescription = "Merge tracks",
+        iconDescription = stringResource(R.string.timeline_merge),
         onDismiss = { onMerge(plan) },
     ) { card() }
 }
@@ -1033,65 +1059,71 @@ private fun StayCard(
     // multi-day stay read the same — and neither states a clock time, so neither is marked.
     val allDay = startsAtMidnight && (end == null || endsAtMidnight)
     val visits = place?.visitCount?.takeIf { !named && it >= PlaceResolver.NOTABLE_VISIT_MIN }
+    // Worded here: the annotated-string builder below is not a composable scope, and every one of
+    // these brackets a clock time it draws rather than interpolates.
+    val visitsText = visits?.let { visitCountLabel(it) }
+    // A midnight-sliced bound makes the duration both redundant (it restates the clock time) and
+    // misleading (the real stay continues across the slice) — only whole stays show one. A stay whose
+    // bounds span less than StayDeriver.REPORTABLE_DURATION_MS shows none either: the stop was longer
+    // than its bounds say, so "0m" would be worse than silence.
+    val reportableText = stay.reportableDurationMs(System.currentTimeMillis())
+        ?.takeIf { !startsAtMidnight && !endsAtMidnight }
+        ?.let { durationText(it) }
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
+    // Whichever bounds this row states, marked, spliced into a whole sentence — so the wording around
+    // a time is the language's to arrange, not this `when`'s. Each bound is formatted inside the
+    // branch that states it: most branches state one, and a row that names no clock time formats none.
+    val bounds = when {
+        allDay -> AnnotatedString(stringResource(R.string.timeline_all_day))
+        end == null -> annotatedStringResource(
+            R.string.timeline_stay_since,
+            markedTime(stay.start, zone, reader, shiftColor),
+        )
+        startsAtMidnight -> annotatedStringResource(
+            R.string.timeline_stay_until,
+            markedTime(end, zone, reader, shiftColor),
+        )
+        endsAtMidnight -> annotatedStringResource(
+            R.string.timeline_stay_from,
+            markedTime(stay.start, zone, reader, shiftColor),
+        )
+        // A stop the recorder only caught the tail end of lands on one clock minute at both bounds;
+        // "09:11 – 09:11" reads as a rendering fault rather than a moment. Compared as minutes rather
+        // than as rendered text: the same question, without formatting both ends again to ask it.
+        end / 60_000 == stay.start / 60_000 -> markedTime(stay.start, zone, reader, shiftColor)
+        else -> annotatedStringResource(
+            R.string.timeline_stay_between,
+            markedTime(stay.start, zone, reader, shiftColor),
+            markedTime(end, zone, reader, shiftColor),
+        )
+    }
     ListRowCard(
         shape = shape,
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = containerColor),
         icon = category.discIcon,
         tint = tint,
-        iconDescription = category?.label ?: "Stay",
+        iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
         discAlpha = placeDiscAlpha(category),
         badge = if (mergeable) Icons.Filled.Pause else null,
-        badgeDescription = if (mergeable) "Short stop, can be merged away" else null,
+        badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
         // The place leads; when (with midnight slices phrased humanly) is the metadata line. The
         // gazetteer's city stands in where the user has said nothing, dimmed by `named` below so a
         // worked-out name never reads as one they chose. A merge-eligible stop the gazetteer can't
         // reach names the situation instead.
-        title = place?.name ?: if (mergeable) "Short stop" else "Stayed",
+        title = place?.name ?: stringResource(
+            if (mergeable) R.string.timeline_short_stop else R.string.timeline_stayed,
+        ),
         titleColor = placeTitleColor(named),
         subtitle = buildAnnotatedString {
-            // Whichever bounds this row states, it states them marked; the wording around them is
-            // the same as it ever was.
-            when {
-                allDay -> append("All day")
-                end == null -> {
-                    appendTime(stay.start, zone, reader, shiftColor)
-                    append(" – now")
-                }
-                startsAtMidnight -> {
-                    append("Until ")
-                    appendTime(end, zone, reader, shiftColor)
-                }
-                endsAtMidnight -> {
-                    append("From ")
-                    appendTime(stay.start, zone, reader, shiftColor)
-                }
-                else -> {
-                    appendTime(stay.start, zone, reader, shiftColor)
-                    // A stop the recorder only caught the tail end of lands on one clock minute at
-                    // both bounds; "09:11 – 09:11" reads as a rendering fault rather than a moment.
-                    // Compared as minutes rather than as rendered text: the same question, without
-                    // formatting both ends again to ask it.
-                    if (end / 60_000 != stay.start / 60_000) {
-                        append(" – ")
-                        appendTime(end, zone, reader, shiftColor)
-                    }
-                }
-            }
-            // A midnight-sliced bound makes the duration both redundant (it restates
-            // the clock time) and misleading (the real stay continues across the
-            // slice) — only whole stays show one. A stay whose bounds span less than
-            // StayDeriver.REPORTABLE_DURATION_MS shows none either: the stop was
-            // longer than its bounds say, so "0m" would be worse than silence.
-            val reportable = stay.reportableDurationMs(System.currentTimeMillis())
-            if (!startsAtMidnight && !endsAtMidnight && reportable != null) {
+            append(bounds)
+            if (reportableText != null) {
                 append(" · ")
-                append(formatDurationMs(reportable))
+                append(reportableText)
             }
-            if (visits != null) {
-                append(" · " + visitCountLabel(visits))
+            if (visitsText != null) {
+                append(" · $visitsText")
             }
         },
     )
@@ -1159,9 +1191,9 @@ private fun GapCard(
     // Both ends on one row only where a hop landed on the day it left; each then needs its own
     // clock, since the line between them can carry only one.
     val shiftColor = zoneShiftColor
-    val arrivalAt = if (item.spansClocks) gapEndTime(gap.end, zone, reader, shiftColor) else null
+    val arrivalAt = if (item.spansClocks) markedTime(gap.end, zone, reader, shiftColor) else null
     val departureAt = item.departureZone?.takeIf { item.spansClocks }
-        ?.let { gapEndTime(gap.start, it, reader, shiftColor) }
+        ?.let { markedTime(gap.start, it, reader, shiftColor) }
     // The trip this absence is missing, as far as this row can state it — the same two questions
     // again, so an end the card doesn't name is an end the form isn't handed. A bound the slicer
     // clamped to midnight is not a departure, and the place on the far side of a three-day absence
@@ -1181,6 +1213,24 @@ private fun GapCard(
         }
     }
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
+        // One whole sentence per case, worded here because the Text below is not a composable scope.
+        // A duration says the same thing on any clock, so the two-end case states one and is marked
+        // nowhere; a half that states a real bound marks it, as every clock time on the timeline does.
+        val gapLine = when {
+            holdsDeparture && holdsArrival -> annotatedStringResource(
+                R.string.timeline_gap_lasting,
+                durationText(gap.end - gap.start),
+            )
+            holdsDeparture -> annotatedStringResource(
+                R.string.timeline_gap_from,
+                markedTime(gap.start, zone, reader, shiftColor),
+            )
+            holdsArrival -> annotatedStringResource(
+                R.string.timeline_gap_until,
+                markedTime(gap.end, zone, reader, shiftColor),
+            )
+            else -> AnnotatedString(stringResource(R.string.timeline_gap_all_day))
+        }
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
             GapPlaceLine(arrival, arrivalAt, onOpenPlace)
             Row(
@@ -1212,25 +1262,7 @@ private fun GapCard(
                 Spacer(Modifier.width(16.dp))
                 Text(
                     modifier = Modifier.weight(1f),
-                    text = buildAnnotatedString {
-                        append("missing recording · ")
-                        // A duration says the same thing on any clock, so the two-end case states
-                        // one and is marked nowhere; a half that states a real bound marks it, as
-                        // every clock time on the timeline does.
-                        when {
-                            holdsDeparture && holdsArrival ->
-                                append(formatDurationMs(gap.end - gap.start))
-                            holdsDeparture -> {
-                                append("from ")
-                                appendTime(gap.start, zone, reader, shiftColor)
-                            }
-                            holdsArrival -> {
-                                append("until ")
-                                appendTime(gap.end, zone, reader, shiftColor)
-                            }
-                            else -> append("all day")
-                        }
-                    },
+                    text = gapLine,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
@@ -1240,7 +1272,7 @@ private fun GapCard(
                     IconButton(onClick = { onAddTrip(draft) }) {
                         Icon(
                             imageVector = Icons.Filled.Add,
-                            contentDescription = "Add missing trip",
+                            contentDescription = stringResource(R.string.action_add_missing_trip),
                             tint = MaterialTheme.colorScheme.primary,
                         )
                     }
@@ -1266,10 +1298,6 @@ private fun draftEndOf(
     at: StayDeriver.Endpoint?,
     atMs: Long,
 ) = TripDraftEnd(at = at ?: place?.pin, placeName = place?.label, timeMs = atMs)
-
-/** When one end of a crossing happened, on that end's own clock, its offset raised against it. */
-private fun gapEndTime(epochMs: Long, zone: ZoneId, reader: ZoneId, shiftColor: Color) =
-    buildAnnotatedString { appendTime(epochMs, zone, reader, shiftColor) }
 
 /**
  * One side of a gap: a full-width tappable line (pin glyph + place name, ripple across the row
@@ -1305,7 +1333,7 @@ private fun GapPlaceLine(
         }
         Spacer(Modifier.width(16.dp))
         Text(
-            text = place.name ?: "unnamed place",
+            text = place.name ?: stringResource(R.string.timeline_unnamed_place),
             style = MaterialTheme.typography.titleMedium,
             color = placeTitleColor(named = place.label != null),
             maxLines = 1,

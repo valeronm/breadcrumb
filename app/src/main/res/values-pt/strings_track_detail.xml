@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="track_title">Trajeto</string>
+    <string name="track_edit_trip">Editar a viagem</string>
+    <string name="track_change_type">Mudar o tipo de trajeto</string>
+    <string name="track_share_gpx">Partilhar GPX</string>
+    <string name="track_too_few_points">Pontos insuficientes para desenhar este trajeto num mapa.</string>
+    <string name="track_caption_imported">Importado</string>
+    <string name="track_filter_noisy">Pontos ruidosos</string>
+    <string name="track_type_dialog_title">Tipo de trajeto</string>
+    <string name="track_type_current">Tipo atual</string>
+
+    <string name="track_stat_avg_speed">Vel. média</string>
+
+    <!-- Quoted, like the base file: the space before the drawn clock time is load-bearing. -->
+    <string name="track_split_at">Dividir às %1$s?</string>
+    <plurals name="track_points">
+        <item quantity="one">%d ponto</item>
+        <item quantity="other">%d pontos</item>
+    </plurals>
+    <string name="track_split_explainer">Os dois trajetos mantêm todos os pontos, e a paragem entre eles passa a aparecer na cronologia. Anular repõe o trajeto.</string>
+    <string name="track_split_confirm">Dividir</string>
+    <string name="track_split_here">Dividir aqui</string>
+    <string name="track_split_too_close">Demasiado perto do fim</string>
+
+    <string name="color_mode_speed">Velocidade</string>
+    <string name="color_mode_elevation">Altitude</string>
+    <string name="color_mode_accuracy">Precisão</string>
+    <string name="color_mode_satellites">Satélites</string>
+    <string name="color_mode_signal">Sinal</string>
+    <string name="color_no_speed_data">Sem dados de velocidade</string>
+    <string name="color_no_elevation_data">Sem dados de altitude</string>
+    <string name="color_no_accuracy_data">Sem dados de precisão</string>
+    <string name="color_no_satellite_data">Sem dados de satélites</string>
+    <string name="color_no_signal_data">Sem dados de sinal</string>
+
+    <string name="ignore_reason_jump">Salto de velocidade</string>
+    <string name="ignore_reason_no_gnss">Sem sinal de satélite</string>
+    <string name="ignore_reason_accuracy">Precisão baixa</string>
+</resources>

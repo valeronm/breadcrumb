@@ -3,7 +3,26 @@ package io.github.valeronm.breadcrumb.util
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+/**
+ * Conversion, rounding and the slider ladders. The symbols beside the numbers come from resources
+ * and belong to a translator; [AsciiUnits] supplies the English ones here so the expectations read
+ * as the app does, and what is actually pinned is the arithmetic either side of them.
+ */
 class UnitsTest {
+
+    private val UnitSystem.ascii get() = Measures(this, AsciiUnits)
+
+    private fun UnitSystem.distanceIn(meters: Double) = ascii.distance(meters)
+
+    private fun UnitSystem.speedIn(kmh: Double) = ascii.speedFromKmh(kmh)
+
+    private fun UnitSystem.shortIn(meters: Double) = ascii.shortDistance(meters)
+
+    private fun UnitSystem.sliderScale(
+        metric: SliderStops,
+        feet: SliderStops,
+        offLabel: String? = null,
+    ) = ascii.sliderScale(metric, feet, offLabel)
 
     // --- Choice resolution ---------------------------------------------------
 
@@ -27,19 +46,19 @@ class UnitsTest {
 
     @Test
     fun `the UK system mixes miles with meters`() {
-        assertEquals("1 mi", UnitSystem.UK.distance(1_609.344))
-        assertEquals("60 mph", UnitSystem.UK.speedFromKmh(96.56))
-        assertEquals("35 m", UnitSystem.UK.shortDistance(35.0))
-        assertEquals("mph", UnitSystem.UK.speedUnit)
-        assertEquals("m", UnitSystem.UK.shortUnit)
-        assertEquals(50f, UnitSystem.UK.fromMeters(50f), 0f)
+        assertEquals("1 mi", UnitSystem.UK.distanceIn(1_609.344))
+        assertEquals("60 mph", UnitSystem.UK.speedIn(96.56))
+        assertEquals("35 m", UnitSystem.UK.shortIn(35.0))
+        assertEquals("mph", UnitSystem.UK.speedUnitId.let(AsciiUnits::of))
+        assertEquals("m", UnitSystem.UK.shortUnitId.let(AsciiUnits::of))
+        assertEquals(50.0, UnitSystem.UK.shortFrom(50.0), 0.0)
         // The display-table selectors derive from the units above: UK is mph but meters.
         assertEquals("mph table", UnitSystem.UK.bySpeedUnit(kmh = "kmh table", mph = "mph table"))
         assertEquals("m table", UnitSystem.UK.byShortUnit(meters = "m table", feet = "ft table"))
         assertEquals("ft table", UnitSystem.IMPERIAL.byShortUnit(meters = "m table", feet = "ft table"))
         assertEquals("kmh table", UnitSystem.METRIC.bySpeedUnit(kmh = "kmh table", mph = "mph table"))
         // Its sliders are the metric ones: short-range settings stay in meters.
-        val scale = UnitSystem.UK.sliderScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), zeroIsOff = true)
+        val scale = UnitSystem.UK.sliderScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), offLabel = "Off")
         assertEquals(500f, scale.range.endInclusive, 0f)
         assertEquals("50 m", scale.label(50f))
     }
@@ -55,43 +74,43 @@ class UnitsTest {
 
     @Test
     fun `metric distance keeps one decimal under 100 km and drops a zero tenth`() {
-        assertEquals("0.3 km", UnitSystem.METRIC.distance(300.0).dotSeparated())
-        assertEquals("4 km", UnitSystem.METRIC.distance(4_000.0))
-        assertEquals("12.5 km", UnitSystem.METRIC.distance(12_500.0).dotSeparated())
-        assertEquals("103 km", UnitSystem.METRIC.distance(103_400.0))
+        assertEquals("0.3 km", UnitSystem.METRIC.distanceIn(300.0).dotSeparated())
+        assertEquals("4 km", UnitSystem.METRIC.distanceIn(4_000.0))
+        assertEquals("12.5 km", UnitSystem.METRIC.distanceIn(12_500.0).dotSeparated())
+        assertEquals("103 km", UnitSystem.METRIC.distanceIn(103_400.0))
     }
 
     @Test
     fun `imperial distance is in miles with the same precision rules`() {
         // 1609.344 m = exactly 1 mile
-        assertEquals("1 mi", UnitSystem.IMPERIAL.distance(1_609.344))
-        assertEquals("0.5 mi", UnitSystem.IMPERIAL.distance(804.672).dotSeparated())
-        assertEquals("2.5 mi", UnitSystem.IMPERIAL.distance(4_023.36).dotSeparated())
-        assertEquals("124 mi", UnitSystem.IMPERIAL.distance(200_000.0))
+        assertEquals("1 mi", UnitSystem.IMPERIAL.distanceIn(1_609.344))
+        assertEquals("0.5 mi", UnitSystem.IMPERIAL.distanceIn(804.672).dotSeparated())
+        assertEquals("2.5 mi", UnitSystem.IMPERIAL.distanceIn(4_023.36).dotSeparated())
+        assertEquals("124 mi", UnitSystem.IMPERIAL.distanceIn(200_000.0))
     }
 
     // --- Speed ---------------------------------------------------------------
 
     @Test
     fun `speed is a whole number in the system's unit`() {
-        assertEquals("42 km/h", UnitSystem.METRIC.speedFromKmh(42.4))
-        assertEquals("60 mph", UnitSystem.IMPERIAL.speedFromKmh(96.56))
+        assertEquals("42 km/h", UnitSystem.METRIC.speedIn(42.4))
+        assertEquals("60 mph", UnitSystem.IMPERIAL.speedIn(96.56))
     }
 
     // --- Short distance ------------------------------------------------------
 
     @Test
     fun `short distance is whole meters or feet`() {
-        assertEquals("35 m", UnitSystem.METRIC.shortDistance(35.0))
-        assertEquals("164 ft", UnitSystem.IMPERIAL.shortDistance(50.0))
-        assertEquals("3 ft", UnitSystem.IMPERIAL.shortDistance(1.0))
+        assertEquals("35 m", UnitSystem.METRIC.shortIn(35.0))
+        assertEquals("164 ft", UnitSystem.IMPERIAL.shortIn(50.0))
+        assertEquals("3 ft", UnitSystem.IMPERIAL.shortIn(1.0))
     }
 
     // --- Slider scales -------------------------------------------------------
 
     @Test
     fun `metric slider scale is the identity over its own stops`() {
-        val scale = UnitSystem.METRIC.sliderScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), zeroIsOff = true)
+        val scale = UnitSystem.METRIC.sliderScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), offLabel = "Off")
         assertEquals(0f, scale.range.start, 0f)
         assertEquals(500f, scale.range.endInclusive, 0f)
         assertEquals(50f, scale.displayOf(50), 0f)
@@ -102,7 +121,7 @@ class UnitsTest {
 
     @Test
     fun `imperial slider scale has round-feet stops storing converted meters`() {
-        val scale = UnitSystem.IMPERIAL.sliderScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), zeroIsOff = true)
+        val scale = UnitSystem.IMPERIAL.sliderScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), offLabel = "Off")
         assertEquals(1650f, scale.range.endInclusive, 0f)
         // The metric default (50 m) lands on the nearest round-feet stop.
         assertEquals(150f, scale.displayOf(50), 0f)
@@ -139,14 +158,14 @@ class UnitsTest {
 
     @Test
     fun `numeric conversions feed graph values and ramp anchors alike`() {
-        assertEquals(30f, UnitSystem.METRIC.fromKmh(30f), 0f)
-        assertEquals(18.64f, UnitSystem.IMPERIAL.fromKmh(30f), 0.01f)
-        assertEquals(50f, UnitSystem.METRIC.fromMeters(50f), 0f)
-        assertEquals(164.04f, UnitSystem.IMPERIAL.fromMeters(50f), 0.01f)
-        assertEquals("km/h", UnitSystem.METRIC.speedUnit)
-        assertEquals("mph", UnitSystem.IMPERIAL.speedUnit)
-        assertEquals("m", UnitSystem.METRIC.shortUnit)
-        assertEquals("ft", UnitSystem.IMPERIAL.shortUnit)
+        assertEquals(30.0, UnitSystem.METRIC.speedFrom(30.0), 0.0)
+        assertEquals(18.64, UnitSystem.IMPERIAL.speedFrom(30.0), 0.01)
+        assertEquals(50.0, UnitSystem.METRIC.shortFrom(50.0), 0.0)
+        assertEquals(164.04, UnitSystem.IMPERIAL.shortFrom(50.0), 0.01)
+        assertEquals("km/h", UnitSystem.METRIC.speedUnitId.let(AsciiUnits::of))
+        assertEquals("mph", UnitSystem.IMPERIAL.speedUnitId.let(AsciiUnits::of))
+        assertEquals("m", UnitSystem.METRIC.shortUnitId.let(AsciiUnits::of))
+        assertEquals("ft", UnitSystem.IMPERIAL.shortUnitId.let(AsciiUnits::of))
     }
 
     /** The decimal separator is locale-dependent; tests assert the dot form. */

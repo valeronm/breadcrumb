@@ -12,6 +12,17 @@ import io.github.valeronm.breadcrumb.data.db.Place
  * between near-equal stays the winner turns on an hour, and the other cities disappear from a
  * timeline that is supposed to be a record of where someone was.
  */
+/**
+ * What a journey is headed with: the places it was spent in, or — where nothing cleared the naming
+ * floor — a count of nights for the host to word. [Destinations] carries proper nouns, which are the
+ * same in every language; [NightsAway] carries a number, which is not.
+ */
+sealed interface TravelLabel {
+    data class Destinations(val title: String) : TravelLabel
+
+    data class NightsAway(val nights: Int) : TravelLabel
+}
+
 object TravelNaming {
 
     /** A journey with what to call it, and what it counted towards. */
@@ -201,9 +212,10 @@ object TravelNaming {
      * What to call a journey: [ranked]'s answer as one line, falling back to the plain fact of being
      * away. **The fallback is here, not on the screens** — what a journey with nothing to name it by
      * is called is a naming decision, and two screens deciding it apart is two names for one journey.
+     * Which of the two it is, is the decision; the fallback's wording is the host's.
      */
-    fun label(names: List<String>, nightCount: Int): String =
-        title(names) ?: if (nightCount == 1) "1 night away" else "$nightCount nights away"
+    fun label(names: List<String>, nightCount: Int): TravelLabel =
+        title(names)?.let(TravelLabel::Destinations) ?: TravelLabel.NightsAway(nightCount)
 
     /** [ranked]'s answer as one line, or null when nothing named the journey. */
     fun title(names: List<String>): String? = when {

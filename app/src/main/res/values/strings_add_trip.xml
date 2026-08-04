@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AddTripScreen: entering a trip nothing recorded, as two pins and two times. -->
+<resources>
+    <string name="addtrip_title_add">Add missing trip</string>
+    <string name="addtrip_title_edit">Edit trip</string>
+    <string name="addtrip_next">Next</string>
+    <string name="addtrip_ok">OK</string>
+
+    <!-- Why the form will not commit -->
+    <string name="addtrip_error_order">Arrival must be after departure</string>
+    <string name="addtrip_error_future">Departure is in the future</string>
+    <string name="addtrip_overlaps">Overlaps an existing track</string>
+    <string name="addtrip_gone">This trip is no longer there</string>
+
+    <!-- Picking a place -->
+    <string name="addtrip_search_placeholder">Search cities and places</string>
+    <!-- One whole sentence per end rather than a stem plus a noun: only English composes that way. -->
+    <string name="addtrip_tap_origin">Tap a place or long-press to set the origin</string>
+    <string name="addtrip_tap_destination">Tap a place or long-press to set the destination</string>
+    <!-- ODbL's credit, at the results it applies to. -->
+    <string name="addtrip_osm_credit">Online results © OpenStreetMap</string>
+    <string name="addtrip_no_matches">No matches</string>
+
+    <!-- The two ends. Each phrase is whole: the same word is a card title, a prefix and a
+         dialog heading, and only English lets one string play all three. -->
+    <string name="addtrip_origin">Origin</string>
+    <string name="addtrip_destination">Destination</string>
+    <!--
+      A date and a clock time, the second drawn with its own zone-shift marks and spliced in by
+      `annotatedStringResource` — so a language is free to order the two however it says this.
+    -->
+    <string name="addtrip_departure_at">Departure %1$s, %2$s</string>
+    <string name="addtrip_arrival_at">Arrival %1$s, %2$s</string>
+    <string name="addtrip_set_departure">Set departure time</string>
+    <string name="addtrip_set_arrival">Set arrival time</string>
+    <string name="addtrip_departure_time_title">Departure time</string>
+    <string name="addtrip_arrival_time_title">Arrival time</string>
+
+    <string name="addtrip_pin_placed">Pin placed</string>
+    <string name="addtrip_no_pin">No pin yet</string>
+    <!-- The offset is rendered as "+2h" style text, the way the timeline says it. -->
+    <string name="addtrip_local_clock">Times on the local clock, %1$s from yours</string>
+</resources>

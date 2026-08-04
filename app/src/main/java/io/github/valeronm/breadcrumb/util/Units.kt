@@ -8,13 +8,14 @@ private const val FT_PER_M = 1.0 / M_PER_FT
 
 /**
  * The persisted display-units choice. Storage and domain logic stay metric throughout — this only
- * decides how numbers are rendered.
+ * decides how numbers are rendered. The entry name is what persists; what each one reads as is
+ * `UnitChoice.labelRes` in the UI layer, where language belongs.
  */
-enum class UnitChoice(val label: String) {
-    SYSTEM("Automatic"),
-    METRIC("Kilometers"),
-    IMPERIAL("Miles"),
-    UK("Miles + meters"),
+enum class UnitChoice {
+    SYSTEM,
+    METRIC,
+    IMPERIAL,
+    UK,
     ;
 
     /** The system to format with; SYSTEM resolves by [country] (ISO 3166, `Locale.country`). */
@@ -37,33 +38,65 @@ enum class UnitChoice(val label: String) {
     }
 }
 
-/** Every user-visible distance/speed rendering; all inputs are the metric values as stored. */
-enum class UnitSystem(
-    private val metersPerBig: Double,
-    private val bigUnit: String,
-    private val shortPerMeter: Double,
-    val shortUnit: String,
-    private val kmhPerSpeedUnit: Double,
-    val speedUnit: String,
-) {
-    METRIC(1000.0, "km", 1.0, "m", 1.0, "km/h"),
-    IMPERIAL(1000.0 * KM_PER_MI, "mi", FT_PER_M, "ft", KM_PER_MI, "mph"),
+/**
+ * Which unit a system measures in — an identity, with no text attached. The display tables are
+ * keyed by these, so a translated symbol can't pick the wrong ladder the way `shortUnit == "m"`
+ * would the moment a locale renders that as `"м"`; and METRIC and UK name the same short unit once.
+ */
+enum class BigUnit { KILOMETERS, MILES }
 
-    // The British mix: miles and mph on the road, meters for everything short-range.
-    UK(1000.0 * KM_PER_MI, "mi", 1.0, "m", KM_PER_MI, "mph"),
-    ;
+/** See [BigUnit] — the unit short distances are measured in. */
+enum class ShortUnit { METERS, FEET }
+
+/** See [BigUnit] — the unit speeds are measured in. */
+enum class SpeedUnit { KMH, MPH }
+
+/**
+ * How the host spells each unit — the seam that keeps this file free of language, so a locale
+ * writing `"км"` needs no change here. Deliberately not a formatter: the rounding rules below are
+ * this app's own (a dropped zero tenth, grouped whole units past 100, a padded minute in the
+ * duration ladder), and a measure formatter would re-decide all of them.
+ */
+interface UnitSymbols {
+    fun of(unit: BigUnit): String
+
+    fun of(unit: ShortUnit): String
+
+    fun of(unit: SpeedUnit): String
+}
+
+/**
+ * A display system and the words for it. The two are chosen from different halves of the same
+ * locale — the country picks the system, the language picks the symbols — and everything that
+ * renders a measure needs both, so **rendering lives here rather than on either half**. That is what
+ * makes the pairing an invariant instead of a claim: there is no signature left that takes a system
+ * and a set of symbols separately, so there is nowhere to pass a mismatched pair.
+ *
+ * [UnitSystem] keeps the arithmetic and the unit identities, which are the half a graph series and a
+ * ramp anchor need without any words at all.
+ */
+class Measures(val system: UnitSystem, val symbols: UnitSymbols) {
 
     /**
      * A track-length distance in the big unit (km or mi). One decimal below 100 (dropped when it's
      * zero: "4 km", not "4,0 km"); beyond that the tenth is noise, so whole (locale-grouped) units.
      */
-    fun distance(meters: Double): String = bigFormat(meters / metersPerBig, bigUnit)
+    fun distance(meters: Double): String {
+        val value = system.bigFrom(meters)
+        val unit = symbols.of(system.bigUnitId)
+        if (value >= 100) return "%,.0f $unit".format(value)
+        // The decimal separator is locale-dependent — strip either form of a zero tenth.
+        val s = "%.1f".format(value).removeSuffix(",0").removeSuffix(".0")
+        return "$s $unit"
+    }
 
     /** A whole-number speed (km/h or mph), from the km/h value. */
-    fun speedFromKmh(kmh: Double): String = "%.0f $speedUnit".format(kmh / kmhPerSpeedUnit)
+    fun speedFromKmh(kmh: Double): String =
+        "%.0f ${symbols.of(system.speedUnitId)}".format(system.speedFrom(kmh))
 
     /** A whole-number short distance (m or ft) — elevations, accuracy radii, place radii. */
-    fun shortDistance(meters: Double): String = "%,.0f $shortUnit".format(meters * shortPerMeter)
+    fun shortDistance(meters: Double): String =
+        "%,.0f ${symbols.of(system.shortUnitId)}".format(system.shortFrom(meters))
 
     /**
      * The scale for a distance slider that stores meters: metric users get the [metric] stops,
@@ -73,32 +106,62 @@ enum class UnitSystem(
     fun sliderScale(
         metric: SliderStops,
         feet: SliderStops,
-        zeroIsOff: Boolean = false,
-    ): DistanceSliderScale =
-        DistanceSliderScale(byShortUnit(metric, feet), byShortUnit(1.0, M_PER_FT), shortUnit, zeroIsOff)
+        /** What a zero stop reads as where zero means off; null when zero is a real value. */
+        offLabel: String? = null,
+    ): DistanceSliderScale = DistanceSliderScale(
+        system.byShortUnit(metric, feet),
+        system.byShortUnit(1.0, M_PER_FT),
+        symbols.of(system.shortUnitId),
+        offLabel,
+    )
+}
+
+/** Plain ASCII, for tests and for any surface with no resources to reach. */
+object AsciiUnits : UnitSymbols {
+    override fun of(unit: BigUnit) = if (unit == BigUnit.KILOMETERS) "km" else "mi"
+
+    override fun of(unit: ShortUnit) = if (unit == ShortUnit.METERS) "m" else "ft"
+
+    override fun of(unit: SpeedUnit) = if (unit == SpeedUnit.KMH) "km/h" else "mph"
+}
+
+/**
+ * The arithmetic and the unit identities of one display system; all inputs are the metric values as
+ * stored. No words and no formatting — those need the symbols too, so they live on [Measures].
+ */
+enum class UnitSystem(
+    private val metersPerBig: Double,
+    val bigUnitId: BigUnit,
+    private val shortPerMeter: Double,
+    val shortUnitId: ShortUnit,
+    private val kmhPerSpeedUnit: Double,
+    val speedUnitId: SpeedUnit,
+) {
+    METRIC(1000.0, BigUnit.KILOMETERS, 1.0, ShortUnit.METERS, 1.0, SpeedUnit.KMH),
+    IMPERIAL(1000.0 * KM_PER_MI, BigUnit.MILES, FT_PER_M, ShortUnit.FEET, KM_PER_MI, SpeedUnit.MPH),
+
+    // The British mix: miles and mph on the road, meters for everything short-range.
+    UK(1000.0 * KM_PER_MI, BigUnit.MILES, 1.0, ShortUnit.METERS, KM_PER_MI, SpeedUnit.MPH),
+    ;
+
+    /** A meters value as this system's track-length number. */
+    fun bigFrom(meters: Double): Double = meters / metersPerBig
+
+    /** A km/h value as this system's speed number. */
+    fun speedFrom(kmh: Double): Double = kmh / kmhPerSpeedUnit
+
+    /** A meters value as this system's short-distance number. */
+    fun shortFrom(meters: Double): Double = meters * shortPerMeter
 
     /**
      * Picks the hand-rounded display table for this system's short-distance unit. Round ladders
      * and anchors are authored once per unit, and every selection derives from the unit the
      * system already declares — so a new system needs no call-site edits.
      */
-    fun <T> byShortUnit(meters: T, feet: T): T = if (shortUnit == "m") meters else feet
+    fun <T> byShortUnit(meters: T, feet: T): T = if (shortUnitId == ShortUnit.METERS) meters else feet
 
     /** Picks the hand-rounded display table for this system's speed unit; see [byShortUnit]. */
-    fun <T> bySpeedUnit(kmh: T, mph: T): T = if (speedUnit == "km/h") kmh else mph
-
-    /** A km/h value as this system's speed number — for graph series and ramp anchors. */
-    fun fromKmh(kmh: Float): Float = (kmh / kmhPerSpeedUnit).toFloat()
-
-    /** A meters value as this system's short-distance number — for graph series and ramp anchors. */
-    fun fromMeters(m: Float): Float = (m * shortPerMeter).toFloat()
-
-    private fun bigFormat(value: Double, unit: String): String {
-        if (value >= 100) return "%,.0f $unit".format(value)
-        // The decimal separator is locale-dependent — strip either form of a zero tenth.
-        val s = "%.1f".format(value).removeSuffix(",0").removeSuffix(".0")
-        return "$s $unit"
-    }
+    fun <T> bySpeedUnit(kmh: T, mph: T): T = if (speedUnitId == SpeedUnit.KMH) kmh else mph
 }
 
 /** One unit system's stops for a distance slider: [min]..[max] in that system's unit, by [step]. */
@@ -114,7 +177,7 @@ class DistanceSliderScale internal constructor(
     private val stops: SliderStops,
     private val metersPerUnit: Double,
     private val unit: String,
-    private val zeroIsOff: Boolean,
+    private val offLabel: String?,
 ) {
     val range: ClosedFloatingPointRange<Float> = stops.min.toFloat()..stops.max.toFloat()
 
@@ -127,7 +190,7 @@ class DistanceSliderScale internal constructor(
     /** The meters to store for a display-unit stop. */
     fun metersOf(display: Float): Int = (display * metersPerUnit).roundToInt()
 
-    /** The stop's label: "Off" where zero means off, else a grouped whole number + unit. */
+    /** The stop's label: the off wording where zero means off, else a grouped whole number + unit. */
     fun label(display: Float): String =
-        if (zeroIsOff && display <= 0f) "Off" else "%,d $unit".format(display.roundToInt())
+        if (offLabel != null && display <= 0f) offLabel else "%,d $unit".format(display.roundToInt())
 }

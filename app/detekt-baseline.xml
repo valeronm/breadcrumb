@@ -2,13 +2,12 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>LargeClass:LocationRecordingService.kt$LocationRecordingService : Service</ID>
     <ID>LongParameterList:KeepRule.kt$KeepRule$( pointCount: Int, ignoredCount: Int, durationSec: Long, distanceMeters: Double, thresholds: Thresholds, extent: () -&gt; Double, )</ID>
     <ID>LongParameterList:RecordCard.kt$( armed: Boolean, tracking: Boolean, recording: Boolean, paused: Boolean, gpsSuspended: Boolean, points: Int, hasOpenTrack: Boolean, )</ID>
     <ID>LongParameterList:StaleReadingOracle.kt$StaleReadingOracle$( eventTimeMs: Long?, readingMs: Long, lastReadingMs: Long, armedAtMs: Long, nowMs: Long, staleMs: Long, minAdvanceMs: Long, )</ID>
     <ID>LongParameterList:StayDeriver.kt$StayDeriver$( last: TrackEnd?, evidence: LivenessSummary, nowMs: Long, activeTrack: ActiveTrack?, clusterOf: Map&lt;Endpoint, Int&gt;, samePlace: (Endpoint, Endpoint) -&gt; Boolean, )</ID>
     <ID>LongParameterList:StayDeriver.kt$StayDeriver$( tracks: List&lt;TrackEnd&gt;, liveness: List&lt;Liveness&gt;, nowMs: Long, activeTrack: ActiveTrack?, params: Params = Params(), distance: DistanceFn, /** Named-place pins with their per-place capture radii: seed the endpoint clustering * (in pin order — [PlaceResolver] maps [PlaceClusterer.Cluster.seedIndex] back to the * same places list) and drive the same-nearest-pin agreement override. */ placePins: List&lt;PlaceClusterer.Seed&gt; = emptyList(), )</ID>
-    <ID>LongParameterList:TrackColoring.kt$( points: List&lt;TrackPoint&gt;, speedsKmh: FloatArray, mode: ColorMode, activity: ActivityType?, dark: Boolean, units: UnitSystem, )</ID>
-    <ID>LongParameterList:TrackColoring.kt$( values: List&lt;Float?&gt;, redAt: Float, blueAt: Float, unit: String, emptyMsg: String, dark: Boolean, )</ID>
+    <ID>LongParameterList:TrackColoring.kt$( points: List&lt;TrackPoint&gt;, speedsKmh: FloatArray, mode: ColorMode, activity: ActivityType?, dark: Boolean, measures: Measures, )</ID>
+    <ID>LongParameterList:TrackColoring.kt$( values: List&lt;Float?&gt;, redAt: Float, blueAt: Float, unit: String, mode: ColorMode, dark: Boolean, )</ID>
   </CurrentIssues>
 </SmellBaseline>

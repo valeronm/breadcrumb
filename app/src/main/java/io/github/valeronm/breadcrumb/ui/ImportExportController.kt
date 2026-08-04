@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.BackupImporter
@@ -177,7 +178,8 @@ internal class ImportExportController(
                 }
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            onReady(Intent.createChooser(intent, if (single) "Share GPX track" else "Share GPX tracks"))
+            val title = app.getString(if (single) R.string.share_gpx_track else R.string.share_gpx_tracks)
+            onReady(Intent.createChooser(intent, title))
         }
     }
 }

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PlacesScreens: the Places tab, place detail, and the category vocabulary. -->
+<resources>
+    <!--
+      Place categories. The codes behind these are permanent and stored; these names are display
+      text, free to reword and to translate. Declared in picker order, grouped by category group.
+      Kept in step with `ui/CategoryLabels.kt`, which maps each enum entry to its name here.
+    -->
+    <string name="place_group_home_people">Home &amp; people</string>
+    <string name="place_group_errands">Errands</string>
+    <string name="place_group_routine">Routine</string>
+    <string name="place_group_away">Away</string>
+    <string name="place_group_transient">Passing through</string>
+
+    <string name="place_category_friends_family">Friends &amp; family</string>
+    <string name="place_category_home">Home</string>
+    <string name="place_category_groceries">Groceries</string>
+    <string name="place_category_food">Food &amp; drink</string>
+    <string name="place_category_shopping">Shopping</string>
+    <string name="place_category_services">Services</string>
+    <string name="place_category_health">Health</string>
+    <string name="place_category_kids_school">Kids &amp; school</string>
+    <string name="place_category_sports">Sports &amp; fitness</string>
+    <string name="place_category_work">Work</string>
+    <string name="place_category_outdoors">Outdoors</string>
+    <string name="place_category_sightseeing">Sightseeing</string>
+    <string name="place_category_travel">Travel</string>
+    <string name="place_category_entertainment">Entertainment</string>
+    <string name="place_category_parking">Parking</string>
+    <string name="place_category_transit">Transit</string>
+    <string name="place_category_gas_station">Gas station</string>
+    <string name="place_category_service_area">Service area</string>
+
+    <!-- Stands in for a category on a place that has none. -->
+    <string name="place_category_unset">Not set</string>
+    <string name="place_category_set">Set a category</string>
+    <string name="place_category_more">More</string>
+    <!-- Read aloud for a stay at a place carrying no category. -->
+    <string name="place_stay">Stay</string>
+
+    <!-- Header: view switch, sort chips, the map's filter -->
+    <string name="places_view_map">Map</string>
+    <string name="places_view_list">List</string>
+    <string name="places_sort_recent">Recent</string>
+    <string name="places_sort_most_visits">Most visits</string>
+    <string name="places_sort_time_spent">Time spent</string>
+    <!-- The map's filter chip. The empty state below names it, so both read from here. -->
+    <string name="places_rare_stops">Rare stops</string>
+
+    <!-- Empty states -->
+    <string name="places_empty">No places yet. They appear here once recording finds somewhere you stopped.</string>
+    <string name="places_all_rare">Every place here is a rare stop. Turn on %1$s to see them.</string>
+    <string name="places_no_match">No place matches \"%1$s\".</string>
+    <string name="places_no_visits_detail">No visits yet. They appear here when a track starts or ends inside this place.</string>
+
+    <!-- Search field and row actions -->
+    <string name="places_search_placeholder">Search places</string>
+    <string name="places_clear_search">Clear search</string>
+    <string name="places_open_in_maps">Open in maps app</string>
+    <string name="places_edit">Edit place</string>
+    <string name="places_create">Create place</string>
+
+    <!-- Place editor -->
+    <string name="places_name_field">Place name</string>
+    <string name="places_capture_radius">Capture radius</string>
+    <!-- How many track ends the capture circle currently holds, over the editor's map. -->
+    <plurals name="places_captured_endpoints">
+        <item quantity="one">%d endpoint</item>
+        <item quantity="other">%d endpoints</item>
+    </plurals>
+    <string name="places_recenter_pin">Re-center pin</string>
+    <string name="places_pin_recentered">Pin re-centered</string>
+    <string name="places_pin_moved">Pin moved</string>
+    <string name="places_remove">Remove place</string>
+    <string name="places_category_question">What is it for?</string>
+    <string name="places_category_current">Current category</string>
+
+    <!-- Detail stats -->
+    <string name="places_stat_visits">Visits</string>
+    <string name="places_stat_time_there">Time there</string>
+    <string name="places_stat_last_visit">Last visit</string>
+    <string name="places_first_visit">First visit %1$s</string>
+    <!-- A visit still open: the start time with no end to pair it with. -->
+    <string name="places_visit_since">since %1$s</string>
+    <!-- The place's clock against the reader's, where the two differ. -->
+    <string name="places_shift_now">%1$s now</string>
+    <!-- The undo snackbar after a place is removed; %1$s is the name the user gave it. -->
+    <string name="places_deleted">\"%1$s\" deleted</string>
+
+    <!-- List rows -->
+    <string name="place_detected_stop">Detected stop</string>
+    <string name="place_no_visits">No visits yet</string>
+    <string name="place_last_visit">last visit %1$s</string>
+    <plurals name="place_visits">
+        <item quantity="one">%d visit</item>
+        <item quantity="other">%d visits</item>
+    </plurals>
+</resources>

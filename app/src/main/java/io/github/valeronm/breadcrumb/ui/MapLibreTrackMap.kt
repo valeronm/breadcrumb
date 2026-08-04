@@ -82,7 +82,6 @@ internal fun MapLibreTrackMap(
     greatCircleLegs: Boolean = false,
 ) {
     val darkTheme = isSystemInDarkTheme()
-    val units = LocalUnits.current
     // For the pin images an update may have to register — the style-loaded callback is handed a
     // context, an update is not.
     val context = LocalContext.current
@@ -91,9 +90,11 @@ internal fun MapLibreTrackMap(
     val seams = remember(precomputedSeams, points) {
         precomputedSeams ?: TrackQuality.seams(points)
     }
-    val coloring = remember(precomputedColoring, seams, colorMode, activity, darkTheme, units) {
-        precomputedColoring
-            ?: trackColoring(points, TrackQuality.pointSpeedsKmh(seams), colorMode, activity, darkTheme, units)
+    val measures = LocalMeasures.current
+    val coloring = remember(precomputedColoring, seams, colorMode, activity, darkTheme, measures) {
+        precomputedColoring ?: trackColoring(
+            points, TrackQuality.pointSpeedsKmh(seams), colorMode, activity, darkTheme, measures,
+        )
     }
     val colors = coloring.colors
     val applied = remember { AppliedTrackInputs() }

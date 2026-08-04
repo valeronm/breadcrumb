@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
@@ -603,6 +604,10 @@ internal fun MapLibreTripMap(
     val longPress by rememberUpdatedState(onLongPress)
     val placeTap by rememberUpdatedState(onPlaceTap)
     val centerSettled by rememberUpdatedState(onCenterSettled)
+    // The two pin labels are resolved here: the style callbacks below are not a composable scope,
+    // and one of them has no Context to reach for either.
+    val originLabel = stringResource(R.string.addtrip_origin)
+    val destinationLabel = stringResource(R.string.addtrip_destination)
     MapLibreStyledMap(
         modifier = modifier,
         onMapReady = { map ->
@@ -636,7 +641,12 @@ internal fun MapLibreTripMap(
             // The overview map's own layers, ids and all — a style belongs to one MapView, so the
             // names can't collide, and the places here are exactly that map's field of pins.
             addOverviewLayers(ctx, style, places)
-            style.addSource(GeoJsonSource(TRIP_MARKER_SOURCE, tripMarkerCollection(origin, destination)))
+            style.addSource(
+                GeoJsonSource(
+                    TRIP_MARKER_SOURCE,
+                    tripMarkerCollection(origin, destination, originLabel, destinationLabel),
+                ),
+            )
             style.addLayer(labeledSymbolLayer(ctx, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
             frameTripMap(map, origin, destination, places, opening = true)
             // The opening frame lands before the idle listener is there to hear it, so where the map
@@ -654,7 +664,9 @@ internal fun MapLibreTripMap(
             if (applied.pins != origin to destination) {
                 applied.pins = origin to destination
                 style.getSourceAs<GeoJsonSource>(TRIP_MARKER_SOURCE)
-                    ?.setGeoJson(tripMarkerCollection(origin, destination))
+                    ?.setGeoJson(
+                        tripMarkerCollection(origin, destination, originLabel, destinationLabel),
+                    )
                 frameTripMap(map, origin, destination, places, opening = false)
             }
             if (applied.center !== center) {
@@ -671,12 +683,14 @@ internal fun MapLibreTripMap(
 private fun tripMarkerCollection(
     origin: StayDeriver.Endpoint?,
     destination: StayDeriver.Endpoint?,
+    originLabel: String,
+    destinationLabel: String,
 ): FeatureCollection {
     val pin = placePinImage(null, withGlyph = true)
     return FeatureCollection.fromFeatures(
         listOfNotNull(
-            origin?.let { endpointFeature(it, pin, "Origin") },
-            destination?.let { endpointFeature(it, pin, "Destination") },
+            origin?.let { endpointFeature(it, pin, originLabel) },
+            destination?.let { endpointFeature(it, pin, destinationLabel) },
         ),
     )
 }

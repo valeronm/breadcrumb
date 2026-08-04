@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nav_record">Gravar</string>
+    <string name="nav_timeline">Cronologia</string>
+    <string name="nav_places">Locais</string>
+    <string name="nav_insights">Resumo</string>
+
+    <!-- title_record is the product's name and stays untranslated; every other tab's top-bar title
+         is its own nav_* name. -->
+
+    <string name="action_add_missing_trip">Adicionar viagem em falta</string>
+    <string name="action_settings">Definições</string>
+    <string name="undo_track_split">Trajeto dividido</string>
+</resources>

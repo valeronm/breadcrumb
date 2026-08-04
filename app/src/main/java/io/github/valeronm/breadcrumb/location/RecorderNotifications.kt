@@ -89,12 +89,12 @@ class RecorderNotifications(private val service: Service) {
     /** Escalate the deafness the Record card already shows, for when the app isn't open. */
     fun warnDeaf() {
         DebugLog.w(TAG, "activity detection not responding — notifying the user")
-        val text = "Trips may be missed or start late. Restarting the phone usually fixes it."
+        val text = service.getString(R.string.notification_deaf_text)
         deafPosted = true
         manager?.notify(
             ALERT_ID,
             NotificationCompat.Builder(service, App.ALERT_CHANNEL_ID)
-                .setContentTitle("Activity detection stalled")
+                .setContentTitle(service.getString(R.string.notification_deaf_title))
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setSmallIcon(R.drawable.ic_notification)
@@ -120,7 +120,7 @@ class RecorderNotifications(private val service: Service) {
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setContentIntent(openIntent)
-        .addAction(0, "Stop", stopIntent)
+        .addAction(0, service.getString(R.string.notification_stop), stopIntent)
         .build()
 
     private companion object {

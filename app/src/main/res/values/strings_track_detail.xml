@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TrackDetailScreen: one track's page, its type dialog and its split flow. -->
+<resources>
+    <string name="track_title">Track</string>
+    <string name="track_edit_trip">Edit trip</string>
+    <string name="track_change_type">Change track type</string>
+    <string name="track_share_gpx">Share GPX</string>
+    <string name="track_too_few_points">Not enough points to draw this track on a map.</string>
+    <string name="track_caption_imported">Imported</string>
+    <string name="track_filter_noisy">Noisy points</string>
+    <string name="track_type_dialog_title">Track type</string>
+    <string name="track_type_current">Current type</string>
+
+    <string name="track_stat_avg_speed">Avg speed</string>
+
+    <!--
+      Split around a clock time that is drawn, not interpolated — the time carries its own colour
+      marks for a zone shift, so it cannot pass through a placeholder and the wording brackets it.
+      Quoted: Android strips a trailing space from an unquoted resource.
+    -->
+    <string name="track_split_at">Split at %1$s?</string>
+    <plurals name="track_points">
+        <item quantity="one">%d point</item>
+        <item quantity="other">%d points</item>
+    </plurals>
+    <string name="track_split_explainer">Both tracks keep every fix, and the stop between them appears on the timeline. Undo puts the track back.</string>
+    <string name="track_split_confirm">Split</string>
+    <string name="track_split_here">Split here</string>
+    <string name="track_split_too_close">Too close to the end</string>
+
+    <!-- How the track line is coloured, and what each metric says when no fix carries it. -->
+    <string name="color_mode_speed">Speed</string>
+    <string name="color_mode_elevation">Elevation</string>
+    <string name="color_mode_accuracy">Accuracy</string>
+    <string name="color_mode_satellites">Satellites</string>
+    <string name="color_mode_signal">Signal</string>
+    <string name="color_no_speed_data">No speed data</string>
+    <string name="color_no_elevation_data">No elevation data</string>
+    <string name="color_no_accuracy_data">No accuracy data</string>
+    <string name="color_no_satellite_data">No satellite data</string>
+    <string name="color_no_signal_data">No signal data</string>
+
+    <!-- Legend for the map's rejected-fix markers. The colours beside these stay literal in code. -->
+    <string name="ignore_reason_jump">Speed jump</string>
+    <string name="ignore_reason_no_gnss">No satellite fix</string>
+    <string name="ignore_reason_accuracy">Low accuracy</string>
+</resources>

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="discarded_title">Eliminados recentemente</string>
+    <string name="discarded_title_count">Eliminados recentemente (%1$d)</string>
+    <string name="discarded_clear_all">Limpar tudo</string>
+    <string name="discarded_empty">Sem trajetos eliminados. Aparecem aqui quando elimina um ou quando uma regra o descarta, e ficam recuperáveis durante %1$d dias.</string>
+    <string name="discarded_retention">Os trajetos ficam aqui %1$d dias e depois são removidos definitivamente.</string>
+    <string name="discarded_restore">Repor o trajeto</string>
+    <plurals name="discarded_excluded">
+        <item quantity="one">%d excluído</item>
+        <item quantity="other">%d excluídos</item>
+    </plurals>
+    <string name="discarded_clear_confirm_title">Limpar os eliminados recentemente?</string>
+    <!--
+      The "one" form carries the number, unlike the English original: Portuguese counts 0 as
+      singular, so this form has to answer for both and cannot spell the quantity out in words.
+    -->
+    <plurals name="discarded_clear_confirm_body">
+        <item quantity="one">%d trajeto aqui será eliminado definitivamente. Não é possível anular.</item>
+        <item quantity="other">Todos os %d trajetos aqui serão eliminados definitivamente. Não é possível anular.</item>
+    </plurals>
+    <string name="discarded_delete_all">Eliminar tudo</string>
+
+    <string name="discarded_reason_deleted">Eliminado por si</string>
+    <string name="discarded_reason_filtered">Demasiado curto para guardar</string>
+    <string name="discarded_reason_merged">Substituído por um trajeto juntado</string>
+    <string name="discarded_reason_trimmed">Permanência separada de um trajeto</string>
+
+    <plurals name="discarded_days_left">
+        <item quantity="one">falta %d dia</item>
+        <item quantity="other">faltam %d dias</item>
+    </plurals>
+    <string name="discarded_removal_due">remoção pendente</string>
+</resources>

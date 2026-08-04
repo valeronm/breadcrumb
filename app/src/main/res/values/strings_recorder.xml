@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the recorder says about itself, in the two places it speaks: the Record tab's state card and
+  the foreground notification. One vocabulary for both — see `domain/RecordCard.kt`, which decides
+  which of these is true and never how it reads.
+
+  Details are phrased lowercase: the card joins title and detail onto one line after " · ", and the
+  notification capitalizes the detail on render, which is typography rather than different wording.
+-->
+<resources>
+    <!-- Track types. The enum name is the permanent stored code; these are only what it reads as. -->
+    <string name="activity_walking">Walking</string>
+    <string name="activity_running">Running</string>
+    <string name="activity_cycling">Cycling</string>
+    <string name="activity_driving">Driving</string>
+    <string name="activity_taxi">Taxi</string>
+    <!-- FERRY's code predates the broader meaning: any waterborne carrier. -->
+    <string name="activity_ferry">Boat</string>
+    <string name="activity_transit">Public transit</string>
+    <string name="activity_flight">Flight</string>
+    <string name="activity_still">Stationary</string>
+    <!-- UNKNOWN: detected motion the recogniser could not name. -->
+    <string name="activity_unknown">Moving</string>
+    <!-- Stands in for an activity in a total that has none. -->
+    <string name="activity_other">Other</string>
+
+    <!--
+      The same ten as a *word form*, for the slot the recorder's sentences drop them into
+      ("Recording walking", "walking resumes within 1m 40s"). English lowercases a common noun there
+      and the labels above are the same words capitalized — but that is English's rule, not a
+      transform: German capitalizes its nouns wherever they sit, and a caller lowercasing the
+      translation would be deciding a language's orthography for it. So the form is authored, per
+      language, and a language whose two forms coincide simply repeats the word.
+    -->
+    <string name="activity_inline_walking">walking</string>
+    <string name="activity_inline_running">running</string>
+    <string name="activity_inline_cycling">cycling</string>
+    <string name="activity_inline_driving">driving</string>
+    <string name="activity_inline_taxi">taxi</string>
+    <string name="activity_inline_ferry">boat</string>
+    <string name="activity_inline_transit">public transit</string>
+    <string name="activity_inline_flight">flight</string>
+    <string name="activity_inline_still">stationary</string>
+    <string name="activity_inline_unknown">moving</string>
+
+    <!-- Titles -->
+    <string name="recorder_recording">Recording</string>
+    <!-- Recording, named after what is being done. The activity arrives already lower-cased. -->
+    <string name="recorder_recording_activity">Recording %1$s</string>
+    <string name="recorder_paused">Paused</string>
+    <string name="recorder_idle">Idle</string>
+    <string name="recorder_detection_stalled">Detection stalled</string>
+    <string name="recorder_starting">Starting…</string>
+
+    <!-- Details -->
+    <string name="recorder_track_in_progress">track in progress</string>
+    <string name="recorder_no_gps">no GPS</string>
+    <string name="recorder_no_gps_since">no GPS since %1$s</string>
+    <string name="recorder_no_gps_settled">no GPS signal — waiting for one</string>
+    <string name="recorder_positioning">positioning</string>
+    <!-- While the accuracy gate rejects fixes, the shrinking radius is the progress indicator. -->
+    <string name="recorder_positioning_radius">positioning ±%1$d m</string>
+    <string name="recorder_waiting_for_fix">waiting for a GPS fix</string>
+    <string name="recorder_resumes_within">%1$s resumes within %2$s</string>
+    <string name="recorder_continues_if_you_move">%1$s continues if you move soon</string>
+    <string name="recorder_nothing_to_record">nothing to record</string>
+    <string name="recorder_nothing_to_record_for">nothing to record for %1$s</string>
+    <string name="recorder_restart_advice">restarting the phone usually fixes it</string>
+    <!-- Fills the activity slot in the pause phrases when nothing has been detected. -->
+    <string name="recorder_generic_activity">activity</string>
+
+    <!--
+      The notification shade. These translate; the DebugLog lines beside them in the same file do
+      not — see CLAUDE.md. The remedy is a reboot: re-registering the detector does not cure it.
+    -->
+    <!--
+      The two notification channels, as the *system's* settings list them — the user reads these in
+      Android's own notification screens, not in this app.
+    -->
+    <string name="channel_tracking">GPS tracking</string>
+    <string name="channel_tracking_description">Ongoing notification shown while recording GPS tracks</string>
+    <string name="channel_alerts">Recording problems</string>
+    <string name="channel_alerts_description">Shown when automatic recording stops responding</string>
+
+    <string name="notification_stop">Stop</string>
+    <string name="notification_deaf_title">Activity detection stalled</string>
+    <string name="notification_deaf_text">Trips may be missed or start late. Restarting the phone usually fixes it.</string>
+</resources>

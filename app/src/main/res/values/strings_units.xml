@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Unit symbols. Short forms as they are written beside a number, not spelled-out names — these sit
+  in stat cells and row subtitles where width is scarce.
+
+  Not run through a measure formatter on purpose: the numbers beside them follow this app's own
+  rounding (a dropped zero tenth, grouped whole units past 100, a zero-padded minute), and a
+  formatter would re-decide all of that. A translator changes the symbol here and nothing else moves.
+-->
+<resources>
+    <string name="unit_kilometers">km</string>
+    <string name="unit_miles">mi</string>
+    <string name="unit_meters">m</string>
+    <string name="unit_feet">ft</string>
+    <string name="unit_kmh">km/h</string>
+    <string name="unit_mph">mph</string>
+
+    <!--
+      The duration ladder, which shows at most two of these and writes them tight against the
+      number ("2h 05m", "11mo 30d"). Keep them short enough for that.
+    -->
+    <string name="duration_year">y</string>
+    <string name="duration_month">mo</string>
+    <string name="duration_day">d</string>
+    <string name="duration_hour">h</string>
+    <string name="duration_minute">m</string>
+    <string name="duration_second">s</string>
+    <!-- Stands where a finished track would show its length. -->
+    <string name="duration_recording">recording</string>
+
+    <!-- The settings sliders' spelled-out steps, which have room for a word. -->
+    <string name="duration_seconds_step">%1$d s</string>
+    <string name="duration_minutes_step">%1$d min</string>
+    <string name="duration_minutes_seconds_step">%1$dm %2$ds</string>
+</resources>

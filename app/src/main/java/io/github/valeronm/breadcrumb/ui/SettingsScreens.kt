@@ -5,6 +5,7 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -35,10 +36,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.util.DebugLog
@@ -72,7 +75,7 @@ internal fun SettingsScreen(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = { BackNavIcon(onBack) },
             )
         },
@@ -84,47 +87,47 @@ internal fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
-            Text("Recording", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.settings_group_recording), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             GroupedRows(
                 {
                     NavRow(
-                        "Sampling",
-                        subtitle = "How densely points are recorded",
+                        stringResource(R.string.settings_sampling),
+                        subtitle = stringResource(R.string.settings_sampling_sub),
                     ) { onOpenPage(SettingsPage.Sampling) }
                 },
                 {
                     NavRow(
-                        "Point quality",
-                        subtitle = "Which recorded points count as good",
+                        stringResource(R.string.settings_point_quality),
+                        subtitle = stringResource(R.string.settings_point_quality_sub),
                     ) { onOpenPage(SettingsPage.PointQuality) }
                 },
                 {
                     NavRow(
-                        "Auto-pause",
-                        subtitle = "How long a stop keeps the track open",
+                        stringResource(R.string.settings_auto_pause),
+                        subtitle = stringResource(R.string.settings_auto_pause_sub),
                     ) { onOpenPage(SettingsPage.AutoPause) }
                 },
                 {
                     NavRow(
-                        "GPS search",
-                        subtitle = "When to stop looking for a position",
+                        stringResource(R.string.settings_gps_search),
+                        subtitle = stringResource(R.string.settings_gps_search_sub),
                     ) { onOpenPage(SettingsPage.GpsSearch) }
                 },
                 {
                     NavRow(
-                        "Track filtering",
-                        subtitle = "Limits below which finished tracks are discarded",
+                        stringResource(R.string.settings_track_filtering),
+                        subtitle = stringResource(R.string.settings_track_filtering_sub),
                     ) { onOpenPage(SettingsPage.TrackFiltering) }
                 },
             )
             Spacer(Modifier.height(24.dp))
-            Text("Display", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.settings_group_display), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             GroupedRows(
                 {
                     Column {
-                        Text("Units", style = MaterialTheme.typography.bodyLarge)
+                        Text(stringResource(R.string.settings_units), style = MaterialTheme.typography.bodyLarge)
                         Row(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -133,7 +136,7 @@ internal fun SettingsScreen(
                                 FilterChip(
                                     selected = choice == unitChoice,
                                     onClick = { onUnitChoice(choice) },
-                                    label = { Text(choice.label) },
+                                    label = { Text(stringResource(choice.labelRes)) },
                                 )
                             }
                         }
@@ -141,18 +144,18 @@ internal fun SettingsScreen(
                 },
             )
             Spacer(Modifier.height(24.dp))
-            Text("Privacy", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.settings_group_privacy), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             GroupedRows(
                 {
                     NavRow(
-                        "App lock",
-                        subtitle = "Unlocking to open the app, and hiding it from screenshots",
+                        stringResource(R.string.settings_app_lock),
+                        subtitle = stringResource(R.string.settings_app_lock_sub),
                     ) { onOpenPage(SettingsPage.Privacy) }
                 },
             )
             Spacer(Modifier.height(24.dp))
-            Text("Data", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.settings_group_data), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             GroupedRows(
                 { ImportTracksRow(viewModel) },
@@ -160,16 +163,19 @@ internal fun SettingsScreen(
                 { ExportBackupRow(viewModel) },
                 {
                     NavRow(
-                        "Recently deleted",
-                        subtitle = "Restorable for $DISCARDED_RETENTION_DAYS days",
+                        stringResource(R.string.discarded_title),
+                        subtitle = stringResource(
+                            R.string.settings_recently_deleted_sub,
+                            DISCARDED_RETENTION_DAYS,
+                        ),
                     ) { onOpenPage(SettingsPage.RecentlyDeleted) }
                 },
             )
             Spacer(Modifier.height(24.dp))
-            Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.settings_group_diagnostics), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             GroupedRows(
-                { NavRow("Logs") { onOpenPage(SettingsPage.Logs) } },
+                { NavRow(stringResource(R.string.settings_logs)) { onOpenPage(SettingsPage.Logs) } },
             )
             Spacer(Modifier.height(32.dp))
             Text(
@@ -182,7 +188,7 @@ internal fun SettingsScreen(
             // Required by the gazetteer's licence, not a courtesy — CC BY 4.0 asks for the credit
             // wherever the work is used, and the place names on the timeline are that use.
             Text(
-                "Place names from GeoNames, CC BY 4.0",
+                stringResource(R.string.credit_geonames),
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodySmall,
@@ -190,7 +196,7 @@ internal fun SettingsScreen(
             )
             // Likewise a licence term: ODbL asks for the credit wherever OSM-derived results show.
             Text(
-                "Online search © OpenStreetMap contributors, ODbL",
+                stringResource(R.string.credit_osm),
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodySmall,
@@ -217,7 +223,9 @@ private fun SettingsSubPage(
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
                     if (resetPrefs.any { !it.isDefault }) {
-                        TextButton(onClick = { resetPrefs.forEach { it.reset() } }) { Text("Reset") }
+                        TextButton(onClick = { resetPrefs.forEach { it.reset() } }) {
+                            Text(stringResource(R.string.settings_reset))
+                        }
                     }
                 },
             )
@@ -256,19 +264,23 @@ internal fun SamplingSettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
         { AppSettings.minDistanceM(context) },
     ) { AppSettings.setMinDistanceM(context, it) }
-    SettingsSubPage("Sampling", onBack, listOf(intervalSec, distanceM)) {
-        SettingsPageDescription(
-            "How densely points are recorded while moving.",
-        )
+    SettingsSubPage(stringResource(R.string.settings_sampling), onBack, listOf(intervalSec, distanceM)) {
+        SettingsPageDescription(stringResource(R.string.sampling_description))
         GroupedRows(
             {
-                SliderSetting("Time between points", intervalSec.value.toFloat(), 1f..30f, 1, { "${it.toInt()} s" }) {
+                SliderSetting(
+                    stringResource(R.string.sampling_time_between),
+                    intervalSec.value.toFloat(),
+                    1f..30f,
+                    1,
+                    { stringResource(R.string.duration_seconds_step, it.toInt()) },
+                ) {
                     intervalSec.set(it.toInt())
                 }
             },
             {
                 val scale = rememberDistanceScale(SliderStops(1, 50, 1), SliderStops(5, 165, 5))
-                SliderSetting("Distance between points", distanceM.value, scale) {
+                SliderSetting(stringResource(R.string.sampling_distance_between), distanceM.value, scale) {
                     distanceM.set(it)
                 }
             },
@@ -287,26 +299,30 @@ internal fun PointQualitySettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
         { AppSettings.requireGnssFix(context) },
     ) { AppSettings.setRequireGnssFix(context, it) }
-    SettingsSubPage("Point quality", onBack, listOf(accuracyGateM, requireGnssFix)) {
-        SettingsPageDescription("Which recorded points count as good.")
+    SettingsSubPage(
+        stringResource(R.string.settings_point_quality),
+        onBack,
+        listOf(accuracyGateM, requireGnssFix),
+    ) {
+        SettingsPageDescription(stringResource(R.string.quality_description))
         GroupedRows(
             {
                 SwitchSettingRow(
-                    title = "Require satellite fix",
-                    subtitle = "Drops guessed positions, like in a tunnel.",
+                    title = stringResource(R.string.quality_require_fix),
+                    subtitle = stringResource(R.string.quality_require_fix_sub),
                     checked = requireGnssFix.value,
                     onCheckedChange = { requireGnssFix.set(it) },
                 )
             },
             {
                 Text(
-                    "Points less accurate than this are marked noisy and excluded.",
+                    stringResource(R.string.quality_accuracy_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
                 val scale = rememberDistanceScale(SliderStops(10, 150, 10), SliderStops(25, 500, 25))
-                SliderSetting("Max accuracy radius", accuracyGateM.value, scale) {
+                SliderSetting(stringResource(R.string.quality_max_accuracy), accuracyGateM.value, scale) {
                     accuracyGateM.set(it)
                 }
             },
@@ -325,23 +341,28 @@ internal fun AutoPauseSettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_MOTION_CROSS_CHECK,
         { AppSettings.motionCrossCheck(context) },
     ) { AppSettings.setMotionCrossCheck(context, it) }
-    SettingsSubPage("Auto-pause", onBack, listOf(resumeWindowSec, motionCrossCheck)) {
-        SettingsPageDescription(
-            "A stop shorter than this keeps the track open — moving again continues the same " +
-                "track. When set to Off, every stop ends the track.",
-        )
+    SettingsSubPage(
+        stringResource(R.string.settings_auto_pause),
+        onBack,
+        listOf(resumeWindowSec, motionCrossCheck),
+    ) {
+        SettingsPageDescription(stringResource(R.string.pause_description))
         GroupedRows(
             {
-                SliderSetting("Resume window", resumeWindowSec.value.toFloat(), 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
+                SliderSetting(
+                    stringResource(R.string.pause_resume_window),
+                    resumeWindowSec.value.toFloat(),
+                    0f..600f,
+                    60,
+                    { durationSettingLabel(it.toInt()) },
+                ) {
                     resumeWindowSec.set(it.toInt())
                 }
             },
             {
                 SwitchSettingRow(
-                    title = "Keep recording while moving",
-                    subtitle = "Ignores \"stopped\" while your position keeps changing — for " +
-                        "ferries, trains and buses, where you sit still but the journey doesn't. " +
-                        "Uses more battery.",
+                    title = stringResource(R.string.pause_keep_recording),
+                    subtitle = stringResource(R.string.pause_keep_recording_sub),
                     checked = motionCrossCheck.value,
                     onCheckedChange = { motionCrossCheck.set(it) },
                 )
@@ -357,14 +378,17 @@ internal fun GpsSearchSettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
         { AppSettings.gpsGiveUpSec(context) },
     ) { AppSettings.setGpsGiveUpSec(context, it) }
-    SettingsSubPage("GPS search", onBack, listOf(gpsGiveUpSec)) {
-        SettingsPageDescription(
-            "If no good position arrives for this long, GPS pauses and retries when you move " +
-                "or another app gets a location. When set to Off, GPS never stops searching.",
-        )
+    SettingsSubPage(stringResource(R.string.settings_gps_search), onBack, listOf(gpsGiveUpSec)) {
+        SettingsPageDescription(stringResource(R.string.gps_description))
         GroupedRows(
             {
-                SliderSetting("Give up after", gpsGiveUpSec.value.toFloat(), 0f..600f, 60, { durationSettingLabel(it.toInt()) }) {
+                SliderSetting(
+                    stringResource(R.string.gps_give_up_after),
+                    gpsGiveUpSec.value.toFloat(),
+                    0f..600f,
+                    60,
+                    { durationSettingLabel(it.toInt()) },
+                ) {
                     gpsGiveUpSec.set(it.toInt())
                 }
             },
@@ -390,30 +414,37 @@ internal fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
     // Min length and min extent share one scale: both are "how far did the track get" thresholds.
     val lengthScale =
         rememberDistanceScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), zeroIsOff = true)
-    SettingsSubPage("Track filtering", onBack, listOf(minDurationSec, minLengthM, minExtentM)) {
-        SettingsPageDescription(
-            "Tracks under these limits are moved to Recently deleted when they finish.",
-        )
+    SettingsSubPage(
+        stringResource(R.string.settings_track_filtering),
+        onBack,
+        listOf(minDurationSec, minLengthM, minExtentM),
+    ) {
+        SettingsPageDescription(stringResource(R.string.filter_description))
         GroupedRows(
             {
-                SliderSetting("Min duration", minDurationSec.value.toFloat(), 0f..300f, 30, { durationSettingLabel(it.toInt()) }) {
+                SliderSetting(
+                    stringResource(R.string.filter_min_duration),
+                    minDurationSec.value.toFloat(),
+                    0f..300f,
+                    30,
+                    { durationSettingLabel(it.toInt()) },
+                ) {
                     minDurationSec.set(it.toInt())
                 }
             },
             {
-                SliderSetting("Min length", minLengthM.value, lengthScale) {
+                SliderSetting(stringResource(R.string.filter_min_length), minLengthM.value, lengthScale) {
                     minLengthM.set(it)
                 }
             },
             {
                 Text(
-                    "How far the track spread from where it started — filters out " +
-                        "standing-still noise.",
+                    stringResource(R.string.filter_extent_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-                SliderSetting("Min extent", minExtentM.value, lengthScale) {
+                SliderSetting(stringResource(R.string.filter_min_extent), minExtentM.value, lengthScale) {
                     minExtentM.set(it)
                 }
             },
@@ -438,10 +469,12 @@ internal fun PrivacySettingsScreen(onBack: () -> Unit) {
         false,
         { AppSettings.appLockTrustsKeyguard(context) },
     ) { AppSettings.setAppLockTrustsKeyguard(context, it) }
-    SettingsSubPage("Privacy", onBack, listOf(graceSec, trustsKeyguard)) {
-        SettingsPageDescription(
-            "Recording is never locked — tracks keep being recorded whether or not the app is.",
-        )
+    SettingsSubPage(
+        stringResource(R.string.settings_group_privacy),
+        onBack,
+        listOf(graceSec, trustsKeyguard),
+    ) {
+        SettingsPageDescription(stringResource(R.string.privacy_description))
         val onlineSearch = rememberPref(
             true,
             { AppSettings.isOnlinePlaceSearch(context) },
@@ -450,19 +483,16 @@ internal fun PrivacySettingsScreen(onBack: () -> Unit) {
             { RequireUnlockRow(context, lockable, graceSec, trustsKeyguard) },
             {
                 SwitchSettingRow(
-                    title = "Block screenshots",
-                    subtitle = "Also hides the app's preview in the recent-apps switcher, which " +
-                        "otherwise shows a map of where you were.",
+                    title = stringResource(R.string.privacy_block_screenshots),
+                    subtitle = stringResource(R.string.privacy_block_screenshots_sub),
                     checked = Privacy.blockScreenshots,
                     onCheckedChange = { Privacy.setBlockScreenshots(context, it) },
                 )
             },
             {
                 SwitchSettingRow(
-                    title = "Online place search",
-                    subtitle = "Lets the add-trip form find hotels and addresses by name. Typed " +
-                        "searches are sent to photon.komoot.io (OpenStreetMap); off keeps " +
-                        "search fully on this device.",
+                    title = stringResource(R.string.privacy_online_search),
+                    subtitle = stringResource(R.string.privacy_online_search_sub),
                     checked = onlineSearch.value,
                     onCheckedChange = { onlineSearch.set(it) },
                 )
@@ -479,12 +509,10 @@ private fun RequireUnlockRow(
     trustsKeyguard: Pref<Boolean>,
 ) {
     SwitchSettingRow(
-        title = "Require unlock",
-        subtitle = if (lockable) {
-            "Opening the app asks for your fingerprint or device PIN."
-        } else {
-            "Set a screen lock on this device first."
-        },
+        title = stringResource(R.string.lock_require_unlock),
+        subtitle = stringResource(
+            if (lockable) R.string.lock_require_unlock_sub else R.string.lock_no_screen_lock,
+        ),
         // A lock this device can't open would be a lockout with no way back to the history.
         checked = lockable && Privacy.lockEnabled,
         enabled = lockable,
@@ -496,10 +524,8 @@ private fun RequireUnlockRow(
         // What the switch costs is said in the subtitle rather than left to be worked out: it is
         // the difference between a lock that stands on its own and one that rests on the phone's.
         SwitchSettingRow(
-            title = "Trust the phone's unlock",
-            subtitle = "Skip the app's prompt when the phone itself has been unlocked since you " +
-                "last left the app — no second unlock right after the first. Off, the app is " +
-                "locked even to someone who can open the phone.",
+            title = stringResource(R.string.lock_trust_keyguard),
+            subtitle = stringResource(R.string.lock_trust_keyguard_sub),
             checked = trustsKeyguard.value,
             onCheckedChange = { trustsKeyguard.set(it) },
         )
@@ -509,9 +535,9 @@ private fun RequireUnlockRow(
 @Composable
 private fun LockGraceChips(graceSec: Pref<Int>) {
     Spacer(Modifier.height(12.dp))
-    Text("Lock again", style = MaterialTheme.typography.bodyMedium)
+    Text(stringResource(R.string.lock_again), style = MaterialTheme.typography.bodyMedium)
     Text(
-        "Leaving the app briefly — to pick a file or grant a permission — shouldn't ask again.",
+        stringResource(R.string.lock_again_sub),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(bottom = 8.dp),
@@ -532,8 +558,13 @@ private fun LockGraceChips(graceSec: Pref<Int>) {
 
 // Zero is the one choice the duration ladder can't spell: it renders as "Off", which here would
 // read as "never lock again" rather than "lock the moment you leave".
+@Composable
 private fun lockGraceLabel(sec: Int): String =
-    if (sec == 0) "Immediately" else "After ${durationSettingLabel(sec)}"
+    if (sec == 0) {
+        stringResource(R.string.lock_immediately)
+    } else {
+        stringResource(R.string.lock_after, durationSettingLabel(sec))
+    }
 
 /** Hub row that opens the GPX picker directly; the subtitle doubles as import progress. */
 @Composable
@@ -547,17 +578,21 @@ private fun ImportTracksRow(viewModel: TrackListViewModel) {
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         viewModel.importExport.importGpx(uris) { result ->
-            Toast.makeText(appContext, gpxImportMessage(result), Toast.LENGTH_LONG).show()
+            Toast.makeText(appContext, gpxImportMessage(appContext, result), Toast.LENGTH_LONG).show()
         }
     }
     val progress = importProgress
     NavRow(
-        "Import tracks",
+        stringResource(R.string.data_import_tracks),
         subtitle = if (progress == null) {
-            "GPX files; points need timestamps"
+            stringResource(R.string.data_import_idle)
         } else {
-            "Importing file ${(progress.filesDone + 1).coerceAtMost(progress.filesTotal)} " +
-                "of ${progress.filesTotal} · ${progress.imported} tracks so far"
+            stringResource(
+                R.string.data_importing,
+                (progress.filesDone + 1).coerceAtMost(progress.filesTotal),
+                progress.filesTotal,
+                progress.imported,
+            )
         },
         enabled = progress == null,
     ) {
@@ -570,16 +605,30 @@ private fun ImportTracksRow(viewModel: TrackListViewModel) {
     }
 }
 
-/** The busy subtitle shared by the export rows: "<verb> <noun> N of M" once the total is known. */
-private fun exportSubtitle(progress: ImportExportController.OpProgress?, idle: String, verb: String, noun: String): String =
-    when {
-        progress == null -> idle
-        progress.tracksTotal != null -> "$verb $noun ${progress.tracksDone} of ${progress.tracksTotal}"
-        else -> verb
-    }
+/**
+ * The busy subtitle shared by the export rows. Each row hands over its own whole phrases rather
+ * than a verb and a noun to be assembled here: only English composes that way, and a noun built
+ * outside its sentence can agree with nothing.
+ */
+@Composable
+private fun exportSubtitle(
+    progress: ImportExportController.OpProgress?,
+    idle: String,
+    @StringRes verb: Int,
+    @StringRes busy: Int,
+): String = when {
+    progress == null -> idle
+    progress.tracksTotal != null ->
+        stringResource(busy, progress.tracksDone, progress.tracksTotal)
+    else -> stringResource(verb)
+}
 
 private fun exportResultToast(context: Context, count: Int?) {
-    val message = if (count == null) "Export failed" else "Exported $count tracks"
+    val message = if (count == null) {
+        context.getString(R.string.data_export_failed)
+    } else {
+        context.resources.getQuantityString(R.plurals.data_exported, count, count)
+    }
     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }
 
@@ -596,12 +645,12 @@ private fun ExportTracksRow(viewModel: TrackListViewModel) {
         viewModel.importExport.exportAll(uri) { count -> exportResultToast(appContext, count) }
     }
     NavRow(
-        "Export tracks",
+        stringResource(R.string.data_export_tracks),
         subtitle = exportSubtitle(
             progress,
-            idle = "Every track as a GPX file, into a folder you pick",
-            verb = "Exporting…",
-            noun = "file",
+            idle = stringResource(R.string.data_export_tracks_idle),
+            verb = R.string.data_exporting,
+            busy = R.string.data_exporting_progress,
         ),
         enabled = progress == null,
     ) { exportLauncher.launch(null) }
@@ -623,12 +672,12 @@ private fun ExportBackupRow(viewModel: TrackListViewModel) {
         viewModel.importExport.exportBackup(uri) { count -> exportResultToast(appContext, count) }
     }
     NavRow(
-        "Back up everything",
+        stringResource(R.string.data_backup),
         subtitle = exportSubtitle(
             progress,
-            idle = "Tracks, places and history as one file",
-            verb = "Backing up…",
-            noun = "track",
+            idle = stringResource(R.string.data_backup_idle),
+            verb = R.string.data_backup_verb,
+            busy = R.string.data_backup_progress,
         ),
         enabled = progress == null,
     ) { exportLauncher.launch(BackupExporter.fileName(System.currentTimeMillis())) }
@@ -643,18 +692,23 @@ internal fun LogsScreen(onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                title = { Text("Logs (${entries.size})") },
+                title = { Text(stringResource(R.string.logs_title, entries.size)) },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
+                    // The chooser title is chrome and translates; the log body it carries does not.
+                    val shareLogs = stringResource(R.string.logs_share)
                     IconButton(onClick = {
                         val share = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_TEXT, DebugLog.dump())
                         }
-                        context.startActivity(Intent.createChooser(share, "Share logs"))
-                    }) { Icon(Icons.Filled.Share, contentDescription = "Share logs") }
+                        context.startActivity(Intent.createChooser(share, shareLogs))
+                    }) { Icon(Icons.Filled.Share, contentDescription = shareLogs) }
                     IconButton(onClick = { DebugLog.clear() }) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Clear logs")
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.logs_clear),
+                        )
                     }
                 },
             )
@@ -662,7 +716,7 @@ internal fun LogsScreen(onBack: () -> Unit) {
     ) { inner ->
         if (entries.isEmpty()) {
             EmptyState(
-                "No logs yet. They appear here once recording is armed and you move.",
+                stringResource(R.string.logs_empty),
                 Modifier.padding(inner).fillMaxSize(),
             )
         } else {

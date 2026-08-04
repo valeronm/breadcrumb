@@ -17,6 +17,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -53,12 +54,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
 import androidx.fragment.app.FragmentActivity
@@ -68,6 +69,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.BuildConfig
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
@@ -75,8 +77,8 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
+import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitChoice
-import io.github.valeronm.breadcrumb.util.UnitSystem
 import io.github.valeronm.breadcrumb.util.backgroundGranted
 import io.github.valeronm.breadcrumb.util.foregroundGranted
 import io.github.valeronm.breadcrumb.util.foregroundPermissions
@@ -119,8 +121,19 @@ class MainActivity : FragmentActivity() {
                 // The configuration locale, not Locale.getDefault(): composition observes it, so a
                 // mid-process language switch re-resolves the Automatic units choice.
                 val locale = LocalConfiguration.current.locales[0]
+                // The unit *system* follows the locale's country (metric vs imperial); the symbols
+                // follow its language. Two different questions of the same locale, which is why the
+                // language picker below must never be allowed to decide the first of them.
+                val context = LocalContext.current
+                val symbols = remember(context) { unitSymbols(context) }
+                val durations = remember(context) { durationSymbols(context) }
+                // Remembered so its identity is stable: the two screens that colour a track key an
+                // O(points) walk on it, and a fresh instance per recomposition would redo that walk.
+                val system = unitChoice.resolve(locale.country)
+                val measures = remember(system, symbols) { Measures(system, symbols) }
                 CompositionLocalProvider(
-                    LocalUnits provides unitChoice.resolve(locale.country),
+                    LocalMeasures provides measures,
+                    LocalDurationSymbols provides durations,
                 ) {
                     PrivacyGate(waitingImports = pendingGpxImport.value?.size ?: 0) {
                         MainScreen(pendingGpxImport, unitChoice) {
@@ -153,14 +166,20 @@ class MainActivity : FragmentActivity() {
     }
 }
 
-/** The resolved display-unit system; all distance/speed rendering below reads this. */
-internal val LocalUnits = staticCompositionLocalOf { UnitSystem.METRIC }
-
-private enum class HomeTab(val title: String, val label: String, val icon: ImageVector) {
-    RECORD("Breadcrumb", "Record", Icons.Filled.MyLocation),
-    TRACKS("Timeline", "Timeline", Icons.Filled.Route),
-    PLACES("Places", "Places", Icons.Filled.Place),
-    INSIGHTS("Insights", "Insights", Icons.Filled.Insights),
+private enum class HomeTab(
+    @StringRes val labelRes: Int,
+    val icon: ImageVector,
+    /**
+     * What the top bar calls the tab. Defaulted to the tab's own name, which is what every tab but
+     * one wants — two resources per tab is two places a translator can rename half of it.
+     */
+    @StringRes val titleRes: Int = labelRes,
+) {
+    // The Record tab heads the app rather than itself, so its title is the product's name.
+    RECORD(R.string.nav_record, Icons.Filled.MyLocation, titleRes = R.string.title_record),
+    TRACKS(R.string.nav_timeline, Icons.Filled.Route),
+    PLACES(R.string.nav_places, Icons.Filled.Place),
+    INSIGHTS(R.string.nav_insights, Icons.Filled.Insights),
 }
 
 /** Track detail or the Settings hub: the full-screen pages a tab opens directly onto. */
@@ -188,7 +207,7 @@ private fun MainScreen(
         if (Privacy.isLocked(context)) return@LaunchedEffect
         pendingGpxImport.value = null
         viewModel.importExport.importGpx(uris) { result ->
-            Toast.makeText(context, gpxImportMessage(result), Toast.LENGTH_LONG).show()
+            Toast.makeText(context, gpxImportMessage(context, result), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -340,9 +359,11 @@ private fun MainScreen(
     // and the way back is the Undo — which has to be raised from this host, not from a screen that
     // may be dismissed by the same tap. Deleting removes only the label; the stays stay, as a
     // detected stop again, and restoring re-pins the row exactly as it was.
+    // Resolved here: the callback below runs outside the composition.
+    val placeDeleted = stringResource(R.string.places_deleted)
     val removePlace: (Place) -> Unit = { place ->
         viewModel.deletePlace(place.id)
-        undo.show("\"${place.label}\" deleted") { viewModel.restorePlace(place) }
+        undo.show(placeDeleted.format(place.label)) { viewModel.restorePlace(place) }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -355,7 +376,7 @@ private fun MainScreen(
                     colors = canvasTopBarColors(),
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(selectedTab.title)
+                            Text(stringResource(selectedTab.titleRes))
                             // Which build this is — empty on release, so the badge is absent there.
                             if (BuildConfig.BUILD_LABEL.isNotEmpty()) {
                                 Spacer(Modifier.width(8.dp))
@@ -380,11 +401,17 @@ private fun MainScreen(
                             IconButton(onClick = {
                                 tripDraft = TripDraft(day = timelineViewedDay.read())
                             }) {
-                                Icon(Icons.Filled.Add, contentDescription = "Add missing trip")
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = stringResource(R.string.action_add_missing_trip),
+                                )
                             }
                         }
                         IconButton(onClick = { mainPage = MainPage.Settings }) {
-                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                            Icon(
+                                Icons.Filled.Settings,
+                                contentDescription = stringResource(R.string.action_settings),
+                            )
                         }
                     },
                 )
@@ -407,7 +434,7 @@ private fun MainScreen(
                                 }
                             },
                             icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(tab.label) },
+                            label = { Text(stringResource(tab.labelRes)) },
                         )
                     }
                 }
@@ -625,6 +652,8 @@ private fun MainPageOverlay(
     onOpenPage: (SettingsPage) -> Unit,
     onEditTrip: (TripDraft) -> Unit,
 ) {
+    // Resolved here rather than in the callback below, which is not a composable scope.
+    val splitUndoMessage = stringResource(R.string.undo_track_split)
     OverlayFrame(layer) { rendered ->
         when (rendered) {
             is MainPage.TrackDetail -> TrackMapScreen(
@@ -640,7 +669,7 @@ private fun MainPageOverlay(
                 onSplit = { atTs ->
                     val trackId = rendered.id
                     viewModel.splitTrack(trackId, atTs) { split ->
-                        undo.show("Track split") { viewModel.unsplitTracks(trackId, split) }
+                        undo.show(splitUndoMessage) { viewModel.unsplitTracks(trackId, split) }
                     }
                     onClose()
                 },
@@ -796,12 +825,18 @@ private fun SettingsPagesOverlay(
     }
 }
 
-internal fun gpxImportMessage(result: ImportExportController.GpxImportSummary): String = buildList {
-    add("Imported ${result.imported} tracks")
-    if (result.duplicates > 0) add("${result.duplicates} duplicates skipped")
-    if (result.overlapping > 0) add("${result.overlapping} overlapping skipped")
-    if (result.failed > 0) add("${result.failed} failed")
-}.joinToString(" · ")
+internal fun gpxImportMessage(
+    context: Context,
+    result: ImportExportController.GpxImportSummary,
+): String {
+    fun quantity(plural: Int, count: Int) = context.resources.getQuantityString(plural, count, count)
+    return buildList {
+        add(quantity(R.plurals.gpx_imported, result.imported))
+        if (result.duplicates > 0) add(quantity(R.plurals.gpx_duplicates, result.duplicates))
+        if (result.overlapping > 0) add(quantity(R.plurals.gpx_overlapping, result.overlapping))
+        if (result.failed > 0) add(quantity(R.plurals.gpx_failed, result.failed))
+    }.joinToString(" · ")
+}
 
 /** Live charger state from the sticky ACTION_BATTERY_CHANGED broadcast (reacts to plug/unplug). */
 @Composable

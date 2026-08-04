@@ -52,29 +52,65 @@ fun recordCardState(
 }
 
 /**
- * How the host renders a wall-clock time and an elapsed span — the seam that keeps this file free of
- * Android formatters. Bundled because they are one concern (the host's time formatting) and travel
- * together everywhere.
+ * Every word the recorder says, supplied by the host — the seam that keeps this file free of both
+ * Android formatters and English. This file decides *which* thing is true of the recorder; the
+ * implementation decides how that reads, so word order, agreement and the name an activity goes by
+ * all belong to the language rather than to the state machine.
+ *
+ * Total on purpose, with no defaults: an implementation that compiles has answered for every state,
+ * which is the same guarantee the exhaustive `when` over [RecordCardState] gives on this side.
+ * Adding a state therefore fails to compile in both places at once.
  */
-class TimeRenderer(
-    /** An absolute time as a wall clock, e.g. "14:36". */
-    val clock: (Long) -> String,
-    /** An elapsed span, e.g. "17m" / "2h 05m". */
-    val duration: (Long) -> String,
-)
+interface RecorderVocabulary {
+    /** Recording, named after what is being done where the detector has an opinion. */
+    fun recording(activity: ActivityType?): String
+
+    fun paused(): String
+
+    fun idle(): String
+
+    fun detectionStalled(): String
+
+    fun starting(): String
+
+    fun trackInProgress(): String
+
+    /** No GPS, since [sinceMs] where the surface carries a moving figure to say it with. */
+    fun noGps(sinceMs: Long?): String
+
+    /** The same state phrased for a surface that shows no figures. */
+    fun noGpsSettled(): String
+
+    /** Positioning, quoting the rejected accuracy radius where there is one to quote. */
+    fun positioning(accuracyM: Float?): String
+
+    /** The same state phrased for a surface that shows no figures. */
+    fun waitingForFix(): String
+
+    fun resumesWithin(activity: ActivityType?, leftMs: Long): String
+
+    /** The paused activity alone — a live surface with no countdown to hang it on. */
+    fun pausedActivity(activity: ActivityType?): String
+
+    /** The same, for a surface with no figures at all. */
+    fun continuesIfYouMove(activity: ActivityType?): String
+
+    /** Nothing to record, for [quietMs] where that is worth saying. */
+    fun nothingToRecord(quietMs: Long?): String
+
+    fun restartAdvice(): String
+}
 
 /**
- * The volatile inputs a *live* surface renders the recorder with — the 1 Hz-ticking clock, the
- * figures that move with it, and the host's own clock/duration renderings (keeping this free of
- * Android formatters). Deliberately a bundle, not seven parameters plus a flag: a surface that must
- * not carry moving figures passes `null` and cannot accidentally read one. The ongoing notification
- * is that surface — it re-posts whenever its text changes, so a countdown or an accuracy radius in
- * it would cost a wakelock and an IPC every second for a whole drive; bundled, the constraint is
- * structural instead of a comment someone has to remember.
+ * The volatile inputs a *live* surface renders the recorder with — the 1 Hz-ticking clock and the
+ * figures that move with it. Deliberately a bundle, not six parameters plus a flag: a surface that
+ * must not carry moving figures passes `null` and cannot accidentally read one. The ongoing
+ * notification is that surface — it re-posts whenever its text changes, so a countdown or an
+ * accuracy radius in it would cost a wakelock and an IPC every second for a whole drive; bundled,
+ * the constraint is structural instead of a comment someone has to remember.
  */
 class LiveFigures(
     val nowMs: Long,
-    val render: TimeRenderer,
     val pausedUntilMs: Long? = null,
     val lastReadingAtMs: Long? = null,
     /** The last fix's accuracy radius *only where the gate rejected it for that radius* — the one
@@ -102,73 +138,68 @@ data class RecorderText(val title: String, val detail: String?) {
 /**
  * The one place the recorder is put into words, for **both** surfaces — the Record tab's state card
  * and the foreground notification. Classifying it twice, in two vocabularies, drifts: one surface
- * ends up calling a track still waiting for its first fix "in progress", or a stalled detector
- * "idle". [live] decides how much the text moves, not what it says: with it the detail counts down
- * and quotes figures ("walking resumes within 1m 40s", "positioning ±78 m"), without it the same
- * state gets a settled phrase ("continues if you move soon", "waiting for a GPS fix"). Adding a
+ * ends up reporting a track still waiting for its first fix as one already underway, or a stalled
+ * detector as ordinary idleness. [live] decides how much the text moves, not what it says: with it
+ * the detail counts down and quotes figures ([RecorderVocabulary.resumesWithin],
+ * [RecorderVocabulary.positioning]), without it the same state gets a settled phrase
+ * ([RecorderVocabulary.continuesIfYouMove], [RecorderVocabulary.waitingForFix]). Adding a
  * state to [RecordCardState] fails to compile here, which is what keeps the two surfaces in step.
  * [deaf] colors only the idle states: an open track is real recording to report, and a stall is
  * about what happens *next*, not about the track in hand.
  */
-fun recorderText(
+fun RecorderVocabulary.recorderText(
     state: RecordCardState,
     activity: ActivityType?,
     pausedActivity: ActivityType?,
     deaf: Boolean,
     live: LiveFigures?,
-): RecorderText = when (state) {
-    RecordCardState.LIVE_MAP -> RecorderText(recordingTitle(activity), "track in progress")
+): RecorderText {
+    val words = this
+    return when (state) {
+        RecordCardState.LIVE_MAP -> RecorderText(words.recording(activity), words.trackInProgress())
 
-    RecordCardState.NO_GPS_SIGNAL -> RecorderText(
-        recordingTitle(activity),
-        if (live != null) {
-            "no GPS" + (live.gpsSuspendedSinceMs?.let { " since ${live.render.clock(it)}" } ?: "")
-        } else {
-            "no GPS signal — waiting for one"
-        },
-    )
+        RecordCardState.NO_GPS_SIGNAL -> RecorderText(
+            words.recording(activity),
+            if (live != null) words.noGps(live.gpsSuspendedSinceMs) else words.noGpsSettled(),
+        )
 
-    RecordCardState.WAITING_FOR_GPS -> RecorderText(
-        recordingTitle(activity),
-        if (live != null) {
+        RecordCardState.WAITING_FOR_GPS -> RecorderText(
+            words.recording(activity),
             // While the accuracy gate rejects fixes, the shrinking radius is the progress indicator.
-            val radius = live.rejectedAccuracyM?.let { " ±${it.toInt()} m" } ?: ""
-            "positioning$radius"
-        } else {
-            "waiting for a GPS fix"
-        },
-    )
+            if (live != null) words.positioning(live.rejectedAccuracyM) else words.waitingForFix(),
+        )
 
-    RecordCardState.PAUSED -> {
-        val left = live?.pausedUntilMs?.let { it - live.nowMs }
-        // Past the deadline nothing resumes into the track — the next activity starts a new one —
-        // so it's idle in every way that matters to the user; only the close is pending.
-        if (left != null && left <= 0) {
-            idleText(live, deaf)
-        } else {
-            val label = (pausedActivity ?: activity)?.label?.lowercase() ?: "activity"
-            RecorderText(
-                "Paused",
-                when {
-                    left != null -> "$label resumes within ${formatCountdown(left)}"
-                    live != null -> label
-                    // No countdown to hang the activity on, so it leads the detail instead — the
-                    // notification's title is just "Paused", and which activity would resume is
-                    // the useful half of that.
-                    else -> "$label continues if you move soon"
-                },
-            )
+        RecordCardState.PAUSED -> {
+            val left = live?.pausedUntilMs?.let { it - live.nowMs }
+            // Past the deadline nothing resumes into the track — the next activity starts a new one —
+            // so it's idle in every way that matters to the user; only the close is pending.
+            if (left != null && left <= 0) {
+                idleText(live, deaf, words)
+            } else {
+                val paused = pausedActivity ?: activity
+                RecorderText(
+                    words.paused(),
+                    when {
+                        left != null -> words.resumesWithin(paused, left)
+                        live != null -> words.pausedActivity(paused)
+                        // No countdown to hang the activity on, so it leads the detail instead — the
+                        // notification's title is just "Paused", and which activity would resume is
+                        // the useful half of that.
+                        else -> words.continuesIfYouMove(paused)
+                    },
+                )
+            }
         }
+
+        RecordCardState.WAITING_FOR_MOVEMENT -> idleText(live, deaf, words)
+
+        RecordCardState.STARTING -> RecorderText(words.starting(), null)
+
+        // Auto-record off: the card shows recorded totals instead and the service is stopping, so
+        // neither surface renders this. Present so the mapping is total rather than defaulting a live
+        // state into whichever branch happened to be last.
+        RecordCardState.STATS_ONLY -> RecorderText(words.idle(), words.nothingToRecord(null))
     }
-
-    RecordCardState.WAITING_FOR_MOVEMENT -> idleText(live, deaf)
-
-    RecordCardState.STARTING -> RecorderText("Starting…", null)
-
-    // Auto-record off: the card shows recorded totals instead and the service is stopping, so
-    // neither surface renders this. Present so the mapping is total rather than defaulting a live
-    // state into whichever branch happened to be last.
-    RecordCardState.STATS_ONLY -> RecorderText("Idle", "nothing to record")
 }
 
 /**
@@ -181,25 +212,21 @@ fun recorderText(
  * was *noticed* would read as when it began; both invite the user to reason about which trips
  * survived. It does carry the remedy, the same one the alerts notification gives for this condition.
  */
-private fun idleText(live: LiveFigures?, deaf: Boolean): RecorderText {
-    if (deaf) return RecorderText("Detection stalled", "restarting the phone usually fixes it")
+private fun idleText(live: LiveFigures?, deaf: Boolean, words: RecorderVocabulary): RecorderText {
+    if (deaf) return RecorderText(words.detectionStalled(), words.restartAdvice())
     // Non-null only with live figures, so it also stands in for "this surface shows figures".
     val quiet = live?.lastReadingAtMs?.let { live.nowMs - it }?.takeIf { it >= 60_000 }
-    return RecorderText(
-        "Idle",
-        if (quiet == null) "nothing to record" else "nothing to record for ${live.render.duration(quiet)}",
-    )
+    return RecorderText(words.idle(), words.nothingToRecord(quiet))
 }
 
-private fun recordingTitle(activity: ActivityType?): String = "Recording" + labelSuffix(activity)
-
-private fun labelSuffix(activity: ActivityType?): String =
-    activity?.let { " ${it.label.lowercase()}" } ?: ""
-
-/** "1m 40s" / "25s" — the pause card's live countdown, rounded up to whole seconds. */
-fun formatCountdown(ms: Long): String {
+/**
+ * "1m 40s" / "25s" — the pause card's live countdown, rounded up to whole seconds. The minute and
+ * second are spelled by the caller, which is where language lives; the shape of the countdown is
+ * this file's.
+ */
+fun formatCountdown(ms: Long, minute: String, second: String): String {
     val totalSec = (ms + 999) / 1000
     val m = totalSec / 60
     val s = totalSec % 60
-    return if (m > 0) "${m}m ${s}s" else "${s}s"
+    return if (m > 0) "$m$minute $s$second" else "$s$second"
 }

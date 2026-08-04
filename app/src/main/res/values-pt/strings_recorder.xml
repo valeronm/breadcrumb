@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Details stay lowercase, as in the base file: the Record card joins the title and the detail onto
+  one line, and the notification capitalizes its own copy on render.
+-->
+<resources>
+    <string name="activity_walking">A pé</string>
+    <string name="activity_running">Corrida</string>
+    <string name="activity_cycling">Bicicleta</string>
+    <string name="activity_driving">Carro</string>
+    <string name="activity_taxi">Táxi</string>
+    <string name="activity_ferry">Barco</string>
+    <string name="activity_transit">Transportes públicos</string>
+    <string name="activity_flight">Voo</string>
+    <string name="activity_still">Parado</string>
+    <string name="activity_unknown">Em movimento</string>
+    <string name="activity_other">Outro</string>
+
+    <!-- The mid-sentence word form; Portuguese lowercases these as English does. -->
+    <string name="activity_inline_walking">a pé</string>
+    <string name="activity_inline_running">corrida</string>
+    <string name="activity_inline_cycling">bicicleta</string>
+    <string name="activity_inline_driving">carro</string>
+    <string name="activity_inline_taxi">táxi</string>
+    <string name="activity_inline_ferry">barco</string>
+    <string name="activity_inline_transit">transportes públicos</string>
+    <string name="activity_inline_flight">voo</string>
+    <string name="activity_inline_still">parado</string>
+    <string name="activity_inline_unknown">em movimento</string>
+
+    <string name="recorder_recording">A gravar</string>
+    <string name="recorder_recording_activity">A gravar %1$s</string>
+    <string name="recorder_paused">Em pausa</string>
+    <string name="recorder_idle">Inativo</string>
+    <string name="recorder_detection_stalled">Deteção parada</string>
+    <string name="recorder_starting">A iniciar…</string>
+
+    <string name="recorder_track_in_progress">trajeto em curso</string>
+    <string name="recorder_no_gps">sem GPS</string>
+    <string name="recorder_no_gps_since">sem GPS desde as %1$s</string>
+    <string name="recorder_no_gps_settled">sem sinal GPS — à espera de um</string>
+    <string name="recorder_positioning">a localizar</string>
+    <string name="recorder_positioning_radius">a localizar ±%1$d m</string>
+    <string name="recorder_waiting_for_fix">à espera de sinal GPS</string>
+    <string name="recorder_resumes_within">%1$s retoma dentro de %2$s</string>
+    <string name="recorder_continues_if_you_move">%1$s continua se se mexer em breve</string>
+    <string name="recorder_nothing_to_record">nada para gravar</string>
+    <string name="recorder_nothing_to_record_for">nada para gravar há %1$s</string>
+    <string name="recorder_restart_advice">reiniciar o telemóvel costuma resolver</string>
+    <string name="recorder_generic_activity">atividade</string>
+
+    <string name="channel_tracking">Registo de GPS</string>
+    <string name="channel_tracking_description">Notificação permanente mostrada enquanto grava trajetos GPS</string>
+    <string name="channel_alerts">Problemas de gravação</string>
+    <string name="channel_alerts_description">Mostrada quando a gravação automática deixa de responder</string>
+
+    <string name="notification_stop">Parar</string>
+    <string name="notification_deaf_title">Deteção de atividade parada</string>
+    <string name="notification_deaf_text">Podem falhar viagens ou começar tarde. Reiniciar o telemóvel costuma resolver.</string>
+</resources>

@@ -1,5 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
+import android.text.format.DateFormat
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -61,6 +63,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -74,6 +77,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -84,9 +89,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.core.graphics.ColorUtils
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
+import io.github.valeronm.breadcrumb.domain.TravelLabel
 import io.github.valeronm.breadcrumb.util.DistanceSliderScale
 import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.SliderStops
@@ -199,37 +206,85 @@ internal fun Long.toLocalDate(zone: ZoneId): LocalDate =
     Instant.ofEpochMilli(this).atZone(zone).toLocalDate()
 
 /** Coarse relative day for "last seen": today / yesterday / N days ago / a date. */
+@Composable
+@ReadOnlyComposable
 internal fun relativeDay(epochMs: Long): String = relativeDay(epochMs, compact = false)
 
 /** [relativeDay] squeezed for the big stat cells, where "5 days ago" or a full date overflows:
  *  "5d ago", "29 Nov", "Nov 2025" — always one line; exact dates live in the visit history. */
+@Composable
+@ReadOnlyComposable
 internal fun relativeDayCompact(epochMs: Long): String = relativeDay(epochMs, compact = true)
 
+@Composable
+@ReadOnlyComposable
 internal fun relativeDay(epochMs: Long, compact: Boolean): String {
     val zone = ZoneId.systemDefault()
     val then = epochMs.toLocalDate(zone)
     val today = LocalDate.now(zone)
     val days = ChronoUnit.DAYS.between(then, today)
     return when {
-        days <= 0 -> "today"
-        days == 1L && !compact -> "yesterday"
-        days < 7 -> if (compact) "${days}d ago" else "$days days ago"
+        days <= 0 -> stringResource(R.string.relative_today)
+        days == 1L && !compact -> stringResource(R.string.relative_yesterday)
+        days < 7 -> pluralStringResource(
+            if (compact) R.plurals.relative_days_ago_compact else R.plurals.relative_days_ago,
+            days.toInt(),
+            days.toInt(),
+        )
         // Compact beyond a week — this renders inside stat cells and one-line row subtitles.
         then.year == today.year -> then.format(compactDayFormat)
         else -> then.format(if (compact) monthOfYearFormat else compactDayYearFormat)
     }
 }
 
-internal val compactDayFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM", it) }
+/** What heads a journey, worded: its destinations, or how many nights it ran. */
+@Composable
+@ReadOnlyComposable
+internal fun travelTitle(label: TravelLabel): String = when (label) {
+    is TravelLabel.Destinations -> label.title
+    is TravelLabel.NightsAway ->
+        pluralStringResource(R.plurals.timeline_nights_away, label.nights, label.nights)
+}
 
-internal val compactDayYearFormat by PerLocale { DateTimeFormatter.ofPattern("d MMM yyyy", it) }
+/**
+ * Title-cases a date that stands on its own — a section header, not a date inside a sentence.
+ * Portuguese and its neighbours write months and weekdays lowercase, being common nouns, and the
+ * platform capitalizes them in this position (the status bar reads "Terça, 4/08"). ICU does it from
+ * the stand-alone display context; `java.time` has no equivalent, so headers do it on the way out.
+ *
+ * Never apply this to a date inside a phrase, where the lowercase form is the correct one.
+ *
+ * Takes the current default locale, which is where [PerLocale] gets the formatter's — so the
+ * casing rule and the words it applies to can never come from two different languages.
+ */
+internal fun String.standaloneCase(): String =
+    replaceFirstChar { it.titlecase(Locale.getDefault()) }
+
+/**
+ * A pattern the *locale* chooses, from a skeleton naming only which fields it should contain. Field
+ * order and separators differ by language — day before month here, month before day there — so a
+ * literal pattern hands every language English conventions.
+ *
+ * Skeletons keep `H` rather than `j`: whether a clock reads 12- or 24-hour is a user setting, and
+ * following the locale there would be a behaviour change rather than a translation.
+ *
+ * **This reaches the Android framework**, so nothing a plain-JVM test can call may format a date.
+ * That is why the timeline's grouping returns dates and the screen renders them: a grouping that
+ * produced header *text* dragged this call into `TimelineDayGroupingTest`, where it is not mocked.
+ */
+internal fun localizedDateFormat(skeleton: String, locale: Locale): DateTimeFormatter =
+    DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, skeleton), locale)
+
+internal val compactDayFormat by PerLocale { localizedDateFormat("dMMM", it) }
+
+internal val compactDayYearFormat by PerLocale { localizedDateFormat("dMMMy", it) }
 
 /** The device-locale display name of an ISO 3166-1 alpha-2 code, empty when it resolves to
  *  nothing — each caller decides what an unresolvable country should read as. */
 internal fun countryNameOf(code: String, locale: Locale): String =
     Locale.Builder().setRegion(code).build().getDisplayCountry(locale)
 
-private val monthOfYearFormat by PerLocale { DateTimeFormatter.ofPattern("MMM yyyy", it) }
+private val monthOfYearFormat by PerLocale { localizedDateFormat("MMMy", it) }
 
 /**
  * Android-settings-style group: each row is its own card, large corners on the group's outer
@@ -339,7 +394,8 @@ internal fun SliderSetting(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     step: Int,
-    valueText: (Float) -> String,
+    /** Composable: the step's wording comes from resources, which a plain lambda cannot reach. */
+    valueText: @Composable (Float) -> String,
     onChange: (Float) -> Unit,
 ) = LabeledSlider(label, valueText(value), value, range) { raw ->
     onChange(snapToStep(raw, step, range))
@@ -352,8 +408,9 @@ internal fun rememberDistanceScale(
     feet: SliderStops,
     zeroIsOff: Boolean = false,
 ): DistanceSliderScale {
-    val units = LocalUnits.current
-    return remember(units) { units.sliderScale(metric, feet, zeroIsOff) }
+    val measures = LocalMeasures.current
+    val off = stringResource(R.string.common_off).takeIf { zeroIsOff }
+    return remember(measures, off) { measures.sliderScale(metric, feet, off) }
 }
 
 /**
@@ -402,22 +459,26 @@ private fun LabeledSlider(
     }
 }
 
+/**
+ * A settings slider's step. Spelled-out units, unlike the timeline's ladder: a slider label has
+ * room for a word where a stat cell does not.
+ */
+@Composable
+@ReadOnlyComposable
 internal fun durationSettingLabel(sec: Int): String = when {
-    sec <= 0 -> "Off"
-    sec < 60 -> "$sec s"
-    sec % 60 == 0 -> "${sec / 60} min"
-    else -> "${sec / 60}m ${sec % 60}s"
+    sec <= 0 -> stringResource(R.string.common_off)
+    sec < 60 -> stringResource(R.string.duration_seconds_step, sec)
+    sec % 60 == 0 -> stringResource(R.string.duration_minutes_step, sec / 60)
+    else -> stringResource(R.string.duration_minutes_seconds_step, sec / 60, sec % 60)
 }
 
-// Day before month, as every other date in the app reads it. The `MMM d` this replaced was the one
-// outlier, inherited from the formatter it grew out of rather than chosen.
-private val dayAndHourMinute by PerLocale { DateTimeFormatter.ofPattern("d MMM HH:mm", it) }
+private val dayAndHourMinute by PerLocale { localizedDateFormat("dMMMHm", it) }
 
 /** A date and clock time in [zone] — [timeAt]'s longer form, for a screen naming one moment. */
 internal fun dateTimeAt(epochMs: Long, zone: ZoneId): String =
     Instant.ofEpochMilli(epochMs).atZone(zone).format(dayAndHourMinute)
 
-private val hourMinute by PerLocale { DateTimeFormatter.ofPattern("HH:mm", it) }
+private val hourMinute by PerLocale { localizedDateFormat("Hm", it) }
 
 /**
  * A clock time in [zone] — **the app's only clock format**, so a change to it lands everywhere at
@@ -463,6 +524,52 @@ internal val zoneShiftColor: Color
     @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
 
 /**
+ * A resource whose placeholders take **styled** text — a clock time carrying its zone-shift marker,
+ * which is drawn rather than interpolated and so cannot be handed to [stringResource].
+ *
+ * This is what lets a line built around a drawn value stay one whole sentence. Written as a prefix
+ * and a suffix instead, the value's position is frozen at the seam between them, and every language
+ * inherits the word order of the one the fragments were written in; a translation that opens with the
+ * time, or drops the preposition entirely, has nowhere to say so. Here it moves `%1$s` and is done.
+ *
+ * Arguments bind by position, so a translation may reorder or repeat them. An [AnnotatedString] keeps
+ * its spans; anything else is appended as plain text.
+ */
+@Composable
+@ReadOnlyComposable
+internal fun annotatedStringResource(
+    @StringRes id: Int,
+    vararg args: CharSequence,
+): AnnotatedString {
+    // Formatted twice: once by the platform, which puts each mark where *this language* wants it,
+    // then once by [spliceMarks], which swaps the marks for text no format string could have carried.
+    // The marks are numbered, and delimited by a character no resource can contain.
+    val marks = Array<Any>(args.size) { "\u0000$it\u0000" }
+    return spliceMarks(stringResource(id, *marks), args)
+}
+
+/**
+ * [annotatedStringResource]'s half with no resource table behind it, so a plain-JVM test can drive
+ * it — and it is the half worth pinning: the marks are numbered precisely because a translation may
+ * reorder them, and an index read back wrongly puts the right words in the wrong places.
+ */
+internal fun spliceMarks(template: String, args: Array<out CharSequence>): AnnotatedString =
+    buildAnnotatedString {
+        var from = 0
+        SLOT_MARK.findAll(template).forEach { mark ->
+            append(template.substring(from, mark.range.first))
+            when (val arg = args[mark.groupValues[1].toInt()]) {
+                is AnnotatedString -> append(arg)
+                else -> append(arg.toString())
+            }
+            from = mark.range.last + 1
+        }
+        append(template.substring(from))
+    }
+
+private val SLOT_MARK = Regex("\u0000(\\d+)\u0000")
+
+/**
  * A clock time in [zone] with its offset from [reader] raised against it — **the one way a time
  * reaches a screen**, and therefore the whole rule: a thing that is a time is marked, and a thing
  * that is not is not.
@@ -499,6 +606,14 @@ internal fun AnnotatedString.Builder.appendDateTime(
     color: Color,
 ) = appendMarked(dateTimeAt(epochMs, zone), epochMs, zone, reader, color)
 
+/**
+ * [appendTime]'s value form, for a line assembled by [annotatedStringResource] rather than by a
+ * builder — the marked time as a thing that can be handed to a sentence, instead of a thing appended
+ * at a position the code chose.
+ */
+internal fun markedTime(epochMs: Long, zone: ZoneId, reader: ZoneId, color: Color): AnnotatedString =
+    buildAnnotatedString { appendMarked(timeAt(epochMs, zone), epochMs, zone, reader, color) }
+
 private fun AnnotatedString.Builder.appendMarked(
     text: String,
     epochMs: Long,
@@ -517,7 +632,10 @@ private fun AnnotatedString.Builder.appendMarked(
 @Composable
 internal fun BackNavIcon(onBack: () -> Unit) {
     IconButton(onClick = onBack) {
-        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowBack,
+            contentDescription = stringResource(R.string.common_back),
+        )
     }
 }
 
@@ -717,7 +835,7 @@ internal fun ConfirmDialog(
         title = { Text(title) },
         text = { Text(text) },
         confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
@@ -729,6 +847,8 @@ internal fun ConfirmDialog(
 internal class UndoSnackbar(
     private val scope: CoroutineScope,
     private val host: SnackbarHostState,
+    /** Resolved by the caller: this class outlives any composition and holds no context. */
+    private val undoLabel: String,
 ) {
     private var showing: Job? = null
 
@@ -739,7 +859,7 @@ internal class UndoSnackbar(
             // leave the snackbar parked over the nav bar until something else replaced it.
             val result = host.showSnackbar(
                 message,
-                actionLabel = "Undo",
+                actionLabel = undoLabel,
                 duration = SnackbarDuration.Long,
             )
             if (result == SnackbarResult.ActionPerformed) onUndo()
@@ -750,7 +870,8 @@ internal class UndoSnackbar(
 @Composable
 internal fun rememberUndoSnackbar(host: SnackbarHostState): UndoSnackbar {
     val scope = rememberCoroutineScope()
-    return remember(scope, host) { UndoSnackbar(scope, host) }
+    val undoLabel = stringResource(R.string.common_undo)
+    return remember(scope, host, undoLabel) { UndoSnackbar(scope, host, undoLabel) }
 }
 
 /**

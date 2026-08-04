@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.PathSensitivity
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.net.URI
 import java.security.DigestInputStream
@@ -281,6 +282,17 @@ android {
                 it.testLogging {
                     exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
                 }
+                // ResourceHygieneTest reads res/values* off the disk rather than through the
+                // resource table, and Gradle cannot see that: without this the task stays
+                // up-to-date through an XML-only edit, so the guard reports green on the one change
+                // it exists to check. **Any test that reads files off disk must declare them
+                // here** — a drawable is excluded because none does, not because none could.
+                it.inputs.files(
+                    layout.projectDirectory.dir("src/main/res").asFileTree
+                        .matching { include("values*/**/*.xml") },
+                )
+                    .withPropertyName("stringResources")
+                    .withPathSensitivity(PathSensitivity.RELATIVE)
                 qemuJavaLauncher?.let { launcher -> it.executable = launcher.path }
             }
         }

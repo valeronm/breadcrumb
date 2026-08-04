@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DiscardedScreens: Settings → Recently deleted. -->
+<resources>
+    <string name="discarded_title">Recently deleted</string>
+    <string name="discarded_title_count">Recently deleted (%1$d)</string>
+    <string name="discarded_clear_all">Clear all</string>
+    <string name="discarded_empty">No deleted tracks. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d days.</string>
+    <string name="discarded_retention">Tracks stay here for %1$d days, then are removed forever.</string>
+    <string name="discarded_restore">Restore track</string>
+    <!--
+      "excluded", not "noisy": the count covers both species — bad fixes and the recorder's overrun
+      at the edges — and what they have in common is being left out of the path.
+    -->
+    <plurals name="discarded_excluded">
+        <item quantity="one">%d excluded</item>
+        <item quantity="other">%d excluded</item>
+    </plurals>
+    <string name="discarded_clear_confirm_title">Clear Recently deleted?</string>
+    <plurals name="discarded_clear_confirm_body">
+        <item quantity="one">The one track here will be permanently deleted. This can\'t be undone.</item>
+        <item quantity="other">All %d tracks here will be permanently deleted. This can\'t be undone.</item>
+    </plurals>
+    <string name="discarded_delete_all">Delete all</string>
+
+    <!-- Why a track landed in Recently deleted. -->
+    <string name="discarded_reason_deleted">Deleted by you</string>
+    <string name="discarded_reason_filtered">Too short to keep</string>
+    <string name="discarded_reason_merged">Replaced by a merged track</string>
+    <string name="discarded_reason_trimmed">Stay split from a track</string>
+
+    <plurals name="discarded_days_left">
+        <item quantity="one">%d day left</item>
+        <item quantity="other">%d days left</item>
+    </plurals>
+    <string name="discarded_removal_due">removal due</string>
+</resources>

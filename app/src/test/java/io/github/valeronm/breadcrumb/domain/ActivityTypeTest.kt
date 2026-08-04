@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Locale
 
 class ActivityTypeTest {
 
@@ -39,12 +40,23 @@ class ActivityTypeTest {
         assertNull(ActivityType.ofName("walking")) // stored names are exact, not case-folded
     }
 
+    /**
+     * What a code *does* map to is named in the UI layer now, so only the fallback is testable
+     * here — and it is the half with a rule worth pinning: title-cased in a fixed locale, since the
+     * input is an enum name rather than language.
+     */
     @Test
-    fun `labelFor uses the label for known names and title-cases legacy ones`() {
-        assertEquals("Walking", ActivityType.labelFor("WALKING"))
-        assertEquals("Stationary", ActivityType.labelFor("STILL"))
-        assertEquals("Flight", ActivityType.labelFor("FLIGHT"))
-        assertEquals("Public transit", ActivityType.labelFor("TRANSIT"))
-        assertEquals("Hovercraft", ActivityType.labelFor("HOVERCRAFT"))
+    fun `a legacy name title-cases itself, whatever the device locale`() {
+        assertEquals("Hovercraft", ActivityType.legacyLabelFor("HOVERCRAFT"))
+        assertEquals("Driving", ActivityType.legacyLabelFor("DRIVING"))
+        val turkish = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"))
+            // A Turkish default lowercases `I` to a dotless `ı`; the fixed locale is what stops
+            // `DRIVING` reading as `Drivıng`.
+            assertEquals("Driving", ActivityType.legacyLabelFor("DRIVING"))
+        } finally {
+            Locale.setDefault(turkish)
+        }
     }
 }

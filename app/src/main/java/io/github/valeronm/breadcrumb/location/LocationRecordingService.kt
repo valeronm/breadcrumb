@@ -24,10 +24,12 @@ import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.MovementConfirmer
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
+import io.github.valeronm.breadcrumb.domain.RecordCardState
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackController
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
+import io.github.valeronm.breadcrumb.ui.recorderWords
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.hasLocationPermission
 import io.github.valeronm.breadcrumb.util.isGranted
@@ -71,6 +73,11 @@ class LocationRecordingService : Service() {
     // and the alarm that wakes it while Doze holds every coroutine timer frozen.
     private val notifications = RecorderNotifications(this)
     private val watchdogAlarm = WatchdogAlarm(this)
+
+    // Held rather than rebuilt per post: the shade is re-worded once per fix batch for the length of
+    // a drive. It caches no text — every accessor reads the resource table again — so a language
+    // change still reaches the notification already showing.
+    private val words by lazy { recorderWords(this) }
 
     // --- Liveness heartbeat (evidence for stay derivation) ---
     // A periodic "still alive" timestamp in Settings; a restart finding it stale materializes an
@@ -184,7 +191,17 @@ class LocationRecordingService : Service() {
         armedAtMs = now()
         transitionSinceArm = false
         DebugLog.i(TAG, "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)})")
-        notifications.startForeground("Idle", "Nothing to record")
+        // Armed with nothing recording is a state [recordCardState] already names, so the first
+        // notification is worded by the same call the updates use rather than paired again here —
+        // two spellings of one state is exactly what that seam exists to prevent.
+        val idle = words.recorderText(
+            state = RecordCardState.WAITING_FOR_MOVEMENT,
+            activity = null,
+            pausedActivity = null,
+            deaf = false,
+            live = null,
+        )
+        notifications.startForeground(idle.title, idle.detailLine())
         watchdogAlarm.schedule()
         TrackingStatus.update { it.copy(tracking = true) }
 
@@ -683,7 +700,7 @@ class LocationRecordingService : Service() {
         // card and another in the notification. State only — no live distance — so it re-posts only
         // when the pair below changes; a per-fix post would cost a wakelock + IPC every second.
         // `tracking` is true by construction: this is the live service, which the flag reports.
-        val text = recorderText(
+        val text = words.recorderText(
             state = recordCardState(
                 armed = Settings.isAutoRecord(this),
                 tracking = true,
