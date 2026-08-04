@@ -101,7 +101,7 @@ object PlaceResolver {
      * visit than one they can't.
      */
     private fun visitsAmong(stays: List<StayDeriver.Stay>): List<StayDeriver.Stay> =
-        stays.filter { it.end != it.start }
+        stays.filterNot { it.hasNoDuration }
 
     class ResolvedStay(
         /**

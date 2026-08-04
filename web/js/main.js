@@ -11,7 +11,7 @@ import {
 } from "./map.js";
 import {
   deriveStays, slicePerDay, interleave, resolveClusters, mapVisiblePlaces, derivationInstant,
-  PLACE_RADIUS_M,
+  hasNoDuration, PLACE_RADIUS_M,
 } from "./stays.js";
 import {
   stayMeta, gapMeta, formatTime, formatDay, formatDate, formatDistance, formatDurationMs, activityLabel,
@@ -151,7 +151,7 @@ function buildTimeline(places, liveness) {
   // there is no merging here, so every seam is a row about nothing. Dropped as the timeline is
   // built, not while rendering: the rows are addressed by index from the map and the highlight.
   timeline = interleave(tracks, slicePerDay(intervals, nowMs))
-    .filter((item) => item.kind !== "stay" || item.end !== item.start);
+    .filter((item) => item.kind !== "stay" || !hasNoDuration(item));
   return stays.length;
 }
 

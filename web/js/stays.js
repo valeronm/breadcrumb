@@ -249,6 +249,16 @@ export function reportableDurationMs(stay, nowMs) {
   return length >= REPORTABLE_DURATION_MS ? length : null;
 }
 
+/**
+ * No time in it at all — the seam two tracks sharing an instant leave behind, which is a join
+ * between them rather than a stop. The bare fact, owned here, because two readers turn it into
+ * rules of their own: no visit is counted for one, and no row is drawn for one. An ongoing stay is
+ * not one of these — no end is not an end equal to the start.
+ */
+export function hasNoDuration(stay) {
+  return stay.end === stay.start;
+}
+
 // --- liveness evidence ---------------------------------------------------------------------------
 
 function summarizeLiveness(liveness, nowMs) {
@@ -369,12 +379,10 @@ export function mapVisiblePlaces(resolved, showRareStops) {
 export function resolveClusters(stays, clusters, places) {
   const visits = new Map();
   for (const stay of stays) {
-    // A stop of no duration is not a visit: two tracks sharing an instant leave a stay with no time
-    // in it — a split's cut, or a trip entered by hand landing exactly on the absence it fills — and
-    // that is a join between two tracks rather than time spent anywhere. Not a duration floor:
-    // however brief, a stop the endpoints agree on counts. The app drops the same interval in
-    // `PlaceResolver`, and for the same reason.
-    if (stay.end === stay.start) continue;
+    // A stop of no duration is not a visit — that is a join between two tracks rather than time
+    // spent anywhere. Not a duration floor: however brief, a stop the endpoints agree on counts.
+    // The app drops the same interval in `PlaceResolver`, and for the same reason.
+    if (hasNoDuration(stay)) continue;
     visits.set(stay.clusterId, (visits.get(stay.clusterId) ?? 0) + 1);
   }
   return clusters.map((cluster, clusterId) => {

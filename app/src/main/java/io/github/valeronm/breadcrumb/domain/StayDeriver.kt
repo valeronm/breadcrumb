@@ -123,6 +123,17 @@ object StayDeriver {
          *  [nowMs] measures an ongoing stay. See [REPORTABLE_DURATION_MS]. */
         fun reportableDurationMs(nowMs: Long): Long? =
             ((end ?: nowMs) - start).takeIf { it >= REPORTABLE_DURATION_MS }
+
+        /**
+         * No time in it at all — the seam two tracks sharing an instant leave behind, which is a
+         * join between them rather than a stop. **The bare fact, owned here**, because more than one
+         * reader turns it into a rule and each asks something slightly different of it: whether a
+         * row is worth drawing ([TimelineItem.StayItem.isBareSeam]) or whether a visit happened
+         * ([PlaceResolver]). Those questions may diverge; what "no duration" means may not.
+         *
+         * An ongoing stay is not one of these: no end is not an end equal to the start.
+         */
+        val hasNoDuration: Boolean get() = end == start
     }
 
     data class Gap(
@@ -563,7 +574,7 @@ sealed interface TimelineItem {
          * the same intervals (was anyone anywhere, rather than is this row worth a line), so a seam
          * counts as no visit there whether or not a merge is offered here.
          */
-        val isBareSeam: Boolean get() = merge == null && stay.end == stay.start
+        val isBareSeam: Boolean get() = merge == null && stay.hasNoDuration
     }
 
     data class GapItem(
