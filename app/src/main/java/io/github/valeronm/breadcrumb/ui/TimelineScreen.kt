@@ -1175,8 +1175,8 @@ private fun GapCard(
         } else {
             TripDraft(
                 day = item.filedOn,
-                origin = if (holdsDeparture) draftEndOf(departure, gap.start) else null,
-                destination = if (holdsArrival) draftEndOf(arrival, gap.end) else null,
+                origin = if (holdsDeparture) draftEndOf(departure, gap.from, gap.start) else null,
+                destination = if (holdsArrival) draftEndOf(arrival, gap.to, gap.end) else null,
             )
         }
     }
@@ -1251,11 +1251,21 @@ private fun GapCard(
     }
 }
 
-/** One end of an absence as the add-trip form takes it: where the recorder left off (or came back),
- *  under the name the user gave that spot, if any — a side it never got a fix for hands over its
- *  time alone, and the form asks the map for the rest. */
-private fun draftEndOf(place: PlaceResolver.ResolvedStay?, atMs: Long) =
-    TripDraftEnd(at = place?.pin, placeName = place?.label, timeMs = atMs)
+/**
+ * One end of an absence as the add-trip form takes it, under the name the user gave that spot if any.
+ *
+ * **[at] is where the recording itself was**, not where the place holding it is pinned: this end is
+ * timed at the instant the neighbouring track began or ended, and that track's own first or last fix
+ * is where the phone demonstrably was then. A place's pin is the middle of a label — it can sit a
+ * street from the car park the recording stopped in — so drawing the entered leg from there would
+ * leave a jump between it and the path it is filling in. Falls back to the pin where the recorder
+ * had no fix at all, and to nothing where neither exists; the form asks the map for the rest.
+ */
+private fun draftEndOf(
+    place: PlaceResolver.ResolvedStay?,
+    at: StayDeriver.Endpoint?,
+    atMs: Long,
+) = TripDraftEnd(at = at ?: place?.pin, placeName = place?.label, timeMs = atMs)
 
 /** When one end of a crossing happened, on that end's own clock, its offset raised against it. */
 private fun gapEndTime(epochMs: Long, zone: ZoneId, reader: ZoneId, shiftColor: Color) =

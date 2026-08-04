@@ -140,6 +140,24 @@ class StayDeriverTest {
         assertNotEquals(gap.fromClusterId, gap.toClusterId)
         assertTrue(derivation.clusters[gap.fromClusterId!!].members.contains(home))
         assertTrue(derivation.clusters[gap.toClusterId!!].members.contains(office))
+        // And the coordinates themselves, beside the clusters they fell into: the gap runs from
+        // where the recording stopped to where it started again, which is what a trip entered to
+        // fill it runs between.
+        assertEquals(home, gap.from)
+        assertEquals(office, gap.to)
+    }
+
+    @Test fun `a side the recorder never fixed has no position either`() {
+        // The unknown-endpoint gap: nothing to hand a form, so it must not offer a coordinate it
+        // does not have — the cluster id is absent for the same reason.
+        val tracks = listOf(
+            TrackEnd(1, 60 * MIN, 120 * MIN, start = home, end = null),
+            TrackEnd(2, 180 * MIN, 240 * MIN, start = office, end = office),
+        )
+        val gap = derive(tracks).filterIsInstance<Gap>().single()
+
+        assertNull(gap.from)
+        assertEquals(office, gap.to)
     }
 
     @Test fun `endpoints exactly at the agreement radius still count as a stay`() {

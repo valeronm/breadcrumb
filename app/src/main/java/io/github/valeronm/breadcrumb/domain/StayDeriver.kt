@@ -135,6 +135,16 @@ object StayDeriver {
          *  its place for fixing. */
         val fromClusterId: Int? = null,
         val toClusterId: Int? = null,
+        /**
+         * The two positions whose disagreement *is* this gap: where the recording left off and where
+         * it picked up again, null on a side no fix was had for. The same coordinates the cluster
+         * ids above were taken from, kept beside them rather than in their place — a cluster answers
+         * "which place is this", these answer "where exactly was the phone at [start] and [end]",
+         * and a trip entered by hand to fill the gap wants the second question: its two times are
+         * these two instants, so these are where its ends were.
+         */
+        val from: Endpoint? = null,
+        val to: Endpoint? = null,
     ) : Interval
 
     /** Derivation output: the timeline intervals plus the endpoint clusters stays index into. */
@@ -193,6 +203,8 @@ object StayDeriver {
                     afterTrackId = prev.trackId,
                     fromClusterId = a?.let(clusterOf::getValue),
                     toClusterId = b?.let(clusterOf::getValue),
+                    from = a,
+                    to = b,
                 )
                 continue
             }
@@ -269,6 +281,8 @@ object StayDeriver {
                     afterTrackId = last.trackId,
                     fromClusterId = clusterOf.getValue(location),
                     toClusterId = clusterOf.getValue(b),
+                    from = location,
+                    to = b,
                 )
             }
             return Stay(

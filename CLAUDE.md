@@ -358,8 +358,12 @@ saying it is open: a gap row hands over the ends *it* speaks for and no others �
 questions its card is drawn from — so a midnight slice seam never arrives as a departure time and a
 day an absence merely passes through offers nothing at all. Each end carries an instant rather than
 a wall clock, because the zone follows from resolving the pin (which the form does after opening)
-and because a bound rounded to the pickers' minute would overlap the track it was taken from. The
-trip type is deliberately *not* defaulted: it is the one thing neither end implies. The Compose code is split one file per screen, all in the `ui` package:
+and because a bound rounded to the pickers' minute would overlap the track it was taken from. Its
+position is the **recording's own** — `StayDeriver.Gap` carries the two fixes whose disagreement made
+it a gap, and an end timed at a neighbouring track's bound is placed where that track was at that
+instant, not at the pin of the place holding it, which can sit a street away and would leave the
+entered leg jumping off the path it fills. The trip type is deliberately *not* defaulted: it is the
+one thing neither end implies. The Compose code is split one file per screen, all in the `ui` package:
 `MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in
 `RecordScreen`/`TimelineScreen`/`PlacesScreens`/`InsightsScreens`/`TrackDetailScreen`/
 `SettingsScreens`/
