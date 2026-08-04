@@ -62,6 +62,24 @@ class ResourceHygieneTest {
                 }
         }
 
+    /**
+     * Every key a folder declares, with a plural's quantities collapsed back to the one name they
+     * belong to — which is the only shape the coverage rule below can use: how many quantities a
+     * plural takes is the *language's* answer, and a rule demanding English's two would fail a
+     * language that needs one or four.
+     */
+    private fun keysIn(dir: File): Set<String> =
+        (stringsIn(dir).map { it.first } + countedIn(dir).map { it.first.substringBefore('[') })
+            .toSet()
+
+    /** Keys the base folder marks as not for translation — a product name, or bare punctuation. */
+    private fun untranslatable(dir: File): Set<String> =
+        xmlIn(dir).flatMap { file ->
+            parse(file).elementsNamed("string")
+                .filter { it.getAttribute("translatable") == "false" }
+                .map { it.getAttribute("name") }
+        }.toSet()
+
     @Test
     fun `the resource folders are where this test thinks they are`() {
         // Guards the rest of the class: a moved source root, or a parser that quietly matched
@@ -131,6 +149,26 @@ class ResourceHygieneTest {
                 check(countedIn(dir), baseCounted, counted = true)
         }
         assertEquals("placeholder mismatches", emptyList<String>(), mismatches)
+    }
+
+    /**
+     * A string with no translation falls back to English silently — the app keeps working and one
+     * line of it is simply in the wrong language, which is invisible to everyone who does not read
+     * that screen in that language. It is also the failure a *rendering* test cannot catch by
+     * itself: composed under a locale whose key is missing, a row renders the English fallback and
+     * the assertion passes.
+     *
+     * Total over the whole table, which is why it lives here rather than in a suite that composes
+     * rows: it costs a file read per language and holds for every string anyone adds later.
+     */
+    @Test
+    fun `every translatable string reaches every language that ships`() {
+        val base = File(resDir, "values")
+        val owed = keysIn(base) - untranslatable(base)
+        val missing = valuesDirs.filter { it.name != "values" }.flatMap { dir ->
+            (owed - keysIn(dir)).sorted().map { "${dir.name}/$it" }
+        }
+        assertEquals("strings with no translation", emptyList<String>(), missing)
     }
 
     /**

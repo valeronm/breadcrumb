@@ -865,7 +865,7 @@ private fun EmptyTracksState(viewModel: TrackListViewModel) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TrackRow(
+internal fun TrackRow(
     track: TrackSummary,
     shape: RoundedCornerShape,
     zone: ZoneId,
@@ -1020,7 +1020,7 @@ private fun MergeSwipeable(
 }
 
 @Composable
-private fun StayCard(
+internal fun StayCard(
     item: TimelineItem.StayItem,
     shape: RoundedCornerShape,
     named: Boolean,
@@ -1162,7 +1162,7 @@ private fun GapRow(
 }
 
 @Composable
-private fun GapCard(
+internal fun GapCard(
     item: TimelineItem.GapItem,
     shape: RoundedCornerShape,
     zone: ZoneId,

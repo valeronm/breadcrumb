@@ -357,8 +357,20 @@ dependencies {
     // Robolectric runs Room (and the SQLite it needs) on the host JVM, so the repository's
     // database rules — the denormalized track aggregates, and which writes invalidate which
     // observed query — are covered by the normal `testDebugUnitTest` run rather than needing a
-    // device. Everything above the data layer still has no automated coverage.
+    // device. It also hosts the Compose harness below; above the timeline's rows, nothing is
+    // covered automatically.
     testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("androidx.test:core:1.7.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+
+    // Compose's test harness — see `TimelineRowTest`, which explains what it buys. The BOM is
+    // repeated because `ui-test-junit4` is declared without a version.
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    // The empty activity the compose rule launches into, and it has to be `debugImplementation`:
+    // on `testImplementation` the entry does reach the unit-test merged manifest, and the rule
+    // still fails to resolve the activity — measured, not reasoned. The cost is that it lands in
+    // the debug APK, where `src/debug/AndroidManifest.xml` closes it (the library declares it
+    // exported, which is wrong for anything installed on a phone).
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

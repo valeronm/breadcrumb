@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  `ui-test-manifest` contributes the empty activity the Compose test rule launches into, and declares
+  it `exported="true"` — which is right for an instrumented run driven from another process and wrong
+  for anything installed on a phone. This build is: the debug app records around the clock alongside
+  the release one and carries the app lock, so an exported, unguarded activity is a way for any app
+  on the device to foreground Breadcrumb over whatever the user is doing. It draws nothing, so there
+  is nothing to read off it; it is closed anyway because there is no reason for it to be open.
+
+  Robolectric launches the activity in-process, where `exported` is never consulted, so the row tests
+  are unaffected.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:exported="false"
+            tools:replace="android:exported" />
+    </application>
+</manifest>

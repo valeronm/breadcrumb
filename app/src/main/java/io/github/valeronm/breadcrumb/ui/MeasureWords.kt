@@ -62,8 +62,9 @@ internal fun durationSymbols(context: Context): DurationSymbols = object : Durat
  *
  * **No default.** A readable fallback would only ever fire where the provider is missing, and there
  * it renders silently wrong — kilometres to a reader who measures in miles, English symbols in every
- * language — which is the failure this whole seam exists to make impossible. There is one provider,
- * at the root of the one composition; a composable outside it is a wiring mistake and should say so.
+ * language — which is the failure this whole seam exists to make impossible. The app provides these
+ * once, at the root of its one composition (`TimelineRowTest` provides them again around a bare row);
+ * a composable reached under neither is a wiring mistake and should say so.
  */
 internal val LocalMeasures = staticCompositionLocalOf<Measures> {
     error("no Measures provided — every composition sits under MainActivity's provider")

@@ -65,10 +65,37 @@ The recorder's own two loops are covered off the device by `FixIngestTest` and `
 asserts on the returned `Effect` list, so a case reads as the sequence the recorder should perform:
 what a stop schedules, whether a return stitches or splits, that a late-drained reading is timed by
 its own event but stamps its tracks at the wall clock, and that the deafness restart stays inside its
-five-minute floor while the detection behind it does not. There are no instrumented/UI tests:
-behavior above these two cores is verified by building and driving the app on a device/emulator
-(arming and the notification wording need only the app running; activity recognition needs real
-movement or an emulator route).
+five-minute floor while the detection behind it does not.
+
+There are no *instrumented* tests, but the timeline's rows are composed and read back off the
+semantics tree by `TimelineRowTest` (Robolectric, so it runs in the normal unit-test pass and needs
+`-PqemuJdk` on arm64 like the Room ones). It answers the one question every other suite has to take
+on trust — does *this* state put *that* resource on screen — which is where a string that is missing,
+misnamed or wired to the wrong row fails and nowhere else. Two rules make it worth having:
+**expectations are read from the resource table, never spelled in the test** (a literal `"Stayed"`
+would pin English and rot exactly as a hand-written fake does), and **a `values-pt` expectation is
+only obtainable through `translated()`, which asserts the two languages differ for that key** — a
+missing translation otherwise falls back to English, the row renders English, and the case passes.
+That guard is a function rather than a convention precisely so the next case cannot skip it.
+
+**Know what it does not cover.** It samples: three rows, a dozen cases, two Portuguese keys. Totality
+over the string table is `ResourceHygieneTest`'s job and belongs there — it is plain JVM, costs a
+file read, and holds for every string anyone adds (it now checks that every translatable English key
+reaches every language that ships, which is the failure a rendering test *cannot* catch, since a row
+composed against a missing key renders the English fallback quite happily). Prefer adding a total
+rule there over adding cases here. Enum→resource mappings need neither: they are exhaustive `when`s,
+so the compiler already refuses an unmapped entry.
+
+Two prices, both real: composing a row means it is `internal` rather than `private` (a small thing —
+this file already defaults to `internal` for cross-file symbols — but do not widen a row without
+covering it), and the harness costs ~24 s on an arm64 dev box, of which ~18 s is a one-time toll that
+further Compose classes will not pay again. `debugImplementation("ui-test-manifest")` also puts an
+empty activity in the **debug APK**; `app/src/debug/AndroidManifest.xml` closes it, since the library
+ships it exported and this debug build records around the clock.
+
+Everything above that — screens, the map, the recorder's live behaviour — is still verified by
+building and driving the app on a device/emulator (arming and the notification wording need only the
+app running; activity recognition needs real movement or an emulator route).
 
 ### Running the Room tests on arm64
 
