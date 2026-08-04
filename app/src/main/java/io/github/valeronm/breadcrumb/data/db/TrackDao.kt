@@ -167,6 +167,9 @@ interface TrackDao {
      * tracks are excluded, here and in [countTracksOverlapping]: Recently deleted is a holding pen
      * on the way out, not what the app has seen, so a span covered only by discarded rows imports.
      *
+     * Ignored fixes count here and deliberately: this asks whether a track already *holds* the
+     * file's two instants, and a file re-imported after its edges were trimmed still landed once.
+     *
      * [exceptTrackId] is the row being rewritten, whose own fixes sit in the span it is moving to and
      * are what the write replaces — a track edited in place would otherwise always collide with
      * itself. Ids are positive, so an insert passes [NO_TRACK] and excludes nothing.
@@ -187,13 +190,27 @@ interface TrackDao {
      * covered. Both ends compare strictly: tracks merely touching at one instant don't overlap, or
      * a file split into back-to-back legs would import its first leg and reject the rest.
      * [exceptTrackId] as above.
+     *
+     * **Asked of the path, so ignored fixes are not part of it** — unlike [countTracksSpanning],
+     * which asks after fixes a track *holds*. A trimmed overrun sits outside the row's own bounds:
+     * the edge-stay rule pulls `startedAt`/`endedAt` in to the first and last good fix and leaves
+     * the ignored ones where they were, on about a third of this history's tracks. Counting them
+     * would make a track overlap the very interval the timeline shows as empty beside it — and a
+     * trip entered to fill that gap is timed at exactly those bounds, so it would be refused every
+     * time.
      */
     @Query(
         """
         SELECT COUNT(*) FROM tracks t
         WHERE t.discardedAt IS NULL AND t.id != :exceptTrackId
-          AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp < :endedAt)
-          AND EXISTS (SELECT 1 FROM track_points p WHERE p.trackId = t.id AND p.timestamp > :startedAt)
+          AND EXISTS (
+            SELECT 1 FROM track_points p
+            WHERE p.trackId = t.id AND p.ignored = 0 AND p.timestamp < :endedAt
+          )
+          AND EXISTS (
+            SELECT 1 FROM track_points p
+            WHERE p.trackId = t.id AND p.ignored = 0 AND p.timestamp > :startedAt
+          )
         """,
     )
     suspend fun countTracksOverlapping(startedAt: Long, endedAt: Long, exceptTrackId: Long): Int

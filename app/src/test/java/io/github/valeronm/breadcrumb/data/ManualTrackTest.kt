@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -37,6 +38,14 @@ class ManualTrackTest {
     private fun trackIdOf(result: TrackRepository.ManualTrackResult): Long =
         (result as TrackRepository.ManualTrackResult.Saved).trackId
 
+    /** A finished minute of walking — the neighbour a typed trip is measured against. */
+    private suspend fun walkTrack(): Long {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints((0..5).map { test.point(id, it) })
+        repository.finishTrack(id, TEST_START + 60_000)
+        return id
+    }
+
     @Test fun `a manual trip lands kept, aggregates and all, despite the two-point purge floor`() = runTest {
         val id = trackIdOf(manualTrip())
 
@@ -51,14 +60,42 @@ class ManualTrackTest {
     }
 
     @Test fun `a manual trip over an existing track's span is refused`() = runTest {
-        val walk = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.addPoints((0..5).map { test.point(walk, it) })
-        repository.finishTrack(walk, TEST_START + 60_000)
+        // The half of the overlap rule that still counts: these fixes are the walk's path, and a
+        // trip claiming the same minutes would be a second one over them.
+        val walk = walkTrack()
 
         val result = manualTrip(startMs = TEST_START + 30_000L)
 
         assertTrue(result is TrackRepository.ManualTrackResult.Overlapping)
         assertEquals(listOf(walk), dao.allTrackIds())
+    }
+
+    @Test fun `a trip filling a gap is not refused by the overrun trimmed off its neighbour`() = runTest {
+        // The ordinary case, and it was refused: the edge-stay rule pulls a track's endedAt in to
+        // its last *good* fix and leaves the ignored overrun past it, on about a third of a real
+        // history's tracks. The gap the timeline draws starts at that pulled-in bound, so a trip
+        // entered to fill it starts there too — and an overlap check that counted the overrun found
+        // the neighbour sitting in the very interval it had just been trimmed out of.
+        //
+        // Stated outright rather than produced by finishing a track that lingers: what is under
+        // test is the overlap check, and a fixture built by the trimmer would answer to that rule's
+        // tuning as well as to this one.
+        val walk = walkTrack()
+        // The overrun: fixes past the row's own end, ignored, exactly as a trim leaves them.
+        val trimmedEnd = TEST_START + 30_000
+        dao.closeTrack(walk, trimmedEnd)
+        dao.setIgnored(
+            dao.allPointsFor(walk).filter { it.timestamp > trimmedEnd }.map { it.id },
+            IgnoreReason.EDGE_STAY.code,
+        )
+
+        val result = repository.insertManualTrack(
+            ActivityType.FLIGHT,
+            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.0, -2.0), trimmedEnd),
+            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), trimmedEnd + 3_600_000L),
+        )
+
+        assertTrue("the trimmed fixes are not a path to collide with", result is TrackRepository.ManualTrackResult.Saved)
     }
 
     @Test fun `a rewritten trip keeps its row and answers to the new ends alone`() = runTest {
@@ -104,9 +141,7 @@ class ManualTrackTest {
     }
 
     @Test fun `a rewrite onto another track's span is refused, and writes nothing`() = runTest {
-        val walk = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.addPoints((0..5).map { test.point(walk, it) })
-        repository.finishTrack(walk, TEST_START + 60_000)
+        walkTrack()
         val id = trackIdOf(manualTrip(startMs = TEST_START + 3_600_000L))
         val before = dao.track(id)!!
 
@@ -124,9 +159,7 @@ class ManualTrackTest {
 
     @Test fun `only a manual track may be rewritten`() = runTest {
         // Every other track's fixes are a measurement or a file's, and a rewrite replaces them.
-        val walk = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.addPoints((0..5).map { test.point(walk, it) })
-        repository.finishTrack(walk, TEST_START + 60_000)
+        val walk = walkTrack()
 
         val result = repository.updateManualTrack(
             walk,
