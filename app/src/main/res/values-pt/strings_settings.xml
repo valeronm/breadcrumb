@@ -11,11 +11,11 @@
     <string name="settings_point_quality">Qualidade dos pontos</string>
     <string name="settings_point_quality_sub">Que pontos gravados contam como bons</string>
     <string name="settings_auto_pause">Pausa automática</string>
-    <string name="settings_auto_pause_sub">Quanto tempo uma paragem mantém o trajeto aberto</string>
-    <string name="settings_gps_search">Procura de GPS</string>
-    <string name="settings_gps_search_sub">Quando deixar de procurar uma posição</string>
-    <string name="settings_track_filtering">Filtragem de trajetos</string>
-    <string name="settings_track_filtering_sub">Limites abaixo dos quais os trajetos terminados são descartados</string>
+    <string name="settings_auto_pause_sub">Quanto tempo uma paragem mantém a viagem aberta</string>
+    <string name="settings_gps_search">Posicionamento</string>
+    <string name="settings_gps_search_sub">Quando desistir e desligar o GPS</string>
+    <string name="settings_track_filtering">Filtragem de viagens</string>
+    <string name="settings_track_filtering_sub">Limites abaixo dos quais as viagens terminadas são descartadas</string>
     <string name="settings_units">Unidades</string>
     <string name="units_choice_automatic">Automático</string>
     <string name="units_choice_metric">Quilómetros</string>
@@ -35,26 +35,26 @@
     <string name="sampling_distance_between">Distância entre pontos</string>
 
     <string name="quality_description">Que pontos gravados contam como bons.</string>
-    <string name="quality_require_fix">Exigir sinal de satélite</string>
+    <string name="quality_require_fix">Exigir posicionamento por satélite</string>
     <string name="quality_require_fix_sub">Descarta posições estimadas, como num túnel.</string>
     <string name="quality_accuracy_description">Os pontos com precisão pior do que esta são marcados como ruidosos e excluídos.</string>
     <string name="quality_max_accuracy">Raio máximo de precisão</string>
 
-    <string name="pause_description">Uma paragem mais curta do que isto mantém o trajeto aberto — voltar a mexer-se continua o mesmo trajeto. Com Desligado, qualquer paragem termina o trajeto.</string>
+    <string name="pause_description">Uma paragem mais curta do que isto mantém a viagem aberta — voltar a mexer-se continua a mesma viagem. Com Desligado, qualquer paragem termina a viagem.</string>
     <string name="pause_resume_window">Janela para retomar</string>
     <string name="pause_keep_recording">Continuar a gravar em movimento</string>
     <string name="pause_keep_recording_sub">Ignora o \"parado\" enquanto a sua posição continua a mudar — para barcos, comboios e autocarros, onde está sentado mas a viagem não parou. Gasta mais bateria.</string>
 
-    <string name="gps_description">Se não chegar nenhuma posição boa durante este tempo, o GPS pausa e volta a tentar quando se mexer ou quando outra aplicação obtiver uma localização. Com Desligado, o GPS nunca deixa de procurar.</string>
+    <string name="gps_description">Se não chegar nenhuma posição boa durante este tempo, o GPS pausa e volta a tentar quando se mexer ou quando outra aplicação obtiver uma localização. Com Desligado, o GPS nunca desiste.</string>
     <string name="gps_give_up_after">Desistir ao fim de</string>
 
-    <string name="filter_description">Os trajetos abaixo destes limites passam para os eliminados recentemente quando terminam.</string>
+    <string name="filter_description">As viagens abaixo destes limites passam para as eliminadas recentemente quando terminam.</string>
     <string name="filter_min_duration">Duração mínima</string>
     <string name="filter_min_length">Comprimento mínimo</string>
-    <string name="filter_extent_description">Até onde o trajeto se afastou de onde começou — filtra o ruído de estar parado.</string>
+    <string name="filter_extent_description">Até onde a viagem se afastou de onde começou — filtra o ruído de estar parado.</string>
     <string name="filter_min_extent">Amplitude mínima</string>
 
-    <string name="privacy_description">A gravação nunca é bloqueada — os trajetos continuam a ser gravados, esteja a aplicação bloqueada ou não.</string>
+    <string name="privacy_description">A gravação nunca é bloqueada — as viagens continuam a ser gravadas, esteja a aplicação bloqueada ou não.</string>
     <string name="privacy_block_screenshots">Bloquear capturas de ecrã</string>
     <string name="privacy_block_screenshots_sub">Esconde também a pré-visualização da aplicação no alternador de apps recentes, que de outro modo mostra um mapa de onde esteve.</string>
     <string name="privacy_online_search">Pesquisa de locais online</string>
@@ -82,9 +82,9 @@
         <item quantity="other">%d trajetos exportados</item>
     </plurals>
     <string name="data_backup">Copiar tudo</string>
-    <string name="data_backup_idle">Trajetos, locais e histórico num só ficheiro</string>
+    <string name="data_backup_idle">Viagens, locais e histórico num só ficheiro</string>
     <string name="data_backup_verb">A copiar…</string>
-    <string name="data_backup_progress">A copiar o trajeto %1$d de %2$d</string>
+    <string name="data_backup_progress">A copiar a viagem %1$d de %2$d</string>
 
     <string name="logs_title">Registos (%1$d)</string>
     <string name="logs_share">Partilhar os registos</string>

@@ -4,62 +4,83 @@ One term per concept, per language. This is the record of what the app's words *
 word each language uses for them — the decisions a string file can apply but cannot explain. Use it
 two ways:
 
-- **Writing a string**: take the term from your language's file. If the concept isn't in the spine
-  below, it is either not a recurring concept (fine — write the sentence) or a new one (add it to
-  the spine and answer it in every language file).
+- **Writing a string**: take the term from your language's file. If the concept isn't listed, it is
+  either not a recurring concept (fine — write the sentence) or a new one, in which case add it to
+  [`en.md`](en.md) and answer it in every other language file.
 - **Reviewing**: read each `res/values*/strings_*.xml` against its language's file. A string using
   a rival term for a listed concept is a finding; either the string moves to the glossary's word or
-  the language file records why this spot is an exception.
+  the language file records why that string is an exception.
 
-The structure mirrors the resources: the **concept spine** below is the base (its terms are the
-English `values/` vocabulary), and each language answers it in its own file, the way `values-pt`
-answers `values/` — one file per language, named by the locale qualifier:
+**Scope is the app's own screens**: `res/values*/`, plus the `README.md` and `docs/` that describe
+them to a reader. The `web/` companion viewer is **out** — it ships no translations and is read by
+whoever runs it, so holding its handful of English strings to this costs more than it buys. Code is
+out too, identifiers and prose alike: a comment saying "detected stop" beside a row now labelled
+"Detected stay" is describing the mechanism, not addressing anyone.
 
-- [`en.md`](en.md) — English (the base language)
+## The files
+
+One per language, named by the locale qualifier:
+
+- [`en.md`](en.md) — English. **The canonical file**: it carries the concepts, what each one means,
+  and English's word for it. Every other file answers the same concepts in the same order, because
+  `values/` is what the translations are translations of.
 - [`pt.md`](pt.md) — Portuguese (European)
 
-**Adding a language = adding a file**: copy `pt.md`'s shape, answer every concept in the spine, and
-write the language's conventions and decisions. Nothing in the spine or the other files should need
-to change. A language file with fewer rows than the spine has unanswered concepts — that is what a
-review compares first.
+**Adding a language = adding a file.** Copy `en.md`, replace each term with your language's, and
+rewrite the conventions and decisions for the language you are writing. Keep the sections and their
+order — that is what lets two files be read side by side, and it is the first thing a review
+compares. A translation file records only what is *its own*: the word it chose, and the notes and
+decisions behind it. What a concept means is not restated per language; it is in `en.md` once.
 
 The *mechanics* of resource writing — whole sentences, no fragments, placeholders, plurals, inline
 vs standalone word forms — are documented in `CLAUDE.md` and in the string files' own comments, and
 are partly machine-checked by `ResourceHygieneTest`. The glossary is only about which words the
 sentences use.
 
-## Concept spine
+## Why these are the core concepts
 
-| Concept | English (base) | What it means |
-|---|---|---|
-| track | track | The recorded artifact: one continuous stretch of movement. Not the human event. |
-| trip | trip | A journey the user enters by hand: two pins, two times. |
-| journey | journey | A run of nights away from home (Insights). |
-| travel-category | Travel | The place category. |
-| place | place | The saved entity: a name, a pin, a capture radius. |
-| spot | somewhere / a spot | A generic point on the ground — deliberately *not* the entity above. |
-| stay | stay | Time spent at one place, as a timeline row (noun). The row's verb form is *stayed*. |
-| stop | stop | A halt: short stop, detected stop, rare stops. |
-| timeline | timeline | The derived day-by-day view, and its tab. |
-| recording | recording | The act and state of capturing tracks. |
-| point | point | A recorded fix as a row of the track; rejected ones are *noisy*. |
-| fix | fix | A GPS position ("GPS fix", "satellite fix"). |
-| pin | pin | A place's marked coordinate. |
-| capture-radius | capture radius | The circle around a pin that claims track ends. |
-| backup | backup | The full-app export: one file with everything. |
-| merge | merge | Combining tracks into one. A short stop a merge dissolves is *merged away*. |
-| split | split | Cutting one track into two. |
-| delete | delete | Destroying data. |
-| remove | remove | Detaching an entity (a place, a pin). |
-| clear | clear | Emptying a list (logs, Recently deleted). |
-| undo | undo | Reverting the last action. |
-| restore-backup | restore | Rebuilding everything from a backup file. |
-| restore-track | restore | Putting one track back from Recently deleted. |
-| reset | reset | Returning settings to their defaults. |
-| search-text | search | The user typing a query (places, cities). |
-| search-gps | search | The receiver looking for a position. |
-| lock | lock / unlock | The app lock. |
-| visit | visit | One track starting or ending inside a place. |
-| night-away | night away | A night not spent at home. |
-| activity | activity | The user's detected activity. Per-type words live in `strings_recorder.xml`, in standalone and inline forms. |
-| logs | logs | Diagnostic entries. The entries themselves are never translated; only the screen's chrome is. |
+The concepts and their meanings are in [`en.md`](en.md); what this section argues is why four of
+them are grouped as **Core** and the loud ones around them are not.
+
+The app is one thing: a **timeline** of where someone has been, made of **trips** and the **stays**
+that separate them, and nothing else. **Places** are core too, and are what make the rest legible —
+a stay's row is labelled by the place holding it, and a journey is defined as a run of nights away
+from a place tagged Home.
+
+**Recording is not core**, though it is the loudest thing the app does. A trip does not need it to
+exist: an imported trip and a hand-entered one never went near the recorder. So recording is one of
+the ways a trip arrives, which makes it machinery.
+
+**A track is not a kind of row** either. Whether a trip carries one — and whether the recorder, a
+GPX file or the user's own typing produced it — is a fact *about* that trip rather than what it is.
+The gap row makes this concrete: a trip we know happened, because the positions either side of it
+disagree, carrying no track whatsoever. That is why the row offers to fill it in, and why the
+form's state is a `TripDraft`.
+
+Which concept a string is reaching for follows from **what its sentence is about**:
+
+- where and when someone went → **trip**. Merging, splitting, deleting and restoring; the detail
+  screen and its type; the keep thresholds; the empty states; a trip in progress.
+- time spent somewhere, as its own row → **stay**, never *stop* or *visit*.
+- the recorded path, its points, or the file holding them → **track**.
+
+Resource *names* are not held to this, and neither is the code. `track_split_confirm` keeps its name
+while its text says *trip*, exactly as `activity_ferry` reads "Boat" — a resource name is an
+identifier, and renaming one costs every call site and buys a reader nothing. The `tracks` table and
+the `Track*` domain types stay too: the storage really is a track, and the app already separates
+permanent codes from display text everywhere else.
+
+## How the concepts are grouped
+
+Every language file carries these sections, in this order, and each concept sits under the thing it
+is *about*:
+
+- **Core** — the timeline and what it is made of.
+- **The timeline**, **A trip**, **A stay**, **A place** — what describes each core concept. A word
+  belongs to whichever one it qualifies, which is how *stop* and *visit* come to sit under `stay`
+  rather than beside it: both turn out to be a stay seen from somewhere.
+- **Actions** — every verb the app offers, together. A button label is written by looking for the
+  verb, not by working out which concept it acts on, and keeping them in one place puts the ones
+  sharing a word next to each other where a reader can check them.
+- **The app** — machinery: recording, positioning, backup, search, the app lock, the logs. None of
+  it is a thing on the timeline.

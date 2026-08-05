@@ -9,7 +9,7 @@
     <!-- Why the form will not commit -->
     <string name="addtrip_error_order">Arrival must be after departure</string>
     <string name="addtrip_error_future">Departure is in the future</string>
-    <string name="addtrip_overlaps">Overlaps an existing track</string>
+    <string name="addtrip_overlaps">Overlaps an existing trip</string>
     <string name="addtrip_gone">This trip is no longer there</string>
 
     <!-- Picking a place -->
@@ -36,8 +36,12 @@
     <string name="addtrip_departure_time_title">Departure time</string>
     <string name="addtrip_arrival_time_title">Arrival time</string>
 
-    <string name="addtrip_pin_placed">Pin placed</string>
-    <string name="addtrip_no_pin">No pin yet</string>
+    <!--
+      What a trip end is called before anything can name it. A *point*, not a pin: these two become
+      the manual trip's two stored points, and a pin is a place's — see `docs/glossary/`.
+    -->
+    <string name="addtrip_pin_placed">Point placed</string>
+    <string name="addtrip_no_pin">No point yet</string>
     <!-- The offset is rendered as "+2h" style text, the way the timeline says it. -->
     <string name="addtrip_local_clock">Times on the local clock, %1$s from yours</string>
 </resources>

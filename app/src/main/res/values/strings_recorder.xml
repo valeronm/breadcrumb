@@ -53,17 +53,21 @@
     <string name="recorder_starting">Starting…</string>
 
     <!-- Details -->
-    <string name="recorder_track_in_progress">track in progress</string>
+    <string name="recorder_track_in_progress">trip in progress</string>
     <string name="recorder_no_gps">no GPS</string>
     <string name="recorder_no_gps_since">no GPS since %1$s</string>
-    <string name="recorder_no_gps_settled">no GPS signal — waiting for one</string>
+    <!-- GPS is off rather than merely unheard (`RecordCardState.NO_GPS_SIGNAL`), so what this waits
+         for is movement, not a signal. -->
+    <string name="recorder_no_gps_settled">GPS paused — it resumes when you move</string>
     <string name="recorder_positioning">positioning</string>
     <!--
       While the accuracy gate rejects fixes, the shrinking radius is the progress indicator. The
       placeholder arrives with its unit already on it, so a reader who measures in feet is told feet.
     -->
     <string name="recorder_positioning_radius">positioning ±%1$s</string>
-    <string name="recorder_waiting_for_fix">waiting for a GPS fix</string>
+    <!-- The figure-less form of the state `recorder_positioning` reports with them: positioning is
+         under way, so this must not say anything is missing or awaited. -->
+    <string name="recorder_waiting_for_fix">finding your position</string>
     <string name="recorder_resumes_within">%1$s resumes within %2$s</string>
     <string name="recorder_continues_if_you_move">%1$s continues if you move soon</string>
     <string name="recorder_nothing_to_record">nothing to record</string>
@@ -80,8 +84,8 @@
       The two notification channels, as the *system's* settings list them — the user reads these in
       Android's own notification screens, not in this app.
     -->
-    <string name="channel_tracking">GPS tracking</string>
-    <string name="channel_tracking_description">Ongoing notification shown while recording GPS tracks</string>
+    <string name="channel_tracking">GPS recording</string>
+    <string name="channel_tracking_description">Ongoing notification shown while recording trips</string>
     <string name="channel_alerts">Recording problems</string>
     <string name="channel_alerts_description">Shown when automatic recording stops responding</string>
 

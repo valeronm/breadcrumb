@@ -1193,10 +1193,9 @@ internal fun GapCard(
         // One whole sentence per case, worded here because the Text below is not a composable scope.
         // A duration says the same thing on any clock, so the two-end case states one and is marked
         // nowhere; a half that states a real bound marks it, as every clock time on the timeline does.
-        // Three cases and no fourth: the slicer emits an absence holding both ends or a crossing
-        // half holding exactly one. The fourth is refused rather than rendered — it would have to
-        // state a clock time for an end this row does not speak for, and there is no longer a
-        // wording for "neither", that row having been the per-day middle this no longer cuts.
+        // A gap row holds at least one end: the slicer emits an absence holding both, or a
+        // crossing half holding exactly one. There is no wording for "neither" — it would have to
+        // state a clock time for an end the row does not speak for.
         val gapLine = when {
             holdsDeparture && holdsArrival -> annotatedStringResource(
                 R.string.timeline_gap_lasting,

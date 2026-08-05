@@ -1,6 +1,6 @@
 # Breadcrumb
 
-An Android app that **automatically records GPS tracks in the background** based on your detected
+An Android app that **automatically records your trips in the background** based on your detected
 activity — walking, running, cycling, or driving. Arm it once and forget it:
 it records while you move and pauses while you're still. Everything stays **on your device** — no
 account, no server — with a dark vector map, a day-by-day timeline of your trips and stays, named
@@ -23,18 +23,18 @@ offer the install yet, try again later.
 <p align="center">
   <img src="docs/screenshots/record.png" alt="Record tab with auto recording armed" width="30%">
   <img src="docs/screenshots/timeline.png" alt="Timeline of trips and stays" width="30%">
-  <img src="docs/screenshots/track-detail.png" alt="Track detail with speed-colored route" width="30%">
+  <img src="docs/screenshots/track-detail.png" alt="Trip detail with its track colored by speed" width="30%">
 </p>
 
-*Demo data — the bundled `tools/demo-data` GPX tracks imported on an emulator.*
+*Demo data — the bundled `tools/demo-data` GPX files imported on an emulator.*
 
 ## Features
 
-- **Activity-aware recording** — uses on-device activity recognition to start a track when you
-  start moving, switch tracks when your activity changes (e.g. walking → driving), and pause when
-  you're stationary. A brief stop stitches back into the same track instead of splitting it (the
+- **Activity-aware recording** — uses on-device activity recognition to start a trip when you
+  start moving, switch trips when your activity changes (e.g. walking → driving), and pause when
+  you're stationary. A brief stop stitches back into the same trip instead of splitting it (the
   resume window is configurable). Recognized modes: walking, running, cycling, and driving; a
-  recorded track can be manually reclassified afterwards, including as modes recognition never
+  recorded trip can be manually reclassified afterwards, including as modes recognition never
   reports on its own — taxi (passenger) and ferry.
 - **Truly autonomous** — flip *Auto recording* on once; it keeps working with the screen off or
   the app closed, survives reboots, and resumes after the system kills it.
@@ -46,14 +46,14 @@ offer the install yet, try again later.
 - **Places** — recurring stays cluster into places you can name (home, work, the gym). A dedicated
   Places tab shows them all on a map and as a sortable list, each with visit stats and an
   adjustable capture radius.
-- **Rich track map** — tap a track to see its route on a dark vector map, colored per point by
-  speed, elevation, GPS accuracy, or satellite count, with start/end markers, noisy-fix markers,
+- **Rich map** — tap a trip to see its track on a dark vector map, colored per point by
+  speed, elevation, GPS accuracy, or satellite count, with start/end markers, noisy-point markers,
   a metric chart, and distance / duration / average-speed stats.
 - **GPX import & export** — import `.gpx` files (via the picker, a share target, or opening a
   `.gpx` file); export a single track from its page, a whole day from the day header, or everything
   to a folder of `.gpx` files.
 - **Configurable** — tune sampling (min time / distance between points), point-quality gates, and
-  the minimum duration / length required to keep a track.
+  the minimum duration / length required to keep a trip.
 - **Material You** — follows your system light/dark theme and accent color, edge-to-edge, with
   Android predictive back.
 
@@ -68,12 +68,12 @@ offer the install yet, try again later.
   a revoked permission falls back to the in-app prompt instead of failing.
 - **GPS sampling** uses the platform `GPS_PROVIDER` by default (Play Services' fused provider is
   selectable in settings for indoor/network positioning). GPS runs only while moving.
-- Each continuous stretch of movement becomes one **Track** of **TrackPoints**, stored in
-  **Room** — related activities (walking ⇄ running) share a track, and a stop shorter than the
-  resume window stitches back into it instead of splitting. Tracks
-  that fail the configured keep-thresholds (e.g. too few points) are discarded automatically,
-  including any left dangling by a crash.
-- **Stays and places** are derived from where consecutive tracks begin and end, plus a liveness
+- Each trip is stored as one **Track** of **TrackPoints** in **Room** — the code keeps the name
+  *track* for the stored path, which is why a hand-entered trip is a Track holding only its two
+  ends. Related activities (walking ⇄ running) share one, and a stop shorter than the resume window
+  stitches back into it instead of splitting. Those failing the configured keep-thresholds (e.g.
+  too few points) are discarded automatically, including any left dangling by a crash.
+- **Stays and places** are derived from where consecutive trips begin and end, plus a liveness
   log that distinguishes real stays from gaps where the app wasn't recording. Named places persist
   and label the timeline.
 - The map is **MapLibre GL Native** on a bundled **Protomaps dark vector basemap**; the track is a
@@ -88,7 +88,7 @@ On first launch the app asks for:
 1. **Location** (precise) and **Physical activity**.
 2. **Background location** — must be set to *"Allow all the time"*. On Android 11+ this is only
    grantable from the app's system settings page, so the button opens it there.
-3. **Notifications** (Android 13+) for the ongoing tracking notification.
+3. **Notifications** (Android 13+) for the ongoing recording notification.
 4. **Ignore battery optimizations** (prompted when armed) — recommended so the OS doesn't kill
    background recording.
 
@@ -126,8 +126,8 @@ single-module.
 
 Activity recognition needs **real movement** (or a route played through an emulator's extended
 controls → Location → Routes) to fire transitions. While stationary the app shows
-*"Idle · nothing to record"*; start walking or driving and a track begins automatically. You
-can also import a `.gpx` file to populate tracks, places, and the map without moving.
+*"Idle · nothing to record"*; start walking or driving and a trip begins automatically. You
+can also import a `.gpx` file to populate trips, places, and the map without moving.
 
 ## Notes & limitations
 

@@ -27,8 +27,8 @@
 
     <string name="maps_no_app">Não há nenhuma aplicação de mapas para abrir isto</string>
 
-    <string name="share_gpx_track">Partilhar trajeto GPX</string>
-    <string name="share_gpx_tracks">Partilhar trajetos GPX</string>
+    <string name="share_gpx_track">Partilhar o trajeto</string>
+    <string name="share_gpx_tracks">Partilhar os trajetos</string>
 
     <plurals name="gpx_imported">
         <item quantity="one">%d trajeto importado</item>

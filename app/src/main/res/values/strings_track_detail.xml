@@ -1,14 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- TrackDetailScreen: one track's page, its type dialog and its split flow. -->
+<!--
+  TrackDetailScreen: one trip's page, its type dialog and its split flow. Names say `track_` while
+  the text says *trip* — `docs/glossary/README.md` has that rule. Text still saying *track* is about
+  the recorded path itself.
+-->
 <resources>
-    <string name="track_title">Track</string>
+    <string name="track_title">Trip</string>
     <string name="track_edit_trip">Edit trip</string>
-    <string name="track_change_type">Change track type</string>
-    <string name="track_share_gpx">Share GPX</string>
+    <string name="track_change_type">Change trip type</string>
+    <string name="track_share_gpx">Share track</string>
     <string name="track_too_few_points">Not enough points to draw this track on a map.</string>
     <string name="track_caption_imported">Imported</string>
     <string name="track_filter_noisy">Noisy points</string>
-    <string name="track_type_dialog_title">Track type</string>
+    <string name="track_type_dialog_title">Trip type</string>
     <string name="track_type_current">Current type</string>
 
     <string name="track_stat_avg_speed">Avg speed</string>
@@ -23,7 +27,7 @@
         <item quantity="one">%d point</item>
         <item quantity="other">%d points</item>
     </plurals>
-    <string name="track_split_explainer">Both tracks keep every fix, and the stop between them appears on the timeline. Undo puts the track back.</string>
+    <string name="track_split_explainer">Both trips keep every point, and the stay between them appears on the timeline. Undo puts the trip back.</string>
     <string name="track_split_confirm">Split</string>
     <string name="track_split_here">Split here</string>
     <string name="track_split_too_close">Too close to the end</string>
@@ -42,6 +46,7 @@
 
     <!-- Legend for the map's rejected-fix markers. The colours beside these stay literal in code. -->
     <string name="ignore_reason_jump">Speed jump</string>
-    <string name="ignore_reason_no_gnss">No satellite fix</string>
+    <!-- The word the setting that rejects these uses for them: "Drops guessed positions". -->
+    <string name="ignore_reason_no_gnss">Guessed position</string>
     <string name="ignore_reason_accuracy">Low accuracy</string>
 </resources>

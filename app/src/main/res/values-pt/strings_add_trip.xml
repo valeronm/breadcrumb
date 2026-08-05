@@ -7,7 +7,7 @@
 
     <string name="addtrip_error_order">A chegada tem de ser depois da partida</string>
     <string name="addtrip_error_future">A partida está no futuro</string>
-    <string name="addtrip_overlaps">Sobrepõe-se a um trajeto existente</string>
+    <string name="addtrip_overlaps">Sobrepõe-se a uma viagem existente</string>
     <string name="addtrip_gone">Esta viagem já não existe</string>
 
     <string name="addtrip_search_placeholder">Procurar cidades e locais</string>
@@ -26,7 +26,7 @@
     <string name="addtrip_departure_time_title">Hora de partida</string>
     <string name="addtrip_arrival_time_title">Hora de chegada</string>
 
-    <string name="addtrip_pin_placed">Pino colocado</string>
-    <string name="addtrip_no_pin">Ainda sem pino</string>
+    <string name="addtrip_pin_placed">Ponto colocado</string>
+    <string name="addtrip_no_pin">Ainda sem ponto</string>
     <string name="addtrip_local_clock">Horas no relógio local, %1$s do seu</string>
 </resources>

@@ -8,8 +8,8 @@ Release notes are for testers/users, not developers. Describe what people will
 **see** or **feel** in the app — never internals (services, receivers,
 broadcasts, wakelocks, refactorings, build/tooling changes).
 
-- ✅ "Stops during a track are now highlighted on the track map"
-- ✅ "Fixed cases where tracking could fail to start or stop on its own"
+- ✅ "Stops during a trip are now highlighted on its map"
+- ✅ "Fixed cases where recording could fail to start or stop on its own"
 - ❌ "Close goAsync lifecycle gaps in transition delivery"
 - ❌ "Derive versionName from git"
 
@@ -26,8 +26,8 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
    Plain language, no commit references, no jargon. One line per bullet —
    state the change and stop; cut qualifiers, parentheticals, and trailing
    explanations ("— existing ones are cleaned up on first launch").
-   - ✅ "Empty tracks are deleted right away, not left in Recently deleted"
-   - ❌ "Truly empty tracks are now deleted immediately instead of piling up
+   - ✅ "Empty trips are deleted right away, not left in Recently deleted"
+   - ❌ "Truly empty trips are now deleted immediately instead of piling up
      in Recently deleted — existing ones are cleaned up on first launch"
 
    Three faults keep recurring, all of them caught in review rather than in
@@ -35,7 +35,9 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
 
    **Call the thing what the app calls it.** A bullet that *describes* a screen
    element instead of naming it was written from the code; the reader can only
-   match the note to what they see if both use the same word.
+   match the note to what they see if both use the same word. Which word that is
+   comes from `docs/glossary/` — a note saying *track* where the screens say
+   *trip* is the same fault wearing a different hat.
    - ✅ "Detected stops are named after their city"
    - ❌ "Stops you never named show the city they are in"
 
@@ -47,8 +49,8 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
    **One change per bullet.** An "and" joining two unrelated changes reads as
    neither. Usually the answer is not to split it but to drop the lesser half —
    if it didn't earn its own bullet, it doesn't earn half of one.
-   - ✅ "The track map breaks the line where recording paused"
-   - ❌ "A track's screen says where its fixes came from and where recording
+   - ✅ "A trip's map breaks the line where recording paused"
+   - ❌ "A trip's screen says where its fixes came from and where recording
      stopped watching"
 4. Keep it under Play's **500 characters per language**. 2–4 bullets is the
    sweet spot; if there are more, the release is probably overdue anyway.

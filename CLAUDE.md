@@ -78,7 +78,8 @@ only obtainable through `translated()`, which asserts the two languages differ f
 missing translation otherwise falls back to English, the row renders English, and the case passes.
 That guard is a function rather than a convention precisely so the next case cannot skip it.
 
-**Know what it does not cover.** It samples: three rows, a dozen cases, two Portuguese keys. Totality
+**Know what it does not cover.** It samples — a few rows, some of their cases, a scattering of
+Portuguese keys. Totality
 over the string table is `ResourceHygieneTest`'s job and belongs there — it is plain JVM, costs a
 file read, and holds for every string anyone adds (it now checks that every translatable English key
 reaches every language that ships, which is the failure a rendering test *cannot* catch, since a row
@@ -315,7 +316,7 @@ The vocabulary is a closed set of permanent codes stored raw and mapped in the d
 (`Place.placeCategory`, following the `activityType` / `IgnoreReason.code` precedent), with untagged
 a first-class state rather than an `Other`; three categories stay out of the timeline's per-day
 totals (`dayCategoryTotals`). Every entry owes a glyph (`ui/CategoryIcons`, where an `ImageVector`
-can live and the domain package can't) and a `PlaceCategoryGroup` — the coarse five the **colour
+can live and the domain package can't) and a `PlaceCategoryGroup` — the coarse grouping the **colour
 coding** reads. `ui/Components.kt` holds both categorical palettes and the rule separating them by
 surface; the web viewer instead colours per activity throughout, its map drawing overlapping *lines*
 with no glyph to tell them apart.
@@ -349,9 +350,9 @@ inserts the row — the recorder in `startTrack`, the GPX import, the add-trip f
 and merge/split handing it on to the rows they create. `TrackOrigin.inferFrom` reconstructs it only
 where no declaration exists: the v15 migration's SQL fill, and a backup file carrying no `source`
 key (a source-less manual track reads as imported there — a path, not a measurement, which is the
-honest half of the truth). Three codes and no fourth — `TrackMerge.plan` refuses a merge across
-writers rather than inventing a "mixed" one, which also keeps typed endpoints from being absorbed
-into measured fixes. Besides that refusal it is read by `availableColorModes` (`ui/TrackColoring`),
+honest half of the truth). **No "mixed" writer exists** — `TrackMerge.plan` refuses a merge across
+writers rather than inventing one, which also keeps typed endpoints from being absorbed into
+measured fixes. Besides that refusal it is read by `availableColorModes` (`ui/TrackColoring`),
 which drops the colour metrics an import or a manual entry can't carry. Manual tracks bypass the
 keep thresholds like imports do — `KeepRule`'s two-point purge floor would otherwise delete every
 one on arrival — and their two points are stamped exactly at the row's bounds so the edge-stay
@@ -459,6 +460,10 @@ cross-checks it.
   on it. Fixtures sit at a **neutral origin** and should stay there: the domain tests build meter
   offsets off latitude 1.0, the data-layer ones off latitude 1.0 / longitude −2.0. Real coordinates
   in a fixture leak a region even when no trip is named.
+- **Don't count a set that can grow** — in comments, KDoc, `docs/` or this file. "The three codes",
+  "the two rows below": a number in prose is a claim nothing checks, and it rots the first time an
+  entry is added or removed. Either describe the set without counting it, or name every member — so
+  a change cannot leave the sentence silently wrong.
 - **Activity recognition needs Google Play Services**, so this is intentionally not a FOSS/F-Droid
   build. A continuous foreground service + persistent notification is mandatory for background location
   — there is no "invisible" mode.
@@ -481,11 +486,11 @@ cross-checks it.
   is what keeps those suites on a plain JVM, and it is why they are interfaces rather than
   formatters: the rounding, the duration ladder's rungs and the recorder's phrasing are this app's
   decisions, and a measure/date formatter would re-decide them.
-- **Each recurring concept has one word per language, recorded in `docs/glossary/`** — a concept
-  spine in its README plus one file per language holding the canonical terms (track = *trajeto*,
-  place = *local*, fix = *sinal*, …), the language's style conventions, and the decisions behind
-  them. Write new strings from it, review string changes against it, and record a new term or
-  exception in it rather than deciding silently; the README says how a new language is added.
+- **Each recurring concept has one word per language, recorded in `docs/glossary/`** — `en.md` is the
+  canonical file and every other language answers it (trip = *viagem*, place = *local*, positioning
+  = *localizar*, …). Write new strings from it, review string changes against it, and record a new
+  term or exception in it rather than deciding silently; its README carries the structure, the
+  grouping and how a language is added.
 - **Never assemble a sentence from parts.** No `"$verb $noun N of M"`, no `if (n == 1) "visit" else
   "visits"`, no lowercasing a noun to slot it mid-sentence — word order, agreement and case are the
   language's, not the caller's. One whole phrase per case, and `<plurals>` for anything counted.

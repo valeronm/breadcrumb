@@ -2,17 +2,17 @@
 <!-- TimelineScreen: the Timeline tab's day headings and rows. -->
 <resources>
     <!-- Empty state and backup restore -->
-    <string name="timeline_empty">No tracks yet. They appear here once recording captures some movement.</string>
+    <string name="timeline_empty">No trips yet. They appear here once recording captures some movement.</string>
     <string name="timeline_restoring">Restoring your backup — the timeline will appear when it finishes.</string>
     <string name="timeline_restore_button">Restore from backup</string>
     <string name="timeline_restore_failed">Restore failed — not a Breadcrumb backup?</string>
-    <string name="timeline_restored">Restored %1$d tracks and %2$d places</string>
-    <string name="timeline_restoring_count">Restoring… %1$d tracks</string>
-    <string name="timeline_restoring_count_of">Restoring… %1$d of %2$d tracks</string>
+    <string name="timeline_restored">Restored %1$d trips and %2$d places</string>
+    <string name="timeline_restoring_count">Restoring… %1$d trips</string>
+    <string name="timeline_restoring_count_of">Restoring… %1$d of %2$d trips</string>
 
     <!-- The re-derivation sweeps. "Updating", not "Trimming": a sweep re-derives either way. -->
     <string name="timeline_sweep_edge_stays">Updating recording overruns</string>
-    <string name="timeline_sweep_stats">Updating track distances</string>
+    <string name="timeline_sweep_stats">Updating trip distances</string>
 
     <!--
       What heads a journey the naming pass found no place for — the bare fact of having been away.
@@ -28,9 +28,9 @@
     <string name="timeline_away_day">· Day %1$d of %2$d away</string>
     <string name="timeline_share_day">Share %1$s tracks</string>
     <string name="timeline_scroll_to_day">Scroll to a day</string>
-    <string name="timeline_merge">Merge tracks</string>
-    <string name="timeline_undo_merged">Tracks merged</string>
-    <string name="timeline_undo_deleted">Track deleted</string>
+    <string name="timeline_merge">Merge trips</string>
+    <string name="timeline_undo_merged">Trips merged</string>
+    <string name="timeline_undo_deleted">Trip deleted</string>
 
     <!--
       Stay rows. The clock time is drawn rather than interpolated — it carries its own colour marks

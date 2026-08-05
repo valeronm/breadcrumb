@@ -30,7 +30,7 @@
     <string name="place_category_more">Mais</string>
     <string name="place_stay">Permanência</string>
 
-    <string name="place_detected_stop">Paragem detetada</string>
+    <string name="place_detected_stop">Permanência detetada</string>
     <string name="place_no_visits">Ainda sem visitas</string>
     <string name="place_last_visit">última visita %1$s</string>
     <plurals name="place_visits">
@@ -48,12 +48,12 @@
     <string name="places_sort_recent">Recentes</string>
     <string name="places_sort_most_visits">Visitas</string>
     <string name="places_sort_time_spent">Tempo</string>
-    <string name="places_rare_stops">Paragens raras</string>
+    <string name="places_rare_stops">Pouco visitados</string>
 
     <string name="places_empty">Ainda sem locais. Aparecem aqui assim que a gravação encontrar sítios onde parou.</string>
-    <string name="places_all_rare">Todos os locais aqui são paragens raras. Ative %1$s para os ver.</string>
+    <string name="places_all_rare">Todos os locais aqui são pouco visitados. Ative %1$s para os ver.</string>
     <string name="places_no_match">Nenhum local corresponde a \"%1$s\".</string>
-    <string name="places_no_visits_detail">Ainda sem visitas. Aparecem aqui quando um trajeto começa ou acaba dentro deste local.</string>
+    <string name="places_no_visits_detail">Ainda sem visitas. Aparecem aqui assim que a gravação detetar que ficou dentro deste local.</string>
 
     <string name="places_search_placeholder">Procurar locais</string>
     <string name="places_clear_search">Limpar a pesquisa</string>

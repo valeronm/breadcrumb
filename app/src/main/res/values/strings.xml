@@ -43,9 +43,10 @@
     <!-- Handing a coordinate to the device's maps app, when the device turns out to have none. -->
     <string name="maps_no_app">No maps app to open this in</string>
 
-    <!-- Share sheet titles, raised from two screens. -->
-    <string name="share_gpx_track">Share GPX track</string>
-    <string name="share_gpx_tracks">Share GPX tracks</string>
+    <!-- Share sheet titles, raised from the trip page and the day header. What leaves the app is a
+         track; the format is not named here — see `docs/glossary/en.md`. -->
+    <string name="share_gpx_track">Share track</string>
+    <string name="share_gpx_tracks">Share tracks</string>
 
     <!-- GPX import result, joined with " · ". Shown from Settings and from an "open with". -->
     <plurals name="gpx_imported">

@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Privacy: the app-lock screen and the system biometric prompt it raises. The prompt covers the
-  lock screen entirely, so whatever the screen says about work being held back is repeated there.
+  screen entirely, so the two must not say the same thing, and neither says the app is locked —
+  `docs/glossary/en.md` has the rule.
 -->
 <resources>
-    <string name="lock_screen_title">Breadcrumb is locked</string>
+    <string name="lock_screen_title">Your history is private</string>
     <string name="lock_screen_unlock">Unlock</string>
     <string name="lock_prompt_title">Unlock Breadcrumb</string>
-    <string name="lock_prompt_subtitle">Your location history is locked</string>
+    <string name="lock_prompt_subtitle">Only you can open it</string>
     <plurals name="lock_pending_imports">
-        <item quantity="one">A GPX file is waiting to be imported.</item>
-        <item quantity="other">%d GPX files are waiting to be imported.</item>
+        <item quantity="one">A track file is waiting to be imported.</item>
+        <item quantity="other">%d track files are waiting to be imported.</item>
     </plurals>
 </resources>

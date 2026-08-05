@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="timeline_empty">Ainda sem trajetos. Aparecem aqui assim que a gravação captar algum movimento.</string>
+    <string name="timeline_empty">Ainda sem viagens. Aparecem aqui assim que a gravação captar algum movimento.</string>
     <string name="timeline_restoring">A restaurar a cópia de segurança — a cronologia aparece quando terminar.</string>
     <string name="timeline_restore_button">Restaurar de uma cópia</string>
     <string name="timeline_restore_failed">Falha ao restaurar — não é uma cópia do Breadcrumb?</string>
-    <string name="timeline_restored">Restaurados %1$d trajetos e %2$d locais</string>
-    <string name="timeline_restoring_count">A restaurar… %1$d trajetos</string>
-    <string name="timeline_restoring_count_of">A restaurar… %1$d de %2$d trajetos</string>
+    <string name="timeline_restored">Restauradas %1$d viagens e %2$d locais</string>
+    <string name="timeline_restoring_count">A restaurar… %1$d viagens</string>
+    <string name="timeline_restoring_count_of">A restaurar… %1$d de %2$d viagens</string>
 
     <string name="timeline_sweep_edge_stays">A atualizar as sobras de gravação</string>
-    <string name="timeline_sweep_stats">A atualizar as distâncias dos trajetos</string>
+    <string name="timeline_sweep_stats">A atualizar as distâncias das viagens</string>
 
     <plurals name="timeline_nights_away">
         <item quantity="one">%d noite fora</item>
@@ -20,9 +20,9 @@
     <string name="timeline_away_day">· Dia %1$d de %2$d fora</string>
     <string name="timeline_share_day">Partilhar os trajetos de %1$s</string>
     <string name="timeline_scroll_to_day">Ir para um dia</string>
-    <string name="timeline_merge">Juntar trajetos</string>
-    <string name="timeline_undo_merged">Trajetos juntados</string>
-    <string name="timeline_undo_deleted">Trajeto eliminado</string>
+    <string name="timeline_merge">Juntar viagens</string>
+    <string name="timeline_undo_merged">Viagens juntadas</string>
+    <string name="timeline_undo_deleted">Viagem eliminada</string>
 
     <string name="timeline_all_day">Todo o dia</string>
     <string name="timeline_stay_since">%1$s – agora</string>

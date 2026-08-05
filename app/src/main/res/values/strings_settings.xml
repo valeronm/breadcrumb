@@ -13,11 +13,12 @@
     <string name="settings_point_quality">Point quality</string>
     <string name="settings_point_quality_sub">Which recorded points count as good</string>
     <string name="settings_auto_pause">Auto-pause</string>
-    <string name="settings_auto_pause_sub">How long a stop keeps the track open</string>
-    <string name="settings_gps_search">GPS search</string>
-    <string name="settings_gps_search_sub">When to stop looking for a position</string>
-    <string name="settings_track_filtering">Track filtering</string>
-    <string name="settings_track_filtering_sub">Limits below which finished tracks are discarded</string>
+    <string name="settings_auto_pause_sub">How long a stop keeps the trip open</string>
+    <!-- Not "GPS positioning": the P already is. -->
+    <string name="settings_gps_search">Positioning</string>
+    <string name="settings_gps_search_sub">When to give up and switch GPS off</string>
+    <string name="settings_track_filtering">Trip filtering</string>
+    <string name="settings_track_filtering_sub">Limits below which finished trips are discarded</string>
     <string name="settings_units">Units</string>
     <!-- The unit-system choices. "Automatic" reads the device country, not the language. -->
     <string name="units_choice_automatic">Automatic</string>
@@ -41,30 +42,30 @@
 
     <!-- Point quality -->
     <string name="quality_description">Which recorded points count as good.</string>
-    <string name="quality_require_fix">Require satellite fix</string>
+    <string name="quality_require_fix">Require satellite positioning</string>
     <string name="quality_require_fix_sub">Drops guessed positions, like in a tunnel.</string>
     <string name="quality_accuracy_description">Points less accurate than this are marked noisy and excluded.</string>
     <string name="quality_max_accuracy">Max accuracy radius</string>
 
     <!-- Auto-pause -->
-    <string name="pause_description">A stop shorter than this keeps the track open — moving again continues the same track. When set to Off, every stop ends the track.</string>
+    <string name="pause_description">A stop shorter than this keeps the trip open — moving again continues the same trip. When set to Off, every stop ends the trip.</string>
     <string name="pause_resume_window">Resume window</string>
     <string name="pause_keep_recording">Keep recording while moving</string>
-    <string name="pause_keep_recording_sub">Ignores \"stopped\" while your position keeps changing — for ferries, trains and buses, where you sit still but the journey doesn\'t. Uses more battery.</string>
+    <string name="pause_keep_recording_sub">Ignores \"stopped\" while your position keeps changing — for ferries, trains and buses, where you sit still but the trip doesn\'t. Uses more battery.</string>
 
     <!-- GPS search -->
-    <string name="gps_description">If no good position arrives for this long, GPS pauses and retries when you move or another app gets a location. When set to Off, GPS never stops searching.</string>
+    <string name="gps_description">If no good position arrives for this long, GPS pauses and retries when you move or another app gets a location. When set to Off, GPS never gives up.</string>
     <string name="gps_give_up_after">Give up after</string>
 
     <!-- Track filtering -->
-    <string name="filter_description">Tracks under these limits are moved to Recently deleted when they finish.</string>
+    <string name="filter_description">Trips under these limits are moved to Recently deleted when they finish.</string>
     <string name="filter_min_duration">Min duration</string>
     <string name="filter_min_length">Min length</string>
-    <string name="filter_extent_description">How far the track spread from where it started — filters out standing-still noise.</string>
+    <string name="filter_extent_description">How far the trip spread from where it started — filters out standing-still noise.</string>
     <string name="filter_min_extent">Min extent</string>
 
     <!-- Privacy and app lock -->
-    <string name="privacy_description">Recording is never locked — tracks keep being recorded whether or not the app is.</string>
+    <string name="privacy_description">Recording is never locked — trips keep being recorded whether or not the app is.</string>
     <string name="privacy_block_screenshots">Block screenshots</string>
     <string name="privacy_block_screenshots_sub">Also hides the app\'s preview in the recent-apps switcher, which otherwise shows a map of where you were.</string>
     <string name="privacy_online_search">Online place search</string>
@@ -80,7 +81,12 @@
     <!-- Wraps a duration from the ladder, which is still English until the ICU pass. -->
     <string name="lock_after">After %1$s</string>
 
-    <!-- Import / export / backup -->
+    <!--
+      Import / export say *track* where the rest of the app says *trip*, and name GPX where nothing
+      else does: both follow from these rows being about the file, not the journey — the reader has
+      to recognise one by its extension. A backup is the history itself, so it says trip.
+      `docs/glossary/en.md` has both rules.
+    -->
     <string name="data_import_tracks">Import tracks</string>
     <string name="data_import_idle">GPX files; points need timestamps</string>
     <string name="data_importing">Importing file %1$d of %2$d · %3$d tracks so far</string>
@@ -98,9 +104,9 @@
         <item quantity="other">Exported %d tracks</item>
     </plurals>
     <string name="data_backup">Back up everything</string>
-    <string name="data_backup_idle">Tracks, places and history as one file</string>
+    <string name="data_backup_idle">Trips, places and history as one file</string>
     <string name="data_backup_verb">Backing up…</string>
-    <string name="data_backup_progress">Backing up track %1$d of %2$d</string>
+    <string name="data_backup_progress">Backing up trip %1$d of %2$d</string>
 
     <!-- Logs. The chrome translates; the entries it frames never do — see CLAUDE.md. -->
     <string name="logs_title">Logs (%1$d)</string>

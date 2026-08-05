@@ -35,13 +35,13 @@
     <string name="recorder_detection_stalled">Deteção parada</string>
     <string name="recorder_starting">A iniciar…</string>
 
-    <string name="recorder_track_in_progress">trajeto em curso</string>
+    <string name="recorder_track_in_progress">viagem em curso</string>
     <string name="recorder_no_gps">sem GPS</string>
     <string name="recorder_no_gps_since">sem GPS desde as %1$s</string>
-    <string name="recorder_no_gps_settled">sem sinal GPS — à espera de um</string>
+    <string name="recorder_no_gps_settled">GPS em pausa — retoma quando se mexer</string>
     <string name="recorder_positioning">a localizar</string>
     <string name="recorder_positioning_radius">a localizar ±%1$s</string>
-    <string name="recorder_waiting_for_fix">à espera de sinal GPS</string>
+    <string name="recorder_waiting_for_fix">a localizar a sua posição</string>
     <string name="recorder_resumes_within">%1$s retoma dentro de %2$s</string>
     <string name="recorder_continues_if_you_move">%1$s continua se se mexer em breve</string>
     <string name="recorder_nothing_to_record">nada para gravar</string>
@@ -50,7 +50,7 @@
     <string name="recorder_generic_activity">atividade</string>
 
     <string name="channel_tracking">Gravação de GPS</string>
-    <string name="channel_tracking_description">Notificação permanente mostrada enquanto grava trajetos GPS</string>
+    <string name="channel_tracking_description">Notificação permanente mostrada enquanto grava viagens</string>
     <string name="channel_alerts">Problemas de gravação</string>
     <string name="channel_alerts_description">Mostrada quando a gravação automática deixa de responder</string>
 
