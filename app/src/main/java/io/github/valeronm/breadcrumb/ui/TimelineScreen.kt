@@ -887,6 +887,7 @@ internal fun TrackRow(
         // times then no longer span the duration beside them, which is why each carries its own
         // offset: read together they say the drive lost an hour to the border, which is the truth.
         val shiftColor = zoneShiftColor
+        val readerClock = LocalReaderClock.current
         ListRowCard(
             // Long-press replays the track, which Card's own onClick can't express.
             modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
@@ -901,10 +902,10 @@ internal fun TrackRow(
             // Worded before the builder, which is not a composable scope.
             subtitle = durationText(track.startedAt, track.endedAt).let { length ->
                 buildAnnotatedString {
-                    appendTime(track.startedAt, zone, reader, shiftColor)
+                    appendTime(track.startedAt, zone, reader, shiftColor, readerClock)
                     track.endedAt?.let { endedAt ->
                         append(" – ")
-                        appendTime(endedAt, endZone ?: zone, reader, shiftColor)
+                        appendTime(endedAt, endZone ?: zone, reader, shiftColor, readerClock)
                     }
                     append(" · $length")
                 }
@@ -1059,7 +1060,8 @@ internal fun StayCard(
         ?.let { durationText(it) }
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
-    fun marked(atMs: Long) = markedTime(atMs, zone, reader, shiftColor)
+    val readerClock = LocalReaderClock.current
+    fun marked(atMs: Long) = markedTime(atMs, zone, reader, shiftColor, readerClock)
     // Whichever bounds the row states, marked, spliced into a whole sentence — so the wording around
     // a time is the language's to arrange, not this `when`'s. Each bound is formatted inside the
     // branch that states it: most branches state one, and a row that names no clock time formats none.
@@ -1172,9 +1174,11 @@ internal fun GapCard(
     // Both ends on one row only where a hop landed on the day it left; each then needs its own
     // clock, since the line between them can carry only one.
     val shiftColor = zoneShiftColor
-    val arrivalAt = if (item.spansClocks) markedTime(gap.end, zone, reader, shiftColor) else null
+    val readerClock = LocalReaderClock.current
+    val arrivalAt =
+        if (item.spansClocks) markedTime(gap.end, zone, reader, shiftColor, readerClock) else null
     val departureAt = item.departureZone?.takeIf { item.spansClocks }
-        ?.let { markedTime(gap.start, it, reader, shiftColor) }
+        ?.let { markedTime(gap.start, it, reader, shiftColor, readerClock) }
     // The trip this absence is missing, as far as this row can state it — the same two questions
     // again, so an end the card doesn't name is an end the form isn't handed. A bound the slicer
     // clamped to midnight is not a departure, and the place on the far side of a three-day absence
@@ -1204,11 +1208,11 @@ internal fun GapCard(
             )
             holdsDeparture -> annotatedStringResource(
                 R.string.timeline_gap_from,
-                markedTime(gap.start, zone, reader, shiftColor),
+                markedTime(gap.start, zone, reader, shiftColor, readerClock),
             )
             holdsArrival -> annotatedStringResource(
                 R.string.timeline_gap_until,
-                markedTime(gap.end, zone, reader, shiftColor),
+                markedTime(gap.end, zone, reader, shiftColor, readerClock),
             )
             else -> AnnotatedString(stringResource(R.string.timeline_gap_all_day))
         }

@@ -129,9 +129,11 @@ class MainActivity : FragmentActivity() {
                 // two choices that resolve alike (Automatic and Metric here) must not redo that walk.
                 // The symbols need no key — they resolve each string from the context as it is asked.
                 val measures = remember(context, system) { measuresOf(context, system) }
+                val readerClock = rememberReaderClock()
                 CompositionLocalProvider(
                     LocalMeasures provides measures,
                     LocalDurationSymbols provides durations,
+                    LocalReaderClock provides readerClock,
                 ) {
                     PrivacyGate(waitingImports = pendingGpxImport.value?.size ?: 0) {
                         MainScreen(pendingGpxImport, unitChoice) {

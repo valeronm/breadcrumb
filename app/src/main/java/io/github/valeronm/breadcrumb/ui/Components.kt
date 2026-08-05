@@ -102,7 +102,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -265,8 +264,8 @@ internal fun String.standaloneCase(): String =
  * order and separators differ by language — day before month here, month before day there — so a
  * literal pattern hands every language English conventions.
  *
- * Skeletons keep `H` rather than `j`: whether a clock reads 12- or 24-hour is a user setting, and
- * following the locale there would be a behaviour change rather than a translation.
+ * A skeleton naming an hour picks `H` or `h` explicitly rather than `j` — see [ReaderClock], which
+ * is the only code here that formats one, and which says why the locale is the wrong authority.
  *
  * **This reaches the Android framework**, so nothing a plain-JVM test can call may format a date.
  * That is why the timeline's grouping returns dates and the screen renders them: a grouping that
@@ -472,27 +471,6 @@ internal fun durationSettingLabel(sec: Int): String = when {
     else -> stringResource(R.string.duration_minutes_seconds_step, sec / 60, sec % 60)
 }
 
-private val dayAndHourMinute by PerLocale { localizedDateFormat("dMMMHm", it) }
-
-/** A date and clock time in [zone] — [timeAt]'s longer form, for a screen naming one moment. */
-internal fun dateTimeAt(epochMs: Long, zone: ZoneId): String =
-    Instant.ofEpochMilli(epochMs).atZone(zone).format(dayAndHourMinute)
-
-private val hourMinute by PerLocale { localizedDateFormat("Hm", it) }
-
-/**
- * A clock time in [zone] — **the app's only clock format**, so a change to it lands everywhere at
- * once, and [dateTimeAt] is the only date-and-time one.
- *
- * Deliberately not a shared [SimpleDateFormat] with a zone set on it, which is what this replaced:
- * that class carries a mutable calendar, so one instance retimed per row is a data race between two
- * rows in different zones and a wrong time in whichever loses. [DateTimeFormatter] is immutable,
- * which is what makes one instance safe across rows that disagree about the clock. Callers with no
- * place behind them pass the device's zone and read exactly as before.
- */
-internal fun timeAt(epochMs: Long, zone: ZoneId): String =
-    Instant.ofEpochMilli(epochMs).atZone(zone).format(hourMinute)
-
 /**
  * How far [zone]'s clock sat from the reader's own at [epochMs] — `+8h`, `-5h30` — or null when
  * they agree and there is nothing to say.
@@ -596,23 +574,35 @@ internal fun AnnotatedString.Builder.appendTime(
     zone: ZoneId,
     reader: ZoneId,
     color: Color,
-) = appendMarked(timeAt(epochMs, zone), epochMs, zone, reader, color)
+    readerClock: ReaderClock,
+) = appendMarked(readerClock.time(epochMs, zone), epochMs, zone, reader, color)
 
-/** [appendTime]'s longer form, for a screen naming one moment — see [dateTimeAt]. */
+/** [appendTime]'s longer form, for a screen naming one moment — see [ReaderClock.dateTime]. */
 internal fun AnnotatedString.Builder.appendDateTime(
     epochMs: Long,
     zone: ZoneId,
     reader: ZoneId,
     color: Color,
-) = appendMarked(dateTimeAt(epochMs, zone), epochMs, zone, reader, color)
+    readerClock: ReaderClock,
+) = appendMarked(readerClock.dateTime(epochMs, zone), epochMs, zone, reader, color)
 
 /**
  * [appendTime]'s value form, for a line assembled by [annotatedStringResource] rather than by a
  * builder — the marked time as a thing that can be handed to a sentence, instead of a thing appended
  * at a position the code chose.
+ *
+ * Unlike [appendTime] this one owns its builder, so it *could* read [LocalReaderClock] itself. It
+ * stays non-composable so that the three of them keep one calling convention — and so a caller
+ * assembling a line inside `remember` can still reach it.
  */
-internal fun markedTime(epochMs: Long, zone: ZoneId, reader: ZoneId, color: Color): AnnotatedString =
-    buildAnnotatedString { appendMarked(timeAt(epochMs, zone), epochMs, zone, reader, color) }
+internal fun markedTime(
+    epochMs: Long,
+    zone: ZoneId,
+    reader: ZoneId,
+    color: Color,
+    readerClock: ReaderClock,
+): AnnotatedString =
+    buildAnnotatedString { appendTime(epochMs, zone, reader, color, readerClock) }
 
 private fun AnnotatedString.Builder.appendMarked(
     text: String,

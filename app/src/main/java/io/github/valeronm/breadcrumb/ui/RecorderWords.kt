@@ -67,8 +67,9 @@ internal fun recorderWords(context: Context): RecorderVocabulary =
         private val durations = durationSymbols(context)
 
         // The zone every reader of a recorder bound must agree on, asked for at render rather than
-        // captured: the process outlives a timezone change as readily as a language one.
-        private fun clock(atMs: Long) = timeAt(atMs, timelineZone())
+        // captured: the process outlives a timezone change as readily as a language one — and the
+        // 12/24 setting behind the format is a system setting the same way, so it is read here too.
+        private fun clock(atMs: Long) = readerClockOf(context).time(atMs, timelineZone())
 
         private fun duration(ms: Long) = formatDurationMs(ms, durations)
 

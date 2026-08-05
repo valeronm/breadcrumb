@@ -774,7 +774,7 @@ private fun TripEndCard(
                     annotatedStringResource(
                         atRes,
                         at.toLocalDate(zone).format(compactDayYearFormat),
-                        markedTime(at, zone, reader, shiftColor),
+                        markedTime(at, zone, reader, shiftColor, LocalReaderClock.current),
                     )
                 } else {
                     AnnotatedString(stringResource(setTimeRes))

@@ -504,6 +504,15 @@ cross-checks it.
   format a date**: `groupTimelineByDay` returns dates and the screen renders them for exactly this
   reason. `Measures` pairs the unit system with its symbols because the two come from different
   halves of one locale — the country picks metric vs imperial, the language picks "km" vs "км".
+- **A clock is the exception: its hour cycle is a device setting, not a locale's preference.**
+  `ReaderClock` pairs the locale (field order, separators) with `DateFormat.is24HourFormat` (12 or
+  24), which is the same source Material's time picker reads — a skeleton asking for `j` would answer
+  the locale's *preferred* cycle and contradict a reader who set their phone the other way. It is the
+  app's only clock format, so it is also the only place `H` or `h` is chosen. Two consequences worth
+  knowing: **changing 12/24 is not a configuration change**, so `rememberReaderClock` observes
+  `Settings.System.TIME_12_24` rather than trusting recomposition, and a caller inside
+  `buildAnnotatedString` takes the clock as a parameter for the same reason it takes the shift colour
+  — nothing composable may be read in that scope.
 - **Logs are never localized.** `DebugLog` text, its tags, and the operation names handed to it
   (`runExclusiveOp`'s `logLabel`) stay English whatever the device language. Settings → Logs showing
   them in-app does not make them interface text: a log line sits beside untranslated platform

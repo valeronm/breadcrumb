@@ -116,7 +116,7 @@ internal fun DiscardedTracksScreen(
                         )
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            val started = dateTimeAt(t.startedAt, timelineZone())
+                            val started = dateTimeText(t.startedAt, timelineZone())
                             Text(
                                 "${activityLabel(LocalContext.current, t.activityType)} · $started",
                                 style = MaterialTheme.typography.bodyLarge,

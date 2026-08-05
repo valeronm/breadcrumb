@@ -1346,14 +1346,14 @@ private fun VisitRowContent(stay: StayDeriver.Stay, zone: ZoneId, nowMs: Long) {
 @Composable
 @ReadOnlyComposable
 private fun visitTimeRange(stay: StayDeriver.Stay, zone: ZoneId): String {
-    val start = timeAt(stay.start, zone)
+    val start = timeText(stay.start, zone)
     val end = stay.end ?: return stringResource(R.string.places_visit_since, start)
     val nights = ChronoUnit.DAYS.between(
         stay.start.toLocalDate(zone),
         end.toLocalDate(zone),
     )
     val rollover = if (nights > 0) " +$nights" else ""
-    return "$start – ${timeAt(end, zone)}$rollover"
+    return "$start – ${timeText(end, zone)}$rollover"
 }
 
 private val visitDayFormat by PerLocale { localizedDateFormat("EEEd", it) }

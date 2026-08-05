@@ -251,12 +251,15 @@ internal fun TrackMapScreen(
                         // Each end on its own clock, marked where it differs from the reader's — a
                         // track can cross a border, and the row this screen opened from says so.
                         val shiftColor = zoneShiftColor
+                        val readerClock = LocalReaderClock.current
                         Text(
                             buildAnnotatedString {
-                                appendDateTime(summary.startedAt, startZone, reader, shiftColor)
+                                appendDateTime(
+                                    summary.startedAt, startZone, reader, shiftColor, readerClock,
+                                )
                                 summary.endedAt?.let { endedAt ->
                                     append(" – ")
-                                    appendTime(endedAt, endZone, reader, shiftColor)
+                                    appendTime(endedAt, endZone, reader, shiftColor, readerClock)
                                 }
                             },
                             style = MaterialTheme.typography.bodyMedium,
@@ -440,9 +443,10 @@ private fun SplitConfirmation(
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
     // All of these resolve before the builders below, none of which is a composable scope.
+    val readerClock = LocalReaderClock.current
     val splitAt = annotatedStringResource(
         R.string.track_split_at,
-        markedTime(plan.cutTs, zone, reader, shiftColor),
+        markedTime(plan.cutTs, zone, reader, shiftColor, readerClock),
     )
     val firstPoints = pluralStringResource(R.plurals.track_points, plan.firstGoodPoints, plan.firstGoodPoints)
     val secondPoints =
@@ -450,9 +454,9 @@ private fun SplitConfirmation(
     val firstDistance = distanceText(firstMeters)
     val secondDistance = distanceText(secondMeters)
     fun half(from: Long, to: Long, points: String, distance: String) = buildAnnotatedString {
-        appendTime(from, zone, reader, shiftColor)
+        appendTime(from, zone, reader, shiftColor, readerClock)
         append(" – ")
-        appendTime(to, zone, reader, shiftColor)
+        appendTime(to, zone, reader, shiftColor, readerClock)
         append(" · $distance · $points")
     }
     AlertDialog(
@@ -622,6 +626,7 @@ private fun MetricGraph(
 ) {
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
+    val readerClock = LocalReaderClock.current
     // Remembered: MetricGraph recomposes per touch event while scrubbing, and the min/max scan
     // is O(points) — the series is immutable per graph instance.
     val (minV, maxV) = remember(graph) {
@@ -753,7 +758,9 @@ private fun MetricGraph(
                 if (sel != null && selValue != null) {
                     val reading = buildAnnotatedString {
                         append("%.0f %s · ".format(selValue, graph.unit))
-                        appendTime(graph.points[sel].timestamp, zone, reader, shiftColor)
+                        appendTime(
+                            graph.points[sel].timestamp, zone, reader, shiftColor, readerClock,
+                        )
                     }
                     if (offerCut && onSplitRequested != null) {
                         // Beside the cut line, never over it: the line is what the offer is about,
@@ -794,14 +801,18 @@ private fun MetricGraph(
                 // flipped, and the axis deliberately reads nothing but the two bounds. So the axis
                 // stays what it is, a continuum on one declared clock, and the header above states
                 // that clock and the arrival's, both marked.
-                Text(timeAt(t0, zone), style = MaterialTheme.typography.labelSmall, color = labelColor)
                 Text(
-                    timeAt(t0 + (tSpan / 2).toLong(), zone),
+                    timeText(t0, zone),
                     style = MaterialTheme.typography.labelSmall,
                     color = labelColor,
                 )
                 Text(
-                    timeAt(t0 + tSpan.toLong(), zone),
+                    timeText(t0 + (tSpan / 2).toLong(), zone),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = labelColor,
+                )
+                Text(
+                    timeText(t0 + tSpan.toLong(), zone),
                     style = MaterialTheme.typography.labelSmall,
                     color = labelColor,
                 )

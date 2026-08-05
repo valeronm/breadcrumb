@@ -70,6 +70,14 @@ class TimelineRowTest {
      */
     private val zone: ZoneId get() = timelineZone()
 
+    /**
+     * The clock the rows are composed under and the one an expectation is built from — **one
+     * object**, so a case states the resource's wording and never the hour cycle. Which cycle that
+     * is belongs to `ReaderClockTest`; here the two sides must merely agree, and building them from
+     * two contexts would let a `values-pt` case resolve them differently and fail confusingly.
+     */
+    private val clock: ReaderClock = readerClockOf(ApplicationProvider.getApplicationContext())
+
     /** A resource as a given language renders it, whatever language the test itself is running in. */
     private fun stringIn(locale: Locale, @StringRes id: Int): String {
         val config = Configuration(context.resources.configuration).apply { setLocale(locale) }
@@ -109,6 +117,7 @@ class TimelineRowTest {
             CompositionLocalProvider(
                 LocalMeasures provides measures(),
                 LocalDurationSymbols provides durationSymbols(LocalContext.current),
+                LocalReaderClock provides clock,
             ) {
                 AppTheme { content() }
             }
@@ -166,7 +175,7 @@ class TimelineRowTest {
         // around it has to come from the one-bound resource rather than the two-bound one.
         stayRow(stayItem(start = noon, end = midnightNext))
 
-        val from = context.getString(R.string.timeline_stay_from, timeAt(noon, zone))
+        val from = context.getString(R.string.timeline_stay_from, clock.time(noon, zone))
         compose.onNodeWithText(from).assertIsDisplayed()
     }
 
@@ -268,7 +277,7 @@ class TimelineRowTest {
     fun `a gap speaking only for its arrival names that bound alone`() {
         gapRow(gapItem(start = noon, end = noon + HOUR, holdsDeparture = false))
 
-        val until = context.getString(R.string.timeline_gap_until, timeAt(noon + HOUR, zone))
+        val until = context.getString(R.string.timeline_gap_until, clock.time(noon + HOUR, zone))
         compose.onNodeWithText(until).assertIsDisplayed()
     }
 
