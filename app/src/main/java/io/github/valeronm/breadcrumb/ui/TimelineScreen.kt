@@ -103,7 +103,6 @@ import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
 import io.github.valeronm.breadcrumb.util.PerLocale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.roundToInt
@@ -781,11 +780,6 @@ internal val TimelineItem.clock: ZoneId get() = zone ?: timelineZone()
  */
 internal val TimelineItem.filedOn: LocalDate get() = filedAt.toLocalDate(clock)
 
-/** A bound the day slicing put there, rather than a time anything happened at — in [zone], which
- *  must be the zone the slicing used ([timelineZone]). */
-private fun isLocalMidnight(epochMs: Long, zone: ZoneId): Boolean =
-    Instant.ofEpochMilli(epochMs).atZone(zone).toLocalTime() == java.time.LocalTime.MIDNIGHT
-
 internal fun TimelineItem.rowKey(): String = when (this) {
     is TimelineItem.TrackItem -> "track:${summary.id}"
     is TimelineItem.StayItem -> "stay:${stay.afterTrackId}:${stay.start}"
@@ -1052,50 +1046,36 @@ internal fun StayCard(
     // Accent means categorized here as it does on the Places list (placeDiscTint) — one rule, so the
     // same place can't read as accented on one screen and neutral on the other.
     val tint = placeDiscTint(category)
-    val end = stay.end
-    val startsAtMidnight = isLocalMidnight(stay.start, zone)
-    val endsAtMidnight = end != null && isLocalMidnight(end, zone)
-    // Ongoing from midnight = all of today so far; completed midnight-to-midnight slices of a
-    // multi-day stay read the same — and neither states a clock time, so neither is marked.
-    val allDay = startsAtMidnight && (end == null || endsAtMidnight)
     val visits = place?.visitCount?.takeIf { !named && it >= PlaceResolver.NOTABLE_VISIT_MIN }
     // Worded here: the annotated-string builder below is not a composable scope, and every one of
     // these brackets a clock time it draws rather than interpolates.
     val visitsText = visits?.let { visitCountLabel(it) }
-    // A midnight-sliced bound makes the duration both redundant (it restates the clock time) and
-    // misleading (the real stay continues across the slice) — only whole stays show one. A stay whose
-    // bounds span less than StayDeriver.REPORTABLE_DURATION_MS shows none either: the stop was longer
-    // than its bounds say, so "0m" would be worse than silence.
+    val stated = stayBounds(stay.start, stay.end, zone)
+    // Which bounds carry a duration beside them is [StayBounds.withDuration]'s to say. What this row
+    // adds is the other floor: a stay spanning less than StayDeriver.REPORTABLE_DURATION_MS shows
+    // none either, the stop having been longer than its bounds say, so "0m" is worse than silence.
     val reportableText = stay.reportableDurationMs(System.currentTimeMillis())
-        ?.takeIf { !startsAtMidnight && !endsAtMidnight }
+        ?.takeIf { stated.withDuration }
         ?.let { durationText(it) }
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
-    // Whichever bounds this row states, marked, spliced into a whole sentence — so the wording around
+    fun marked(atMs: Long) = markedTime(atMs, zone, reader, shiftColor)
+    // Whichever bounds the row states, marked, spliced into a whole sentence — so the wording around
     // a time is the language's to arrange, not this `when`'s. Each bound is formatted inside the
     // branch that states it: most branches state one, and a row that names no clock time formats none.
-    val bounds = when {
-        allDay -> AnnotatedString(stringResource(R.string.timeline_all_day))
-        end == null -> annotatedStringResource(
-            R.string.timeline_stay_since,
-            markedTime(stay.start, zone, reader, shiftColor),
-        )
-        startsAtMidnight -> annotatedStringResource(
-            R.string.timeline_stay_until,
-            markedTime(end, zone, reader, shiftColor),
-        )
-        endsAtMidnight -> annotatedStringResource(
-            R.string.timeline_stay_from,
-            markedTime(stay.start, zone, reader, shiftColor),
-        )
-        // A stop the recorder only caught the tail end of lands on one clock minute at both bounds;
-        // "09:11 – 09:11" reads as a rendering fault rather than a moment. Compared as minutes rather
-        // than as rendered text: the same question, without formatting both ends again to ask it.
-        end / 60_000 == stay.start / 60_000 -> markedTime(stay.start, zone, reader, shiftColor)
-        else -> annotatedStringResource(
+    val bounds = when (stated) {
+        StayBounds.AllDay -> AnnotatedString(stringResource(R.string.timeline_all_day))
+        is StayBounds.Since ->
+            annotatedStringResource(R.string.timeline_stay_since, marked(stated.start))
+        is StayBounds.Until ->
+            annotatedStringResource(R.string.timeline_stay_until, marked(stated.end))
+        is StayBounds.From ->
+            annotatedStringResource(R.string.timeline_stay_from, marked(stated.start))
+        is StayBounds.At -> marked(stated.moment)
+        is StayBounds.Between -> annotatedStringResource(
             R.string.timeline_stay_between,
-            markedTime(stay.start, zone, reader, shiftColor),
-            markedTime(end, zone, reader, shiftColor),
+            marked(stated.start),
+            marked(stated.end),
         )
     }
     ListRowCard(
@@ -1170,9 +1150,10 @@ internal fun GapCard(
     onAddTrip: (TripDraft) -> Unit,
 ) {
     val gap = item.gap
-    // A midnight bound is a slice seam, not a bound of the absence (StayRow reads its own the same
-    // way): the gap runs on into the neighbouring day, so this slice knows neither how long the
-    // absence was nor where it ended. Each side is named only on the day that side happened —
+    // A midnight bound is a slice seam, not a bound of the absence (the stay row reads its own the
+    // same way, through `stayBounds`): the gap runs on into the neighbouring day, so this slice
+    // knows neither how long the absence was nor where it ended.
+    // Each side is named only on the day that side happened —
     // otherwise every day of a three-day gap claims the arrival, two days before it happened.
     // A crossing's halves were cut at the arrival's midnight, not at one of their own, so neither
     // holds a seam: each states the end it speaks for and says nothing about the other, which is

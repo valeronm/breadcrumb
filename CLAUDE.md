@@ -86,6 +86,14 @@ composed against a missing key renders the English fallback quite happily). Pref
 rule there over adding cases here. Enum→resource mappings need neither: they are exhaustive `when`s,
 so the compiler already refuses an unmapped entry.
 
+The third move, and usually the best one, is to **take the decision out of the row**: a rule stated as
+a value (`ui/TimelineBounds.kt` — which clock times a stay row states, and whether a duration may sit
+beside them) is total over its own cases on a plain JVM, where composed it was reachable only by
+building a row in exactly the right zone. What the row test then covers is the rendering, which is
+all it was ever the right tool for. The gap row's own version of that decision — which of its two
+ends this day holds — is **not** extracted yet, and it decides more than a phrase: it also picks the
+ends the add-trip form is handed.
+
 Two prices, both real: composing a row means it is `internal` rather than `private` (a small thing —
 this file already defaults to `internal` for cross-file symbols — but do not widen a row without
 covering it), and the harness costs ~24 s on an arm64 dev box, of which ~18 s is a one-time toll that
@@ -437,12 +445,16 @@ cross-checks it.
 
 ## Conventions & constraints
 
-- **Never put the author's own trip data in the repo.** Most of the tuning here rests on field
+- **No recorded history reaches the repo, and nothing in it refers to whoever recorded it.** Most of
+  the tuning here rests on field
   evidence, and citing it is right — but comments, KDoc, commit messages and `docs/` must carry
   what the data *showed*, never which trip showed it: no recording dates or times, no place names
   or real coordinates, no per-trip distances, durations, point counts or quality figures. "A parked
-  phone can report phantom Doppler up to 3.5 m/s" — not "a 2026-07-04 arrival, 7 m from the track's
-  final position". History-wide aggregates are fine while they name no date or place ("an end stay
+  phone can report phantom Doppler up to 3.5 m/s" — not "an arrival 7 m from the track's final
+  position on such-and-such a date". The person behind the history is never a subject either: no
+  "the author", no "my phone", no note explaining what a choice does or doesn't reveal about anyone
+  — a sentence like that is itself the disclosure, and it is the one a stranger reads first.
+  History-wide aggregates are fine while they name no date or place ("an end stay
   on ~30% of tracks, median ~72 s"), and so are generated test fixtures, whose coordinates are
   invented. The repository is the one artifact that leaves the machine; the recorded history stays
   on it. Fixtures sit at a **neutral origin** and should stay there: the domain tests build meter
