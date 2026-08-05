@@ -131,6 +131,9 @@ class TimelineRowTest {
         end: Long?,
         place: Place? = null,
         merge: Boolean = false,
+        /** Which bounds are the stay's own — the slicer's stamp, not something read off the clock. */
+        holdsStart: Boolean = true,
+        holdsEnd: Boolean = true,
     ) = TimelineItem.StayItem(
         stay = StayDeriver.Stay(
             start = start,
@@ -142,6 +145,8 @@ class TimelineRowTest {
         ),
         place = PlaceResolver.ResolvedStay(place = place, visitCount = 1, centroid = ORIGIN),
         merge = if (merge) MERGE_PLAN else null,
+        holdsStart = holdsStart,
+        holdsEnd = holdsEnd,
     )
 
     private fun stayRow(item: TimelineItem.StayItem) = row {
@@ -173,7 +178,7 @@ class TimelineRowTest {
     fun `a stay running to midnight states only the bound it has`() {
         // The whole point of the sentence resources: this row names one clock time, and the wording
         // around it has to come from the one-bound resource rather than the two-bound one.
-        stayRow(stayItem(start = noon, end = midnightNext))
+        stayRow(stayItem(start = noon, end = midnightNext, holdsEnd = false))
 
         val from = context.getString(R.string.timeline_stay_from, clock.time(noon, zone))
         compose.onNodeWithText(from).assertIsDisplayed()
@@ -181,7 +186,7 @@ class TimelineRowTest {
 
     @Test
     fun `a stay filling a whole day names no clock time at all`() {
-        stayRow(stayItem(start = midnight, end = midnightNext))
+        stayRow(stayItem(start = midnight, end = midnightNext, holdsStart = false, holdsEnd = false))
 
         compose.onNodeWithText(context.getString(R.string.timeline_all_day)).assertIsDisplayed()
     }
@@ -239,21 +244,23 @@ class TimelineRowTest {
 
     // --- Gap rows ------------------------------------------------------------
 
-    /**
-     * [holdsDeparture] is expressed as the departure clock's presence because that is what the row
-     * reads: a half-row that speaks only for the arrival carries no departure zone at all.
-     */
-    private fun gapItem(start: Long, end: Long, holdsDeparture: Boolean = true) =
-        TimelineItem.GapItem(
-            gap = StayDeriver.Gap(
-                start = start,
-                end = end,
-                reason = StayDeriver.GapReason.MOVED_UNRECORDED,
-                afterTrackId = 1,
-            ),
-            departureZone = if (holdsDeparture) zone else null,
-            arrivalZone = zone,
-        )
+    private fun gapItem(
+        start: Long,
+        end: Long,
+        holdsDeparture: Boolean = true,
+        holdsArrival: Boolean = true,
+    ) = TimelineItem.GapItem(
+        gap = StayDeriver.Gap(
+            start = start,
+            end = end,
+            reason = StayDeriver.GapReason.MOVED_UNRECORDED,
+            afterTrackId = 1,
+        ),
+        departureZone = zone,
+        arrivalZone = zone,
+        holdsDeparture = holdsDeparture,
+        holdsArrival = holdsArrival,
+    )
 
     private fun gapRow(item: TimelineItem.GapItem) = row {
         GapCard(
@@ -279,6 +286,16 @@ class TimelineRowTest {
 
         val until = context.getString(R.string.timeline_gap_until, clock.time(noon + HOUR, zone))
         compose.onNodeWithText(until).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a gap speaking only for its departure names that bound alone`() {
+        // The half every absence longer than a day produces first, and the one the reader meets at
+        // the top of an outage: it says when recording stopped and nothing about when it resumed.
+        gapRow(gapItem(start = noon, end = noon + HOUR, holdsArrival = false))
+
+        val from = context.getString(R.string.timeline_gap_from, clock.time(noon, zone))
+        compose.onNodeWithText(from).assertIsDisplayed()
     }
 
     // --- The translation actually reaching a row -----------------------------
@@ -307,7 +324,7 @@ class TimelineRowTest {
     @Config(qualifiers = "pt")
     fun `a gap row states its absence in Portuguese`() {
         // The gap sentences are whole lines per case rather than a lead-in and a tail, so this is
-        // where a translation that lost one of the four would show.
+        // where a translation that lost one of the three would show.
         gapRow(gapItem(start = noon, end = noon + HOUR, holdsDeparture = false))
 
         val until = translated(R.string.timeline_gap_until)
@@ -324,9 +341,9 @@ class TimelineRowTest {
     )
 
     /**
-     * The fixture day's bounds **in the rows' own zone**, so that a stay ending at [midnightNext]
-     * lands in the row's midnight-sliced branch wherever the test host's clock is set. Hardcoded
-     * epoch millis would only be local midnight on a machine running UTC.
+     * The fixture day's bounds **in the rows' own zone**, so a row's clock text reads as the day it
+     * covers wherever the test host is set. Hardcoded epoch millis would drift off the hour on any
+     * machine not running UTC; which bounds a row holds is stamped, not read off these.
      */
     private val midnight: Long get() = DAY.atStartOfDay(zone).toInstant().toEpochMilli()
 

@@ -14,7 +14,7 @@ private const val REPORTED_TOTAL_FLOOR_MS = 5 * 60_000L
 
 /**
  * Time per category over one day's stays, longest first — what a timeline day header reports under
- * the distances. The intervals arrive already sliced at midnight ([StayDeriver.slicePerDay]), so a
+ * the distances. The stays arrive already sliced at midnight ([StayDeriver.slicePerDay]), so a
  * stay's bounds here are its share of *this* day and summing them is the day's total. Two rules
  * differ from a stay row's on purpose — the difference between describing one stop and a day: a
  * midnight-sliced bound doesn't suppress the duration (the row hides one because it would merely

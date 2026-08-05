@@ -108,7 +108,9 @@ private fun noonOf(day: LocalDate?, zone: ZoneId): ZonedDateTime =
 /**
  * What the form opens holding. The Timeline's top bar knows only which day was on screen; a gap
  * row knows the places the absence lies between and when it ran, and hands over whichever of its
- * two ends that row itself speaks for — a day the absence merely passes through offers neither.
+ * two ends that row itself speaks for — both where the absence sat inside one day, otherwise only
+ * the end on its own side of the cut, since the other is a fact about a different day's row and
+ * would arrive here as an unread guess.
  */
 internal class TripDraft(
     /** The day an end with no time of its own opens its pickers on. */

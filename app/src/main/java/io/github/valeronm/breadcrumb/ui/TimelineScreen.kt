@@ -1051,7 +1051,7 @@ internal fun StayCard(
     // Worded here: the annotated-string builder below is not a composable scope, and every one of
     // these brackets a clock time it draws rather than interpolates.
     val visitsText = visits?.let { visitCountLabel(it) }
-    val stated = stayBounds(stay.start, stay.end, zone)
+    val stated = stayBounds(stay.start, stay.end, item.holdsStart, item.holdsEnd)
     // Which bounds carry a duration beside them is [StayBounds.withDuration]'s to say. What this row
     // adds is the other floor: a stay spanning less than StayDeriver.REPORTABLE_DURATION_MS shows
     // none either, the stop having been longer than its bounds say, so "0m" is worse than silence.
@@ -1119,14 +1119,20 @@ internal fun StayCard(
  * unrecorded leg as a map would. Newest-first timeline: the destination sits above (adjacent to
  * the later track), the source below.
  *
- * A gap spanning midnight renders once per day, and a day is only told what happened in it: the
- * departure appears on the day it happened, the arrival on the day it happened, and a day the
- * absence merely passes through gets neither pin — a dashed line and "all day" is the whole card,
- * which is the honest amount the app knows about that day.
+ * **An absence is cut once, at the midnight opening the day it ended** — never per day the way a
+ * stay is. A stay reports something true about each day it covers; an absence reports nothing about
+ * the days in the middle of it, so cutting per day gave those a row carrying no time, no pin and no
+ * end to offer, whose whole content was that nothing is known. Its two ends are real, and each
+ * belongs to its own day: the departure day says when recording stopped, the arrival day when it
+ * resumed, and each half says nothing about the end sitting under the other's heading. The days in
+ * between get no rows at all, which is what an unrecorded day is — how long it ran is read off the
+ * two day headings.
+ *
+ * A crossing takes the same single cut for a second reason: its ends ran on different clocks, and
+ * cutting it at either end's midnights throughout would file one absence under two calendars.
  *
  * The other way to close a gap is to say what happened in it, so the card offers the add-trip form
- * pre-filled with the ends it holds — and a day holding neither offers nothing, having nothing to
- * hand over.
+ * pre-filled with the ends it holds.
  */
 @Composable
 private fun GapRow(
@@ -1152,23 +1158,13 @@ internal fun GapCard(
     onAddTrip: (TripDraft) -> Unit,
 ) {
     val gap = item.gap
-    // A midnight bound is a slice seam, not a bound of the absence (the stay row reads its own the
-    // same way, through `stayBounds`): the gap runs on into the neighbouring day, so this slice
-    // knows neither how long the absence was nor where it ended.
-    // Each side is named only on the day that side happened —
-    // otherwise every day of a three-day gap claims the arrival, two days before it happened.
-    // A crossing's halves were cut at the arrival's midnight, not at one of their own, so neither
-    // holds a seam: each states the end it speaks for and says nothing about the other, which is
-    // sitting under its own day's heading elsewhere in the list.
-    //
-    // Which reduces the whole card to two questions — does this row hold the real departure, and
-    // does it hold the real arrival — answered once here and read everywhere below.
+    // The whole card is drawn from the two questions the slicer answered when it cut — see
+    // GapItem.holdsDeparture. Read once here, never re-derived: an absence inside one day is one row
+    // holding both ends, anything longer is two, each saying nothing about the end sitting under the
+    // other's day heading.
     val reader = timelineZone()
-    val ordinary = !item.spansClocks
-    val holdsDeparture =
-        item.departureZone != null && !(ordinary && isLocalMidnight(gap.start, zone))
-    val holdsArrival =
-        item.arrivalZone != null && !(ordinary && isLocalMidnight(gap.end, zone))
+    val holdsDeparture = item.holdsDeparture
+    val holdsArrival = item.holdsArrival
     val arrival = if (holdsArrival) item.toPlace else null
     val departure = if (holdsDeparture) item.fromPlace else null
     // Both ends on one row only where a hop landed on the day it left; each then needs its own
@@ -1180,27 +1176,27 @@ internal fun GapCard(
     val departureAt = item.departureZone?.takeIf { item.spansClocks }
         ?.let { markedTime(gap.start, it, reader, shiftColor, readerClock) }
     // The trip this absence is missing, as far as this row can state it — the same two questions
-    // again, so an end the card doesn't name is an end the form isn't handed. A bound the slicer
-    // clamped to midnight is not a departure, and the place on the far side of a three-day absence
-    // is not this day's arrival; both would go into the form as fact and be committed unread.
+    // again, so an end the card doesn't name is an end the form isn't handed: the far side of an
+    // absence cut at midnight is a fact about the other day's row, and would go into the form as
+    // fact and be committed unread.
     // Built once per row rather than per composition — the ripple invalidates this card on every
     // press, and nothing here is read until the "+" is tapped. The row's own data and the clock it
     // is read on decide all of it, so those are the whole key.
     val draft = remember(item, zone) {
-        if (!holdsDeparture && !holdsArrival) {
-            null
-        } else {
-            TripDraft(
-                day = item.filedOn,
-                origin = if (holdsDeparture) draftEndOf(departure, gap.from, gap.start) else null,
-                destination = if (holdsArrival) draftEndOf(arrival, gap.to, gap.end) else null,
-            )
-        }
+        TripDraft(
+            day = item.filedOn,
+            origin = if (holdsDeparture) draftEndOf(departure, gap.from, gap.start) else null,
+            destination = if (holdsArrival) draftEndOf(arrival, gap.to, gap.end) else null,
+        )
     }
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
         // One whole sentence per case, worded here because the Text below is not a composable scope.
         // A duration says the same thing on any clock, so the two-end case states one and is marked
         // nowhere; a half that states a real bound marks it, as every clock time on the timeline does.
+        // Three cases and no fourth: the slicer emits an absence holding both ends or a crossing
+        // half holding exactly one. The fourth is refused rather than rendered — it would have to
+        // state a clock time for an end this row does not speak for, and there is no longer a
+        // wording for "neither", that row having been the per-day middle this no longer cuts.
         val gapLine = when {
             holdsDeparture && holdsArrival -> annotatedStringResource(
                 R.string.timeline_gap_lasting,
@@ -1214,7 +1210,7 @@ internal fun GapCard(
                 R.string.timeline_gap_until,
                 markedTime(gap.end, zone, reader, shiftColor, readerClock),
             )
-            else -> AnnotatedString(stringResource(R.string.timeline_gap_all_day))
+            else -> error("a gap row holds at least one end; this one was stamped with neither")
         }
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
             GapPlaceLine(arrival, arrivalAt, onOpenPlace)
@@ -1252,15 +1248,15 @@ internal fun GapCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
                 // The card's one action, so it carries the card's only accent — the same glyph the
-                // Timeline's own top bar opens the form with.
-                if (draft != null) {
-                    IconButton(onClick = { onAddTrip(draft) }) {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = stringResource(R.string.action_add_missing_trip),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                // Timeline's own top bar opens the form with. Offered on every gap row, because
+                // every gap row now speaks for at least one end: the rows that could offer nothing
+                // were the per-day middles, and those are no longer cut.
+                IconButton(onClick = { onAddTrip(draft) }) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = stringResource(R.string.action_add_missing_trip),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
             GapPlaceLine(departure, departureAt, onOpenPlace)

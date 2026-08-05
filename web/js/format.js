@@ -3,7 +3,7 @@
 // app's timeline rows, restated here for the same reason the derivation is: two readings of one
 // history is worse than either.
 
-import { reportableDurationMs, isNotable, startOfLocalDay } from "./stays.js";
+import { reportableDurationMs, isNotable } from "./stays.js";
 
 // Cached formatters: toLocale*String constructs a fresh Intl.DateTimeFormat per call, which at
 // thousands of rows is the dominant cost of building the list.
@@ -96,27 +96,29 @@ export function categoryLabel(code) {
 
 /** A stay row's metadata line: when it was, how long, and — for an unnamed cluster the user
  * visits often enough to want to name — how many visits. A duration appears only where the bounds
- * can carry one: a midnight-clamped bound makes it redundant (restates the clock time) and
- * misleading (the stay continues across the slice), and a stay shorter than its own bounds can
+ * can carry one: a bound the slicing cut makes it redundant (restates the clock time) and
+ * misleading (the stay continues past it), and a stay shorter than its own bounds can
  * measure gets none either — the stop was longer than the bounds say, so "0m" would be worse
  * than silence.
- * @param stay one interval, possibly a per-day slice of a longer one
+ * Which bounds are the stay's own is read off the flags `slicePerDay` stamps at the cut — see there
+ * for why nothing may decide it from a clock instead.
+ * @param stay one stay slice, carrying holdsStart/holdsEnd
  * @param place its resolved cluster (see resolveClusters), or undefined
  * @param nowMs what an open-ended stay is measured to — the export's instant, not today's */
 export function stayMeta(stay, place, nowMs) {
   const start = formatTime(stay.start);
-  const startsAtMidnight = isLocalMidnight(stay.start);
-  const endsAtMidnight = stay.end != null && isLocalMidnight(stay.end);
+  const cutAtStart = !stay.holdsStart;
+  const cutAtEnd = !stay.holdsEnd;
   let phrase;
-  if (startsAtMidnight && (stay.end == null || endsAtMidnight)) {
-    // Open from midnight = all of that day; completed midnight-to-midnight slices read the same.
+  if (cutAtStart && (stay.end == null || cutAtEnd)) {
+    // Cut at both ends, or cut at its start and still open: a whole day either way.
     phrase = "All day";
   } else if (stay.end == null) {
     // Where the export left the user. Not "– now": the file's now is the export's, not today's.
     phrase = `since ${start}`;
-  } else if (startsAtMidnight) {
+  } else if (cutAtStart) {
     phrase = `until ${formatTime(stay.end)}`;
-  } else if (endsAtMidnight) {
+  } else if (cutAtEnd) {
     phrase = `from ${start}`;
   } else {
     // A stop the recorder only caught the tail end of lands on one clock minute at both bounds;
@@ -124,7 +126,7 @@ export function stayMeta(stay, place, nowMs) {
     const end = formatTime(stay.end);
     phrase = end === start ? start : `${start} – ${end}`;
   }
-  const duration = startsAtMidnight || endsAtMidnight ? null : reportableDurationMs(stay, nowMs);
+  const duration = cutAtStart || cutAtEnd ? null : reportableDurationMs(stay, nowMs);
   const visits = !place?.label && isNotable(place) ? place.visitCount : null;
   // Category after duration, as the app's stay row orders them. Never alongside the visit count:
   // that belongs to unnamed clusters, which have no place row to carry a category.
@@ -137,30 +139,22 @@ export function stayMeta(stay, place, nowMs) {
 }
 
 /**
- * A gap row's metadata line, and which of its two sides that row may name. Both answers come off
- * the same reading of its bounds: a midnight bound is a slice seam, so the absence runs on into the
- * neighbouring day and this slice knows neither how long it lasted nor what happened at that end.
- * A day the absence merely passes through therefore names no place at all — "all day" is the whole
- * of what the history says about it. Mirrors the app's gap card.
- * @param gap one gap interval, possibly a per-day slice of a longer one
+ * A gap row's metadata line — read off the flags `slicePerDay` stamped when it cut, never recovered
+ * from the bounds. A half that does not hold an end says nothing about it: that end is a fact about
+ * the other day's row, and which sides the row may name is `holdsStart`/`holdsEnd` itself.
+ *
+ * A gap is cut at most once, at the midnight opening the day it ended, so a row holds both ends (the
+ * whole absence sat inside one day, and a duration says it) or exactly one (and states that end's
+ * clock time). Days in the middle are folded into the departure half, so a row holding neither is
+ * refused rather than worded — as the app refuses it, since the only sentence left would name a
+ * time for an end this row does not speak for.
+ * @param gap one gap slice, carrying holdsStart/holdsEnd
  */
 export function gapMeta(gap) {
-  const startsAtMidnight = isLocalMidnight(gap.start);
-  const endsAtMidnight = isLocalMidnight(gap.end);
-  let extent;
-  if (startsAtMidnight && endsAtMidnight) {
-    extent = "all day";
-  } else if (startsAtMidnight) {
-    extent = `until ${formatTime(gap.end)}`;
-  } else if (endsAtMidnight) {
-    extent = `from ${formatTime(gap.start)}`;
-  } else {
-    extent = formatDurationMs(gap.end - gap.start);
+  if (gap.holdsStart && gap.holdsEnd) {
+    return { text: `missing recording · ${formatDurationMs(gap.end - gap.start)}` };
   }
-  return { text: `missing recording · ${extent}`, namesFrom: !startsAtMidnight, namesTo: !endsAtMidnight };
-}
-
-/** A bound the day slicing put there, rather than a time anything happened at. */
-function isLocalMidnight(ms) {
-  return startOfLocalDay(ms) === ms;
+  if (gap.holdsStart) return { text: `missing recording · from ${formatTime(gap.start)}` };
+  if (gap.holdsEnd) return { text: `missing recording · until ${formatTime(gap.end)}` };
+  throw new Error("a gap row holds at least one end; this one was stamped with neither");
 }

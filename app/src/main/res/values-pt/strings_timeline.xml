@@ -37,5 +37,4 @@
     <string name="timeline_gap_lasting">gravação em falta · %1$s</string>
     <string name="timeline_gap_from">gravação em falta · desde as %1$s</string>
     <string name="timeline_gap_until">gravação em falta · até às %1$s</string>
-    <string name="timeline_gap_all_day">gravação em falta · todo o dia</string>
 </resources>

@@ -77,7 +77,9 @@ python3 -m http.server -d web 8000
   per watched stretch rather than one per track.
 
   The sidebar is the app's **timeline**, not a track list: tracks interleaved with the derived
-  stays and gaps, newest first, each interval sliced at midnight so every row falls inside one day.
+  stays and gaps, newest first. A **stay** is sliced at every midnight it crosses, so each row falls
+  inside one day; a **gap** is cut once, at the midnight opening the day it ended — its two ends each
+  belong to a day, while the days in between hold neither and would render a row saying nothing.
 
 ## Testing
 

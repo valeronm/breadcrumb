@@ -54,5 +54,4 @@
     <string name="timeline_gap_lasting">missing recording · %1$s</string>
     <string name="timeline_gap_from">missing recording · from %1$s</string>
     <string name="timeline_gap_until">missing recording · until %1$s</string>
-    <string name="timeline_gap_all_day">missing recording · all day</string>
 </resources>

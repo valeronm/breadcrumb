@@ -1,7 +1,7 @@
 // UI glue: import flow, timeline, selection. Data: IndexedDB, imported once by the worker; the map
 // draws simplified overview geometries, full points only for the selected track. The sidebar is the
 // app's timeline, not a track list: tracks interleaved with the stays and gaps derived from their
-// endpoints (js/stays.js), newest first, sliced at midnight so every row falls in one day — derived
+// endpoints (js/stays.js), newest first, a stay sliced per day and a gap cut once — derived
 // "as of" the export time (a backup is a snapshot), so the last stay is open then, not growing per reload.
 
 import { openDb, getMeta, getAllTracks, getGeometry } from "./db.js";
@@ -274,19 +274,17 @@ function placeSpan(place, fallback, className) {
   return span;
 }
 
-/** The cluster ids a gap row names, newest-first (destination, then origin) — the one reading of
- * which sides a slice may speak for, so the row and the map it frames cannot disagree. Takes the
- * meta a caller has already computed: building a row costs one pass over the whole history, and the
- * per-row formatting is the dominant part of it. */
-function namedSidesOf(gap, meta = gapMeta(gap)) {
-  return [meta.namesTo ? gap.toClusterId : null, meta.namesFrom ? gap.fromClusterId : null];
+/** The cluster ids a gap row names, newest-first (destination, then origin) — the ends the slicer
+ * stamped this half as speaking for, so the row and the map it frames cannot disagree. An id may
+ * still be null where the history has no endpoint for that side. */
+function namedSidesOf(gap) {
+  return [gap.holdsEnd ? gap.toClusterId : null, gap.holdsStart ? gap.fromClusterId : null];
 }
 
 /** Movement the recorder missed: the endpoints either side disagree. Most such gaps are really
  * one place clustered as two, so the row names both sides — newest-first, destination above the
  * dashed leg and origin below it, the way the trip ran. A side with no known endpoint renders
- * nothing; its absence is the story, and so is a side [namedSidesOf] withholds because the day this
- * slice covers isn't the day that end happened. */
+ * nothing; its absence is the story. */
 function gapRow(gap) {
   const row = document.createElement("button");
   row.className = "row gap-row";
@@ -299,7 +297,7 @@ function gapRow(gap) {
   const meta = document.createElement("span");
   meta.className = "stats";
   meta.textContent = gapText.text;
-  const [to, from] = namedSidesOf(gap, gapText);
+  const [to, from] = namedSidesOf(gap);
   body.append(...[side(to), meta, side(from)].filter(Boolean));
   row.append(body);
   return row;
@@ -342,8 +340,8 @@ async function selectRow(index) {
     return;
   }
   // A stay frames its place; a gap frames the sides its row names, which is the picture that
-  // explains it. A day the absence only passes through names none, and framing places it doesn't
-  // show would answer a question the row deliberately leaves open.
+  // explains it. A side the history has no endpoint for frames nothing, since showing a place the
+  // row doesn't name would answer a question it deliberately leaves open.
   const clusterIds = item.kind === "stay" ? [item.clusterId] : namedSidesOf(item);
   const places = clusterIds.map((id) => clusterPlaces[id]).filter(Boolean);
   if (map && places.length) focusPlaces(map, places);

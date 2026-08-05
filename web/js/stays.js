@@ -292,12 +292,9 @@ function summarizeLiveness(liveness, nowMs) {
 
 // --- display helpers -----------------------------------------------------------------------------
 
-/**
- * Midnight opening the local day that contains [ms] — where the timeline's days begin, and the one
- * place the zone convention lives. The rows a slice produces are read back by the formatter, and
- * the two have to agree about where a boundary is.
- */
-export function startOfLocalDay(ms) {
+/** Midnight opening the local day that contains [ms] — where the timeline's days begin, and the one
+ *  place the zone convention lives. */
+function startOfLocalDay(ms) {
   const d = new Date(ms);
   d.setHours(0, 0, 0, 0);
   return d.getTime();
@@ -311,22 +308,57 @@ function localNextMidnight(ms) {
 }
 
 /**
- * Splits intervals at midnights so each piece falls inside one calendar day (a 20:00–09:00 stay
+ * Splits **stays** at midnights so each piece falls inside one calendar day (a 20:00–09:00 stay
  * renders in both days with clamped bounds). An open-ended stay keeps its null end on the final
  * slice. [nextMidnight] is the zone: the default reads the viewer's local one.
+ *
+ * A **gap** is cut once instead, at the midnight opening the day it ended, matching the app. A stay
+ * says something true about each day it covers; a gap says nothing about the days in the middle of
+ * it, so those are folded into the departure half and get no row. Its two ends are real though, and
+ * each belongs to its own day — so the departure day says when recording stopped and the arrival day
+ * says when it resumed.
+ *
+ * Every piece carries `holdsStart`/`holdsEnd` saying which of its bounds are the interval's own,
+ * stamped here because this is the only place that knows. A reader deciding it instead by testing a
+ * bound against midnight cannot tell an interval that genuinely begins at 00:00 from one cut there.
+ *
+ * [clock] is the day boundary read from either side, as one object: the two halves must answer to
+ * the same zone or the cut and the day headings disagree, and passing them separately made that a
+ * rule a caller had to remember rather than one it cannot break. The app has no equivalent because
+ * both of its readings derive from the one `ZoneId` it is handed.
  */
-export function slicePerDay(intervals, nowMs, nextMidnight = localNextMidnight) {
+export const LOCAL_CLOCK = { startOfDay: startOfLocalDay, nextMidnight: localNextMidnight };
+
+/** An absence as the two halves the day boundary makes of it — one piece where the whole of it
+ *  already sits inside the day it ended on, which is the ordinary short outage. Mirrors the app's
+ *  `halvesAtArrivalDay`, stamps included. */
+function gapHalves(gap, startOfDay) {
+  const arrivalDayStart = startOfDay(gap.end);
+  if (arrivalDayStart <= gap.start) return [{ ...gap, holdsStart: true, holdsEnd: true }];
+  return [
+    { ...gap, end: arrivalDayStart, holdsStart: true, holdsEnd: false },
+    { ...gap, start: arrivalDayStart, holdsStart: false, holdsEnd: true },
+  ];
+}
+
+export function slicePerDay(intervals, nowMs, clock = LOCAL_CLOCK) {
   const out = [];
   for (const interval of intervals) {
+    if (interval.kind === "gap") {
+      out.push(...gapHalves(interval, clock.startOfDay));
+      continue;
+    }
+    const { nextMidnight } = clock;
     const end = interval.end ?? nowMs;
     let sliceStart = interval.start;
     for (;;) {
+      const holdsStart = sliceStart === interval.start;
       const boundary = nextMidnight(sliceStart);
       if (end <= boundary) {
-        out.push({ ...interval, start: sliceStart, end: interval.end });
+        out.push({ ...interval, start: sliceStart, end: interval.end, holdsStart, holdsEnd: true });
         break;
       }
-      out.push({ ...interval, start: sliceStart, end: boundary });
+      out.push({ ...interval, start: sliceStart, end: boundary, holdsStart, holdsEnd: false });
       sliceStart = boundary;
     }
   }

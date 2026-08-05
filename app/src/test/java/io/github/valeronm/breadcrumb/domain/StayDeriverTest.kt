@@ -411,14 +411,15 @@ class StayDeriverTest {
     private val DAY = 24 * 60 * MIN
 
     /** The pieces alone: most cases below are about where the cuts land, not which clock each end
-     *  of a piece ran on — the crossing cases ask [StayDeriver.slicePerDay] for that directly. */
+     *  of a piece ran on — the cases about stamping ask [StayDeriver.slicePerDay] for that directly. */
     private fun sliced(
         intervals: List<StayDeriver.Interval>,
         zones: (StayDeriver.Interval) -> Pair<ZoneId, ZoneId>,
         nowMs: Long,
     ): List<StayDeriver.Interval> = StayDeriver.slicePerDay(intervals, zones, nowMs).map { it.interval }
 
-    /** Intervals as slices that happened in one place — what everything but a crossing is. */
+    /** Intervals as slices holding both their ends on one clock — every stay, and an absence that
+     *  ended on the day it began. */
     private fun oneClock(vararg intervals: StayDeriver.Interval) =
         intervals.map { StayDeriver.Slice(it, utc, utc) }
 
@@ -436,6 +437,34 @@ class StayDeriverTest {
         assertTrue(slices.all { it is Stay && it.provenance == Provenance.OBSERVED })
     }
 
+    /**
+     * The stamp itself, at the cut — the whole claim of the seam is that the slicer says which
+     * bounds are the interval's own, so nothing downstream has to work it out from a timestamp.
+     * Asserted here because every other suite is handed the flags rather than deriving them: without
+     * this, `daySlicesOf` could stamp every piece as holding both and each row would print a clock
+     * time and a duration for a boundary that is not the stay's.
+     */
+    @Test fun `a stay's pieces say which of its bounds are its own`() {
+        val stay = Stay(
+            start = 20 * 60 * MIN, end = 2 * DAY + 9 * 60 * MIN, location = home,
+            provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0,
+        )
+        val slices = StayDeriver.slicePerDay(listOf(stay), { utc to utc }, 3 * DAY)
+
+        assertEquals(3, slices.size)
+        assertEquals(listOf(true, false, false), slices.map { it.holdsStart })
+        assertEquals(listOf(false, false, true), slices.map { it.holdsEnd })
+    }
+
+    /** A gap's halves answer the same question the same way — one encoding for both kinds. */
+    @Test fun `a gap's halves say which of its bounds are its own`() {
+        val gap = Gap(20 * 60 * MIN, DAY + 3 * 60 * MIN, GapReason.MOVED_UNRECORDED, afterTrackId = 1)
+        val halves = StayDeriver.slicePerDay(listOf(gap), { utc to utc }, 2 * DAY)
+
+        assertEquals(listOf(true, false), halves.map { it.holdsStart })
+        assertEquals(listOf(false, true), halves.map { it.holdsEnd })
+    }
+
     @Test fun `an ongoing stay keeps its null end on the final slice only`() {
         val stay = Stay(
             start = 20 * 60 * MIN, end = null, location = home,
@@ -447,26 +476,35 @@ class StayDeriverTest {
         assertNull(slices[1].end)
     }
 
-    @Test fun `an intra-day interval passes through unchanged`() {
-        val gap = Gap(
-            start = 10 * 60 * MIN, end = 11 * 60 * MIN,
-            reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
+    @Test fun `an intra-day stay passes through the loop unchanged`() {
+        // A stay, deliberately: a gap now returns before the loop, so asking this of one would
+        // exercise the early return and leave the loop's terminating branch with no witness.
+        val stay = Stay(
+            start = 10 * 60 * MIN, end = 11 * 60 * MIN, location = home,
+            provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0,
         )
-        assertEquals(listOf<StayDeriver.Interval>(gap), sliced(listOf(gap), { utc to utc }, 2 * DAY))
+        assertEquals(listOf<StayDeriver.Interval>(stay), sliced(listOf(stay), { utc to utc }, 2 * DAY))
     }
 
-    @Test fun `a midnight-spanning gap slices like a stay does`() {
-        // Slicing is per interval kind, and a gap keeps its reason across the cut — a day showing
-        // half of one must still say why the ground went unrecorded.
-        val gap = Gap(
-            start = 20 * 60 * MIN, end = DAY + 3 * 60 * MIN,
-            reason = GapReason.UNKNOWN_ENDPOINT, afterTrackId = 1,
-        )
-        val slices = sliced(listOf(gap), { utc to utc }, 2 * DAY)
-        assertEquals(2, slices.size)
-        assertEquals(DAY, slices[0].end)
-        assertEquals(DAY + 3 * 60 * MIN, slices[1].end)
-        assertTrue(slices.all { it is Gap && it.reason == GapReason.UNKNOWN_ENDPOINT })
+    /**
+     * The asymmetry, on one pair of bounds so the two rules are read against each other. Both are cut
+     * at midnight here because both cross exactly one; what differs is the rule behind it, which the
+     * multi-day cases below separate: a stay is cut at *every* midnight it crosses, a gap only ever
+     * at the one opening the day it ended.
+     */
+    @Test fun `a gap crossing one midnight is cut there, as the same stay is`() {
+        val start = 20 * 60 * MIN
+        val end = DAY + 3 * 60 * MIN
+        val gap = Gap(start, end, GapReason.UNKNOWN_ENDPOINT, afterTrackId = 1)
+        val stay = Stay(start, end, home, Provenance.OBSERVED, afterTrackId = 1, clusterId = 0)
+
+        assertEquals(2, sliced(listOf(stay), { utc to utc }, 2 * DAY).size)
+
+        val halves = StayDeriver.slicePerDay(listOf(gap), { utc to utc }, 2 * DAY)
+        assertEquals(listOf(start to DAY, DAY to end), halves.map { it.interval.start to it.interval.end })
+        // Stamped, so each half states the end it speaks for and says nothing about the other.
+        assertEquals(listOf(utc, null), halves.map { it.departureZone })
+        assertEquals(listOf(null, utc), halves.map { it.arrivalZone })
     }
 
     @Test fun `day slicing respects the zone's DST transition`() {
@@ -566,15 +604,20 @@ class StayDeriverTest {
         assertEquals(chicago, slices.single().arrivalZone)
     }
 
-    @Test fun `an absence that stays on one clock is cut like anything else`() {
-        // The other half of the rule above: same zone at both ends is an ordinary coverage gap, and
-        // a day it runs through must still be able to say so.
+    @Test fun `an absence spanning whole days is still two rows, not one per day`() {
+        // The days in between are folded into the departure half rather than each getting a row:
+        // they hold neither end, so a row for one could say nothing but that nothing is known. Two
+        // is the count whatever the span — the same shape a crossing takes, for the same reason.
         val gap = Gap(
-            start = 20 * 60 * MIN, end = DAY + 3 * 60 * MIN,
+            start = 20 * 60 * MIN, end = 3 * DAY + 3 * 60 * MIN,
             reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
         )
 
-        assertEquals(2, sliced(listOf(gap), { utc to utc }, 2 * DAY).size)
+        val halves = StayDeriver.slicePerDay(listOf(gap), { utc to utc }, 4 * DAY)
+        assertEquals(
+            listOf(20 * 60 * MIN to 3 * DAY, 3 * DAY to 3 * DAY + 3 * 60 * MIN),
+            halves.map { it.interval.start to it.interval.end },
+        )
     }
 
     // --- interleave ------------------------------------------------------------

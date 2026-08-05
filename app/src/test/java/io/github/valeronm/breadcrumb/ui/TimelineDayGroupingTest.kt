@@ -89,14 +89,17 @@ class TimelineDayGroupingTest {
     }
 
     /**
-     * A piece of an absence, carrying the clock of each end it speaks for — null for an end that is
-     * a row of its own elsewhere. An ordinary slice happened in one place and holds both.
+     * A piece of an absence: the clock each of its ends runs on, and which of them this piece speaks
+     * for — an end it does not hold is a row of its own elsewhere. One that happened in a single
+     * place holds both.
      */
     private fun gapSlice(
         from: Long,
         to: Long,
-        departureZone: ZoneId? = utc,
-        arrivalZone: ZoneId? = utc,
+        departureZone: ZoneId = utc,
+        arrivalZone: ZoneId = utc,
+        holdsDeparture: Boolean = true,
+        holdsArrival: Boolean = true,
     ) = TimelineItem.GapItem(
         gap = StayDeriver.Gap(
             start = from, end = to,
@@ -104,25 +107,27 @@ class TimelineDayGroupingTest {
         ),
         departureZone = departureZone,
         arrivalZone = arrivalZone,
+        holdsDeparture = holdsDeparture,
+        holdsArrival = holdsArrival,
     )
 
-    @Test fun `an ordinary absence files each slice under the day it covers`() {
-        // Each slice ends at the midnight that *opens* the next day, so filing one by its end puts
-        // every piece a day late — and lands two of them on the day the absence finally ended.
+    @Test fun `an absence spanning days files its two halves under the days holding its ends`() {
+        // The shape the slicer actually emits for a multi-day outage: a departure half running to
+        // the midnight opening the day it ended, and the arrival half. The 17th is inside the first
+        // half and gets no group of its own — nothing is known about it, so there is nothing to say.
         val day = { d: Int -> LocalDate.of(2026, 7, d).atStartOfDay(utc).toInstant().toEpochMilli() }
         val items = listOf(
-            gapSlice(day(18), day(18) + 10 * 3_600_000), // the 18th, until 10:00
-            gapSlice(day(17), day(18)), // all of the 17th
-            gapSlice(day(16), day(17)), // all of the 16th
+            gapSlice(day(18), day(18) + 10 * 3_600_000, holdsDeparture = false), // resumed on the 18th
+            gapSlice(day(16) + 20 * 3_600_000, day(18), holdsArrival = false), // stopped on the 16th
         )
 
         val groups = groupTimelineByDay(items)
 
         assertEquals(
-            listOf(LocalDate.of(2026, 7, 18), LocalDate.of(2026, 7, 17), LocalDate.of(2026, 7, 16)),
+            listOf(LocalDate.of(2026, 7, 18), LocalDate.of(2026, 7, 16)),
             groups.map { it.date },
         )
-        assertEquals(listOf(1, 1, 1), groups.map { it.items.size })
+        assertEquals(listOf(1, 1), groups.map { it.items.size })
     }
 
     @Test fun `a crossing's arrival files under the day it landed, its departure under the day it left`() {
@@ -135,8 +140,8 @@ class TimelineDayGroupingTest {
             .toInstant().toEpochMilli()
         val cut = LocalDate.of(2026, 7, 18).atStartOfDay(tokyo).toInstant().toEpochMilli()
         val items = listOf(
-            gapSlice(cut, landedAt, departureZone = null, arrivalZone = tokyo),
-            gapSlice(departedAt, cut, departureZone = lisbon, arrivalZone = null),
+            gapSlice(cut, landedAt, lisbon, tokyo, holdsDeparture = false),
+            gapSlice(departedAt, cut, lisbon, tokyo, holdsArrival = false),
         )
 
         val groups = groupTimelineByDay(items)

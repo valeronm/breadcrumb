@@ -239,20 +239,39 @@ assert.equal(
 
 // --- slicePerDay ------------------------------------------------------------------------------------
 {
-  const utcMidnight = (ms) => Math.floor(ms / DAY) * DAY + DAY;
+  // One object, so the cut and the day headings cannot answer to different zones.
+  const utcClock = {
+    startOfDay: (ms) => Math.floor(ms / DAY) * DAY,
+    nextMidnight: (ms) => Math.floor(ms / DAY) * DAY + DAY,
+  };
   const stay = { kind: "stay", start: 20 * 60 * MIN, end: DAY + 9 * 60 * MIN, provenance: "OBSERVED" };
-  const slices = slicePerDay([stay], 2 * DAY, utcMidnight);
+  const slices = slicePerDay([stay], 2 * DAY, utcClock);
   assert.equal(slices.length, 2, "a midnight-spanning stay splits per day");
   assert.deepEqual([slices[0].start, slices[0].end], [20 * 60 * MIN, DAY]);
   assert.deepEqual([slices[1].start, slices[1].end], [DAY, DAY + 9 * 60 * MIN]);
+  // The stamp at the cut: which bounds are the stay's own, so no reader works it out from a clock.
+  assert.deepEqual(slices.map((s) => s.holdsStart), [true, false]);
+  assert.deepEqual(slices.map((s) => s.holdsEnd), [false, true]);
   assert.ok(slices.every((s) => s.provenance === "OBSERVED"), "slices keep what they are");
 
-  const open = slicePerDay([{ ...stay, end: null }], DAY + 9 * 60 * MIN, utcMidnight);
+  const open = slicePerDay([{ ...stay, end: null }], DAY + 9 * 60 * MIN, utcClock);
   assert.equal(open[0].end, DAY);
   assert.equal(open[1].end, null, "an open-ended stay keeps its null end on the final slice only");
 
+  const sliceGap = (gap, now) => slicePerDay([gap], now, utcClock);
+
   const gap = { kind: "gap", start: 10 * 60 * MIN, end: 11 * 60 * MIN };
-  assert.deepEqual(slicePerDay([gap], 2 * DAY, utcMidnight), [gap], "an intra-day interval is unchanged");
+  assert.deepEqual(sliceGap(gap, 2 * DAY), [{ ...gap, holdsStart: true, holdsEnd: true }],
+    "an absence inside one day is one row speaking for both its ends");
+
+  // A stay is cut per day because each day it covers has something true to report; an absence has
+  // that only at its two ends, so it is cut once and the days in between are folded into the
+  // departure half — a row for one could say nothing but that nothing is known.
+  const spanning = { kind: "gap", start: 20 * 60 * MIN, end: 3 * DAY + 3 * 60 * MIN };
+  assert.deepEqual(sliceGap(spanning, 4 * DAY), [
+    { ...spanning, end: 3 * DAY, holdsStart: true, holdsEnd: false },
+    { ...spanning, start: 3 * DAY, holdsStart: false, holdsEnd: true },
+  ], "however many days it spans, it is two rows: when recording stopped, and when it resumed");
 }
 
 // --- interleave -------------------------------------------------------------------------------------
@@ -375,7 +394,10 @@ assert.equal(
   process.env.TZ = "UTC";
   const day = Date.UTC(2026, 0, 5);
   const hm = (h, m = 0) => day + h * 60 * MIN + m * MIN;
-  const stay = (start, end) => ({ kind: "stay", start, end });
+  // Which bounds the slicing cut is stamped, not read off the clock — so a stay that merely begins
+  // at midnight keeps its start time, where the old bounds-reading called it a slice.
+  const stay = (start, end, holdsStart = true, holdsEnd = true) =>
+    ({ kind: "stay", start, end, holdsStart, holdsEnd });
   const exportedAt = hm(23);
 
   // Clock times come out in the viewer's own locale, so the expectations are composed from the
@@ -386,11 +408,13 @@ assert.equal(
   assert.equal(stayMeta(stay(hm(9, 41), hm(11, 2)), null, exportedAt),
     `${t(9, 41)} – ${t(11, 2)} · 1 h 21 min`);
   assert.equal(stayMeta(stay(hm(9, 41), null), null, exportedAt), `since ${t(9, 41)} · 13 h 19 min`);
-  assert.equal(stayMeta(stay(day, hm(9)), null, exportedAt), `until ${t(9)}`,
-    "a midnight-clamped bound restates the clock time, so it carries no duration");
-  assert.equal(stayMeta(stay(hm(20), day + DAY), null, exportedAt), `from ${t(20)}`);
-  assert.equal(stayMeta(stay(day, day + DAY), null, exportedAt), "All day");
-  assert.equal(stayMeta(stay(day, null), null, day + DAY), "All day");
+  assert.equal(stayMeta(stay(day, hm(9), false), null, exportedAt), `until ${t(9)}`,
+    "a bound the slicing cut restates the clock time, so it carries no duration");
+  assert.equal(stayMeta(stay(day, hm(9)), null, exportedAt), `${t(0)} – ${t(9)} · 9 h 0 min`,
+    "the same bounds uncut are a stay that merely began at midnight, and it keeps both");
+  assert.equal(stayMeta(stay(hm(20), day + DAY, true, false), null, exportedAt), `from ${t(20)}`);
+  assert.equal(stayMeta(stay(day, day + DAY, false, false), null, exportedAt), "All day");
+  assert.equal(stayMeta(stay(day, null, false), null, day + DAY), "All day");
   assert.equal(stayMeta(stay(hm(9, 11), hm(9, 11) + 3_000), null, exportedAt), t(9, 11),
     "a stop caught only at its tail lands on one clock minute, and its bounds measure nothing");
 
@@ -413,21 +437,22 @@ assert.equal(
   assert.equal(formatDurationMs(3 * DAY), "3 d");
   assert.equal(formatDurationMs(3 * DAY + 5 * 60 * MIN), "3 d 5 h");
 
-  // A gap slice, and the two things its bounds decide together: what it may say about the absence,
-  // and which of its two ends happened on this day at all.
-  const gap = (start, end) => ({ kind: "gap", start, end });
-  assert.deepEqual(gapMeta(gap(hm(9), hm(11))),
-    { text: "missing recording · 2 h 0 min", namesFrom: true, namesTo: true },
+  // Read off the flags the cut stamped, never off the bounds — which is what lets an absence that
+  // genuinely began at midnight still say so, where a bounds-reading rule called it a seam.
+  const gap = (start, end, holdsStart, holdsEnd) =>
+    ({ kind: "gap", start, end, holdsStart, holdsEnd });
+  assert.deepEqual(gapMeta(gap(hm(9), hm(11), true, true)),
+    { text: "missing recording · 2 h 0 min" },
     "a whole absence inside one day measures itself and names both ends");
-  assert.deepEqual(gapMeta(gap(hm(18), day + DAY)),
-    { text: `missing recording · from ${t(18)}`, namesFrom: true, namesTo: false },
-    "the day it began names the departure; the arrival hasn't happened yet");
-  assert.deepEqual(gapMeta(gap(day, hm(9))),
-    { text: `missing recording · until ${t(9)}`, namesFrom: false, namesTo: true },
-    "the day it ended names the arrival, and no duration — the absence started earlier");
-  assert.deepEqual(gapMeta(gap(day, day + DAY)),
-    { text: "missing recording · all day", namesFrom: false, namesTo: false },
-    "a day the absence merely passes through knows neither end of it");
+  assert.deepEqual(gapMeta(gap(hm(18), day + DAY, true, false)),
+    { text: `missing recording · from ${t(18)}` },
+    "the day it began says when recording stopped, and names the departure");
+  assert.deepEqual(gapMeta(gap(day, hm(9), false, true)),
+    { text: `missing recording · until ${t(9)}` },
+    "the day it ended says when recording resumed, and names the arrival");
+  assert.deepEqual(gapMeta(gap(day, day + DAY, true, true)),
+    { text: "missing recording · 1 d" },
+    "a real 24-hour absence measures itself, midnight bounds and all");
 }
 
 // --- the distance function itself -----------------------------------------------------------------

@@ -87,12 +87,10 @@ rule there over adding cases here. Enum→resource mappings need neither: they a
 so the compiler already refuses an unmapped entry.
 
 The third move, and usually the best one, is to **take the decision out of the row**: a rule stated as
-a value (`ui/TimelineBounds.kt` — which clock times a stay row states, and whether a duration may sit
+a value (`ui/StayBounds.kt` — which clock times a stay row states, and whether a duration may sit
 beside them) is total over its own cases on a plain JVM, where composed it was reachable only by
 building a row in exactly the right zone. What the row test then covers is the rendering, which is
-all it was ever the right tool for. The gap row's own version of that decision — which of its two
-ends this day holds — is **not** extracted yet, and it decides more than a phrase: it also picks the
-ends the add-trip form is handed.
+all it was ever the right tool for.
 
 Two prices, both real: composing a row means it is `internal` rather than `private` (a small thing —
 this file already defaults to `internal` for cross-file symbols — but do not widen a row without
@@ -390,8 +388,9 @@ form (`AddTripScreen`, opened from the Timeline tab's top-bar "+" or from a gap 
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
 one layer at a time). **What that form opens holding is a `TripDraft`**, which is also the state
 saying it is open: a gap row hands over the ends *it* speaks for and no others — the same two
-questions its card is drawn from — so a midnight slice seam never arrives as a departure time and a
-day an absence merely passes through offers nothing at all. Each end carries an instant rather than
+questions its card is drawn from — so the far side of an absence cut at midnight never arrives as
+this row's fact. A gap is cut **once**, at the midnight opening the day it ended (`slicePerDay`), so
+a row holds both ends or exactly one, and never neither. Each end carries an instant rather than
 a wall clock, because the zone follows from resolving the pin (which the form does after opening)
 and because a bound rounded to the pickers' minute would overlap the track it was taken from. Its
 position is the **recording's own** — `StayDeriver.Gap` carries the two fixes whose disagreement made
