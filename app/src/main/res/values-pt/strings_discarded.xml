@@ -5,7 +5,7 @@
     <string name="discarded_clear_all">Limpar tudo</string>
     <string name="discarded_empty">Sem trajetos eliminados. Aparecem aqui quando elimina um ou quando uma regra o descarta, e ficam recuperáveis durante %1$d dias.</string>
     <string name="discarded_retention">Os trajetos ficam aqui %1$d dias e depois são removidos definitivamente.</string>
-    <string name="discarded_restore">Repor o trajeto</string>
+    <string name="discarded_restore">Recuperar o trajeto</string>
     <plurals name="discarded_excluded">
         <item quantity="one">%d excluído</item>
         <item quantity="other">%d excluídos</item>

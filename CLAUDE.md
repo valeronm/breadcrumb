@@ -482,6 +482,11 @@ cross-checks it.
   is what keeps those suites on a plain JVM, and it is why they are interfaces rather than
   formatters: the rounding, the duration ladder's rungs and the recorder's phrasing are this app's
   decisions, and a measure/date formatter would re-decide them.
+- **Each recurring concept has one word per language, recorded in `docs/glossary/`** — a concept
+  spine in its README plus one file per language holding the canonical terms (track = *trajeto*,
+  place = *local*, fix = *sinal*, …), the language's style conventions, and the decisions behind
+  them. Write new strings from it, review string changes against it, and record a new term or
+  exception in it rather than deciding silently; the README says how a new language is added.
 - **Never assemble a sentence from parts.** No `"$verb $noun N of M"`, no `if (n == 1) "visit" else
   "visits"`, no lowercasing a noun to slot it mid-sentence — word order, agreement and case are the
   language's, not the caller's. One whole phrase per case, and `<plurals>` for anything counted.

@@ -26,8 +26,8 @@
 
     <string name="timeline_all_day">Todo o dia</string>
     <string name="timeline_stay_since">%1$s – agora</string>
-    <string name="timeline_stay_until">Até %1$s</string>
-    <string name="timeline_stay_from">Desde %1$s</string>
+    <string name="timeline_stay_until">Até às %1$s</string>
+    <string name="timeline_stay_from">Desde as %1$s</string>
     <string name="timeline_stay_between">%1$s – %2$s</string>
     <string name="timeline_short_stop">Paragem curta</string>
     <string name="timeline_short_stop_mergeable">Paragem curta, pode ser absorvida</string>
@@ -35,7 +35,7 @@
     <string name="timeline_unnamed_place">local sem nome</string>
 
     <string name="timeline_gap_lasting">gravação em falta · %1$s</string>
-    <string name="timeline_gap_from">gravação em falta · desde %1$s</string>
-    <string name="timeline_gap_until">gravação em falta · até %1$s</string>
+    <string name="timeline_gap_from">gravação em falta · desde as %1$s</string>
+    <string name="timeline_gap_until">gravação em falta · até às %1$s</string>
     <string name="timeline_gap_all_day">gravação em falta · todo o dia</string>
 </resources>

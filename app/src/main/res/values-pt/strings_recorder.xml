@@ -49,7 +49,7 @@
     <string name="recorder_restart_advice">reiniciar o telemóvel costuma resolver</string>
     <string name="recorder_generic_activity">atividade</string>
 
-    <string name="channel_tracking">Registo de GPS</string>
+    <string name="channel_tracking">Gravação de GPS</string>
     <string name="channel_tracking_description">Notificação permanente mostrada enquanto grava trajetos GPS</string>
     <string name="channel_alerts">Problemas de gravação</string>
     <string name="channel_alerts_description">Mostrada quando a gravação automática deixa de responder</string>
