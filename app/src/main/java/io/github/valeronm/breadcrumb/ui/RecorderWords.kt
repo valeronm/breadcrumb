@@ -103,7 +103,15 @@ internal fun recorderWords(context: Context): RecorderVocabulary =
         override fun noGpsSettled() = context.getString(R.string.recorder_no_gps_settled)
 
         override fun positioning(accuracyM: Float?): String = accuracyM
-            ?.let { context.getString(R.string.recorder_positioning_radius, it.toInt()) }
+            ?.let {
+                context.getString(
+                    R.string.recorder_positioning_radius,
+                    // Read per call like every string here, and for the same reason twice over: the
+                    // reader can change the units choice while a recording runs, and the system half
+                    // of it follows a configuration this process can outlive.
+                    measuresOf(context).shortDistance(it.toDouble()),
+                )
+            }
             ?: context.getString(R.string.recorder_positioning)
 
         override fun waitingForFix() = context.getString(R.string.recorder_waiting_for_fix)

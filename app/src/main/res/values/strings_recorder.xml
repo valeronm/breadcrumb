@@ -58,8 +58,11 @@
     <string name="recorder_no_gps_since">no GPS since %1$s</string>
     <string name="recorder_no_gps_settled">no GPS signal — waiting for one</string>
     <string name="recorder_positioning">positioning</string>
-    <!-- While the accuracy gate rejects fixes, the shrinking radius is the progress indicator. -->
-    <string name="recorder_positioning_radius">positioning ±%1$d m</string>
+    <!--
+      While the accuracy gate rejects fixes, the shrinking radius is the progress indicator. The
+      placeholder arrives with its unit already on it, so a reader who measures in feet is told feet.
+    -->
+    <string name="recorder_positioning_radius">positioning ±%1$s</string>
     <string name="recorder_waiting_for_fix">waiting for a GPS fix</string>
     <string name="recorder_resumes_within">%1$s resumes within %2$s</string>
     <string name="recorder_continues_if_you_move">%1$s continues if you move soon</string>

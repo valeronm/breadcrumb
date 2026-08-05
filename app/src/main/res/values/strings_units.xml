@@ -16,6 +16,14 @@
     <string name="unit_mph">mph</string>
 
     <!--
+      What the receiver said about its own fix. No display system converts these — a count is a
+      count and a decibel is a decibel — but both still get spelled by a language, and they sit on
+      the track graph's legend where two characters is the budget.
+    -->
+    <string name="unit_satellites">sat</string>
+    <string name="unit_decibels">dB</string>
+
+    <!--
       The duration ladder, which shows at most two of these and writes them tight against the
       number ("2h 05m", "11mo 30d"). Keep them short enough for that.
     -->

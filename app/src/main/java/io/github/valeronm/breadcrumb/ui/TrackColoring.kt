@@ -35,6 +35,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.MetricSmoother
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.util.FixUnit
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import kotlin.math.roundToInt
@@ -237,8 +238,9 @@ private fun metricSeries(
             points.map { it.altitude?.let(units::plotShort) } to symbols.of(units.shortUnitId)
         ColorMode.ACCURACY ->
             points.map { it.accuracy?.toDouble()?.let(units::plotShort) } to symbols.of(units.shortUnitId)
-        ColorMode.SATELLITES -> points.map { it.satellitesInFix?.toFloat() } to "sat"
-        ColorMode.CN0 -> points.map { it.cn0 } to "dB"
+        ColorMode.SATELLITES ->
+            points.map { it.satellitesInFix?.toFloat() } to symbols.of(FixUnit.SATELLITES)
+        ColorMode.CN0 -> points.map { it.cn0 } to symbols.of(FixUnit.CARRIER_TO_NOISE)
     }
 }
 

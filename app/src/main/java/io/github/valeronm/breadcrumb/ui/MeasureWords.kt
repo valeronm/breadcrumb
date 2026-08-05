@@ -6,12 +6,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.util.BigUnit
+import io.github.valeronm.breadcrumb.util.FixUnit
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.ShortUnit
 import io.github.valeronm.breadcrumb.util.SpeedUnit
 import io.github.valeronm.breadcrumb.util.UnitChoice
 import io.github.valeronm.breadcrumb.util.UnitSymbols
+import io.github.valeronm.breadcrumb.util.UnitSystem
 
 /**
  * The Android half of [UnitSymbols] and [DurationSymbols] — the resources behind every unit the app
@@ -30,7 +33,40 @@ internal fun unitSymbols(context: Context): UnitSymbols = object : UnitSymbols {
     override fun of(unit: SpeedUnit) = context.getString(
         if (unit == SpeedUnit.KMH) R.string.unit_kmh else R.string.unit_mph,
     )
+
+    override fun of(unit: FixUnit) = context.getString(
+        if (unit == FixUnit.SATELLITES) R.string.unit_satellites else R.string.unit_decibels,
+    )
 }
+
+/**
+ * An already-resolved [system], paired with the symbols [context] spells it in — the one place a
+ * [Measures] is built, so the pairing stays the invariant its own KDoc claims.
+ *
+ * **The system is the caller's to resolve, and deliberately so.** A composable resolves it from the
+ * locale composition hands it, which is the value it also keys its `remember` on; reading the
+ * country here instead would leave those two agreeing only by convention, and would ignore a
+ * `LocalConfiguration` a subtree had overridden.
+ *
+ * A fresh instance every call: the two screens that colour a track key an O(points) walk on this
+ * object's identity, so a caller feeding one must remember it rather than build it per composition.
+ */
+internal fun measuresOf(context: Context, system: UnitSystem): Measures =
+    Measures(system, unitSymbols(context))
+
+/**
+ * [measuresOf] for a caller with neither state nor composition of its own — the recorder's
+ * vocabulary, which is reached from a service as readily as from a screen. Both halves come from
+ * [context]: the choice as the user last left it, resolved against the country it is configured for.
+ */
+internal fun measuresOf(context: Context): Measures = measuresOf(
+    context,
+    storedUnitChoice(context).resolve(context.resources.configuration.locales[0].country),
+)
+
+/** The units choice as the user last left it — the stored name and its fallback, read in one place. */
+internal fun storedUnitChoice(context: Context): UnitChoice =
+    UnitChoice.fromName(Settings.unitChoice(context))
 
 /**
  * What each unit-system choice reads as, here rather than on [UnitChoice] for the reason a place

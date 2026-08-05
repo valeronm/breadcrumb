@@ -77,7 +77,6 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
-import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitChoice
 import io.github.valeronm.breadcrumb.util.backgroundGranted
 import io.github.valeronm.breadcrumb.util.foregroundGranted
@@ -106,9 +105,7 @@ class MainActivity : FragmentActivity() {
         watchKeyguard(this)
         setContent {
             AppTheme {
-                var unitChoice by remember {
-                    mutableStateOf(UnitChoice.fromName(AppSettings.unitChoice(this)))
-                }
+                var unitChoice by remember { mutableStateOf(storedUnitChoice(this)) }
                 // FLAG_SECURE covers screenshots and the recents thumbnail together — the window
                 // either holds still-sensitive content or it doesn't, and the system draws no
                 // distinction between who is capturing it.
@@ -124,13 +121,14 @@ class MainActivity : FragmentActivity() {
                 // The unit *system* follows the locale's country (metric vs imperial); the symbols
                 // follow its language. Two different questions of the same locale, which is why the
                 // language picker below must never be allowed to decide the first of them.
-                val context = LocalContext.current
-                val symbols = remember(context) { unitSymbols(context) }
-                val durations = remember(context) { durationSymbols(context) }
-                // Remembered so its identity is stable: the two screens that colour a track key an
-                // O(points) walk on it, and a fresh instance per recomposition would redo that walk.
                 val system = unitChoice.resolve(locale.country)
-                val measures = remember(system, symbols) { Measures(system, symbols) }
+                val context = LocalContext.current
+                val durations = remember(context) { durationSymbols(context) }
+                // Keyed on the resolved system rather than on the choice behind it, so its identity
+                // is stable: the two screens that colour a track key an O(points) walk on it, and
+                // two choices that resolve alike (Automatic and Metric here) must not redo that walk.
+                // The symbols need no key — they resolve each string from the context as it is asked.
+                val measures = remember(context, system) { measuresOf(context, system) }
                 CompositionLocalProvider(
                     LocalMeasures provides measures,
                     LocalDurationSymbols provides durations,

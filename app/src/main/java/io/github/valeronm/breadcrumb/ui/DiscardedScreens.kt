@@ -121,20 +121,29 @@ internal fun DiscardedTracksScreen(
                                 "${activityLabel(LocalContext.current, t.activityType)} · $started",
                                 style = MaterialTheme.typography.bodyLarge,
                             )
+                            // The separators stay in code, out of the wording: they are layout
+                            // between facts, not part of any of them. Each fact is a whole phrase —
+                            // the count included, which is why it comes from the same plural the
+                            // track detail counts fixes with rather than from a word written here.
                             Text(
-                                "${t.pointCount} pts · ${distanceText(t.distanceMeters)} · " +
-                                    durationText(t.startedAt, t.endedAt) +
-                                    // The separator stays in code, out of the wording: it is
-                                    // layout between two facts, not part of either.
+                                listOfNotNull(
+                                    pluralStringResource(
+                                        R.plurals.track_points,
+                                        t.pointCount,
+                                        t.pointCount,
+                                    ),
+                                    distanceText(t.distanceMeters),
+                                    durationText(t.startedAt, t.endedAt),
                                     if (t.ignoredCount > 0) {
-                                        " · " + pluralStringResource(
+                                        pluralStringResource(
                                             R.plurals.discarded_excluded,
                                             t.ignoredCount,
                                             t.ignoredCount,
                                         )
                                     } else {
-                                        ""
+                                        null
                                     },
+                                ).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

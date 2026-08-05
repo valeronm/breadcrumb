@@ -52,10 +52,21 @@ enum class ShortUnit { METERS, FEET }
 enum class SpeedUnit { KMH, MPH }
 
 /**
- * How the host spells each unit — the seam that keeps this file free of language, so a locale
- * writing `"км"` needs no change here. Deliberately not a formatter: the rounding rules below are
- * this app's own (a dropped zero tenth, grouped whole units past 100, a padded minute in the
- * duration ladder), and a measure formatter would re-decide all of them.
+ * What a receiver reports about a fix of its own, in units no display system converts — a count and
+ * a ratio measure the same everywhere. They are still *spelled* by a language, which is the whole
+ * reason they are named here rather than written into the one screen that plots them.
+ */
+enum class FixUnit { SATELLITES, CARRIER_TO_NOISE }
+
+/**
+ * How the host spells each unit the app writes beside a number — the seam that keeps this file free
+ * of language, so a locale writing `"км"` needs no change here. The display-system units are three
+ * of the four; [FixUnit] is spelled by the same host for the same reason, and asking it here is what
+ * keeps a caller from writing the word itself for want of anywhere to look it up.
+ *
+ * Deliberately not a formatter: the rounding rules below are this app's own (a dropped zero tenth,
+ * grouped whole units past 100, a padded minute in the duration ladder), and a measure formatter
+ * would re-decide all of them.
  */
 interface UnitSymbols {
     fun of(unit: BigUnit): String
@@ -63,6 +74,8 @@ interface UnitSymbols {
     fun of(unit: ShortUnit): String
 
     fun of(unit: SpeedUnit): String
+
+    fun of(unit: FixUnit): String
 }
 
 /**
@@ -116,13 +129,16 @@ class Measures(val system: UnitSystem, val symbols: UnitSymbols) {
     )
 }
 
-/** Plain ASCII, for tests and for any surface with no resources to reach. */
+/** Plain ASCII, for tests and for any surface with no resources to reach — every unit, not just the
+ *  converted ones, since an implementer that answered only some would be a half-spelled host. */
 object AsciiUnits : UnitSymbols {
     override fun of(unit: BigUnit) = if (unit == BigUnit.KILOMETERS) "km" else "mi"
 
     override fun of(unit: ShortUnit) = if (unit == ShortUnit.METERS) "m" else "ft"
 
     override fun of(unit: SpeedUnit) = if (unit == SpeedUnit.KMH) "km/h" else "mph"
+
+    override fun of(unit: FixUnit) = if (unit == FixUnit.SATELLITES) "sat" else "dB"
 }
 
 /**

@@ -40,7 +40,7 @@
     <string name="recorder_no_gps_since">sem GPS desde as %1$s</string>
     <string name="recorder_no_gps_settled">sem sinal GPS — à espera de um</string>
     <string name="recorder_positioning">a localizar</string>
-    <string name="recorder_positioning_radius">a localizar ±%1$d m</string>
+    <string name="recorder_positioning_radius">a localizar ±%1$s</string>
     <string name="recorder_waiting_for_fix">à espera de sinal GPS</string>
     <string name="recorder_resumes_within">%1$s retoma dentro de %2$s</string>
     <string name="recorder_continues_if_you_move">%1$s continua se se mexer em breve</string>
