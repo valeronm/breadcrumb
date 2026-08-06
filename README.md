@@ -1,10 +1,11 @@
 # Breadcrumb
 
-An Android app that **automatically records your trips in the background** based on your detected
-activity — walking, running, cycling, or driving. Arm it once and forget it:
-it records while you move and pauses while you're still. Everything stays **on your device** — no
-account, no server — with a dark vector map, a day-by-day timeline of your trips and stays, named
-places, and GPX import/export.
+An Android app that keeps a day-by-day timeline of where you have been — trips, the stays between
+them, and the places you name — and fills it in by itself, recording in the background from your
+detected activity: walking, running, cycling or driving. Arm it once and forget it: it records
+while you move and pauses while you're still. Everything stays on your device — no account, no
+server — with journeys away from home in Insights, trips you can enter by hand for what nothing
+recorded, GPX import/export and a full backup.
 
 ## Try it (closed testing)
 
@@ -30,73 +31,89 @@ offer the install yet, try again later.
 
 ## Features
 
-- **Activity-aware recording** — uses on-device activity recognition to start a trip when you
-  start moving, switch trips when your activity changes (e.g. walking → driving), and pause when
-  you're stationary. A brief stop stitches back into the same trip instead of splitting it (the
-  resume window is configurable). Recognized modes: walking, running, cycling, and driving; a
-  recorded trip can be manually reclassified afterwards, including as modes recognition never
-  reports on its own — taxi (passenger) and boat.
-- **Truly autonomous** — flip *Auto recording* on once; it keeps working with the screen off or
-  the app closed, survives reboots, and resumes after the system kills it.
-- **Battery-conscious** — GPS only runs while you're actually moving, and a no-fix guard drops GPS
-  during false "moving" detections that never get a fix. It reads the raw GPS provider, and by
-  default keeps only what the satellites measured — positions the phone guessed are dropped.
-- **Timeline** — the Timeline tab reads like a diary: trips and the stays between them, grouped by
-  day (Today / Yesterday / date).
-- **Places** — recurring stays cluster into places you can name (home, work, the gym). A dedicated
-  Places tab shows them all on a map and as a sortable list, each with visit stats and an
-  adjustable capture radius.
-- **Rich map** — tap a trip to see its track on a dark vector map, colored per point by
-  speed, elevation, GPS accuracy, or satellite count, with start/end markers, noisy-point markers,
-  a metric chart, and distance / duration / average-speed stats.
-- **GPX import & export** — import `.gpx` files (via the picker, a share target, or opening a
-  `.gpx` file); export a single track from its page, a whole day from the day header, or everything
-  to a folder of `.gpx` files.
-- **Configurable** — tune sampling (min time / distance between points), point-quality gates, and
-  the minimum duration / length required to keep a trip.
-- **Material You** — follows your system light/dark theme and accent color, edge-to-edge, with
-  Android predictive back.
+- Activity-aware recording — on-device activity recognition starts a trip when you start moving,
+  switches trips when your activity changes (e.g. walking → driving), and pauses when you're
+  stationary; a brief stop stitches back into the same trip rather than splitting it. Recognized:
+  walking, running, cycling, driving and stationary, plus motion it can't name, which records as
+  *Moving* — and a trip can be reclassified afterwards, including as modes recognition never
+  reports on its own: taxi, boat, public transit and flight. Flip *Auto recording* on once and it
+  keeps working with the screen off or the app closed, survives reboots and the system killing it,
+  and runs GPS only while you are moving — a guard switches the receiver off when a "moving"
+  detection never produces a position, and by default only what the satellites measured is kept.
+- Places — recurring stays cluster into places you name (home, work, the gym), each with a capture
+  radius you can adjust and a category from a fixed vocabulary; categories the app suggests are
+  learned from the ones you have already tagged. The Places tab shows them on a map and as a
+  sortable list, each with its own visit history.
+- Insights — journeys, meaning runs of nights spent away from a place you tagged Home, named after
+  where the time actually went, with per-year totals of journeys, nights, cities and countries.
+  While you are away, times read on the clock of the place they happened in, not the phone's.
+- Fill in what wasn't recorded — enter a trip by hand from two pins and two times, from the
+  Timeline's "+" or straight from a gap row, which opens the form already holding the ends it can
+  speak for. Merge trips a short stop split, or split one that should have been two; both are
+  undoable, and a hand-entered trip can be edited afterwards.
+- A map of how it was recorded — a trip's track is colored per point by speed, elevation, accuracy,
+  satellite count or signal strength, and drawn alongside the points the filter rejected, the stays
+  detected along the way, and the named places claiming each end.
+- GPX import & export — import `.gpx` files (via the picker, a share target, or opening a `.gpx`
+  file); export a single track from its page, a whole day from the day header, or everything to a
+  folder of `.gpx` files.
+- Backup & restore — your whole history as one file: every kept trip with its points, the places,
+  and the liveness log the timeline is derived from, with restore offered on an empty timeline. A
+  single trip needs no backup to come back: deletions, and trips the keep limits discard, wait in
+  Recently deleted until they age out.
+- App lock — an optional unlock on opening (fingerprint or device PIN), and a switch that blocks
+  screenshots and hides the app in the recents switcher. Recording is never locked: trips keep
+  being recorded whether or not the app is.
 
 ## How it works
 
-- **Activity Recognition Transition API** (Google Play Services) detects when you start/stop
-  walking, running, cycling, driving, or going still. A one-shot snapshot on arming starts
-  recording immediately if you're already moving.
-- A **foreground service** (`LocationRecordingService`) keeps recording while the app is in the
+- Activity Recognition Transition API (Google Play Services) detects when you start/stop walking,
+  running, cycling, driving, or going still. A one-shot snapshot on arming starts recording
+  immediately if you're already moving. Recognition describes your body rather than the journey —
+  it will call you still aboard a moving train — so a second witness cross-checks it against
+  measured ground speed before a "stationary" reading is allowed to end a trip.
+- A foreground service (`LocationRecordingService`) keeps recording while the app is in the
   background. A persistent notification is mandatory on modern Android — there is no truly
   invisible always-on location option. The service checks location permission before starting, so
   a revoked permission falls back to the in-app prompt instead of failing.
-- **GPS sampling** uses the platform `GPS_PROVIDER` by default (Play Services' fused provider is
-  selectable in settings for indoor/network positioning). GPS runs only while moving.
-- Each trip is stored as one **Track** of **TrackPoints** in **Room** — the code keeps the name
-  *track* for the stored path, which is why a hand-entered trip is a Track holding only its two
-  ends. Related activities (walking ⇄ running) share one, and a stop shorter than the resume window
+- Positioning uses the platform `GPS_PROVIDER` — there is no fused or network fallback, since a
+  position the phone inferred can report a tight accuracy radius while being nowhere near the
+  truth. GPS runs only while moving.
+- Each trip is stored as one `Track` of `TrackPoint` rows in Room — the code keeps the name *track*
+  for the stored path, which is why a hand-entered trip is a `Track` holding only its two ends.
+  Related activities (walking ⇄ running) share one, and a stop shorter than the resume window
   stitches back into it instead of splitting. Those failing the configured keep-thresholds (e.g.
-  too few points) are discarded automatically, including any left dangling by a crash.
-- **Stays and places** are derived from where consecutive trips begin and end, plus a liveness
-  log that distinguishes real stays from gaps where the app wasn't recording. Named places persist
-  and label the timeline.
-- The map is **MapLibre GL Native** on a bundled **Protomaps dark vector basemap**; the track is a
-  color-gradient line recolored in place when you switch the metric.
-- **GpxExporter / GpxParser** write and read GPX; exports share via `FileProvider` or bulk-write to
-  a folder you pick via the Storage Access Framework.
+  too few points) are discarded automatically, including any left dangling by a crash. A track's
+  distance and point counts live on its own row, so drawing the timeline never walks the points.
+- Stays and places are derived from where consecutive trips begin and end, plus a liveness log that
+  distinguishes real stays from gaps where the app wasn't recording. Named places persist and
+  label the timeline; journeys are then read off the same derivation as runs of nights whose
+  cluster is not one of your Home places.
+- The map is MapLibre GL Native on a bundled Protomaps vector basemap, dark or light with the app's
+  theme. The track is one line feature per run of same-colored fixes — deliberately not a
+  `line-gradient`, because the banded ramp, the source's simplification tolerance and the round
+  caps are one mechanism — and switching the metric rebuilds the source without moving the camera.
+- `GpxExporter` / `GpxParser` write and read GPX; exports share via `FileProvider` or bulk-write to
+  a folder you pick via the Storage Access Framework. `BackupExporter` / `BackupImporter` stream
+  the whole history as one gzipped JSON file, which is also what the companion viewer in `web/`
+  reads.
 
 ## Permissions
 
 On first launch the app asks for:
 
-1. **Location** (precise) and **Physical activity**.
-2. **Background location** — must be set to *"Allow all the time"*. On Android 11+ this is only
+1. Location (precise) and Physical activity.
+2. Background location — must be set to *"Allow all the time"*. On Android 11+ this is only
    grantable from the app's system settings page, so the button opens it there.
-3. **Notifications** (Android 13+) for the ongoing recording notification.
-4. **Ignore battery optimizations** (prompted when armed) — recommended so the OS doesn't kill
+3. Notifications (Android 13+) for the ongoing recording notification.
+4. Ignore battery optimizations (prompted when armed) — recommended so the OS doesn't kill
    background recording.
 
 ## Build
 
-The build runs on **JDK 21 automatically**, whatever your system default JDK is: Gradle's daemon
-JVM is pinned to Java 21 via `gradle/gradle-daemon-jvm.properties` (auto-provisioned if no JDK 21
-is installed). No `JAVA_HOME` override is needed.
+The build runs on JDK 21 automatically, whatever your system default JDK is: Gradle's daemon JVM
+is pinned to Java 21 via `gradle/gradle-daemon-jvm.properties` (auto-provisioned if no JDK 21 is
+installed). No `JAVA_HOME` override is needed.
 
 ```bash
 ./gradlew :app:assembleDebug   # build the debug APK
@@ -107,33 +124,54 @@ The debug APK lands in `app/build/outputs/apk/debug/` and installs as
 `io.github.valeronm.breadcrumb.debug` (alongside a release install, with a distinct
 blueprint-grid launcher icon).
 
-A fresh checkout needs a **Protomaps hosted-API key** for the basemap to load: add
-`protomapsApiKey=…` to `local.properties` (gitignored). Without it the map tiles won't render.
+A fresh checkout needs a Protomaps hosted-API key for the basemap to load: add `protomapsApiKey=…`
+to `local.properties` (gitignored). Without it the map tiles won't render.
 
-Unit tests cover the pure domain/data logic:
+Unit tests cover the domain rules and the data layer, and reach further than plain JVM code through
+Robolectric — the Room database and its migrations, and the timeline's rows read back off the
+semantics tree:
 
 ```bash
 ./gradlew :app:testDebugUnitTest
 ```
 
+Robolectric's native runtime ships no Linux arm64 build, so on an arm64 machine the Robolectric
+tests need `-PqemuJdk` (see `CLAUDE.md`); everywhere else they just run.
+
 ## Tech stack
 
-Kotlin · Jetpack Compose (Material 3) · Room · Play Services Location (raw GPS + Fused + Activity
-Recognition) · MapLibre GL Native on a Protomaps vector basemap · AGP 9.2.1 / Gradle 9.6.1 ·
-single-module.
+Kotlin · Jetpack Compose (Material 3) · Room · Play Services Location (Activity Recognition;
+positions come from the platform GPS provider) · MapLibre GL Native on a Protomaps vector
+basemap · AGP 9.3.1 / Gradle 9.6.1 · single-module.
 
 ## Testing activity switching
 
-Activity recognition needs **real movement** (or a route played through an emulator's extended
+Activity recognition needs real movement (or a route played through an emulator's extended
 controls → Location → Routes) to fire transitions. While stationary the app shows
 *"Idle · nothing to record"*; start walking or driving and a trip begins automatically. You
 can also import a `.gpx` file to populate trips, places, and the map without moving.
 
 ## Notes & limitations
 
-- **Privacy:** all data is local. Nothing is uploaded; there's no analytics or account. The only
-  network use is fetching Protomaps map tiles (and glyphs/sprites) for the in-app map.
-- **Play Services dependency:** activity recognition relies on Google Play Services, so this isn't
-  a fully FOSS / F-Droid-friendly build.
-- **Single device / single user:** no multi-device sync (server upload to e.g. Dawarich/OwnTracks
-  is a possible future addition).
+- Privacy: your history is local. Nothing is uploaded; there's no analytics or account. The network
+  carries map data — Protomaps tiles, glyphs and sprites — plus one thing you can switch off: the
+  add-trip form's online place search, which sends the words you typed to Photon and, where the
+  form has a pin to bias by, that pin. Place names otherwise come from a gazetteer bundled in the
+  APK, so naming a journey needs no network at all.
+- Play Services dependency: activity recognition relies on Google Play Services, so this isn't a
+  fully FOSS / F-Droid-friendly build.
+- Single device / single user: no multi-device sync (server upload to e.g. Dawarich/OwnTracks is a
+  possible future addition). `web/` renders a backup file in the browser instead — the same data,
+  deriving the same timeline.
+
+## Third-party data
+
+- Place names come from [GeoNames](https://www.geonames.org/) `cities1000`, packed by
+  `tools/pack_cities.py` into `app/src/main/assets/cities.bin` and shipped in the APK — CC BY 4.0.
+- The basemap is [Protomaps](https://protomaps.com/) vector tiles built from OpenStreetMap data,
+  fetched from their hosted API — © OpenStreetMap contributors, ODbL.
+- The optional online place search queries [Photon](https://photon.komoot.io/), also OpenStreetMap
+  data — © OpenStreetMap contributors, ODbL.
+
+The app repeats these credits where a user can see them, in Settings and beside the search results,
+which is what the licences ask; `NOTICE` carries the same list for anyone redistributing the repo.

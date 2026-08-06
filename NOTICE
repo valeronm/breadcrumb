@@ -1,0 +1,30 @@
+Breadcrumb
+Copyright 2026 Valerii Myronov
+
+Licensed under the Apache License, Version 2.0 — see LICENSE.
+
+This product bundles and uses third-party data. The attributions below are required by the
+licences that data is offered under. The app repeats them where a user can see them — in Settings,
+and beside online search results.
+
+
+GeoNames
+--------
+
+app/src/main/assets/cities.bin is a packed subset of the GeoNames "cities1000" dump
+(https://download.geonames.org/export/dump/), produced by tools/pack_cities.py and shipped inside
+the APK.
+
+Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/
+
+
+OpenStreetMap
+-------------
+
+Basemap tiles come from the Protomaps hosted API (https://protomaps.com/), built from OpenStreetMap
+data. The optional online place search queries Photon (https://photon.komoot.io/), also
+OpenStreetMap data.
+
+(c) OpenStreetMap contributors, licensed under the Open Database License (ODbL):
+https://www.openstreetmap.org/copyright
