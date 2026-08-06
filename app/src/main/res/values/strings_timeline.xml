@@ -3,7 +3,7 @@
 <resources>
     <!-- Empty state and backup restore -->
     <string name="timeline_empty">No trips yet. They appear here once recording captures some movement.</string>
-    <string name="timeline_restoring">Restoring your backup — the timeline will appear when it finishes.</string>
+    <string name="timeline_restoring">Restoring your backup — the timeline will appear when it finishes</string>
     <string name="timeline_restore_button">Restore from backup</string>
     <string name="timeline_restore_failed">Restore failed — not a Breadcrumb backup?</string>
     <string name="timeline_restored">Restored %1$d trips and %2$d places</string>
@@ -14,18 +14,21 @@
     <string name="timeline_sweep_edge_stays">Updating recording overruns</string>
     <string name="timeline_sweep_stats">Updating trip distances</string>
 
-    <!--
-      What heads a journey the naming pass found no place for — the bare fact of having been away.
-      Also used by the Insights journey list, so both screens call one journey one thing.
-    -->
+    <!-- What heads an Insights journey row the naming pass found no place for — the bare fact of
+         having been away. The timeline's own band leads with the day count below instead. -->
     <plurals name="timeline_nights_away">
         <item quantity="one">%d night away</item>
         <item quantity="other">%d nights away</item>
     </plurals>
+    <!-- Opens the timeline's journey band, ahead of the destination names — the run's length. -->
+    <plurals name="timeline_journey_days">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
 
     <!-- Row actions, read aloud -->
-    <!-- Where in a journey the reader has scrolled to; the band above carries the journey itself. -->
-    <string name="timeline_away_day">· Day %1$d of %2$d away</string>
+    <!-- Where in a journey the reader has scrolled to; follows the journey's name on its band. -->
+    <string name="timeline_away_day">Day %1$d</string>
     <string name="timeline_share_day">Share %1$s tracks</string>
     <string name="timeline_scroll_to_day">Scroll to a day</string>
     <string name="timeline_merge">Merge trips</string>

@@ -194,7 +194,6 @@ private fun discardReasonRes(reason: String?): Int? = when (reason) {
     Track.REASON_DELETED -> R.string.discarded_reason_deleted
     Track.REASON_FILTERED -> R.string.discarded_reason_filtered
     Track.REASON_MERGED -> R.string.discarded_reason_merged
-    Track.REASON_TRIMMED -> R.string.discarded_reason_trimmed
     else -> null
 }
 

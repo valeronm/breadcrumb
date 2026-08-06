@@ -10,13 +10,13 @@
     <string name="settings_group_diagnostics">Diagnostics</string>
     <string name="settings_sampling">Sampling</string>
     <string name="settings_sampling_sub">How densely points are recorded</string>
-    <string name="settings_point_quality">Point quality</string>
-    <string name="settings_point_quality_sub">Which recorded points count as good</string>
+    <string name="settings_point_quality">Point filter</string>
+    <string name="settings_point_quality_sub">Which points make it into the track</string>
     <string name="settings_auto_pause">Auto-pause</string>
-    <string name="settings_auto_pause_sub">How long a stop keeps the trip open</string>
+    <string name="settings_auto_pause_sub">How close together movements still count as one trip</string>
     <!-- Not "GPS positioning": the P already is. -->
     <string name="settings_gps_search">Positioning</string>
-    <string name="settings_gps_search_sub">When to give up and switch GPS off</string>
+    <string name="settings_gps_search_sub">Save battery when no position can be found</string>
     <string name="settings_track_filtering">Trip filtering</string>
     <string name="settings_track_filtering_sub">Limits below which finished trips are discarded</string>
     <string name="settings_units">Units</string>
@@ -27,6 +27,8 @@
     <string name="units_choice_uk">Miles + meters</string>
     <string name="settings_app_lock">App lock</string>
     <string name="settings_app_lock_sub">Unlocking to open the app, and hiding it from screenshots</string>
+    <string name="settings_online_services">Online services</string>
+    <string name="settings_online_services_sub">What may use the network, beyond the map</string>
     <string name="settings_recently_deleted_sub">Restorable for %1$d days</string>
     <string name="settings_logs">Logs</string>
     <string name="settings_reset">Reset</string>
@@ -36,47 +38,47 @@
     <string name="credit_osm">Online search © OpenStreetMap contributors, ODbL</string>
 
     <!-- Sampling -->
-    <string name="sampling_description">How densely points are recorded while moving.</string>
+    <string name="sampling_description">How densely points are recorded while moving</string>
     <string name="sampling_time_between">Time between points</string>
     <string name="sampling_distance_between">Distance between points</string>
 
     <!-- Point quality -->
-    <string name="quality_description">Which recorded points count as good.</string>
+    <string name="quality_description">Which points make it into the track</string>
     <string name="quality_require_fix">Require satellite positioning</string>
-    <string name="quality_require_fix_sub">Drops guessed positions, like in a tunnel.</string>
-    <string name="quality_accuracy_description">Points less accurate than this are marked noisy and excluded.</string>
+    <string name="quality_require_fix_sub">Drops guessed positions, like in a tunnel</string>
+    <string name="quality_accuracy_description">Points less accurate than this are marked noisy and excluded</string>
     <string name="quality_max_accuracy">Max accuracy radius</string>
 
     <!-- Auto-pause -->
-    <string name="pause_description">A stop shorter than this keeps the trip open — moving again continues the same trip. When set to Off, every stop ends the trip.</string>
+    <string name="pause_description">Movements separated by less than this are recorded as one trip. When set to Off, every stop separates them.</string>
     <string name="pause_resume_window">Resume window</string>
-    <string name="pause_keep_recording">Keep recording while moving</string>
-    <string name="pause_keep_recording_sub">Ignores \"stopped\" while your position keeps changing — for ferries, trains and buses, where you sit still but the trip doesn\'t. Uses more battery.</string>
 
     <!-- GPS search -->
-    <string name="gps_description">If no good position arrives for this long, GPS pauses and retries when you move or another app gets a location. When set to Off, GPS never gives up.</string>
+    <string name="gps_description">If no good position arrives for this long, GPS switches off to save battery — and retries when you move or another app gets a location. When set to Off, GPS never gives up.</string>
     <string name="gps_give_up_after">Give up after</string>
 
     <!-- Track filtering -->
-    <string name="filter_description">Trips under these limits are moved to Recently deleted when they finish.</string>
+    <string name="filter_description">Trips under these limits are moved to Recently deleted when they finish</string>
     <string name="filter_min_duration">Min duration</string>
     <string name="filter_min_length">Min length</string>
-    <string name="filter_extent_description">How far the trip spread from where it started — filters out standing-still noise.</string>
+    <string name="filter_extent_description">How far the trip spread from where it started — filters out standing-still noise</string>
     <string name="filter_min_extent">Min extent</string>
 
     <!-- Privacy and app lock -->
-    <string name="privacy_description">Recording is never locked — trips keep being recorded whether or not the app is.</string>
+    <string name="privacy_description">Recording is never locked — trips keep being recorded whether or not the app is</string>
     <string name="privacy_block_screenshots">Block screenshots</string>
-    <string name="privacy_block_screenshots_sub">Also hides the app\'s preview in the recent-apps switcher, which otherwise shows a map of where you were.</string>
+    <string name="privacy_block_screenshots_sub">Also hides the preview in the recent-apps switcher</string>
+    <!-- The map's tiles use the network regardless, so this page's promise names them. -->
+    <string name="online_services_description">Your history stays on this device. The network carries map imagery, and what is enabled here.</string>
     <string name="privacy_online_search">Online place search</string>
-    <string name="privacy_online_search_sub">Lets the add-trip form find hotels and addresses by name. Typed searches are sent to photon.komoot.io (OpenStreetMap); off keeps search fully on this device.</string>
+    <string name="privacy_online_search_sub">Finds hotels and addresses by name; queries go to photon.komoot.io</string>
     <string name="lock_require_unlock">Require unlock</string>
-    <string name="lock_require_unlock_sub">Opening the app asks for your fingerprint or device PIN.</string>
-    <string name="lock_no_screen_lock">Set a screen lock on this device first.</string>
+    <string name="lock_require_unlock_sub">Asks for your fingerprint or device PIN</string>
+    <string name="lock_no_screen_lock">Set a screen lock on this device first</string>
     <string name="lock_trust_keyguard">Trust the phone\'s unlock</string>
-    <string name="lock_trust_keyguard_sub">Skip the app\'s prompt when the phone itself has been unlocked since you last left the app — no second unlock right after the first. Off, the app is locked even to someone who can open the phone.</string>
+    <string name="lock_trust_keyguard_sub">The phone\'s own unlock also unlocks the app</string>
     <string name="lock_again">Lock again</string>
-    <string name="lock_again_sub">Leaving the app briefly — to pick a file or grant a permission — shouldn\'t ask again.</string>
+    <string name="lock_again_sub">Leaving the app briefly — to pick a file or grant a permission — shouldn\'t ask again</string>
     <string name="lock_immediately">Immediately</string>
     <!-- Wraps a duration from the ladder, which is still English until the ICU pass. -->
     <string name="lock_after">After %1$s</string>
@@ -88,7 +90,7 @@
       `docs/glossary/en.md` has both rules.
     -->
     <string name="data_import_tracks">Import tracks</string>
-    <string name="data_import_idle">GPX files; points need timestamps</string>
+    <string name="data_import_idle">Trips from GPX files with timestamps</string>
     <string name="data_importing">Importing file %1$d of %2$d · %3$d tracks so far</string>
     <string name="data_export_tracks">Export tracks</string>
     <string name="data_export_tracks_idle">Every track as a GPX file, into a folder you pick</string>

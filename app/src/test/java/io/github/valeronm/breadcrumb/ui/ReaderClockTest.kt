@@ -31,13 +31,13 @@ class ReaderClockTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
     @Test fun `a 24-hour reader is given the 24-hour cycle`() {
-        val time = ReaderClock(Locale.UK, hour24 = true).time(afternoon, UTC)
+        val time = ReaderClock(Locale.UK, hour24 = true, shiftHourSymbol = "h").time(afternoon, UTC)
         assertTrue("expected a 24-hour clock, got \"$time\"", time.contains("14"))
         assertNoDayPeriod(time)
     }
 
     @Test fun `a 12-hour reader is given the 12-hour cycle and a day period`() {
-        val time = ReaderClock(Locale.US, hour24 = false).time(afternoon, UTC)
+        val time = ReaderClock(Locale.US, hour24 = false, shiftHourSymbol = "h").time(afternoon, UTC)
         assertTrue("expected a 12-hour clock, got \"$time\"", time.contains("2"))
         assertTrue("expected \"$time\" to name its half of the day", hasDayPeriod(time))
     }
@@ -47,15 +47,15 @@ class ReaderClockTest {
      * "9:05" either way, and only the day period tells the two cycles apart.
      */
     @Test fun `a morning time differs between the cycles only by its day period`() {
-        val twelve = ReaderClock(Locale.US, hour24 = false).time(morning, UTC)
-        val twentyFour = ReaderClock(Locale.UK, hour24 = true).time(morning, UTC)
+        val twelve = ReaderClock(Locale.US, hour24 = false, shiftHourSymbol = "h").time(morning, UTC)
+        val twentyFour = ReaderClock(Locale.UK, hour24 = true, shiftHourSymbol = "h").time(morning, UTC)
         assertTrue("expected \"$twelve\" to name its half of the day", hasDayPeriod(twelve))
         assertNoDayPeriod(twentyFour)
     }
 
     /** The clock is read in the zone it is given, not the host's — the same rule every row obeys. */
     @Test fun `the zone decides which hour is named`() {
-        val clock = ReaderClock(Locale.UK, hour24 = true)
+        val clock = ReaderClock(Locale.UK, hour24 = true, shiftHourSymbol = "h")
         assertEquals("14:05", clock.time(afternoon, UTC))
         assertEquals("23:05", clock.time(afternoon, ZoneId.of("Asia/Tokyo")))
     }

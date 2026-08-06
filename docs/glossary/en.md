@@ -20,7 +20,7 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 | Concept | Term | What it means |
 |---|---|---|
 | journey | journey | A run of nights away from home (Insights). The Insights concept and nothing else: a ferry crossing or a bus ride is a **trip**, however long it takes. |
-| night-away | night away | A night not spent at home — what a journey is counted in. Insights' totals say plain "nights", the card's subject being journeys already; the timeline band, which stands alone, says "nights away". |
+| night-away | night away | A night not spent at home — what a journey is counted in. Insights' totals say plain "nights", the card's subject being journeys already; an unnamed journey's Insights row, which stands alone, says "nights away". The timeline's band instead opens with the journey's length in *days* — the same count its "Day N" marker walks through. |
 
 ### A trip
 
@@ -29,6 +29,7 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 | track | track | The recorded *path* of a trip — the points between its two ends. A detail a trip may not have: one entered by hand stores only its bounds, and a trip the recorder missed entirely is a gap row with no track at all. |
 | point | point | A position belonging to a trip, stored as a row of it — whether positioning found it, a file supplied it, or **the user placed it on the map**, which is all a hand-entered trip's ends are. Rejected ones are *noisy*; one the phone guessed rather than measured from satellites is a *guessed position*. |
 | activity | activity | The user's detected activity. Per-type words live in `strings_recorder.xml`, in standalone and inline forms. |
+| movement | movement | What the recorder watches for and trips are cut from: an *activity* names its kind, a *trip* bounds one continuous stretch of it. Used where the kind is unknown or irrelevant — "Moving" is detected motion the recogniser could not name. Countable *movements* are its stretches. |
 
 ### A stay
 
@@ -54,8 +55,7 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 |---|---|---|
 | merge | merge | Combining trips into one. A short stop a merge dissolves is *merged away*. |
 | split | split | Cutting one trip into two. |
-| delete | delete | Destroying data. |
-| remove | remove | Detaching an entity (a place, a pin). Never for destroying: Recently deleted says trips are *deleted* forever. |
+| delete | delete | Destroying data, and discarding an entity such as a place. One verb on purpose: severity is carried by the surface, not the word — a trip goes to Recently deleted, a place ends with its undo snackbar — and a softer verb for the second would promise less finality than is true. |
 | clear | clear | Emptying a list (logs, Recently deleted). |
 | undo | undo | Reverting the last action. |
 | restore-trip | restore | Putting one trip back from Recently deleted — "Restore trip". |

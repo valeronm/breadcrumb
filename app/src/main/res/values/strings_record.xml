@@ -3,19 +3,19 @@
 <resources>
     <!-- Permission cards -->
     <string name="record_perm_foreground_title">Location &amp; activity access needed</string>
-    <string name="record_perm_foreground_body">Grant location and physical-activity access so the app can detect whether you\'re walking, driving or cycling and record GPS.</string>
+    <string name="record_perm_foreground_body">Grant location and physical-activity access so the app can detect whether you\'re walking, driving or cycling and record GPS</string>
     <string name="record_perm_foreground_button">Grant permissions</string>
     <string name="record_perm_background_title">Allow background location</string>
-    <string name="record_perm_background_body">Set location access to \"Allow all the time\" so trips keep recording when the screen is off or the app is closed.</string>
+    <string name="record_perm_background_body">Set location access to \"Allow all the time\" so trips keep recording when the screen is off or the app is closed</string>
     <string name="record_perm_background_button">Allow in the background</string>
     <string name="record_perm_battery_title">Keep recording in the background</string>
-    <string name="record_perm_battery_body">Allow this app to ignore battery optimization so Android doesn\'t stop recording after a while in the background.</string>
+    <string name="record_perm_battery_body">Allow this app to ignore battery optimization so Android doesn\'t stop recording after a while in the background</string>
     <string name="record_perm_battery_button">Allow unrestricted</string>
 
     <!-- Recorded totals -->
     <!-- Today's heading comes from the shared `relative_today`, capitalized on render. -->
     <string name="record_period_this_month">This month</string>
-    <string name="record_no_tracks">No trips yet.</string>
+    <string name="record_no_tracks">No trips yet</string>
 
     <!-- Live track -->
     <string name="record_auto_recording">Auto recording</string>
@@ -26,8 +26,8 @@
     <string name="record_stat_speed">Speed</string>
     <string name="record_stat_elevation">Elevation</string>
     <string name="record_keep_screen_on">Keep screen on</string>
-    <string name="record_keep_screen_on_charging">While charging, with the app open.</string>
-    <string name="record_keep_screen_on_idle">Available while charging.</string>
+    <string name="record_keep_screen_on_charging">While charging, with the app open</string>
+    <string name="record_keep_screen_on_idle">Available while charging</string>
 
     <!-- Track replay, developer builds only -->
     <string name="record_replaying">Replaying %1$s at %2$s×</string>

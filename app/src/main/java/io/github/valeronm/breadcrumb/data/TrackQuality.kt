@@ -215,7 +215,7 @@ object TrackQuality {
      * [maxAccuracyM] → [IgnoreReason.ACCURACY], the configured limit; [motion] →
      * [IgnoreReason.JUMP], what the position stream says the ground is doing, which with the
      * activity sets how high the jump gate stands (see [jumpCeilingKmh]) — [Motion.Unknown], the
-     * default and what the recorder passes with the cross-check off, leaves that gate at the
+     * default and what stands while the ground can't answer, leaves that gate at the
      * activity's own height.
      */
     data class Gates(

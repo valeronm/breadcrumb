@@ -169,12 +169,14 @@ private fun TravelRow(
  * A journey's dates, dropping what the two ends share: "12–17 May", "28 Apr – 3 May 2019". Never a
  * single date — a journey covers one more day than it has nights, so its ends always differ.
  */
+// The full month, not `compactDayFormat`'s abbreviation: a journey row is the screen's headline
+// and has the width for it.
 private fun dateRange(from: LocalDate, to: LocalDate, today: LocalDate): String {
     val year = if (from.year == today.year && to.year == today.year) "" else " ${to.year}"
     return when {
         from.year != to.year ->
-            "${from.format(compactDayFormat)} ${from.year} – ${to.format(compactDayFormat)} ${to.year}"
-        from.month == to.month -> "${from.dayOfMonth}–${to.format(compactDayFormat)}$year"
-        else -> "${from.format(compactDayFormat)} – ${to.format(compactDayFormat)}$year"
+            "${from.format(fullDayFormat)} ${from.year} – ${to.format(fullDayFormat)} ${to.year}"
+        from.month == to.month -> "${from.dayOfMonth}–${to.format(fullDayFormat)}$year"
+        else -> "${from.format(fullDayFormat)} – ${to.format(fullDayFormat)}$year"
     }
 }

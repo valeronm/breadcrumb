@@ -26,8 +26,7 @@ class ActivityIngestTest {
     private val noFixGuard = NoFixGuard()
     private val core = ActivityIngest(ingest, noFixGuard)
 
-    private val settings = ActivitySettings(resumeWindowMs = RESUME_WINDOW_MS, crossCheckMotion = false)
-    private val crossChecked = settings.copy(crossCheckMotion = true)
+    private val settings = ActivitySettings(resumeWindowMs = RESUME_WINDOW_MS)
 
     /**
      * A reading whose event time is its apply time — the ordinary live delivery. The registration is
@@ -37,13 +36,12 @@ class ActivityIngestTest {
         raw: ActivityType,
         atMs: Long,
         eventTimeMs: Long? = atMs,
-        crossCheckMotion: Boolean = false,
     ) = core.onReading(
         raw = raw,
         eventTimeMs = eventTimeMs,
         nowMs = atMs,
         registration = Registration(armedAtMs = T0 - MINUTE, lastRegisteredAtMs = T0 - HOUR),
-        settings = settings.copy(crossCheckMotion = crossCheckMotion),
+        settings = settings,
     )
 
     /** Feeds one accepted fix into the fix path, so the track has a last-good point to end at. */
@@ -66,7 +64,7 @@ class ActivityIngestTest {
                 ),
             ),
             gate = GateState(core.confirmed, stillParked = core.parked != null),
-            settings = IngestSettings(maxAccuracyM = 50f, requireGnss = false, crossCheckMotion = false),
+            settings = IngestSettings(maxAccuracyM = 50f, requireGnss = false),
             gnss = GnssState(satellitesInFix = null, cn0Top4 = null, lastFixElapsedMs = atMs),
         )
     }
@@ -276,7 +274,7 @@ class ActivityIngestTest {
         // A vehicle's speed under a walking label: the body is still, the journey is not.
         feedVehicleSpeedGround()
 
-        val out = reading(ActivityType.STILL, T0 + 30_000, crossCheckMotion = true)
+        val out = reading(ActivityType.STILL, T0 + 30_000)
 
         assertEquals(listOf(Effect.StampReading(T0 + 30_000)), out)
         assertEquals("held for later", ActivityType.STILL, core.parked)
@@ -286,7 +284,7 @@ class ActivityIngestTest {
     @Test fun `the held stop applies once the ground stops contradicting it`() {
         startWalking()
         feedVehicleSpeedGround()
-        reading(ActivityType.STILL, T0 + 30_000, crossCheckMotion = true)
+        reading(ActivityType.STILL, T0 + 30_000)
 
         val out = core.onMotion(Motion.Stopped, T0 + 60_000, settings)
 
@@ -307,7 +305,7 @@ class ActivityIngestTest {
 
         // Aboard a carrier the body genuinely is still while the journey is not. Acting on the
         // label would pause the recorder mid-drive and turn GPS off for the rest of it.
-        val out = reading(ActivityType.STILL, T0 + MINUTE, crossCheckMotion = true)
+        val out = reading(ActivityType.STILL, T0 + MINUTE)
 
         assertEquals("nothing acted on", listOf(Effect.StampReading(T0 + MINUTE)), out)
         assertEquals("the stop is held rather than dropped", ActivityType.STILL, core.parked)
@@ -322,7 +320,7 @@ class ActivityIngestTest {
         // edge-triggered stream repeating a stop the ground keeps contradicting.
         for (minute in 1..9) {
             driveFrom(T0 + (minute - 1) * MINUTE + 1000L, until = T0 + minute * MINUTE)
-            if (minute % 3 == 0) out += reading(ActivityType.STILL, T0 + minute * MINUTE, crossCheckMotion = true)
+            if (minute % 3 == 0) out += reading(ActivityType.STILL, T0 + minute * MINUTE)
         }
 
         assertTrue("one track throughout", out.none { it is Effect.OpenTrack || it is Effect.CloseTrack })
@@ -334,12 +332,12 @@ class ActivityIngestTest {
     @Test fun `the drive's real end releases the held stop, timed from the release`() {
         reading(ActivityType.DRIVING, T0)
         driveFrom(T0, until = T0 + MINUTE)
-        reading(ActivityType.STILL, T0 + MINUTE, crossCheckMotion = true)
+        reading(ActivityType.STILL, T0 + MINUTE)
 
         // The carrier actually stops, so fixes cease and the window ages out to abstention — which
         // releases the hold, overruling the activity stream taking positive evidence to sustain.
         val arrivedAt = T0 + 3 * MINUTE
-        val out = core.onMotion(core.motionVerdict(arrivedAt, crossCheckMotion = true), arrivedAt, crossChecked)
+        val out = core.onMotion(core.motionVerdict(arrivedAt), arrivedAt, settings)
 
         assertNull("the slot is emptied", core.parked)
         assertTrue("and the stop finally lands", core.isPaused)
@@ -383,7 +381,7 @@ class ActivityIngestTest {
         // a fix here — is simply false, whatever its own window says.
         driveFrom(T0, until = T0 + MINUTE)
 
-        val out = core.onGnssTick(T0 + MINUTE, E0 + GIVE_UP_MS, GIVE_UP_MS, crossChecked)
+        val out = core.onGnssTick(T0 + MINUTE, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
 
         assertTrue("GPS stays on", out.isEmpty())
         assertFalse(noFixGuard.suspended)
@@ -405,13 +403,13 @@ class ActivityIngestTest {
         // signals on top would leave one track with two mechanisms waiting to revive it.
         reading(ActivityType.DRIVING, T0)
         driveFrom(T0, until = T0 + MINUTE)
-        reading(ActivityType.STILL, T0 + MINUTE, crossCheckMotion = true)
+        reading(ActivityType.STILL, T0 + MINUTE)
         noFixGuard.onProbeStarted(E0)
 
         // The carrier has stopped: the window has aged out, so the hold is released here, on the way
         // down — this tick is the last one there will be until GPS comes back.
         val arrivedAt = T0 + 3 * MINUTE
-        val out = core.onGnssTick(arrivedAt, E0 + GIVE_UP_MS, GIVE_UP_MS, crossChecked)
+        val out = core.onGnssTick(arrivedAt, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
 
         assertTrue("the held stop lands", core.isPaused)
         assertTrue("and only the pause waits on it", out.none { it is Effect.ArmResumeSignals })

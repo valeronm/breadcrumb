@@ -25,30 +25,37 @@ class ZoneShiftLabelTest {
     private val midwinter = at(LocalDate.of(2026, 1, 18))
 
     @Test fun `the same clock says nothing`() {
-        assertNull(zoneShiftLabel(midsummer, lisbon, lisbon))
+        assertNull(zoneShiftLabel(midsummer, lisbon, lisbon, "h"))
     }
 
     @Test fun `two zones that happen to agree at that instant say nothing either`() {
         // Lisbon is on UTC in January and an hour ahead in July: the tag is about the clocks, not
         // about the names of the zones, so in winter there is nothing to say.
-        assertNull(zoneShiftLabel(midwinter, lisbon, utc))
-        assertEquals("+1h", zoneShiftLabel(midsummer, lisbon, utc))
+        assertNull(zoneShiftLabel(midwinter, lisbon, utc, "h"))
+        assertEquals("+1h", zoneShiftLabel(midsummer, lisbon, utc, "h"))
     }
 
     @Test fun `ahead and behind read as themselves`() {
-        assertEquals("+9h", zoneShiftLabel(midsummer, tokyo, utc))
-        assertEquals("−9h", zoneShiftLabel(midsummer, utc, tokyo))
+        assertEquals("+9h", zoneShiftLabel(midsummer, tokyo, utc, "h"))
+        assertEquals("−9h", zoneShiftLabel(midsummer, utc, tokyo, "h"))
     }
 
     @Test fun `a half-hour zone keeps its minutes`() {
-        assertEquals("+5h30", zoneShiftLabel(midsummer, kolkata, utc))
+        assertEquals("+5h30", zoneShiftLabel(midsummer, kolkata, utc, "h"))
     }
 
     @Test fun `summer time moves the answer, and only on the side that observes it`() {
         // Tokyo keeps one offset all year; Lisbon does not. A reader in Lisbon is eight hours behind
         // Tokyo in July and nine in January — and a July row must keep saying eight forever after,
         // which is what reading both zones at the row's own instant buys.
-        assertEquals("+8h", zoneShiftLabel(midsummer, tokyo, lisbon))
-        assertEquals("+9h", zoneShiftLabel(midwinter, tokyo, lisbon))
+        assertEquals("+8h", zoneShiftLabel(midsummer, tokyo, lisbon, "h"))
+        assertEquals("+9h", zoneShiftLabel(midwinter, tokyo, lisbon, "h"))
+    }
+
+    @Test fun `the hour is written with the language's own symbol`() {
+        // The "h" is not part of the shape: the caller hands in its language's hour symbol, the
+        // same one the duration ladder writes.
+        assertEquals("+9ч", zoneShiftLabel(midsummer, tokyo, utc, "ч"))
+        assertEquals("+5ч30", zoneShiftLabel(midsummer, kolkata, utc, "ч"))
     }
 }

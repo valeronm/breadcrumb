@@ -2,7 +2,7 @@
 <resources>
 
     <string name="timeline_empty">Ainda sem viagens. Aparecem aqui assim que a gravação captar algum movimento.</string>
-    <string name="timeline_restoring">A restaurar a cópia de segurança — a cronologia aparece quando terminar.</string>
+    <string name="timeline_restoring">A restaurar a cópia de segurança — a cronologia aparece quando terminar</string>
     <string name="timeline_restore_button">Restaurar de uma cópia</string>
     <string name="timeline_restore_failed">Falha ao restaurar — não é uma cópia do Breadcrumb?</string>
     <string name="timeline_restored">Restauradas %1$d viagens e %2$d locais</string>
@@ -16,8 +16,12 @@
         <item quantity="one">%d noite fora</item>
         <item quantity="other">%d noites fora</item>
     </plurals>
+    <plurals name="timeline_journey_days">
+        <item quantity="one">%d dia</item>
+        <item quantity="other">%d dias</item>
+    </plurals>
 
-    <string name="timeline_away_day">· Dia %1$d de %2$d fora</string>
+    <string name="timeline_away_day">Dia %1$d</string>
     <string name="timeline_share_day">Partilhar os trajetos de %1$s</string>
     <string name="timeline_scroll_to_day">Ir para um dia</string>
     <string name="timeline_merge">Juntar viagens</string>

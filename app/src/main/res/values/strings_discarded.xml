@@ -5,7 +5,7 @@
     <string name="discarded_title_count">Recently deleted (%1$d)</string>
     <string name="discarded_clear_all">Clear all</string>
     <string name="discarded_empty">No deleted trips. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d days.</string>
-    <string name="discarded_retention">Trips stay here for %1$d days, then are deleted forever.</string>
+    <string name="discarded_retention">Trips stay here for %1$d days, then are deleted forever</string>
     <string name="discarded_restore">Restore trip</string>
     <!--
       "excluded", not "noisy": the count covers both species — bad fixes and the recorder's overrun
@@ -26,7 +26,6 @@
     <string name="discarded_reason_deleted">Deleted by you</string>
     <string name="discarded_reason_filtered">Too short to keep</string>
     <string name="discarded_reason_merged">Replaced by a merged trip</string>
-    <string name="discarded_reason_trimmed">Stay split from a trip</string>
 
     <plurals name="discarded_days_left">
         <item quantity="one">%d day left</item>

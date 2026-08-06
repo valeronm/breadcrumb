@@ -35,7 +35,23 @@ decisions behind it. What a concept means is not restated per language; it is in
 The *mechanics* of resource writing — whole sentences, no fragments, placeholders, plurals, inline
 vs standalone word forms — are documented in `CLAUDE.md` and in the string files' own comments, and
 are partly machine-checked by `ResourceHygieneTest`. The glossary is only about which words the
-sentences use.
+sentences use — plus the writing conventions below, which every language shares.
+
+## Conventions shared by every language
+
+- **A toggle's label names what *on* does, stated positively.** A negated label ("Don't dim the
+  screen") turns the off state into a double negative, and the reader has to solve it to know what
+  the switch is set to. Subtitles and descriptions are free to explain in whatever polarity reads
+  best; the label beside the switch is not.
+
+- **A single sentence or fragment takes no final period; a text of several sentences keeps every
+  period, the final one included.** This is the consensus of the platform style guides — [Material 3
+  grammar and punctuation](https://m3.material.io/foundations/content-design/style-guide/grammar-and-punctuation)
+  ("don't place periods after body text if there is only a single sentence"), with the
+  [Microsoft Style Guide](https://learn.microsoft.com/en-us/style-guide/punctuation/) drawing the
+  same line for labels, headings and buttons — and it keeps UI text scannable. An abbreviation's
+  dot (Russian «сп.», «дн.») is spelling, not punctuation, and stays. A language file does not
+  restate this; it records only what is its own.
 
 ## Why these are the core concepts
 

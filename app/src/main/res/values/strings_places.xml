@@ -50,7 +50,7 @@
     <!-- Empty states -->
     <string name="places_empty">No places yet. They appear here once recording finds somewhere you stopped.</string>
     <string name="places_all_rare">Every place here is rarely visited. Turn on %1$s to see them.</string>
-    <string name="places_no_match">No place matches \"%1$s\".</string>
+    <string name="places_no_match">No place matches \"%1$s\"</string>
     <string name="places_no_visits_detail">No visits yet. They appear here once recording finds you stopped inside this place.</string>
 
     <!-- Search field and row actions -->
@@ -71,14 +71,18 @@
     <string name="places_recenter_pin">Re-center pin</string>
     <string name="places_pin_recentered">Pin re-centered</string>
     <string name="places_pin_moved">Pin moved</string>
-    <string name="places_remove">Remove place</string>
+    <string name="places_remove">Delete place</string>
     <string name="places_category_question">What is it for?</string>
     <string name="places_category_current">Current category</string>
 
     <!-- Detail stats -->
-    <string name="places_stat_visits">Visits</string>
+    <!-- The label under the visit-count stat, agreeing with the number shown above it. -->
+    <plurals name="places_stat_visits">
+        <item quantity="one">Visit</item>
+        <item quantity="other">Visits</item>
+    </plurals>
     <string name="places_stat_time_there">Time there</string>
-    <string name="places_stat_last_visit">Last visit</string>
+    <string name="places_stat_avg_visit">Avg visit</string>
     <string name="places_first_visit">First visit %1$s</string>
     <!-- A visit still open: the start time with no end to pair it with. -->
     <string name="places_visit_since">since %1$s</string>
@@ -90,7 +94,12 @@
     <!-- List rows -->
     <string name="place_detected_stop">Detected stay</string>
     <string name="place_no_visits">No visits yet</string>
-    <string name="place_last_visit">last visit %1$s</string>
+    <!-- The row subtitle's count, apart from `place_visits`: a language may count a row's visits
+         with a different word than the timeline's (Russian says "раз" here). -->
+    <plurals name="place_row_visits">
+        <item quantity="one">%d visit</item>
+        <item quantity="other">%d visits</item>
+    </plurals>
     <plurals name="place_visits">
         <item quantity="one">%d visit</item>
         <item quantity="other">%d visits</item>

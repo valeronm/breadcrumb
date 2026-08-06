@@ -46,8 +46,9 @@ data class Track(
      * retention purge hard-deletes it.
      */
     val discardedAt: Long? = null,
-    /** Why it was discarded — [REASON_DELETED] | [REASON_FILTERED] | [REASON_MERGED] |
-     *  [REASON_TRIMMED]; null on rows discarded before reasons were tracked. */
+    /** Why it was discarded — [REASON_DELETED] | [REASON_FILTERED] | [REASON_MERGED]; null on
+     *  rows discarded before reasons were tracked, and on rows whose reason's code has since
+     *  been retired. */
     val discardReason: String? = null,
     /**
      * Dormant, kept on purpose. It marked a track whose edge stay awaited the user's accept/reject;
@@ -65,12 +66,6 @@ data class Track(
         const val REASON_DELETED = "deleted"
         const val REASON_FILTERED = "filtered"
         const val REASON_MERGED = "merged"
-
-        /** An edge stay split off a track, back when trimming moved the stay's points to their
-         *  own discarded track. Nothing writes it any more — the overrun stays on its track as
-         *  ignored points — but rows discarded under the old scheme still carry it until the
-         *  retention purge takes them. */
-        const val REASON_TRIMMED = "trimmed"
     }
 }
 

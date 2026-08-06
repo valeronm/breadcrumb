@@ -43,7 +43,13 @@ import android.provider.Settings as SystemSettings
  * fresh instance invalidates every composition that reads it — which is most of the app. The two
  * entry points below both keep that in mind; a third should too.
  */
-internal class ReaderClock(locale: Locale, hour24: Boolean) {
+internal class ReaderClock(
+    locale: Locale,
+    hour24: Boolean,
+    /** The hour symbol the zone-shift mark trailing a time writes ("+1h", «+1ч») — the language's
+     *  own, so it rides the clock rather than being answered separately per call site. */
+    val shiftHourSymbol: String,
+) {
     private val hourMinute = localizedDateFormat(if (hour24) "Hm" else "hm", locale)
 
     private val dayAndHourMinute = localizedDateFormat(if (hour24) "dMMMHm" else "dMMMhm", locale)
@@ -68,7 +74,13 @@ internal class ReaderClock(locale: Locale, hour24: Boolean) {
  * configuration composition itself observes.
  */
 internal fun readerClockOf(context: Context): ReaderClock =
-    ReaderClock(context.resources.configuration.locales[0], DateFormat.is24HourFormat(context))
+    ReaderClock(
+        context.resources.configuration.locales[0],
+        DateFormat.is24HourFormat(context),
+        // The duration ladder's symbol on purpose — the shift is a span, and two spellings of
+        // "hour" on one screen would read as two units.
+        durationSymbols(context).hour,
+    )
 
 /**
  * [readerClockOf] for a composition, watching both halves so a reader who changes either sees the
@@ -102,7 +114,7 @@ internal fun rememberReaderClock(): ReaderClock {
         onDispose { context.contentResolver.unregisterContentObserver(observer) }
     }
     val locale = LocalConfiguration.current.locales[0]
-    return remember(locale, hour24) { ReaderClock(locale, hour24) }
+    return remember(locale, hour24) { readerClockOf(context) }
 }
 
 /**

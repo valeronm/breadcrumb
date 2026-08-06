@@ -57,7 +57,8 @@ internal enum class SettingsPage {
     AutoPause,
     GpsSearch,
     TrackFiltering,
-    Privacy,
+    AppLock,
+    OnlineServices,
     RecentlyDeleted,
     Logs,
 }
@@ -151,7 +152,13 @@ internal fun SettingsScreen(
                     NavRow(
                         stringResource(R.string.settings_app_lock),
                         subtitle = stringResource(R.string.settings_app_lock_sub),
-                    ) { onOpenPage(SettingsPage.Privacy) }
+                    ) { onOpenPage(SettingsPage.AppLock) }
+                },
+                {
+                    NavRow(
+                        stringResource(R.string.settings_online_services),
+                        subtitle = stringResource(R.string.settings_online_services_sub),
+                    ) { onOpenPage(SettingsPage.OnlineServices) }
                 },
             )
             Spacer(Modifier.height(24.dp))
@@ -337,14 +344,10 @@ internal fun AutoPauseSettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
         { AppSettings.resumeWindowSec(context) },
     ) { AppSettings.setResumeWindowSec(context, it) }
-    val motionCrossCheck = rememberPref(
-        AppSettings.DEFAULT_MOTION_CROSS_CHECK,
-        { AppSettings.motionCrossCheck(context) },
-    ) { AppSettings.setMotionCrossCheck(context, it) }
     SettingsSubPage(
         stringResource(R.string.settings_auto_pause),
         onBack,
-        listOf(resumeWindowSec, motionCrossCheck),
+        listOf(resumeWindowSec),
     ) {
         SettingsPageDescription(stringResource(R.string.pause_description))
         GroupedRows(
@@ -358,14 +361,6 @@ internal fun AutoPauseSettingsScreen(onBack: () -> Unit) {
                 ) {
                     resumeWindowSec.set(it.toInt())
                 }
-            },
-            {
-                SwitchSettingRow(
-                    title = stringResource(R.string.pause_keep_recording),
-                    subtitle = stringResource(R.string.pause_keep_recording_sub),
-                    checked = motionCrossCheck.value,
-                    onCheckedChange = { motionCrossCheck.set(it) },
-                )
             },
         )
     }
@@ -456,7 +451,7 @@ internal fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
 private val LOCK_GRACE_CHOICES = listOf(0, 30, 60, 300)
 
 @Composable
-internal fun PrivacySettingsScreen(onBack: () -> Unit) {
+internal fun AppLockSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val graceSec = rememberPref(
         AppSettings.DEFAULT_APP_LOCK_GRACE_SEC,
@@ -470,15 +465,11 @@ internal fun PrivacySettingsScreen(onBack: () -> Unit) {
         { AppSettings.appLockTrustsKeyguard(context) },
     ) { AppSettings.setAppLockTrustsKeyguard(context, it) }
     SettingsSubPage(
-        stringResource(R.string.settings_group_privacy),
+        stringResource(R.string.settings_app_lock),
         onBack,
         listOf(graceSec, trustsKeyguard),
     ) {
         SettingsPageDescription(stringResource(R.string.privacy_description))
-        val onlineSearch = rememberPref(
-            true,
-            { AppSettings.isOnlinePlaceSearch(context) },
-        ) { AppSettings.setOnlinePlaceSearch(context, it) }
         GroupedRows(
             { RequireUnlockRow(context, lockable, graceSec, trustsKeyguard) },
             {
@@ -489,6 +480,24 @@ internal fun PrivacySettingsScreen(onBack: () -> Unit) {
                     onCheckedChange = { Privacy.setBlockScreenshots(context, it) },
                 )
             },
+        )
+    }
+}
+
+@Composable
+internal fun OnlineServicesSettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val onlineSearch = rememberPref(
+        true,
+        { AppSettings.isOnlinePlaceSearch(context) },
+    ) { AppSettings.setOnlinePlaceSearch(context, it) }
+    SettingsSubPage(
+        stringResource(R.string.settings_online_services),
+        onBack,
+        listOf(onlineSearch),
+    ) {
+        SettingsPageDescription(stringResource(R.string.online_services_description))
+        GroupedRows(
             {
                 SwitchSettingRow(
                     title = stringResource(R.string.privacy_online_search),

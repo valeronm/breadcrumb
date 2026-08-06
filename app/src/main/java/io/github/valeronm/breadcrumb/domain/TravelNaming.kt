@@ -209,10 +209,12 @@ object TravelNaming {
             .ifEmpty { listOfNotNull(timeByName.maxByOrNull { it.value }?.key) }
 
     /**
-     * What to call a journey: [ranked]'s answer as one line, falling back to the plain fact of being
-     * away. **The fallback is here, not on the screens** — what a journey with nothing to name it by
-     * is called is a naming decision, and two screens deciding it apart is two names for one journey.
-     * Which of the two it is, is the decision; the fallback's wording is the host's.
+     * What to call a journey where the row *is* the name: [ranked]'s answer as one line, falling
+     * back to the plain fact of being away. **The fallback is here, not on the screens** — what a
+     * journey with nothing to name it by is called is a naming decision. Which of the two it is,
+     * is the decision; the fallback's wording is the host's. The timeline's band asks [title]
+     * instead: it leads with the journey's length whatever the naming found, so it has no unnamed
+     * case to word.
      */
     fun label(names: List<String>, nightCount: Int): TravelLabel =
         title(names)?.let(TravelLabel::Destinations) ?: TravelLabel.NightsAway(nightCount)

@@ -20,10 +20,6 @@
         <item quantity="one">há %d dia</item>
         <item quantity="other">há %d dias</item>
     </plurals>
-    <plurals name="relative_days_ago_compact">
-        <item quantity="one">há %dd</item>
-        <item quantity="other">há %dd</item>
-    </plurals>
 
     <string name="maps_no_app">Não há nenhuma aplicação de mapas para abrir isto</string>
 

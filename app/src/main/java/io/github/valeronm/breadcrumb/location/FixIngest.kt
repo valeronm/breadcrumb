@@ -40,7 +40,6 @@ data class Fix(
 data class IngestSettings(
     val maxAccuracyM: Float,
     val requireGnss: Boolean,
-    val crossCheckMotion: Boolean,
 )
 
 /**
@@ -110,20 +109,19 @@ class FixIngest(private val distance: DistanceFn = AndroidDistance) {
     val lastGood: TrackPoint? get() = accumulator.lastGood
 
     /**
-     * The verdict, or [Motion.Unknown] when the cross-check is off — the single place the setting
-     * branches, so no consultation downstream knows a switch exists. The confirmer is fed even while
-     * off (a ring push of arithmetic), so enabling acts at once, without a warm-up window.
+     * The witness's verdict — [Motion.Unknown] whenever the ground data can't support one, which
+     * is also what every consultation treats as "no witness": the recorder must record movement,
+     * and a mislabelled STILL aboard a moving carrier costs the trip unless the ground can answer.
      */
-    fun verdict(nowMs: Long, crossCheckMotion: Boolean): Motion =
-        if (crossCheckMotion) confirmer.verdict(nowMs) else Motion.Unknown
+    fun verdict(nowMs: Long): Motion = confirmer.verdict(nowMs)
 
     /**
      * While the verdict overrules a foot label (measured ground speed its ceiling can't explain),
      * the Record card and notification say "Moving" ([ActivityType.UNKNOWN]) instead. Display only,
      * structurally so: computed downstream of every decision, feeding neither gate, controller nor
      * ceiling, and recomputed at every publish rather than a mode to exit, so it reverts by itself
-     * when the verdict drops out; with the cross-check off the verdict is [Motion.Unknown] and the
-     * substitution never triggers. A parked STILL keeps the *confirmed* activity on the foot label
+     * when the verdict drops out; while the ground can't answer the verdict is [Motion.Unknown] and
+     * the substitution never triggers. A parked STILL keeps the *confirmed* activity on the foot label
      * — exactly when the card should say "Moving" — so the same test covers that stretch.
      */
     fun displayActivity(confirmed: ActivityType, motion: Motion): ActivityType {
@@ -172,7 +170,7 @@ class FixIngest(private val distance: DistanceFn = AndroidDistance) {
             val quality = TrackQuality.Gates(
                 settings.maxAccuracyM,
                 if (settings.requireGnss) gnssBacked(gnss, fix) else null,
-                verdict(candidate.timestamp, settings.crossCheckMotion),
+                verdict(candidate.timestamp),
             )
             val reason = TrackQuality.badFixReason(baseline, candidate, gate.confirmed, quality, distance)
             // The feed contract ([MovementConfirmer]): every fix that cleared the *label-independent*

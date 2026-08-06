@@ -210,17 +210,18 @@ The pieces below only make sense together — read them as a unit.
   death; `BootReceiver` resumes after reboot and app update.
 
 **Activity Recognition describes the user's body, not the journey**, and pause, split and the jump
-ceiling all read it as the journey. `MovementConfirmer` is the recorder's second witness. **`Unknown`
-is both the fallback and the off switch** — every consultation defines an `Unknown` case identical to
-the pre-witness behaviour, so the setting branches at exactly one place
-(`ActivityIngest.motionVerdict`); a consultation that can't be expressed as a
-`Motion.Unknown`-defaulted parameter is a design smell, not a workaround. Each consulting rule's
-suite keeps its pre-witness half unedited above a divider, which is what pins the off state.
-**Exactly four consultations exist**, and that there are four and only four is the thing no one file
-says: the gate parks a contradicted STILL, the jump ceiling rises to fit measured ground speed, a
-`Moving` verdict vetoes the no-fix give-up, and every path that turns GPS off re-evaluates the parked
-slot on the way down. Promotion rides the `GnssStatus` callback, with the 15-minute watchdog alarm as
-the guaranteed revisit. Default off pending field data.
+ceiling all read it as the journey. `MovementConfirmer` is the recorder's second witness, and it is
+**always on** — the recorder's one job is recording movements, and a mislabelled STILL aboard a
+moving carrier costs the trip, which is the verdict that retired the setting that used to gate it.
+**`Unknown` is the fallback** — every consultation defines an `Unknown` case identical to the
+pre-witness behaviour, which is what runs whenever the ground can't answer; a consultation that
+can't be expressed as a `Motion.Unknown`-defaulted parameter is a design smell, not a workaround.
+Each consulting rule's suite keeps its pre-witness half unedited above a divider, which is what pins
+that fallback. **Exactly four consultations exist**, and that there are four and only four is the
+thing no one file says: the gate parks a contradicted STILL, the jump ceiling rises to fit measured
+ground speed, a `Moving` verdict vetoes the no-fix give-up, and every path that turns GPS off
+re-evaluates the parked slot on the way down. Promotion rides the `GnssStatus` callback, with the
+15-minute watchdog alarm as the guaranteed revisit.
 
 **State bridge:** `location/TrackingStatus` is a process-wide `MutableStateFlow` the service writes
 and the UI collects — this is how live recording state reaches Compose without binding to the service.
@@ -278,7 +279,7 @@ evidence a car-borne history has of being in a city.
 
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
 time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
-auto-pause resume window and its motion cross-check toggle, the GPS give-up timeout, and keep-track
+auto-pause resume window, the GPS give-up timeout, and keep-track
 thresholds (min duration/length/extent). It also holds recorder bookkeeping that isn't a user
 setting at all: the liveness heartbeat, and the two sweep rule versions (edge stays, track stats)
 that are what make `App.onCreate` re-derive the whole history. Sampling is read by the service when
@@ -383,8 +384,8 @@ stays, then track stats), and `sweepEdgeStays` says why a sweep is not one.
 
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places / Insights) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
-stacked layers for place detail, the Settings sub-pages (sampling, point quality, auto-pause, GPS
-search, track filtering, privacy, Recently deleted, Logs), discarded-track detail, and the add-trip
+stacked layers for place detail, the Settings sub-pages (sampling, point filter, auto-pause, GPS
+search, track filtering, app lock, online services, Recently deleted, Logs), discarded-track detail, and the add-trip
 form (`AddTripScreen`, opened from the Timeline tab's top-bar "+" or from a gap row) — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
 one layer at a time). **What that form opens holding is a `TripDraft`**, which is also the state
@@ -534,12 +535,12 @@ cross-checks it.
   glyphs/sprite from `protomaps.github.io` — and one deliberate exception: the add-trip form's
   **online place search** (`data/OnlinePlaceSearch`, photon.komoot.io, OpenStreetMap data), which
   sends the typed query and — where the form has a pin to bias by — that pin's coordinate, treats
-  every failure as "no results", and is switchable off on the Privacy settings page. **The
+  every failure as "no results", and is switchable off on the Online services settings page. **The
   coordinate is a pin the user placed, never wherever the map happens to be looking**: the form's
   own place list sorts by the map centre because re-ordering rows the device already holds discloses
   nothing, and that is the whole reason the two use different anchors. The ODbL credit in Settings
   and at the results is a licence requirement, like the GeoNames one. There is no server sync (a possible future feature — the
-  Settings page is where server URL/key fields would go).
+  Online services settings page is where server URL/key fields would go).
 - **The Protomaps hosted-API key is not committed.** It lives in `local.properties` as
   `protomapsApiKey=…` (gitignored), surfaced as `BuildConfig.PROTOMAPS_API_KEY`, and injected into the
   bundled style at load time (`{PROTOMAPS_KEY}` placeholder in `assets/protomaps-{dark,light}.json`).

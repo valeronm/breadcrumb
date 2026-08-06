@@ -4,7 +4,7 @@
     <string name="track_edit_trip">Editar a viagem</string>
     <string name="track_change_type">Mudar o tipo de viagem</string>
     <string name="track_share_gpx">Partilhar o trajeto</string>
-    <string name="track_too_few_points">Pontos insuficientes para desenhar este trajeto num mapa.</string>
+    <string name="track_too_few_points">Pontos insuficientes para desenhar este trajeto num mapa</string>
     <string name="track_caption_imported">Importada</string>
     <string name="track_filter_noisy">Pontos ruidosos</string>
     <string name="track_type_dialog_title">Tipo de viagem</string>

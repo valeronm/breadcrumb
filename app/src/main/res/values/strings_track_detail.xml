@@ -9,7 +9,7 @@
     <string name="track_edit_trip">Edit trip</string>
     <string name="track_change_type">Change trip type</string>
     <string name="track_share_gpx">Share track</string>
-    <string name="track_too_few_points">Not enough points to draw this track on a map.</string>
+    <string name="track_too_few_points">Not enough points to draw this track on a map</string>
     <string name="track_caption_imported">Imported</string>
     <string name="track_filter_noisy">Noisy points</string>
     <string name="track_type_dialog_title">Trip type</string>

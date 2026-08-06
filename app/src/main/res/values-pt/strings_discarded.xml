@@ -4,7 +4,7 @@
     <string name="discarded_title_count">Eliminadas recentemente (%1$d)</string>
     <string name="discarded_clear_all">Limpar tudo</string>
     <string name="discarded_empty">Sem viagens eliminadas. Aparecem aqui quando elimina uma ou quando uma regra a descarta, e ficam recuperáveis durante %1$d dias.</string>
-    <string name="discarded_retention">As viagens ficam aqui %1$d dias e depois são eliminadas definitivamente.</string>
+    <string name="discarded_retention">As viagens ficam aqui %1$d dias e depois são eliminadas definitivamente</string>
     <string name="discarded_restore">Recuperar a viagem</string>
     <plurals name="discarded_excluded">
         <item quantity="one">%d excluído</item>
@@ -24,7 +24,6 @@
     <string name="discarded_reason_deleted">Eliminada por si</string>
     <string name="discarded_reason_filtered">Demasiado curta para guardar</string>
     <string name="discarded_reason_merged">Substituída por uma viagem juntada</string>
-    <string name="discarded_reason_trimmed">Permanência separada de uma viagem</string>
 
     <plurals name="discarded_days_left">
         <item quantity="one">falta %d dia</item>

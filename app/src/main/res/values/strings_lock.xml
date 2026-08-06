@@ -10,7 +10,7 @@
     <string name="lock_prompt_title">Unlock Breadcrumb</string>
     <string name="lock_prompt_subtitle">Only you can open it</string>
     <plurals name="lock_pending_imports">
-        <item quantity="one">A track file is waiting to be imported.</item>
-        <item quantity="other">%d track files are waiting to be imported.</item>
+        <item quantity="one">A track file is waiting to be imported</item>
+        <item quantity="other">%d track files are waiting to be imported</item>
     </plurals>
 </resources>

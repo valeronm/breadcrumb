@@ -32,7 +32,10 @@
 
     <string name="place_detected_stop">Permanência detetada</string>
     <string name="place_no_visits">Ainda sem visitas</string>
-    <string name="place_last_visit">última visita %1$s</string>
+    <plurals name="place_row_visits">
+        <item quantity="one">%d visita</item>
+        <item quantity="other">%d visitas</item>
+    </plurals>
     <plurals name="place_visits">
         <item quantity="one">%d visita</item>
         <item quantity="other">%d visitas</item>
@@ -52,7 +55,7 @@
 
     <string name="places_empty">Ainda sem locais. Aparecem aqui assim que a gravação encontrar sítios onde parou.</string>
     <string name="places_all_rare">Todos os locais aqui são pouco visitados. Ative %1$s para os ver.</string>
-    <string name="places_no_match">Nenhum local corresponde a \"%1$s\".</string>
+    <string name="places_no_match">Nenhum local corresponde a \"%1$s\"</string>
     <string name="places_no_visits_detail">Ainda sem visitas. Aparecem aqui assim que a gravação detetar que ficou dentro deste local.</string>
 
     <string name="places_search_placeholder">Procurar locais</string>
@@ -66,13 +69,16 @@
     <string name="places_recenter_pin">Recentrar o pino</string>
     <string name="places_pin_recentered">Pino recentrado</string>
     <string name="places_pin_moved">Pino movido</string>
-    <string name="places_remove">Remover o local</string>
+    <string name="places_remove">Eliminar o local</string>
     <string name="places_category_question">Para que serve?</string>
     <string name="places_category_current">Categoria atual</string>
 
-    <string name="places_stat_visits">Visitas</string>
+    <plurals name="places_stat_visits">
+        <item quantity="one">Visita</item>
+        <item quantity="other">Visitas</item>
+    </plurals>
     <string name="places_stat_time_there">Tempo lá</string>
-    <string name="places_stat_last_visit">Última visita</string>
+    <string name="places_stat_avg_visit">Visita média</string>
     <string name="places_first_visit">Primeira visita %1$s</string>
     <string name="places_visit_since">desde as %1$s</string>
     <string name="places_shift_now">%1$s agora</string>

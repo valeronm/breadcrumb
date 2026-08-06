@@ -34,11 +34,6 @@
         <item quantity="one">%d day ago</item>
         <item quantity="other">%d days ago</item>
     </plurals>
-    <!-- The same span where it must fit a stat cell. -->
-    <plurals name="relative_days_ago_compact">
-        <item quantity="one">%dd ago</item>
-        <item quantity="other">%dd ago</item>
-    </plurals>
 
     <!-- Handing a coordinate to the device's maps app, when the device turns out to have none. -->
     <string name="maps_no_app">No maps app to open this in</string>

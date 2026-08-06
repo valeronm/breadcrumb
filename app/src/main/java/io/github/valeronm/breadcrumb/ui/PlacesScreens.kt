@@ -380,6 +380,7 @@ internal fun PlacesTab(
                 itemsIndexed(listed, key = { _, s -> s.key }) { index, summary ->
                     PlaceRow(
                         summary = summary,
+                        sort = sort,
                         shape = groupedRowShape(index, listed.size),
                         onOpen = { onOpenPlace(summary.key) },
                         onDelete = onRemovePlace,
@@ -457,6 +458,7 @@ internal fun PlacesSearchField(
 @Composable
 private fun PlaceRow(
     summary: PlaceResolver.PlaceSummary,
+    sort: PlacesSort,
     shape: RoundedCornerShape,
     onOpen: () -> Unit,
     onDelete: (Place) -> Unit,
@@ -465,7 +467,7 @@ private fun PlaceRow(
     // plain card with no swipe.
     val place = summary.place
     if (place == null) {
-        PlaceRowCard(summary, shape, onOpen)
+        PlaceRowCard(summary, sort, shape, onOpen)
         return
     }
     SwipeActionRow(
@@ -476,7 +478,7 @@ private fun PlaceRow(
         iconDescription = stringResource(R.string.common_delete),
         onDismiss = { onDelete(place) },
     ) {
-        PlaceRowCard(summary, shape, onOpen)
+        PlaceRowCard(summary, sort, shape, onOpen)
     }
 }
 
@@ -1258,12 +1260,12 @@ private const val REGIONAL_INDICATOR_A = 0x1F1E6
 private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {
     val noValue = stringResource(R.string.common_no_value)
     StatHeaderRow(
-        stringResource(R.string.places_stat_visits) to
+        pluralStringResource(R.plurals.places_stat_visits, summary.visitCount) to
             if (summary.visitCount > 0) "${summary.visitCount}" else noValue,
         stringResource(R.string.places_stat_time_there) to
             if (summary.totalMs > 0) durationText(summary.totalMs) else noValue,
-        stringResource(R.string.places_stat_last_visit) to
-            (summary.lastSeenMs?.let { relativeDayCompact(it) } ?: noValue),
+        stringResource(R.string.places_stat_avg_visit) to
+            if (summary.visitCount > 0) durationText(summary.totalMs / summary.visitCount) else noValue,
     )
 }
 
@@ -1356,7 +1358,7 @@ private fun visitTimeRange(stay: StayDeriver.Stay, zone: ZoneId): String {
     return "$start – ${timeText(end, zone)}$rollover"
 }
 
-private val visitDayFormat by PerLocale { localizedDateFormat("EEEd", it) }
+private val visitDayFormat by PerLocale { localizedDateFormat("EEEEd", it) }
 
 // `LLLL`, not `MMMM`: a month named on its own takes the stand-alone form, which in the Slavic
 // languages is the nominative — `MMMM` there yields the genitive a full date needs ("of July").
@@ -1375,14 +1377,15 @@ internal fun monthLabel(month: YearMonth, today: LocalDate): String =
 @Composable
 private fun PlaceRowCard(
     summary: PlaceResolver.PlaceSummary,
+    sort: PlacesSort,
     shape: RoundedCornerShape,
     onClick: () -> Unit,
 ) {
     val named = summary.isNamed
     // A tagged place says what it is in the disc, as its stays do on the timeline. Only the glyph,
     // though: a stay row spells the category out because there the category qualifies an event,
-    // while here the name is the row's identity and the subtitle is already three stats long.
-    // The words still reach a screen reader through the disc's description.
+    // while here the name is the row's identity. The words still reach a screen reader through
+    // the disc's description.
     val category = summary.place?.placeCategory
     ListRowCard(
         shape = shape,
@@ -1395,20 +1398,32 @@ private fun PlaceRowCard(
         // worked-out name never reads as one they chose — the same rule the timeline's rows follow.
         title = summary.name ?: stringResource(R.string.place_detected_stop),
         titleColor = placeTitleColor(named),
-        subtitle = AnnotatedString(placeSubtitle(summary)),
+        subtitle = AnnotatedString(placeSubtitle(summary, sort)),
     )
+}
+
+/**
+ * One metric, the one the list is sorted by — the subtitle then also says why the row sits where
+ * it does, and no language has to fit three stats on one line. The other two are on the detail's
+ * stat header.
+ */
+@Composable
+@ReadOnlyComposable
+private fun placeSubtitle(summary: PlaceResolver.PlaceSummary, sort: PlacesSort): String {
+    if (summary.visitCount == 0) return stringResource(R.string.place_no_visits)
+    return when (sort) {
+        // A visited place can lack a dated visit; its count is the true thing left to say.
+        PlacesSort.LAST_VISIT -> summary.lastSeenMs?.let { relativeDay(it, RelativeDayStyle.FULL) }
+            ?: visitPhrase(summary)
+        PlacesSort.MOST_VISITS -> visitPhrase(summary)
+        PlacesSort.TIME_SPENT -> durationText(summary.totalMs)
+    }
 }
 
 @Composable
 @ReadOnlyComposable
-private fun placeSubtitle(summary: PlaceResolver.PlaceSummary): String {
-    if (summary.visitCount == 0) return stringResource(R.string.place_no_visits)
-    val total = durationText(summary.totalMs)
-    val lastVisit = summary.lastSeenMs?.let {
-        stringResource(R.string.place_last_visit, relativeDayCompact(it))
-    }
-    return listOfNotNull(visitCountLabel(summary.visitCount), lastVisit, total).joinToString(" · ")
-}
+private fun visitPhrase(summary: PlaceResolver.PlaceSummary): String =
+    pluralStringResource(R.plurals.place_row_visits, summary.visitCount, summary.visitCount)
 
 @Composable
 @ReadOnlyComposable

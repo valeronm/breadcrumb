@@ -204,35 +204,30 @@ internal fun groupedRowShape(index: Int, count: Int): RoundedCornerShape {
 internal fun Long.toLocalDate(zone: ZoneId): LocalDate =
     Instant.ofEpochMilli(this).atZone(zone).toLocalDate()
 
+/** How much room a relative day has where it renders. */
+internal enum class RelativeDayStyle {
+    /** An abbreviated month: "29 Nov 2025". */
+    SHORT,
+
+    /** The month spelled out: "29 November 2025", for a line with nothing else on it. */
+    FULL,
+}
+
 /** Coarse relative day for "last seen": today / yesterday / N days ago / a date. */
 @Composable
 @ReadOnlyComposable
-internal fun relativeDay(epochMs: Long): String = relativeDay(epochMs, compact = false)
-
-/** [relativeDay] squeezed for the big stat cells, where "5 days ago" or a full date overflows:
- *  "5d ago", "29 Nov", "Nov 2025" — always one line; exact dates live in the visit history. */
-@Composable
-@ReadOnlyComposable
-internal fun relativeDayCompact(epochMs: Long): String = relativeDay(epochMs, compact = true)
-
-@Composable
-@ReadOnlyComposable
-internal fun relativeDay(epochMs: Long, compact: Boolean): String {
+internal fun relativeDay(epochMs: Long, style: RelativeDayStyle = RelativeDayStyle.SHORT): String {
     val zone = ZoneId.systemDefault()
     val then = epochMs.toLocalDate(zone)
     val today = LocalDate.now(zone)
     val days = ChronoUnit.DAYS.between(then, today)
+    val full = style == RelativeDayStyle.FULL
     return when {
         days <= 0 -> stringResource(R.string.relative_today)
-        days == 1L && !compact -> stringResource(R.string.relative_yesterday)
-        days < 7 -> pluralStringResource(
-            if (compact) R.plurals.relative_days_ago_compact else R.plurals.relative_days_ago,
-            days.toInt(),
-            days.toInt(),
-        )
-        // Compact beyond a week — this renders inside stat cells and one-line row subtitles.
-        then.year == today.year -> then.format(compactDayFormat)
-        else -> then.format(if (compact) monthOfYearFormat else compactDayYearFormat)
+        days == 1L -> stringResource(R.string.relative_yesterday)
+        days < 7 -> pluralStringResource(R.plurals.relative_days_ago, days.toInt(), days.toInt())
+        then.year == today.year -> then.format(if (full) fullDayFormat else compactDayFormat)
+        else -> then.format(if (full) fullDayYearFormat else compactDayYearFormat)
     }
 }
 
@@ -278,12 +273,14 @@ internal val compactDayFormat by PerLocale { localizedDateFormat("dMMM", it) }
 
 internal val compactDayYearFormat by PerLocale { localizedDateFormat("dMMMy", it) }
 
+internal val fullDayFormat by PerLocale { localizedDateFormat("dMMMM", it) }
+
+internal val fullDayYearFormat by PerLocale { localizedDateFormat("dMMMMy", it) }
+
 /** The device-locale display name of an ISO 3166-1 alpha-2 code, empty when it resolves to
  *  nothing — each caller decides what an unresolvable country should read as. */
 internal fun countryNameOf(code: String, locale: Locale): String =
     Locale.Builder().setRegion(code).build().getDisplayCountry(locale)
-
-private val monthOfYearFormat by PerLocale { localizedDateFormat("MMMy", it) }
 
 /**
  * Android-settings-style group: each row is its own card, large corners on the group's outer
@@ -472,8 +469,9 @@ internal fun durationSettingLabel(sec: Int): String = when {
 }
 
 /**
- * How far [zone]'s clock sat from the reader's own at [epochMs] — `+8h`, `-5h30` — or null when
- * they agree and there is nothing to say.
+ * How far [zone]'s clock sat from the reader's own at [epochMs] — `+8h`, `-5h30`, hours written
+ * with the language's own symbol ([ReaderClock.shiftHourSymbol]) — or null when they agree and
+ * there is nothing to say.
  *
  * **Both zones are read at that instant, not today.** A trip last July is compared against what the
  * reader's own clock said last July, so summer time on either side is already in the answer and a
@@ -483,7 +481,14 @@ internal fun durationSettingLabel(sec: Int): String = when {
  * there", which is the question someone reading their own history has. `+09:00` answers a question
  * about UTC that nobody asked, and leaves the arithmetic to the reader.
  */
-internal fun zoneShiftLabel(epochMs: Long, zone: ZoneId, reader: ZoneId): String? {
+/** [zoneShiftLabel] for a composable caller, with the symbol fetched from the reader's own clock
+ *  so it never travels by hand — a hardcoded one would compile and read wrong in one language. */
+@Composable
+@ReadOnlyComposable
+internal fun zoneShiftLabel(epochMs: Long, zone: ZoneId, reader: ZoneId): String? =
+    zoneShiftLabel(epochMs, zone, reader, LocalReaderClock.current.shiftHourSymbol)
+
+internal fun zoneShiftLabel(epochMs: Long, zone: ZoneId, reader: ZoneId, hourSymbol: String): String? {
     // The common case by far — a history mostly spent where its reader is — and the offsets below
     // reach the same conclusion the long way, once per row per recomposition.
     if (zone == reader) return null
@@ -493,7 +498,7 @@ internal fun zoneShiftLabel(epochMs: Long, zone: ZoneId, reader: ZoneId): String
     val sign = if (minutes > 0) "+" else "−"
     val hours = abs(minutes) / 60
     val rest = abs(minutes) % 60
-    return if (rest == 0) "$sign${hours}h" else "$sign${hours}h$rest"
+    return if (rest == 0) "$sign$hours$hourSymbol" else "$sign$hours$hourSymbol$rest"
 }
 
 /** The muted treatment a zone shift wears wherever it appears — quieter than the time it trails,
@@ -575,7 +580,11 @@ internal fun AnnotatedString.Builder.appendTime(
     reader: ZoneId,
     color: Color,
     readerClock: ReaderClock,
-) = appendMarked(readerClock.time(epochMs, zone), epochMs, zone, reader, color)
+) = appendMarked(
+    readerClock.time(epochMs, zone),
+    zoneShiftLabel(epochMs, zone, reader, readerClock.shiftHourSymbol),
+    color,
+)
 
 /** [appendTime]'s longer form, for a screen naming one moment — see [ReaderClock.dateTime]. */
 internal fun AnnotatedString.Builder.appendDateTime(
@@ -584,7 +593,11 @@ internal fun AnnotatedString.Builder.appendDateTime(
     reader: ZoneId,
     color: Color,
     readerClock: ReaderClock,
-) = appendMarked(readerClock.dateTime(epochMs, zone), epochMs, zone, reader, color)
+) = appendMarked(
+    readerClock.dateTime(epochMs, zone),
+    zoneShiftLabel(epochMs, zone, reader, readerClock.shiftHourSymbol),
+    color,
+)
 
 /**
  * [appendTime]'s value form, for a line assembled by [annotatedStringResource] rather than by a
@@ -604,15 +617,9 @@ internal fun markedTime(
 ): AnnotatedString =
     buildAnnotatedString { appendTime(epochMs, zone, reader, color, readerClock) }
 
-private fun AnnotatedString.Builder.appendMarked(
-    text: String,
-    epochMs: Long,
-    zone: ZoneId,
-    reader: ZoneId,
-    color: Color,
-) {
+private fun AnnotatedString.Builder.appendMarked(text: String, shift: String?, color: Color) {
     append(text)
-    val shift = zoneShiftLabel(epochMs, zone, reader) ?: return
+    if (shift == null) return
     withStyle(SpanStyle(color = color, baselineShift = BaselineShift.Superscript, fontSize = 0.75.em)) {
         append(shift)
     }

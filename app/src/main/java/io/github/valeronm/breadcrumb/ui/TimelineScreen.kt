@@ -81,6 +81,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
@@ -566,10 +567,16 @@ private fun TravelHeading(away: AwayDay) {
             tint = MaterialTheme.colorScheme.tertiary,
             modifier = Modifier.size(14.dp),
         )
+        // The length leads and the names follow — the run of days is what makes the band a
+        // journey, and an unnamed one still has it to say.
+        val days = pluralStringResource(R.plurals.timeline_journey_days, away.dayCount, away.dayCount)
+        val names = TravelNaming.title(away.summary.destinations)
         Text(
-            travelTitle(TravelNaming.label(away.summary.destinations, away.summary.travel.nightCount)),
+            if (names == null) days else "$days · $names",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.tertiary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -610,12 +617,13 @@ private fun DayHeader(
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                // Which day of the journey this is — the band above carries the journey itself, so
-                // this says only where in it the reader has scrolled to. Same size as the date it
-                // continues, the tint alone telling the two apart.
+                // Which day of the journey this is — the band above carries the journey and its
+                // length, so this says only where in it the reader stands. Same size as the date
+                // it continues, the tint alone telling the two apart. The separator stays in code:
+                // it is layout between the date and the marker, not part of what either says.
                 away?.let {
                     Text(
-                        stringResource(R.string.timeline_away_day, it.ordinal, it.dayCount),
+                        "· " + stringResource(R.string.timeline_away_day, it.ordinal),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.tertiary,
                     )
@@ -786,9 +794,9 @@ internal fun TimelineItem.rowKey(): String = when (this) {
     is TimelineItem.GapItem -> "gap:${gap.start}"
 }
 
-private val dayHeaderFormat by PerLocale { localizedDateFormat("EEEEdMMMy", it) }
+private val dayHeaderFormat by PerLocale { localizedDateFormat("EEEEdMMMMy", it) }
 
-private val dayHeaderFormatThisYear by PerLocale { localizedDateFormat("EEEEdMMM", it) }
+private val dayHeaderFormatThisYear by PerLocale { localizedDateFormat("EEEEdMMMM", it) }
 
 /**
  * A day header stands on its own, so it takes the capital its language would give it there. The two

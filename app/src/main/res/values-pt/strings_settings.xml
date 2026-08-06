@@ -8,12 +8,12 @@
     <string name="settings_group_diagnostics">Diagnóstico</string>
     <string name="settings_sampling">Amostragem</string>
     <string name="settings_sampling_sub">Com que densidade os pontos são gravados</string>
-    <string name="settings_point_quality">Qualidade dos pontos</string>
-    <string name="settings_point_quality_sub">Que pontos gravados contam como bons</string>
+    <string name="settings_point_quality">Filtro de pontos</string>
+    <string name="settings_point_quality_sub">Que pontos entram no trajeto</string>
     <string name="settings_auto_pause">Pausa automática</string>
-    <string name="settings_auto_pause_sub">Quanto tempo uma paragem mantém a viagem aberta</string>
+    <string name="settings_auto_pause_sub">Até que intervalo dois movimentos ainda são uma viagem</string>
     <string name="settings_gps_search">Posicionamento</string>
-    <string name="settings_gps_search_sub">Quando desistir e desligar o GPS</string>
+    <string name="settings_gps_search_sub">Poupar bateria quando não há posição a obter</string>
     <string name="settings_track_filtering">Filtragem de viagens</string>
     <string name="settings_track_filtering_sub">Limites abaixo dos quais as viagens terminadas são descartadas</string>
     <string name="settings_units">Unidades</string>
@@ -23,6 +23,8 @@
     <string name="units_choice_uk">Milhas + metros</string>
     <string name="settings_app_lock">Bloqueio da aplicação</string>
     <string name="settings_app_lock_sub">Desbloquear para abrir a aplicação, e escondê-la das capturas de ecrã</string>
+    <string name="settings_online_services">Serviços online</string>
+    <string name="settings_online_services_sub">O que pode usar a rede, além do mapa</string>
     <string name="settings_recently_deleted_sub">Recuperáveis durante %1$d dias</string>
     <string name="settings_logs">Registos</string>
     <string name="settings_reset">Repor</string>
@@ -30,47 +32,46 @@
     <string name="credit_geonames">Nomes de locais do GeoNames, CC BY 4.0</string>
     <string name="credit_osm">Pesquisa online © contribuidores do OpenStreetMap, ODbL</string>
 
-    <string name="sampling_description">Com que densidade os pontos são gravados em movimento.</string>
+    <string name="sampling_description">Com que densidade os pontos são gravados em movimento</string>
     <string name="sampling_time_between">Tempo entre pontos</string>
     <string name="sampling_distance_between">Distância entre pontos</string>
 
-    <string name="quality_description">Que pontos gravados contam como bons.</string>
+    <string name="quality_description">Que pontos entram no trajeto</string>
     <string name="quality_require_fix">Exigir posicionamento por satélite</string>
-    <string name="quality_require_fix_sub">Descarta posições estimadas, como num túnel.</string>
-    <string name="quality_accuracy_description">Os pontos com precisão pior do que esta são marcados como ruidosos e excluídos.</string>
+    <string name="quality_require_fix_sub">Descarta posições estimadas, como num túnel</string>
+    <string name="quality_accuracy_description">Os pontos com precisão pior do que esta são marcados como ruidosos e excluídos</string>
     <string name="quality_max_accuracy">Raio máximo de precisão</string>
 
-    <string name="pause_description">Uma paragem mais curta do que isto mantém a viagem aberta — voltar a mexer-se continua a mesma viagem. Com Desligado, qualquer paragem termina a viagem.</string>
+    <string name="pause_description">Movimentos separados por menos do que isto são gravados como uma só viagem. Com Desligado, qualquer paragem separa-os.</string>
     <string name="pause_resume_window">Janela para retomar</string>
-    <string name="pause_keep_recording">Continuar a gravar em movimento</string>
-    <string name="pause_keep_recording_sub">Ignora o \"parado\" enquanto a sua posição continua a mudar — para barcos, comboios e autocarros, onde está sentado mas a viagem não parou. Gasta mais bateria.</string>
 
-    <string name="gps_description">Se não chegar nenhuma posição boa durante este tempo, o GPS pausa e volta a tentar quando se mexer ou quando outra aplicação obtiver uma localização. Com Desligado, o GPS nunca desiste.</string>
+    <string name="gps_description">Se não chegar nenhuma posição boa durante este tempo, o GPS desliga-se para poupar bateria — e volta a tentar quando se mexer ou quando outra aplicação obtiver uma localização. Com Desligado, o GPS nunca desiste.</string>
     <string name="gps_give_up_after">Desistir ao fim de</string>
 
-    <string name="filter_description">As viagens abaixo destes limites passam para as eliminadas recentemente quando terminam.</string>
+    <string name="filter_description">As viagens abaixo destes limites passam para as eliminadas recentemente quando terminam</string>
     <string name="filter_min_duration">Duração mínima</string>
     <string name="filter_min_length">Comprimento mínimo</string>
-    <string name="filter_extent_description">Até onde a viagem se afastou de onde começou — filtra o ruído de estar parado.</string>
+    <string name="filter_extent_description">Até onde a viagem se afastou de onde começou — filtra o ruído de estar parado</string>
     <string name="filter_min_extent">Amplitude mínima</string>
 
-    <string name="privacy_description">A gravação nunca é bloqueada — as viagens continuam a ser gravadas, esteja a aplicação bloqueada ou não.</string>
+    <string name="privacy_description">A gravação nunca é bloqueada — as viagens continuam a ser gravadas, esteja a aplicação bloqueada ou não</string>
     <string name="privacy_block_screenshots">Bloquear capturas de ecrã</string>
-    <string name="privacy_block_screenshots_sub">Esconde também a pré-visualização da aplicação no alternador de apps recentes, que de outro modo mostra um mapa de onde esteve.</string>
+    <string name="privacy_block_screenshots_sub">Esconde também a pré-visualização nas apps recentes</string>
+    <string name="online_services_description">O seu histórico fica neste dispositivo. A rede serve as imagens do mapa e o que estiver ativado aqui.</string>
     <string name="privacy_online_search">Pesquisa de locais online</string>
-    <string name="privacy_online_search_sub">Permite ao formulário de viagens encontrar hotéis e moradas pelo nome. As pesquisas escritas são enviadas para photon.komoot.io (OpenStreetMap); desligado, a pesquisa fica inteiramente neste dispositivo.</string>
+    <string name="privacy_online_search_sub">Encontra hotéis e moradas pelo nome; as pesquisas vão para photon.komoot.io</string>
     <string name="lock_require_unlock">Exigir desbloqueio</string>
-    <string name="lock_require_unlock_sub">Abrir a aplicação pede a sua impressão digital ou o PIN do dispositivo.</string>
-    <string name="lock_no_screen_lock">Defina primeiro um bloqueio de ecrã neste dispositivo.</string>
+    <string name="lock_require_unlock_sub">Pede a impressão digital ou o PIN do dispositivo</string>
+    <string name="lock_no_screen_lock">Defina primeiro um bloqueio de ecrã neste dispositivo</string>
     <string name="lock_trust_keyguard">Confiar no desbloqueio do telemóvel</string>
-    <string name="lock_trust_keyguard_sub">Dispensa o pedido da aplicação quando o próprio telemóvel foi desbloqueado desde que saiu dela — sem um segundo desbloqueio logo a seguir ao primeiro. Desligado, a aplicação fica bloqueada mesmo para quem consiga abrir o telemóvel.</string>
+    <string name="lock_trust_keyguard_sub">O desbloqueio do próprio telemóvel também abre a aplicação</string>
     <string name="lock_again">Voltar a bloquear</string>
-    <string name="lock_again_sub">Sair da aplicação por instantes — para escolher um ficheiro ou dar uma permissão — não deve voltar a perguntar.</string>
+    <string name="lock_again_sub">Sair da aplicação por instantes — para escolher um ficheiro ou dar uma permissão — não deve voltar a perguntar</string>
     <string name="lock_immediately">Imediatamente</string>
     <string name="lock_after">Ao fim de %1$s</string>
 
     <string name="data_import_tracks">Importar trajetos</string>
-    <string name="data_import_idle">Ficheiros GPX; os pontos precisam de data e hora</string>
+    <string name="data_import_idle">Viagens de ficheiros GPX com data e hora</string>
     <string name="data_importing">A importar o ficheiro %1$d de %2$d · %3$d trajetos até agora</string>
     <string name="data_export_tracks">Exportar trajetos</string>
     <string name="data_export_tracks_idle">Cada trajeto como um ficheiro GPX, para uma pasta à sua escolha</string>

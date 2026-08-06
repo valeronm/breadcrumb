@@ -311,7 +311,6 @@ class LocationRecordingService : Service() {
     /** The settings a pass is decided under, read here because this is where they live. */
     private fun activitySettings() = ActivitySettings(
         resumeWindowMs = Settings.resumeWindowSec(this) * 1000L,
-        crossCheckMotion = Settings.motionCrossCheck(this),
     )
 
     /**
@@ -387,17 +386,8 @@ class LocationRecordingService : Service() {
     }
 
     /**
-     * The one place the cross-check's setting is read, so the one place it branches: every
-     * consultation defines a [Motion.Unknown] case identical to the pre-witness behaviour, and
-     * nothing downstream knows a switch exists. Caller holds [mutex].
-     */
-    private fun motionVerdict(atMs: Long): Motion =
-        core.motionVerdict(atMs, Settings.motionCrossCheck(this))
-
-    /**
      * A tick's worth of "is that held reading credible yet?", and the release when it is. Cheap when
-     * nothing is held — always so with the cross-check off, since parking takes a verdict and it is
-     * then [Motion.Unknown]. The off-mutex pre-check (as in [maybeGiveUpOnNoFix]) costs at most one
+     * nothing is held. The off-mutex pre-check (as in [maybeGiveUpOnNoFix]) costs at most one
      * tick's delay (~1 s) on a stale read.
      */
     private fun checkParkedReading() {
@@ -412,9 +402,7 @@ class LocationRecordingService : Service() {
                 val nowMs = now()
                 val was = core.confirmed
                 val wasPaused = core.isPaused
-                val effects = core.onMotion(
-                    core.motionVerdict(nowMs, settings.crossCheckMotion), nowMs, settings,
-                )
+                val effects = core.onMotion(core.motionVerdict(nowMs), nowMs, settings)
                 if (effects.isEmpty()) return@withLock
                 DebugLog.i(TAG, "motion cross-check: releasing the held ${core.confirmed}")
                 logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L)
@@ -631,7 +619,6 @@ class LocationRecordingService : Service() {
             settings = IngestSettings(
                 maxAccuracyM = Settings.accuracyGateM(this).toFloat(),
                 requireGnss = Settings.requireGnssFix(this),
-                crossCheckMotion = Settings.motionCrossCheck(this),
             ),
             gnss = gnss.state,
         )
@@ -661,7 +648,7 @@ class LocationRecordingService : Service() {
      * verdict is produced here.
      */
     private fun publishStatus(motion: Motion? = null) {
-        val activity = ingest.displayActivity(core.confirmed, motion ?: motionVerdict(now()))
+        val activity = ingest.displayActivity(core.confirmed, motion ?: core.motionVerdict(now()))
         val rec = activity.recording
         // The controller's phase is the one record of a pause, deadline included — read both off it
         // rather than mirroring the deadline in a field the pause/resume paths must keep in step.

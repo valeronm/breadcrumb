@@ -152,19 +152,6 @@ class FixIngestTest {
         assertNull(ingest.renameFor(ActivityType.WALKING))
     }
 
-    @Test fun `with the cross-check off the witness never speaks`() {
-        ingest.onTrackOpened(ActivityType.WALKING)
-        val settings = OPEN.copy(crossCheckMotion = false)
-
-        val out = ingest.onFixes(TRACK, (0..30).map { fix(it, it * 14.0) }, walking(), settings, SEEN)
-
-        assertEquals(Motion.Unknown, out.motion)
-        assertEquals(ActivityType.WALKING, ingest.displayActivity(ActivityType.WALKING, out.motion))
-        // And the ceiling it would have lifted stays where the label put it, so the pace reads as
-        // teleports — the pre-witness behaviour, unchanged.
-        assertTrue(out.points.any { it.ignoreReason == IgnoreReason.JUMP.code })
-    }
-
     @Test fun `a fix with no recent satellite backing is refused when the cross-check asks for one`() {
         ingest.onTrackOpened(ActivityType.WALKING)
         val settings = OPEN.copy(requireGnss = true)
@@ -247,7 +234,7 @@ class FixIngestTest {
         const val T0 = 1_700_000_000_000L
 
         /** Gates that admit anything: the quality rules have their own suite. */
-        val OPEN = IngestSettings(maxAccuracyM = 50f, requireGnss = false, crossCheckMotion = true)
+        val OPEN = IngestSettings(maxAccuracyM = 50f, requireGnss = false)
 
         /** A receiver that locked at the moment of each fix — see [Fix.elapsedRealtimeMs]. */
         val SEEN = GnssState(satellitesInFix = 9, cn0Top4 = 32f, lastFixElapsedMs = Long.MAX_VALUE / 2)

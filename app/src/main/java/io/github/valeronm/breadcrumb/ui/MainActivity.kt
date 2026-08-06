@@ -814,7 +814,8 @@ private fun SettingsPagesOverlay(
             SettingsPage.AutoPause -> AutoPauseSettingsScreen(onBack = onClose)
             SettingsPage.GpsSearch -> GpsSearchSettingsScreen(onBack = onClose)
             SettingsPage.TrackFiltering -> TrackFilteringSettingsScreen(onBack = onClose)
-            SettingsPage.Privacy -> PrivacySettingsScreen(onBack = onClose)
+            SettingsPage.AppLock -> AppLockSettingsScreen(onBack = onClose)
+            SettingsPage.OnlineServices -> OnlineServicesSettingsScreen(onBack = onClose)
             SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
                 viewModel = viewModel,
                 onBack = onClose,

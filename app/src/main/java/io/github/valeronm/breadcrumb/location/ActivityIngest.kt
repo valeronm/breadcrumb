@@ -95,7 +95,6 @@ sealed interface Effect {
 /** The settings a pass is decided under, read once per pass by the caller that owns them. */
 data class ActivitySettings(
     val resumeWindowMs: Long,
-    val crossCheckMotion: Boolean,
 )
 
 /**
@@ -157,13 +156,8 @@ class ActivityIngest(
     val isPaused: Boolean get() = controller.isPaused
     val deaf: Boolean get() = deafnessWarning.warned
 
-    /**
-     * The verdict at [atMs], or [Motion.Unknown] when the cross-check is off. Takes the setting
-     * rather than an [ActivitySettings] because the publish path calls it per fix, and the resume
-     * window it would otherwise read costs a preference lookup a second for nothing.
-     */
-    fun motionVerdict(atMs: Long, crossCheckMotion: Boolean): Motion =
-        ingest.verdict(atMs, crossCheckMotion)
+    /** The witness's verdict at [atMs] — see [FixIngest.verdict]. */
+    fun motionVerdict(atMs: Long): Motion = ingest.verdict(atMs)
 
     /**
      * A Play-Services reading — a transition or the arm-time snapshot. Runs the deafness preamble,
@@ -182,7 +176,7 @@ class ActivityIngest(
         val readingMs = intake(eventTimeMs, nowMs, registration, out)
         // Nothing to apply if the trusted activity didn't move — or if the ground contradicts it, in
         // which case the gate holds it until [onMotion] finds it credible.
-        val changed = gate.onReading(raw, motionVerdict(nowMs, settings.crossCheckMotion)) ?: return out
+        val changed = gate.onReading(raw, motionVerdict(nowMs)) ?: return out
         applyConfirmed(changed, readingMs, nowMs, settings, out)
         return out
     }
@@ -237,7 +231,7 @@ class ActivityIngest(
         // the rest of the outing. A paused track, meanwhile, turned GPS off for its own reasons and
         // is waiting on its own deadline.
         if (controller.phase == TrackController.Phase.Idle || controller.isPaused) return emptyList()
-        val motion = motionVerdict(nowMs, settings.crossCheckMotion)
+        val motion = motionVerdict(nowMs)
         if (!noFixGuard.shouldGiveUp(elapsedMs, giveUpMs, motion)) return emptyList()
         // GPS is about to go, and with it the tick that would ever revisit a held reading — so it is
         // reconsidered here, on the way down. The veto inside [NoFixGuard.shouldGiveUp] is what makes

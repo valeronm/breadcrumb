@@ -31,6 +31,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | track | trajeto | Never *percurso*, *rota*, *caminho*. Only the recorded path: everywhere the sentence is about the journey itself, the word is *viagem*. |
 | point | ponto | Rejected ones are *ruidosos*; a guessed one is a *posição estimada*, the phrase the setting that drops them already used. |
 | activity | atividade | |
+| movement | movimento | Countable as *movimentos*, the same word. |
 
 ### A stay
 
@@ -54,7 +55,6 @@ Sections and order follow `en.md`, so the two files read side by side.
 | merge | juntar | *Merged away* is *absorvida* — the stay is absorbed, not joined. |
 | split | dividir | |
 | delete | eliminar | |
-| remove | remover | |
 | clear | limpar | |
 | undo | anular | |
 | restore-trip | recuperar | Matches *recuperáveis* on the same screens. Plain-prose "puts the trip back" (undo explainers) may still say *repõe*. |
