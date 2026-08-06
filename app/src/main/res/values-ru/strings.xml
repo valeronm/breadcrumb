@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Russian. app_name is deliberately absent: a product name is not translated, and leaving it out
+  lets the base value (and the per-variant debug/perf suffixes) stand.
+-->
+<resources>
+    <string name="common_back">Назад</string>
+    <string name="common_cancel">Отмена</string>
+    <string name="common_undo">Отменить</string>
+    <string name="common_off">Выключено</string>
+    <string name="common_stop">Остановить</string>
+    <string name="common_delete">Удалить</string>
+    <string name="common_done">Готово</string>
+    <string name="common_stat_distance">Расстояние</string>
+    <string name="common_stat_duration">Длительность</string>
+
+    <string name="relative_today">сегодня</string>
+    <string name="relative_yesterday">вчера</string>
+    <plurals name="relative_days_ago">
+        <item quantity="one">%d день назад</item>
+        <item quantity="few">%d дня назад</item>
+        <item quantity="many">%d дней назад</item>
+        <item quantity="other">%d дня назад</item>
+    </plurals>
+
+    <string name="maps_no_app">Нет приложения карт, в котором это можно открыть</string>
+
+    <string name="share_gpx_track">Поделиться маршрутом</string>
+    <string name="share_gpx_tracks">Поделиться маршрутами</string>
+
+    <plurals name="gpx_imported">
+        <item quantity="one">Импортирован %d маршрут</item>
+        <item quantity="few">Импортировано %d маршрута</item>
+        <item quantity="many">Импортировано %d маршрутов</item>
+        <item quantity="other">Импортировано %d маршрута</item>
+    </plurals>
+    <plurals name="gpx_duplicates">
+        <item quantity="one">%d дубликат пропущен</item>
+        <item quantity="few">%d дубликата пропущено</item>
+        <item quantity="many">%d дубликатов пропущено</item>
+        <item quantity="other">%d дубликата пропущено</item>
+    </plurals>
+    <plurals name="gpx_overlapping">
+        <item quantity="one">%d пересекающийся пропущен</item>
+        <item quantity="few">%d пересекающихся пропущено</item>
+        <item quantity="many">%d пересекающихся пропущено</item>
+        <item quantity="other">%d пересекающихся пропущено</item>
+    </plurals>
+    <plurals name="gpx_failed">
+        <item quantity="one">%d с ошибкой</item>
+        <item quantity="few">%d с ошибкой</item>
+        <item quantity="many">%d с ошибкой</item>
+        <item quantity="other">%d с ошибкой</item>
+    </plurals>
+</resources>

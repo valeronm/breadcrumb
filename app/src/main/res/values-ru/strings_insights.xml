@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="insights_empty">Путешествий пока нет. Они появятся здесь, когда вы отметите место как «Дом» в «Местах» — любая череда ночей не дома считается путешествием.</string>
+    <string name="insights_journey">Путешествие</string>
+
+    <plurals name="insights_journeys">
+        <item quantity="one">%d путешествие</item>
+        <item quantity="few">%d путешествия</item>
+        <item quantity="many">%d путешествий</item>
+        <item quantity="other">%d путешествия</item>
+    </plurals>
+    <plurals name="insights_nights">
+        <item quantity="one">%d ночь</item>
+        <item quantity="few">%d ночи</item>
+        <item quantity="many">%d ночей</item>
+        <item quantity="other">%d ночи</item>
+    </plurals>
+    <plurals name="insights_cities">
+        <item quantity="one">%d город</item>
+        <item quantity="few">%d города</item>
+        <item quantity="many">%d городов</item>
+        <item quantity="other">%d города</item>
+    </plurals>
+    <plurals name="insights_countries">
+        <item quantity="one">%d страна</item>
+        <item quantity="few">%d страны</item>
+        <item quantity="many">%d стран</item>
+        <item quantity="other">%d страны</item>
+    </plurals>
+</resources>

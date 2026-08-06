@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="addtrip_title_add">Добавить поездку</string>
+    <string name="addtrip_title_edit">Изменить поездку</string>
+    <string name="addtrip_next">Далее</string>
+    <string name="addtrip_ok">ОК</string>
+
+    <string name="addtrip_error_order">Прибытие должно быть позже отправления</string>
+    <string name="addtrip_error_future">Отправление в будущем</string>
+    <string name="addtrip_overlaps">Пересекается с существующей поездкой</string>
+    <string name="addtrip_gone">Этой поездки больше нет</string>
+
+    <string name="addtrip_search_placeholder">Поиск городов и мест</string>
+    <string name="addtrip_tap_origin">Коснитесь места или удерживайте карту, чтобы задать начало поездки</string>
+    <string name="addtrip_tap_destination">Коснитесь места или удерживайте карту, чтобы задать конец поездки</string>
+    <string name="addtrip_osm_credit">Онлайн-результаты © OpenStreetMap</string>
+    <string name="addtrip_no_matches">Ничего не найдено</string>
+
+    <string name="addtrip_origin">Откуда</string>
+    <string name="addtrip_destination">Куда</string>
+    <string name="addtrip_departure_at">Отправление %1$s, %2$s</string>
+    <string name="addtrip_arrival_at">Прибытие %1$s, %2$s</string>
+    <string name="addtrip_set_departure">Указать время отправления</string>
+    <string name="addtrip_set_arrival">Указать время прибытия</string>
+    <string name="addtrip_departure_time_title">Время отправления</string>
+    <string name="addtrip_arrival_time_title">Время прибытия</string>
+
+    <string name="addtrip_pin_placed">Точка поставлена</string>
+    <string name="addtrip_no_pin">Точка ещё не поставлена</string>
+    <string name="addtrip_local_clock">Время указано по местным часам — %1$s от ваших</string>
+</resources>

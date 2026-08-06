@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The inline activity forms stay in the nominative, and every sentence that takes one is phrased to
+  want the nominative — a slot cannot decline, so the sentences bend instead. Verbs beside the slot
+  are in the perfective future («возобновится», «продолжится»), which Russian does not gender.
+-->
+<resources>
+    <string name="activity_walking">Пешком</string>
+    <string name="activity_running">Бег</string>
+    <string name="activity_cycling">Велосипед</string>
+    <string name="activity_driving">Автомобиль</string>
+    <string name="activity_taxi">Такси</string>
+    <string name="activity_ferry">По воде</string>
+    <string name="activity_transit">Транспорт</string>
+    <string name="activity_flight">Перелёт</string>
+    <string name="activity_still">Без движения</string>
+    <string name="activity_unknown">Движение</string>
+    <string name="activity_other">Другое</string>
+
+    <string name="activity_inline_walking">ходьба</string>
+    <string name="activity_inline_running">бег</string>
+    <string name="activity_inline_cycling">поездка на велосипеде</string>
+    <string name="activity_inline_driving">поездка на автомобиле</string>
+    <string name="activity_inline_taxi">поездка на такси</string>
+    <string name="activity_inline_ferry">поездка по воде</string>
+    <string name="activity_inline_transit">поездка на общественном транспорте</string>
+    <string name="activity_inline_flight">перелёт</string>
+    <string name="activity_inline_still">без движения</string>
+    <string name="activity_inline_unknown">движение</string>
+
+    <string name="recorder_recording">Идёт запись</string>
+    <string name="recorder_recording_activity">Идёт запись: %1$s</string>
+    <string name="recorder_paused">Пауза</string>
+    <string name="recorder_idle">Ожидание</string>
+    <string name="recorder_detection_stalled">Распознавание не отвечает</string>
+    <string name="recorder_starting">Запуск…</string>
+
+    <string name="recorder_track_in_progress">поездка продолжается</string>
+    <string name="recorder_no_gps">нет GPS</string>
+    <string name="recorder_no_gps_since">нет GPS с %1$s</string>
+    <string name="recorder_no_gps_settled">GPS приостановлен — возобновится, когда вы начнёте двигаться</string>
+    <string name="recorder_positioning">определение местоположения</string>
+    <string name="recorder_positioning_radius">определение местоположения ±%1$s</string>
+    <string name="recorder_waiting_for_fix">определяем ваше местоположение</string>
+    <string name="recorder_resumes_within">%1$s возобновится в течение %2$s</string>
+    <string name="recorder_continues_if_you_move">%1$s продолжится, если вы скоро начнёте двигаться</string>
+    <string name="recorder_nothing_to_record">нечего записывать</string>
+    <string name="recorder_nothing_to_record_for">нечего записывать: %1$s</string>
+    <string name="recorder_restart_advice">обычно помогает перезагрузка телефона</string>
+    <string name="recorder_generic_activity">активность</string>
+
+    <string name="channel_tracking">Запись GPS</string>
+    <string name="channel_tracking_description">Постоянное уведомление во время записи поездок</string>
+    <string name="channel_alerts">Проблемы с записью</string>
+    <string name="channel_alerts_description">Показывается, когда автоматическая запись перестаёт отвечать</string>
+
+    <string name="notification_stop">Остановить</string>
+    <string name="notification_deaf_title">Распознавание активности не отвечает</string>
+    <string name="notification_deaf_text">Поездки могут пропускаться или начинаться с опозданием. Обычно помогает перезагрузка телефона.</string>
+</resources>

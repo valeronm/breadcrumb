@@ -128,6 +128,10 @@ class ResourceHygieneTest {
      * write "the one track". Adding anything else, or renumbering, still fails; skipping plurals
      * wholesale would exempt exactly the resources a translator is most likely to fumble, English
      * offering two forms where their language wants four.
+     *
+     * Which quantities a plural takes is the language's own answer, so an item in a quantity English
+     * does not author — Russian's `few` and `many` — is checked against the English `other`, the one
+     * bucket every language must fill.
      */
     @Test
     fun `every translation uses the same placeholders as the English`() {
@@ -137,6 +141,7 @@ class ResourceHygieneTest {
             fun check(entries: List<Pair<String, String>>, base: Map<String, String>, counted: Boolean) =
                 entries.mapNotNull { (name, text) ->
                     val english = base[name]
+                        ?: base["${name.substringBefore('[')}[other]"].takeIf { counted }
                         ?: return@mapNotNull "${dir.name}/$name has no English original"
                     val expected = PLACEHOLDER.findAll(english).map { it.value }.toSet()
                     val actual = PLACEHOLDER.findAll(text).map { it.value }.toSet()

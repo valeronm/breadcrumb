@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_title">Настройки</string>
+    <string name="settings_group_recording">Запись</string>
+    <string name="settings_group_display">Отображение</string>
+    <string name="settings_group_privacy">Конфиденциальность</string>
+    <string name="settings_group_data">Данные</string>
+    <string name="settings_group_diagnostics">Диагностика</string>
+    <string name="settings_sampling">Интервал записи</string>
+    <string name="settings_sampling_sub">Как часто записываются точки</string>
+    <string name="settings_point_quality">Фильтр точек</string>
+    <string name="settings_point_quality_sub">Какие точки попадают в маршрут</string>
+    <string name="settings_auto_pause">Автопауза</string>
+    <string name="settings_auto_pause_sub">Какой перерыв в движении ещё не разделяет поездку</string>
+    <string name="settings_gps_search">Определение местоположения</string>
+    <string name="settings_gps_search_sub">Экономить заряд, когда местоположение не определяется</string>
+    <string name="settings_track_filtering">Фильтр поездок</string>
+    <string name="settings_track_filtering_sub">Пороги, ниже которых завершённые поездки отсеиваются</string>
+    <string name="settings_units">Единицы измерения</string>
+    <string name="units_choice_automatic">Автоматически</string>
+    <string name="units_choice_metric">Километры</string>
+    <string name="units_choice_imperial">Мили</string>
+    <string name="units_choice_uk">Мили + метры</string>
+    <string name="settings_app_lock">Блокировка приложения</string>
+    <string name="settings_app_lock_sub">Разблокировка при входе и защита от скриншотов</string>
+    <string name="settings_online_services">Онлайн-сервисы</string>
+    <string name="settings_online_services_sub">Что может выходить в сеть, кроме карты</string>
+    <string name="settings_recently_deleted_sub">Можно восстановить в течение %1$d дней</string>
+    <string name="settings_logs">Журнал</string>
+    <string name="settings_reset">Сброс</string>
+
+    <string name="credit_geonames">Названия мест — GeoNames, CC BY 4.0</string>
+    <string name="credit_osm">Онлайн-поиск © участники OpenStreetMap, ODbL</string>
+
+    <string name="sampling_description">Как часто записываются точки во время движения</string>
+    <string name="sampling_time_between">Время между точками</string>
+    <string name="sampling_distance_between">Расстояние между точками</string>
+
+    <string name="quality_description">Какие точки попадают в маршрут</string>
+    <string name="quality_require_fix">Только по спутникам</string>
+    <string name="quality_require_fix_sub">Отклоняет приблизительные местоположения — например, в тоннеле</string>
+    <string name="quality_accuracy_description">Точки с точностью хуже этой помечаются как отклонённые</string>
+    <string name="quality_max_accuracy">Макс. радиус точности</string>
+
+    <string name="pause_description">Перемещения с перерывом короче этого времени записываются как одна поездка. Если выключено, любая остановка их разделяет.</string>
+    <string name="pause_resume_window">Окно продолжения</string>
+
+    <string name="gps_description">Если за это время не приходит ни одной хорошей позиции, GPS отключается, чтобы не тратить заряд, и пробует снова, когда вы двигаетесь или другое приложение получает местоположение. Если выключено, GPS не отключается никогда.</string>
+    <string name="gps_give_up_after">Отключать GPS через</string>
+
+    <string name="filter_description">Поездки ниже этих порогов после завершения попадают в «Недавно удалённые»</string>
+    <string name="filter_min_duration">Мин. длительность</string>
+    <string name="filter_min_length">Мин. длина</string>
+    <string name="filter_extent_description">Насколько поездка удалилась от начальной точки — отсеивает шум от стояния на месте</string>
+    <string name="filter_min_extent">Мин. разброс</string>
+
+    <string name="privacy_description">Запись никогда не блокируется — поездки записываются независимо от того, заблокировано ли приложение</string>
+    <string name="privacy_block_screenshots">Запретить скриншоты</string>
+    <string name="privacy_block_screenshots_sub">Также скрывает превью в списке недавних приложений</string>
+    <string name="online_services_description">Ваша история не покидает устройство. Сеть используется для карты и того, что включено здесь.</string>
+    <string name="privacy_online_search">Онлайн-поиск мест</string>
+    <string name="privacy_online_search_sub">Ищет отели и адреса по названию; запросы уходят на photon.komoot.io</string>
+    <string name="lock_require_unlock">Требовать разблокировку</string>
+    <string name="lock_require_unlock_sub">Отпечаток пальца или PIN-код при входе</string>
+    <string name="lock_no_screen_lock">Сначала настройте блокировку экрана на устройстве</string>
+    <string name="lock_trust_keyguard">Доверять разблокировке телефона</string>
+    <string name="lock_trust_keyguard_sub">Разблокировка телефона открывает и приложение</string>
+    <string name="lock_again">Блокировать снова</string>
+    <string name="lock_again_sub">Короткий выход из приложения не будет требовать разблокировки заново</string>
+    <string name="lock_immediately">Сразу</string>
+    <string name="lock_after">Через %1$s</string>
+
+    <string name="data_import_tracks">Импорт маршрутов</string>
+    <string name="data_import_idle">Поездки из файлов GPX с отметками времени</string>
+    <string name="data_importing">Импорт файла %1$d из %2$d · маршрутов: %3$d</string>
+    <string name="data_export_tracks">Экспорт маршрутов</string>
+    <string name="data_export_tracks_idle">Каждый маршрут отдельным файлом GPX в выбранную папку</string>
+    <string name="data_exporting">Экспорт…</string>
+    <string name="data_exporting_progress">Экспорт файла %1$d из %2$d</string>
+    <string name="data_export_failed">Экспорт не удался</string>
+    <plurals name="data_exported">
+        <item quantity="one">Экспортирован %d маршрут</item>
+        <item quantity="few">Экспортировано %d маршрута</item>
+        <item quantity="many">Экспортировано %d маршрутов</item>
+        <item quantity="other">Экспортировано %d маршрута</item>
+    </plurals>
+    <string name="data_backup">Создать резервную копию</string>
+    <string name="data_backup_idle">Поездки, места и история одним файлом</string>
+    <string name="data_backup_verb">Создание копии…</string>
+    <string name="data_backup_progress">Копируется поездка %1$d из %2$d</string>
+
+    <string name="logs_title">Журнал (%1$d)</string>
+    <string name="logs_share">Поделиться журналом</string>
+    <string name="logs_clear">Очистить журнал</string>
+    <string name="logs_empty">Журнал пока пуст. Он заполнится, когда запись включена и вы двигаетесь.</string>
+</resources>

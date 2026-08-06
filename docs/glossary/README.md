@@ -25,6 +25,7 @@ One per language, named by the locale qualifier:
   and English's word for it. Every other file answers the same concepts in the same order, because
   `values/` is what the translations are translations of.
 - [`pt.md`](pt.md) — Portuguese (European)
+- [`ru.md`](ru.md) — Russian
 
 **Adding a language = adding a file.** Copy `en.md`, replace each term with your language's, and
 rewrite the conventions and decisions for the language you are writing. Keep the sections and their

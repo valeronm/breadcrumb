@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="place_group_home_people">Дом и близкие</string>
+    <string name="place_group_errands">Дела</string>
+    <string name="place_group_routine">Повседневное</string>
+    <string name="place_group_away">Вне дома</string>
+    <string name="place_group_transient">Проездом</string>
+
+    <string name="place_category_friends_family">Друзья и семья</string>
+    <string name="place_category_home">Дом</string>
+    <string name="place_category_groceries">Продукты</string>
+    <string name="place_category_food">Еда и напитки</string>
+    <string name="place_category_shopping">Покупки</string>
+    <string name="place_category_services">Услуги</string>
+    <string name="place_category_health">Здоровье</string>
+    <string name="place_category_kids_school">Дети и школа</string>
+    <string name="place_category_sports">Спорт и фитнес</string>
+    <string name="place_category_work">Работа</string>
+    <string name="place_category_outdoors">Природа</string>
+    <string name="place_category_sightseeing">Достопримечательности</string>
+    <string name="place_category_travel">Путешествия</string>
+    <string name="place_category_entertainment">Развлечения</string>
+    <string name="place_category_parking">Парковка</string>
+    <string name="place_category_transit">Транспорт</string>
+    <string name="place_category_gas_station">Заправка</string>
+    <string name="place_category_service_area">Придорожный сервис</string>
+
+    <string name="place_category_unset">Не задана</string>
+    <string name="place_category_set">Задать категорию</string>
+    <string name="place_category_more">Ещё</string>
+    <string name="place_stay">Посещение</string>
+
+    <string name="places_view_map">Карта</string>
+    <string name="places_view_list">Список</string>
+    <string name="places_sort_recent">Недавние</string>
+    <string name="places_sort_most_visits">Посещения</string>
+    <string name="places_sort_time_spent">Время</string>
+    <string name="places_rare_stops">Редко посещаемые</string>
+
+    <string name="places_empty">Мест пока нет. Они появятся здесь, когда запись найдёт, где вы останавливались.</string>
+    <string name="places_all_rare">Все места здесь посещались редко. Включите «%1$s», чтобы их увидеть.</string>
+    <string name="places_no_match">По запросу «%1$s» ничего не найдено</string>
+    <string name="places_no_visits_detail">Посещений пока нет. Они появятся здесь, когда запись зафиксирует, что вы останавливались в этом месте.</string>
+
+    <string name="places_search_placeholder">Поиск мест</string>
+    <string name="places_clear_search">Очистить поиск</string>
+    <string name="places_open_in_maps">Открыть в картах</string>
+    <string name="places_edit">Изменить место</string>
+    <string name="places_create">Создать место</string>
+
+    <string name="places_name_field">Название места</string>
+    <string name="places_capture_radius">Радиус охвата</string>
+    <plurals name="places_captured_endpoints">
+        <item quantity="one">%d конечная точка</item>
+        <item quantity="few">%d конечные точки</item>
+        <item quantity="many">%d конечных точек</item>
+        <item quantity="other">%d конечной точки</item>
+    </plurals>
+    <string name="places_recenter_pin">Вернуть метку в центр</string>
+    <string name="places_pin_recentered">Метка возвращена в центр</string>
+    <string name="places_pin_moved">Метка перемещена</string>
+    <string name="places_remove">Удалить место</string>
+    <string name="places_category_question">Для чего это место?</string>
+    <string name="places_category_current">Текущая категория</string>
+
+    <plurals name="places_stat_visits">
+        <item quantity="one">Посещение</item>
+        <item quantity="few">Посещения</item>
+        <item quantity="many">Посещений</item>
+        <item quantity="other">Посещения</item>
+    </plurals>
+    <string name="places_stat_time_there">Общее время</string>
+    <string name="places_stat_avg_visit">В среднем</string>
+    <string name="places_first_visit">Первое посещение %1$s</string>
+    <string name="places_visit_since">с %1$s</string>
+    <string name="places_shift_now">сейчас %1$s</string>
+    <string name="places_deleted">Место «%1$s» удалено</string>
+
+    <string name="place_detected_stop">Обнаруженное посещение</string>
+    <string name="place_no_visits">Посещений пока нет</string>
+    <plurals name="place_row_visits">
+        <item quantity="one">%d раз</item>
+        <item quantity="few">%d раза</item>
+        <item quantity="many">%d раз</item>
+        <item quantity="other">%d раза</item>
+    </plurals>
+    <plurals name="place_visits">
+        <item quantity="one">%d посещение</item>
+        <item quantity="few">%d посещения</item>
+        <item quantity="many">%d посещений</item>
+        <item quantity="other">%d посещения</item>
+    </plurals>
+</resources>

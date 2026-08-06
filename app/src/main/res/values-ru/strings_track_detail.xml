@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="track_title">Поездка</string>
+    <string name="track_edit_trip">Изменить поездку</string>
+    <string name="track_change_type">Изменить тип поездки</string>
+    <string name="track_share_gpx">Поделиться маршрутом</string>
+    <string name="track_too_few_points">Слишком мало точек, чтобы нарисовать этот маршрут на карте</string>
+    <string name="track_caption_imported">Импортирована</string>
+    <string name="track_filter_noisy">Отклонённые точки</string>
+    <string name="track_type_dialog_title">Тип поездки</string>
+    <string name="track_type_current">Текущий тип</string>
+
+    <string name="track_stat_avg_speed">Сред. скорость</string>
+
+    <string name="track_split_at">Разделить в %1$s?</string>
+    <plurals name="track_points">
+        <item quantity="one">%d точка</item>
+        <item quantity="few">%d точки</item>
+        <item quantity="many">%d точек</item>
+        <item quantity="other">%d точки</item>
+    </plurals>
+    <string name="track_split_explainer">Обе поездки сохраняют все точки, а посещение между ними появится в истории. «Отменить» вернёт поездку обратно.</string>
+    <string name="track_split_confirm">Разделить</string>
+    <string name="track_split_here">Разделить здесь</string>
+    <string name="track_split_too_close">Слишком близко к краю</string>
+
+    <string name="color_mode_speed">Скорость</string>
+    <string name="color_mode_elevation">Высота</string>
+    <string name="color_mode_accuracy">Точность</string>
+    <string name="color_mode_satellites">Спутники</string>
+    <string name="color_mode_signal">Сигнал</string>
+    <string name="color_no_speed_data">Нет данных о скорости</string>
+    <string name="color_no_elevation_data">Нет данных о высоте</string>
+    <string name="color_no_accuracy_data">Нет данных о точности</string>
+    <string name="color_no_satellite_data">Нет данных о спутниках</string>
+    <string name="color_no_signal_data">Нет данных о сигнале</string>
+
+    <string name="ignore_reason_jump">Скачок скорости</string>
+    <string name="ignore_reason_no_gnss">Приблизительное местоположение</string>
+    <string name="ignore_reason_accuracy">Низкая точность</string>
+</resources>

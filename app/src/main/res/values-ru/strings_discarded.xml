@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="discarded_title">Недавно удалённые</string>
+    <string name="discarded_title_count">Недавно удалённые (%1$d)</string>
+    <string name="discarded_clear_all">Очистить всё</string>
+    <string name="discarded_empty">Удалённых поездок нет. Они появляются здесь, когда вы удаляете поездку или её отсеивает фильтр, и их можно восстановить в течение %1$d дней.</string>
+    <string name="discarded_retention">Поездки хранятся здесь %1$d дней, затем удаляются навсегда</string>
+    <string name="discarded_restore">Восстановить поездку</string>
+    <plurals name="discarded_excluded">
+        <item quantity="one">%d исключена</item>
+        <item quantity="few">%d исключены</item>
+        <item quantity="many">%d исключено</item>
+        <item quantity="other">%d исключено</item>
+    </plurals>
+    <string name="discarded_clear_confirm_title">Очистить «Недавно удалённые»?</string>
+    <plurals name="discarded_clear_confirm_body">
+        <item quantity="one">%d поездка здесь будет удалена навсегда. Это нельзя отменить.</item>
+        <item quantity="few">Все %d поездки здесь будут удалены навсегда. Это нельзя отменить.</item>
+        <item quantity="many">Все %d поездок здесь будут удалены навсегда. Это нельзя отменить.</item>
+        <item quantity="other">Все %d поездки здесь будут удалены навсегда. Это нельзя отменить.</item>
+    </plurals>
+    <string name="discarded_delete_all">Удалить все</string>
+
+    <string name="discarded_reason_deleted">Удалена вами</string>
+    <string name="discarded_reason_filtered">Слишком короткая</string>
+    <string name="discarded_reason_merged">Объединена</string>
+
+    <plurals name="discarded_days_left">
+        <item quantity="one">остался %d день</item>
+        <item quantity="few">осталось %d дня</item>
+        <item quantity="many">осталось %d дней</item>
+        <item quantity="other">осталось %d дня</item>
+    </plurals>
+    <string name="discarded_removal_due">ожидает удаления</string>
+</resources>

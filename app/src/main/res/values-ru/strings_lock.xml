@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="lock_screen_title">Ваша история — только ваша</string>
+    <string name="lock_screen_unlock">Разблокировать</string>
+    <string name="lock_prompt_title">Разблокируйте Breadcrumb</string>
+    <string name="lock_prompt_subtitle">Открыть его можете только вы</string>
+    <plurals name="lock_pending_imports">
+        <item quantity="one">%d файл маршрута ожидает импорта</item>
+        <item quantity="few">%d файла маршрутов ожидают импорта</item>
+        <item quantity="many">%d файлов маршрутов ожидают импорта</item>
+        <item quantity="other">%d файла маршрутов ожидают импорта</item>
+    </plurals>
+</resources>

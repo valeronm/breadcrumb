@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nav_record">Запись</string>
+    <string name="nav_timeline">История</string>
+    <string name="nav_places">Места</string>
+    <string name="nav_insights">Статистика</string>
+
+    <string name="action_add_missing_trip">Добавить поездку</string>
+    <string name="action_settings">Настройки</string>
+    <string name="undo_track_split">Поездка разделена</string>
+</resources>
