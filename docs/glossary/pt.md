@@ -13,6 +13,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | timeline | cronologia | |
+| history | histórico | Portuguese has a second noun here and uses it: the account is the *cronologia*, what it accounts for is the *histórico*. |
 | trip | viagem | One word where English has several — see decisions below. |
 | stay | permanência | Verb form *ficou*. |
 | place | local | *Local* is always the app's saved object. The empty states that mean "no place is involved" say *sítio* — "encontrar sítios onde parou", "noutro sítio" — and must never say *local*, which would assert a saved place exists in the very sentence denying it. |
@@ -21,6 +22,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 
 | Concept | Term | Notes |
 |---|---|---|
+| insights | Resumo | Not a calque: Portuguese has no everyday noun for *insights*, so the tab is named for what it gives the reader. |
 | journey | viagem | |
 | night-away | noite fora | |
 

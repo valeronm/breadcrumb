@@ -106,7 +106,7 @@
         <item quantity="other">Exported %d tracks</item>
     </plurals>
     <string name="data_backup">Back up everything</string>
-    <string name="data_backup_idle">Trips, places and history as one file</string>
+    <string name="data_backup_idle">Your whole history as one file</string>
     <string name="data_backup_verb">Backing up…</string>
     <string name="data_backup_progress">Backing up trip %1$d of %2$d</string>
 

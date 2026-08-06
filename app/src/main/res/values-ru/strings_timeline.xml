@@ -8,8 +8,7 @@
     <string name="timeline_restoring_count">Восстановление… поездок: %1$d</string>
     <string name="timeline_restoring_count_of">Восстановление поездок… %1$d из %2$d</string>
 
-    <string name="timeline_sweep_edge_stays">Обновление краёв записей</string>
-    <string name="timeline_sweep_stats">Обновление расстояний поездок</string>
+    <string name="timeline_sweep">Обработка поездок</string>
 
     <plurals name="timeline_nights_away">
         <item quantity="one">%d ночь вне дома</item>

@@ -13,6 +13,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | timeline | история | The plain word for one's own record of the past — «ваша история», what someone would call this unprompted. *Хронология* was considered and passed over as clinical. |
+| history | история | The same word as *timeline* — a deliberate merge, see decisions below. |
 | trip | поездка | One word for every movement record, a walk included — see decisions below. Never *маршрут*, *путь*, *трасса*. |
 | stay | посещение | The same word as *visit* — a deliberate merge, see decisions below. No verb form: the row leads with the noun; where a sentence needs a verb, «вы были» agrees with *вы* and so stays genderless. |
 | place | место | Also Russian's only everyday noun for a location, so the empty states that mean "no saved place is involved" cannot switch nouns the way Portuguese does — they phrase around it instead: «там, где вы останавливались», «не дома», never a sentence whose subject is a *место* the same sentence denies exists. |
@@ -21,6 +22,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 
 | Concept | Term | Notes |
 |---|---|---|
+| insights | Статистика | Not a calque: Russian has no everyday noun for *insights*, so the tab is named for what is read there. |
 | journey | путешествие | Deliberately not a second *поездка* — see decisions below. |
 | night-away | ночь вне дома | Insights' totals say plain «ночей»/«ночи», the card's subject being journeys already. |
 
@@ -30,7 +32,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 |---|---|---|
 | track | маршрут | Only the recorded path — everywhere the sentence is about the journey itself, the word is *поездка*. Never *трек* (jargon a GPX-minded reader knows but a plain one doesn't), *путь*, *след*. |
 | point | точка | Rejected ones are *отклонённые* — never the calque *шумные* (which reads as loud, not as measurement noise) nor *выбросы* (which reads as emissions); a guessed one is *приблизительное местоположение*. |
-| activity | активность | Where a settings sentence explains what is detected, «способ передвижения» may carry it — that names the *type*, not the concept. |
+| activity | активность | Where a settings sentence explains what is detected, «способ передвижения» may carry it — that names the *type*, not the concept. The **inline forms** of the carrier-borne types are headed by the trip's own noun — «поездка на велосипеде», «поездка на такси» — while the rest are bare («ходьба», «перелёт»): the sentences those forms drop into are about the trip, and a bare «велосипед» cannot be their subject. |
 | movement | движение | The state, and the *Движение* activity label. A **counted stretch** is *перемещение* («перемещения с перерывом короче…») — the word names a piece of movement here, not a trip, which is why its rejection as trip's name doesn't ban it. |
 
 ### A stay
@@ -38,7 +40,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | stop | короткая остановка (a timeline row) · остановка (a halt while recording) | |
-| visit | посещение | The same word stay uses — one word on both surfaces, see decisions below. |
+| visit | посещение | The same word stay uses — one word on both surfaces, see decisions below. A place row's own count is the exception: it says «%d раз», which counts occasions rather than naming the event, and is the only place that does. |
 
 ### A place
 
@@ -46,7 +48,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 |---|---|---|
 | pin | метка | The word Russian map UIs use for a dropped marker, and safely apart from «PIN-код» in the app-lock strings. The add-trip form's coordinates are *точки*. |
 | capture-radius | радиус охвата | |
-| place-category | категория | |
+| place-category | категория | The *Путешествия* category shares its word with journey, in the plural; the surfaces keep them apart, a chip in a picker against a band in Insights. |
 
 ### Actions
 
@@ -98,6 +100,11 @@ Sections and order follow `en.md`, so the two files read side by side.
   the candidates for a split (*пребывание*, *стоянка*) read as officialese or as parking. The
   merge is the same move Portuguese makes with *viagem* for trip and journey: the language keeps
   them apart by surface, a timeline row and a place's history being unmistakable contexts.
+- **The timeline and the history are both *история*.** Russian's everyday word for one's own past
+  covers the account and what it accounts for at once, and the rivals name a store rather than a
+  life: *архив* and *данные* are what a service holds about someone, which is the opposite of what
+  «ваша история не покидает устройство» promises. Surface keeps them apart — a tab, against a
+  sentence about privacy or a backup file.
 - **A trip is a *поездка* even on foot.** The only candidate that reads naturally in chrome
   («Добавить поездку», «Удалить поездку»). *Перемещение* is mode-honest but bureaucratic; *путь*
   names the path, which is the track's job. Colloquial Russian stretches *поездка* over a walk

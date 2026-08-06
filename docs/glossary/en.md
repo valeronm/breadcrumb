@@ -11,6 +11,7 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 | Concept | Term | What it means |
 |---|---|---|
 | timeline | timeline | The day-by-day account of where someone has been, and the app's reason to exist. Made of trips and stays, and nothing else. |
+| history | history | Everything the app has recorded — the trips and the stays, the places, the points behind them. What the *timeline* is an account **of**, which is the whole difference: a reader scrolls the timeline, while a promise about privacy, and a file holding the lot, are about the history. Never a *log*, an *archive* or *your data*. |
 | trip | trip | One continuous stretch of movement, with a start and an end, each of them a time and a place. Recorded, imported, or entered by hand. Never a *route*, *path* or *trail*. |
 | stay | stay | Time spent in one place, and what separates two trips on the timeline. The row's verb form is *stayed*. |
 | place | place | The saved entity: a name, a pin, a capture radius. English has **no second noun** for a location — where a sentence must mean "not one of these" it takes an adverb instead ("somewhere you stopped", "nights spent elsewhere"), because such a sentence exists precisely to say no place is involved. |
@@ -19,6 +20,7 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 
 | Concept | Term | What it means |
 |---|---|---|
+| insights | Insights | The tab where the timeline is read in aggregate rather than day by day. Deliberately named after what the reader gets and not after any one of the things listed there — journeys are what it holds today, and a name taken from them would have to change the moment a second reading sits beside them. |
 | journey | journey | A run of nights away from home (Insights). The Insights concept and nothing else: a ferry crossing or a bus ride is a **trip**, however long it takes. |
 | night-away | night away | A night not spent at home — what a journey is counted in. Insights' totals say plain "nights", the card's subject being journeys already; an unnamed journey's Insights row, which stands alone, says "nights away". The timeline's band instead opens with the journey's length in *days* — the same count its "Day N" marker walks through. |
 
@@ -107,6 +109,12 @@ nobody has written yet, which is what earns it a place here rather than a commen
   recorder's halt, and neither a place nor a dwell inside a trip: `DwellDetector`'s output is a
   *stay* (its own KDoc calls them embedded stays), and a place seldom visited is described off
   `visit`.
+- **The recorder's overrun at a track's ends is deliberately unnamed on screen**, which is why no
+  term for it appears above. The grayed segments carry no label, the count that includes them says
+  *excluded* — covering bad fixes in the same breath — and the sweep that re-derives them says only
+  that trips are being reprocessed. A reader can act on none of it, and a word would put a mechanism
+  in front of them that the app names nowhere else. The day a surface has to name it is the day this
+  table gains a row.
 - **Drawn alike is not the same as being alike.** A pin and a trip's end coordinate are dropped the
   same way and rendered the same way, and are different things: only one persists as a place with a
   capture radius, and the other is that trip's *point*. (*PIN* in the app-lock text is the platform's

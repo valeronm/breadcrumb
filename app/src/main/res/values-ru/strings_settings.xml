@@ -85,7 +85,7 @@
         <item quantity="other">Экспортировано %d маршрута</item>
     </plurals>
     <string name="data_backup">Создать резервную копию</string>
-    <string name="data_backup_idle">Поездки, места и история одним файлом</string>
+    <string name="data_backup_idle">Вся ваша история одним файлом</string>
     <string name="data_backup_verb">Создание копии…</string>
     <string name="data_backup_progress">Копируется поездка %1$d из %2$d</string>
 

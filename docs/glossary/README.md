@@ -56,12 +56,14 @@ sentences use — plus the writing conventions below, which every language share
 
 ## Why these are the core concepts
 
-The concepts and their meanings are in [`en.md`](en.md); what this section argues is why four of
-them are grouped as **Core** and the loud ones around them are not.
+The concepts and their meanings are in [`en.md`](en.md); what this section argues is which of them
+are grouped as **Core** and why the loud ones around them are not.
 
 The app is one thing: a **timeline** of where someone has been, made of **trips** and the **stays**
-that separate them, and nothing else. **Places** are core too, and are what make the rest legible —
-a stay's row is labelled by the place holding it, and a journey is defined as a run of nights away
+that separate them, and nothing else. The **history** is core alongside it, being what that
+timeline is an account *of* — a distinction the app leans on wherever a sentence is about the data
+rather than the screen showing it. **Places** are core too, and are what make the rest legible — a
+stay's row is labelled by the place holding it, and a journey is defined as a run of nights away
 from a place tagged Home.
 
 **Recording is not core**, though it is the loudest thing the app does. A trip does not need it to
@@ -92,7 +94,7 @@ permanent codes from display text everywhere else.
 Every language file carries these sections, in this order, and each concept sits under the thing it
 is *about*:
 
-- **Core** — the timeline and what it is made of.
+- **Core** — the timeline, the history it accounts for, and what they are made of.
 - **The timeline**, **A trip**, **A stay**, **A place** — what describes each core concept. A word
   belongs to whichever one it qualifies, which is how *stop* and *visit* come to sit under `stay`
   rather than beside it: both turn out to be a stay seen from somewhere.

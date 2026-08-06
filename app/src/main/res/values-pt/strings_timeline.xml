@@ -9,8 +9,7 @@
     <string name="timeline_restoring_count">A restaurar… %1$d viagens</string>
     <string name="timeline_restoring_count_of">A restaurar… %1$d de %2$d viagens</string>
 
-    <string name="timeline_sweep_edge_stays">A atualizar as sobras de gravação</string>
-    <string name="timeline_sweep_stats">A atualizar as distâncias das viagens</string>
+    <string name="timeline_sweep">A reprocessar as viagens</string>
 
     <plurals name="timeline_nights_away">
         <item quantity="one">%d noite fora</item>

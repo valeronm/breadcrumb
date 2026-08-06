@@ -8,7 +8,7 @@ Release notes are for testers/users, not developers. Describe what people will
 **see** or **feel** in the app — never internals (services, receivers,
 broadcasts, wakelocks, refactorings, build/tooling changes).
 
-- ✅ "Stops during a trip are now highlighted on its map"
+- ✅ "Stays during a trip are now highlighted on its map"
 - ✅ "Fixed cases where recording could fail to start or stop on its own"
 - ❌ "Close goAsync lifecycle gaps in transition delivery"
 - ❌ "Derive versionName from git"
@@ -38,8 +38,8 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
    match the note to what they see if both use the same word. Which word that is
    comes from `docs/glossary/` — a note saying *track* where the screens say
    *trip* is the same fault wearing a different hat.
-   - ✅ "Detected stops are named after their city"
-   - ❌ "Stops you never named show the city they are in"
+   - ✅ "Detected stays are named after their city"
+   - ❌ "Stays you never named show the city they are in"
 
    **Don't let a bullet trail off on a preposition.** Reading each one aloud
    catches this in a second; re-reading them does not.

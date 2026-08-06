@@ -940,15 +940,9 @@ private fun SweepBanner(progress: SweepStatus.Progress, modifier: Modifier = Mod
                 )
                 Spacer(Modifier.width(12.dp))
                 // Short enough to sit beside the count on one line at phone widths; the weight
-                // is the backstop, not the plan. "Updating", not "Trimming" or "Correcting": a
-                // sweep re-derives, and hands back as readily as it takes.
+                // is the backstop, not the plan.
                 Text(
-                    stringResource(
-                        when (progress.kind) {
-                            SweepStatus.Kind.EDGE_STAYS -> R.string.timeline_sweep_edge_stays
-                            SweepStatus.Kind.STATS -> R.string.timeline_sweep_stats
-                        },
-                    ),
+                    stringResource(R.string.timeline_sweep),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),

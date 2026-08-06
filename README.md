@@ -35,12 +35,12 @@ offer the install yet, try again later.
   you're stationary. A brief stop stitches back into the same trip instead of splitting it (the
   resume window is configurable). Recognized modes: walking, running, cycling, and driving; a
   recorded trip can be manually reclassified afterwards, including as modes recognition never
-  reports on its own — taxi (passenger) and ferry.
+  reports on its own — taxi (passenger) and boat.
 - **Truly autonomous** — flip *Auto recording* on once; it keeps working with the screen off or
   the app closed, survives reboots, and resumes after the system kills it.
 - **Battery-conscious** — GPS only runs while you're actually moving, and a no-fix guard drops GPS
-  during false "moving" detections that never get a fix. Uses the raw GPS provider by default
-  (fused/network positioning is an optional toggle for indoor recording).
+  during false "moving" detections that never get a fix. It reads the raw GPS provider, and by
+  default keeps only what the satellites measured — positions the phone guessed are dropped.
 - **Timeline** — the Timeline tab reads like a diary: trips and the stays between them, grouped by
   day (Today / Yesterday / date).
 - **Places** — recurring stays cluster into places you can name (home, work, the gym). A dedicated

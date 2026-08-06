@@ -10,9 +10,13 @@
     <string name="timeline_restoring_count">Restoring… %1$d trips</string>
     <string name="timeline_restoring_count_of">Restoring… %1$d of %2$d trips</string>
 
-    <!-- The re-derivation sweeps. "Updating", not "Trimming": a sweep re-derives either way. -->
-    <string name="timeline_sweep_edge_stays">Updating recording overruns</string>
-    <string name="timeline_sweep_stats">Updating trip distances</string>
+    <!--
+      Both re-derivation sweeps share this one line: which rule is being re-walked is nothing a
+      reader can act on, and naming it puts a mechanism on screen the app names nowhere else.
+      "Reprocessing", not "Trimming" or "Correcting": a sweep re-derives, and hands back as
+      readily as it takes.
+    -->
+    <string name="timeline_sweep">Reprocessing trips</string>
 
     <!-- What heads an Insights journey row the naming pass found no place for — the bare fact of
          having been away. The timeline's own band leads with the day count below instead. -->

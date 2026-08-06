@@ -83,7 +83,7 @@
         <item quantity="other">%d trajetos exportados</item>
     </plurals>
     <string name="data_backup">Copiar tudo</string>
-    <string name="data_backup_idle">Viagens, locais e histórico num só ficheiro</string>
+    <string name="data_backup_idle">Todo o seu histórico num só ficheiro</string>
     <string name="data_backup_verb">A copiar…</string>
     <string name="data_backup_progress">A copiar a viagem %1$d de %2$d</string>
 

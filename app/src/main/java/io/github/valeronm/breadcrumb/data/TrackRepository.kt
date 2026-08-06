@@ -535,7 +535,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun sweepEdgeStays() {
         val tracks = dao.exportTracks()
-        val changed = sweep(SweepStatus.Kind.EDGE_STAYS, tracks) { rederiveEdgeStays(it) }
+        val changed = sweep(tracks) { rederiveEdgeStays(it) }
         DebugLog.i(
             TAG,
             "edge-stay sweep (rule v${EdgeStayDetector.RULE_VERSION}) over ${tracks.size} " +
@@ -550,12 +550,11 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * must cost no writes, so a `rederive` decides for itself whether there is anything to store.
      */
     private suspend fun <T> sweep(
-        kind: SweepStatus.Kind,
         items: List<T>,
         rederive: suspend (T) -> Boolean,
     ): Int {
         var changed = 0
-        SweepStatus.start(kind, items.size)
+        SweepStatus.start(items.size)
         try {
             for ((batch, chunk) in items.chunked(SWEEP_BATCH_TRACKS).withIndex()) {
                 db.withTransaction {
@@ -591,7 +590,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun sweepStats() {
         val tracks = dao.finishedTracks()
-        val changed = sweep(SweepStatus.Kind.STATS, tracks) { track ->
+        val changed = sweep(tracks) { track ->
             val stats = TrackStats.of(dao.allPointsFor(track.id))
             if (stats.matches(track)) {
                 false
