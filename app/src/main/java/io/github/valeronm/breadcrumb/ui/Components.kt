@@ -104,6 +104,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -281,6 +282,29 @@ internal val fullDayYearFormat by PerLocale { localizedDateFormat("dMMMMy", it) 
  *  nothing — each caller decides what an unresolvable country should read as. */
 internal fun countryNameOf(code: String, locale: Locale): String =
     Locale.Builder().setRegion(code).build().getDisplayCountry(locale)
+
+// `LLLL`, not `MMMM`: a month named on its own takes the stand-alone form, which in the Slavic
+// languages is the nominative — `MMMM` there yields the genitive a full date needs ("of July").
+private val monthFormat by PerLocale { DateTimeFormatter.ofPattern("LLLL", it) }
+
+// A month *with* its year is a phrase, not a bare noun, so this one keeps the format form — pt
+// writes "julho de 2026", and the connecting word arrives with the locale's own pattern.
+private val monthYearFormat by PerLocale { localizedDateFormat("yMMMM", it) }
+
+/**
+ * A month and its year, both always stated — for a heading whose reader has no other date on screen
+ * to place it by. Stands on its own, so it takes the capital its language gives it there.
+ */
+internal fun monthYearLabel(month: YearMonth): String =
+    month.format(monthYearFormat).standaloneCase()
+
+/** A month heading beside dates that already say the year, so this one drops it where it is [today]'s. */
+internal fun monthLabel(month: YearMonth, today: LocalDate): String =
+    if (month.year == today.year) {
+        month.format(monthFormat).standaloneCase()
+    } else {
+        monthYearLabel(month)
+    }
 
 /**
  * Android-settings-style group: each row is its own card, large corners on the group's outer

@@ -100,6 +100,7 @@ import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
 import io.github.valeronm.breadcrumb.util.PerLocale
 import kotlinx.coroutines.delay
@@ -525,19 +526,6 @@ private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List
     }
 }
 
-internal class DayActivityTotal(val activity: ActivityType?, val meters: Double, val durationMs: Long)
-
-internal fun dayActivityTotals(tracks: List<TrackSummary>): List<DayActivityTotal> =
-    tracks.groupBy { ActivityType.ofName(it.activityType) }
-        .map { (activity, list) ->
-            DayActivityTotal(
-                activity = activity,
-                meters = list.sumOf { it.distanceMeters },
-                durationMs = list.sumOf { (it.endedAt ?: it.startedAt) - it.startedAt },
-            )
-        }
-        .sortedByDescending { it.meters }
-
 /**
  * The journey a day belongs to, above its date. **Repeated on every day of that journey**, which is
  * the point: a sticky header holds one row at a time, so a heading that appeared once at the top of
@@ -590,7 +578,7 @@ private fun DayHeader(
     away: AwayDay?,
     onShare: () -> Unit,
 ) {
-    val totals = remember(dayTracks) { dayActivityTotals(dayTracks) }
+    val totals = remember(dayTracks) { activityTotals(dayTracks, System.currentTimeMillis()) }
     val categoryTotals = remember(dayItems) {
         dayCategoryTotals(dayItems, System.currentTimeMillis())
     }
@@ -650,10 +638,11 @@ private fun DayHeader(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
+            val context = LocalContext.current
             for (total in totals) {
                 DayTotal(
-                    icon = activityIcon(total.activity),
-                    description = total.activity?.let { stringResource(it.labelRes) },
+                    icon = activityIcon(total.type),
+                    description = activityLabel(context, total.activityType),
                     tint = travelColor(),
                     text = "${distanceText(total.meters)} · ${durationText(total.durationMs)}",
                 )

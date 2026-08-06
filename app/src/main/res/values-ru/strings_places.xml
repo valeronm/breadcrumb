@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="place_group_home_people">Дом и близкие</string>
     <string name="place_group_errands">Дела</string>
     <string name="place_group_routine">Повседневное</string>
@@ -63,7 +63,8 @@
     <string name="places_category_question">Для чего это место?</string>
     <string name="places_category_current">Текущая категория</string>
 
-    <plurals name="places_stat_visits">
+    <!-- A label agreeing with the number above it, never carrying one — see the English original. -->
+    <plurals name="places_stat_visits" tools:ignore="ImpliedQuantity">
         <item quantity="one">Посещение</item>
         <item quantity="few">Посещения</item>
         <item quantity="many">Посещений</item>

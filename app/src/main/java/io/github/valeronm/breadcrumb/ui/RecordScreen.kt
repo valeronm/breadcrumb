@@ -41,6 +41,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.LiveFigures
 import io.github.valeronm.breadcrumb.domain.RecordCardState
+import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.location.TrackingStatus
@@ -196,23 +197,25 @@ private fun PeriodStats(title: String, tracks: List<TrackSummary>) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
-        val totals = remember(tracks) { dayActivityTotals(tracks) }
+        val totals = remember(tracks) { activityTotals(tracks, System.currentTimeMillis()) }
+        val context = LocalContext.current
         for (total in totals) {
+            // Named once for both the disc's description and the row's own text.
+            val label = activityLabel(context, total.activityType)
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TonalIconDisc(
-                    icon = activityIcon(total.activity),
+                    icon = activityIcon(total.type),
                     // A hue each here, unlike the Timeline's neutral: this tab is about how the day
                     // moved, and no place shares the screen for the color to be taken from.
-                    tint = activityColor(total.activity),
-                    contentDescription = total.activity?.let { stringResource(it.labelRes) },
+                    tint = activityColor(total.type),
+                    contentDescription = label,
                     size = 28.dp,
                     iconSize = 16.dp,
                 )
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    total.activity?.let { stringResource(it.labelRes) }
-                        ?: stringResource(R.string.activity_other),
+                    label,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f),
                 )

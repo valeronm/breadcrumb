@@ -76,7 +76,16 @@
     <string name="places_category_current">Current category</string>
 
     <!-- Detail stats -->
-    <!-- The label under the visit-count stat, agreeing with the number shown above it. -->
+    <!--
+      The label under the visit-count stat, agreeing with the number shown above it — so it takes a
+      plural form and **never the number itself**, which the cell above already prints.
+
+      That is why the translations carry `tools:ignore="ImpliedQuantity"`. Lint reads a `one` form
+      without `%d` as a missing placeholder, which is right for a counted phrase and exactly wrong
+      here: in Russian `one` also covers 21 and 101, in Portuguese it covers 0, and this label has to
+      agree with those numbers without repeating them. Adding the placeholder to silence it would
+      print the count twice.
+    -->
     <plurals name="places_stat_visits">
         <item quantity="one">Visit</item>
         <item quantity="other">Visits</item>

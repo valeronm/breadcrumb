@@ -19,6 +19,8 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.CityAtlas
+import io.github.valeronm.breadcrumb.domain.MonthTotals
+import io.github.valeronm.breadcrumb.domain.MonthlyTotals
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
@@ -341,6 +343,52 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         )
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * What each month of the history came to — distance per activity, time per place category.
+     * Every month the history holds something in, oldest first; picking a window out of it is the
+     * screen's job ([MonthlyTotals.window]), so stepping the shown month costs no re-derivation.
+     *
+     * Mapped off [timeline] rather than off the derivation, which is the whole point: a month's
+     * figures are the sum of exactly the rows the Timeline files under it, so the two surfaces
+     * cannot disagree — and the rows arrive already cut at midnight on the clock they were lived in,
+     * so no stay straddles a month boundary either.
+     *
+     * **Null until the first derivation lands**, for the reason given on [timeline]: a screen that
+     * reads "not yet" as "nothing" reports an empty year over a full one.
+     */
+    val monthlyTotals: StateFlow<List<MonthTotals>?> = timeline.map { items ->
+        items?.let(::monthsOf)
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Last pass's rows and the months derived from them — see [monthsOf]. Written only from that
+     * flow's coroutine, as [cityByPoint] is from its own; nothing else may touch either.
+     */
+    private var lastTimeline: List<TimelineItem> = emptyList()
+    private var lastMonths: List<MonthTotals> = emptyList()
+
+    /**
+     * [MonthlyTotals.derive], skipped when the rows are the ones it last ran on.
+     *
+     * The flow above is dropped five seconds after the Statistics page leaves composition — which a
+     * swipe to the journeys beside it does — and [timeline] then replays the *same list instance* on
+     * the way back, so without this guard every visit to the tab re-walks the whole history for an
+     * identical answer. [derived] carries the same guard for the same reason.
+     *
+     * A consequence worth naming: the wall clock is read per derivation rather than per emission, so
+     * an open stay's minutes go as stale as the memo. That is the cheaper half of the trade — the
+     * alternative walks a history to advance one row's figure by however long the reader spent on
+     * another tab.
+     */
+    private fun monthsOf(items: List<TimelineItem>): List<MonthTotals> {
+        if (items !== lastTimeline) {
+            lastMonths = MonthlyTotals.derive(items, System.currentTimeMillis(), timelineZone())
+            lastTimeline = items
+        }
+        return lastMonths
+    }
 
     /**
      * Every cluster's aggregate stats — visited places for the Places screen plus zero-visit

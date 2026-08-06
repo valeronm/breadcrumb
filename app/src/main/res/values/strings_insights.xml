@@ -25,4 +25,40 @@
         <item quantity="one">%d country</item>
         <item quantity="other">%d countries</item>
     </plurals>
+
+    <!-- The tab's two pages: the journeys above, a month against the year behind it below. -->
+    <string name="insights_tab_journeys">Journeys</string>
+    <string name="insights_tab_statistics">Statistics</string>
+
+    <string name="insights_stats_empty">No figures yet. They appear here once your history holds a trip, or a stay at a place you have given a category in Places.</string>
+    <!--
+      The months on screen hold nothing, though the history elsewhere does — so this says what to do
+      about it rather than what is missing. Deliberately not "nothing recorded": an imported trip and
+      a hand-entered one never went near the recorder, and *recording* names only one of the ways a
+      trip arrives.
+    -->
+    <string name="insights_stats_window_empty">These months are empty. Step back to reach the rest of your history.</string>
+
+    <!--
+      The two sections, named for what their rows *are* rather than for a measure: each row states
+      two figures (a distance and the time it took, hours and the visits they were spread over), so a
+      heading naming one of them contradicts half of what is under it.
+    -->
+    <string name="insights_stats_movement">Movement</string>
+    <string name="insights_stats_places">Places</string>
+
+    <!--
+      How many separate visits the month's hours at one kind of place were spread over — a count of
+      occasions, which is why Russian words it as `place_row_visits` does rather than as
+      `place_visits`. Authored here rather than shared with the Places tab's own count: the prefixes
+      are what keep each screen's wording its own, so a rewording there cannot silently reword this.
+    -->
+    <plurals name="insights_stats_visits">
+        <item quantity="one">%d visit</item>
+        <item quantity="other">%d visits</item>
+    </plurals>
+
+    <!-- Read aloud for the arrows that step the shown month. -->
+    <string name="insights_stats_previous_month">Previous month</string>
+    <string name="insights_stats_next_month">Next month</string>
 </resources>

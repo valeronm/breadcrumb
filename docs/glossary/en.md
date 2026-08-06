@@ -20,8 +20,9 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 
 | Concept | Term | What it means |
 |---|---|---|
-| insights | Insights | The tab where the timeline is read in aggregate rather than day by day. Deliberately named after what the reader gets and not after any one of the things listed there — journeys are what it holds today, and a name taken from them would have to change the moment a second reading sits beside them. |
+| insights | Insights | The tab where the timeline is read in aggregate rather than day by day. Deliberately named after what the reader gets and not after any one of the things listed there — journeys were what it held first, and a name taken from them would have had to change the moment a second reading sat beside them, which is what *statistics* now is. |
 | journey | journey | A run of nights away from home (Insights). The Insights concept and nothing else: a ferry crossing or a bus ride is a **trip**, however long it takes. |
+| statistics | Statistics | Insights' other page: one month's figures read against the twelve behind it. Named for the reading rather than for the month, which is only how it is cut. **A language whose word for *insights* is already this one must find another** — the page cannot be named after the tab containing it. |
 | night-away | night away | A night not spent at home — what a journey is counted in. Insights' totals say plain "nights", the card's subject being journeys already; an unnamed journey's Insights row, which stands alone, says "nights away". The timeline's band instead opens with the journey's length in *days* — the same count its "Day N" marker walks through. |
 
 ### A trip
@@ -31,7 +32,7 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 | track | track | The recorded *path* of a trip — the points between its two ends. A detail a trip may not have: one entered by hand stores only its bounds, and a trip the recorder missed entirely is a gap row with no track at all. |
 | point | point | A position belonging to a trip, stored as a row of it — whether positioning found it, a file supplied it, or **the user placed it on the map**, which is all a hand-entered trip's ends are. Rejected ones are *noisy*; one the phone guessed rather than measured from satellites is a *guessed position*. |
 | activity | activity | The user's detected activity. Per-type words live in `strings_recorder.xml`, in standalone and inline forms. |
-| movement | movement | What the recorder watches for and trips are cut from: an *activity* names its kind, a *trip* bounds one continuous stretch of it. Used where the kind is unknown or irrelevant — "Moving" is detected motion the recogniser could not name. Countable *movements* are its stretches. |
+| movement | movement | What the recorder watches for and trips are cut from: an *activity* names its kind, a *trip* bounds one continuous stretch of it. Used where no single kind is meant — "Moving" is detected motion the recogniser could not name, and Statistics' **Movement** heading covers a section whose rows are one activity each, the section being about all of them at once. Countable *movements* are its stretches. |
 
 ### A stay
 
@@ -105,6 +106,12 @@ nobody has written yet, which is what earns it a place here rather than a commen
   Refuse mechanical definitions of *visit* ("a trip starting or ending inside a place") — they
   describe detection rather than the thing, and read literally they count an arrival and a departure
   separately.
+- **A heading over many kinds names the kind-free word.** Statistics' movement section could have
+  been "Trips" — its figures are summed from trips — and is *Movement* because the heading stands
+  over a row per activity and means all of them. It also keeps Portuguese readable, where *trip* and
+  *journey* are one word and a "Viagens" heading would have sat under an unselected "Viagens" tab;
+  that is a consequence of the choice rather than its reason, since a term picked to dodge one
+  language's collision would be the translationese `pt.md` refuses.
 - **A word earned on one screen does not travel.** *Stop* is the mergeable timeline row and the
   recorder's halt, and neither a place nor a dwell inside a trip: `DwellDetector`'s output is a
   *stay* (its own KDoc calls them embedded stays), and a place seldom visited is described off

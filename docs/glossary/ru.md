@@ -24,6 +24,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 |---|---|---|
 | insights | Статистика | Not a calque: Russian has no everyday noun for *insights*, so the tab is named for what is read there. |
 | journey | путешествие | Deliberately not a second *поездка* — see decisions below. |
+| statistics | По месяцам | **Not the literal *Статистика***, which this language already spends on the tab above — see decisions below. |
 | night-away | ночь вне дома | Insights' totals say plain «ночей»/«ночи», the card's subject being journeys already. |
 
 ### A trip
@@ -40,7 +41,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | stop | короткая остановка (a timeline row) · остановка (a halt while recording) | |
-| visit | посещение | The same word stay uses — one word on both surfaces, see decisions below. A place row's own count is the exception: it says «%d раз», which counts occasions rather than naming the event, and is the only place that does. |
+| visit | посещение | The same word stay uses — one word on both surfaces, see decisions below. **A compact count in a row's subtitle is the exception**: it says «%d раз», counting occasions rather than naming the event, which is what a figure beside a duration is doing — the Places row's count and Statistics' per-category one both take that form, while anything naming the event keeps *посещение*. |
 
 ### A place
 
@@ -112,6 +113,11 @@ Sections and order follow `en.md`, so the two files read side by side.
 - **A journey is a *путешествие*, not a second *поездка*.** Russian genuinely has a word meaning
   exactly a run of nights away, so trip and journey never share one. Where Portuguese merged for
   lack of a natural rival, Russian splits for having one.
+- **A page cannot be named after the tab holding it.** Russian spends *Статистика* on the Insights
+  tab, having no everyday noun for *insights*, so the page English calls Statistics takes «По
+  месяцам» — what it is organised by, which is the one thing about it no other page shares. The
+  literal word is not available at any price here: a tab and its own page reading alike would leave
+  the reader unable to tell which of the two they had opened.
 - **Undo and cancel share a root and must not share a form.** «Отменить» (the verb) is undo — the
   snackbar action reverting what just happened; «Отмена» (the noun) is the dialog button that
   backs out before anything happens. The verb/noun line is the platform's own convention and the

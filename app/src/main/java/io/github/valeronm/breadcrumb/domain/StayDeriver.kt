@@ -37,7 +37,7 @@ import java.time.ZoneId
  * daily school run, which are exactly the spots worth naming. Every threshold therefore lives with
  * the reader that wants one, where it can be tuned against how that screen reads without changing
  * what the history is: [PlaceResolver.NOTABLE_VISIT_MIN] for which clusters a list surfaces,
- * [Stay.reportableDurationMs] for a duration worth printing, and `DayCategoryTotal`'s own floor
+ * [Stay.reportableDurationMs] for a duration worth printing, and [dayCategoryTotals]' own floor
  * for what earns a chip. A floor added back here would silently empty all three.
  */
 object StayDeriver {

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="place_group_home_people">Casa e pessoas</string>
     <string name="place_group_errands">Recados</string>
     <string name="place_group_routine">Rotina</string>
@@ -73,7 +73,8 @@
     <string name="places_category_question">Para que serve?</string>
     <string name="places_category_current">Categoria atual</string>
 
-    <plurals name="places_stat_visits">
+    <!-- A label agreeing with the number above it, never carrying one — see the English original. -->
+    <plurals name="places_stat_visits" tools:ignore="ImpliedQuantity">
         <item quantity="one">Visita</item>
         <item quantity="other">Visitas</item>
     </plurals>

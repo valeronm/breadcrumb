@@ -123,7 +123,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -1359,19 +1358,6 @@ private fun visitTimeRange(stay: StayDeriver.Stay, zone: ZoneId): String {
 }
 
 private val visitDayFormat by PerLocale { localizedDateFormat("EEEEd", it) }
-
-// `LLLL`, not `MMMM`: a month named on its own takes the stand-alone form, which in the Slavic
-// languages is the nominative — `MMMM` there yields the genitive a full date needs ("of July").
-private val monthFormat by PerLocale { DateTimeFormatter.ofPattern("LLLL", it) }
-
-// A month *with* its year is a phrase, not a bare noun, so this one keeps the format form — pt
-// writes "julho de 2026", and the connecting word arrives with the locale's own pattern.
-private val monthYearFormat by PerLocale { localizedDateFormat("yMMMM", it) }
-
-/** A month heading. Stands on its own, so it takes the capital its language gives it there. */
-internal fun monthLabel(month: YearMonth, today: LocalDate): String =
-    (if (month.year == today.year) month.format(monthFormat) else month.format(monthYearFormat))
-        .standaloneCase()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -53,8 +53,16 @@ enum class ActivityType(
     fun sharesTrackWith(other: ActivityType): Boolean = trackGroup == other.trackGroup
 
     companion object {
+        /**
+         * Indexed rather than scanned: this is asked once per row of every list that shows an
+         * activity — a timeline of thousands of tracks, and again per recomposition — and a scan
+         * pays an iterator and up to a dozen string compares each time to answer from a table that
+         * cannot change.
+         */
+        private val byName = entries.associateBy { it.name }
+
         /** The [ActivityType] for a persisted `activityType` string (an [ActivityType.name]), or null. */
-        fun ofName(stored: String): ActivityType? = entries.firstOrNull { it.name == stored }
+        fun ofName(stored: String): ActivityType? = byName[stored]
 
         /**
          * What a persisted `activityType` string reads as when it maps to no known activity — a

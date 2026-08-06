@@ -28,3 +28,26 @@ internal fun at(meters: Double) = Endpoint(ORIGIN_LAT, lonAt(meters))
 
 /** One minute in ms — fixtures lay points out in minutes. */
 internal const val MIN = 60_000L
+
+/**
+ * A finished track row, with everything a case isn't about defaulted away. Shared because the row
+ * has seven columns and only ever two or three of them are the subject: a suite spelling all seven
+ * is a suite that has to be edited when an eighth arrives.
+ */
+internal fun trackSummary(
+    id: Long,
+    activityType: String,
+    startedAt: Long,
+    endedAt: Long?,
+    meters: Double = 0.0,
+    source: String = TrackOrigin.RECORDED.code,
+) = io.github.valeronm.breadcrumb.data.db.TrackSummary(
+    id = id,
+    activityType = activityType,
+    startedAt = startedAt,
+    endedAt = endedAt,
+    distanceMeters = meters,
+    pointCount = 2,
+    ignoredCount = 0,
+    source = source,
+)

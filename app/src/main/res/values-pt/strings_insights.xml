@@ -19,4 +19,21 @@
         <item quantity="one">%d país</item>
         <item quantity="other">%d países</item>
     </plurals>
+
+    <string name="insights_tab_journeys">Viagens</string>
+    <string name="insights_tab_statistics">Estatísticas</string>
+
+    <string name="insights_stats_empty">Ainda sem números. Aparecem aqui assim que o seu histórico tiver uma viagem, ou uma permanência num local a que tenha dado uma categoria em Locais.</string>
+    <string name="insights_stats_window_empty">Estes meses estão vazios. Recue para chegar ao resto do histórico.</string>
+
+    <string name="insights_stats_movement">Movimento</string>
+    <string name="insights_stats_places">Locais</string>
+
+    <plurals name="insights_stats_visits">
+        <item quantity="one">%d visita</item>
+        <item quantity="other">%d visitas</item>
+    </plurals>
+
+    <string name="insights_stats_previous_month">Mês anterior</string>
+    <string name="insights_stats_next_month">Mês seguinte</string>
 </resources>

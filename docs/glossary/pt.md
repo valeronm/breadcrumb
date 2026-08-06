@@ -24,6 +24,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 |---|---|---|
 | insights | Resumo | Not a calque: Portuguese has no everyday noun for *insights*, so the tab is named for what it gives the reader. |
 | journey | viagem | |
+| statistics | Estatísticas | Free to be the literal word, *Resumo* naming the tab above it. |
 | night-away | noite fora | |
 
 ### A trip
@@ -33,7 +34,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | track | trajeto | Never *percurso*, *rota*, *caminho*. Only the recorded path: everywhere the sentence is about the journey itself, the word is *viagem*. |
 | point | ponto | Rejected ones are *ruidosos*; a guessed one is a *posição estimada*, the phrase the setting that drops them already used. |
 | activity | atividade | |
-| movement | movimento | Countable as *movimentos*, the same word. |
+| movement | movimento | Countable as *movimentos*, the same word. Also the Statistics section heading, where it earns its keep twice: *Movimento* names a section of many activities, and spares the screen a *Viagens* heading below an unselected *Viagens* tab. |
 
 ### A stay
 

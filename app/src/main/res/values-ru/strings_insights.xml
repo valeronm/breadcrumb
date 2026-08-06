@@ -27,4 +27,23 @@
         <item quantity="many">%d стран</item>
         <item quantity="other">%d страны</item>
     </plurals>
+
+    <string name="insights_tab_journeys">Путешествия</string>
+    <string name="insights_tab_statistics">По месяцам</string>
+
+    <string name="insights_stats_empty">Показателей пока нет. Они появятся здесь, когда в вашей истории будет поездка или посещение места, которому вы задали категорию в «Местах».</string>
+    <string name="insights_stats_window_empty">Эти месяцы пусты. Перейдите к более ранним, чтобы увидеть остальную историю.</string>
+
+    <string name="insights_stats_movement">Движение</string>
+    <string name="insights_stats_places">Места</string>
+
+    <plurals name="insights_stats_visits">
+        <item quantity="one">%d раз</item>
+        <item quantity="few">%d раза</item>
+        <item quantity="many">%d раз</item>
+        <item quantity="other">%d раза</item>
+    </plurals>
+
+    <string name="insights_stats_previous_month">Предыдущий месяц</string>
+    <string name="insights_stats_next_month">Следующий месяц</string>
 </resources>
