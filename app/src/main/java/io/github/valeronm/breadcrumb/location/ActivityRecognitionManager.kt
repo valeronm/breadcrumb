@@ -3,8 +3,6 @@ package io.github.valeronm.breadcrumb.location
 import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.google.android.gms.location.ActivityRecognition
@@ -26,17 +24,8 @@ class ActivityRecognitionManager(private val context: Context) {
 
     private val client = ActivityRecognition.getClient(context)
 
-    private fun broadcastPendingIntent(action: String, requestCode: Int): PendingIntent {
-        val intent = Intent(context, ActivityTransitionReceiver::class.java).apply {
-            this.action = action
-        }
-        var flags = PendingIntent.FLAG_UPDATE_CURRENT
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // The system mutates the intent to attach activity results.
-            flags = flags or PendingIntent.FLAG_MUTABLE
-        }
-        return PendingIntent.getBroadcast(context, requestCode, intent, flags)
-    }
+    private fun broadcastPendingIntent(action: String, requestCode: Int): PendingIntent =
+        GmsCalls.broadcastPendingIntent<ActivityTransitionReceiver>(context, action, requestCode)
 
     private fun transitionPendingIntent() =
         broadcastPendingIntent(ActivityTransitionReceiver.ACTION_TRANSITION, REQUEST_TRANSITION)
@@ -151,16 +140,8 @@ class ActivityRecognitionManager(private val context: Context) {
         var lastRegisteredAtMs = 0L
             private set
 
-        // The tail of the ordered GMS-call chain. Shared across instances (the receiver creates
-        // its own manager for removeSnapshot) — ordering must hold per-package, not per-instance.
-        private var lastOp: Task<*> = Tasks.forResult(null)
-
-        // continueWithTask (not onSuccessTask) so a failed op never wedges the chain.
-        @Synchronized
-        private fun <T> chain(op: () -> Task<T>): Task<T> {
-            val next = lastOp.continueWithTask { op() }
-            lastOp = next
-            return next
-        }
+        // Ordering must hold per-package, not per-instance (the receiver creates its own manager
+        // for removeSnapshot), and now across clients too — see [GmsCalls.chain].
+        private fun <T> chain(op: () -> Task<T>): Task<T> = GmsCalls.chain(op)
     }
 }

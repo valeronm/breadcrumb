@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.location
 
+import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DeafnessWarning
@@ -58,6 +59,26 @@ sealed interface Effect {
     data object ArmSignificantMotion : Effect
 
     /**
+     * Watch for the phone leaving where it last stopped. [from] is the recorder's own last good fix
+     * — the *pause* is the only moment one is known to be the right anchor, taken while the
+     * position stream was still healthy, whereas by the time a resume window lapses anything that
+     * carries the phone has already taken it elsewhere, and a fence centred where the phone no
+     * longer is is never entered and so never reports leaving.
+     *
+     * **Null is a decision, not an omission**: the recorder has no fix of its own to anchor on —
+     * on arming, before any track, or after a pause whose track never got one — and the dispatcher
+     * should fall back to whatever position the platform last saw. Carried as a value so the
+     * absent anchor arrives as something to act on rather than something to infer from which
+     * effects the pass happened to emit.
+     */
+    data class ArmDepartureFence(val from: Anchor?) : Effect {
+        data class Anchor(val latitude: Double, val longitude: Double)
+    }
+
+    /** Stop watching: a track is running, so a departure is no longer news. */
+    data object DisarmDepartureFence : Effect
+
+    /**
      * Insert the track row. The id it returns is the dispatcher's to hold — nothing here needs it,
      * which is what lets this core stay synchronous while the insert it asks for is awaited.
      */
@@ -95,6 +116,13 @@ sealed interface Effect {
 /** The settings a pass is decided under, read once per pass by the caller that owns them. */
 data class ActivitySettings(
     val resumeWindowMs: Long,
+    /**
+     * How long a stop the ground could not vouch for is held before it lands anyway. Derived from
+     * the witness's own window rather than chosen: the hold exists to give that window time to
+     * fill, so the cap is the span it needs plus room for GPS to come back, and a caller that
+     * sampled more slowly waits proportionally longer.
+     */
+    val uncorroboratedHoldMs: Long,
 )
 
 /**
@@ -126,7 +154,9 @@ class ActivityIngest(
     private val noFixGuard: NoFixGuard,
 ) {
 
-    private val gate = ActivityGate()
+    // The ceiling is a constant of the vocabulary, resolved once: [TrackQuality.groupCeilingKmh]
+    // walks the whole activity table, and a reading arriving is no reason to walk it again.
+    private val gate = ActivityGate(TrackQuality.groupCeilingKmh(ActivityType.WALKING))
     private val controller = TrackController()
 
     // Sanitizes AR event timestamps into gate reading times; see [ReadingClock].
@@ -150,6 +180,10 @@ class ActivityIngest(
     val confirmed: ActivityType get() = gate.confirmed
     val parked: ActivityType? get() = gate.parked
 
+    /** The held reading with the doubt behind it — a log that says only *what* is waiting, and not
+     *  whether the ground disagreed or merely said nothing, reports the two identically. */
+    val held: ActivityGate.Held? get() = gate.held
+
     /** The last reading's own sanitized time — how late it was is what a log line wants to say. */
     val lastReadingMs: Long get() = readingClock.lastReadingMs
     val phase: TrackController.Phase get() = controller.phase
@@ -158,6 +192,27 @@ class ActivityIngest(
 
     /** The witness's verdict at [atMs] — see [FixIngest.verdict]. */
     fun motionVerdict(atMs: Long): Motion = ingest.verdict(atMs)
+
+    /**
+     * When a held reading stops waiting, and the time it should be taken to have happened at. The
+     * gate is deliberately clock-free — *when* a held reading is reconsidered is the recorder's
+     * business — so the stamps live here, beside the passes that carry a clock.
+     */
+    private data class Waiting(val expiresAtMs: Long, val readingMs: Long)
+
+    private var waiting: Waiting? = null
+
+    /**
+     * Land a reading the ground never vouched for, once it has waited long enough that a fair
+     * chance to vouch has passed. The deadline is computed when the hold begins rather than
+     * compared per call: this runs on the ~1 Hz satellite tick for the whole length of every hold.
+     * A [ActivityGate.Hold.CONTRADICTED] hold is refused by the gate, which is where that rule lives.
+     */
+    private fun releaseExpiredHold(nowMs: Long): ActivityType? {
+        val deadline = waiting?.expiresAtMs ?: return null
+        if (nowMs < deadline) return null
+        return gate.releaseHeld()
+    }
 
     /**
      * A Play-Services reading — a transition or the arm-time snapshot. Runs the deafness preamble,
@@ -174,26 +229,69 @@ class ActivityIngest(
     ): List<Effect> {
         val out = ArrayList<Effect>()
         val readingMs = intake(eventTimeMs, nowMs, registration, out)
-        // Nothing to apply if the trusted activity didn't move — or if the ground contradicts it, in
-        // which case the gate holds it until [onMotion] finds it credible.
-        val changed = gate.onReading(raw, motionVerdict(nowMs)) ?: return out
+        // Nothing to apply if the trusted activity didn't move — or if the ground cannot vouch for
+        // it, in which case the gate holds it until [onMotion] or the cap in [releaseExpiredHold]
+        // lands it.
+        val changed = gate.onReading(raw, motionVerdict(nowMs), requireCorroboration = true)
+        waiting = if (gate.held == null) {
+            null
+        } else {
+            Waiting(nowMs + settings.uncorroboratedHoldMs, readingMs)
+        }
+        if (changed == null) return out
         applyConfirmed(changed, readingMs, nowMs, settings, out)
         return out
     }
 
     /**
-     * Reconsider a reading the ground contradicted, and apply it once the contradiction has cleared.
-     * Empty when nothing is held or it still stands.
+     * Reconsider a held reading against a fresh verdict, and apply it once the ground vouches for it
+     * — or once an uncorroborated hold has run its cap. Empty when nothing is held or it still stands.
      */
     fun onMotion(motion: Motion, nowMs: Long, settings: ActivitySettings): List<Effect> {
-        val promoted = gate.onMotion(motion) ?: return emptyList()
+        // Read before the release, which clears the slot: what kind of hold this was decides when
+        // the stop is taken to have happened.
+        val wasUncorroborated = gate.held?.kind == ActivityGate.Hold.UNCORROBORATED
+        val readingMs = waiting?.readingMs ?: nowMs
+        val promoted = gate.onMotion(motion) ?: releaseExpiredHold(nowMs) ?: return emptyList()
+        waiting = null
         val out = ArrayList<Effect>()
-        // **The promotion's own time, not the reading's.** The controller measures the resume window
-        // from the time it is given, and a reading held longer than that window would promote into a
-        // pause that had already lapsed — the holding silently replacing the resume window instead of
-        // preceding it. The hold is evidence the stop had not begun yet, so the window that follows
-        // it is the first one measuring an actual stop.
-        applyConfirmed(promoted, nowMs, nowMs, settings, out)
+        // **Which time a released stop happened at depends on why it was held.**
+        //
+        // A *contradicted* hold is released at the promotion's own time: the ground was positively
+        // moving throughout, so the hold is evidence the stop had not begun yet, and the window
+        // that follows it is the first one measuring an actual stop. Timing it from the reading
+        // would let a hold longer than the resume window promote into a pause that had already
+        // lapsed — the holding silently replacing the window instead of preceding it.
+        //
+        // An *uncorroborated* hold carries no such evidence. Nothing was heard; the recorder simply
+        // waited to see whether anything would be. The stop happened when the reading said it did,
+        // so timing it from the release would move every unwitnessed track boundary later by the
+        // cap — a change to the recorded history, not merely to what GPS costs.
+        val atMs = if (wasUncorroborated) readingMs else nowMs
+        applyConfirmed(promoted, atMs, nowMs, settings, out)
+        return out
+    }
+
+    /**
+     * The phone has left where it last stopped, on evidence that is not Play Services' — today the
+     * departure fence. **Opens a track on the trigger alone**: there is no walking-valid speed to
+     * gate on (settling GPS drifts at a walking pace), and the shipped witness is a *carrier*
+     * detector by construction, so gating here would quietly make this vehicle-only. Over-recording
+     * is what `EdgeStayDetector` trims and `KeepRule` discards; under-recording is not repairable at
+     * all, which is the whole trade.
+     *
+     * Empty while a track is already running — something got there first, and a second opinion about
+     * a journey under way is not news. The activity is [ActivityType.UNKNOWN]: the trigger knows the
+     * ground moved and nothing about what carried it.
+     */
+    fun onDeparture(nowMs: Long, settings: ActivitySettings): List<Effect> {
+        if (controller.phase is TrackController.Phase.Recording) return emptyList()
+        val out = ArrayList<Effect>()
+        // Adopted, not read: see [ActivityGate.adopt]. Without this the STILL that ends the journey
+        // is no change at all and nothing can ever close what this opens.
+        gate.adopt(ActivityType.UNKNOWN)
+        waiting = null
+        applyConfirmed(ActivityType.UNKNOWN, nowMs, nowMs, settings, out)
         return out
     }
 
@@ -263,9 +361,25 @@ class ActivityIngest(
     /** Disarming: close whatever is open, without a publish — the caller resets the status wholesale. */
     fun closeOpenTrack(nowMs: Long): List<Effect> = ArrayList<Effect>().also { close(nowMs, it) }
 
-    /** On (re)arm: the trusted activity resets to STILL and any held reading is dropped. */
-    fun onArmed() {
+    /**
+     * On (re)arm: the trusted activity resets to STILL, any held reading is dropped, and a
+     * departure is watched for from wherever the phone already is. That last part is why this
+     * returns effects at all — arming is the one moment a departure must be watched for with no
+     * track behind it, and the position is the platform's to supply, not a fix of ours.
+     */
+    fun onArmed(): List<Effect> {
+        reset()
+        return listOf(Effect.ArmDepartureFence(from = null))
+    }
+
+    /** On disarm: the same reset, watching for nothing — the user has asked not to be recorded. */
+    fun onDisarmed() {
+        reset()
+    }
+
+    private fun reset() {
         gate.onArmed()
+        waiting = null
     }
 
     /** Forget the deafness episode. The alert itself is the caller's to withdraw. */
@@ -372,6 +486,12 @@ class ActivityIngest(
         controller.onPaused(trackActivity, resumeDeadlineMs)
         out += Effect.StopGps
         out += Effect.SchedulePauseWake(resumeDeadlineMs)
+        // The stop is where the next departure will be from, and the last good fix is where the
+        // phone is standing as it is declared. A track that never got one still wants watching —
+        // that is the GNSS-starved case, where a fence is the only thing that can notice at all.
+        out += Effect.ArmDepartureFence(
+            ingest.lastGood?.let { Effect.ArmDepartureFence.Anchor(it.latitude, it.longitude) },
+        )
     }
 
     /** Continue the paused track: GPS back on, accumulators kept; the first fix begins a new segment. */
@@ -388,6 +508,8 @@ class ActivityIngest(
         controller.onRecording(activity)
         out += Effect.OpenTrack(activity, startedAt)
         out += Effect.EnsureGps
+        // Whatever the fence was watching for has happened, or something else got there first.
+        out += Effect.DisarmDepartureFence
     }
 
     /**

@@ -228,8 +228,8 @@ class FixIngest(private val distance: DistanceFn = AndroidDistance) {
     /** What the carrier case renames a track labelled [label] to, or null — see [CarrierEvidence]. */
     fun renameFor(label: ActivityType): ActivityType? = carrierEvidence.renameFor(label)
 
-    /** Re-window the witness for a new sampling cadence; see [MovementConfirmer.Params.forSampling]. */
-    fun restartConfirmer(params: MovementConfirmer.Params) = confirmer.restart(params)
+    /** Re-window the witness for a new sampling cadence; see [MovementConfirmer.reshape]. */
+    fun reshapeConfirmer(params: MovementConfirmer.Params) = confirmer.reshape(params)
 
     /** Whether [fix] is backed by a recent real satellite fix — see [GnssSnapshot.backed]. */
     private fun gnssBacked(gnss: GnssState, fix: Fix): Boolean =

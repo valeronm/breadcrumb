@@ -205,17 +205,18 @@ class FixIngestTest {
         assertTrue("nothing marked", out.points.none { it.segmentStart })
     }
 
-    @Test fun `re-windowing the witness forgets what it had measured`() {
+    @Test fun `re-windowing the witness keeps what it had measured`() {
         ingest.onTrackOpened(ActivityType.WALKING)
         val carried = ingest.onFixes(TRACK, (0..30).map { fix(it, it * 14.0) }, walking(), OPEN, SEEN)
         assertTrue("the witness had a verdict", carried.motion is Motion.Moving)
 
-        // Evidence from before a GPS restart describes a different stretch of the journey — a new
-        // track, a resume, a probe retry — so the window starts empty rather than carrying over.
-        ingest.restartConfirmer(MovementConfirmer.forSampling(minIntervalSec = 1))
+        // This path runs on every GPS start, and the recorder restarts GPS on every resume — so
+        // emptying here discards the ground's evidence moments before a carrier pulls away. Age
+        // expiry is what forgets a genuinely older stretch of the journey.
+        ingest.reshapeConfirmer(MovementConfirmer.forSampling(minIntervalSec = 1))
 
         val after = feed(fix(31, 31 * 14.0))
-        assertEquals(Motion.Unknown, after.motion)
+        assertTrue("and still has it", after.motion is Motion.Moving)
     }
 
     @Test fun `opening a track forgets the one before it`() {

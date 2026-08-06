@@ -119,12 +119,25 @@ class MovementConfirmerTest {
         assertEquals(before, c.verdict(20_000L))
     }
 
-    @Test fun `restart forgets the window and abstains again`() {
+    /**
+     * The rule that replaced a clear-on-every-GPS-start: the recorder pauses at every stop and
+     * resumes at every start, so clearing there emptied the window seconds before a carrier pulled
+     * away — abstaining through the departure the witness exists to catch.
+     */
+    @Test fun `reshaping keeps the evidence, because a pause is not a different journey`() {
         val c = confirmer()
         for (i in 0..4) c.fix(i * 5L, i * 30.0)
         assertTrue(c.verdict(20_000L) is Motion.Moving)
-        c.restart(MovementConfirmer.Params())
-        assertEquals(Motion.Unknown, c.verdict(20_000L))
+        c.reshape(MovementConfirmer.Params())
+        assertTrue(c.verdict(20_000L) is Motion.Moving)
+    }
+
+    /** …and what does the forgetting instead: age, which a real gap crosses and a pause does not. */
+    @Test fun `evidence that describes an older stretch has already drained itself`() {
+        val c = confirmer()
+        for (i in 0..4) c.fix(i * 5L, i * 30.0)
+        c.reshape(MovementConfirmer.Params())
+        assertEquals(Motion.Unknown, c.verdict(20_000L + MovementConfirmer.Params().maxFixAgeMs + 1))
     }
 
     // --- Across the sampling ladder -----------------------------------------

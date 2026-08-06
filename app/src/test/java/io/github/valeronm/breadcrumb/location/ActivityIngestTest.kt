@@ -26,7 +26,10 @@ class ActivityIngestTest {
     private val noFixGuard = NoFixGuard()
     private val core = ActivityIngest(ingest, noFixGuard)
 
-    private val settings = ActivitySettings(resumeWindowMs = RESUME_WINDOW_MS)
+    private val settings = ActivitySettings(
+        resumeWindowMs = RESUME_WINDOW_MS,
+        uncorroboratedHoldMs = HOLD_CAP_MS,
+    )
 
     /**
      * A reading whose event time is its apply time — the ordinary live delivery. The registration is
@@ -43,6 +46,16 @@ class ActivityIngestTest {
         registration = Registration(armedAtMs = T0 - MINUTE, lastRegisteredAtMs = T0 - HOUR),
         settings = settings,
     )
+
+    /**
+     * A stop that lands. On foot the witness's window rarely fills, so the ordinary stop is one the
+     * ground never vouched for: it is held, and the cap lands it — timed from the reading, so every
+     * deadline below is the one the *reading* implies rather than the release. Returns both passes'
+     * effects in order, which is what a caller would have seen had the stop applied at once.
+     */
+    private fun stop(atMs: Long, eventTimeMs: Long? = atMs) =
+        reading(ActivityType.STILL, atMs, eventTimeMs) +
+            core.onMotion(Motion.Unknown, atMs + HOLD_CAP_MS, settings)
 
     /** Feeds one accepted fix into the fix path, so the track has a last-good point to end at. */
     private fun fix(atMs: Long, eastM: Double) {
@@ -89,6 +102,7 @@ class ActivityIngestTest {
                 Effect.StampHeartbeat,
                 Effect.OpenTrack(ActivityType.WALKING, T0),
                 Effect.EnsureGps,
+                Effect.DisarmDepartureFence,
                 Effect.Publish,
             ),
             out,
@@ -98,13 +112,15 @@ class ActivityIngestTest {
     @Test fun `a stop pauses the track and schedules the wake, rather than closing it`() {
         startWalking()
 
-        val out = reading(ActivityType.STILL, T0 + MINUTE)
+        val out = stop(T0 + MINUTE)
 
         assertEquals(
             listOf(
                 Effect.StampReading(T0 + MINUTE),
                 Effect.StopGps,
                 Effect.SchedulePauseWake(T0 + MINUTE + RESUME_WINDOW_MS),
+                // The stop is also where the next departure will be from.
+                Effect.ArmDepartureFence(Effect.ArmDepartureFence.Anchor(ORIGIN_LAT, lonAt(0.0))),
                 Effect.Publish,
             ),
             out,
@@ -114,7 +130,7 @@ class ActivityIngestTest {
 
     @Test fun `a same-family return inside the window stitches back into the open track`() {
         startWalking()
-        reading(ActivityType.STILL, T0 + MINUTE)
+        stop(T0 + MINUTE)
 
         val out = reading(ActivityType.RUNNING, T0 + MINUTE + RESUME_WINDOW_MS - 1)
 
@@ -124,7 +140,7 @@ class ActivityIngestTest {
 
     @Test fun `a return after the window lapsed closes the stitch and starts a new track`() {
         startWalking()
-        reading(ActivityType.STILL, T0 + MINUTE)
+        stop(T0 + MINUTE)
         val returnedAt = T0 + MINUTE + RESUME_WINDOW_MS
 
         val out = reading(ActivityType.WALKING, returnedAt)
@@ -138,6 +154,7 @@ class ActivityIngestTest {
                 Effect.CloseTrack(endedAt = T0, renameTo = null),
                 Effect.OpenTrack(ActivityType.WALKING, returnedAt),
                 Effect.EnsureGps,
+                Effect.DisarmDepartureFence,
                 Effect.Publish,
             ),
             out.drop(1),
@@ -157,6 +174,7 @@ class ActivityIngestTest {
                 Effect.CloseTrack(endedAt = T0 + MINUTE, renameTo = null),
                 Effect.OpenTrack(ActivityType.DRIVING, T0 + MINUTE),
                 Effect.EnsureGps,
+                Effect.DisarmDepartureFence,
                 Effect.Publish,
             ),
             out.drop(1),
@@ -185,7 +203,7 @@ class ActivityIngestTest {
     @Test fun `a reading drained late out of Doze is timed by its own event, not its arrival`() {
         startWalking()
         // The stop happened a minute in; the phone was frozen and only applied it an hour later.
-        reading(ActivityType.STILL, atMs = T0 + HOUR, eventTimeMs = T0 + MINUTE)
+        stop(atMs = T0 + HOUR, eventTimeMs = T0 + MINUTE)
 
         // The return arrives well inside the window measured from *now*, and well outside the one
         // measured from the stop's own time. It must split, not stitch through the real stop.
@@ -196,7 +214,7 @@ class ActivityIngestTest {
 
     @Test fun `a late-drained change still stamps its tracks at the wall clock`() {
         startWalking()
-        reading(ActivityType.STILL, atMs = T0 + HOUR, eventTimeMs = T0 + MINUTE)
+        stop(atMs = T0 + HOUR, eventTimeMs = T0 + MINUTE)
 
         val out = reading(ActivityType.WALKING, T0 + HOUR + 1)
 
@@ -211,7 +229,7 @@ class ActivityIngestTest {
 
     @Test fun `the wake closes a track whose window lapsed, and publishes with it`() {
         startWalking()
-        reading(ActivityType.STILL, T0 + MINUTE)
+        stop(T0 + MINUTE)
 
         val out = core.onTick(T0 + MINUTE + RESUME_WINDOW_MS)
 
@@ -243,7 +261,7 @@ class ActivityIngestTest {
 
     @Test fun `a resume that also clears a no-fix suspension asks for GPS once`() {
         startWalking()
-        reading(ActivityType.STILL, T0 + MINUTE)
+        stop(T0 + MINUTE)
         // The guard gave up while the track was paused, so both the resume and the re-probe want GPS.
         noFixGuard.onProbeStarted(0L)
         noFixGuard.onGaveUp(0L)
@@ -390,7 +408,7 @@ class ActivityIngestTest {
     @Test fun `a paused track's silence is not a failed probe`() {
         startWalking()
         noFixGuard.onProbeStarted(E0)
-        reading(ActivityType.STILL, T0 + MINUTE)
+        stop(T0 + MINUTE)
 
         val out = core.onGnssTick(T0 + MINUTE + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
 
@@ -414,7 +432,15 @@ class ActivityIngestTest {
         assertTrue("the held stop lands", core.isPaused)
         assertTrue("and only the pause waits on it", out.none { it is Effect.ArmResumeSignals })
         assertEquals(
-            listOf(Effect.StopGps, Effect.SchedulePauseWake(arrivedAt + RESUME_WINDOW_MS), Effect.Publish),
+            listOf(
+                Effect.StopGps,
+                Effect.SchedulePauseWake(arrivedAt + RESUME_WINDOW_MS),
+                // A minute at [VEHICLE_MPS] from the origin — where the carrier came to rest.
+                Effect.ArmDepartureFence(
+                    Effect.ArmDepartureFence.Anchor(ORIGIN_LAT, lonAt(VEHICLE_MPS * 60)),
+                ),
+                Effect.Publish,
+            ),
             out,
         )
         assertFalse(noFixGuard.suspended)
@@ -499,6 +525,186 @@ class ActivityIngestTest {
         assertTrue(later.any { it is Effect.RestartRegistration })
     }
 
+    // --- a stop the ground never vouched for ------------------------------------------------------
+
+    /**
+     * The failure this exists for: a carrier pulls away seconds after a resume, the witness's window
+     * has not refilled, and a STILL applied on that silence turns GPS off for the rest of the
+     * journey. Silence is not consent to stop.
+     */
+    @Test fun `a stop the ground cannot vouch for is held rather than applied`() {
+        startWalking()
+
+        val out = reading(ActivityType.STILL, T0 + MINUTE)
+
+        assertEquals("nothing but the liveness stamp", listOf(Effect.StampReading(T0 + MINUTE)), out)
+        assertFalse("the track keeps recording", core.isPaused)
+        assertEquals(ActivityType.STILL, core.parked)
+    }
+
+    @Test fun `the cap lands it, timed from the reading rather than the release`() {
+        startWalking()
+        reading(ActivityType.STILL, T0 + MINUTE)
+
+        val out = core.onMotion(Motion.Unknown, T0 + MINUTE + HOLD_CAP_MS, settings)
+
+        // Timed from the reading: the hold is the recorder waiting, not evidence the stop had yet
+        // to begin, so it must not push the track's boundary later than it happened.
+        assertTrue(out.contains(Effect.SchedulePauseWake(T0 + MINUTE + RESUME_WINDOW_MS)))
+        assertTrue(core.isPaused)
+    }
+
+    @Test fun `it is not landed a moment early`() {
+        startWalking()
+        reading(ActivityType.STILL, T0 + MINUTE)
+
+        assertTrue(core.onMotion(Motion.Unknown, T0 + MINUTE + HOLD_CAP_MS - 1, settings).isEmpty())
+        assertFalse(core.isPaused)
+    }
+
+    /** The verdict the cap exists to wait for — and the one job [Motion.Stopped] has. */
+    @Test fun `ground that confirms the standstill lands it at once`() {
+        startWalking()
+        reading(ActivityType.STILL, T0 + MINUTE)
+
+        val out = core.onMotion(Motion.Stopped, T0 + MINUTE + 1, settings)
+
+        assertTrue(out.contains(Effect.StopGps))
+        assertTrue(core.isPaused)
+    }
+
+    /**
+     * The contradicted hold keeps its own rule: it is released by ground that has stopped *saying*
+     * anything, which is what the no-fix guard leans on as it takes GPS down. Capping it instead
+     * would end a crossing still under way — see [ActivityGate.releaseHeld].
+     */
+    @Test fun `a contradicted hold is not subject to the cap`() {
+        reading(ActivityType.DRIVING, T0)
+        feedVehicleSpeedGround()
+        reading(ActivityType.STILL, T0 + 30_000)
+        assertEquals(ActivityType.STILL, core.parked)
+
+        val tooSoonToBeSilent = core.onMotion(Motion.Moving(VEHICLE_MPS), T0 + 30_000 + HOLD_CAP_MS, settings)
+
+        assertTrue("the ground is still moving, cap or no cap", tooSoonToBeSilent.isEmpty())
+        assertEquals(ActivityType.STILL, core.parked)
+    }
+
+    // --- a foot reading at carrier speed ----------------------------------------------------------
+
+    /**
+     * The jitter that cuts one drive into three rows: Play Services reports walking mid-journey,
+     * and because the groups differ the reading does not merely mislabel — it closes the track and
+     * opens another. A body cannot be on foot at carrier speed, so the reading waits.
+     */
+    @Test fun `a walking reading at carrier speed does not split the drive`() {
+        reading(ActivityType.DRIVING, T0)
+        feedVehicleSpeedGround()
+
+        val out = reading(ActivityType.WALKING, T0 + 30_000)
+
+        assertTrue("nothing closed", out.none { it is Effect.CloseTrack })
+        assertTrue("and nothing opened", out.none { it is Effect.OpenTrack })
+        assertEquals(ActivityType.WALKING, core.parked)
+        assertEquals(ActivityType.DRIVING, core.confirmed)
+    }
+
+    /** …and the drive continues through the vehicle reading that follows, as one track. */
+    @Test fun `the drive that jittered is still one track when the vehicle reading returns`() {
+        reading(ActivityType.DRIVING, T0)
+        feedVehicleSpeedGround()
+        reading(ActivityType.WALKING, T0 + 30_000)
+
+        val out = reading(ActivityType.DRIVING, T0 + 60_000)
+
+        assertTrue("no split", out.none { it is Effect.CloseTrack || it is Effect.OpenTrack })
+        assertNull("and the stale foot reading is dropped, not left to land later", core.parked)
+    }
+
+    /**
+     * The bound on the hold, and the answer to the objection that killed this rule before: the
+     * walk that follows every drive is delayed only until the trailing window slows to a human
+     * pace, not until it falls silent.
+     */
+    @Test fun `the held walk lands as soon as the ground slows to a human pace`() {
+        reading(ActivityType.DRIVING, T0)
+        feedVehicleSpeedGround()
+        reading(ActivityType.WALKING, T0 + 30_000)
+
+        val out = core.onMotion(Motion.Moving(WALKING_MPS), T0 + 40_000, settings)
+
+        assertTrue("the walk opens its own track", out.any { it is Effect.OpenTrack })
+        assertEquals(ActivityType.WALKING, core.confirmed)
+    }
+
+    @Test fun `a walk beginning from a standstill is never delayed`() {
+        val out = reading(ActivityType.WALKING, T0)
+
+        assertTrue(out.any { it is Effect.OpenTrack })
+        assertNull(core.parked)
+    }
+
+    // --- the departure trigger: a start that Play Services had no part in -------------------------
+
+    @Test fun `a pause arms the fence at the last good fix`() {
+        reading(ActivityType.WALKING, atMs = T0)
+        fix(atMs = T0 + 1_000, eastM = 0.0)
+        // A walking pace: ten metres in ten seconds. Covering it in one would be a jump the
+        // WALKING ceiling rejects, leaving the fence on the fix before it.
+        fix(atMs = T0 + 11_000, eastM = 10.0)
+
+        val effects = stop(atMs = T0 + 12_000)
+
+        val anchor = effects.filterIsInstance<Effect.ArmDepartureFence>().single().from
+        assertEquals(ORIGIN_LAT, anchor?.latitude ?: 0.0, 1e-9)
+        assertEquals(lonAt(10.0), anchor?.longitude ?: 0.0, 1e-9)
+    }
+
+    /**
+     * The GNSS-starved case, and the one a fence is the only thing that can notice: a pause with no
+     * fix behind it still asks to be watched, handing the anchor to the platform's last known.
+     */
+    @Test fun `a pause with no fix behind it still asks to be watched, from nowhere of its own`() {
+        reading(ActivityType.WALKING, atMs = T0)
+
+        val effects = stop(atMs = T0 + 3_000)
+
+        assertNull(effects.filterIsInstance<Effect.ArmDepartureFence>().single().from)
+    }
+
+    @Test fun `arming watches for a departure before any track exists`() {
+        assertEquals(listOf(Effect.ArmDepartureFence(from = null)), core.onArmed())
+    }
+
+    @Test fun `a departure opens a Moving track and stops watching`() {
+        val effects = core.onDeparture(nowMs = T0, settings = settings)
+
+        val opened = effects.filterIsInstance<Effect.OpenTrack>().single()
+        assertEquals(ActivityType.UNKNOWN, opened.activity)
+        assertTrue(effects.contains(Effect.DisarmDepartureFence))
+    }
+
+    @Test fun `a departure while recording is not news`() {
+        reading(ActivityType.WALKING, atMs = T0)
+
+        assertTrue(core.onDeparture(nowMs = T0 + 1_000, settings = settings).isEmpty())
+    }
+
+    /**
+     * The reconciliation this trigger cannot ship without. Play Services announces that the user
+     * *became* still and never says so again, so a track opened while the gate still believes STILL
+     * has no stop edge left to spend — the STILL that ends the journey would be no change at all.
+     */
+    @Test fun `a STILL after a departure pauses the track it opened`() {
+        core.onDeparture(nowMs = T0, settings = settings)
+
+        val effects = stop(atMs = T0 + 60_000)
+
+        assertTrue(effects.contains(Effect.StopGps))
+        assertTrue(effects.any { it is Effect.SchedulePauseWake })
+        assertTrue(core.isPaused)
+    }
+
     /** A reading late enough to prove deafness, advancing the clock enough to count as a new one. */
     private fun deafReading(atMs: Long) = core.onReading(
         raw = ActivityType.WALKING,
@@ -522,8 +728,14 @@ class ActivityIngestTest {
         const val HOUR = 60 * MINUTE
         const val RESUME_WINDOW_MS = 90_000L
 
+        /** How long a stop the ground could not vouch for is held before it lands anyway. */
+        const val HOLD_CAP_MS = 35_000L
+
         /** 90 km/h — ordinary road speed, well under the 220 km/h ceiling a DRIVING label carries. */
         const val VEHICLE_MPS = 25.0
+
+        /** ~5 km/h: a pace the foot family's own ceiling explains, so no foot reading is held at it. */
+        const val WALKING_MPS = 1.4
 
         /** The guard's clock is monotonic and unrelated to [T0]; only differences are ever read. */
         const val E0 = 500_000L

@@ -114,15 +114,21 @@ class MovementConfirmer(
     }
 
     /**
-     * Adopt a new window shape and forget everything seen so far. Called wherever the GPS request
-     * is built — where the sampling these [Params] describe is read, but also every resume, new
-     * track and no-fix probe retry: evidence from before such a gap describes a different stretch
-     * of the journey, so the reset is deliberately per GPS start, not only on a cadence change. An
-     * empty window reads [Motion.Unknown] — always toward un-cross-checked behaviour.
+     * Adopt a new window shape, keeping the evidence already in it. Called wherever the GPS request
+     * is built, which is where the sampling these [Params] describe is read.
+     *
+     * **Deliberately does not clear.** It used to, on the reasoning that a resume, a new track or a
+     * no-fix retry each open a gap, and evidence from before a gap describes a different stretch of
+     * the journey. But the recorder pauses at every stop and resumes at every start, so the clear
+     * landed a few seconds before exactly the questions this exists to answer — a carrier pulling
+     * away is preceded by a resume, and the emptied window then abstains through the departure it
+     * was built to catch. Nothing is lost by keeping it: [Params.maxFixAgeMs] expires evidence by
+     * age on every [onFix] and [verdict], so a window that really does describe an older stretch of
+     * the journey has already drained itself, and one that survives a short pause describes ground
+     * the phone was on moments ago. The ground does not observe track boundaries.
      */
-    fun restart(params: Params) {
+    fun reshape(params: Params) {
         this.params = params
-        window.clear()
     }
 
     private fun expire(nowMs: Long) {

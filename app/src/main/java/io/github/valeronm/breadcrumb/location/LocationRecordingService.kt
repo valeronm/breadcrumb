@@ -45,6 +45,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 /**
  * Foreground service that records GPS while the app is in the background, opening, continuing or
@@ -73,6 +74,7 @@ class LocationRecordingService : Service() {
     // and the alarm that wakes it while Doze holds every coroutine timer frozen.
     private val notifications = RecorderNotifications(this)
     private val watchdogAlarm = WatchdogAlarm(this)
+    private val departureFence = DepartureFence(this)
 
     // Held rather than rebuilt per post: the shade is re-worded once per fix batch for the length of
     // a drive. It caches no text — every accessor reads the resource table again — so a language
@@ -222,7 +224,11 @@ class LocationRecordingService : Service() {
                 )
                 livenessRepository.recordArmed(now())
                 startHeartbeat()
-                core.onArmed()
+                // Arming is the one moment a departure must be watched for with no track behind it:
+                // Play Services drops every geofence across a reboot and an app update, and both
+                // arrive here. Dispatched rather than called directly so the one policy has one
+                // home — and so the core's own suite can see it.
+                dispatch(core.onArmed())
                 publishStatus()
             }
             clearDeafnessWarning()
@@ -249,10 +255,13 @@ class LocationRecordingService : Service() {
         watchdogAlarm.cancel()
         clearDeafnessWarning()
         activityManager.stop()
+        // A fence outlives the process that registered it, so leaving one behind would keep waking a
+        // recorder the user has switched off.
+        departureFence.disarm()
         scope.launch {
             mutex.withLock {
                 dispatch(core.closeOpenTrack(now()))
-                core.onArmed()
+                core.onDisarmed()
                 heartbeatJob?.cancel()
                 heartbeatJob = null
                 Settings.setLastHeartbeatMs(this@LocationRecordingService, now())
@@ -281,11 +290,46 @@ class LocationRecordingService : Service() {
         applyActivityAsync(activity, eventTimeMs, onApplied)
     }
 
-    private fun applyActivityAsync(activity: ActivityType, eventTimeMs: Long?, onApplied: (() -> Unit)?) {
-        // invokeOnCompletion (not try/finally in the body): it also fires when the scope was
-        // already canceled and the body never ran — otherwise a dying service would leak the
-        // receiver's goAsync and pin the broadcast until the system times it out.
-        scope.launch { mutex.withLock { applyActivity(activity, eventTimeMs) } }
+    /**
+     * Called by [GeofenceReceiver] when the phone has left where it last stopped. [onApplied] runs
+     * once the departure has been applied — the receiver holds its broadcast wakelock until then,
+     * for the reason [onActivityChanged] gives.
+     */
+    fun onDeparture(onApplied: (() -> Unit)? = null) {
+        // A fence registered before the user switched recording off can still be delivered; opening
+        // a track off it would record someone who has asked not to be.
+        if (!armed) {
+            DebugLog.i(TAG, "departure ignored — not armed")
+            onApplied?.invoke()
+            return
+        }
+        applyAsync(onApplied) {
+            val nowMs = now()
+            // How long the fence took to notice is the number this whole trigger is judged on.
+            val latency = departureFence.armedAtMs
+                ?.let { "${(nowMs - it) / 1000}s after arming" }
+                ?: "unarmed"
+            val effects = core.onDeparture(nowMs, activitySettings())
+            if (effects.isEmpty()) {
+                DebugLog.i(TAG, "departure ignored — already recording ($latency)")
+            } else {
+                DebugLog.i(TAG, "departure: opening a Moving track ($latency)")
+            }
+            dispatch(effects)
+        }
+    }
+
+    private fun applyActivityAsync(activity: ActivityType, eventTimeMs: Long?, onApplied: (() -> Unit)?) =
+        applyAsync(onApplied) { applyActivity(activity, eventTimeMs) }
+
+    /**
+     * Run [block] under the recorder's lock and report back when it is done, whatever "done" turns
+     * out to mean. `invokeOnCompletion` rather than a `try/finally` in the body: it also fires when
+     * the scope was already canceled and the body never ran — otherwise a dying service would leak
+     * the receiver's `goAsync` and pin the broadcast until the system times it out.
+     */
+    private fun applyAsync(onApplied: (() -> Unit)?, block: suspend () -> Unit) {
+        scope.launch { mutex.withLock { block() } }
             .invokeOnCompletion { onApplied?.invoke() }
     }
 
@@ -301,9 +345,11 @@ class LocationRecordingService : Service() {
             settings = activitySettings(),
         )
         if (core.confirmed != was) {
-            logTransition(was, core.confirmed, wasPaused, nowMs - core.lastReadingMs)
+            logTransition(was, core.confirmed, wasPaused, nowMs - core.lastReadingMs, ground = null)
         } else {
-            core.parked?.let { DebugLog.i(TAG, "motion cross-check: holding $it — the ground is still moving") }
+            // Which hold, not a sentence about one of them: a reading can now be waiting because the
+            // ground disagrees *or* because it said nothing at all, and those want telling apart.
+            core.held?.let { DebugLog.i(TAG, "motion cross-check: holding ${it.activity} — ${it.kind}") }
         }
         dispatch(effects)
     }
@@ -311,7 +357,19 @@ class LocationRecordingService : Service() {
     /** The settings a pass is decided under, read here because this is where they live. */
     private fun activitySettings() = ActivitySettings(
         resumeWindowMs = Settings.resumeWindowSec(this) * 1000L,
+        // Long enough that the witness has had a fair chance to answer: its own window span, plus
+        // room for GPS to reacquire after the resume that so often precedes the question. Derived
+        // rather than configured — a cap shorter than the window it waits on would hold nothing.
+        uncorroboratedHoldMs = witnessSpanMs + GPS_REACQUIRE_MS,
     )
+
+    // The witness's window span, stamped where the GPS request is built from the same setting. Read
+    // on every pass — including the satellite tick for the length of a hold — and it can only change
+    // when the request is rebuilt, so re-reading the preference per pass buys nothing. Sharing the
+    // one derivation also keeps the cap and the window it waits on from drifting apart.
+    @Volatile
+    private var witnessSpanMs =
+        MovementConfirmer.forSampling(Settings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC).minSpanMs
 
     /**
      * Perform what [ActivityIngest] decided, in the order it decided it. It commits its own state
@@ -338,6 +396,16 @@ class LocationRecordingService : Service() {
                 }
 
                 Effect.ArmSignificantMotion -> withContext(Dispatchers.Main) { resumeSignals.armMotionOnly() }
+
+                // GeofencingClient is thread-safe and posts its own callbacks to the main looper,
+                // so unlike the listener registrations above these need no hop — and a hop here
+                // would be taken with the recorder's mutex held.
+                is Effect.ArmDepartureFence ->
+                    effect.from
+                        ?.let { departureFence.arm(it.latitude, it.longitude) }
+                        ?: departureFence.armFromLastKnown()
+
+                Effect.DisarmDepartureFence -> departureFence.disarm()
 
                 is Effect.OpenTrack -> {
                     trackStartedAt = effect.startedAt
@@ -394,18 +462,19 @@ class LocationRecordingService : Service() {
         if (core.parked == null) return
         scope.launch {
             mutex.withLock {
-                // Read once and shared with the verdict below. A hold has no cap by design — a fresh
-                // verdict tells a stale hold from a crossing still under way and a deadline cannot —
-                // so this runs every GNSS tick for as long as one lasts, and the settings would
-                // otherwise be re-read a second for a promotion that usually doesn't happen.
+                // A *contradicted* hold has no cap by design — a fresh verdict tells a stale hold
+                // from a crossing still under way and a deadline cannot — so this runs every GNSS
+                // tick for as long as one lasts. Read once and shared with the log below, rather
+                // than walking the witness's window a second time for the same moment.
                 val settings = activitySettings()
                 val nowMs = now()
                 val was = core.confirmed
                 val wasPaused = core.isPaused
-                val effects = core.onMotion(core.motionVerdict(nowMs), nowMs, settings)
+                val ground = core.motionVerdict(nowMs)
+                val effects = core.onMotion(ground, nowMs, settings)
                 if (effects.isEmpty()) return@withLock
                 DebugLog.i(TAG, "motion cross-check: releasing the held ${core.confirmed}")
-                logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L)
+                logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L, ground = ground)
                 dispatch(effects)
             }
         }
@@ -421,11 +490,27 @@ class LocationRecordingService : Service() {
         activity: ActivityType,
         wasPaused: Boolean,
         readingLagMs: Long,
+        /** The verdict the change was decided under, where the caller already has it — the window
+         *  walk is not worth repeating, and a fresh one would report a different moment anyway. */
+        ground: Motion?,
     ) {
         // Surface a materially late reading (Doze drain, replay recovery) — it explains why a
         // track decision doesn't line up with the log line's own timestamp.
         val lag = if (readingLagMs > 5_000) " reading=-${readingLagMs / 1000}s" else ""
-        DebugLog.i(TAG, "applyActivity: $previous -> $activity (track=$activeTrackId paused=$wasPaused$lag)")
+        // What the ground said as the change was decided — the distribution of these is what says
+        // whether corroboration ever changes an outcome, and how often a stop lands on silence.
+        val verdict = ground?.let { " ground=${groundOf(it)}" }.orEmpty()
+        DebugLog.i(
+            TAG,
+            "applyActivity: $previous -> $activity (track=$activeTrackId paused=$wasPaused$lag$verdict)",
+        )
+    }
+
+    /** The witness's verdict as one log word. Logs are never localized — see the conventions. */
+    private fun groundOf(motion: Motion): String = when (motion) {
+        is Motion.Moving -> "moving@${"%.1f".format(Locale.US, motion.speedKmh)}kmh"
+        Motion.Stopped -> "stopped"
+        Motion.Unknown -> "unknown"
     }
 
     /**
@@ -512,10 +597,13 @@ class LocationRecordingService : Service() {
         val minDistanceM = Settings.minDistanceM(this).toFloat()
         noFixGuard.onProbeStarted(SystemClock.elapsedRealtime())
         // The confirmer's window is shaped by the cadence, so it is re-derived where the cadence is
-        // read — and emptied here, since this path also runs on a resume, on a new track and on
-        // every no-fix probe retry, and fixes from before such a gap describe a different stretch
-        // of the journey. An empty window abstains, i.e. behaves as if there were no cross-check.
-        ingest.restartConfirmer(MovementConfirmer.forSampling(intervalSec))
+        // read. It is not emptied here — see [MovementConfirmer.reshape]: this path runs on every
+        // resume, and clearing seconds before a carrier pulls away is what blinded the witness at
+        // the one moment it was needed. Age expiry drains a window that genuinely describes an
+        // older stretch of the journey.
+        val window = MovementConfirmer.forSampling(intervalSec)
+        witnessSpanMs = window.minSpanMs
+        ingest.reshapeConfirmer(window)
         val lm = locationManager ?: return
         val request = LocationRequestCompat.Builder(intervalMs)
             .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
@@ -615,7 +703,10 @@ class LocationRecordingService : Service() {
         val ingested = ingest.onFixes(
             trackId = trackId,
             fixes = locations.map { it.toFix() },
-            gate = GateState(core.confirmed, stillParked = core.parked != null),
+            // The *stop* specifically: carrier evidence counts time a STILL sat parked under moving
+            // ground, and a walking reading can now be parked too — one that would credit body-still
+            // time for a reading saying the opposite.
+            gate = GateState(core.confirmed, stillParked = core.parked == ActivityType.STILL),
             settings = IngestSettings(
                 maxAccuracyM = Settings.accuracyGateM(this).toFloat(),
                 requireGnss = Settings.requireGnssFix(this),
@@ -744,6 +835,14 @@ class LocationRecordingService : Service() {
         const val ACTION_STOP = "io.github.valeronm.breadcrumb.STOP"
 
         private const val TAG = "Breadcrumb"
+
+        /**
+         * Headroom over the witness's window for a cold-ish GPS start. A resume rebuilds the
+         * request from scratch, and the first fix does not arrive with it — without this the cap
+         * could expire having given the window almost nothing to work with, which is the failure
+         * the hold exists to prevent.
+         */
+        private const val GPS_REACQUIRE_MS = 15_000L
         private const val HEARTBEAT_INTERVAL_MS = 15 * 60_000L
 
         fun start(context: Context) {

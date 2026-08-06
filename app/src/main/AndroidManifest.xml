@@ -101,6 +101,12 @@
             android:name=".location.ActivityTransitionReceiver"
             android:exported="false" />
 
+        <!-- Departure from the spot the recorder last stopped at — the trigger Activity Recognition
+             cannot give us aboard a carrier that keeps the body still -->
+        <receiver
+            android:name=".location.GeofenceReceiver"
+            android:exported="false" />
+
         <!-- Armed-session watchdog alarm: heals a silently dead transition registration -->
         <receiver
             android:name=".location.WatchdogReceiver"
