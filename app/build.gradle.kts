@@ -262,6 +262,33 @@ android {
             buildConfigField("boolean", "DEV_TOOLS", "true")
             buildConfigField("String", "BUILD_LABEL", "\"perf\"")
         }
+        /**
+         * The build to *shoot* from: an install of its own, with an empty database, that the demo
+         * history `tools/generate_demo_history.py` writes can be restored into — Restore is offered
+         * only on an empty timeline, and neither the release nor the debug install may be cleared
+         * to get one.
+         *
+         * It takes `.demo` rather than debug's suffix, which is the whole point: `perf` reuses
+         * `.debug` to *replace* the debug app, while this one has to sit beside both. Everything
+         * else follows from what a screenshot must not contain — [BuildConfig.BUILD_LABEL] is empty
+         * so no badge is drawn in the top bar, and DEV_TOOLS is off so the replay control and the
+         * map's zoom readout stay out of frame. Not debuggable, so scrolling is at release speed.
+         *
+         * It keeps `main`'s launcher icon rather than taking a marked one like debug: the icon is
+         * drawn in the foreground-service notification and the recents switcher, both of which a
+         * screenshot can include. Which build it is stays readable where a screenshot won't reach —
+         * the launcher label and the version row in Settings.
+         */
+        create("demo") {
+            initWith(getByName("debug"))
+            isDebuggable = false
+            applicationIdSuffix = ".demo"
+            enableUnitTestCoverage = false
+            signingConfig = signingConfigs.getByName("debug")
+            versionNameSuffix = "-demo"
+            buildConfigField("boolean", "DEV_TOOLS", "false")
+            buildConfigField("String", "BUILD_LABEL", "\"\"")
+        }
     }
 
     compileOptions {

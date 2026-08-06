@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Distinguishes the demo install (io.github.valeronm.breadcrumb.demo) in the launcher. It never
+      reaches a screenshot: the Record header draws `title_record`, which is deliberately not
+      app_name, and no other screen shows the app's own name.
+    -->
+    <string name="app_name">Breadcrumb (demo)</string>
+</resources>

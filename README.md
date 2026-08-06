@@ -22,12 +22,18 @@ offer the install yet, try again later.
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/record.png" alt="Record tab with auto recording armed" width="30%">
-  <img src="docs/screenshots/timeline.png" alt="Timeline of trips and stays" width="30%">
-  <img src="docs/screenshots/track-detail.png" alt="Trip detail with its track colored by speed" width="30%">
+  <img src="docs/screenshots/record.png" alt="Record tab with this month's totals" width="30%">
+  <img src="docs/screenshots/timeline.png" alt="Timeline of trips and stays, grouped by day" width="30%">
+  <img src="docs/screenshots/track-detail.png" alt="Trip detail with its track colored by elevation" width="30%">
+</p>
+<p align="center">
+  <img src="docs/screenshots/places.png" alt="Places tab, named places sorted by visits" width="30%">
+  <img src="docs/screenshots/journeys.png" alt="Insights: journeys away from home" width="30%">
+  <img src="docs/screenshots/statistics.png" alt="Insights: a month read against the year behind it" width="30%">
 </p>
 
-*Demo data — the bundled `tools/demo-data` GPX files imported on an emulator.*
+*Demo data — a synthetic history from `tools/generate_demo_history.py`, restored into the `demo`
+build. No real history is ever shot.*
 
 ## Features
 
@@ -126,6 +132,13 @@ blueprint-grid launcher icon).
 
 A fresh checkout needs a Protomaps hosted-API key for the basemap to load: add `protomapsApiKey=…`
 to `local.properties` (gitignored). Without it the map tiles won't render.
+
+The screenshots above come from a build type of their own: `./gradlew :app:installDemo` installs as
+`io.github.valeronm.breadcrumb.demo`, alongside a release and a debug install rather than replacing
+either, with the build badge and the developer tools switched off. Run
+`python3 tools/generate_demo_history.py`, push what it writes to the device, and restore it from
+the Timeline's empty state — every screen then has a history to show. The generated data is
+gitignored: it has to end today to be worth shooting, so it is made per shoot rather than kept.
 
 Unit tests cover the domain rules and the data layer, and reach further than plain JVM code through
 Robolectric — the Room database and its migrations, and the timeline's rows read back off the

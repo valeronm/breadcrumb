@@ -25,8 +25,9 @@
     <string name="activity_other">Other</string>
 
     <!--
-      The same ten as a *word form*, for the slot the recorder's sentences drop them into
-      ("Recording walking", "walking resumes within 1m 40s"). English lowercases a common noun there
+      Every type a sentence can name, again as a *word form*, for the slot the recorder's sentences
+      drop them into ("Recording walking", "walking resumes within 1m 40s") — the totals' stand-in
+      above is the one with no such slot. English lowercases a common noun there
       and the labels above are the same words capitalized — but that is English's rule, not a
       transform: German capitalizes its nouns wherever they sit, and a caller lowercasing the
       translation would be deciding a language's orthography for it. So the form is authored, per

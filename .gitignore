@@ -17,5 +17,9 @@ __pycache__/
 # Local-only Play demo video (not committed)
 /tools/permission-demo.mp4
 
+# Generated demo data. Derived, large and stale by design — the generators beside it are the
+# source, and a fresh run is what any use wants anyway, since the dates have to be current.
+/tools/demo-data/
+
 # Web viewer: local API key config
 /web/config.js
