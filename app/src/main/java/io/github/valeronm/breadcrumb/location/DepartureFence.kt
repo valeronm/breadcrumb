@@ -104,6 +104,12 @@ class DepartureFence(private val context: Context) {
             DebugLog.i(TAG, "departure fence: no last-known location to arm from")
             return
         }
+        // **Wall clock here, and monotonic in [DepartureProbe]** — the two "Ns old" numbers in this
+        // log are measured differently on purpose. A reboot is one of the cases this exists for,
+        // and it resets the monotonic clock, so a position stamped before it has an elapsed-realtime
+        // that means nothing while its wall time still does. The probe never sees a position older
+        // than the request that asked for it, so it has no such case and takes the clock no step can
+        // corrupt.
         val ageS = (System.currentTimeMillis() - known.time) / 1000
         DebugLog.i(TAG, "departure fence: arming from last known (${known.provider}, ${ageS}s old)")
         arm(known.latitude, known.longitude)

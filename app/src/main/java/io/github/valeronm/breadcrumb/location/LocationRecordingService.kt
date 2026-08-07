@@ -705,7 +705,12 @@ class LocationRecordingService : Service() {
      * [ingestLocations]: these come from Wi-Fi and cell, land tens to hundreds of meters out, and
      * exist only to answer whether the phone has left where it stopped.
      */
-    private fun onProbePosition(latitude: Double, longitude: Double, accuracyM: Double) {
+    private fun onProbePosition(
+        latitude: Double,
+        longitude: Double,
+        accuracyM: Double,
+        ageMs: Long,
+    ) {
         if (!armed) return
         scope.launch {
             mutex.withLock {
@@ -715,17 +720,16 @@ class LocationRecordingService : Service() {
                 val effects =
                     core.onProbeFix(latitude, longitude, accuracyM, nowMs, activitySettings())
                 if (effects.isEmpty()) return@withLock
+                // The age is on both lines because it means a different thing on each: as an anchor
+                // a remembered position is the stale one the burst exists to replace, and as a
+                // verdict it dates the leaving to whenever the cache was filled.
+                val position = "acc=${accuracyM.toInt()}m, ${ageMs / 1000}s old"
                 if (effects.any { it is Effect.OpenTrack }) {
                     // The same number the fence reports itself by, measured the same way, so a log
                     // holding both says which of them is worth its cost.
-                    DebugLog.i(
-                        TAG,
-                        "departure: probe saw the phone leave ($latency, acc=${accuracyM.toInt()}m)",
-                    )
+                    DebugLog.i(TAG, "departure: probe saw the phone leave ($latency, $position)")
                 } else {
-                    // Worth its own line: it is the moment the fence stops standing on a last-known
-                    // of unknown age, and the log already printed that age to be judged against.
-                    DebugLog.i(TAG, "departure watch anchored on a fresh position (acc=${accuracyM.toInt()}m)")
+                    DebugLog.i(TAG, "departure watch anchored ($position)")
                 }
                 dispatch(effects)
             }

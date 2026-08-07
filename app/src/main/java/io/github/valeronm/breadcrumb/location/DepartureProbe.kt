@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -34,7 +35,17 @@ import io.github.valeronm.breadcrumb.util.backgroundGranted
  */
 class DepartureProbe(
     private val context: Context,
-    private val onPosition: (latitude: Double, longitude: Double, accuracyM: Double) -> Unit,
+    // ageMs is how old the position already was, and it is here because **the fused engine is free
+    // to answer from its cache**: deliveries have been seen arriving in under 100 ms, which is no
+    // Wi-Fi scan, so nothing else separates a position it measured from one it remembered. No rule
+    // reads it — whether staleness needs a ceiling is a field question, and this is what answers
+    // it, exactly as DepartureFence.armFromLastKnown logs the age it arms on.
+    private val onPosition: (
+        latitude: Double,
+        longitude: Double,
+        accuracyM: Double,
+        ageMs: Long,
+    ) -> Unit,
 ) {
 
     private val client: FusedLocationProviderClient by lazy {
@@ -85,7 +96,10 @@ class DepartureProbe(
             override fun onLocationResult(result: LocationResult) {
                 val fix = result.lastLocation ?: return
                 positionCount++
-                onPosition(fix.latitude, fix.longitude, fix.accuracy.toDouble())
+                // Monotonic, not wall clock: a clock step between the fix and now would otherwise
+                // report an age that never elapsed.
+                val ageMs = (SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1_000_000
+                onPosition(fix.latitude, fix.longitude, fix.accuracy.toDouble(), ageMs)
             }
         }
         callback = cb
