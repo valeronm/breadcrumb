@@ -25,7 +25,7 @@ class DepartureWatchTest {
         judge(position.latitude, position.longitude, position.accuracyM)
 
     private fun DepartureWatch.departedAt(position: DepartureWatch.Anchor) =
-        verdictAt(position) == DepartureWatch.Verdict.Departed
+        verdictAt(position) is DepartureWatch.Verdict.Departed
 
     /** Watching begins at [T0]; only the cases about latency read the stamp back. */
     private fun DepartureWatch.begin(from: DepartureWatch.Anchor?) = watch(from, T0)
@@ -84,6 +84,21 @@ class DepartureWatchTest {
         assertTrue(watch.departedAt(pos(5_000.0 + DepartureWatch.MARGIN_M + 10)))
     }
 
+    /** So a reader asking at the wrong moment is told there is nothing to say, not handed a
+     *  plausible-looking measurement from a watch that has since been torn down. */
+    @Test
+    fun `the last verdict does not outlive the watch that produced it`() {
+        watch.begin(pos(0.0))
+        watch.verdictAt(pos(100.0))
+        assertTrue(watch.lastVerdict is DepartureWatch.Verdict.Near)
+
+        watch.stop()
+        assertEquals(DepartureWatch.Verdict.Dormant, watch.lastVerdict)
+
+        watch.begin(pos(0.0))
+        assertEquals("a fresh watch has said nothing yet", DepartureWatch.Verdict.Dormant, watch.lastVerdict)
+    }
+
     @Test
     fun `stopping ends the watch, and a later restart re-anchors`() {
         watch.begin(pos(0.0))
@@ -91,7 +106,7 @@ class DepartureWatchTest {
         assertFalse(watch.watching)
         assertEquals(
             "torn down, so it must not decide anything — nor become an anchor",
-            DepartureWatch.Verdict.Waiting,
+            DepartureWatch.Verdict.Dormant,
             watch.verdictAt(pos(10_000.0)),
         )
 
@@ -106,6 +121,20 @@ class DepartureWatchTest {
         // latency measured from the burst would flatter it by exactly the delay being measured.
         watch.begin(pos(0.0))
         assertEquals(T0, watch.startedAtMs)
+    }
+
+    /**
+     * The measurement the rule turns on, which the log had no way of stating: a burst that ends
+     * without a departure could not say whether the phone stayed put or merely fell short.
+     */
+    @Test
+    fun `a holding verdict reports the distance and the bar it was judged against`() {
+        watch.begin(pos(0.0, accuracyM = 20.0))
+
+        val verdict = watch.verdictAt(pos(100.0, accuracyM = 30.0)) as DepartureWatch.Verdict.Near
+
+        assertEquals(100.0, verdict.gapM, 1.0)
+        assertEquals(DepartureWatch.MARGIN_M + 20.0 + 30.0, verdict.barM, 1e-9)
     }
 
     @Test

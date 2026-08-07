@@ -24,18 +24,26 @@ class DepartureWatch(private val distance: DistanceFn) {
     data class Anchor(val latitude: Double, val longitude: Double, val accuracyM: Double)
 
     /**
-     * What a probe position turned out to be worth. Three outcomes rather than a boolean because
-     * the first position is not a departure *or* a non-event: it is where "here" is, and the
-     * freshest thing anything else watching for a departure can be centred on.
+     * What a probe position turned out to be worth. Named cases rather than a boolean because the
+     * first position is not a departure *or* a non-event: it is where "here" is, and the freshest
+     * thing anything else watching for a departure can be centred on.
      */
     sealed interface Verdict {
         /** The first position of a watch that began with nowhere to measure from. */
         data class Anchored(val at: Anchor) : Verdict
 
-        /** Inside the margin — or nothing was being watched for at all, which reads the same here. */
-        data object Waiting : Verdict
+        /**
+         * Judged, and not far enough. [gapM] against [barM] is **the measurement the whole rule
+         * turns on**, and the one nothing outside this class could previously see: a burst that
+         * ends with no departure otherwise says nothing about whether the phone stayed put or
+         * merely fell short of the bar.
+         */
+        data class Near(val gapM: Double, val barM: Double) : Verdict
 
-        data object Departed : Verdict
+        data class Departed(val gapM: Double, val barM: Double) : Verdict
+
+        /** Nothing is being watched for; a delivery that outlived its request lands here. */
+        data object Dormant : Verdict
     }
 
     private var anchor: Anchor? = null
@@ -60,6 +68,15 @@ class DepartureWatch(private val distance: DistanceFn) {
         private set
 
     /**
+     * What the last position was judged to be. Held here rather than copied out by a caller so it
+     * cannot outlive the watch it describes: starting and stopping both reset it to [Verdict.Dormant],
+     * so a reader that asks at the wrong moment is told there is nothing to say instead of handed a
+     * plausible-looking measurement from a torn-down watch.
+     */
+    var lastVerdict: Verdict = Verdict.Dormant
+        private set
+
+    /**
      * Begin watching at [atMs] from [from], or from wherever the first probe position lands when it
      * is null. Adopting the first position is what keeps an anchorless watch from being a blind one:
      * arming happens with no track behind it and often no fix, and "wait for a good fix" resolves to
@@ -69,11 +86,13 @@ class DepartureWatch(private val distance: DistanceFn) {
         watching = true
         startedAtMs = atMs
         anchor = from
+        lastVerdict = Verdict.Dormant
     }
 
     fun stop() {
         watching = false
         anchor = null
+        lastVerdict = Verdict.Dormant
     }
 
     /**
@@ -83,13 +102,17 @@ class DepartureWatch(private val distance: DistanceFn) {
      * coarse anchor is not evidence of movement however far apart the two coordinates read.
      *
      * Adopts the position as the anchor when there is none and reports [Verdict.Anchored]: the first
-     * one establishes where "here" is and cannot also be a departure from it.
-     *
-     * [Verdict.Waiting] while nothing is being watched for, which is where a delivery outliving the
-     * request that asked for it lands — it must decide nothing, and must not become an anchor either.
+     * one establishes where "here" is and cannot also be a departure from it. A position arriving
+     * while nothing is watched for must decide nothing and must not become an anchor either.
      */
     fun judge(latitude: Double, longitude: Double, accuracyM: Double): Verdict {
-        if (!watching) return Verdict.Waiting
+        val verdict = decide(latitude, longitude, accuracyM)
+        lastVerdict = verdict
+        return verdict
+    }
+
+    private fun decide(latitude: Double, longitude: Double, accuracyM: Double): Verdict {
+        if (!watching) return Verdict.Dormant
         val from = anchor
         if (from == null) {
             val fresh = Anchor(latitude, longitude, accuracyM)
@@ -97,21 +120,29 @@ class DepartureWatch(private val distance: DistanceFn) {
             return Verdict.Anchored(fresh)
         }
         val gap = distance.meters(from.latitude, from.longitude, latitude, longitude)
-        return if (gap - from.accuracyM - accuracyM > MARGIN_M) Verdict.Departed else Verdict.Waiting
+        val bar = MARGIN_M + from.accuracyM + accuracyM
+        return if (gap > bar) Verdict.Departed(gap, bar) else Verdict.Near(gap, bar)
     }
 
     companion object {
         /**
-         * How far past the combined error a position must sit. It is set for the false positive that
-         * actually happens: a *stationary* phone whose Wi-Fi environment shifts reports positions a
-         * couple of hundred meters apart, and a margin that only cleared the stated accuracy would
-         * read that as leaving. Set against the other side too — at road speed this is a few seconds
-         * of travel, so buying the robustness costs almost no latency, and on foot the trigger is
-         * not needed at all because walking is the one activity the platform reports reliably.
+         * How far past the combined error a position must sit — **provisional, and not yet set by
+         * anything measured.** It was picked to clear the false positive a coarse position stream is
+         * assumed to produce, a stationary phone re-deriving its position from a changed Wi-Fi
+         * environment; that assumption has not been tested against this app's own data, and until it
+         * is, the number rests on nothing firmer than plausibility.
          *
-         * Erring high would be the wrong way round regardless: a departure missed is a journey that
-         * never existed, while one imagined opens a track that `EdgeStayDetector` trims and
-         * `KeepRule` discards.
+         * **What it costs is not this number alone.** The distance actually required is
+         * `MARGIN_M + anchorAccuracy + fixAccuracy`, so the two accuracies dominate it: against the
+         * ~100 m positions the fused engine has been observed to return, that is ~255 m from a pause
+         * anchored on a good GPS fix and ~350 m from an arming anchored on a coarse one. Tuning this
+         * constant alone therefore moves the bar much less than it appears to — and the departure
+         * fence answers the same question at a 100 m radius with its own error handling inside it.
+         *
+         * The direction of error is at least the safe one: a departure missed is a journey never
+         * recorded, while one imagined opens a track that `EdgeStayDetector` trims and `KeepRule`
+         * discards. [Verdict.Near] carries both numbers so a log can eventually say what the real
+         * distribution is, and replace this with something measured.
          */
         const val MARGIN_M = 150.0
     }

@@ -20,6 +20,7 @@ import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.DepartureWatch
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.MovementConfirmer
@@ -719,22 +720,42 @@ class LocationRecordingService : Service() {
                 val latency = watchedForMs(nowMs)
                 val effects =
                     core.onProbeFix(latitude, longitude, accuracyM, nowMs, activitySettings())
-                if (effects.isEmpty()) return@withLock
-                // The age is on both lines because it means a different thing on each: as an anchor
+                // The age is on every line because it means a different thing on each: as an anchor
                 // a remembered position is the stale one the burst exists to replace, and as a
                 // verdict it dates the leaving to whenever the cache was filled.
                 val position = "acc=${accuracyM.toInt()}m, ${ageMs / 1000}s old"
-                if (effects.any { it is Effect.OpenTrack }) {
-                    // The same number the fence reports itself by, measured the same way, so a log
+                // Every position, unfiltered. The two numbers this trigger is tuned by — how far
+                // jitter carries a stationary phone, and what accuracy the coarse stream returns —
+                // are distributions, and any selection here would sample them biased.
+                when (val verdict = core.lastProbeVerdict) {
+                    // The same latency the fence reports itself by, measured the same way, so a log
                     // holding both says which of them is worth its cost.
-                    DebugLog.i(TAG, "departure: probe saw the phone leave ($latency, $position)")
-                } else {
-                    DebugLog.i(TAG, "departure watch anchored ($position)")
+                    is DepartureWatch.Verdict.Departed ->
+                        DebugLog.i(
+                            TAG,
+                            "departure: probe saw the phone leave " +
+                                "($latency, ${measured(verdict.gapM, verdict.barM)}, $position)",
+                        )
+
+                    is DepartureWatch.Verdict.Near ->
+                        DebugLog.i(TAG, "departure watch: ${measured(verdict.gapM, verdict.barM)} ($position)")
+
+                    is DepartureWatch.Verdict.Anchored ->
+                        DebugLog.i(TAG, "departure watch anchored ($position)")
+
+                    DepartureWatch.Verdict.Dormant -> Unit
                 }
                 dispatch(effects)
             }
         }
     }
+
+    /**
+     * The distance a probe position reached against the distance it needed, phrased for a log line.
+     * One spelling for both verdicts that carry the pair, so the two cannot drift apart on how the
+     * same measurement is written.
+     */
+    private fun measured(gapM: Double, barM: Double) = "${gapM.toInt()}m of ${barM.toInt()}m"
 
     /**
      * How long a departure has been watched for, phrased for a log line. **One stamp for every

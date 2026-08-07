@@ -274,6 +274,13 @@ class ActivityIngest(
 
     /** When a departure began being watched for, or 0 — what a trigger's latency is reported against. */
     val watchStartedAtMs: Long get() = watch.startedAtMs
+
+    /**
+     * What the last probe position was judged to be — for the dispatcher's log, since the effects
+     * alone cannot say how close a position came, and a burst that ends without a departure is
+     * otherwise indistinguishable from one that never saw the phone move.
+     */
+    val lastProbeVerdict: DepartureWatch.Verdict get() = watch.lastVerdict
     val phase: TrackController.Phase get() = controller.phase
     val isPaused: Boolean get() = controller.isPaused
     val deaf: Boolean get() = deafnessWarning.warned
@@ -455,8 +462,8 @@ class ActivityIngest(
         settings: ActivitySettings,
     ): List<Effect> = when (val verdict = watch.judge(latitude, longitude, accuracyM)) {
         is DepartureWatch.Verdict.Anchored -> anchored(verdict.at, settings.triggers)
-        DepartureWatch.Verdict.Departed -> onDeparture(nowMs, settings)
-        DepartureWatch.Verdict.Waiting -> emptyList()
+        is DepartureWatch.Verdict.Departed -> onDeparture(nowMs, settings)
+        is DepartureWatch.Verdict.Near, DepartureWatch.Verdict.Dormant -> emptyList()
     }
 
     /**
