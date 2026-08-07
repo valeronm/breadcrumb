@@ -11,12 +11,15 @@ describes need what GPX cannot carry:
   - the liveness log, so silence between tracks reads as an observed stay rather than an
     inferred one.
 
-It runs a year past the month it ends in, because Insights' Statistics page reads one month against
-the year behind it and an empty year is the emptiest screen in the app. Only the most recent month
-is generated at full fidelity — that is what the timeline, the map and a track's detail are shot
-from; everything earlier keeps every Nth fix, since months that far back are read as totals and
-place counts rather than as geometry. That is what keeps the output near a couple of megabytes
-instead of five, which matters for a file that has to be pushed to a phone before every shoot.
+Two spans, not one. The routine — commutes, gym, weekends — runs thirteen months, because Statistics
+reads one month against the year behind it and an empty year is the emptiest screen in the app. The
+history reaches further only where a journey needs it: Journeys groups by calendar year, and one
+year of history gives it a single heading and no sense that a history accumulates, so the oldest
+journeys sit alone in their weeks with no routine around them. Only the most recent month is
+generated at full fidelity — that is what the timeline, the map and a track's detail are shot from;
+everything earlier keeps every Nth fix, since months that far back are read as totals and place
+counts rather than as geometry. Together those keep the file near a couple of megabytes, which
+matters for something pushed to a phone before every shoot.
 
 The history is a routine plus the journeys in JOURNEYS: weekday commutes, a gym and a supermarket
 run, weekend walks and rides, and nights abroad reached by flights nobody recorded — which is what
@@ -67,7 +70,8 @@ POINT_FIELDS = [
 # than written as 0/1/2 wherever they are needed.
 TS, LAT, LON = (POINT_FIELDS.index(name) for name in ("timestamp", "lat", "lon"))
 
-HISTORY_DAYS = 395   # thirteen months, so Statistics has a full year behind its month
+ROUTINE_DAYS = 395   # days of weekday-and-weekend routine, so Statistics has a full year behind
+                     # its month. The history itself reaches further back, but only for journeys.
 RECENT_DAYS = 28     # the tail generated at full fidelity
 COARSE_STRIDE = 6    # older days keep every Nth fix — totals survive, geometry needn't
 MIN_DWELL_MS = 6 * 60 * 1000   # shortest stay between two tracks
@@ -75,7 +79,12 @@ MIN_DWELL_MS = 6 * 60 * 1000   # shortest stay between two tracks
 # The home city is demo_routes'. Only the destinations are this generator's own — the GPX fixture
 # never leaves town, so nothing else needs them.
 #
-# Destinations abroad, so the yearly totals have a country besides home's to count.
+# Destinations, mostly abroad so the yearly totals have countries besides home's to count. Porto is
+# the deliberate exception: a journey is a run of nights away from home, not a border crossing, and
+# a set where every trip is international would show that rule only in the case it does not test.
+#
+# Each is a hotel plus two places to walk to, which is all three legs need. Central, walkable
+# coordinates — the foot router snaps them to the nearest way, so they need only be about right.
 SEV_HOTEL = (-5.9930, 37.3860)
 SEV_CATHEDRAL = (-5.9931, 37.3892)
 SEV_PLAZA = (-5.9869, 37.3773)
@@ -83,6 +92,18 @@ SEV_TRIANA = (-6.0030, 37.3860)
 BDX_HOTEL = (-0.5770, 44.8410)
 BDX_QUAY = (-0.5690, 44.8430)
 BDX_PARK = (-0.5850, 44.8460)
+POR_HOTEL = (-8.6110, 41.1470)
+POR_RIBEIRA = (-8.6130, 41.1405)
+POR_CLERIGOS = (-8.6145, 41.1455)
+LON_HOTEL = (-0.1250, 51.5100)
+LON_THAMES = (-0.1195, 51.5065)
+LON_PARK = (-0.1420, 51.5075)
+MAD_HOTEL = (-3.7030, 40.4180)
+MAD_PRADO = (-3.6920, 40.4140)
+MAD_RETIRO = (-3.6830, 40.4150)
+AMS_HOTEL = (4.8900, 52.3720)
+AMS_CANAL = (4.8840, 52.3680)
+AMS_MUSEUM = (4.8850, 52.3600)
 
 # label, (route key, which end of it), category code (PlaceCategory.code), capture radius.
 #
@@ -121,21 +142,59 @@ ROUTES = {
     "bdx-out": ("WALKING", FOOT, [BDX_HOTEL, BDX_QUAY], 1.25, 12),
     "bdx-back": ("WALKING", FOOT, [BDX_QUAY, BDX_HOTEL], 1.3, 12),
     "bdx-loop": ("WALKING", FOOT, [BDX_HOTEL, BDX_PARK, BDX_HOTEL], 1.3, 12),
+    "por-out": ("WALKING", FOOT, [POR_HOTEL, POR_RIBEIRA], 1.25, 12),
+    "por-back": ("WALKING", FOOT, [POR_RIBEIRA, POR_HOTEL], 1.3, 12),
+    "por-loop": ("WALKING", FOOT, [POR_HOTEL, POR_CLERIGOS, POR_HOTEL], 1.3, 12),
+    "lon-out": ("WALKING", FOOT, [LON_HOTEL, LON_THAMES], 1.25, 12),
+    "lon-back": ("WALKING", FOOT, [LON_THAMES, LON_HOTEL], 1.3, 12),
+    "lon-loop": ("WALKING", FOOT, [LON_HOTEL, LON_PARK, LON_HOTEL], 1.3, 12),
+    "mad-out": ("WALKING", FOOT, [MAD_HOTEL, MAD_PRADO], 1.25, 12),
+    "mad-back": ("WALKING", FOOT, [MAD_PRADO, MAD_HOTEL], 1.3, 12),
+    "mad-loop": ("WALKING", FOOT, [MAD_HOTEL, MAD_RETIRO, MAD_HOTEL], 1.3, 12),
+    "ams-out": ("WALKING", FOOT, [AMS_HOTEL, AMS_CANAL], 1.25, 12),
+    "ams-back": ("WALKING", FOOT, [AMS_CANAL, AMS_HOTEL], 1.3, 12),
+    "ams-loop": ("WALKING", FOOT, [AMS_HOTEL, AMS_MUSEUM, AMS_HOTEL], 1.3, 12),
 }
 
 # (days before the end of the history that the first night away falls, nights, route prefix).
 # The flights themselves are never recorded — those absences are the gap rows.
+#
+# Offsets are counted back from the last day, which is the day of generation, so which calendar
+# year a journey lands in follows from when the file is made. These are spaced to give Journeys
+# three year headings — two journeys in the newest year, three in the one before, one in the
+# oldest — with a few weeks' clearance either side of each new year, so a shoot some weeks late
+# does not slide a journey into the wrong heading. generate prints the dates it produced; if the
+# spread has drifted, move the offsets rather than reading the count off this list.
 JOURNEYS = [
     (18, 4, "sev"),
     (205, 5, "bdx"),
+    (270, 2, "por"),
+    (380, 4, "lon"),
+    (500, 3, "mad"),
+    (650, 5, "ams"),
 ]
 
+# The history reaches back to whichever comes first: the routine, or the oldest journey plus a day
+# of lead, so the first midnight falls before that journey's first day rather than on it.
+#
+# A journey older than the routine stands alone: no commutes around it, just its own week. It still
+# derives, because each night away is bracketed within the block — the day of arrival ends at the
+# hotel, the day of departure back at home — and because the liveness log is ARMED throughout, so
+# the months of silence either side are an attested stay at home rather than a gap, and their nights
+# are placed at home where they neither open a run nor close one. Generating a second year of
+# commutes to reach a journey inside it would double the file for days no screen is shot from.
+JOURNEY_LEAD_DAYS = 2
+HISTORY_DAYS = max(ROUTINE_DAYS,
+                   max(from_end for from_end, _, _ in JOURNEYS) + JOURNEY_LEAD_DAYS)
 
-def journey_start(from_end):
-    """The day index a journey's first night away falls on, counted from the history's first day.
 
-    Both the schedule and the check read it from here rather than each doing the arithmetic: the
-    tail is cut at generation time, so anything counting back from the last day would slide.
+def day_index(from_end):
+    """Turn a distance back from the last day into an index counted from the history's first.
+
+    Everything here is stated from the end — a journey's offset, the routine's length — because the
+    history ends on the day it is generated. The schedule, the routine's boundary and the check all
+    convert through this one function rather than each doing the arithmetic: the tail is cut at
+    generation time, so anything counting back from the last day would slide.
     """
     return HISTORY_DAYS - from_end
 
@@ -227,7 +286,7 @@ def journey_days():
     """day offset -> (leg, prefix) for every day spent away, across all journeys."""
     days = {}
     for from_end, nights, prefix in JOURNEYS:
-        first = journey_start(from_end)
+        first = day_index(from_end)
         for n in range(nights + 1):
             leg = "arrive" if n == 0 else ("leave" if n == nights else "middle")
             days[first + n] = (leg, prefix)
@@ -260,6 +319,10 @@ def schedule(base_day):
             else:
                 plan.append((day, f"{prefix}-out", clock(10, 15)))
                 plan.append((day, f"{prefix}-back", clock(17, 50)))
+            continue
+        # Older than the routine: nothing but the journeys above. Their weeks are self-contained,
+        # and the silence around them reads as a stay at home.
+        if day < day_index(ROUTINE_DAYS):
             continue
         if date.weekday() >= 5:
             plan.append((day, "park-walk", clock(10, 20)))
@@ -379,10 +442,16 @@ def verify(doc):
     for t in doc["tracks"]:
         by_day.setdefault(t["startedAt"] // 86_400_000, []).append(t)
     days = sorted(by_day)
+    # Keyed on the day a track actually falls in, not on its position among the days that have
+    # one: outside the routine window most days hold nothing, so counting entries would walk off
+    # into the wrong week. The ARMED record is stamped at the history's first midnight, which is
+    # the one reference that survives both the sparse days and the cut tail.
+    assert doc["liveness"][0]["type"] == "ARMED", "first liveness entry is not the ARMED stamp"
+    first_epoch_day = doc["liveness"][0]["at"] // 86_400_000
     for from_end, nights, prefix in JOURNEYS:
-        first = journey_start(from_end)
+        first = day_index(from_end)
         for n in range(nights + 1):
-            last = max(by_day[days[first + n]], key=lambda t: t["endedAt"])
+            last = max(by_day[first_epoch_day + first + n], key=lambda t: t["endedAt"])
             anchor = home_at if n == nights else journey_hotel(prefix)
             # 250 m is the app's own reach: PlaceClusterer.DEFAULT_RADIUS_M plus
             # StayDeriver.Params.agreementRadiusM. Inside it the two ends of a night still agree.
@@ -394,6 +463,18 @@ def verify(doc):
     print(f"ok: {len(doc['tracks'])} tracks, "
           f"{sum(t['pointCount'] for t in doc['tracks'])} points, "
           f"{len(doc['places'])} places, {len(days)} days over {len(months)} months")
+
+    # Which year each journey landed in is a consequence of the day this ran, not of JOURNEYS, so
+    # it is printed rather than left to be discovered on the Insights screen after a shoot.
+    per_year = {}
+    for from_end, nights, prefix in JOURNEYS:
+        first_day = min(by_day[first_epoch_day + day_index(from_end)],
+                        key=lambda t: t["startedAt"])
+        date = dt.datetime.fromtimestamp(first_day["startedAt"] / 1000, dt.timezone.utc).date()
+        per_year.setdefault(date.year, []).append(f"{prefix} {date:%d %b}, {nights}n")
+    for year in sorted(per_year, reverse=True):
+        found = per_year[year]
+        print(f"  {year}: {len(found)} journey{'' if len(found) == 1 else 's'} — {'; '.join(found)}")
 
 
 def main():
