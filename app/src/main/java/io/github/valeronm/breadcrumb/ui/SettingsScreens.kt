@@ -56,6 +56,7 @@ internal enum class SettingsPage {
     PointQuality,
     AutoPause,
     GpsSearch,
+    DepartureTriggers,
     TrackFiltering,
     AppLock,
     OnlineServices,
@@ -114,6 +115,12 @@ internal fun SettingsScreen(
                         stringResource(R.string.settings_gps_search),
                         subtitle = stringResource(R.string.settings_gps_search_sub),
                     ) { onOpenPage(SettingsPage.GpsSearch) }
+                },
+                {
+                    NavRow(
+                        stringResource(R.string.settings_departure_triggers),
+                        subtitle = stringResource(R.string.settings_departure_triggers_sub),
+                    ) { onOpenPage(SettingsPage.DepartureTriggers) }
                 },
                 {
                     NavRow(
@@ -386,6 +393,62 @@ internal fun GpsSearchSettingsScreen(onBack: () -> Unit) {
                 ) {
                     gpsGiveUpSec.set(it.toInt())
                 }
+            },
+        )
+    }
+}
+
+/**
+ * The ways the recorder can notice a journey starting when activity detection does not report one.
+ * Three switches rather than a single "detect harder": they cost differently, they are blind in
+ * different places, and which combination is right depends on the phone — the same build on two
+ * devices can have activity detection announce a car within seconds, or never announce it at all.
+ */
+@Composable
+internal fun DepartureTriggersSettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val fence = rememberPref(
+        true,
+        { AppSettings.departureFence(context) },
+    ) { AppSettings.setDepartureFence(context, it) }
+    val motion = rememberPref(
+        true,
+        { AppSettings.departureMotion(context) },
+    ) { AppSettings.setDepartureMotion(context, it) }
+    val continuous = rememberPref(
+        false,
+        { AppSettings.departureContinuous(context) },
+    ) { AppSettings.setDepartureContinuous(context, it) }
+    SettingsSubPage(
+        stringResource(R.string.settings_departure_triggers),
+        onBack,
+        listOf(fence, motion, continuous),
+    ) {
+        SettingsPageDescription(stringResource(R.string.departure_description))
+        GroupedRows(
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.departure_fence),
+                    subtitle = stringResource(R.string.departure_fence_sub),
+                    checked = fence.value,
+                    onCheckedChange = { fence.set(it) },
+                )
+            },
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.departure_motion),
+                    subtitle = stringResource(R.string.departure_motion_sub),
+                    checked = motion.value,
+                    onCheckedChange = { motion.set(it) },
+                )
+            },
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.departure_continuous),
+                    subtitle = stringResource(R.string.departure_continuous_sub),
+                    checked = continuous.value,
+                    onCheckedChange = { continuous.set(it) },
+                )
             },
         )
     }

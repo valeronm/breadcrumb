@@ -29,6 +29,9 @@ object Settings {
     private const val KEY_APP_LOCK_TRUSTS_KEYGUARD = "app_lock_trusts_keyguard"
     private const val KEY_BLOCK_SCREENSHOTS = "block_screenshots"
     private const val KEY_ONLINE_PLACE_SEARCH = "online_place_search"
+    private const val KEY_DEPARTURE_FENCE = "departure_fence"
+    private const val KEY_DEPARTURE_MOTION = "departure_motion"
+    private const val KEY_DEPARTURE_CONTINUOUS = "departure_continuous"
 
     // The key string doesn't match the edge-stay name and must stay that way: a renamed key reads
     // back 0 on every installed device and re-walks the whole history for nothing.
@@ -191,6 +194,46 @@ object Settings {
 
     fun setGpsGiveUpSec(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_GPS_GIVE_UP_SEC, value) }
+    }
+
+    // --- Departure triggers --------------------------------------------------
+    //
+    // Three independent ways to notice the phone has left a stop, because activity detection only
+    // describes the body: a passenger sits still, so a train, a taxi and a bus can all be announced
+    // as nothing at all. They are switches rather than a mode because they cost differently and
+    // fail differently, and no ordering of them is right on every phone.
+
+    /** Geofence at the last stop. Free, system-held across process death, and reports minutes late. */
+    fun departureFence(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_DEPARTURE_FENCE, true)
+
+    fun setDepartureFence(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_DEPARTURE_FENCE, enabled) }
+    }
+
+    /**
+     * A burst of coarse positions after the hardware motion sensor fires. On by default: the sensor
+     * costs nothing until the phone moves, and walking — the case that would trigger it most — is
+     * already recording rather than waiting, so the burst is rare.
+     */
+    fun departureMotion(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_DEPARTURE_MOTION, true)
+
+    fun setDepartureMotion(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_DEPARTURE_MOTION, enabled) }
+    }
+
+    /**
+     * A standing coarse-position request for the whole time nothing is recording. Off by default,
+     * and it is the only one of the three that needs defending: idle is the state the recorder
+     * spends most of its life in, so this is the one trigger whose cost is paid all day and mostly
+     * by a phone that is going nowhere.
+     */
+    fun departureContinuous(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_DEPARTURE_CONTINUOUS, false)
+
+    fun setDepartureContinuous(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_DEPARTURE_CONTINUOUS, enabled) }
     }
 
     // --- Privacy -------------------------------------------------------------

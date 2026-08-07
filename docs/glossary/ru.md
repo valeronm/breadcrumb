@@ -69,6 +69,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | recording | запись | Progressive titles use «Идёт запись». Never *отслеживание* — that is *tracking*, the concept the app refuses. |
+| setting-off | отправиться в путь | The page is «Начало поездки», the subtitle «что вы отправились в путь». The full phrase, not bare *выехать*, which commits to a vehicle — the same page has to cover a train and a taxi, and one of these triggers exists precisely because the app cannot tell what is carrying you. The fence row takes *уход* for leaving the spot, keeping the two motions distinct on one screen. |
 | positioning | определение местоположения | The status line says «Определение местоположения…», never «Поиск GPS» or «Поиск сигнала» — *поиск* is the user's, and the radio is not the subject. |
 | backup | резервная копия | Short form *копия*; the verb is «создать резервную копию». |
 | search | поиск (noun), найти (verb) | Only the user's. What the receiver does is *определение местоположения*. |

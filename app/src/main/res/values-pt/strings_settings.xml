@@ -14,6 +14,8 @@
     <string name="settings_auto_pause_sub">Até que intervalo dois movimentos ainda são uma viagem</string>
     <string name="settings_gps_search">Posicionamento</string>
     <string name="settings_gps_search_sub">Poupar bateria quando não há posição a obter</string>
+    <string name="settings_departure_triggers">Início de uma viagem</string>
+    <string name="settings_departure_triggers_sub">Como a aplicação percebe que partiu</string>
     <string name="settings_track_filtering">Filtragem de viagens</string>
     <string name="settings_track_filtering_sub">Limites abaixo dos quais as viagens terminadas são descartadas</string>
     <string name="settings_units">Unidades</string>
@@ -47,6 +49,14 @@
 
     <string name="gps_description">Se não chegar nenhuma posição boa durante este tempo, o GPS desliga-se para poupar bateria — e volta a tentar quando se mexer ou quando outra aplicação obtiver uma localização. Com Desligado, o GPS nunca desiste.</string>
     <string name="gps_give_up_after">Desistir ao fim de</string>
+
+    <string name="departure_description">A deteção de atividade descreve o seu corpo, por isso um percurso feito sentado — de comboio, de táxi, de autocarro — pode parecer estar parado numa plataforma. Estas são as outras formas de a aplicação saber que partiu. Funcionam de forma independente, e quantas mais estiverem ligadas, menos percursos se perdem.</string>
+    <string name="departure_fence">Sair de onde parou</string>
+    <string name="departure_fence_sub">Não gasta bateria, e pode demorar vários minutos a perceber.</string>
+    <string name="departure_motion">Movimento sentido pelo telemóvel</string>
+    <string name="departure_motion_sub">Não custa nada até o telemóvel se mexer; depois verifica brevemente onde está.</string>
+    <string name="departure_continuous">Verificação regular da posição</string>
+    <string name="departure_continuous_sub">É a que percebe mais depressa. A única que gasta bateria enquanto não vai a lado nenhum.</string>
 
     <string name="filter_description">As viagens abaixo destes limites passam para as eliminadas recentemente quando terminam</string>
     <string name="filter_min_duration">Duração mínima</string>

@@ -89,7 +89,7 @@ data class Ingested(
  *
  * Callers hold whatever lock they serialize the recorder with; nothing here is thread-safe on its own.
  */
-class FixIngest(private val distance: DistanceFn = AndroidDistance) {
+class FixIngest(internal val distance: DistanceFn = AndroidDistance) {
 
     private val confirmer = MovementConfirmer(distance)
     private val carrierEvidence = CarrierEvidence()

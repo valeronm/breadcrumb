@@ -14,6 +14,8 @@
     <string name="settings_auto_pause_sub">Какой перерыв в движении ещё не разделяет поездку</string>
     <string name="settings_gps_search">Определение местоположения</string>
     <string name="settings_gps_search_sub">Экономить заряд, когда местоположение не определяется</string>
+    <string name="settings_departure_triggers">Начало поездки</string>
+    <string name="settings_departure_triggers_sub">Как приложение замечает, что вы отправились в путь</string>
     <string name="settings_track_filtering">Фильтр поездок</string>
     <string name="settings_track_filtering_sub">Пороги, ниже которых завершённые поездки отсеиваются</string>
     <string name="settings_units">Единицы измерения</string>
@@ -47,6 +49,14 @@
 
     <string name="gps_description">Если за это время не приходит ни одной хорошей позиции, GPS отключается, чтобы не тратить заряд, и пробует снова, когда вы двигаетесь или другое приложение получает местоположение. Если выключено, GPS не отключается никогда.</string>
     <string name="gps_give_up_after">Отключать GPS через</string>
+
+    <string name="departure_description">Распознавание активности описывает ваше тело, поэтому дорогу, которую вы проводите сидя — в поезде, в такси, в автобусе, — оно может принять за ожидание на платформе. Вот другие способы, которыми приложение может понять, что вы отправились в путь. Они работают независимо друг от друга, и чем больше их включено, тем меньше поездок теряется.</string>
+    <string name="departure_fence">Уход с места остановки</string>
+    <string name="departure_fence_sub">Не тратит заряд, но может заметить только через несколько минут.</string>
+    <string name="departure_motion">Движение, которое чувствует телефон</string>
+    <string name="departure_motion_sub">Ничего не стоит, пока телефон неподвижен, — а затем ненадолго проверяет, где вы.</string>
+    <string name="departure_continuous">Регулярная проверка положения</string>
+    <string name="departure_continuous_sub">Замечает быстрее всех. Единственный способ, который тратит заряд, пока вы никуда не едете.</string>
 
     <string name="filter_description">Поездки ниже этих порогов после завершения попадают в «Недавно удалённые»</string>
     <string name="filter_min_duration">Мин. длительность</string>

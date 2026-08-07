@@ -70,6 +70,7 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | Concept | Term | What it means |
 |---|---|---|
 | recording | recording | The act and state of capturing trips — one of the ways a trip arrives, beside importing and typing one in. Never *tracking*. |
+| setting-off | set off | The moment a trip begins, **from the reader's side** — what the app is trying to notice, as opposed to *recording*, which is what it then does. Settings' page is "Starting a trip". Never named after a mechanism: no *geofence*, no *trigger*, no *sensor*, since a reader chooses between these by how soon a trip is noticed and what it costs them, and could act on none of the machinery. |
 | positioning | positioning | Working out where the phone is — the process, from switching the receiver on to accepting a point. Never *fix*, and never *signal*. |
 | backup | backup | The full-app export: one file with everything. |
 | search | search | The user typing a query (places, cities). The only search there is — what the receiver does is *positioning*. |

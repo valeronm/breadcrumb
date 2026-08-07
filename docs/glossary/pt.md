@@ -69,6 +69,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | recording | gravação | The recorder's progressive titles use *A gravar*. Never *registo* — that is the logs, in this same group, and the collision cost the notification channel its name once already. |
+| setting-off | partir | The page is *Início de uma viagem*, the subtitle *que partiu*. *Partir* over *sair*, which is leaving a place and would compete with the fence row's own *Sair de onde parou*; the two sit on the same screen, so the departure and the trip's beginning must not read as one word. |
 | positioning | localizar (verb), posicionamento (noun) | Progressive *a localizar* in the recorder's status line; *posicionamento por satélite* where the setting names the technique. |
 | backup | cópia de segurança | Short form *cópia*; the verb is *copiar*. |
 | search | procurar (verb), pesquisa (noun) | Only the user's. What the receiver does is *posicionamento*. |

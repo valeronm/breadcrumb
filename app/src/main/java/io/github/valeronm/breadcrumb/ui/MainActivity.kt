@@ -813,6 +813,7 @@ private fun SettingsPagesOverlay(
             SettingsPage.PointQuality -> PointQualitySettingsScreen(onBack = onClose)
             SettingsPage.AutoPause -> AutoPauseSettingsScreen(onBack = onClose)
             SettingsPage.GpsSearch -> GpsSearchSettingsScreen(onBack = onClose)
+            SettingsPage.DepartureTriggers -> DepartureTriggersSettingsScreen(onBack = onClose)
             SettingsPage.TrackFiltering -> TrackFilteringSettingsScreen(onBack = onClose)
             SettingsPage.AppLock -> AppLockSettingsScreen(onBack = onClose)
             SettingsPage.OnlineServices -> OnlineServicesSettingsScreen(onBack = onClose)

@@ -17,6 +17,8 @@
     <!-- Not "GPS positioning": the P already is. -->
     <string name="settings_gps_search">Positioning</string>
     <string name="settings_gps_search_sub">Save battery when no position can be found</string>
+    <string name="settings_departure_triggers">Starting a trip</string>
+    <string name="settings_departure_triggers_sub">How the app notices you have set off</string>
     <string name="settings_track_filtering">Trip filtering</string>
     <string name="settings_track_filtering_sub">Limits below which finished trips are discarded</string>
     <string name="settings_units">Units</string>
@@ -56,6 +58,16 @@
     <!-- GPS search -->
     <string name="gps_description">If no good position arrives for this long, GPS switches off to save battery — and retries when you move or another app gets a location. When set to Off, GPS never gives up.</string>
     <string name="gps_give_up_after">Give up after</string>
+
+    <!-- Starting a trip. Deliberately says nothing about geofences, sensors or providers: what a
+         reader chooses between is how quickly a trip is noticed and what it costs them. -->
+    <string name="departure_description">Activity detection describes your body, so a journey you sit still through — a train, a taxi, a bus — can look like standing on a platform. These are the other ways the app can tell you have set off. They work independently, and more of them means fewer journeys missed.</string>
+    <string name="departure_fence">Leaving where you stopped</string>
+    <string name="departure_fence_sub">Costs no battery, and can take several minutes to notice.</string>
+    <string name="departure_motion">Movement the phone senses</string>
+    <string name="departure_motion_sub">Costs nothing until the phone moves, then briefly checks where you are.</string>
+    <string name="departure_continuous">Regular position checks</string>
+    <string name="departure_continuous_sub">Notices soonest. The only one that uses battery while you are not going anywhere.</string>
 
     <!-- Track filtering -->
     <string name="filter_description">Trips under these limits are moved to Recently deleted when they finish</string>

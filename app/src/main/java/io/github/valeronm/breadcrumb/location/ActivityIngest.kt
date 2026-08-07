@@ -4,6 +4,7 @@ import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DeafnessWarning
+import io.github.valeronm.breadcrumb.domain.DepartureWatch
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ReadingClock
@@ -70,6 +71,12 @@ sealed interface Effect {
      * should fall back to whatever position the platform last saw. Carried as a value so the
      * absent anchor arrives as something to act on rather than something to infer from which
      * effects the pass happened to emit.
+     *
+     * **A null anchor is provisional.** That fallback can be hours stale, and a fence registered
+     * where the phone no longer is is *already outside* it, so the exit it exists to report can
+     * never happen. The same pass therefore buys a short probe burst, and this is emitted again with
+     * a real anchor as soon as one position lands — one fence id, so the second registration
+     * replaces the first.
      */
     data class ArmDepartureFence(val from: Anchor?) : Effect {
         data class Anchor(val latitude: Double, val longitude: Double)
@@ -77,6 +84,26 @@ sealed interface Effect {
 
     /** Stop watching: a track is running, so a departure is no longer news. */
     data object DisarmDepartureFence : Effect
+
+    /**
+     * Ask for coarse positions to judge a departure from, every [intervalMs] for [durationMs] (0 =
+     * until stopped). The two numbers are what make one effect serve both position-based triggers:
+     * the continuous one runs slowly and forever, the motion-triggered one runs fast and briefly.
+     *
+     * **Re-asking at the same [intervalMs] only extends the window** — like [EnsureGps], this is a
+     * request for a state rather than a command to rebuild, and the core relies on it: the motion
+     * sensor re-arms immediately and can fire repeatedly while one burst is still running, so a
+     * dispatcher that tore the request down and rebuilt it would restart the engine's acquisition
+     * once per firing. A *different* interval is a different request and does rebuild.
+     *
+     * **Not folded into [ArmDepartureFence]**, though a pause emits both: they are independently
+     * switchable, they fail in different ways, and the fence is a registration the system holds
+     * across process death while this is a live request that dies with the service.
+     */
+    data class StartDepartureProbe(val intervalMs: Long, val durationMs: Long) : Effect
+
+    /** Stop asking. A track is running, or the recorder has been disarmed. */
+    data object StopDepartureProbe : Effect
 
     /**
      * Insert the track row. The id it returns is the dispatcher's to hold — nothing here needs it,
@@ -113,6 +140,58 @@ sealed interface Effect {
     data object Publish : Effect
 }
 
+/**
+ * Which ways of hearing a departure are switched on, and how the ones that sample do it. They are
+ * parallel rather than ranked — each fails where another works, which is why the user can run any
+ * combination and why none of them is a fallback for another.
+ *
+ * The fence is free and slow, the motion window is free until it fires, the continuous request costs
+ * battery for the whole of the state the recorder spends most of its life in. That is the whole
+ * reason the last one is off unless asked for.
+ */
+data class DepartureTriggers(
+    /** The geofence: a system-held registration that survives this process dying. */
+    val fence: Boolean,
+    /** A standing coarse request for the whole time nothing records. */
+    val continuous: Boolean,
+    /** A short burst of coarse positions after the hardware motion sensor fires. */
+    val motion: Boolean,
+) {
+    companion object {
+        /**
+         * How often the standing request asks. Chosen against the measurement that started all of
+         * this: the geofence took five minutes to report a departure it had every chance to see
+         * within seconds, so anything in this range is a large improvement, and the slower end of it
+         * is what keeps an all-day request defensible.
+         */
+        const val CONTINUOUS_INTERVAL_MS = 60_000L
+
+        /**
+         * How fast the motion-triggered burst asks. Not a setting: it runs inside a bounded window,
+         * so it trades against nothing a user would recognise — it is as fast as is worth asking a
+         * Wi-Fi-derived position, which settles in a few seconds and does not improve by being asked
+         * again sooner.
+         */
+        const val MOTION_INTERVAL_MS = 15_000L
+
+        /**
+         * How long that burst runs. Long enough to cover the acquisition and a couple of positions
+         * at road speed, short enough that a phone merely picked up and put down costs a handful of
+         * Wi-Fi scans. A departure the window misses is not lost — the sensor re-arms, and a moving
+         * phone keeps firing it.
+         */
+        const val MOTION_WINDOW_MS = 120_000L
+
+        /**
+         * How long a watch with no anchor probes to get one. Shorter than the motion window because
+         * it wants a single position rather than a verdict, and it gives up rather than hunting: a
+         * phone with neither Wi-Fi nor cell to place it is one the fence keeps its last-known anchor
+         * on, which is what the arming already logged the age of.
+         */
+        const val ANCHOR_WINDOW_MS = 60_000L
+    }
+}
+
 /** The settings a pass is decided under, read once per pass by the caller that owns them. */
 data class ActivitySettings(
     val resumeWindowMs: Long,
@@ -123,6 +202,7 @@ data class ActivitySettings(
      * sampled more slowly waits proportionally longer.
      */
     val uncorroboratedHoldMs: Long,
+    val triggers: DepartureTriggers,
 )
 
 /**
@@ -159,6 +239,11 @@ class ActivityIngest(
     private val gate = ActivityGate(TrackQuality.groupCeiling(ActivityType.WALKING))
     private val controller = TrackController()
 
+    // Owned rather than shared, unlike the fix path's rules: nothing else ever asks whether the
+    // phone has left, and the positions it judges never reach a track. The geometry comes from the
+    // fix path's seam rather than a second parameter, so the two cannot be wired to disagree.
+    private val watch = DepartureWatch(ingest.distance)
+
     // Sanitizes AR event timestamps into gate reading times; see [ReadingClock].
     private val readingClock = ReadingClock()
 
@@ -186,6 +271,9 @@ class ActivityIngest(
 
     /** The last reading's own sanitized time — how late it was is what a log line wants to say. */
     val lastReadingMs: Long get() = readingClock.lastReadingMs
+
+    /** When a departure began being watched for, or 0 — what a trigger's latency is reported against. */
+    val watchStartedAtMs: Long get() = watch.startedAtMs
     val phase: TrackController.Phase get() = controller.phase
     val isPaused: Boolean get() = controller.isPaused
     val deaf: Boolean get() = deafnessWarning.warned
@@ -302,10 +390,17 @@ class ActivityIngest(
      * close always carries its own [Effect.Publish], so it cannot land without the UI and the
      * notification being brought along.
      */
-    fun onTick(nowMs: Long): List<Effect> {
+    fun onTick(nowMs: Long, settings: ActivitySettings): List<Effect> {
         if (controller.onTick(nowMs) != RecordingAction.Finalize) return emptyList()
         val out = ArrayList<Effect>()
         close(nowMs, out)
+        // **The one path that ends at idle without opening anything**, and the only one that has to
+        // put the motion trigger back: [close] emits [Effect.StopGps], which disarms the resume
+        // signals wholesale and takes this one down with them. The anchor is deliberately left where
+        // the pause put it — the phone has not moved since, and a track that ended at its last fix
+        // has nothing newer to offer. Not folded into [close], which is followed by an open on every
+        // other path, and there the arm would be undone by the next effect in the same list.
+        if (settings.triggers.motion && watch.watching) out += Effect.ArmSignificantMotion
         out += Effect.Publish
         return out
     }
@@ -345,17 +440,93 @@ class ActivityIngest(
     }
 
     /**
-     * A cheap signal says conditions may have changed. What each is worth is decided here rather
-     * than where it is registered: a passive fix is the platform having produced one somewhere, so
-     * it stands on its own evidence and ignores the backoff, while motion merely suggests the phone
-     * has gone somewhere and must wait its turn. Empty when GPS is not suspended at all.
+     * A coarse position from the departure probe. The only question asked of it is whether the phone
+     * has left where it stopped — it is a wake, and deliberately never reaches [FixIngest], a track
+     * or the witness, being a Wi-Fi-derived position tens to hundreds of meters out.
+     *
+     * Empty while nothing is being watched for, which is the ordinary case: a stray delivery can
+     * outlive the request that asked for it.
      */
-    fun onResumeSignal(signal: ResumeSignals.Signal, elapsedMs: Long): List<Effect> {
-        if (!noFixGuard.suspended) return emptyList()
-        val respectBackoff = signal == ResumeSignals.Signal.MOTION
-        // Too soon after the last failed probe; keep listening for motion instead.
-        if (!noFixGuard.shouldProbe(elapsedMs, respectBackoff)) return listOf(Effect.ArmSignificantMotion)
-        return listOf(Effect.EnsureGps, Effect.Publish)
+    fun onProbeFix(
+        latitude: Double,
+        longitude: Double,
+        accuracyM: Double,
+        nowMs: Long,
+        settings: ActivitySettings,
+    ): List<Effect> = when (val verdict = watch.judge(latitude, longitude, accuracyM)) {
+        is DepartureWatch.Verdict.Anchored -> anchored(verdict.at, settings.triggers)
+        DepartureWatch.Verdict.Departed -> onDeparture(nowMs, settings)
+        DepartureWatch.Verdict.Waiting -> emptyList()
+    }
+
+    /**
+     * The first position of a watch that began with nowhere to measure from — which is also **the
+     * freshest thing the fence can be centred on**, and why it is worth a pass of its own.
+     *
+     * A fence is armed at registration in whatever inside/outside state the phone is already in, and
+     * `EXIT` only fires on inside→outside. So one dropped where the phone *used to be* is recorded
+     * as already outside, has no transition left to make, and reports nothing however far the phone
+     * then travels — silently, while still occupying the single slot. That is the fate of every
+     * fence armed from a stale last-known position, and re-arming here on a position seconds old
+     * ends the whole class of it.
+     */
+    private fun anchored(at: DepartureWatch.Anchor, triggers: DepartureTriggers): List<Effect> {
+        val out = ArrayList<Effect>()
+        if (triggers.fence) out += Effect.ArmDepartureFence(at.forFence())
+        // The burst existed to produce exactly this. A standing request is not the burst's to stop,
+        // and stopping it here would take the continuous trigger down on the first position it ever
+        // delivered.
+        if (!triggers.continuous) out += Effect.StopDepartureProbe
+        return out
+    }
+
+    /**
+     * A cheap signal says conditions may have changed, which means one of two unrelated things
+     * depending on why GPS is off.
+     *
+     * **GPS off for want of a fix**: this is the no-fix guard's resume. What each signal is worth is
+     * decided here rather than where it is registered — a passive fix is the platform having
+     * produced one somewhere, so it stands on its own evidence and ignores the backoff, while motion
+     * merely suggests the phone has gone somewhere and must wait its turn.
+     *
+     * **GPS off for want of a journey**: motion is the cheapest hint a departure may be under way,
+     * and buys a short burst of coarse positions to settle it. This is the whole economy of the
+     * motion trigger — a hardware sensor costs nothing until the phone actually moves, so the
+     * request that costs something is only ever built when there is something to ask about.
+     */
+    fun onResumeSignal(
+        signal: ResumeSignals.Signal,
+        elapsedMs: Long,
+        settings: ActivitySettings,
+    ): List<Effect> {
+        if (noFixGuard.suspended) {
+            val respectBackoff = signal == ResumeSignals.Signal.MOTION
+            // Too soon after the last failed probe; keep listening for motion instead.
+            if (!noFixGuard.shouldProbe(elapsedMs, respectBackoff)) {
+                return listOf(Effect.ArmSignificantMotion)
+            }
+            return listOf(Effect.EnsureGps, Effect.Publish)
+        }
+        val triggers = settings.triggers
+        if (signal != ResumeSignals.Signal.MOTION || !triggers.motion) return emptyList()
+        // Two states where a burst would buy nothing. A running track already has the ground under
+        // continuous observation at a resolution this could not improve on — and so, more cheaply,
+        // does the standing request: positions are already arriving, so the only thing a burst could
+        // add is a faster cadence, at the price of the two requests being one object with one window
+        // between them.
+        val watchedAlready =
+            triggers.continuous || (controller.phase is TrackController.Phase.Recording && !controller.isPaused)
+        if (watchedAlready) return emptyList()
+        // Re-armed straight away rather than after the window: the sensor is one-shot, and a phone
+        // still moving when it next fires is exactly the case worth hearing about. Extending a live
+        // window is what the probe does with a repeat ask.
+        return listOf(
+            Effect.StartDepartureProbe(
+                DepartureTriggers.MOTION_INTERVAL_MS,
+                DepartureTriggers.MOTION_WINDOW_MS,
+            ),
+            Effect.ArmSignificantMotion,
+        )
     }
 
     /** Disarming: close whatever is open, without a publish — the caller resets the status wholesale. */
@@ -367,20 +538,32 @@ class ActivityIngest(
      * returns effects at all — arming is the one moment a departure must be watched for with no
      * track behind it, and the position is the platform's to supply, not a fix of ours.
      */
-    fun onArmed(): List<Effect> {
+    fun onArmed(nowMs: Long, settings: ActivitySettings): List<Effect> {
         reset()
-        return listOf(Effect.ArmDepartureFence(from = null))
+        val out = ArrayList<Effect>()
+        watchForDeparture(from = null, nowMs, settings.triggers, out)
+        return out
     }
 
     /** On disarm: the same reset, watching for nothing — the user has asked not to be recorded. */
-    fun onDisarmed() {
+    fun onDisarmed(): List<Effect> {
         reset()
+        val out = ArrayList<Effect>()
+        stopWatchingForDeparture(out)
+        return out
     }
 
     private fun reset() {
         gate.onArmed()
         waiting = null
     }
+
+    /**
+     * The fence takes a coordinate and no accuracy: it has a fixed radius of its own, so the anchor's
+     * error is the watch's business rather than the registration's.
+     */
+    private fun DepartureWatch.Anchor.forFence() =
+        Effect.ArmDepartureFence.Anchor(latitude, longitude)
 
     /** Forget the deafness episode. The alert itself is the caller's to withdraw. */
     fun forgetDeafness() {
@@ -454,7 +637,11 @@ class ActivityIngest(
         // fired.
         when (val action = controller.onActivity(changed, atMs, settings.resumeWindowMs)) {
             RecordingAction.Noop -> Unit
-            is RecordingAction.Pause -> pause(action.pausedActivity, action.resumeDeadlineMs, out)
+            // Watching starts at [nowMs], not at the stop's own time: the latency this reports
+            // against is the mechanism's, and it is measured the same way the fence measures its
+            // own registration, so the two triggers can be compared in one log.
+            is RecordingAction.Pause ->
+                pause(action.pausedActivity, action.resumeDeadlineMs, nowMs, settings, out)
             // Unreachable from a reading (expiry only comes from a tick); for totality.
             RecordingAction.Finalize -> close(nowMs, out)
             RecordingAction.Resume -> resume(changed, out)
@@ -481,24 +668,103 @@ class ActivityIngest(
     }
 
     /** Stop GPS but keep the track open; a wake at [resumeDeadlineMs] finalizes it if unresumed. */
-    private fun pause(trackActivity: ActivityType, resumeDeadlineMs: Long, out: MutableList<Effect>) {
+    private fun pause(
+        trackActivity: ActivityType,
+        resumeDeadlineMs: Long,
+        nowMs: Long,
+        settings: ActivitySettings,
+        out: MutableList<Effect>,
+    ) {
         noFixGuard.onStopped()
         controller.onPaused(trackActivity, resumeDeadlineMs)
         out += Effect.StopGps
         out += Effect.SchedulePauseWake(resumeDeadlineMs)
         // The stop is where the next departure will be from, and the last good fix is where the
         // phone is standing as it is declared. A track that never got one still wants watching —
-        // that is the GNSS-starved case, where a fence is the only thing that can notice at all.
-        out += Effect.ArmDepartureFence(
-            ingest.lastGood?.let { Effect.ArmDepartureFence.Anchor(it.latitude, it.longitude) },
+        // that is the GNSS-starved case, where the fence is the only thing that can notice at all.
+        watchForDeparture(
+            ingest.lastGood?.let {
+                DepartureWatch.Anchor(it.latitude, it.longitude, it.accuracy?.toDouble() ?: 0.0)
+            },
+            nowMs,
+            settings.triggers,
+            out,
         )
     }
 
-    /** Continue the paused track: GPS back on, accumulators kept; the first fix begins a new segment. */
+    /**
+     * Start every switched-on way of hearing that the phone has left [from] — null where the
+     * recorder has no fix of its own to anchor on, which each mechanism resolves its own way.
+     *
+     * They run in parallel rather than in preference order, because each is blind where another
+     * sees: the fence survives this process dying but reports minutes late, the continuous request
+     * is prompt but costs battery all day, and the motion window is free until the phone actually
+     * moves but relies on a sensor that a smooth departure can sleep through.
+     *
+     * **Where a caller emits [Effect.StopGps], this must follow it**: stopping GPS disarms the resume
+     * signals wholesale (see [LocationRecordingService.stopLocationUpdates]), which takes the motion
+     * trigger down with them. Every caller that stops GPS does so before calling this; [onArmed],
+     * which stops nothing, is unaffected.
+     */
+    private fun watchForDeparture(
+        from: DepartureWatch.Anchor?,
+        atMs: Long,
+        triggers: DepartureTriggers,
+        out: MutableList<Effect>,
+    ) {
+        watch.watch(from, atMs)
+        if (triggers.fence) out += Effect.ArmDepartureFence(from?.forFence())
+        when {
+            // The standing request will produce the anchor on its own schedule; a burst on top would
+            // rebuild it at a tighter cadence and then take it down when the burst's window lapsed.
+            triggers.continuous ->
+                out += Effect.StartDepartureProbe(
+                    DepartureTriggers.CONTINUOUS_INTERVAL_MS,
+                    durationMs = 0,
+                )
+
+            // **Nothing here knows where the phone is**, so every trigger is working blind: the
+            // watch has nothing to measure against, and the fence has been dropped on a last-known
+            // that may be hours old. One short burst settles both, and buying it here is what keeps
+            // arming — after a reboot or an app update, when Play Services has dropped every fence —
+            // from being the case the recorder is weakest in.
+            from == null && (triggers.fence || triggers.motion) ->
+                out += Effect.StartDepartureProbe(
+                    DepartureTriggers.MOTION_INTERVAL_MS,
+                    DepartureTriggers.ANCHOR_WINDOW_MS,
+                )
+        }
+        if (triggers.motion) out += Effect.ArmSignificantMotion
+    }
+
+    /**
+     * Stop watching. The two effects are emitted unconditionally rather than per switch — a trigger
+     * turned off while it was armed still has a registration to tear down, and the settings no longer
+     * say it exists — and both dispatch to a no-op when nothing was armed.
+     *
+     * **The motion trigger is not among them**, and cannot be: it comes down with the resume signals
+     * inside whatever [Effect.StopGps] or [Effect.EnsureGps] the same pass emits. [onTick] is the one
+     * path that ends idle with no such effect after it, and re-arms there for that reason.
+     */
+    private fun stopWatchingForDeparture(out: MutableList<Effect>) {
+        watch.stop()
+        out += Effect.DisarmDepartureFence
+        out += Effect.StopDepartureProbe
+    }
+
+    /**
+     * Continue the paused track: GPS back on, accumulators kept; the first fix begins a new segment.
+     *
+     * Stops watching for exactly the reason [open] does — the departure has happened, and the ground
+     * is now under continuous observation at a resolution no probe could improve on. This is not
+     * merely tidy: the fence would otherwise stay armed on the pause's anchor for the whole rest of
+     * the track, and a standing probe would keep asking for positions alongside a live GPS request.
+     */
     private fun resume(activity: ActivityType, out: MutableList<Effect>) {
         controller.onRecording(activity)
         ingest.markSegmentStart()
         out += Effect.EnsureGps
+        stopWatchingForDeparture(out)
     }
 
     private fun open(activity: ActivityType, startedAt: Long, out: MutableList<Effect>) {
@@ -508,8 +774,8 @@ class ActivityIngest(
         controller.onRecording(activity)
         out += Effect.OpenTrack(activity, startedAt)
         out += Effect.EnsureGps
-        // Whatever the fence was watching for has happened, or something else got there first.
-        out += Effect.DisarmDepartureFence
+        // Whatever they were watching for has happened, or something else got there first.
+        stopWatchingForDeparture(out)
     }
 
     /**

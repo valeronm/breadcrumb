@@ -5,7 +5,6 @@ import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ORIGIN_LAT
 import io.github.valeronm.breadcrumb.domain.Speed
-import io.github.valeronm.breadcrumb.domain.flatDistance
 import io.github.valeronm.breadcrumb.domain.lonAt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -14,80 +13,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The activity path off the device. Where tracks begin, pause, stitch and end used to be answerable
- * only by walking around with the phone for an afternoon: the gate, the controller and the deafness
- * oracle each had a suite, but the loop that sequences them — which reading opens a track, what a
- * stop schedules, whether a return stitches or splits — had none.
+ * Where tracks begin, pause, stitch and end — the loop that sequences the rules, which used to be
+ * answerable only by walking around with the phone for an afternoon. The gate, the controller and
+ * the deafness oracle each had a suite; the loop deciding which reading opens a track, what a stop
+ * schedules, and whether a return stitches or splits had none.
  *
- * Times are milliseconds from an arbitrary [T0]; fixtures sit at the domain suites' neutral origin.
+ * How a start is *noticed* in the first place is [DepartureTriggerTest]'s question; the recorder
+ * both drive is [ActivityIngestFixture].
  */
-class ActivityIngestTest {
-
-    private val ingest = FixIngest(flatDistance)
-    private val noFixGuard = NoFixGuard()
-    private val core = ActivityIngest(ingest, noFixGuard)
-
-    private val settings = ActivitySettings(
-        resumeWindowMs = RESUME_WINDOW_MS,
-        uncorroboratedHoldMs = HOLD_CAP_MS,
-    )
-
-    /**
-     * A reading whose event time is its apply time — the ordinary live delivery. The registration is
-     * long-established, so neither the replay window nor the armed bound swallows one.
-     */
-    private fun reading(
-        raw: ActivityType,
-        atMs: Long,
-        eventTimeMs: Long? = atMs,
-    ) = core.onReading(
-        raw = raw,
-        eventTimeMs = eventTimeMs,
-        nowMs = atMs,
-        registration = Registration(armedAtMs = T0 - MINUTE, lastRegisteredAtMs = T0 - HOUR),
-        settings = settings,
-    )
-
-    /**
-     * A stop that lands. On foot the witness's window rarely fills, so the ordinary stop is one the
-     * ground never vouched for: it is held, and the cap lands it — timed from the reading, so every
-     * deadline below is the one the *reading* implies rather than the release. Returns both passes'
-     * effects in order, which is what a caller would have seen had the stop applied at once.
-     */
-    private fun stop(atMs: Long, eventTimeMs: Long? = atMs) =
-        reading(ActivityType.STILL, atMs, eventTimeMs) +
-            core.onMotion(Motion.Unknown, atMs + HOLD_CAP_MS, settings)
-
-    /** Feeds one accepted fix into the fix path, so the track has a last-good point to end at. */
-    private fun fix(atMs: Long, eastM: Double) {
-        ingest.onFixes(
-            trackId = 1L,
-            fixes = listOf(
-                Fix(
-                    latitude = ORIGIN_LAT,
-                    longitude = lonAt(eastM),
-                    altitude = null,
-                    accuracy = 5f,
-                    speed = null,
-                    bearing = null,
-                    timeMs = atMs,
-                    verticalAccuracy = null,
-                    speedAccuracy = null,
-                    bearingAccuracy = null,
-                    elapsedRealtimeMs = atMs,
-                ),
-            ),
-            gate = GateState(core.confirmed, stillParked = core.parked != null),
-            settings = IngestSettings(maxAccuracyM = 50f, requireGnss = false),
-            gnss = GnssState(satellitesInFix = null, cn0Top4 = null, lastFixElapsedMs = atMs),
-        )
-    }
-
-    /** Puts a walk on the road: the track is open, GPS is on, and one fix has landed. */
-    private fun startWalking() {
-        reading(ActivityType.WALKING, T0)
-        fix(T0, 0.0)
-    }
+class ActivityIngestTest : ActivityIngestFixture() {
 
     // --- Opening, pausing, stitching -------------------------------------------
 
@@ -104,6 +38,7 @@ class ActivityIngestTest {
                 Effect.OpenTrack(ActivityType.WALKING, T0),
                 Effect.EnsureGps,
                 Effect.DisarmDepartureFence,
+                Effect.StopDepartureProbe,
                 Effect.Publish,
             ),
             out,
@@ -120,8 +55,10 @@ class ActivityIngestTest {
                 Effect.StampReading(T0 + MINUTE),
                 Effect.StopGps,
                 Effect.SchedulePauseWake(T0 + MINUTE + RESUME_WINDOW_MS),
-                // The stop is also where the next departure will be from.
+                // The stop is also where the next departure will be from — by every means switched
+                // on, and after the stop that would otherwise have disarmed the sensor.
                 Effect.ArmDepartureFence(Effect.ArmDepartureFence.Anchor(ORIGIN_LAT, lonAt(0.0))),
+                Effect.ArmSignificantMotion,
                 Effect.Publish,
             ),
             out,
@@ -135,7 +72,17 @@ class ActivityIngestTest {
 
         val out = reading(ActivityType.RUNNING, T0 + MINUTE + RESUME_WINDOW_MS - 1)
 
-        assertEquals(listOf(Effect.EnsureGps, Effect.Publish), out.drop(1))
+        assertEquals(
+            listOf(
+                Effect.EnsureGps,
+                // The departure the pause was watching for has happened, and the ground is back
+                // under GPS — leaving either armed would run them alongside a live request.
+                Effect.DisarmDepartureFence,
+                Effect.StopDepartureProbe,
+                Effect.Publish,
+            ),
+            out.drop(1),
+        )
         assertTrue("nothing opened or closed", out.none { it is Effect.OpenTrack || it is Effect.CloseTrack })
     }
 
@@ -156,6 +103,7 @@ class ActivityIngestTest {
                 Effect.OpenTrack(ActivityType.WALKING, returnedAt),
                 Effect.EnsureGps,
                 Effect.DisarmDepartureFence,
+                Effect.StopDepartureProbe,
                 Effect.Publish,
             ),
             out.drop(1),
@@ -176,6 +124,7 @@ class ActivityIngestTest {
                 Effect.OpenTrack(ActivityType.DRIVING, T0 + MINUTE),
                 Effect.EnsureGps,
                 Effect.DisarmDepartureFence,
+                Effect.StopDepartureProbe,
                 Effect.Publish,
             ),
             out.drop(1),
@@ -232,13 +181,16 @@ class ActivityIngestTest {
         startWalking()
         stop(T0 + MINUTE)
 
-        val out = core.onTick(T0 + MINUTE + RESUME_WINDOW_MS)
+        val out = core.onTick(T0 + MINUTE + RESUME_WINDOW_MS, settings)
 
         assertEquals(
             listOf(
                 Effect.StopGps,
                 Effect.StampHeartbeat,
                 Effect.CloseTrack(endedAt = T0, renameTo = null),
+                // The recorder settles into the idle state the motion trigger exists to watch, and
+                // the stop above just took it down with the rest of the resume signals.
+                Effect.ArmSignificantMotion,
                 Effect.Publish,
             ),
             out,
@@ -249,12 +201,12 @@ class ActivityIngestTest {
         startWalking()
         reading(ActivityType.STILL, T0 + MINUTE)
 
-        assertTrue("before the deadline", core.onTick(T0 + MINUTE + RESUME_WINDOW_MS - 1).isEmpty())
+        assertTrue("before the deadline", core.onTick(T0 + MINUTE + RESUME_WINDOW_MS - 1, settings).isEmpty())
 
         reading(ActivityType.WALKING, T0 + MINUTE + 1)
         assertTrue(
             "the wake fires anyway, on a track that resumed",
-            core.onTick(T0 + MINUTE + RESUME_WINDOW_MS).isEmpty(),
+            core.onTick(T0 + MINUTE + RESUME_WINDOW_MS, settings).isEmpty(),
         )
     }
 
@@ -443,6 +395,7 @@ class ActivityIngestTest {
                 Effect.ArmDepartureFence(
                     Effect.ArmDepartureFence.Anchor(ORIGIN_LAT, lonAt(VEHICLE.mps * 60)),
                 ),
+                Effect.ArmSignificantMotion,
                 Effect.Publish,
             ),
             out,
@@ -453,7 +406,7 @@ class ActivityIngestTest {
     @Test fun `a resume signal probes again`() {
         givenGpsSuspended()
 
-        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + NoFixGuard.RETRY_BASE_MS)
+        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + NoFixGuard.RETRY_BASE_MS, settings)
 
         assertEquals(listOf(Effect.EnsureGps, Effect.Publish), out)
     }
@@ -461,7 +414,7 @@ class ActivityIngestTest {
     @Test fun `motion too soon after a failed probe re-arms the trigger instead of probing`() {
         givenGpsSuspended()
 
-        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + 1)
+        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + 1, settings)
 
         assertEquals(
             "the one-shot trigger has fired and disarmed itself; the passive listener still stands",
@@ -473,7 +426,7 @@ class ActivityIngestTest {
     @Test fun `a passive fix ignores the backoff, being evidence rather than a suggestion`() {
         givenGpsSuspended()
 
-        val out = core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS + 1)
+        val out = core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS + 1, settings)
 
         assertEquals(listOf(Effect.EnsureGps, Effect.Publish), out)
     }
@@ -482,7 +435,7 @@ class ActivityIngestTest {
         startWalking()
         noFixGuard.onProbeStarted(E0)
 
-        assertTrue(core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS, settings).isEmpty())
     }
 
     /** A walk whose probe ran its window with nothing accepted, so GPS is off and waiting. */
@@ -701,67 +654,6 @@ class ActivityIngestTest {
         assertTrue("and a foot track opened in its place", out.any { it is Effect.OpenTrack })
     }
 
-    // --- the departure trigger: a start that Play Services had no part in -------------------------
-
-    @Test fun `a pause arms the fence at the last good fix`() {
-        reading(ActivityType.WALKING, atMs = T0)
-        fix(atMs = T0 + 1_000, eastM = 0.0)
-        // A walking pace: ten metres in ten seconds. Covering it in one would be a jump the
-        // WALKING ceiling rejects, leaving the fence on the fix before it.
-        fix(atMs = T0 + 11_000, eastM = 10.0)
-
-        val effects = stop(atMs = T0 + 12_000)
-
-        val anchor = effects.filterIsInstance<Effect.ArmDepartureFence>().single().from
-        assertEquals(ORIGIN_LAT, anchor?.latitude ?: 0.0, 1e-9)
-        assertEquals(lonAt(10.0), anchor?.longitude ?: 0.0, 1e-9)
-    }
-
-    /**
-     * The GNSS-starved case, and the one a fence is the only thing that can notice: a pause with no
-     * fix behind it still asks to be watched, handing the anchor to the platform's last known.
-     */
-    @Test fun `a pause with no fix behind it still asks to be watched, from nowhere of its own`() {
-        reading(ActivityType.WALKING, atMs = T0)
-
-        val effects = stop(atMs = T0 + 3_000)
-
-        assertNull(effects.filterIsInstance<Effect.ArmDepartureFence>().single().from)
-    }
-
-    @Test fun `arming watches for a departure before any track exists`() {
-        assertEquals(listOf(Effect.ArmDepartureFence(from = null)), core.onArmed())
-    }
-
-    @Test fun `a departure opens a Moving track and stops watching`() {
-        val effects = core.onDeparture(nowMs = T0, settings = settings)
-
-        val opened = effects.filterIsInstance<Effect.OpenTrack>().single()
-        assertEquals(ActivityType.UNKNOWN, opened.activity)
-        assertTrue(effects.contains(Effect.DisarmDepartureFence))
-    }
-
-    @Test fun `a departure while recording is not news`() {
-        reading(ActivityType.WALKING, atMs = T0)
-
-        assertTrue(core.onDeparture(nowMs = T0 + 1_000, settings = settings).isEmpty())
-    }
-
-    /**
-     * The reconciliation this trigger cannot ship without. Play Services announces that the user
-     * *became* still and never says so again, so a track opened while the gate still believes STILL
-     * has no stop edge left to spend — the STILL that ends the journey would be no change at all.
-     */
-    @Test fun `a STILL after a departure pauses the track it opened`() {
-        core.onDeparture(nowMs = T0, settings = settings)
-
-        val effects = stop(atMs = T0 + 60_000)
-
-        assertTrue(effects.contains(Effect.StopGps))
-        assertTrue(effects.any { it is Effect.SchedulePauseWake })
-        assertTrue(core.isPaused)
-    }
-
     /** A reading late enough to prove deafness, advancing the clock enough to count as a new one. */
     private fun deafReading(atMs: Long) = core.onReading(
         raw = ActivityType.WALKING,
@@ -780,14 +672,6 @@ class ActivityIngestTest {
     private fun feedVehicleSpeedGround() = driveFrom(T0, until = T0 + 30_000)
 
     private companion object {
-        const val T0 = 1_700_000_000_000L
-        const val MINUTE = 60_000L
-        const val HOUR = 60 * MINUTE
-        const val RESUME_WINDOW_MS = 90_000L
-
-        /** How long a stop the ground could not vouch for is held before it lands anyway. */
-        const val HOLD_CAP_MS = 35_000L
-
         /** Ordinary motorway speed, well under the ceiling a DRIVING label carries. */
         val VEHICLE = Speed.kmh(90.0)
 
@@ -798,8 +682,6 @@ class ActivityIngestTest {
          *  arrives at, which is why nothing may be held there. */
         val CRAWL = Speed.kmh(22.0)
 
-        /** The guard's clock is monotonic and unrelated to [T0]; only differences are ever read. */
-        const val E0 = 500_000L
         const val GIVE_UP_MS = 120_000L
     }
 }

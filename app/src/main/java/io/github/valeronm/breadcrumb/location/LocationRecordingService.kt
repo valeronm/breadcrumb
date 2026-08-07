@@ -75,6 +75,7 @@ class LocationRecordingService : Service() {
     private val notifications = RecorderNotifications(this)
     private val watchdogAlarm = WatchdogAlarm(this)
     private val departureFence = DepartureFence(this)
+    private val departureProbe = DepartureProbe(this, ::onProbePosition)
 
     // Held rather than rebuilt per post: the shade is re-worded once per fix batch for the length of
     // a drive. It caches no text — every accessor reads the resource table again — so a language
@@ -137,7 +138,7 @@ class LocationRecordingService : Service() {
     // [stopLocationUpdates] is the single place all three are torn down together — deliberately not
     // split across the three objects, where the invariant would become a call sequence someone can
     // half-perform.
-    private val resumeSignals = ResumeSignals(this, ::onNoFixResumeSignal)
+    private val resumeSignals = ResumeSignals(this, ::onResumeSignal)
     private val gnss = GnssWatch(this) {
         maybeGiveUpOnNoFix()
         checkParkedReading()
@@ -228,7 +229,7 @@ class LocationRecordingService : Service() {
                 // Play Services drops every geofence across a reboot and an app update, and both
                 // arrive here. Dispatched rather than called directly so the one policy has one
                 // home — and so the core's own suite can see it.
-                dispatch(core.onArmed())
+                dispatch(core.onArmed(now(), activitySettings()))
                 publishStatus()
             }
             clearDeafnessWarning()
@@ -255,13 +256,13 @@ class LocationRecordingService : Service() {
         watchdogAlarm.cancel()
         clearDeafnessWarning()
         activityManager.stop()
-        // A fence outlives the process that registered it, so leaving one behind would keep waking a
-        // recorder the user has switched off.
-        departureFence.disarm()
         scope.launch {
             mutex.withLock {
                 dispatch(core.closeOpenTrack(now()))
-                core.onDisarmed()
+                // A fence outlives the process that registered it, so leaving one behind would keep
+                // waking a recorder the user has switched off. The core emits the teardown for every
+                // trigger, so which ones were armed stays one question with one answer.
+                dispatch(core.onDisarmed())
                 heartbeatJob?.cancel()
                 heartbeatJob = null
                 Settings.setLastHeartbeatMs(this@LocationRecordingService, now())
@@ -305,10 +306,11 @@ class LocationRecordingService : Service() {
         }
         applyAsync(onApplied) {
             val nowMs = now()
-            // How long the fence took to notice is the number this whole trigger is judged on.
-            val latency = departureFence.armedAtMs
-                ?.let { "${(nowMs - it) / 1000}s after arming" }
-                ?: "unarmed"
+            // How long the fence took to notice is the number this whole trigger is judged on, and
+            // it is measured from when *watching* began rather than from the registration: a fence
+            // re-armed on a fresh probe position carries a stamp minutes younger than the stop it
+            // is still centred on, and reporting against that would flatter it by the whole gap.
+            val latency = watchedForMs(nowMs)
             val effects = core.onDeparture(nowMs, activitySettings())
             if (effects.isEmpty()) {
                 DebugLog.i(TAG, "departure ignored — already recording ($latency)")
@@ -361,6 +363,11 @@ class LocationRecordingService : Service() {
         // room for GPS to reacquire after the resume that so often precedes the question. Derived
         // rather than configured — a cap shorter than the window it waits on would hold nothing.
         uncorroboratedHoldMs = witnessSpanMs + GPS_REACQUIRE_MS,
+        triggers = DepartureTriggers(
+            fence = Settings.departureFence(this),
+            continuous = Settings.departureContinuous(this),
+            motion = Settings.departureMotion(this),
+        ),
     )
 
     // The witness's window span, stamped where the GPS request is built from the same setting. Read
@@ -406,6 +413,17 @@ class LocationRecordingService : Service() {
                         ?: departureFence.armFromLastKnown()
 
                 Effect.DisarmDepartureFence -> departureFence.disarm()
+
+                is Effect.StartDepartureProbe ->
+                    withContext(Dispatchers.Main) {
+                        departureProbe.start(effect.intervalMs, effect.durationMs)
+                    }
+
+                // Guarded like EnsureGps above, and for the same reason DepartureFence.disarm guards
+                // itself: this rides along with every track that opens and every stitch that resumes,
+                // and a main-thread hop taken with the recorder's mutex held is not free.
+                Effect.StopDepartureProbe ->
+                    if (departureProbe.running) withContext(Dispatchers.Main) { departureProbe.stop() }
 
                 is Effect.OpenTrack -> {
                     trackStartedAt = effect.startedAt
@@ -556,7 +574,7 @@ class LocationRecordingService : Service() {
         if (!core.isPaused) return
         scope.launch {
             mutex.withLock {
-                val effects = core.onTick(now())
+                val effects = core.onTick(now(), activitySettings())
                 if (effects.isEmpty()) return@withLock
                 DebugLog.i(TAG, "pause expired — finalizing track $activeTrackId")
                 // The close carries its own publish, so it cannot land while the UI and the
@@ -664,15 +682,64 @@ class LocationRecordingService : Service() {
         }
     }
 
-    /** A cheap signal says conditions may have changed — turn GPS back on and try again. */
-    private fun onNoFixResumeSignal(signal: ResumeSignals.Signal) {
+    /**
+     * A cheap signal says conditions may have changed. What that means depends on why GPS is off —
+     * a stalled search resumes it, an idle recorder buys a burst of coarse positions instead — and
+     * [ActivityIngest.onResumeSignal] is where the two are told apart.
+     */
+    private fun onResumeSignal(signal: ResumeSignals.Signal) {
         scope.launch {
             mutex.withLock {
-                val effects = core.onResumeSignal(signal, SystemClock.elapsedRealtime())
+                val effects =
+                    core.onResumeSignal(signal, SystemClock.elapsedRealtime(), activitySettings())
+                // The departure branch needs no line of its own: ResumeSignals already logs the
+                // firing, and the probe logs the burst it starts with a cadence that names it.
                 if (Effect.EnsureGps in effects) DebugLog.i(TAG, "no-fix guard: probing again ($signal)")
                 dispatch(effects)
             }
         }
+    }
+
+    /**
+     * A coarse position from the departure probe. Deliberately does **not** go through
+     * [ingestLocations]: these come from Wi-Fi and cell, land tens to hundreds of meters out, and
+     * exist only to answer whether the phone has left where it stopped.
+     */
+    private fun onProbePosition(latitude: Double, longitude: Double, accuracyM: Double) {
+        if (!armed) return
+        scope.launch {
+            mutex.withLock {
+                val nowMs = now()
+                // Read before the pass, which stops the watch and takes the stamp with it.
+                val latency = watchedForMs(nowMs)
+                val effects =
+                    core.onProbeFix(latitude, longitude, accuracyM, nowMs, activitySettings())
+                if (effects.isEmpty()) return@withLock
+                if (effects.any { it is Effect.OpenTrack }) {
+                    // The same number the fence reports itself by, measured the same way, so a log
+                    // holding both says which of them is worth its cost.
+                    DebugLog.i(
+                        TAG,
+                        "departure: probe saw the phone leave ($latency, acc=${accuracyM.toInt()}m)",
+                    )
+                } else {
+                    // Worth its own line: it is the moment the fence stops standing on a last-known
+                    // of unknown age, and the log already printed that age to be judged against.
+                    DebugLog.i(TAG, "departure watch anchored on a fresh position (acc=${accuracyM.toInt()}m)")
+                }
+                dispatch(effects)
+            }
+        }
+    }
+
+    /**
+     * How long a departure has been watched for, phrased for a log line. **One stamp for every
+     * trigger**, so the fence's latency and the probe's are the same measurement and a log holding
+     * both says which is worth its cost.
+     */
+    private fun watchedForMs(nowMs: Long): String {
+        val startedAt = core.watchStartedAtMs
+        return if (startedAt == 0L) "unwatched" else "${(nowMs - startedAt) / 1000}s after arming"
     }
 
     // Fixes are ingested under [mutex] so they serialize with activity changes (which retarget the
@@ -808,6 +875,10 @@ class LocationRecordingService : Service() {
 
     override fun onDestroy() {
         stopLocationUpdates()
+        // Unlike the fence, which the system holds and which is meant to outlive this process, the
+        // probe is a live request owned by it — one left behind delivers to a callback whose service
+        // is gone.
+        departureProbe.stop()
         unregisterReceiver(shutdownReceiver)
         instance = null
         activeTrackId = null

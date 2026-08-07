@@ -36,7 +36,12 @@ class DepartureFence(private val context: Context) {
         )
     }
 
-    /** When the live fence was armed, or null if none is — the latency an exit is reported against. */
+    /**
+     * When the live fence was registered, or null if none is. **Not the latency an exit is reported
+     * against** — a fence re-armed on a fresher position is still watching the same stop, so that
+     * number comes from when watching began (`ActivityIngest.watchStartedAtMs`). This says only
+     * whether there is a registration to tear down.
+     */
     @Volatile
     var armedAtMs: Long? = null
         private set
