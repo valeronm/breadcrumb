@@ -144,7 +144,7 @@ class NoFixGuardTest {
         // reception. Turning GPS off there loses the journey the cross-check exists to keep.
         val g = probing()
         assertTrue(g.shouldGiveUp(240_000, 240_000))
-        assertFalse(g.shouldGiveUp(240_000, 240_000, Motion.Moving(6.0)))
+        assertFalse(g.shouldGiveUp(240_000, 240_000, Motion.Moving(Speed.mps(6.0))))
     }
 
     @Test fun `a standstill gives up as before`() {
@@ -157,7 +157,7 @@ class NoFixGuardTest {
         // Nothing is remembered: once the ground stops being provably in motion the same timed-out
         // probe gives up, rather than the veto having consumed it.
         val g = probing()
-        assertFalse(g.shouldGiveUp(300_000, 240_000, Motion.Moving(6.0)))
+        assertFalse(g.shouldGiveUp(300_000, 240_000, Motion.Moving(Speed.mps(6.0))))
         assertTrue(g.shouldGiveUp(300_000, 240_000, Motion.Unknown))
     }
 

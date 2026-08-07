@@ -8,11 +8,8 @@ package io.github.valeronm.breadcrumb.domain
  */
 sealed interface Motion {
 
-    /** The ground is provably moving, at [speedMps] averaged over the window that proved it. */
-    data class Moving(val speedMps: Double) : Motion {
-        /** [speedMps] in km/h — the unit every ceiling speaks, converted in exactly one place. */
-        val speedKmh: Double get() = speedMps * 3.6
-    }
+    /** The ground is provably moving, at [speed] averaged over the window that proved it. */
+    data class Moving(val speed: Speed) : Motion
 
     /**
      * The ground is provably still — every fix in the window sits within a few metres of the rest.
@@ -108,7 +105,7 @@ class MovementConfirmer(
             val elapsedSec = (late.timeMs - early.timeMs) / 1000.0
             // Guard the divide alone: halves that share a mean time can still have moved, and
             // calling that infinitely fast would widen the jump ceiling without bound.
-            return if (elapsedSec > 0) Motion.Moving(movedM / elapsedSec) else Motion.Unknown
+            return if (elapsedSec > 0) Motion.Moving(Speed.mps(movedM / elapsedSec)) else Motion.Unknown
         }
         return if (spreadWithin(params.stoppedMaxDisplacementM)) Motion.Stopped else Motion.Unknown
     }

@@ -66,7 +66,7 @@ class ActivityGateTest {
     // to reproduce. A test mechanically updated to pass `Motion.Unknown` would pin nothing, having
     // been touched by the same change it checks.
 
-    private val MOVING = Motion.Moving(6.0)
+    private val MOVING = Motion.Moving(Speed.mps(6.0))
 
     @Test fun `stopping while the ground still moves is parked, not applied`() {
         val g = started(WALKING)

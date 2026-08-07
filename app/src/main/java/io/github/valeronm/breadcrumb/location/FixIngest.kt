@@ -211,7 +211,7 @@ class FixIngest(private val distance: DistanceFn = AndroidDistance) {
     /** A track opened under [activity]: fresh aggregates, and a fresh case against its label. */
     fun onTrackOpened(activity: ActivityType) {
         accumulator = TrackStats.Accumulator(distance)
-        carrierEvidence.restart(TrackQuality.groupCeilingKmh(activity))
+        carrierEvidence.restart(TrackQuality.groupCeiling(activity))
         pendingSegmentStart = false
         lastFixAccuracyM = null
         lastFixRejectedByAccuracy = false

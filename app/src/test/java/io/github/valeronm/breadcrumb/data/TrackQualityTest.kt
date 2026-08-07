@@ -5,6 +5,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.Motion
+import io.github.valeronm.breadcrumb.domain.Speed
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -153,11 +154,11 @@ class TrackQualityTest {
     // cross-check is off — and stay unedited on purpose: their green run is what pins that the
     // off state changes nothing.
 
-    /** A carried journey at roughly 20 km/h — the case the cross-check exists for. */
-    private val CARRIED = Motion.Moving(5.6)
+    /** A carried journey — the case the cross-check exists for. */
+    private val CARRIED = Motion.Moving(Speed.kmh(20.0))
 
-    /** A brisk walk, ~5.8 km/h — a pace the walking label explains perfectly well. */
-    private val BRISK_WALK = Motion.Moving(1.6)
+    /** A pace the walking label explains perfectly well. */
+    private val BRISK_WALK = Motion.Moving(Speed.kmh(5.8))
 
     @Test fun `measured ground speed lifts a carrier's fixes over the pedestrian ceiling`() {
         // 11.2 m in 2 s = 20.2 km/h — the deck's own cruise, and rejected as a teleport on the
@@ -195,11 +196,10 @@ class TrackQualityTest {
 
     @Test fun `a verdict never lowers a ceiling the label already granted`() {
         // Crawling ground under a drive label must not turn the drive's own fixes into teleports.
-        val crawling = Motion.Moving(1.0)
+        val crawling = Motion.Moving(Speed.mps(1.0))
         assertEquals(
-            TrackQuality.jumpCeilingKmh(DRIVING),
-            TrackQuality.jumpCeilingKmh(DRIVING, crawling),
-            0.0,
+            TrackQuality.jumpCeiling(DRIVING),
+            TrackQuality.jumpCeiling(DRIVING, crawling),
         )
         assertNull(TrackQuality.badFixReason(point(0), point(5_000), DRIVING, gates(motion = crawling), gap(300.0)))
     }
@@ -207,8 +207,8 @@ class TrackQualityTest {
     @Test fun `the ceiling keeps a margin over the window average it was derived from`() {
         // The verdict's speed is a window *average*; a carrier accelerating is instantaneously well
         // above it, and a ceiling drawn tight to the average would reject exactly those fixes.
-        val ceiling = TrackQuality.jumpCeilingKmh(WALKING, CARRIED)
-        assertTrue("$ceiling should clear the observed 20.2 km/h with room", ceiling > 40.0)
+        val ceiling = TrackQuality.jumpCeiling(WALKING, CARRIED)
+        assertTrue("${ceiling.kmh} should clear the observed pace with room", ceiling > Speed.kmh(40.0))
     }
 
     @Test fun `motion overrules a label only when it outruns that label's ceiling`() {
@@ -225,7 +225,7 @@ class TrackQualityTest {
         // WALKING's 12 km/h on the margin alone, and the recorder announced "Moving" on ordinary
         // walks. The ceiling still keeps its margin — being generous there only ever keeps a fix.
         assertFalse(TrackQuality.motionOverrules(WALKING, BRISK_WALK))
-        assertTrue(TrackQuality.jumpCeilingKmh(WALKING, BRISK_WALK) > TrackQuality.jumpCeilingKmh(WALKING))
+        assertTrue(TrackQuality.jumpCeiling(WALKING, BRISK_WALK) > TrackQuality.jumpCeiling(WALKING))
     }
 
     @Test fun `the group ceiling is the most permissive of the group's labels`() {
@@ -234,14 +234,12 @@ class TrackQualityTest {
         // the vehicle family that bar is rail's — a train ride is detected and labeled IN_VEHICLE,
         // so a drive-labelled window sustaining rail speed is a train, not a teleport.
         assertEquals(
-            TrackQuality.jumpCeilingKmh(ActivityType.RUNNING),
-            TrackQuality.groupCeilingKmh(WALKING),
-            0.0,
+            TrackQuality.jumpCeiling(ActivityType.RUNNING),
+            TrackQuality.groupCeiling(WALKING),
         )
         assertEquals(
-            TrackQuality.jumpCeilingKmh(ActivityType.TRANSIT),
-            TrackQuality.groupCeilingKmh(DRIVING),
-            0.0,
+            TrackQuality.jumpCeiling(ActivityType.TRANSIT),
+            TrackQuality.groupCeiling(DRIVING),
         )
     }
 
@@ -251,23 +249,21 @@ class TrackQualityTest {
         // though the track were a train ride — a *train*, not a flight: FLIGHT's ceiling is
         // excluded from the clamp, or a poisoned window could argue its way to admitting
         // near-anything.
-        val absurd = Motion.Moving(1_000.0)
+        val absurd = Motion.Moving(Speed.mps(1_000.0))
         assertEquals(
-            TrackQuality.jumpCeilingKmh(ActivityType.TRANSIT),
-            TrackQuality.jumpCeilingKmh(WALKING, absurd),
-            0.0,
+            TrackQuality.jumpCeiling(ActivityType.TRANSIT),
+            TrackQuality.jumpCeiling(WALKING, absurd),
         )
     }
 
     @Test fun `the flight ceiling is the sky's, and no ground group inherits it`() {
         // A jet's ground speed with a strong tailwind passes 1200 km/h; a retype to FLIGHT must be
         // able to hand those fixes back, so the label's own ceiling has to clear them...
-        assertTrue(TrackQuality.jumpCeilingKmh(ActivityType.FLIGHT) > 1_200.0)
+        assertTrue(TrackQuality.jumpCeiling(ActivityType.FLIGHT) > Speed.kmh(1_200.0))
         // ...while the vehicle group's bar tops out at rail's — AIR is a group of its own.
         assertEquals(
-            TrackQuality.jumpCeilingKmh(ActivityType.TRANSIT),
-            TrackQuality.groupCeilingKmh(DRIVING),
-            0.0,
+            TrackQuality.jumpCeiling(ActivityType.TRANSIT),
+            TrackQuality.groupCeiling(DRIVING),
         )
     }
 

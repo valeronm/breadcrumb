@@ -13,10 +13,10 @@ package io.github.valeronm.breadcrumb.domain
  * window and the clock it needs); *when* a parked reading is reconsidered is the recorder's,
  * stamped with its own clock.
  *
- * [footCeilingKmh] is the fastest any label in the foot family claims to go — supplied rather than
+ * [footCeiling] is the fastest any label in the foot family claims to go — supplied rather than
  * looked up, so the rule stays pure and its suite needs no ceiling table.
  */
-class ActivityGate(private val footCeilingKmh: Double = Double.MAX_VALUE) {
+class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
 
     /** The trusted activity — STILL until a moving activity is confirmed. */
     var confirmed: ActivityType = ActivityType.STILL
@@ -152,20 +152,30 @@ class ActivityGate(private val footCeilingKmh: Double = Double.MAX_VALUE) {
      *  - **STILL cannot explain any movement.** Aboard something that carries the phone the body
      *    really is still while the journey is not, and acting on the label would pause the recorder
      *    mid-journey and turn GPS off for the rest of it.
-     *  - **A body on foot cannot reach carrier speed.** Play Services jitters mid-journey, and
-     *    because the groups differ a stray walking reading does not merely mislabel — it *closes*
-     *    the track and opens another, cutting one journey into rows the user has to merge back.
-     *    Bounded by [footCeilingKmh], so a walk beginning from a standstill is never delayed.
+     *  - **A foot label cannot explain ground its own fix rule would disbelieve.** Play Services
+     *    jitters mid-journey, and because the groups differ a stray walking reading does not merely
+     *    mislabel — it *closes* the track and opens another, cutting one journey into rows the user
+     *    has to merge back. [footCeiling] is not a claim about how fast a body travels: it is the
+     *    most permissive *jump* ceiling in the foot family, the bar above which a fix under that
+     *    label is already refused as noise — and the same bar the carrier case measures against, so
+     *    the two rules agree about when ground has left a label behind.
+     *
+     * **This reaches motorway speeds and nothing slower**, which is a limit rather than a setting.
+     * A car crawling in traffic moves at a pace the bar comfortably explains, and a stray foot
+     * reading there is indistinguishable from the genuine drive-to-walk that ends every trip and
+     * must be acted on at once — the ground says the same thing in both cases, and so does the
+     * track's history. Only what follows tells them apart, and waiting for it would delay every
+     * real disembark. Urban splits therefore stand, repaired by merging.
      *
      * Anything else the ground cannot contradict: a vehicle label explains any ground speed the
      * jump ceiling already let through.
      */
     private fun tooFastFor(raw: ActivityType, motion: Motion): Boolean {
         val ceiling = when {
-            raw == ActivityType.STILL -> 0.0
-            raw.trackGroup == TrackGroup.FOOT -> footCeilingKmh
+            raw == ActivityType.STILL -> Speed.ZERO
+            raw.trackGroup == TrackGroup.FOOT -> footCeiling
             else -> return false
         }
-        return motion is Motion.Moving && motion.speedKmh > ceiling
+        return motion is Motion.Moving && motion.speed > ceiling
     }
 }

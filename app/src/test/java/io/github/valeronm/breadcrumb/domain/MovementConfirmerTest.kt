@@ -27,7 +27,7 @@ class MovementConfirmerTest {
 
     private fun movingSpeed(motion: Motion): Double {
         assertTrue("expected Moving, was $motion", motion is Motion.Moving)
-        return (motion as Motion.Moving).speedMps
+        return (motion as Motion.Moving).speed.mps
     }
 
     // --- Abstention ---------------------------------------------------------

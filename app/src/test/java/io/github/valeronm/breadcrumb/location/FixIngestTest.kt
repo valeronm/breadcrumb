@@ -5,6 +5,7 @@ import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.MovementConfirmer
 import io.github.valeronm.breadcrumb.domain.ORIGIN_LAT
+import io.github.valeronm.breadcrumb.domain.Speed
 import io.github.valeronm.breadcrumb.domain.flatDistance
 import io.github.valeronm.breadcrumb.domain.lonAt
 import org.junit.Assert.assertEquals
@@ -168,7 +169,7 @@ class FixIngestTest {
         // A drive already carries the ceiling and the group the rename would grant, so substituting
         // it would discard what the label knows rather than add to it. Ground moving at a carrier's
         // pace under a driving label is simply a drive.
-        val carried = Motion.Moving(20.0)
+        val carried = Motion.Moving(Speed.mps(20.0))
 
         for (label in listOf(ActivityType.DRIVING, ActivityType.CYCLING, ActivityType.FERRY)) {
             assertEquals(label, ingest.displayActivity(label, carried))

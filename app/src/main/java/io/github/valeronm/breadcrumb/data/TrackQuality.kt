@@ -5,6 +5,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.Motion
+import io.github.valeronm.breadcrumb.domain.Speed
 import io.github.valeronm.breadcrumb.domain.TrackGroup
 
 /**
@@ -31,7 +32,7 @@ object TrackQuality {
      * never about the journey. Three properties keep the raise from becoming a licence: it only
      * ever raises (the greater of the two is taken — a verdict can hand a fix the benefit of the
      * doubt, never withdraw one the label already granted); [MOTION_CEILING_FACTOR] is generous on
-     * purpose ([Motion.Moving.speedMps] is a window *average*, and a carrier accelerating or
+     * purpose ([Motion.Moving.speed] is a window *average*, and a carrier accelerating or
      * rounding a headland is instantaneously well above it — a tight margin would reject exactly
      * those fixes); and it is clamped to the most permissive ceiling any *ground* activity carries
      * ([MAX_CEILING_KMH], which excludes the AIR group), because a lone teleport is fed to the
@@ -41,15 +42,15 @@ object TrackQuality {
      * label alone. [Motion.Unknown] — the cross-check switched off, or the sky
      * blocked — leaves the label's ceiling exactly as it was.
      */
-    fun jumpCeilingKmh(activity: ActivityType, motion: Motion = Motion.Unknown): Double {
-        val label = labelCeilingKmh(activity)
+    fun jumpCeiling(activity: ActivityType, motion: Motion = Motion.Unknown): Speed {
+        val label = labelCeiling(activity)
         val moving = motion as? Motion.Moving ?: return label
-        return maxOf(label, derivedCeilingKmh(moving))
+        return label.coerceAtLeast(derivedCeiling(moving))
     }
 
     /**
      * Whether [motion] overrules [activity] — the measured ground speed is one the label cannot
-     * explain at all. Compared against the label's ceiling **unmargined**, unlike [jumpCeilingKmh]:
+     * explain at all. Compared against the label's ceiling **unmargined**, unlike [jumpCeiling]:
      * the margin exists so a generous ceiling admits a fix the window average lags behind, and being
      * generous there costs nothing, because the worst case is a fix kept. Here the generosity is
      * spent the other way — this is the recorder claiming out loud that the journey is not what the
@@ -59,39 +60,48 @@ object TrackQuality {
      */
     fun motionOverrules(activity: ActivityType, motion: Motion): Boolean {
         val moving = motion as? Motion.Moving ?: return false
-        return moving.speedKmh > labelCeilingKmh(activity)
+        return moving.speed > labelCeiling(activity)
     }
 
     /** The ceiling the measured pace argues for — margined for window-average lag, clamped. */
-    private fun derivedCeilingKmh(moving: Motion.Moving): Double =
-        (moving.speedKmh * MOTION_CEILING_FACTOR).coerceAtMost(MAX_CEILING_KMH)
+    private fun derivedCeiling(moving: Motion.Moving): Speed =
+        (moving.speed * MOTION_CEILING_FACTOR).coerceAtMost(MAX_CEILING)
+
+    /**
+     * The group ceilings, resolved once rather than per track: [groupCeiling] answers from
+     * [ActivityType.trackGroup] alone, so walking the whole table on every track open would rebuild
+     * a constant — and [ActivityIngest][io.github.valeronm.breadcrumb.location.ActivityIngest]
+     * already documents the lookup as something it does exactly once.
+     */
+    private val GROUP_CEILINGS: Map<TrackGroup, Speed> =
+        ActivityType.entries.groupBy { it.trackGroup }
+            .mapValues { (_, family) -> family.maxOf { labelCeiling(it).mps }.let(Speed::mps) }
 
     /**
      * The most permissive ceiling in [activity]'s group — the bar the carrier-evidence speed
      * channel measures against, not the label's own: a run inside a walking-labelled track (same
      * group, keeps its label) sustains speeds above WALKING's ceiling, no human the group's.
      */
-    fun groupCeilingKmh(activity: ActivityType): Double =
-        ActivityType.entries.filter { it.trackGroup == activity.trackGroup }.maxOf { labelCeilingKmh(it) }
+    fun groupCeiling(activity: ActivityType): Speed = GROUP_CEILINGS.getValue(activity.trackGroup)
 
-    private fun labelCeilingKmh(activity: ActivityType): Double = when (activity) {
-        ActivityType.WALKING, ActivityType.STILL -> 12.0
-        ActivityType.RUNNING -> 30.0
-        ActivityType.CYCLING -> 70.0
+    private fun labelCeiling(activity: ActivityType): Speed = when (activity) {
+        ActivityType.WALKING, ActivityType.STILL -> Speed.kmh(12.0)
+        ActivityType.RUNNING -> Speed.kmh(30.0)
+        ActivityType.CYCLING -> Speed.kmh(70.0)
         // Above anything afloat — a fast catamaran cruises ~70, a cruise ship ~40 — and well under
         // the road ceiling, so a crossing's teleports are caught by a bar its own speeds can't reach.
-        ActivityType.FERRY -> 120.0
-        ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN -> 220.0
+        ActivityType.FERRY -> Speed.kmh(120.0)
+        ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN -> Speed.kmh(220.0)
         // High-speed rail in service runs ~320, so a retype to transit can hand back a crossing's
         // fixes ([jumpRestores]) — and since a train ride is detected and labeled as a *vehicle*
         // live, this being the vehicle family's most permissive ceiling is what lets the motion
         // witness admit real rail speeds under a driving label instead of flagging the whole ride.
-        ActivityType.TRANSIT -> 350.0
+        ActivityType.TRANSIT -> Speed.kmh(350.0)
         // Real jet ground speeds: ~900 km/h cruise, and a strong jet stream pushes past 1200.
         // Honest so a retype to FLIGHT hands back in-flight fixes the road ceiling rejected
         // ([jumpRestores], the FERRY precedent) — and safe to be, because the AIR group is
-        // excluded from [MAX_CEILING_KMH].
-        ActivityType.FLIGHT -> 1300.0
+        // excluded from [MAX_CEILING].
+        ActivityType.FLIGHT -> Speed.kmh(1300.0)
     }
 
     /** How far above the observed window average a fix may still be believed. */
@@ -102,9 +112,10 @@ object TrackQuality {
      *  window can argue for, and letting such a window claim flight speed would admit almost any
      *  teleport. A real flight doesn't need the raise: its own label already carries the sky's
      *  ceiling. */
-    private val MAX_CEILING_KMH = ActivityType.entries
+    private val MAX_CEILING = ActivityType.entries
         .filterNot { it.trackGroup == TrackGroup.AIR }
-        .maxOf { labelCeilingKmh(it) }
+        .maxOf { labelCeiling(it).mps }
+        .let(Speed::mps)
 
     fun distanceMeters(a: TrackPoint, b: TrackPoint, distance: DistanceFn = AndroidDistance): Double =
         distance.meters(a.latitude, a.longitude, b.latitude, b.longitude)
@@ -162,8 +173,8 @@ object TrackQuality {
     fun pointSpeedsKmh(points: List<TrackPoint>, distance: DistanceFn = AndroidDistance): FloatArray =
         pointSpeedsKmh(seams(points, distance))
 
-    /** First seam at least this fast (km/h) to be a candidate stray — an implausible launch from
-     *  a drive start (40 km/h in a ~1 s opening seam is ~1 g of acceleration from standstill). */
+    /** First seam at least this fast (km/h) to be a candidate stray — an implausible launch from a
+     *  drive start, this pace in a ~1 s opening seam being ~1 g of acceleration from standstill. */
     private const val LEADING_STRAY_MIN_KMH = 40.0
 
     /** …and at least this many times the following real pace, so genuine fast starts (first seam
@@ -214,7 +225,7 @@ object TrackQuality {
      * verdict, or null when it's switched off (not the same as false — see [badFixReason]);
      * [maxAccuracyM] → [IgnoreReason.ACCURACY], the configured limit; [motion] →
      * [IgnoreReason.JUMP], what the position stream says the ground is doing, which with the
-     * activity sets how high the jump gate stands (see [jumpCeilingKmh]) — [Motion.Unknown], the
+     * activity sets how high the jump gate stands (see [jumpCeiling]) — [Motion.Unknown], the
      * default and what stands while the ground can't answer, leaves that gate at the
      * activity's own height.
      */
@@ -238,7 +249,7 @@ object TrackQuality {
      * [lastGood] is null for the first point of a track (or segment); [distance] is injectable so
      * the speed logic is host-testable. The GNSS evidence is a plain Boolean because deciding it is
      * `GnssSnapshot.backed`'s job — the caller reads two platform timestamps and nothing more.
-     * [Gates.motion] reaches only the jump ceiling (see [jumpCeilingKmh]); its [Motion.Unknown]
+     * [Gates.motion] reaches only the jump ceiling (see [jumpCeiling]); its [Motion.Unknown]
      * default — also what the recorder passes with the cross-check switched off — makes the rule
      * behave as if no second witness existed. The two reasons above it are untouched by it on
      * purpose: they judge a fix on its own merits rather than against a label, and they are the
@@ -255,7 +266,7 @@ object TrackQuality {
         val accuracy = point.accuracy
         if (accuracy != null && accuracy >= gates.maxAccuracyM) return IgnoreReason.ACCURACY
         if (lastGood == null) return null
-        return if (stepSpeedKmh(lastGood, point, distance) > jumpCeilingKmh(activity, gates.motion)) {
+        return if (stepSpeed(lastGood, point, distance) > jumpCeiling(activity, gates.motion)) {
             IgnoreReason.JUMP
         } else {
             null
@@ -263,15 +274,19 @@ object TrackQuality {
     }
 
     /**
-     * The speed (km/h) the step from [lastGood] to [point] implies — the one number the jump rule
-     * judges, shared by the live check and the re-derivation below so the two can't drift. A
-     * non-positive time gap can't be divided by: over one, a step longer than [MIN_JUMP_M] is
-     * infinitely fast (nowhere to have travelled it in) and a shorter one is standing still.
+     * The speed the step from [lastGood] to [point] implies — the one number the jump rule judges,
+     * shared by the live check and the re-derivation below so the two can't drift. A non-positive
+     * time gap can't be divided by: over one, a step longer than [MIN_JUMP_M] is infinitely fast
+     * (nowhere to have travelled it in) and a shorter one is standing still.
      */
-    private fun stepSpeedKmh(lastGood: TrackPoint, point: TrackPoint, distance: DistanceFn): Double {
+    private fun stepSpeed(lastGood: TrackPoint, point: TrackPoint, distance: DistanceFn): Speed {
         val gapMeters = distanceMeters(lastGood, point, distance)
-        return seamSpeedKmh(lastGood, point, gapMeters)
-            ?: if (gapMeters > MIN_JUMP_M) Double.MAX_VALUE else 0.0
+        val seam = seamSpeedKmh(lastGood, point, gapMeters)
+        return when {
+            seam != null -> Speed.kmh(seam)
+            gapMeters > MIN_JUMP_M -> Speed.UNLIMITED
+            else -> Speed.ZERO
+        }
     }
 
     /**
@@ -279,8 +294,8 @@ object TrackQuality {
      * retype hands back to the path, by position in the list given (the
      * [EdgeStayIgnore][io.github.valeronm.breadcrumb.domain.EdgeStayIgnore] convention).
      * Withdraws flags, never adds them: a misdetected activity judged fixes by the wrong ceiling
-     * (a drive taken for walking is measured against 12 km/h) and correcting it says the ceiling
-     * was wrong, but retyping *down* would flag a real journey as noise on the strength of a label,
+     * (a drive taken for walking is measured against a pedestrian's) and correcting it says the
+     * ceiling was wrong, but retyping *down* would flag a real journey as noise on a label alone,
      * so there the rule stays silent and a track settles on the most permissive activity it has
      * ever carried. Three things the walk gets right that a per-point filter wouldn't: a restored
      * fix becomes the next fix's baseline, so a run of rejects unwinds from the front (the same
@@ -299,7 +314,7 @@ object TrackQuality {
         activity: ActivityType,
         distance: DistanceFn = AndroidDistance,
     ): Set<Int> {
-        val ceiling = jumpCeilingKmh(activity)
+        val ceiling = jumpCeiling(activity)
         val restores = mutableSetOf<Int>()
         var lastGood: TrackPoint? = null
         for ((i, point) in points.withIndex()) {
@@ -311,7 +326,7 @@ object TrackQuality {
             // point (no reason stored) could be either — neither is this rule's to withdraw.
             if (point.ignoreReason != IgnoreReason.JUMP.code) continue
             val baseline = lastGood ?: continue
-            if (stepSpeedKmh(baseline, point, distance) <= ceiling) {
+            if (stepSpeed(baseline, point, distance) <= ceiling) {
                 restores += i
                 lastGood = point
             }

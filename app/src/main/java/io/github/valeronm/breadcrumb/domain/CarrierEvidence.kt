@@ -39,7 +39,7 @@ class CarrierEvidence {
     var bodyMovingMs: Long = 0
         private set
 
-    private var groupCeilingKmh = 0.0
+    private var groupCeiling = Speed.ZERO
     private var hasSample = false
     private var lastAtMs = 0L
     private var lastStill = false
@@ -68,7 +68,7 @@ class CarrierEvidence {
         if (hasSample && atMs < lastAtMs) return
         val moving = motion as? Motion.Moving
         val still = moving != null && stillParked
-        val fast = moving != null && moving.speedKmh > groupCeilingKmh
+        val fast = moving != null && moving.speed > groupCeiling
         if (hasSample) {
             val credit = minOf(atMs - lastAtMs, MAX_CREDIT_MS)
             if (still && lastStill) bodyStillMs += credit
@@ -82,11 +82,11 @@ class CarrierEvidence {
 
     /**
      * A new track: no case against its label, and the speed channel's bar set to the label
-     * group's ceiling ([groupCeilingKmh]) — one call carries both, like the confirmer's own
-     * [MovementConfirmer.restart], so the bar cannot be left standing at a previous track's.
+     * group's ceiling ([groupCeiling]) — one call carries both, like the confirmer's own
+     * [MovementConfirmer.reshape], so the bar cannot be left standing at a previous track's.
      */
-    fun restart(groupCeilingKmh: Double) {
-        this.groupCeilingKmh = groupCeilingKmh
+    fun restart(groupCeiling: Speed) {
+        this.groupCeiling = groupCeiling
         bodyStillMs = 0
         bodyMovingMs = 0
         hasSample = false

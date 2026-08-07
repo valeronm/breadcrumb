@@ -154,9 +154,9 @@ class ActivityIngest(
     private val noFixGuard: NoFixGuard,
 ) {
 
-    // The ceiling is a constant of the vocabulary, resolved once: [TrackQuality.groupCeilingKmh]
+    // The ceiling is a constant of the vocabulary, resolved once: [TrackQuality.groupCeiling]
     // walks the whole activity table, and a reading arriving is no reason to walk it again.
-    private val gate = ActivityGate(TrackQuality.groupCeilingKmh(ActivityType.WALKING))
+    private val gate = ActivityGate(TrackQuality.groupCeiling(ActivityType.WALKING))
     private val controller = TrackController()
 
     // Sanitizes AR event timestamps into gate reading times; see [ReadingClock].

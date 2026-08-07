@@ -15,16 +15,16 @@ import org.junit.Test
 class CarrierEvidenceTest {
 
     /** The foot group's most permissive ceiling (RUNNING's), as the recorder derives it. */
-    private val FOOT_CEILING = TrackQuality.groupCeilingKmh(ActivityType.WALKING)
+    private val FOOT_CEILING = TrackQuality.groupCeiling(ActivityType.WALKING)
 
-    /** A carrier at ~20 km/h — above the walking ceiling, below the group's. */
-    private val CARRIED = Motion.Moving(5.6)
+    /** A carrier above the walking ceiling, below the group's. */
+    private val CARRIED = Motion.Moving(Speed.kmh(20.0))
 
-    /** A carrier at ~40 km/h — above the foot group's ceiling. */
-    private val FAST_CARRIER = Motion.Moving(11.0)
+    /** A carrier above the foot group's ceiling. */
+    private val FAST_CARRIER = Motion.Moving(Speed.kmh(40.0))
 
-    /** An honest run at ~14 km/h — above WALKING's own ceiling, far under the group's. */
-    private val RUNNING = Motion.Moving(4.0)
+    /** An honest run — above WALKING's own ceiling, far under the group's. */
+    private val RUNNING = Motion.Moving(Speed.kmh(14.4))
 
     private fun evidence() = CarrierEvidence().apply { restart(FOOT_CEILING) }
 

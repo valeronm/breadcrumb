@@ -308,9 +308,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * activity feeds two stored verdicts, both re-derived here rather than left for a sweep that may
      * be releases away: it chooses the overrun detector's tuning ([EdgeStayDetector.paramsFor]), so
      * a reassignment across the foot/vehicle line would leave the stored overrun as the *other* rule
-     * found it; and it sets the jump ceiling ([TrackQuality.jumpCeilingKmh]), so a drive Activity
-     * Recognition took for walking arrives judged against 12 km/h, most of its path rejected as
-     * teleports — correcting the activity says that ceiling was wrong, and
+     * found it; and it sets the jump ceiling ([TrackQuality.jumpCeiling]), so a drive Activity
+     * Recognition took for walking arrives judged against a pedestrian's, most of its path rejected
+     * as teleports — correcting the activity says that ceiling was wrong, and
      * [TrackQuality.jumpRestores] hands those fixes back, only ever back, never the reverse. Both
      * questions are asked of the derived values rather than of the group, so a third set of params
      * or ceiling needs no edit here; when neither moved, the retype is the plain column write it
@@ -324,7 +324,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         // An unreadable stored activity has no ceiling to compare against, so nothing is withdrawn.
         val wasType = ActivityType.ofName(track.activityType)
         val raised = wasType != null &&
-            TrackQuality.jumpCeilingKmh(activityType) > TrackQuality.jumpCeilingKmh(wasType)
+            TrackQuality.jumpCeiling(activityType) > TrackQuality.jumpCeiling(wasType)
         db.withTransaction {
             dao.setActivityType(trackId, activityType.name)
             val endedAt = track.endedAt ?: return@withTransaction

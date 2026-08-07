@@ -4,6 +4,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ORIGIN_LAT
+import io.github.valeronm.breadcrumb.domain.Speed
 import io.github.valeronm.breadcrumb.domain.flatDistance
 import io.github.valeronm.breadcrumb.domain.lonAt
 import org.junit.Assert.assertEquals
@@ -368,11 +369,14 @@ class ActivityIngestTest {
         )
     }
 
-    /** Vehicle-speed ground: a fix a second at [VEHICLE_MPS], positioned off [T0] so calls chain. */
-    private fun driveFrom(fromMs: Long, until: Long) {
+    /** Vehicle-speed ground: a fix a second at [VEHICLE], positioned off [T0] so calls chain. */
+    private fun driveFrom(fromMs: Long, until: Long) = groundAt(VEHICLE, fromMs, until)
+
+    /** Ground moving away from the origin at a steady [speed], one fix a second. */
+    private fun groundAt(speed: Speed, fromMs: Long, until: Long) {
         var atMs = fromMs
         while (atMs <= until) {
-            fix(atMs, (atMs - T0) / 1000.0 * VEHICLE_MPS)
+            fix(atMs, (atMs - T0) / 1000.0 * speed.mps)
             atMs += 1000L
         }
     }
@@ -435,9 +439,9 @@ class ActivityIngestTest {
             listOf(
                 Effect.StopGps,
                 Effect.SchedulePauseWake(arrivedAt + RESUME_WINDOW_MS),
-                // A minute at [VEHICLE_MPS] from the origin — where the carrier came to rest.
+                // A minute at [VEHICLE] from the origin — where the carrier came to rest.
                 Effect.ArmDepartureFence(
-                    Effect.ArmDepartureFence.Anchor(ORIGIN_LAT, lonAt(VEHICLE_MPS * 60)),
+                    Effect.ArmDepartureFence.Anchor(ORIGIN_LAT, lonAt(VEHICLE.mps * 60)),
                 ),
                 Effect.Publish,
             ),
@@ -554,6 +558,42 @@ class ActivityIngestTest {
         assertTrue(core.isPaused)
     }
 
+    /**
+     * Field shape this exists for: indoors with no fix arriving, Play Services alternates STILL and
+     * WALKING every half-minute or so. Each flip used to stop GPS, schedule a wake, re-anchor the
+     * departure watch, then start GPS again — dozens of times across one stationary stretch that
+     * finished as a discarded track. A return inside the hold restores the activity the gate never
+     * left, so the whole cycle is now nothing at all.
+     */
+    @Test fun `a return inside the hold costs the track nothing`() {
+        startWalking()
+        reading(ActivityType.STILL, T0 + MINUTE)
+
+        val returnedAt = T0 + MINUTE + HOLD_CAP_MS - 1
+        val out = reading(ActivityType.WALKING, returnedAt)
+
+        assertEquals("the liveness stamp and nothing else", listOf(Effect.StampReading(returnedAt)), out)
+        assertNull("the held stop is dropped, not left to land later", core.parked)
+        assertFalse(core.isPaused)
+    }
+
+    /**
+     * …and the reason that matters beyond the churn: GPS is never torn down, so the no-fix guard's
+     * probe clock is not restarted either. Every flip used to reset it, which is how a phone with no
+     * sky kept a GPS request alive through a stationary stretch far longer than the give-up allows.
+     */
+    @Test fun `jitter no longer defers the no-fix give-up`() {
+        startWalking()
+        noFixGuard.onProbeStarted(E0)
+        reading(ActivityType.STILL, T0 + MINUTE)
+        reading(ActivityType.WALKING, T0 + MINUTE + HOLD_CAP_MS - 1)
+
+        val out = core.onGnssTick(T0 + 2 * MINUTE, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
+
+        assertTrue("the probe ran its window uninterrupted", out.contains(Effect.StopGps))
+        assertTrue(noFixGuard.suspended)
+    }
+
     @Test fun `it is not landed a moment early`() {
         startWalking()
         reading(ActivityType.STILL, T0 + MINUTE)
@@ -584,20 +624,18 @@ class ActivityIngestTest {
         reading(ActivityType.STILL, T0 + 30_000)
         assertEquals(ActivityType.STILL, core.parked)
 
-        val tooSoonToBeSilent = core.onMotion(Motion.Moving(VEHICLE_MPS), T0 + 30_000 + HOLD_CAP_MS, settings)
+        val tooSoonToBeSilent = core.onMotion(Motion.Moving(VEHICLE), T0 + 30_000 + HOLD_CAP_MS, settings)
 
         assertTrue("the ground is still moving, cap or no cap", tooSoonToBeSilent.isEmpty())
         assertEquals(ActivityType.STILL, core.parked)
     }
 
     // --- a foot reading at carrier speed ----------------------------------------------------------
+    //
+    // Every speed here is a motorway speed, because that is the whole of what the rule covers — the
+    // bar and why it cannot come down are argued once, in [ActivityGate.tooFastFor].
 
-    /**
-     * The jitter that cuts one drive into three rows: Play Services reports walking mid-journey,
-     * and because the groups differ the reading does not merely mislabel — it closes the track and
-     * opens another. A body cannot be on foot at carrier speed, so the reading waits.
-     */
-    @Test fun `a walking reading at carrier speed does not split the drive`() {
+    @Test fun `a walking reading at motorway speed does not split the drive`() {
         reading(ActivityType.DRIVING, T0)
         feedVehicleSpeedGround()
 
@@ -631,7 +669,7 @@ class ActivityIngestTest {
         feedVehicleSpeedGround()
         reading(ActivityType.WALKING, T0 + 30_000)
 
-        val out = core.onMotion(Motion.Moving(WALKING_MPS), T0 + 40_000, settings)
+        val out = core.onMotion(Motion.Moving(WALKING), T0 + 40_000, settings)
 
         assertTrue("the walk opens its own track", out.any { it is Effect.OpenTrack })
         assertEquals(ActivityType.WALKING, core.confirmed)
@@ -642,6 +680,25 @@ class ActivityIngestTest {
 
         assertTrue(out.any { it is Effect.OpenTrack })
         assertNull(core.parked)
+    }
+
+    // --- …and where the rule deliberately does not reach -------------------------------------------
+
+    /**
+     * **The urban split stands, and this pins that it does** — not an oversight, and not fixable by
+     * lowering the bar; see [ActivityGate.tooFastFor] for why the ground cannot tell this reading
+     * from the genuine drive-to-walk that ends every trip. Repaired afterwards by merging, which is
+     * visible and undoable.
+     */
+    @Test fun `a walking reading at a crawl still splits the drive, as it must`() {
+        reading(ActivityType.DRIVING, T0)
+        groundAt(CRAWL, T0, until = T0 + 30_000)
+
+        val out = reading(ActivityType.WALKING, T0 + 30_000)
+
+        assertNull("nothing is held", core.parked)
+        assertTrue("the drive is closed", out.any { it is Effect.CloseTrack })
+        assertTrue("and a foot track opened in its place", out.any { it is Effect.OpenTrack })
     }
 
     // --- the departure trigger: a start that Play Services had no part in -------------------------
@@ -731,11 +788,15 @@ class ActivityIngestTest {
         /** How long a stop the ground could not vouch for is held before it lands anyway. */
         const val HOLD_CAP_MS = 35_000L
 
-        /** 90 km/h — ordinary road speed, well under the 220 km/h ceiling a DRIVING label carries. */
-        const val VEHICLE_MPS = 25.0
+        /** Ordinary motorway speed, well under the ceiling a DRIVING label carries. */
+        val VEHICLE = Speed.kmh(90.0)
 
-        /** ~5 km/h: a pace the foot family's own ceiling explains, so no foot reading is held at it. */
-        const val WALKING_MPS = 1.4
+        /** A pace the foot family's own ceiling explains, so no foot reading is held at it. */
+        val WALKING = Speed.kmh(5.0)
+
+        /** A car in city traffic — under the foot rule's bar, and the speed a real drive-to-walk
+         *  arrives at, which is why nothing may be held there. */
+        val CRAWL = Speed.kmh(22.0)
 
         /** The guard's clock is monotonic and unrelated to [T0]; only differences are ever read. */
         const val E0 = 500_000L

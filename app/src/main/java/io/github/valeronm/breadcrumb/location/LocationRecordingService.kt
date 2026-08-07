@@ -508,7 +508,7 @@ class LocationRecordingService : Service() {
 
     /** The witness's verdict as one log word. Logs are never localized — see the conventions. */
     private fun groundOf(motion: Motion): String = when (motion) {
-        is Motion.Moving -> "moving@${"%.1f".format(Locale.US, motion.speedKmh)}kmh"
+        is Motion.Moving -> "moving@${"%.1f".format(Locale.US, motion.speed.kmh)}kmh"
         Motion.Stopped -> "stopped"
         Motion.Unknown -> "unknown"
     }

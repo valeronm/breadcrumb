@@ -13,7 +13,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  *     floor, must find a dwell touching the track's first/last good fix — what distinguishes
  *     "arrived somewhere specific" from plain GPS starvation.
  *  2. **Speed says where**: the cut is placed by speed collapse, not corral geometry. Good fixes
- *     moving at least [Params.movingSpeedMps] — by displacement, with Doppler as a seconding vote
+ *     moving at least [Params.movingSpeed] — by displacement, with Doppler as a seconding vote
  *     rather than the source of truth (see [movingBins]) — are binned; a bin holding at least
  *     [Params.movingBinFraction] of *its own* fixes moving is itself "moving", and the boundary is
  *     the end of the last moving bin (the start of the first, at a start edge), pulled back to the
@@ -33,18 +33,18 @@ object EdgeStayDetector {
          *  test suite; they remain only for callers that don't turn on the rule's numbers. */
         val dwell: DwellDetector.Params = DwellDetector.Params(minDwellMs = 3 * 60_000L),
         /** A fix at or above this speed votes its bin "moving". */
-        val movingSpeedMps: Double = 0.7,
+        val movingSpeed: Speed = Speed.mps(0.7),
         /** What a *lone* fix must clear to carry its bin by itself. Corroboration is the usual
          *  evidence — several fixes in a bin agreeing — and where there is none, the one fix has
          *  to be moving too fast for a standstill to explain: settling GPS drifts 19–31 m over
-         *  half a minute, which clears [movingSpeedMps] but not this. */
-        val soloMovingSpeedMps: Double = 2.5,
+         *  half a minute, which clears [movingSpeed] but not this. */
+        val soloMovingSpeed: Speed = Speed.mps(2.5),
         /** Speed below which *this activity* is not happening at all, so a bin whose fastest fix
          *  falls under it is a standstill however many fixes agree. Off by default because on
          *  foot there is no such speed — settling GPS drifts at 0.9–1.2 m/s and people walk at
          *  1.2–1.5, so any floor that excludes the drift excludes the walking too. In a vehicle
          *  the two are decades apart, which is what [VEHICLE] uses. */
-        val activityFloorMps: Double = 0.0,
+        val activityFloor: Speed = Speed.ZERO,
         /** Speed over the ground is measured as displacement over this lookback — long enough
          *  that standstill jitter averages to ~zero, short enough that real movement registers. */
         val speedLookbackMs: Long = 30_000L,
@@ -80,11 +80,11 @@ object EdgeStayDetector {
 
     /**
      * [BRIEF_STOP] with the floor a vehicle's own speed allows: at ~1 Hz a parked car easily puts
-     * three drift fixes over the 0.7 m/s bar in a bin — pinning the last moving bin to the track's
-     * end and hiding the arrival tail on 156 drives outright. Under 5 km/h a car is not driving,
-     * so those bins are standstill regardless of agreement.
+     * three drift fixes over the [Params.movingSpeed] bar in a bin — pinning the last moving bin to
+     * the track's end and hiding the arrival tail on 156 drives outright. Below this a car is not
+     * driving, so those bins are standstill regardless of agreement.
      */
-    val VEHICLE = BRIEF_STOP.copy(activityFloorMps = 1.4)
+    val VEHICLE = BRIEF_STOP.copy(activityFloor = Speed.kmh(5.0))
 
     /**
      * The one place a track's tuning is chosen — two callers deriving the same track's overrun
@@ -263,7 +263,7 @@ object EdgeStayDetector {
         val minVotes = if (params.binMs / cadenceMs(good) >= 2) 2 else 1
         val moving = HashMap<Long, Int>()
         val total = HashMap<Long, Int>()
-        val fastest = HashMap<Long, Double>()
+        val fastest = HashMap<Long, Speed>()
         var back = 0
         for ((i, p) in good.withIndex()) {
             val bin = p.timestamp / params.binMs
@@ -274,21 +274,25 @@ object EdgeStayDetector {
             val anchor = good[if (back == i) i - 1 else back]
             val dtMs = p.timestamp - anchor.timestamp
             if (dtMs < minBaselineMs) continue
-            val overGround = distance.meters(anchor.latitude, anchor.longitude, p.latitude, p.longitude) /
-                (dtMs / 1000.0)
-            if (overGround < params.movingSpeedMps) continue
-            val doppler = p.speed?.toDouble()
-            if (doppler != null && doppler < params.movingSpeedMps) continue
+            val overGround = Speed.mps(
+                distance.meters(anchor.latitude, anchor.longitude, p.latitude, p.longitude) /
+                    (dtMs / 1000.0),
+            )
+            if (overGround < params.movingSpeed) continue
+            // Compared without a [Speed] of its own: a nullable value class boxes, and this runs
+            // over every good point of every track, history-wide on a rule-version sweep.
+            val doppler = p.speed
+            if (doppler != null && Speed.mps(doppler.toDouble()) < params.movingSpeed) continue
             moving.merge(bin, 1, Int::plus)
-            fastest.merge(bin, overGround, ::maxOf)
+            fastest.merge(bin, overGround) { a, b -> a.coerceAtLeast(b) }
         }
         return moving.filter { (bin, votes) ->
             val needed = maxOf(minVotes, (total.getValue(bin) * params.movingBinFraction).toInt())
             // Corroborated (and clear of what this activity calls standing still), or fast
             // enough that one fix settles it alone.
             val peak = fastest.getValue(bin)
-            (votes >= needed && peak >= params.activityFloorMps) ||
-                peak >= params.soloMovingSpeedMps
+            (votes >= needed && peak >= params.activityFloor) ||
+                peak >= params.soloMovingSpeed
         }.keys.sorted()
     }
 }
