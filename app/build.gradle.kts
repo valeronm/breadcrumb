@@ -150,7 +150,7 @@ android {
         applicationId = "io.github.valeronm.breadcrumb"
         minSdk = 26
         targetSdk = 37
-        versionCode = 19
+        versionCode = 20
         // "1.0+16e7a3a", with "-dirty" appended when built from uncommitted changes.
         val gitSha = providers.exec {
             commandLine("git", "describe", "--always", "--dirty")
