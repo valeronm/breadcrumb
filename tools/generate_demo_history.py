@@ -42,6 +42,7 @@ since the history has to end today.
 
 import argparse
 import datetime as dt
+import functools
 import gzip
 import json
 import math
@@ -293,7 +294,40 @@ def journey_days():
     return days
 
 
-def schedule(base_day):
+# How likely a Sunday ride is, by month: long summer evenings, little in midwinter. Riding is the
+# only source of cycling, so this is what gives that row a shape a year of identical weeks cannot.
+# Deterministic and the same every year, so it takes no seed and sits outside the draw below.
+RIDE_SEASON = {1: 0.25, 2: 0.35, 3: 0.55, 4: 0.75, 5: 0.90, 6: 1.00,
+               7: 1.00, 8: 0.95, 9: 0.80, 10: 0.60, 11: 0.35, 12: 0.25}
+
+
+@functools.cache
+def month_habits(year, month, seed):
+    """The month's routine: which weekdays hold the school run and a gym session, how likely a
+    Sunday ride is, whether the supermarket is visited once or twice a week, and which dates are
+    taken off.
+
+    Seeded per calendar month, so every day inside one agrees and two runs of the generator produce
+    the same year. Without it every month is one week repeated: the routine's monthly totals then
+    differ only by how the weekdays fall, and Statistics' twelve bars — most of the reason to
+    generate a year at all — come out flat enough to look broken.
+
+    Cached for the same reason it is seeded per month: the schedule asks once per day, and building
+    the answer afresh each time would say a month's habits are a per-day thing.
+    """
+    r = random.Random(f"{seed}:habits:{year}-{month}")
+    school = tuple(r.sample(range(5), r.randint(1, 3)))
+    gym = tuple(r.sample(range(5), r.randint(1, 3)))
+    # Days with no commute at all — leave, or a day worked from home. The commute is five days of
+    # every week and by far the longest thing driven, so without these the driving row is the same
+    # number twelve times over however the rest of the month varies. Drawn from the 28 every month
+    # has, so no month length has to be looked up, and frozen because the cache hands every day of
+    # the month the same object.
+    off = frozenset(r.sample(range(1, 29), r.randint(0, 5)))
+    return school, gym, min(1.0, RIDE_SEASON[month] * r.uniform(0.8, 1.15)), r.randint(1, 2), off
+
+
+def schedule(base_day, seed):
     """(day offset, route key, seconds past midnight) for the whole history, in order."""
     away = journey_days()
     plan = []
@@ -324,22 +358,30 @@ def schedule(base_day):
         # and the silence around them reads as a stay at home.
         if day < day_index(ROUTINE_DAYS):
             continue
-        if date.weekday() >= 5:
+        school_days, gym_days, ride_chance, market_runs, off_days = month_habits(
+            date.year, date.month, seed)
+        weekday = date.weekday()
+        if weekday >= 5:
             plan.append((day, "park-walk", clock(10, 20)))
-            if date.weekday() == 6:
+            # Rolled per Sunday rather than per month, so a summer month keeps a rained-off weekend
+            # and a winter one an unseasonably good day.
+            if weekday == 6 and random.Random(f"{seed}:ride:{date.toordinal()}").random() < ride_chance:
                 plan.append((day, "river-ride", clock(15, 5)))
                 plan.append((day, "river-ride-back", clock(17, 20)))
             continue
-        if date.weekday() in (1, 3):
+        if date.day in off_days:
+            plan.append((day, "park-walk", clock(12, 40)))
+            continue
+        if weekday in school_days:
             plan.append((day, "school-drop", clock(8, 5)))
             plan.append((day, "school-to-work", clock(8, 30)))
         else:
             plan.append((day, "commute-out", clock(8, 15)))
         plan.append((day, "commute-back", clock(18, 35)))
-        if date.weekday() in (0, 2):
+        if weekday in gym_days:
             plan.append((day, "gym", clock(19, 40)))
             plan.append((day, "gym-back", clock(21, 5)))
-        if date.weekday() == 4:
+        if weekday == 4 or (market_runs > 1 and weekday == 1):
             plan.append((day, "market-out", clock(19, 30)))
             plan.append((day, "market-back", clock(20, 5)))
     return plan
@@ -360,7 +402,7 @@ def generate(base_day, now_ms, seed=7):
 
     planned = sorted(
         (history_start_ms + day * 86_400_000 + (at + rng.randint(-420, 420)) * 1000, day, key)
-        for day, key, at in schedule(base_day)
+        for day, key, at in schedule(base_day, seed)
     )
     # A scheduled departure is a wish, not a guarantee: how long a leg takes falls out of the speed
     # walk, so two legs of one errand can collide. Each track therefore starts no earlier than the
