@@ -12,7 +12,7 @@ Outputs (paths relative to the repo root):
   app/src/main/res/drawable/ic_launcher_foreground.xml  - crumbs + gap + pin
   app/src/main/res/drawable/ic_notification.xml         - 24dp tinted silhouette
   app/src/{debug,perf}/res/drawable/ic_launcher_background.xml - blueprint grid, dev builds
-  tools/play-icon.svg                                    - 512px Play listing source
+  docs/store-listing/play-icon.png                     - 512px, what the Play Console takes
 
 Run from anywhere:  python3 tools/generate_icon.py
 Then rebuild; the adaptive icon XML in mipmap-anydpi-v26 references the
@@ -268,20 +268,27 @@ def play_icon_svg() -> str:
 """
 
 
-def rasterize_play_icon() -> None:
-    """Render the 512px Play-listing PNG from the SVG, if a renderer exists."""
+def rasterize_play_icon(svg_text: str) -> None:
+    """Render the 512px Play-listing PNG. The SVG is a means, so it never outlives the run.
+
+    Chromium refuses some temp dirs, so the intermediate is written beside the PNG and removed
+    again — except where no renderer exists, when it is left behind to be converted by hand.
+    """
     import shutil
     import subprocess
-    svg = REPO / "tools/play-icon.svg"
-    png = REPO / "tools/play-icon.png"
+    png = REPO / "docs/store-listing/play-icon.png"
+    svg = png.with_suffix(".svg")
+    png.parent.mkdir(parents=True, exist_ok=True)
+    svg.write_text(svg_text)
     chromium = shutil.which("chromium") or shutil.which("google-chrome")
     if not chromium:
-        print("no chromium found - render tools/play-icon.svg to a 512px PNG manually")
+        print(f"no chromium found - render {svg.relative_to(REPO)} to a 512px PNG manually")
         return
     subprocess.run(
-        [chromium, "--headless", "--disable-gpu", f"--screenshot={png}",
-         "--window-size=512,512", f"file://{svg}"],
+        [chromium, "--headless", "--disable-gpu", "--force-device-scale-factor=1",
+         f"--screenshot={png}", "--window-size=512,512", f"file://{svg}"],
         check=True, capture_output=True)
+    svg.unlink()
     print(f"wrote {png.relative_to(REPO)}")
 
 
@@ -297,8 +304,7 @@ def main() -> None:
         out = REPO / f"app/src/{build_type}/res/drawable"
         out.mkdir(parents=True, exist_ok=True)
         write(out / "ic_launcher_background.xml", debug_launcher_background())
-    write(REPO / "tools/play-icon.svg", play_icon_svg())
-    rasterize_play_icon()
+    rasterize_play_icon(play_icon_svg())
 
 
 if __name__ == "__main__":

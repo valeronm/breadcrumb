@@ -2,13 +2,16 @@
 """Generate Play Store listing graphics from raw device captures.
 
 Produces, in Breadcrumb's icon design language (home-glow gradient, Google Sans):
-  tools/feature-graphic.png                 1024x500  feature graphic
-  tools/store-screenshots/phone-N.png       1080x1920 phone screenshots (9:16)
-  tools/store-screenshots/tablet-N.png      1440x2560 tablet screenshots (9:16)
+  docs/store-listing/feature-graphic.png        1024x500  feature graphic
+  docs/store-listing/screenshots/shot-N.png     1080x1920 screenshots (9:16), every slot
 
-Raw source captures live in tools/store-screenshots/raw/ (adb screencap output,
-any size); each is composited onto a captioned branded frame. Captions are the
-CAPTIONS list below — edit there to change wording.
+Output lands beside the listing text because that folder is what gets uploaded to the
+Play Console.
+
+Source captures are docs/screenshots/ — the same demo-build shots the README embeds,
+deliberately not a second copy, so a re-shoot updates both at once. Each is composited
+onto a captioned branded frame. CAPTIONS below picks which of them ship and in what
+order, so the folder may hold shots the store does not use.
 
 Requires headless chromium for rendering (the SVG/HTML renderer). Run:
   python3 tools/generate_store_assets.py
@@ -20,27 +23,58 @@ import base64
 import shutil
 import subprocess
 from pathlib import Path
+from typing import NamedTuple
 
 REPO = Path(__file__).resolve().parent.parent
 FONT = REPO / "app/src/main/res/font/google_sans.ttf"
-RAW = REPO / "tools/store-screenshots/raw"
-OUT = REPO / "tools/store-screenshots"
+RAW = REPO / "docs/screenshots"
+LISTING = REPO / "docs/store-listing"
+OUT = LISTING / "screenshots"
 
 BG_INNER, BG_MID, BG_OUTER = "#26805F", "#124434", "#0B3526"
 SUBTITLE = "#A8E6C8"
 
-# (raw filename, title, subtitle) — one per screenshot, in store order.
+
+class Frame(NamedTuple):
+    """The composited frame's geometry. `dev_top` is why the device does not move between shots.
+
+    A store listing is swiped through, so a phone that sits lower wherever a title happens to wrap
+    reads as a rendering fault. Positioning the device at a fixed offset rather than after the
+    caption keeps it still by construction — nothing here predicts how the text will lay out.
+    """
+
+    w: int
+    h: int
+    dev_top: int
+    dev_h: int
+    title_px: int
+    sub_px: int
+    pad_top: int
+    pad_x: int
+
+
+# One set fills the phone, 7-inch and 10-inch tablet slots alike: all three take 9:16, and the
+# only floor that bites is the 10-inch one, which requires 1080 on the short side. The width is
+# therefore exactly at that floor and must not be lowered — a tablet-sized second set would carry
+# the same capture and the same caption, so it would buy resolution and nothing else.
+FRAME = Frame(1080, 1920, 381, 1400, 66, 34, 96, 90)
+
+
+
+# (capture filename in RAW, title, subtitle) — one per screenshot, in store order.
 CAPTIONS = [
-    ("1-record.png",  "Recording starts on its own",
+    ("record.png", "Recording starts on its own",
      "Walk, ride or drive — Breadcrumb detects it and records."),
-    ("2-timeline.png", "Your days as a timeline",
+    ("timeline.png", "Your days as a timeline",
      "Trips and the stays between them, named and in order."),
-    ("3-detail.png",  "Every route on a rich map",
-     "Coloured by speed, elevation or GPS accuracy."),
-    ("4-place.png",   "Name the places you return to",
+    ("track-detail.png", "Every trip on a rich map",
+     "Coloured by speed, elevation, accuracy or satellites."),
+    ("places.png", "Name the places you revisit",
      "Home, work, the gym — your own map of your life."),
-    ("5-places.png",  "All your places, one map",
-     "Everywhere you go, kept privately on your device."),
+    ("journeys.png", "Journeys away from home",
+     "Nights spent away, named after where the time went."),
+    ("statistics.png", "A month against the year",
+     "Where your movement and your hours actually go."),
 ]
 
 
@@ -51,7 +85,19 @@ def chromium() -> str:
     return exe
 
 
-def render(html: str, out: Path, w: int, h: int) -> None:
+def render(body: str, out: Path, w: int, h: int, style: str = "") -> None:
+    """Screenshot `body` as a w×h PNG. Callers pass markup and their own CSS, never a whole page.
+
+    The skeleton lives here because chromium loads the temp file as HTML whatever it holds: a
+    caller handing over bare markup would otherwise pick up the default body margin, which insets
+    the art and pushes it past the viewport — scrollbars and an offset, baked into the PNG.
+    """
+    html = f"""<!doctype html><html><head><meta charset="utf8"><style>
+    *{{margin:0;padding:0;box-sizing:border-box}}
+    html,body{{width:{w}px;height:{h}px;overflow:hidden}}
+    {style}
+    </style></head><body>{body}</body></html>"""
+    out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(".html")
     tmp.write_text(html)
     subprocess.run(
@@ -71,27 +117,24 @@ def data_uri(img: Path) -> str:
     return "data:image/png;base64," + base64.b64encode(img.read_bytes()).decode()
 
 
-def screenshot_frame(img: Path, title: str, sub: str, out: Path,
-                     w: int, h: int, dev_h: int, title_px: int, sub_px: int,
-                     pad_top: int, pad_x: int) -> None:
-    html = f"""<!doctype html><html><head><meta charset="utf8"><style>
+def screenshot_frame(img: Path, title: str, sub: str, out: Path, f: Frame) -> None:
+    style = f"""
     {font_face()}
-    *{{margin:0;box-sizing:border-box}}
-    body{{width:{w}px;height:{h}px;overflow:hidden;font-family:GS;
+    body{{font-family:GS;position:relative;
       background:radial-gradient(120% 90% at 50% 8%, {BG_INNER} 0%, {BG_MID} 55%, {BG_OUTER} 100%);}}
-    .cap{{padding:{pad_top}px {pad_x}px 0;text-align:center}}
-    h1{{color:#fff;font-size:{title_px}px;font-weight:700;line-height:1.12;
+    .cap{{padding:{f.pad_top}px {f.pad_x}px 0;text-align:center}}
+    h1{{color:#fff;font-size:{f.title_px}px;font-weight:700;line-height:1.12;
       letter-spacing:-.5px;text-wrap:balance}}
-    p{{color:{SUBTITLE};font-size:{sub_px}px;font-weight:400;margin-top:22px;
+    p{{color:{SUBTITLE};font-size:{f.sub_px}px;font-weight:400;margin-top:22px;
       line-height:1.3;text-wrap:balance}}
-    .dev{{display:flex;justify-content:center;margin-top:{int(dev_h*0.05)}px}}
-    .dev img{{height:{dev_h}px;border-radius:44px;box-shadow:0 30px 80px rgba(0,0,0,.45);
-      border:1px solid rgba(255,255,255,.10)}}
-    </style></head><body>
+    .dev{{position:absolute;top:{f.dev_top}px;left:0;right:0;
+      display:flex;justify-content:center}}
+    .dev img{{height:{f.dev_h}px;border-radius:44px;box-shadow:0 30px 80px rgba(0,0,0,.45);
+      border:1px solid rgba(255,255,255,.10)}}"""
+    body = f"""
     <div class="cap"><h1>{title}</h1><p>{sub}</p></div>
-    <div class="dev"><img src="{data_uri(img)}"></div>
-    </body></html>"""
-    render(html, out, w, h)
+    <div class="dev"><img src="{data_uri(img)}"></div>"""
+    render(body, out, f.w, f.h, style)
 
 
 def feature_graphic() -> None:
@@ -115,22 +158,17 @@ def feature_graphic() -> None:
   <path fill="url(#g)" d="{pin_path(PIN_CX,PIN_HY,PIN_R+GAP_R,PIN_TIP_Y+GAP_TIP,False,s,dx,dy)}"/>
   <path fill="{PIN_COLOR}" fill-rule="evenodd" d="{pin_path(PIN_CX,PIN_HY,PIN_R,PIN_TIP_Y,True,s,dx,dy)}"/>
   <text x="460" y="222" font-family="GS" font-size="72" font-weight="700" fill="#FFFFFF">Breadcrumb</text>
-  <text x="462" y="288" font-family="GS" font-size="29" fill="{SUBTITLE}">Your trips, recorded automatically.</text>
+  <text x="462" y="288" font-family="GS" font-size="29" fill="{SUBTITLE}">Everywhere you go, recorded by itself.</text>
   <text x="462" y="334" font-family="GS" font-size="29" fill="{SUBTITLE}">All data stays on your device.</text>
 </svg>"""
-    render(svg, REPO / "tools/feature-graphic.png", 1024, 500)
+    render(svg, LISTING / "feature-graphic.png", 1024, 500)
 
 
 def main() -> None:
     feature_graphic()
     for i, (name, title, sub) in enumerate(CAPTIONS, 1):
         img = RAW / name
-        # Phone: 1080x1920
-        screenshot_frame(img, title, sub, OUT / f"phone-{i}.png",
-                         1080, 1920, 1400, 66, 34, 96, 90)
-        # Tablet: 1440x2560 (same 9:16, larger device + type)
-        screenshot_frame(img, title, sub, OUT / f"tablet-{i}.png",
-                         1440, 2560, 1880, 84, 42, 130, 120)
+        screenshot_frame(img, title, sub, OUT / f"shot-{i}.png", FRAME)
 
 
 if __name__ == "__main__":
