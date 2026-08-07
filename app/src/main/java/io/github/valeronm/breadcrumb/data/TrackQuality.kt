@@ -173,9 +173,9 @@ object TrackQuality {
     fun pointSpeedsKmh(points: List<TrackPoint>, distance: DistanceFn = AndroidDistance): FloatArray =
         pointSpeedsKmh(seams(points, distance))
 
-    /** First seam at least this fast (km/h) to be a candidate stray — an implausible launch from a
-     *  drive start, this pace in a ~1 s opening seam being ~1 g of acceleration from standstill. */
-    private const val LEADING_STRAY_MIN_KMH = 40.0
+    /** First seam at least this fast to be a candidate stray — an implausible launch from a drive
+     *  start, this pace in a ~1 s opening seam being ~1 g of acceleration from standstill. */
+    private val LEADING_STRAY_MIN = Speed.kmh(40.0)
 
     /** …and at least this many times the following real pace, so genuine fast starts (first seam
      *  ≈ the rest of the track) aren't flagged — only the fast-first-then-slow stray shape is. */
@@ -187,8 +187,13 @@ object TrackQuality {
     /** How many leading points [leadingPointIsJump] inspects — a prefix this long decides it. */
     const val LEADING_CHECK_POINT_COUNT = LEADING_STRAY_LOOKAHEAD + 1
 
-    /** Speed (km/h) across a seam of [meters], or null when its time gap is non-positive (can't
-     *  derive). */
+    /**
+     * Speed (km/h) across a seam of [meters], or null when its time gap is non-positive (can't
+     * derive). **Primitive on purpose**, unlike every rule that consults it: [pointSpeedsKmh] calls
+     * this for every point of a track to build the colour ramp's array, and a nullable [Speed] boxes
+     * — so the two decisions that want one convert at their own edge, where it costs a handful of
+     * allocations per track rather than one per fix.
+     */
     private fun seamSpeedKmh(a: TrackPoint, b: TrackPoint, meters: Double): Double? {
         val dtSec = (b.timestamp - a.timestamp) / 1000.0
         if (dtSec <= 0) return null
@@ -197,7 +202,7 @@ object TrackQuality {
 
     /**
      * Whether the track opens with a stray point: the first seam's speed is implausibly high for a
-     * drive *start* — well above [LEADING_STRAY_MIN_KMH] and at least [LEADING_STRAY_FACTOR]× the
+     * drive *start* — well above [LEADING_STRAY_MIN] and at least [LEADING_STRAY_FACTOR]× the
      * real pace of the seams that follow (a car pulling out does a few km/h, not 180). The classic
      * recorder cold-start artifact — first fix far off, then a consistent track — common in
      * imported GPX, which bypasses live ingest filtering. An absolute jump ceiling misses it (a
@@ -211,12 +216,14 @@ object TrackQuality {
     ): Boolean {
         if (points.size < 3) return false
         fun seam(i: Int) = seamSpeedKmh(points[i - 1], points[i], distanceMeters(points[i - 1], points[i], distance))
-        val firstSeam = seam(1) ?: return false
-        if (firstSeam < LEADING_STRAY_MIN_KMH) return false
+        val firstSeam = seam(1)?.let(Speed::kmh) ?: return false
+        if (firstSeam < LEADING_STRAY_MIN) return false
+        // The max is taken over the raw seams and converted once: [Speed] is what the comparison
+        // wants, not what the walk needs.
         val followPace = (2..LEADING_STRAY_LOOKAHEAD.coerceAtMost(points.size - 1))
             .mapNotNull { seam(it) }
-            .maxOrNull() ?: return false
-        return firstSeam >= LEADING_STRAY_FACTOR * followPace
+            .maxOrNull()?.let(Speed::kmh) ?: return false
+        return firstSeam >= followPace * LEADING_STRAY_FACTOR
     }
 
     /**
