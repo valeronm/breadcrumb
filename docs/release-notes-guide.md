@@ -69,12 +69,15 @@ What's new:
   never upload a `-dirty` build; commit first, then build.
 - `versionCode` is bumped manually in `app/build.gradle.kts` and must increase
   for every upload. Gaps are fine.
-- Building the bundle: push a `v1.0-vc<N>` tag on the bump commit — the
-  Release workflow builds the signed `.aab` and attaches it to a GitHub
-  Release (it fails if N doesn't match the committed `versionCode`).
+- Building the bundle: push the bump commit to `main`, then push a
+  `v1.0-vc<N>` tag on it — the workflow fires on the tag, but a commit no
+  branch contains is not a release. When later commits must stay local,
+  `git push origin <bump-sha>:main` pushes the bump on its own. The Release
+  workflow builds the signed `.aab` and attaches it to a GitHub Release (it
+  fails if N doesn't match the committed `versionCode`).
 - **Never build the release locally.** The bundle that ships is the workflow's:
   it alone has the upload keystore and the Protomaps key from repo secrets, so
   a local `assembleRelease` is not the artifact under any circumstances. Running
   one before the bump is committed is worse than pointless — `git describe`
   stamps it `-dirty`, so it validates a build that could not have shipped
-  anyway. The sequence is bump → commit → tag → push tag → wait for CI.
+  anyway. The sequence is bump → commit → push → tag → push tag → wait for CI.

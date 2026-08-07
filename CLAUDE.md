@@ -437,8 +437,10 @@ the commit it was built from — so "commits since the last uploaded build" is j
 `tests.yml` runs ktlint, detekt, Android Lint and the unit tests on every push/PR; `release.yml` fires on pushing a `v1.0-vc<N>`
 tag — it fails unless N matches `versionCode` in `app/build.gradle.kts`, builds the signed
 bundle (upload keystore + Protomaps key come from repo secrets), and attaches the `.aab` to a
-GitHub Release. Release flow: commit the `versionCode` bump → tag it `v1.0-vc<N>` → push the
-tag → append the "What's new" text (written per `docs/release-notes-guide.md`) to the GitHub
+GitHub Release. Release flow: commit the `versionCode` bump → push it to `main` → tag it
+`v1.0-vc<N>` → push the tag (the tag alone would build, but a commit no branch contains is not a
+release; when later commits must stay local, `git push origin <bump-sha>:main` pushes the bump on
+its own) → append the "What's new" text (written per `docs/release-notes-guide.md`) to the GitHub
 Release body via `gh release edit`, under the generated provenance line → download the `.aab`
 from the GitHub Release and upload it to the Play Console manually, reusing the same "What's
 new" text there. `versionCode`'s source of truth is `app/build.gradle.kts`; the tag only
