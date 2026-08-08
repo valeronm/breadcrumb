@@ -373,7 +373,8 @@ internal fun TrackMapScreen(
                         OptionRow(
                             icon = activityIcon(option),
                             label = stringResource(option.labelRes),
-                            tint = travelColor(),
+                            // Each option in its own hue, as the category picker wears its groups'.
+                            tint = activityColor(option),
                             selected = option == activity,
                             selectedDescription = stringResource(R.string.track_type_current),
                         ) {

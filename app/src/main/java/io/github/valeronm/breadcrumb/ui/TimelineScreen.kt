@@ -648,7 +648,7 @@ private fun DayHeader(
                 DayTotal(
                     icon = activityIcon(total.type),
                     description = activityLabel(context, total.activityType),
-                    tint = travelColor(),
+                    tint = activityColor(total.type),
                     text = "${distanceText(total.meters)} · ${durationText(total.durationMs)}",
                 )
             }
@@ -894,9 +894,8 @@ internal fun TrackRow(
             // Long-press replays the track, which Card's own onClick can't express.
             modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
             shape = shape,
-            // Activity token: a clear category cue that stays quiet.
             icon = activityIcon(activity),
-            tint = travelColor(),
+            disc = activityDiscStyle(activity),
             iconDescription = activityName,
             // What happened leads; when it happened is the metadata line.
             title = "$activityName · " + distanceText(track.distanceMeters),
@@ -1040,9 +1039,9 @@ internal fun StayCard(
     // in the subtitle: the row would then name in words what it has just drawn, and the line is
     // shared with when and how long, which nothing else says.
     val category = place?.category
-    // Accent means categorized here as it does on the Places list (placeDiscTint) — one rule, so the
-    // same place can't read as accented on one screen and neutral on the other.
-    val tint = placeDiscTint(category)
+    // Accent means categorized here as it does on the Places list (placeDiscStyle) — one rule, so
+    // the same place can't read as accented on one screen and neutral on the other.
+    val disc = placeDiscStyle(category)
     val visits = place?.visitCount?.takeIf { !named && it >= PlaceResolver.NOTABLE_VISIT_MIN }
     // Worded here: the annotated-string builder below is not a composable scope, and every one of
     // these brackets a clock time it draws rather than interpolates.
@@ -1081,9 +1080,8 @@ internal fun StayCard(
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = containerColor),
         icon = category.discIcon,
-        tint = tint,
+        disc = disc,
         iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
-        discAlpha = placeDiscAlpha(category),
         badge = if (mergeable) Icons.Filled.Pause else null,
         badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
         // The place leads; when (with midnight slices phrased humanly) is the metadata line. The

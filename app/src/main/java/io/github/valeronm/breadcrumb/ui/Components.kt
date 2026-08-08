@@ -727,13 +727,12 @@ internal fun EmptyState(
 internal fun ListRowCard(
     shape: RoundedCornerShape,
     icon: ImageVector,
-    tint: Color,
+    disc: DiscStyle,
     title: String,
     titleColor: Color,
     subtitle: AnnotatedString,
     modifier: Modifier = Modifier,
     iconDescription: String? = null,
-    discAlpha: Float = 0.22f,
     /** A second fact about the row, marked on the disc's corner instead of replacing its glyph. */
     badge: ImageVector? = null,
     badgeDescription: String? = null,
@@ -749,11 +748,10 @@ internal fun ListRowCard(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TonalIconDisc(
+            IconDisc(
                 icon,
-                tint,
+                disc,
                 contentDescription = iconDescription,
-                discAlpha = discAlpha,
                 badge = badge,
                 badgeDescription = badgeDescription,
                 badgeColor = badgeColor,
@@ -784,19 +782,31 @@ internal fun ListRowCard(
 }
 
 /**
- * The list rows' category token: a glyph on a soft tonal disc of the same color (M3 "tonal").
+ * How an icon disc is painted: the circle's fill (with [fillAlpha]) and its glyph's ink. The named
+ * recipes — [DiscStyle.tonal]'s wash, [placeDiscStyle]'s solid pin fill — are the vocabulary; a
+ * surface picks one rather than re-deciding weights.
+ */
+internal data class DiscStyle(val fill: Color, val fillAlpha: Float, val glyph: Color) {
+    companion object {
+        /** A soft wash of [tint] under a glyph in the same color (M3 "tonal") — one home for the
+         *  weight, so retuning the wash can't miss a surface. */
+        fun tonal(tint: Color) = DiscStyle(fill = tint, fillAlpha = 0.22f, glyph = tint)
+    }
+}
+
+/**
+ * The list rows' category token: a glyph on a circle, painted per [DiscStyle].
  * [badge] marks a *second*, unrelated fact about the row without spending the glyph on it: it rides
  * the bottom-end corner the circle leaves empty inside its own square (so a badged disc takes no
  * more room), saturated rather than tonal — at this size a soft fill reads as a smudge on the edge.
  */
 @Composable
-internal fun TonalIconDisc(
+internal fun IconDisc(
     icon: ImageVector,
-    tint: Color,
+    style: DiscStyle,
     contentDescription: String?,
     size: Dp = 36.dp,
     iconSize: Dp = 20.dp,
-    discAlpha: Float = 0.22f,
     badge: ImageVector? = null,
     badgeDescription: String? = null,
     badgeColor: Color = MaterialTheme.colorScheme.tertiary,
@@ -807,13 +817,13 @@ internal fun TonalIconDisc(
             modifier = Modifier
                 .matchParentSize()
                 .clip(CircleShape)
-                .background(tint.copy(alpha = discAlpha)),
+                .background(style.fill.copy(alpha = style.fillAlpha)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = tint,
+                tint = style.glyph,
                 modifier = Modifier.size(iconSize),
             )
         }
@@ -1010,8 +1020,11 @@ private const val ACTIVITY_SAT = 0.5f
 private const val ACTIVITY_LUM = 0.62f
 
 /**
- * A hue per activity — for the **Record tab only**, where movement is the whole subject and no place
- * appears to be coded. Elsewhere use [travelColor]: see the split described there.
+ * A hue per activity, wherever movement is drawn — the Record tab's totals, the Timeline's track
+ * rows and day totals, the Insights stats. It shares screens with the place palette, and the two
+ * stay apart by weight rather than by surface: an activity is a tonal wash under a hued glyph,
+ * while a categorized place's disc is its map pin's solid fill — so a kind of travel can't be
+ * mistaken for a kind of stop even at neighboring hues.
  */
 @Composable
 internal fun activityColor(activity: ActivityType?): Color = when (activity) {
@@ -1026,23 +1039,11 @@ internal fun activityColor(activity: ActivityType?): Color = when (activity) {
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
-/**
- * One neutral for every kind of travel wherever places share the screen — the Timeline and anything
- * reached from it. There color is spent on places ([categoryColor]); an activity hue would compete
- * while saying nothing the row's glyphs (car, boots, bike) don't, and a day's shape is in where the
- * user stopped. The two palettes are separated by surface, not by tone — [activityColor] belongs to
- * the Record tab, which holds no places at all; that invariant is what makes both readable, and the
- * saturation split below is only the fallback if a screen ever shows both. (The web viewer colors
- * per activity throughout: its map draws overlapping *lines*, with no glyph to tell them apart.)
- */
-@Composable
-internal fun travelColor(): Color = MaterialTheme.colorScheme.onSurfaceVariant
-
 // The places' categorical palette: what a place was for, by category group rather than by category —
 // fifteen colors would be a legend to memorize, five are a pattern picked up by scrolling. Built like
 // the activity set above (fixed saturation and lightness, hue rotates, so no group outweighs another)
-// and kept a step quieter than it, so that if the two ever do meet on one screen a group still can't
-// be mistaken for an activity at a neighboring hue.
+// and kept a step quieter than it, so where the two share a screen — the Timeline, a day's totals —
+// a group still can't be mistaken for an activity at a neighboring hue.
 private const val CATEGORY_SAT = 0.34f
 
 private const val CATEGORY_LUM = 0.60f
@@ -1136,7 +1137,7 @@ internal fun categoryMutedPinColor(category: PlaceCategory): Color =
 
 /**
  * The pin an untagged place wears: chroma-free, so it can never be mistaken for a group's colour —
- * which is the same thing the lists say with [placeDiscTint]'s neutral, said in the map's own terms.
+ * which is the same thing the lists say with [placeDiscStyle]'s neutral, said in the map's own terms.
  *
  * Fixed rather than the theme's neutral, as the five hues are. The map bakes its colours into
  * bitmaps outside composition, and one colour reaching back into the theme would be the only reason
@@ -1192,24 +1193,59 @@ internal fun placeTitleColor(named: Boolean) =
     if (named) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
 
 /**
- * Icon-disc tint for anything place-like: a categorized place takes its **group's** color (kinds of
- * stop read as a pattern down a list); an untagged one — and an unnamed cluster, which can have no
- * category at all — stays neutral, so neutral is never a group's color (see [categoryColor], where
- * the transient pair is faint but still hued for exactly that reason). Deliberately a second channel
- * beside [placeTitleColor]: the title says whether you *named* the place, the disc whether you said
- * what it's *for* — one row answers both at a glance, and the pin → category glyph swap alone isn't
- * left to carry a distinction that would read as a shape change rather than a state.
+ * Category tint where the glyph sits beside its own words — the suggestion chips and the picker's
+ * rows: a categorized place takes its **group's** color (kinds of stop read as a pattern down a
+ * list); an untagged one — and an unnamed cluster, which can have no category at all — stays
+ * neutral, so neutral is never a group's color (see [categoryColor], where the transient pair is
+ * faint but still hued for exactly that reason). The list *discs* wear [placeDiscStyle] instead.
  */
 @Composable
-internal fun placeDiscTint(category: PlaceCategory?) =
+internal fun categoryGlyphTint(category: PlaceCategory?) =
     if (category != null) {
         categoryColor(category)
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
 
-/** The matching fill: a categorized disc is solid enough to pick out while scrolling a long list. */
-internal fun placeDiscAlpha(category: PlaceCategory?) = if (category != null) 0.24f else 0.12f
+/**
+ * The tonal disc an activity wears wherever it is a token — the Record tab's totals, the Timeline's
+ * track rows, the stats page: a wash of its own hue under a glyph in the same hue. Deliberately a
+ * step quieter than [placeDiscStyle]'s solid fill; the weight difference is what keeps a kind of
+ * travel from being mistaken for a kind of stop.
+ */
+@Composable
+internal fun activityDiscStyle(activity: ActivityType?): DiscStyle =
+    DiscStyle.tonal(activityColor(activity))
+
+/**
+ * The disc anything place-like wears in a list row (Timeline stays, the Places list): a categorized
+ * place takes its map pin's own fill — solid, white glyph, the same token the map draws, so a stop
+ * reads as one thing on both surfaces — while an untagged one stays a faint neutral tonal disc.
+ * That asymmetry is deliberate: neutral recedes so the categorized pattern is what a scroll picks
+ * up, and neutral is never a group's color. Deliberately a second channel beside [placeTitleColor]:
+ * the title says whether you *named* the place, the disc whether you said what it's *for* — one row
+ * answers both at a glance, and the pin → category glyph swap alone isn't left to carry a
+ * distinction that would read as a shape change rather than a state.
+ */
+@Composable
+internal fun placeDiscStyle(category: PlaceCategory?): DiscStyle =
+    if (category != null) {
+        categorizedDiscStyles.getValue(category)
+    } else {
+        val neutral = MaterialTheme.colorScheme.onSurfaceVariant
+        DiscStyle(fill = neutral, fillAlpha = 0.12f, glyph = neutral)
+    }
+
+/**
+ * The categorized styles are theme-free and a pure function of the category, so they are built
+ * once rather than re-running [forWhiteGlyph]'s contrast walk on every composition of every list
+ * row. Lazy for the same reason as [untaggedPinColor].
+ */
+private val categorizedDiscStyles: Map<PlaceCategory, DiscStyle> by lazy {
+    PlaceCategory.entries.associateWith {
+        DiscStyle(fill = categoryPinColor(it), fillAlpha = 1f, glyph = Color.White)
+    }
+}
 
 /**
  * A single-choice option in a dialog: glyph, label, and either the current-choice tick or a

@@ -1090,7 +1090,7 @@ private fun PlaceCategorySection(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         suggestions.forEach { suggestion ->
-            CategoryChip(stringResource(suggestion.labelRes), suggestion.icon, placeDiscTint(suggestion)) {
+            CategoryChip(stringResource(suggestion.labelRes), suggestion.icon, categoryGlyphTint(suggestion)) {
                 picked = PickedCategory(suggestion)
                 onPick(suggestion)
             }
@@ -1103,7 +1103,7 @@ private fun PlaceCategorySection(
             // one place that decides. Beside suggestions it wears none: "More" has no category to
             // stand for, and a glyph about opening a picker says what the caret already says.
             icon = if (suggestions.isEmpty()) category.discIcon else null,
-            tint = placeDiscTint(category),
+            tint = categoryGlyphTint(category),
             showsMore = true,
             // Filled once a category is set, outlined until then. Material picks a chip by who
             // authored it: a suggestion is the model's guess, the category is the user's answer, and
@@ -1187,7 +1187,7 @@ private fun CategoryRow(
         icon = category.discIcon,
         label = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_category_unset),
         // The picker is where the color coding is learned, so a row wears its group's color.
-        tint = placeDiscTint(category),
+        tint = categoryGlyphTint(category),
         labelColor = placeTitleColor(named = category != null),
         selected = selected,
         selectedDescription = stringResource(R.string.places_category_current),
@@ -1374,13 +1374,13 @@ private fun PlaceRowCard(
     // while here the name is the row's identity. The words still reach a screen reader through
     // the disc's description.
     val category = summary.place?.placeCategory
+    val disc = placeDiscStyle(category)
     ListRowCard(
         shape = shape,
         onClick = onClick,
         icon = category.discIcon,
-        tint = placeDiscTint(category),
+        disc = disc,
         iconDescription = category?.let { stringResource(it.labelRes) },
-        discAlpha = placeDiscAlpha(category),
         // The gazetteer's city stands in where the user has said nothing, dimmed by `named` so a
         // worked-out name never reads as one they chose — the same rule the timeline's rows follow.
         title = summary.name ?: stringResource(R.string.place_detected_stop),

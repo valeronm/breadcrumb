@@ -235,7 +235,7 @@ private fun TravelRow(
     ListRowCard(
         shape = shape,
         icon = Icons.Filled.Luggage,
-        tint = MaterialTheme.colorScheme.tertiary,
+        disc = DiscStyle.tonal(MaterialTheme.colorScheme.tertiary),
         title = travelTitle(TravelNaming.label(summary.destinations, travel.nightCount)),
         titleColor = MaterialTheme.colorScheme.onSurface,
         subtitle = AnnotatedString(
@@ -270,8 +270,8 @@ private fun dateRange(from: LocalDate, to: LocalDate, today: LocalDate): String 
  * **A metric per row, each scaled to itself**, rather than one chart stacking them together. Two
  * things follow, and both are the point. A month of walking is legible beside a month of flying,
  * where a shared axis would flatten it to nothing; and no series needs a colour to be told from its
- * neighbours, so this page adds no vocabulary — a row is named by the same glyph and word its
- * Timeline rows wear, and colour stays spent on places exactly as it is there (see [travelColor]).
+ * neighbours, so this page adds no vocabulary — a row is named by the same glyph, word and hue its
+ * Timeline rows wear ([activityColor], [categoryColor]).
  *
  * What it cannot show is composition: a month's *total* distance is not on this page, because
  * summing a flight and a walk answers no question anyone has.
@@ -341,10 +341,15 @@ private fun MonthlyStats(months: List<MonthTotals>) {
                     SectionHeading(stringResource(R.string.insights_stats_movement))
                 }
                 itemsIndexed(activities, key = { _, series -> "activity:${series.key}" }) { index, series ->
+                    val type = ActivityType.ofName(series.key)
+                    // The activity's own hue, as its Timeline rows and day totals wear it — the
+                    // bars deliberately in the same color the disc is washed with.
+                    val disc = activityDiscStyle(type)
                     MetricRow(
                         fractions = series.fractions,
-                        icon = activityIcon(ActivityType.ofName(series.key)),
-                        tint = travelColor(),
+                        icon = activityIcon(type),
+                        disc = disc,
+                        tint = disc.fill,
                         label = activityLabel(LocalContext.current, series.key),
                         value = distanceText(series.latest),
                         second = durationText(series.secondary.toLong()),
@@ -360,7 +365,9 @@ private fun MonthlyStats(months: List<MonthTotals>) {
                         fractions = series.fractions,
                         icon = series.key.icon,
                         // The group colour the stays themselves were drawn in, so a section of this
-                        // page reads as the same palette as the days it was summed from.
+                        // page reads as the same palette as the days it was summed from — the disc
+                        // solid as their rows', the bars in the group's list tint.
+                        disc = placeDiscStyle(series.key),
                         tint = categoryColor(series.key),
                         label = stringResource(series.key.labelRes),
                         value = durationText(series.latest.toLong()),
@@ -445,6 +452,8 @@ private fun SectionHeading(text: String) {
 private fun MetricRow(
     fractions: List<Float>,
     icon: ImageVector,
+    /** The series' token as its Timeline rows wear it; [tint] colors the bars beside it. */
+    disc: DiscStyle,
     tint: Color,
     label: String,
     value: String,
@@ -469,7 +478,13 @@ private fun MetricRow(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // Named by the text beside it — a second reading of the same word buys nothing.
-                    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+                    IconDisc(
+                        icon,
+                        disc,
+                        contentDescription = null,
+                        size = 24.dp,
+                        iconSize = 14.dp,
+                    )
                     Spacer(Modifier.width(8.dp))
                     Text(label, style = labelStyle)
                 }

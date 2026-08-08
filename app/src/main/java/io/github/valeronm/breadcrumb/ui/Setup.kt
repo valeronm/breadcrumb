@@ -411,9 +411,9 @@ private fun SetupStepRow(
     onGrant: () -> Unit,
 ) {
     Row(verticalAlignment = Alignment.Top) {
-        TonalIconDisc(
+        IconDisc(
             icon = step.icon,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = DiscStyle.tonal(MaterialTheme.colorScheme.onSurfaceVariant),
             contentDescription = stringResource(R.string.setup_step_missing),
         )
         Spacer(Modifier.width(16.dp))
