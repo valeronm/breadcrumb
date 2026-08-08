@@ -14,21 +14,18 @@ class DepartureWatchTest {
     private val watch = DepartureWatch(flatDistance)
 
     /**
-     * A position [metersEast] of the origin, known to [accuracyM]. Shaped as an [DepartureWatch.Anchor]
-     * so a case can hand the same value to `watch` and to `verdictAt`, which splits it for `judge` —
-     * deliberately not named `at`, which `TestGeo` already uses for a track endpoint in this package.
+     * A position [metersEast] of the origin, known to [accuracyM] — the same value goes to `watch`
+     * and to `judge`. Deliberately not named `at`, which `TestGeo` already uses for a track
+     * endpoint in this package.
      */
     private fun pos(metersEast: Double, accuracyM: Double = 0.0) =
-        DepartureWatch.Anchor(Coordinate(ORIGIN_LAT, lonAt(metersEast)), accuracyM)
+        MeasuredPosition(Coordinate(ORIGIN_LAT, lonAt(metersEast)), accuracyM)
 
-    private fun DepartureWatch.verdictAt(pos: DepartureWatch.Anchor) =
-        judge(pos.position, pos.accuracyM)
-
-    private fun DepartureWatch.departedAt(pos: DepartureWatch.Anchor) =
-        verdictAt(pos) is DepartureWatch.Verdict.Departed
+    private fun DepartureWatch.departedAt(pos: MeasuredPosition) =
+        judge(pos) is DepartureWatch.Verdict.Departed
 
     /** Watching begins at [T0]; only the cases about latency read the stamp back. */
-    private fun DepartureWatch.begin(from: DepartureWatch.Anchor?) = watch(from, T0)
+    private fun DepartureWatch.begin(from: MeasuredPosition?) = watch(from, T0)
 
     @Test
     fun `nothing is a departure while nothing is being watched for`() {
@@ -78,7 +75,7 @@ class DepartureWatchTest {
         // re-centred on, and the caller has no other way to learn it arrived.
         assertEquals(
             DepartureWatch.Verdict.Anchored(pos(5_000.0, accuracyM = 0.0)),
-            watch.verdictAt(pos(5_000.0)),
+            watch.judge(pos(5_000.0)),
         )
         assertFalse(watch.departedAt(pos(5_000.0 + DepartureWatch.MARGIN_M - 10)))
         assertTrue(watch.departedAt(pos(5_000.0 + DepartureWatch.MARGIN_M + 10)))
@@ -89,7 +86,7 @@ class DepartureWatchTest {
     @Test
     fun `the last verdict does not outlive the watch that produced it`() {
         watch.begin(pos(0.0))
-        watch.verdictAt(pos(100.0))
+        watch.judge(pos(100.0))
         assertTrue(watch.lastVerdict is DepartureWatch.Verdict.Near)
 
         watch.stop()
@@ -107,7 +104,7 @@ class DepartureWatchTest {
         assertEquals(
             "torn down, so it must not decide anything — nor become an anchor",
             DepartureWatch.Verdict.Dormant,
-            watch.verdictAt(pos(10_000.0)),
+            watch.judge(pos(10_000.0)),
         )
 
         watch.begin(pos(10_000.0))
@@ -131,7 +128,7 @@ class DepartureWatchTest {
     fun `a holding verdict reports the distance and the bar it was judged against`() {
         watch.begin(pos(0.0, accuracyM = 20.0))
 
-        val verdict = watch.verdictAt(pos(100.0, accuracyM = 30.0)) as DepartureWatch.Verdict.Near
+        val verdict = watch.judge(pos(100.0, accuracyM = 30.0)) as DepartureWatch.Verdict.Near
 
         assertEquals(100.0, verdict.gapM, 1.0)
         assertEquals(DepartureWatch.MARGIN_M + 20.0 + 30.0, verdict.barM, 1e-9)

@@ -23,6 +23,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DepartureWatch
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.MeasuredPosition
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.MovementConfirmer
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
@@ -719,12 +720,15 @@ class LocationRecordingService : Service() {
                 val nowMs = now()
                 // Read before the pass, which stops the watch and takes the stamp with it.
                 val latency = watchedForMs(nowMs)
-                val effects =
-                    core.onProbeFix(Coordinate(latitude, longitude), accuracyM, nowMs, activitySettings())
+                val effects = core.onProbeFix(
+                    MeasuredPosition(Coordinate(latitude, longitude), accuracyM),
+                    nowMs,
+                    activitySettings(),
+                )
                 // The age is on every line because it means a different thing on each: as an anchor
                 // a remembered position is the stale one the burst exists to replace, and as a
                 // verdict it dates the leaving to whenever the cache was filled.
-                val position = "acc=${accuracyM.toInt()}m, ${ageMs / 1000}s old"
+                val quality = "acc=${accuracyM.toInt()}m, ${ageMs / 1000}s old"
                 // Every position, unfiltered. The two numbers this trigger is tuned by — how far
                 // jitter carries a stationary phone, and what accuracy the coarse stream returns —
                 // are distributions, and any selection here would sample them biased.
@@ -735,14 +739,14 @@ class LocationRecordingService : Service() {
                         DebugLog.i(
                             TAG,
                             "departure: probe saw the phone leave " +
-                                "($latency, ${measured(verdict.gapM, verdict.barM)}, $position)",
+                                "($latency, ${measured(verdict.gapM, verdict.barM)}, $quality)",
                         )
 
                     is DepartureWatch.Verdict.Near ->
-                        DebugLog.i(TAG, "departure watch: ${measured(verdict.gapM, verdict.barM)} ($position)")
+                        DebugLog.i(TAG, "departure watch: ${measured(verdict.gapM, verdict.barM)} ($quality)")
 
                     is DepartureWatch.Verdict.Anchored ->
-                        DebugLog.i(TAG, "departure watch anchored ($position)")
+                        DebugLog.i(TAG, "departure watch anchored ($quality)")
 
                     DepartureWatch.Verdict.Dormant -> Unit
                 }

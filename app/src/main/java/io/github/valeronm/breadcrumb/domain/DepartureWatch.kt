@@ -16,21 +16,13 @@ package io.github.valeronm.breadcrumb.domain
 class DepartureWatch(private val distance: DistanceFn) {
 
     /**
-     * Where the phone was, and how well that was known. [accuracyM] is carried rather than assumed
-     * because the two anchors differ by an order of magnitude: a pause anchors on the recorder's own
-     * last good GPS fix, while a watch that begins with no fix at all adopts its first probe
-     * position, which is the coarse kind being judged.
-     */
-    data class Anchor(val position: Coordinate, val accuracyM: Double)
-
-    /**
      * What a probe position turned out to be worth. Named cases rather than a boolean because the
      * first position is not a departure *or* a non-event: it is where "here" is, and the freshest
      * thing anything else watching for a departure can be centred on.
      */
     sealed interface Verdict {
         /** The first position of a watch that began with nowhere to measure from. */
-        data class Anchored(val at: Anchor) : Verdict
+        data class Anchored(val at: MeasuredPosition) : Verdict
 
         /**
          * Judged, and not far enough. [gapM] against [barM] is **the measurement the whole rule
@@ -46,7 +38,7 @@ class DepartureWatch(private val distance: DistanceFn) {
         data object Dormant : Verdict
     }
 
-    private var anchor: Anchor? = null
+    private var anchor: MeasuredPosition? = null
 
     /**
      * Whether a departure is being watched for at all — **not** whether an anchor is held, which is
@@ -82,7 +74,7 @@ class DepartureWatch(private val distance: DistanceFn) {
      * arming happens with no track behind it and often no fix, and "wait for a good fix" resolves to
      * never while GPS is off.
      */
-    fun watch(from: Anchor?, atMs: Long) {
+    fun watch(from: MeasuredPosition?, atMs: Long) {
         watching = true
         startedAtMs = atMs
         anchor = from
@@ -96,31 +88,33 @@ class DepartureWatch(private val distance: DistanceFn) {
     }
 
     /**
-     * [Verdict.Departed] once [at] is further from the anchor than either position's own error can
-     * account for. Both accuracies are subtracted because a departure has to out-run the *sum* of
-     * the two uncertainties to mean anything — a coarse position beside a coarse anchor is not
-     * evidence of movement however far apart the two coordinates read.
+     * [Verdict.Departed] once [position] is further from the anchor than either position's own
+     * error can account for. Both accuracies are subtracted because a departure has to out-run the
+     * *sum* of the two uncertainties to mean anything — a coarse position beside a coarse anchor is
+     * not evidence of movement however far apart the two coordinates read.
      *
      * Adopts the position as the anchor when there is none and reports [Verdict.Anchored]: the first
      * one establishes where "here" is and cannot also be a departure from it. A position arriving
      * while nothing is watched for must decide nothing and must not become an anchor either.
      */
-    fun judge(at: Coordinate, accuracyM: Double): Verdict {
-        val verdict = decide(at, accuracyM)
+    fun judge(position: MeasuredPosition): Verdict {
+        val verdict = decide(position)
         lastVerdict = verdict
         return verdict
     }
 
-    private fun decide(at: Coordinate, accuracyM: Double): Verdict {
+    private fun decide(position: MeasuredPosition): Verdict {
         if (!watching) return Verdict.Dormant
         val from = anchor
         if (from == null) {
-            val fresh = Anchor(at, accuracyM)
-            anchor = fresh
-            return Verdict.Anchored(fresh)
+            anchor = position
+            return Verdict.Anchored(position)
         }
-        val gap = distance.meters(from.position.lat, from.position.lon, at.lat, at.lon)
-        val bar = MARGIN_M + from.accuracyM + accuracyM
+        val gap = distance.meters(
+            from.coordinate.lat, from.coordinate.lon,
+            position.coordinate.lat, position.coordinate.lon,
+        )
+        val bar = MARGIN_M + from.accuracyM + position.accuracyM
         return if (gap > bar) Verdict.Departed(gap, bar) else Verdict.Near(gap, bar)
     }
 
