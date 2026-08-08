@@ -1,13 +1,11 @@
 package io.github.valeronm.breadcrumb.ui
 
-import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.BatteryManager
-import android.os.Build
 import android.os.Bundle
 import android.view.Window
 import android.view.WindowManager
@@ -78,10 +76,7 @@ import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.UnitChoice
-import io.github.valeronm.breadcrumb.util.backgroundGranted
-import io.github.valeronm.breadcrumb.util.foregroundGranted
-import io.github.valeronm.breadcrumb.util.foregroundPermissions
-import io.github.valeronm.breadcrumb.util.isBatteryOptimizationIgnored
+import io.github.valeronm.breadcrumb.util.openAppSettings
 import io.github.valeronm.breadcrumb.util.requestIgnoreBatteryOptimization
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -221,21 +216,108 @@ private fun MainScreen(
     }
 
     // Permission state, refreshed whenever the activity resumes (e.g. back from Settings).
-    var foregroundOk by remember { mutableStateOf(context.foregroundGranted()) }
-    var backgroundOk by remember { mutableStateOf(context.backgroundGranted()) }
+    var setup by remember { mutableStateOf(setupState(context)) }
     var autoOn by remember { mutableStateOf(AppSettings.isAutoRecord(context)) }
-    var batteryOk by remember { mutableStateOf(context.isBatteryOptimizationIgnored()) }
     var mainPage by remember { mutableStateOf<MainPage?>(null) }
     var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
+    // The run of asks behind one "start recording". Started only by arming, so a run reaching its
+    // end is always a run that meant to arm — the card's own buttons ask for a single step and go
+    // nowhere near it.
+    val ladder = remember { SetupLadder() }
+
+    val arm = {
+        autoOn = true
+        LocationRecordingService.start(context)
+    }
+    // A dialog's answer, the ladder's one signal that cannot be delivered where it arrives: the
+    // launcher's callback has to be declared before the step that requests through it, which is
+    // before the code that settles the run. A counter rather than a flag, since a flag the effect
+    // had to clear would swallow a second answer arriving while the first was still settling. The
+    // other signal, a resume, has no such cycle and calls in directly below.
+    var dialogAnswered by remember { mutableIntStateOf(0) }
+
+    // One launcher for every step that asks through a dialog: the result is read back off the
+    // platform rather than out of the callback's map, so a step whose grant arrives some other way
+    // (a second permission in the same dialog) lands in the same place.
+    val requestPermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        setup = setupState(context)
+        dialogAnswered++
+    }
+    // Whatever the app has to say before Android takes over, and the fact that it is on screen. One
+    // holder for every such prompt: what each of them means for a resume is the same, so the rule
+    // about that is written once rather than per prompt.
+    var prompt by remember { mutableStateOf<SetupPrompt?>(null) }
+    // What asking for a step *means*, and the only definition of it: the recorder's toggle runs this
+    // through the ladder and the card's buttons call it directly, so the two cannot come to disagree
+    // about what a tap does. That mattered as soon as a step could be blocked — a request Android
+    // has stopped taking puts nothing on screen, and a toggle that silently does nothing is the
+    // failure this holds shut.
+    //
+    // Exhaustive over the enum on purpose. A requirement that is neither a runtime permission nor
+    // the exemption — an OEM autostart page, say — would fall through an `else` into a request for
+    // nothing, which answers instantly and ends the run with no screen shown; here it cannot be
+    // added without someone saying how it is asked for.
+    val grantSetupStep: (SetupStep) -> Unit = { step ->
+        if (step in setup.blocked) {
+            // No dialog will come for this one ever again; the settings page is the ask now.
+            context.openAppSettings()
+        } else {
+            when (step) {
+                SetupStep.BATTERY -> context.requestIgnoreBatteryOptimization()
+                SetupStep.LOCATION, SetupStep.ACTIVITY, SetupStep.NOTIFICATIONS -> {
+                    val permissions = step.permissions(setup)
+                    // Recorded before the dialog rather than after it: what this answers later is
+                    // whether the question was ever put, and a process death between the ask and
+                    // the answer would otherwise leave a refusal looking like a permission nobody
+                    // had got to yet.
+                    AppSettings.markPermissionsAsked(context, permissions)
+                    // Location's second half, which Android will not take until the first is
+                    // answered, goes behind the disclosure — which carries the very list it will
+                    // ask for, so what was recorded and what is requested cannot come apart.
+                    if (step == SetupStep.LOCATION && setup.locationOk) {
+                        prompt = SetupPrompt.AllTimeLocation(permissions)
+                    } else {
+                        requestPermissions.launch(permissions.toTypedArray())
+                    }
+                }
+            }
+        }
+    }
+    // What a *run* does to ask, as against what a tap on the card does. The card shows every step's
+    // reason above its own button, so its blocked button goes straight through; a run has no card on
+    // screen, so the words that would have been there are put up first. Same ask either way — this
+    // only decides whether the reader is told before the app hands them to Android.
+    val askFromLadder: (SetupStep) -> Unit = { step ->
+        if (step in setup.blocked) prompt = SetupPrompt.Blocked(step) else grantSetupStep(step)
+    }
+
+    // One step's answer, settled. A run that ends with nothing left unmet arms the recorder:
+    // starting the run *was* the arming, so there is no separate intention to carry. A run ends on
+    // a refusal too, which is why the state is asked rather than assumed.
+    fun settleLadder(fromResume: Boolean) {
+        val wasRunning = ladder.current != null
+        if (fromResume) {
+            ladder.onResumed(setup, askFromLadder)
+        } else {
+            ladder.onDialogAnswered(setup, askFromLadder)
+        }
+        val runEnded = wasRunning && ladder.current == null
+        if (runEnded && setup.complete && !autoOn) arm()
+    }
+    LaunchedEffect(dialogAnswered) { if (dialogAnswered > 0) settleLadder(fromResume = false) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                foregroundOk = context.foregroundGranted()
-                backgroundOk = context.backgroundGranted()
+                setup = setupState(context)
                 autoOn = AppSettings.isAutoRecord(context)
-                batteryOk = context.isBatteryOptimizationIgnored()
+                // Not while one of this app's own prompts is up: those are in-app, so the reader has
+                // not left yet and a resume here is a lock screen or a call, not their answer.
+                // Settling on it would end the run under a dialog they are still looking at.
+                if (prompt == null) settleLadder(fromResume = true)
                 // Doze can hold the pause wake for minutes; opening the app closes a track whose
                 // resume window has already passed, so the timeline isn't stale on arrival.
                 LocationRecordingService.instance?.finalizeExpiredPause()
@@ -245,21 +327,23 @@ private fun MainScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val requestForeground = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
-        foregroundOk = context.foregroundGranted()
-    }
-    val requestBackground = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) {
-        backgroundOk = context.backgroundGranted()
+    // Turning the recorder on is the one intention every permission here follows from, so it is
+    // where the asking starts. Turning it off is never anything but that.
+    val toggleAuto = { enabled: Boolean ->
+        when {
+            !enabled -> {
+                autoOn = false
+                LocationRecordingService.stop(context)
+            }
+            setup.complete -> arm()
+            else -> ladder.start(setup, askFromLadder)
+        }
     }
     // Reconcile persisted "armed" state with the actual service: if auto-recording is on but
     // the service isn't running (e.g. after a reinstallation or being killed), restart it so the UI
     // doesn't get stuck on "Starting…".
-    LaunchedEffect(foregroundOk, backgroundOk) {
-        val armedAndPermitted = autoOn && foregroundOk && backgroundOk
+    LaunchedEffect(setup.complete) {
+        val armedAndPermitted = autoOn && setup.complete
         if (armedAndPermitted && !LocationRecordingService.isRunning) {
             LocationRecordingService.start(context)
         }
@@ -443,10 +527,8 @@ private fun MainScreen(
             Box(modifier = Modifier.fillMaxSize().padding(inner)) {
                 when (selectedTab) {
                     HomeTab.RECORD -> RecordTab(
-                        foregroundOk = foregroundOk,
-                        backgroundOk = backgroundOk,
+                        setup = setup,
                         autoOn = autoOn,
-                        batteryOk = batteryOk,
                         charging = charging,
                         keepScreenOn = keepScreenOn,
                         onToggleKeepScreenOn = { enabled ->
@@ -454,31 +536,8 @@ private fun MainScreen(
                             AppSettings.setKeepScreenOnCharging(context, enabled)
                         },
                         viewModel = viewModel,
-                        onGrantForeground = {
-                            requestForeground.launch(foregroundPermissions().toTypedArray())
-                        },
-                        onGrantBackground = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                // Android 11+ only grants this from the app's settings page.
-                                context.startActivity(
-                                    Intent(
-                                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                        Uri.fromParts("package", context.packageName, null),
-                                    ),
-                                )
-                            } else {
-                                requestBackground.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                            }
-                        },
-                        onToggleAuto = { enabled ->
-                            autoOn = enabled
-                            if (enabled) {
-                                LocationRecordingService.start(context)
-                            } else {
-                                LocationRecordingService.stop(context)
-                            }
-                        },
-                        onRequestBattery = { context.requestIgnoreBatteryOptimization() },
+                        onGrantSetupStep = grantSetupStep,
+                        onToggleAuto = toggleAuto,
                     )
 
                     HomeTab.TRACKS -> TracksTab(
@@ -594,6 +653,35 @@ private fun MainScreen(
             viewModel = viewModel,
             onClose = { tripDraft = null },
         )
+
+        // Dismissing any of these leaves nothing to answer for the step, so a run waiting on one
+        // would hang — every branch ends the run rather than each remembering to.
+        val dismissPrompt = {
+            prompt = null
+            ladder.cancel()
+        }
+        when (val open = prompt) {
+            null -> Unit
+            is SetupPrompt.AllTimeLocation -> BackgroundLocationDisclosure(
+                onContinue = {
+                    prompt = null
+                    // The list this prompt was raised with, which is the list already recorded as
+                    // asked — spelling the permission again here is how those two come apart.
+                    requestPermissions.launch(open.permissions.toTypedArray())
+                },
+                onDismiss = dismissPrompt,
+            )
+
+            is SetupPrompt.Blocked -> BlockedStepDialog(
+                step = open.step,
+                bodyRes = open.step.bodyRes(setup),
+                onOpenSettings = {
+                    prompt = null
+                    context.openAppSettings()
+                },
+                onDismiss = dismissPrompt,
+            )
+        }
     }
 }
 

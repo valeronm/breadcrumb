@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_title">Настройка записи</string>
+
+    <string name="setup_location_title">Местоположение</string>
+    <string name="setup_location_body">По определению местоположения строится путь поездки, и оно должно работать при закрытом приложении — поэтому доступ нужен в любом режиме</string>
+    <string name="setup_location_body_all_time">Местоположение разрешено, пока приложение открыто. Разрешение в любом режиме — это то, что позволяет поездке записываться при выключенном экране и закрытом приложении</string>
+
+    <string name="setup_background_title">Местоположение в любом режиме</string>
+    <string name="setup_background_disclosure">Breadcrumb собирает данные о местоположении, чтобы записывать ваши поездки даже при закрытом или неиспользуемом приложении. Записанные поездки остаются на этом телефоне. Выберите «%1$s», когда Android спросит.</string>
+    <string name="setup_all_time_option">Разрешить в любом режиме</string>
+
+    <string name="setup_activity_title">Физическая активность</string>
+    <string name="setup_activity_body">Запись начинается, когда приложение замечает, что вы пошли или поехали, и заканчивается, когда замечает, что вы остановились, — включать вручную ничего не нужно</string>
+
+    <string name="setup_notifications_title">Уведомления</string>
+    <string name="setup_notifications_body">Пока идёт запись, она видна как постоянное уведомление, и там же приложение сообщает о неполадках с ней</string>
+
+    <string name="setup_battery_title">Работа без ограничений батареи</string>
+    <string name="setup_battery_body">Android останавливает запись, долго идущую в фоне, если для приложения нет исключения</string>
+
+    <string name="setup_allow">Разрешить</string>
+    <string name="setup_step_missing">Пока не разрешено</string>
+    <string name="setup_step_blocked">Android больше не спросит об этом — включить можно только в системных настройках приложения</string>
+    <string name="setup_open_settings">Открыть настройки</string>
+</resources>

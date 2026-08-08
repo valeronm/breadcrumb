@@ -1,15 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="record_perm_foreground_title">Нужен доступ к местоположению и активности</string>
-    <string name="record_perm_foreground_body">Разрешите доступ к местоположению и физической активности, чтобы приложение могло понять, идёте вы, едете на машине или на велосипеде, и вести запись GPS</string>
-    <string name="record_perm_foreground_button">Разрешить доступ</string>
-    <string name="record_perm_background_title">Разрешите доступ в фоне</string>
-    <string name="record_perm_background_body">Выберите для доступа к местоположению вариант «Разрешить в любом режиме», чтобы поездки записывались при выключенном экране и закрытом приложении</string>
-    <string name="record_perm_background_button">Разрешить в фоне</string>
-    <string name="record_perm_battery_title">Не останавливать запись в фоне</string>
-    <string name="record_perm_battery_body">Разрешите приложению игнорировать оптимизацию батареи, чтобы Android не останавливал запись, когда оно долго работает в фоне</string>
-    <string name="record_perm_battery_button">Разрешить без ограничений</string>
-
     <string name="record_period_this_month">В этом месяце</string>
     <string name="record_no_tracks">Поездок пока нет</string>
 

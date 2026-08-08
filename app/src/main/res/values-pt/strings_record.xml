@@ -1,15 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="record_perm_foreground_title">Acesso à localização e à atividade necessário</string>
-    <string name="record_perm_foreground_body">Conceda acesso à localização e à atividade física para a aplicação detetar se está a andar a pé, de carro ou de bicicleta e gravar o GPS</string>
-    <string name="record_perm_foreground_button">Conceder permissões</string>
-    <string name="record_perm_background_title">Permitir localização em segundo plano</string>
-    <string name="record_perm_background_body">Defina o acesso à localização como \"Permitir sempre\" para as viagens continuarem a ser gravadas com o ecrã desligado ou a aplicação fechada</string>
-    <string name="record_perm_background_button">Permitir em segundo plano</string>
-    <string name="record_perm_battery_title">Continuar a gravar em segundo plano</string>
-    <string name="record_perm_battery_body">Permita que esta aplicação ignore a otimização da bateria para o Android não interromper a gravação ao fim de algum tempo em segundo plano</string>
-    <string name="record_perm_battery_button">Permitir sem restrições</string>
-
     <string name="record_period_this_month">Este mês</string>
     <string name="record_no_tracks">Ainda sem viagens</string>
 

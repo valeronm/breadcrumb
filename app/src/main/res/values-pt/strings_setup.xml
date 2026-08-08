@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_title">Configurar a gravação</string>
+
+    <string name="setup_location_title">Localização</string>
+    <string name="setup_location_body">É a partir do posicionamento que o percurso de uma viagem é medido, e tem de continuar a funcionar com a aplicação fechada — por isso tem de ser permitido sempre</string>
+    <string name="setup_location_body_all_time">A localização está permitida com a aplicação aberta. Permiti-la sempre é o que mantém uma viagem a ser gravada com o ecrã desligado e a aplicação fechada</string>
+
+    <string name="setup_background_title">Localização a toda a hora</string>
+    <string name="setup_background_disclosure">O Breadcrumb recolhe dados de localização para gravar as suas viagens mesmo com a aplicação fechada ou fora de uso. As viagens que grava ficam neste telemóvel. Escolha \"%1$s\" quando o Android perguntar.</string>
+    <string name="setup_all_time_option">Permitir sempre</string>
+
+    <string name="setup_activity_title">Atividade física</string>
+    <string name="setup_activity_body">Reparar que começou a andar a pé ou de carro é o que inicia uma gravação, e reparar que parou é o que a termina — nada tem de ser ligado à mão</string>
+
+    <string name="setup_notifications_title">Notificações</string>
+    <string name="setup_notifications_body">Uma gravação mostra-se como uma notificação permanente enquanto decorre, e é aí que a aplicação comunica um problema com ela</string>
+
+    <string name="setup_battery_title">Utilização da bateria sem restrições</string>
+    <string name="setup_battery_body">O Android interrompe uma gravação que já dure algum tempo em segundo plano, a menos que esta aplicação esteja isenta</string>
+
+    <string name="setup_allow">Permitir</string>
+    <string name="setup_step_missing">Ainda não permitido</string>
+    <string name="setup_step_blocked">O Android não voltará a perguntar isto — só pode ser ativado nas definições de sistema da aplicação</string>
+    <string name="setup_open_settings">Abrir definições</string>
+</resources>

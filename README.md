@@ -106,14 +106,29 @@ build. No real history is ever shot.*
 
 ## Permissions
 
-On first launch the app asks for:
+Nothing is requested at launch, and there is no onboarding flow. Turning **Auto recording** on is
+what asks Android, one requirement at a time, stopping wherever you stop:
 
-1. Location (precise) and Physical activity.
-2. Background location — must be set to *"Allow all the time"*. On Android 11+ this is only
-   grantable from the app's system settings page, so the button opens it there.
-3. Notifications (Android 13+) for the ongoing recording notification.
-4. Ignore battery optimizations (prompted when armed) — recommended so the OS doesn't kill
-   background recording.
+1. Location, set to *"Allow all the time"* — what a trip's path is measured from, and it has to keep
+   working with the app closed. This is **one** requirement, because in system settings it is one
+   switch; Android just won't take the all-the-time question until plain location is granted, so it
+   is asked in two goes. A disclosure precedes the second, after which Android takes over — from
+   Android 11 it opens its own location page for the app rather than a dialog.
+2. Physical activity — noticing you have set off is what starts a recording, and noticing you have
+   stopped is what ends it.
+3. Notifications (Android 13+) — how a running recording shows itself.
+4. Ignore battery optimizations — Android stops background recording after a while without it.
+
+All four are required to arm. The last two could technically be refused and still leave a recording
+running, but both turn into failures the user only meets much later — a recorder killed in the
+background, or one running invisibly — so recording waits for the lot rather than starting on terms
+that quietly don't hold.
+
+Whatever is left unmet is listed on the Record tab itself — one card, a row per requirement with its
+reason and its own button, and no page behind it. That state is worked out from the permissions
+themselves, so revoking one later brings the card back on its own; a permission Android refuses to
+ask about again (two denials) offers a route to system settings rather than a button that does
+nothing.
 
 ## Build
 

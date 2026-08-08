@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.util
 
 import android.Manifest
+import android.app.Activity
 import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
@@ -11,20 +12,52 @@ import android.provider.Settings
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+import androidx.core.app.ActivityCompat
 
-/** Everything the arming flow requests up front; background location is its own later step. */
-internal fun foregroundPermissions(): List<String> = buildList {
-    add(Manifest.permission.ACCESS_FINE_LOCATION)
-    add(Manifest.permission.ACCESS_COARSE_LOCATION)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(Manifest.permission.ACTIVITY_RECOGNITION)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
-}
+/**
+ * What recording asks Android for, one entry per thing the user is actually deciding — each is a
+ * separate reason, so each is a separate ask and a separate row on the setup card. The pair below is
+ * one decision: the platform shows precise and approximate as a single dialog. A list rather than
+ * the array a launcher takes, because it is read far more often than it is requested.
+ */
+internal val LOCATION_PERMISSIONS = listOf(
+    Manifest.permission.ACCESS_FINE_LOCATION,
+    Manifest.permission.ACCESS_COARSE_LOCATION,
+)
 
-internal fun Context.foregroundGranted(): Boolean = foregroundPermissions().all { isGranted(it) }
+internal fun Context.locationGranted(): Boolean = LOCATION_PERMISSIONS.all { isGranted(it) }
+
+/**
+ * The queries below answer true where the platform has no such permission to grant, so a caller
+ * never has to ask the version question twice — and none of them has to. What a *screen* shows
+ * follows from that: a step the platform predates reads as met and drops out of the unmet list on
+ * its own, which is why `SetupState` states no API levels of its own.
+ */
+internal fun Context.activityRecognitionGranted(): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+        isGranted(Manifest.permission.ACTIVITY_RECOGNITION)
+
+internal fun Context.notificationsGranted(): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        isGranted(Manifest.permission.POST_NOTIFICATIONS)
 
 internal fun Context.backgroundGranted(): Boolean =
     Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
         isGranted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+
+/**
+ * Whether Android will no longer put a dialog up for [permission] — it stops after the second
+ * refusal, and from then on only the app's settings page can turn it on. A button still offering to
+ * request it is a button that does nothing at all, with nothing on screen to say why.
+ *
+ * [asked] is the set of permissions this install has actually requested (`Settings.askedPermissions`)
+ * and it is not optional bookkeeping: `shouldShowRequestPermissionRationale` answers false both here
+ * and for a permission never asked for, so without it the two are indistinguishable.
+ */
+internal fun Activity.permanentlyDenied(permission: String, asked: Set<String>): Boolean =
+    permission in asked &&
+        !isGranted(permission) &&
+        !ActivityCompat.shouldShowRequestPermissionRationale(this, permission)
 
 /**
  * What the app lock accepts. The capability query below and the prompt that later asks for it must
@@ -69,5 +102,32 @@ internal fun Context.requestIgnoreBatteryOptimization() {
         runCatching {
             startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         }
+    }
+}
+
+/**
+ * The app's own page in system settings, and **as deep as an app can link into the permission UI**.
+ * This is where a reader is sent for a permission refused twice, which is the one case the platform
+ * will put nothing up for — the all-the-time half is *requested* like any other and Android opens
+ * its own location page in reply, so it does not come through here.
+ *
+ * Do not try to deep-link past it. The permission controller does expose entry points for one app's
+ * permission (`MANAGE_APP_PERMISSION`) and its permission list (`MANAGE_APP_PERMISSIONS`), and both
+ * *resolve* from a normal app — but starting either is refused with "requires
+ * android.permission.GRANT_RUNTIME_PERMISSIONS", a signature permission no ordinary app can hold.
+ * They resolve and then deny, so a resolve check reads as success and the failure only shows up as
+ * a `SecurityException` at launch.
+ *
+ * Swallows a missing activity like its neighbour above: this is offered as a way forward, and a
+ * crash is a worse answer than nothing happening.
+ */
+internal fun Context.openAppSettings() {
+    runCatching {
+        startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", packageName, null),
+            ),
+        )
     }
 }

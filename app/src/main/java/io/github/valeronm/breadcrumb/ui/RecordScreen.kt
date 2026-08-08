@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -53,101 +52,103 @@ import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 internal fun RecordTab(
-    foregroundOk: Boolean,
-    backgroundOk: Boolean,
+    setup: SetupState,
     autoOn: Boolean,
-    batteryOk: Boolean,
     charging: Boolean,
     keepScreenOn: Boolean,
     onToggleKeepScreenOn: (Boolean) -> Unit,
     viewModel: TrackListViewModel,
-    onGrantForeground: () -> Unit,
-    onGrantBackground: () -> Unit,
+    onGrantSetupStep: (SetupStep) -> Unit,
     onToggleAuto: (Boolean) -> Unit,
-    onRequestBattery: () -> Unit,
 ) {
     // Collected here, not in MainScreen: the status flow emits per fix, and only this tab reads it.
     val status by TrackingStatus.state.collectAsStateWithLifecycle()
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        // Armed, as against merely flagged: with anything missing the service is never started (see
+        // MainScreen's reconciliation), so the persisted flag and what is happening disagree, and
+        // this is the one the screen speaks from.
+        val armed = autoOn && setup.complete
+        // The tab keeps its shape — the toggle it is about at the top, one card between, and the
+        // keep-screen-on row at the bottom once there is a recorder for it to be about.
+        AutoRecordControls(
+            autoOn = armed,
+            // Live whatever is missing: turning it on is what asks Android for the rest.
+            onToggle = onToggleAuto,
+        )
+        // The middle stretches so the keep-screen-on row is anchored at the bottom; while
+        // recording (or replaying, debug), the track preview card fills all of it.
+        val replay = if (BuildConfig.DEV_TOOLS) {
+            TrackReplayer.state.collectAsStateWithLifecycle().value
+        } else {
+            null
+        }
+        val cardState = recordCardState(
+            // The stored flag, not `armed` above: a track already running when a requirement was
+            // revoked is still running, and this is the decision about what to draw of it. What
+            // keeps that from showing "Starting…" for a recorder that can never start is the setup
+            // branch below, which is ahead of every state this returns bar the live map.
+            armed = autoOn,
+            tracking = status.tracking,
+            recording = status.recording,
+            paused = status.pausedActivity != null,
+            gpsSuspended = status.gpsSuspended,
+            points = status.points,
+            hasOpenTrack = status.activeTrackId != null,
+        )
+        Spacer(Modifier.height(16.dp))
+        val scrollingStats: @Composable ColumnScope.() -> Unit = {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                RecordedStats(viewModel)
+            }
+        }
         when {
-            !foregroundOk -> PermissionCard(
-                title = stringResource(R.string.record_perm_foreground_title),
-                body = stringResource(R.string.record_perm_foreground_body),
-                button = stringResource(R.string.record_perm_foreground_button),
-                onClick = onGrantForeground,
-            )
-
-            !backgroundOk -> PermissionCard(
-                title = stringResource(R.string.record_perm_background_title),
-                body = stringResource(R.string.record_perm_background_body),
-                button = stringResource(R.string.record_perm_background_button),
-                onClick = onGrantBackground,
-            )
-
-            else -> {
-                AutoRecordControls(autoOn = autoOn, onToggle = onToggleAuto)
-                if (autoOn && !batteryOk) {
-                    Spacer(Modifier.height(8.dp))
-                    PermissionCard(
-                        title = stringResource(R.string.record_perm_battery_title),
-                        body = stringResource(R.string.record_perm_battery_body),
-                        button = stringResource(R.string.record_perm_battery_button),
-                        onClick = onRequestBattery,
-                    )
-                }
-                // The middle stretches so the keep-screen-on row is anchored at the bottom; while
-                // recording (or replaying, debug), the track preview card fills all of it.
-                val replay = if (BuildConfig.DEV_TOOLS) {
-                    TrackReplayer.state.collectAsStateWithLifecycle().value
-                } else {
-                    null
-                }
-                val cardState = recordCardState(
-                    armed = autoOn,
-                    tracking = status.tracking,
-                    recording = status.recording,
-                    paused = status.pausedActivity != null,
-                    gpsSuspended = status.gpsSuspended,
-                    points = status.points,
-                    hasOpenTrack = status.activeTrackId != null,
-                )
-                Spacer(Modifier.height(16.dp))
-                val scrollingStats: @Composable ColumnScope.() -> Unit = {
-                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                        RecordedStats(viewModel)
-                    }
-                }
-                when {
-                    replay != null -> {
-                        ReplayBanner(replay) { TrackReplayer.stop() }
-                        Spacer(Modifier.height(8.dp))
-                        CurrentTrackPreview(
-                            status = replay.status,
-                            points = replay.points,
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
-                        )
-                    }
-                    cardState == RecordCardState.LIVE_MAP -> {
-                        LiveTrackPreview(
-                            viewModel = viewModel,
-                            status = status,
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
-                        )
-                    }
-                    cardState == RecordCardState.STATS_ONLY -> scrollingStats()
-                    else -> {
-                        RecorderStateCard(cardState, status)
-                        Spacer(Modifier.height(12.dp))
-                        scrollingStats()
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                KeepScreenOnRow(
-                    charging = charging,
-                    enabled = keepScreenOn,
-                    onToggle = onToggleKeepScreenOn,
+            replay != null -> {
+                ReplayBanner(replay) { TrackReplayer.stop() }
+                Spacer(Modifier.height(8.dp))
+                CurrentTrackPreview(
+                    status = replay.status,
+                    points = replay.points,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
             }
+            cardState == RecordCardState.LIVE_MAP -> {
+                LiveTrackPreview(
+                    viewModel = viewModel,
+                    status = status,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+            }
+            // Below the live map on purpose. Nothing can be armed while a requirement is missing, so
+            // the two normally cannot both be true — except where one is revoked *during* a
+            // recording, and then the track being drawn outranks the notice about it. With no
+            // recording to draw, setup is what this tab is about, and it owns the slot rather than
+            // sitting as a strip over totals that are a tab away anyway.
+            //
+            // The weight is on a box around the card, not on the card: a Column measures its
+            // weightless children first and each takes all the room left, so a bare card here would
+            // swallow the keep-screen-on row's space and push it off the screen. Holding the weight
+            // one level out claims the slot for the card without dictating its height — inside it
+            // the card wraps what it holds, capped by the slot, with the slack falling below.
+            !setup.complete -> Column(Modifier.weight(1f)) {
+                SetupCard(state = setup, onGrant = onGrantSetupStep)
+            }
+            cardState == RecordCardState.STATS_ONLY -> scrollingStats()
+            else -> {
+                RecorderStateCard(cardState, status)
+                Spacer(Modifier.height(12.dp))
+                scrollingStats()
+            }
+        }
+        // Only once armed. It holds the screen on for a recording being watched from a car mount,
+        // so with nothing recording it is a control for a thing that isn't happening — and on the
+        // setup state it is a second switch competing with the one the reader has to reach.
+        if (armed) {
+            Spacer(Modifier.height(16.dp))
+            KeepScreenOnRow(
+                charging = charging,
+                enabled = keepScreenOn,
+                onToggle = onToggleKeepScreenOn,
+            )
         }
     }
 }
@@ -432,7 +433,11 @@ private fun KeepScreenOnRow(
     }
 }
 
-/** Master on/off pill for the whole recorder, styled like Android settings' main toggle. */
+/**
+ * Master on/off pill for the whole recorder, styled like Android settings' main toggle. Always live,
+ * including while the permissions are missing: turning it on is the intention every one of those
+ * requests follows from, so that tap is what puts them up rather than something the app refuses.
+ */
 @Composable
 private fun AutoRecordControls(
     autoOn: Boolean,
@@ -472,18 +477,5 @@ private fun StatItem(label: String, value: String, modifier: Modifier = Modifier
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, style = MaterialTheme.typography.titleMedium)
         Text(label, style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-@Composable
-private fun PermissionCard(title: String, body: String, button: String, onClick: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            Text(body, style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = onClick) { Text(button) }
-        }
     }
 }

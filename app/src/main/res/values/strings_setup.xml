@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Setup.kt: the card on the Record tab listing what recording is still missing, and the disclosure
+  said before background location is asked for. There is no setup page — the card is the whole
+  surface, so every one of these has to read beside the recorder's own controls.
+-->
+<resources>
+    <string name="setup_title">Set up recording</string>
+
+    <!--
+      One row for one switch: "Allow all the time" and "Allow only while using the app" are two
+      positions of the same control in system settings. The first body states the whole bargain, so
+      nobody is told halfway through that more is wanted than they agreed to; the second is what the
+      row says once the plain half is granted and only the upgrade is outstanding.
+    -->
+    <string name="setup_location_title">Location</string>
+    <string name="setup_location_body">Positioning is what a trip\'s path is measured from, and it has to keep working with the app closed — so this needs to be allowed all the time</string>
+    <string name="setup_location_body_all_time">Location is allowed while the app is open. Allowing it all the time is what keeps a trip recording with the screen off and the app closed</string>
+
+    <!-- The all-the-time disclosure's own title. -->
+    <string name="setup_background_title">Location all the time</string>
+    <!--
+      Said before every all-the-time location request, whichever path makes it: it names the app,
+      what is collected, that it continues with the app closed, and what becomes of it.
+
+      The closing sentence names the choice rather than a route, and holds on every version for that
+      reason: Android 10 offers "Allow all the time" in its dialog, Android 11 and up on the per-app
+      location page it opens instead. Both are the platform's own asking, so neither is somewhere
+      this text has to give directions to.
+    -->
+    <string name="setup_background_disclosure">Breadcrumb collects location data to record your trips even when the app is closed or not in use. The trips it records are kept on this phone. Choose \"%1$s\" when Android asks.</string>
+    <!-- Stands in for the platform's own label for that option where it cannot be asked for. Only
+         Android 10 reaches this, and its dialog words the option exactly so. -->
+    <string name="setup_all_time_option">Allow all the time</string>
+
+    <string name="setup_activity_title">Physical activity</string>
+    <string name="setup_activity_body">Noticing that you have started walking or driving is what begins a recording, and noticing that you have stopped is what ends it — nothing has to be switched on by hand</string>
+
+    <string name="setup_notifications_title">Notifications</string>
+    <string name="setup_notifications_body">A recording shows itself as an ongoing notification the whole time it runs, and that is also where the app reports a problem with one</string>
+
+    <string name="setup_battery_title">Unrestricted battery use</string>
+    <string name="setup_battery_body">Android stops a recording that has run a while in the background unless this app is exempt</string>
+
+    <string name="setup_allow">Allow</string>
+    <!-- Read aloud off a step's glyph, which carries no text of its own. Only unmet steps are
+         listed, so there is no counterpart for one that has been granted. -->
+    <string name="setup_step_missing">Not allowed yet</string>
+    <!-- Refused twice: Android puts up no further dialog, so the only way left is its settings. -->
+    <string name="setup_step_blocked">Android won\'t ask about this again — it can only be turned on in the app\'s system settings now</string>
+    <string name="setup_open_settings">Open settings</string>
+</resources>

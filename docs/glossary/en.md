@@ -76,6 +76,7 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | search | search | The user typing a query (places, cities). The only search there is — what the receiver does is *positioning*. |
 | lock | lock / unlock | The app lock, **as Settings names it**, where someone is hunting for the feature and needs the word every other app uses. The barrier itself never says it — see the decision below. |
 | logs | logs | Diagnostic entries the app writes about itself. The entries are never translated; only the screen's chrome is. |
+| setup | setup (noun), set up (verb) | Granting recording what Android makes it ask for — the screen that asks, and the Record tab's reminder that reopens it. Covers permissions **and** the battery exemption, which is why it is not called *permissions*. |
 
 ## Conventions
 

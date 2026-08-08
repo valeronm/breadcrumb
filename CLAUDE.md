@@ -281,7 +281,8 @@ evidence a car-borne history has of being in a city.
 time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
 auto-pause resume window, the GPS give-up timeout, and keep-track
 thresholds (min duration/length/extent). It also holds recorder bookkeeping that isn't a user
-setting at all: the liveness heartbeat, and the two sweep rule versions (edge stays, track stats)
+setting at all: the liveness heartbeat, which permissions this install has ever put a dialog up for,
+and the two sweep rule versions (edge stays, track stats)
 that are what make `App.onCreate` re-derive the whole history. Sampling is read by the service when
 each track's GPS request starts; keep thresholds by the repository when a track finishes.
 `ActivityType` therefore only carries a label, a `recording` boolean, and a `TrackGroup`; sampling
@@ -298,7 +299,9 @@ bulk-writes to a user-picked folder (Storage Access Framework); `GpxParser` impo
 shared/opened into the app, and `importTracks` refuses a file whose period an existing track
 already covers. `BackupExporter`/`BackupImporter` (`data/export/`) are the full backup — one
 gzipped JSON file with every kept track's points, places and liveness events, streamed both ways.
-Restore is offered only on the Timeline's empty state. The format also feeds the
+Restore is offered only on the Timeline's empty state, and that
+screen is where it reports its progress. With tracks present a restore would have to merge with
+them, so the offer disappears as soon as the first track exists. The format also feeds the
 web companion viewer in `web/` (see its own README) — a change to it is a change to that viewer's
 input, and the viewer draws off-path fixes by the same conventions this app does *and derives the
 same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `web/js/stays.js`, tested case for case
@@ -385,7 +388,8 @@ stays, then track stats), and `sweepEdgeStays` says why a sweep is not one.
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places / Insights) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
 stacked layers for place detail, the Settings sub-pages (sampling, point filter, auto-pause, GPS
-search, track filtering, app lock, online services, Recently deleted, Logs), discarded-track detail, and the add-trip
+search, track filtering, app lock, online services, Recently deleted, Logs), discarded-track detail,
+and the add-trip
 form (`AddTripScreen`, opened from the Timeline tab's top-bar "+" or from a gap row) — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
 one layer at a time). **What that form opens holding is a `TripDraft`**, which is also the state
@@ -399,11 +403,99 @@ position is the **recording's own** — `StayDeriver.Gap` carries the two fixes 
 it a gap, and an end timed at a neighbouring track's bound is placed where that track was at that
 instant, not at the pin of the place holding it, which can sit a street away and would leave the
 entered leg jumping off the path it fills. The trip type is deliberately *not* defaulted: it is the
-one thing neither end implies. The Compose code is split one file per screen, all in the `ui` package:
+one thing neither end implies.
+
+**Every permission this app asks for hangs off one intention — turning recording on** (`ui/Setup.kt`,
+which holds the whole setup flow and, deliberately, no screen). Nothing is requested at launch and
+there is no onboarding page:
+the Record tab's toggle is the request, and flipping it on runs `SetupLadder` — each unmet
+requirement asked at the moment the one before it was granted. **The run ends the moment a step
+comes back unmet**, because a refusal is an answer and asking the next thing on top of it is how a
+permission flow turns into nagging; the run arms the recorder only if it got through everything.
+This is the platform's own "ask in context" guidance applied to an app whose one in-context moment
+is arming, there being no later feature to wander into.
+
+The ladder has **two signals and must not confuse them** — a dialog's result, which fires once for
+exactly what was asked, and a resume, which fires for reasons that have nothing to do with a run.
+`SetupStep.answersOnResume` is which one an ask answers on — the battery exemption and a blocked
+step, everything else going through the permission system, which reports back through the launcher
+whatever it put on screen. Named for the answer rather than for leaving the app because the two
+differ: from Android 11 the all-the-time request *does* leave and still answers through the launcher.
+The ladder captures that (with the step's progress) *when the ask goes out* rather than re-deriving
+it from the answer. A resume while one of the app's own prompts is up is not an answer either, and
+MainScreen holds it back on `prompt` being non-null — one condition covering every such dialog, so a
+third cannot be added without it.
+
+**A step is a reason, not a dialog** — and the reader's reason, not the platform's. Location
+"all the time" is **one** step, because in system settings it is one switch with two positions, and
+a reader shown two rows for it is shown the same control twice; Android merely refuses the second
+question until the first is answered, so the row states the whole bargain up front and names the
+upgrade alone once that is what is left (`SetupStep.bodyRes`). That is also why the ladder ends on
+an ask that **moved nothing** rather than one that left a step unmet — `SetupState.progressOf`
+counts location's two halves, so the first grant carries the run into the second.
+
+`SetupState` is read off the platform every time, so a permission revoked long after setup is unmet
+again with nothing to invalidate. **Every step is required and `complete` is the whole condition for
+arming** — there is no narrower "enough to record" beside it. Two of them could technically be
+refused and still leave a recording running (the foreground service starts without
+`POST_NOTIFICATIONS`, Android only hiding the notification; the battery exemption is not checked up
+front), and they are required anyway: a recorder that arms and then dies in the background hours
+later, or one running with nothing on screen to say so, is a failure the reader meets long after the
+moment they could have understood it. One list, one meaning of ready, and a toggle that either works
+or names what is missing — which is also what keeps the card from having to sort requirements into
+two kinds.
+
+Three things the platform makes fiddly, each handled once. **The all-the-time disclosure**
+(`BackgroundLocationDisclosure`) is said before *every* request for it, from the ladder and the card
+alike, so it cannot go missing by the route taken; being the last thing on screen before the
+platform's own asking takes over, it is also where the reader is told which option to pick there.
+**A permission refused twice can no longer be asked for**, which `Settings.askedPermissions` is what
+detects — `shouldShowRequestPermissionRationale` answers false both for that and for a permission
+never asked, and only the recorded ask separates them. **Asking for a blocked step *is* opening
+settings** — one definition (`grantSetupStep`) both surfaces reach, since a card that offers "Open
+settings" while the toggle fires a request Android stopped taking leaves one control silently doing
+nothing. `SetupStep.answersOnResume` follows from the same fact, a blocked step answering on the
+resume from settings rather than through a dialog.
+
+**No reader is handed to Android without being told why**, and that is what the two paths differ
+over — not the ask, only whether the reason is already on screen. The card carries every step's
+words above its own button, so its blocked button goes straight through; a run has no card up, so
+`askFromLadder` puts those same words in `BlockedStepDialog` first. Same for the all-time
+disclosure, which a run must show for want of a row and shows on the card path too because the
+policy attaches it to the request rather than to the surface. A jump into system settings with
+nothing said is one the reader arrives from not knowing which switch was wanted.
+
+And **the all-the-time half is requested, never navigated to**. Asking for
+`ACCESS_BACKGROUND_LOCATION` on its own, once plain location is granted, makes the permission
+controller open its per-app location page itself from Android 11 on — the screen holding "Allow all
+the time", which is nearer the switch than anywhere an app may send someone. Do not replace this
+with a settings deep link: `Settings.ACTION_APPLICATION_DETAILS_SETTINGS` lands two levels above it,
+and the permission controller's own entry points (`MANAGE_APP_PERMISSION`,
+`MANAGE_APP_PERMISSIONS`) *resolve* from a normal app and then refuse to start, wanting the
+signature permission `GRANT_RUNTIME_PERMISSIONS` — they resolve and then deny, so a resolve check
+reads as success and the failure shows up only as a `SecurityException` at launch.
+`openAppSettings` is for the twice-refused case alone.
+
+**What is still owed is shown in exactly one place**, `SetupCard` in the Record tab's content slot —
+a row per *unmet* requirement, carrying its reason and its own button. There is deliberately no page
+behind it: a summary card that opens a screen listing the same requirements is the same list twice,
+and the slot is large enough for the detail. It sits **below the live map** in the tab's `when`,
+because a recording drawing itself outranks anything still owed and what can be owed while one runs
+(the exemption, notifications) stops nothing.
+
+**The Record tab keeps one shape through all of it** — the toggle at the top, the keep-screen-on row
+at the bottom, one card between them — so the screen a reader learns on the first launch is the
+screen they keep. The toggle stays **live** whatever is missing, since turning it on is what puts
+the requests up. The card yields to a live recording, which can only outlive setup by a requirement
+being revoked mid-track, and a track being drawn outranks the notice about it. Nothing else about
+setup exists: no page, no first-run flow, and so no flag recording that one was seen.
+
+The Compose code is split one file per screen, all in the `ui` package:
 `MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in
 `RecordScreen`/`TimelineScreen`/`PlacesScreens`/`InsightsScreens`/`TrackDetailScreen`/
 `SettingsScreens`/
-`DiscardedScreens`, with shared widgets and formatters in `Components.kt` and the color-ramp/
+`DiscardedScreens`, with shared widgets and formatters in `Components.kt`, the recorder's setup
+model and its card in `Setup.kt` (no screen of its own — see above), and the color-ramp/
 legend code in `TrackColoring.kt` (cross-file symbols are `internal`, not `private`), and the
 duration ladder in `DurationFormat.kt`. **No top-level `val` in these files may reach the Android
 framework eagerly** — Kotlin compiles them into one class initializer per file, so a single eager

@@ -75,6 +75,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | search | procurar (verb), pesquisa (noun) | Only the user's. What the receiver does is *posicionamento*. |
 | lock | bloquear / desbloquear | |
 | logs | registos | |
+| setup | configuração (noun), configurar (verb) | Not *definições*, which is the Settings hub: this is done once and then gone, where those are returned to. |
 
 ## Conventions
 

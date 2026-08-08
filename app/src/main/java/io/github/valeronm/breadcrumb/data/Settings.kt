@@ -32,6 +32,7 @@ object Settings {
     private const val KEY_DEPARTURE_FENCE = "departure_fence"
     private const val KEY_DEPARTURE_MOTION = "departure_motion"
     private const val KEY_DEPARTURE_CONTINUOUS = "departure_continuous"
+    private const val KEY_ASKED_PERMISSIONS = "asked_permissions"
 
     // The key string doesn't match the edge-stay name and must stay that way: a renamed key reads
     // back 0 on every installed device and re-walks the whole history for nothing.
@@ -104,6 +105,24 @@ object Settings {
 
     fun setOnlinePlaceSearch(context: Context, enabled: Boolean) {
         prefs(context).edit { putBoolean(KEY_ONLINE_PLACE_SEARCH, enabled) }
+    }
+
+    /**
+     * Permissions this install has put a system dialog up for.
+     *
+     * Kept because `shouldShowRequestPermissionRationale` answers false in two opposite situations —
+     * a permission never asked for, and one refused twice and now unaskable — and nothing else
+     * separates them. The first needs a plain request; the second needs a trip to system settings,
+     * and offering it a request instead is a button that does nothing at all.
+     */
+    fun askedPermissions(context: Context): Set<String> =
+        prefs(context).getStringSet(KEY_ASKED_PERMISSIONS, emptySet()).orEmpty()
+
+    fun markPermissionsAsked(context: Context, permissions: Collection<String>) {
+        // A fresh set, never the one just read: SharedPreferences hands back its own instance and
+        // mutating it leaves the stored value and the in-memory cache disagreeing.
+        val merged = askedPermissions(context) + permissions
+        prefs(context).edit { putStringSet(KEY_ASKED_PERMISSIONS, merged) }
     }
 
     /** Whether the user has armed automatic, activity-driven recording. */

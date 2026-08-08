@@ -75,6 +75,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | search | поиск (noun), найти (verb) | Only the user's. What the receiver does is *определение местоположения*. |
 | lock | блокировка; заблокировать / разблокировать | |
 | logs | журнал | The entries are never translated; only the screen's chrome is. Kept apart from *запись*, the recorder — the one collision in this group to watch. |
+| setup | настройка (noun), настроить (verb) | Not *настройки* (plural), which is the Settings hub: this is done once and then gone, where those are returned to. The singular is what keeps the two apart, so it must not drift to the plural. |
 
 ## Conventions
 

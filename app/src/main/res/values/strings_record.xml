@@ -1,17 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- RecordScreen: the Record tab. -->
 <resources>
-    <!-- Permission cards -->
-    <string name="record_perm_foreground_title">Location &amp; activity access needed</string>
-    <string name="record_perm_foreground_body">Grant location and physical-activity access so the app can detect whether you\'re walking, driving or cycling and record GPS</string>
-    <string name="record_perm_foreground_button">Grant permissions</string>
-    <string name="record_perm_background_title">Allow background location</string>
-    <string name="record_perm_background_body">Set location access to \"Allow all the time\" so trips keep recording when the screen is off or the app is closed</string>
-    <string name="record_perm_background_button">Allow in the background</string>
-    <string name="record_perm_battery_title">Keep recording in the background</string>
-    <string name="record_perm_battery_body">Allow this app to ignore battery optimization so Android doesn\'t stop recording after a while in the background</string>
-    <string name="record_perm_battery_button">Allow unrestricted</string>
-
     <!-- Recorded totals -->
     <!-- Today's heading comes from the shared `relative_today`, capitalized on render. -->
     <string name="record_period_this_month">This month</string>
