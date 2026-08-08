@@ -11,9 +11,9 @@ import androidx.compose.ui.res.stringResource
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -42,7 +42,7 @@ import org.maplibre.geojson.Point
  * icon means a drag changes one layer property, not thousands of features — that per-step rebuild
  * of the collection is what lags.
  */
-internal class CaptureDot(val location: StayDeriver.Endpoint, val distanceM: Double?)
+internal class CaptureDot(val location: Coordinate, val distanceM: Double?)
 
 /**
  * A place as these two maps draw it: what it is called and what it is for, at a spot. Being named is
@@ -51,11 +51,11 @@ internal class CaptureDot(val location: StayDeriver.Endpoint, val distanceM: Dou
  * always a named row and take the shorter road, straight to `placePinImage`.
  */
 internal data class PlaceMarker(
-    val location: StayDeriver.Endpoint,
+    val location: Coordinate,
     val label: String? = null,
     val category: PlaceCategory? = null,
 ) {
-    constructor(location: StayDeriver.Endpoint, place: Place?) :
+    constructor(location: Coordinate, place: Place?) :
         this(location, place?.label, place?.placeCategory)
 }
 
@@ -83,7 +83,7 @@ private fun markerIcon(
 internal fun MapLibrePlaceMap(
     center: PlaceMarker,
     radiusM: Double,
-    endpoints: List<StayDeriver.Endpoint>,
+    endpoints: List<Coordinate>,
     modifier: Modifier = Modifier,
     neighbors: List<PlaceMarker> = emptyList(),
     // When set, these dots replace [endpoints] and the plain neighbor dots, and the radius decides
@@ -93,7 +93,7 @@ internal fun MapLibrePlaceMap(
     // joining this place, so seeing them is what makes a gray dot inside your circle make sense.
     rivalAreas: List<PlaceClusterer.Seed> = emptyList(),
     /** A long press on the map, in map coordinates — how the center is placed by hand. */
-    onLongPress: (StayDeriver.Endpoint) -> Unit,
+    onLongPress: (Coordinate) -> Unit,
 ) {
     val applied = remember { AppliedPlaceInputs() }
     // The listener is attached once, to a map that outlives every recomposition, so it must read the
@@ -112,7 +112,7 @@ internal fun MapLibrePlaceMap(
         modifier = modifier,
         onMapReady = { map ->
             map.addOnMapLongClickListener { at ->
-                longPress(StayDeriver.Endpoint(at.latitude, at.longitude))
+                longPress(at.toCoordinate())
                 true
             }
         },
@@ -163,7 +163,7 @@ internal fun MapLibrePlaceMap(
 
 /** What the marker layer draws — three inputs that always travel together. */
 private class PlaceMarkers(
-    val endpoints: List<StayDeriver.Endpoint>,
+    val endpoints: List<Coordinate>,
     val neighbors: List<PlaceMarker>,
     val capture: List<CaptureDot>?,
 )
@@ -181,9 +181,9 @@ private class AppliedPlaceInputs {
     /** Where the circle is drawn and how wide, tracked apart because the two have different
      *  consequences: either redraws the ring, but only a *resize* re-fits the camera and re-decides
      *  which side of the radius each dot falls on. */
-    var circleCenter: StayDeriver.Endpoint? = null
+    var circleCenter: Coordinate? = null
     var circleRadiusM: Double? = null
-    var markers: Pair<List<StayDeriver.Endpoint>, List<PlaceMarker>>? = null
+    var markers: Pair<List<Coordinate>, List<PlaceMarker>>? = null
 
     /** Naming or tagging a place while its map is open redraws its marker — the source names an
      *  image per category, so both are a feature rebuild rather than a restyle. Its position is
@@ -377,7 +377,7 @@ internal fun MapLibrePlacesMap(
             style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             addOverviewLayers(ctx, style, places)
-            frameTo(map, places.map { LatLng(it.marker.location.lat, it.marker.location.lon) }, singlePointZoom = 13.0)
+            frameTo(map, places.map { it.marker.location.toLatLng() }, singlePointZoom = 13.0)
         },
         onUpdate = { _, style ->
             if (applied.places !== places) {
@@ -538,7 +538,7 @@ private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
         places.sortedBy { it.marker.label != null }.map { p ->
             val dot = if (p.brief) IMG_ENDPOINT_BRIEF else IMG_ENDPOINT
             Feature.fromGeometry(
-                Point.fromLngLat(p.marker.location.lon, p.marker.location.lat),
+                p.marker.location.toPoint(),
                 JsonObject().apply {
                     addProperty(KIND_KEY, if (p.marker.label != null) KIND_PIN else KIND_DOT)
                     addProperty(ICON_KEY, markerIcon(p.marker, withGlyph = false, unnamed = dot))
@@ -557,7 +557,7 @@ private const val TRIP_MARKER_LAYER = "trip-marker-layer"
 
 /** Last-applied inputs of the trip map; the two pins are one pair, always redrawn together. */
 private class AppliedTripInputs {
-    var pins: Pair<StayDeriver.Endpoint?, StayDeriver.Endpoint?>? = null
+    var pins: Pair<Coordinate?, Coordinate?>? = null
     var places: List<OverviewPlace>? = null
     var center: MapCenterRequest? = null
 }
@@ -568,7 +568,7 @@ private class AppliedTripInputs {
  * would be indistinguishable from no request at all, which is exactly the case here: the second tap
  * on an end names the same pin as the first and still means "take me back there".
  */
-internal class MapCenterRequest(val at: StayDeriver.Endpoint)
+internal class MapCenterRequest(val at: Coordinate)
 
 /**
  * The add-trip form's map: the user's places as the field the overview map draws — **the
@@ -580,13 +580,13 @@ internal class MapCenterRequest(val at: StayDeriver.Endpoint)
  */
 @Composable
 internal fun MapLibreTripMap(
-    origin: StayDeriver.Endpoint?,
-    destination: StayDeriver.Endpoint?,
+    origin: Coordinate?,
+    destination: Coordinate?,
     places: List<OverviewPlace>,
-    onLongPress: (StayDeriver.Endpoint) -> Unit,
+    onLongPress: (Coordinate) -> Unit,
     /** A tap on a place's pin, reported at the pin's own spot rather than the finger's, with the
      *  place's label where the feature carries one — what the pick was picked *by*. */
-    onPlaceTap: (StayDeriver.Endpoint, String?) -> Unit,
+    onPlaceTap: (Coordinate, String?) -> Unit,
     /** Where the screen wants the camera, if anywhere — see [MapCenterRequest]. */
     center: MapCenterRequest? = null,
     /**
@@ -595,7 +595,7 @@ internal fun MapLibreTripMap(
      * per frame: this feeds a sort, and re-ordering a list under a moving finger would be its own
      * kind of wrong.
      */
-    onCenterSettled: (StayDeriver.Endpoint) -> Unit = {},
+    onCenterSettled: (Coordinate) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val applied = remember { AppliedTripInputs() }
@@ -613,10 +613,10 @@ internal fun MapLibreTripMap(
         onMapReady = { map ->
             map.addOnCameraIdleListener {
                 val at = map.cameraPosition.target ?: return@addOnCameraIdleListener
-                centerSettled(StayDeriver.Endpoint(at.latitude, at.longitude))
+                centerSettled(at.toCoordinate())
             }
             map.addOnMapLongClickListener { at ->
-                longPress(StayDeriver.Endpoint(at.latitude, at.longitude))
+                longPress(at.toCoordinate())
                 true
             }
             map.addOnMapClickListener { latLng ->
@@ -624,7 +624,7 @@ internal fun MapLibreTripMap(
                 val point = feature?.geometry() as? Point
                 if (point != null) {
                     placeTap(
-                        StayDeriver.Endpoint(point.latitude(), point.longitude()),
+                        Coordinate(point.latitude(), point.longitude()),
                         // Unnamed features carry an empty label, not an absent one.
                         feature.getStringProperty(LABEL_KEY)?.takeIf { it.isNotEmpty() },
                     )
@@ -652,7 +652,7 @@ internal fun MapLibreTripMap(
             // The opening frame lands before the idle listener is there to hear it, so where the map
             // came up is stated outright — otherwise nothing knows the centre until the first pan.
             map.cameraPosition.target?.let {
-                centerSettled(StayDeriver.Endpoint(it.latitude, it.longitude))
+                centerSettled(it.toCoordinate())
             }
         },
         onUpdate = { map, style ->
@@ -674,15 +674,15 @@ internal fun MapLibreTripMap(
                 // The zoom is left where the user put it: they asked to go somewhere, not to see it
                 // at some particular scale, and a map that re-zooms on every tap fights the hand
                 // that framed it.
-                center?.let { map.moveCamera(CameraUpdateFactory.newLatLng(LatLng(it.at.lat, it.at.lon))) }
+                center?.let { map.moveCamera(CameraUpdateFactory.newLatLng(it.at.toLatLng())) }
             }
         },
     )
 }
 
 private fun tripMarkerCollection(
-    origin: StayDeriver.Endpoint?,
-    destination: StayDeriver.Endpoint?,
+    origin: Coordinate?,
+    destination: Coordinate?,
     originLabel: String,
     destinationLabel: String,
 ): FeatureCollection {
@@ -703,15 +703,15 @@ private fun tripMarkerCollection(
  */
 private fun frameTripMap(
     map: MapLibreMap,
-    origin: StayDeriver.Endpoint?,
-    destination: StayDeriver.Endpoint?,
+    origin: Coordinate?,
+    destination: Coordinate?,
     places: List<OverviewPlace>,
     opening: Boolean,
 ) {
-    val pins = listOfNotNull(origin, destination).map { LatLng(it.lat, it.lon) }
+    val pins = listOfNotNull(origin, destination).map { it.toLatLng() }
     if (pins.isEmpty()) {
         if (opening && places.isNotEmpty()) {
-            frameTo(map, places.map { LatLng(it.marker.location.lat, it.marker.location.lon) }, singlePointZoom = 13.0)
+            frameTo(map, places.map { it.marker.location.toLatLng() }, singlePointZoom = 13.0)
         }
         return
     }

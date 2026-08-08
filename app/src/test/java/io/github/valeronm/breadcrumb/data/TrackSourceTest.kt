@@ -2,7 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -62,8 +62,8 @@ class TrackSourceTest {
     @Test fun `a manual trip declares itself, and its typed ends would misread as an import`() = runTest {
         val result = repository.insertManualTrack(
             ActivityType.FLIGHT,
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.0, -2.0), TEST_START),
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), TEST_START + 3 * 3_600_000L),
+            TrackRepository.ManualEnd(Coordinate(1.0, -2.0), TEST_START),
+            TrackRepository.ManualEnd(Coordinate(1.5, -1.0), TEST_START + 3 * 3_600_000L),
         )
 
         val id = (result as TrackRepository.ManualTrackResult.Saved).trackId
@@ -76,8 +76,8 @@ class TrackSourceTest {
     @Test fun `delete and restore keep the manual declaration`() = runTest {
         val result = repository.insertManualTrack(
             ActivityType.FLIGHT,
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.0, -2.0), TEST_START),
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), TEST_START + 3 * 3_600_000L),
+            TrackRepository.ManualEnd(Coordinate(1.0, -2.0), TEST_START),
+            TrackRepository.ManualEnd(Coordinate(1.5, -1.0), TEST_START + 3 * 3_600_000L),
         )
         val id = (result as TrackRepository.ManualTrackResult.Saved).trackId
 

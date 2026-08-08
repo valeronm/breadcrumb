@@ -58,14 +58,14 @@ object TravelNaming {
         private val distance: DistanceFn,
     ) {
         private val seeds = PlaceClusterer.seedsOf(places)
-        private val cities = HashMap<StayDeriver.Endpoint, CityAtlas.City?>()
-        private val pins = HashMap<StayDeriver.Endpoint, Place?>()
+        private val cities = HashMap<Coordinate, CityAtlas.City?>()
+        private val pins = HashMap<Coordinate, Place?>()
 
-        fun cityAt(at: StayDeriver.Endpoint): CityAtlas.City? =
+        fun cityAt(at: Coordinate): CityAtlas.City? =
             cities.getOrPut(at) { atlas.naming(at.lat, at.lon, distance) }
 
         /** The named place whose capture area holds [at], if any. */
-        fun pinAt(at: StayDeriver.Endpoint): Place? =
+        fun pinAt(at: Coordinate): Place? =
             pins.getOrPut(at) {
                 PlaceClusterer.nearestSeedIndex(at.lat, at.lon, seeds, distance)?.let(places::getOrNull)
             }
@@ -130,7 +130,7 @@ object TravelNaming {
         gazetteer: Gazetteer,
         timeByName: MutableMap<String, Long>,
     ) {
-        fun nameAt(at: StayDeriver.Endpoint?): String? {
+        fun nameAt(at: Coordinate?): String? {
             if (at == null) return null
             val place = gazetteer.pinAt(at)
             if (place?.placeCategory?.visited == false) return null

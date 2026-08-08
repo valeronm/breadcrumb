@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.location
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DeafnessWarning
 import io.github.valeronm.breadcrumb.domain.DepartureWatch
 import io.github.valeronm.breadcrumb.domain.Motion
@@ -77,10 +78,11 @@ sealed interface Effect {
      * never happen. The same pass therefore buys a short probe burst, and this is emitted again with
      * a real anchor as soon as one position lands — one fence id, so the second registration
      * replaces the first.
+     *
+     * A coordinate and no accuracy, unlike [DepartureWatch.Anchor]: the fence has a fixed radius of
+     * its own, so the anchor's error is the watch's business rather than the registration's.
      */
-    data class ArmDepartureFence(val from: Anchor?) : Effect {
-        data class Anchor(val latitude: Double, val longitude: Double)
-    }
+    data class ArmDepartureFence(val from: Coordinate?) : Effect
 
     /** Stop watching: a track is running, so a departure is no longer news. */
     data object DisarmDepartureFence : Effect
@@ -455,12 +457,11 @@ class ActivityIngest(
      * outlive the request that asked for it.
      */
     fun onProbeFix(
-        latitude: Double,
-        longitude: Double,
+        at: Coordinate,
         accuracyM: Double,
         nowMs: Long,
         settings: ActivitySettings,
-    ): List<Effect> = when (val verdict = watch.judge(latitude, longitude, accuracyM)) {
+    ): List<Effect> = when (val verdict = watch.judge(at, accuracyM)) {
         is DepartureWatch.Verdict.Anchored -> anchored(verdict.at, settings.triggers)
         is DepartureWatch.Verdict.Departed -> onDeparture(nowMs, settings)
         is DepartureWatch.Verdict.Near, DepartureWatch.Verdict.Dormant -> emptyList()
@@ -479,7 +480,7 @@ class ActivityIngest(
      */
     private fun anchored(at: DepartureWatch.Anchor, triggers: DepartureTriggers): List<Effect> {
         val out = ArrayList<Effect>()
-        if (triggers.fence) out += Effect.ArmDepartureFence(at.forFence())
+        if (triggers.fence) out += Effect.ArmDepartureFence(at.position)
         // The burst existed to produce exactly this. A standing request is not the burst's to stop,
         // and stopping it here would take the continuous trigger down on the first position it ever
         // delivered.
@@ -564,13 +565,6 @@ class ActivityIngest(
         gate.onArmed()
         waiting = null
     }
-
-    /**
-     * The fence takes a coordinate and no accuracy: it has a fixed radius of its own, so the anchor's
-     * error is the watch's business rather than the registration's.
-     */
-    private fun DepartureWatch.Anchor.forFence() =
-        Effect.ArmDepartureFence.Anchor(latitude, longitude)
 
     /** Forget the deafness episode. The alert itself is the caller's to withdraw. */
     fun forgetDeafness() {
@@ -691,7 +685,7 @@ class ActivityIngest(
         // that is the GNSS-starved case, where the fence is the only thing that can notice at all.
         watchForDeparture(
             ingest.lastGood?.let {
-                DepartureWatch.Anchor(it.latitude, it.longitude, it.accuracy?.toDouble() ?: 0.0)
+                DepartureWatch.Anchor(Coordinate(it.latitude, it.longitude), it.accuracy?.toDouble() ?: 0.0)
             },
             nowMs,
             settings.triggers,
@@ -720,7 +714,7 @@ class ActivityIngest(
         out: MutableList<Effect>,
     ) {
         watch.watch(from, atMs)
-        if (triggers.fence) out += Effect.ArmDepartureFence(from?.forFence())
+        if (triggers.fence) out += Effect.ArmDepartureFence(from?.position)
         when {
             // The standing request will produce the anchor on its own schedule; a burst on top would
             // rebuild it at a tighter cadence and then take it down when the burst's window lapsed.

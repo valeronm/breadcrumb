@@ -104,6 +104,7 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.CityAtlas
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
 import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
@@ -741,7 +742,7 @@ internal fun PlaceDetailScreen(
 internal fun PlaceEditScreen(
     summary: PlaceResolver.PlaceSummary,
     neighbors: List<PlaceMarker>,
-    candidates: List<StayDeriver.Endpoint>,
+    candidates: List<Coordinate>,
     rivals: List<PlaceClusterer.Seed>,
     viewModel: TrackListViewModel,
     onClose: () -> Unit,
@@ -776,7 +777,7 @@ internal fun PlaceEditScreen(
     // Both ways of moving the pin are one step back: a jumped pin has nowhere obvious to return to,
     // where a slider can simply be dragged again.
     val pinMoved = stringResource(R.string.places_pin_moved)
-    val movePin: (StayDeriver.Endpoint, String) -> Unit = { target, message ->
+    val movePin: (Coordinate, String) -> Unit = { target, message ->
         val was = pin
         pin = target
         undo.show(message) { pin = was }
@@ -1209,7 +1210,7 @@ private fun CategoryRow(
  * visit, and [zoneShiftLabel] is asked at the instant either time.
  */
 @Composable
-private fun PlaceLocality(at: StayDeriver.Endpoint, nowMs: Long, viewModel: TrackListViewModel) {
+private fun PlaceLocality(at: Coordinate, nowMs: Long, viewModel: TrackListViewModel) {
     val locale = LocalConfiguration.current.locales[0]
     val city by produceState<CityAtlas.City?>(null, at) { value = viewModel.cityAt(at) }
     val resolved = city ?: return

@@ -47,7 +47,7 @@ object PlaceResolver {
      * and [ResolvedStay.key] are the only ways to ask, so no caller ever decides for itself which
      * fields identify a place, and the two cannot name the same cluster differently.
      */
-    private fun placeKey(placeId: Long?, position: StayDeriver.Endpoint): String =
+    private fun placeKey(placeId: Long?, position: Coordinate): String =
         placeId?.let(::keyOf) ?: "cluster:%.5f,%.5f".format(position.lat, position.lon)
 
     /**
@@ -81,8 +81,8 @@ object PlaceResolver {
      * a refinement to one of a matched pair is how one stop comes to be drawn at two coordinates,
      * and there is no test that can catch it.
      */
-    private fun pinOf(place: Place?, whileUnnamed: StayDeriver.Endpoint): StayDeriver.Endpoint =
-        place?.let { StayDeriver.Endpoint(it.lat, it.lon) } ?: whileUnnamed
+    private fun pinOf(place: Place?, whileUnnamed: Coordinate): Coordinate =
+        place?.pin ?: whileUnnamed
 
     /**
      * The stays that are visits. **A stop of no duration is not one**: two tracks sharing an instant
@@ -114,7 +114,7 @@ object PlaceResolver {
         /** Visits to this cluster across the whole (unsliced) history. */
         val visitCount: Int,
         /** Cluster centroid — where a new place would be pinned when the user names this stay. */
-        val centroid: StayDeriver.Endpoint,
+        val centroid: Coordinate,
         /**
          * Where on earth this cluster sits, as the gazetteer has it — the row itself rather than a
          * copy per attribute, following [place]: what a spot is called and which clock it runs on
@@ -132,7 +132,7 @@ object PlaceResolver {
 
         /** Where this stop sits — see [pinOf]; unnamed, that is the middle of what the cluster
          *  captured. */
-        val pin: StayDeriver.Endpoint get() = pinOf(place, centroid)
+        val pin: Coordinate get() = pinOf(place, centroid)
 
         /** The city this cluster sits in, named or not — see [locality]. */
         val city: String? get() = locality?.name
@@ -168,11 +168,11 @@ object PlaceResolver {
         /** Summed stay durations (ongoing → now). */
         val totalMs: Long,
         /** Cluster anchor — the pin for a named place; the capture circle's center on a map. */
-        val anchor: StayDeriver.Endpoint,
+        val anchor: Coordinate,
         /** The cluster's capture radius (meters). */
         val radiusM: Double,
         /** Every track endpoint captured by the cluster, for showing the scatter on a map. */
-        val endpoints: List<StayDeriver.Endpoint>,
+        val endpoints: List<Coordinate>,
         /**
          * Where the visits actually landed — the mean of [endpoints], as against [anchor], where
          * the pin was dropped; null when there is nothing to average. The clusterer's own mean
@@ -180,7 +180,7 @@ object PlaceResolver {
          * what [pin] answers with for an unnamed cluster — where a place sits when nothing has
          * said where to put it.
          */
-        val endpointCentroid: StayDeriver.Endpoint?,
+        val endpointCentroid: Coordinate?,
         /** This place's individual visits (unsliced), newest first — the detail screen's history. */
         val stays: List<StayDeriver.Stay> = emptyList(),
         /** Where on earth this place sits, as the gazetteer has it — see [ResolvedStay.locality]. */
@@ -205,7 +205,7 @@ object PlaceResolver {
          * cannot fire — only a seeded cluster can be empty of endpoints, and a seeded cluster is
          * named — it is there because the mean is typed nullable for that case.
          */
-        val pin: StayDeriver.Endpoint get() = pinOf(place, endpointCentroid ?: anchor)
+        val pin: Coordinate get() = pinOf(place, endpointCentroid ?: anchor)
 
         /** This place's stable identity — see [placeKey]. Held rather than computed per read: an
          *  unnamed cluster's key is a formatted string, and it is read once per row by a list key,
@@ -224,8 +224,8 @@ object PlaceResolver {
         val nearby: List<PlaceSummary>,
     ) {
         /** Every endpoint a radius here could take: [subject]'s own plus the loose ones around it. */
-        val candidates: List<StayDeriver.Endpoint> =
-            ArrayList<StayDeriver.Endpoint>(subject.endpoints.size + nearby.sumOf { it.endpoints.size })
+        val candidates: List<Coordinate> =
+            ArrayList<Coordinate>(subject.endpoints.size + nearby.sumOf { it.endpoints.size })
                 .apply {
                     addAll(subject.endpoints)
                     for (other in nearby) addAll(other.endpoints)
@@ -264,7 +264,7 @@ object PlaceResolver {
         stays: List<StayDeriver.Stay>,
         clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
-        cities: Map<StayDeriver.Endpoint, CityAtlas.City> = emptyMap(),
+        cities: Map<Coordinate, CityAtlas.City> = emptyMap(),
     ): List<ResolvedStay> {
         val visitsByCluster = visitsAmong(stays).groupingBy { it.clusterId }.eachCount()
         return clusters.mapIndexed { clusterId, cluster ->
@@ -295,7 +295,7 @@ object PlaceResolver {
         clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
         nowMs: Long,
-        cities: Map<StayDeriver.Endpoint, CityAtlas.City> = emptyMap(),
+        cities: Map<Coordinate, CityAtlas.City> = emptyMap(),
     ): List<PlaceSummary> {
         val staysByCluster = visitsAmong(stays).groupBy { it.clusterId }
         val namedAgg = HashMap<Long, Agg>()   // placeId -> aggregate over its matching clusters
@@ -343,7 +343,7 @@ object PlaceResolver {
                 visitCount = agg?.count ?: 0,
                 lastSeenMs = agg?.last,
                 totalMs = agg?.total ?: 0L,
-                anchor = StayDeriver.Endpoint(place.lat, place.lon),
+                anchor = place.pin,
                 radiusM = cluster?.radiusM ?: place.radiusM,
                 endpoints = cluster?.members ?: emptyList(),
                 endpointCentroid = cluster?.endpointMean,
@@ -366,11 +366,11 @@ object PlaceResolver {
      * saved — a caller cannot pair a pin with a mean measured from somewhere else.
      */
     fun recenterTarget(
-        anchor: StayDeriver.Endpoint,
+        anchor: Coordinate,
         scan: PlaceClusterer.CaptureScan,
         radiusM: Double,
         distance: DistanceFn,
-    ): StayDeriver.Endpoint? =
+    ): Coordinate? =
         scan.centroidWithin(radiusM)?.takeIf {
             distance.meters(it.lat, it.lon, anchor.lat, anchor.lon) >= RECENTER_MIN_SHIFT_M
         }

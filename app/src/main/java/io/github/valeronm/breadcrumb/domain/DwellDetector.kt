@@ -53,7 +53,7 @@ object DwellDetector {
     data class Dwell(
         val entryTs: Long,
         val exitTs: Long,
-        val centroid: StayDeriver.Endpoint,
+        val centroid: Coordinate,
         /** Decimated samples inside the corral — the merge pass weights centroids by it. */
         val sampleCount: Int,
         /** The corral this was found with, so anything drawing the dwell asks the result for its
@@ -125,7 +125,7 @@ object DwellDetector {
                 out.add(
                     Dwell(
                         pts[i].timestamp, pts[lastInside].timestamp,
-                        StayDeriver.Endpoint(cLat, cLon), members, params.corralRadiusM,
+                        Coordinate(cLat, cLon), members, params.corralRadiusM,
                     ),
                 )
                 i = lastInside + 1
@@ -153,7 +153,7 @@ object DwellDetector {
                 Dwell(
                     entryTs = cur.entryTs,
                     exitTs = next.exitTs,
-                    centroid = StayDeriver.Endpoint(
+                    centroid = Coordinate(
                         (cur.centroid.lat * cur.sampleCount + next.centroid.lat * next.sampleCount) / total,
                         (cur.centroid.lon * cur.sampleCount + next.centroid.lon * next.sampleCount) / total,
                     ),

@@ -1,7 +1,5 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint
-
 /**
  * The shared geometry and time convention for the domain tests, in one place so the suites can't drift
  * apart on it: distances are flat-earth with 0.001° ≈ 100 m, so a fixture places points by *meters east
@@ -24,7 +22,7 @@ internal const val ORIGIN_LON = 1.0
 internal fun lonAt(meters: Double) = ORIGIN_LON + meters / 100_000.0
 
 /** An endpoint [meters] east of the origin. */
-internal fun at(meters: Double) = Endpoint(ORIGIN_LAT, lonAt(meters))
+internal fun at(meters: Double) = Coordinate(ORIGIN_LAT, lonAt(meters))
 
 /** One minute in ms — fixtures lay points out in minutes. */
 internal const val MIN = 60_000L

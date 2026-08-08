@@ -20,6 +20,7 @@ import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DepartureWatch
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.Motion
@@ -410,7 +411,7 @@ class LocationRecordingService : Service() {
                 // would be taken with the recorder's mutex held.
                 is Effect.ArmDepartureFence ->
                     effect.from
-                        ?.let { departureFence.arm(it.latitude, it.longitude) }
+                        ?.let(departureFence::arm)
                         ?: departureFence.armFromLastKnown()
 
                 Effect.DisarmDepartureFence -> departureFence.disarm()
@@ -719,7 +720,7 @@ class LocationRecordingService : Service() {
                 // Read before the pass, which stops the watch and takes the stamp with it.
                 val latency = watchedForMs(nowMs)
                 val effects =
-                    core.onProbeFix(latitude, longitude, accuracyM, nowMs, activitySettings())
+                    core.onProbeFix(Coordinate(latitude, longitude), accuracyM, nowMs, activitySettings())
                 // The age is on every line because it means a different thing on each: as an anchor
                 // a remembered position is the stale one the burst exists to replace, and as a
                 // verdict it dates the leaving to whenever the cache was filled.

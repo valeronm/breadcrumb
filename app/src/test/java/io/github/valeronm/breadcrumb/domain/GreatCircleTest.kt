@@ -7,7 +7,7 @@ import kotlin.math.abs
 
 class GreatCircleTest {
 
-    private fun at(lat: Double, lon: Double) = StayDeriver.Endpoint(lat, lon)
+    private fun at(lat: Double, lon: Double) = Coordinate(lat, lon)
 
     @Test fun `the arc keeps its ends exact and bows along the great circle`() {
         // A quarter of the equator: the arc stays on it, and its midpoint is the halfway meridian.

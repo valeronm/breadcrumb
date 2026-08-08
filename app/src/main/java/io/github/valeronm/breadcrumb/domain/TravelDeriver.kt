@@ -149,9 +149,7 @@ object TravelDeriver {
         if (tagged.isNotEmpty()) {
             return Home(
                 clusterIds = tagged.mapNotNull { (clusterId, _) -> clusterId.takeIf { it >= 0 } }.toSet(),
-                seeds = tagged.map { (_, place) ->
-                    PlaceClusterer.Seed(StayDeriver.Endpoint(place.lat, place.lon), place.radiusM)
-                },
+                seeds = PlaceClusterer.seedsOf(tagged.map { (_, place) -> place }),
             )
         }
         val best = nightsPerCluster.indices.maxByOrNull { nightsPerCluster[it] }
@@ -292,7 +290,7 @@ object TravelDeriver {
             }
             val span = (track.endedAt - track.startedAt).coerceAtLeast(1)
             val fraction = (at - track.startedAt).toDouble() / span
-            val point = StayDeriver.Endpoint(
+            val point = Coordinate(
                 lat = from.lat + (to.lat - from.lat) * fraction,
                 lon = from.lon + (to.lon - from.lon) * fraction,
             )

@@ -17,12 +17,13 @@ import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.pin
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.Style
@@ -306,7 +307,7 @@ private fun endPlaceCollection(places: List<Place>): FeatureCollection =
     FeatureCollection.fromFeatures(
         places.map { place ->
             endpointFeature(
-                StayDeriver.Endpoint(place.lat, place.lon),
+                place.pin,
                 placePinImage(place.placeCategory, withGlyph = true),
                 place.label,
             )
@@ -358,13 +359,13 @@ private fun linePositions(points: List<TrackPoint>, greatCircleLegs: Boolean): L
     if (!greatCircleLegs || points.size < 2) {
         return points.map { Point.fromLngLat(it.longitude, it.latitude) }
     }
-    val out = ArrayList<StayDeriver.Endpoint>()
-    out += StayDeriver.Endpoint(points[0].latitude, points[0].longitude)
+    val out = ArrayList<Coordinate>()
+    out += Coordinate(points[0].latitude, points[0].longitude)
     for (i in 1 until points.size) {
-        val arc = GreatCircle.arc(out.last(), StayDeriver.Endpoint(points[i].latitude, points[i].longitude))
+        val arc = GreatCircle.arc(out.last(), Coordinate(points[i].latitude, points[i].longitude))
         for (j in 1 until arc.size) out += arc[j]
     }
-    return out.map { Point.fromLngLat(it.lon, it.lat) }
+    return out.map { it.toPoint() }
 }
 
 /** The points as one polyline, or null below the two positions a GeoJSON LineString needs. */

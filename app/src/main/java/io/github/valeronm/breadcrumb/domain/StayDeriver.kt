@@ -42,16 +42,14 @@ import java.time.ZoneId
  */
 object StayDeriver {
 
-    data class Endpoint(val lat: Double, val lon: Double)
-
     /** One kept track, projected to what derivation needs. Input list must be ascending by time. */
     data class TrackEnd(
         val trackId: Long,
         val startedAt: Long,
         val endedAt: Long,
         /** First/last good-point coordinates; null only defensively (kept tracks have ≥2 points). */
-        val start: Endpoint?,
-        val end: Endpoint?,
+        val start: Coordinate?,
+        val end: Coordinate?,
     )
 
     /**
@@ -60,7 +58,7 @@ object StayDeriver {
      * [start], the first good fix when already known, lets the tail run the usual endpoint-agreement
      * check; null (no fix yet) counts as agreement until the finished track re-derives for real.
      */
-    data class ActiveTrack(val startedAt: Long, val start: Endpoint? = null)
+    data class ActiveTrack(val startedAt: Long, val start: Coordinate? = null)
 
     /** Recorder-lifecycle evidence, ascending by time. */
     sealed interface Liveness {
@@ -113,7 +111,7 @@ object StayDeriver {
         override val start: Long,
         /** Null = ongoing (the current stay). */
         override val end: Long?,
-        val location: Endpoint,
+        val location: Coordinate,
         val provenance: Provenance,
         override val afterTrackId: Long,
         /** Index into [Derivation.clusters] — the place this stay belongs to. */
@@ -154,8 +152,8 @@ object StayDeriver {
          * and a trip entered by hand to fill the gap wants the second question: its two times are
          * these two instants, so these are where its ends were.
          */
-        val from: Endpoint? = null,
-        val to: Endpoint? = null,
+        val from: Coordinate? = null,
+        val to: Coordinate? = null,
     ) : Interval
 
     /** Derivation output: the timeline intervals plus the endpoint clusters stays index into. */
@@ -182,10 +180,10 @@ object StayDeriver {
         val (clusters, clusterOf) = clusterEndpoints(tracks, activeTrack?.start, placePins, params, distance)
         val out = mutableListOf<Interval>()
 
-        fun nearestPin(e: Endpoint): Int? =
+        fun nearestPin(e: Coordinate): Int? =
             PlaceClusterer.nearestSeedIndex(e.lat, e.lon, placePins, distance)
 
-        fun samePlace(a: Endpoint, b: Endpoint): Boolean =
+        fun samePlace(a: Coordinate, b: Coordinate): Boolean =
             clusterOf.getValue(a) == clusterOf.getValue(b) ||
                 distance.meters(a.lat, a.lon, b.lat, b.lon) <= params.agreementRadiusM ||
                 (nearestPin(a)?.let { it == nearestPin(b) } ?: false)
@@ -241,11 +239,11 @@ object StayDeriver {
      */
     private fun clusterEndpoints(
         tracks: List<TrackEnd>,
-        activeStart: Endpoint?,
+        activeStart: Coordinate?,
         placePins: List<PlaceClusterer.Seed>,
         params: Params,
         distance: DistanceFn,
-    ): Pair<List<PlaceClusterer.Cluster>, Map<Endpoint, Int>> {
+    ): Pair<List<PlaceClusterer.Cluster>, Map<Coordinate, Int>> {
         val endpoints = buildList {
             for (track in tracks) {
                 track.start?.let { add(it) }
@@ -256,7 +254,7 @@ object StayDeriver {
             activeStart?.let { add(it) }
         }
         val clusters = PlaceClusterer.cluster(endpoints, params.placeRadiusM, distance, seeds = placePins)
-        val clusterOf = HashMap<Endpoint, Int>(endpoints.size)
+        val clusterOf = HashMap<Coordinate, Int>(endpoints.size)
         clusters.forEachIndexed { ci, cluster ->
             for (index in cluster.memberIndices) clusterOf[endpoints[index]] = ci
         }
@@ -273,8 +271,8 @@ object StayDeriver {
         evidence: LivenessSummary,
         nowMs: Long,
         activeTrack: ActiveTrack?,
-        clusterOf: Map<Endpoint, Int>,
-        samePlace: (Endpoint, Endpoint) -> Boolean,
+        clusterOf: Map<Coordinate, Int>,
+        samePlace: (Coordinate, Coordinate) -> Boolean,
     ): Interval? {
         if (last == null) return null
         val location = last.end ?: return null
@@ -319,8 +317,8 @@ object StayDeriver {
         )
     }
 
-    private fun midpoint(a: Endpoint, b: Endpoint) =
-        Endpoint((a.lat + b.lat) / 2, (a.lon + b.lon) / 2)
+    private fun midpoint(a: Coordinate, b: Coordinate) =
+        Coordinate((a.lat + b.lat) / 2, (a.lon + b.lon) / 2)
 
     // --- Liveness evidence ----------------------------------------------------
 

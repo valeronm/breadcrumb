@@ -2,8 +2,8 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import com.google.gson.JsonObject
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import io.github.valeronm.breadcrumb.domain.StayDeriver
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -174,6 +174,13 @@ private fun mutedOpacity(): Expression = Expression.switchCase(
     Expression.literal(1f),
 )
 
+/** The axis swap GeoJSON demands, made in exactly one place: a [Point] is longitude-first. */
+internal fun Coordinate.toPoint(): Point = Point.fromLngLat(lon, lat)
+
+internal fun Coordinate.toLatLng(): LatLng = LatLng(lat, lon)
+
+internal fun LatLng.toCoordinate(): Coordinate = Coordinate(latitude, longitude)
+
 /**
  * A place-style marker at [e]. Two of the arguments hand a decision to the layer rather than making
  * it: [distanceM] surrenders [icon] to whatever the live radius says (see [DISTANCE_KEY]), and
@@ -181,14 +188,14 @@ private fun mutedOpacity(): Expression = Expression.switchCase(
  * unnamed feature, which is the empty string the text layer needs rather than an absent property.
  */
 internal fun endpointFeature(
-    e: StayDeriver.Endpoint,
+    e: Coordinate,
     icon: String,
     label: String? = null,
     distanceM: Double? = null,
     muted: Boolean = false,
 ): Feature =
     Feature.fromGeometry(
-        Point.fromLngLat(e.lon, e.lat),
+        e.toPoint(),
         JsonObject().apply {
             addProperty(ICON_KEY, icon)
             addProperty(LABEL_KEY, label ?: "")
@@ -206,28 +213,26 @@ internal fun captureAreaCollection(seeds: List<PlaceClusterer.Seed>): FeatureCol
     FeatureCollection.fromFeatures(seeds.map { circleFeature(it.anchor, it.radiusM) })
 
 /** A meter-true circle approximated by a 72-gon (fine at place zoom levels). */
-internal fun circleFeature(center: StayDeriver.Endpoint, radiusM: Double): Feature {
+internal fun circleFeature(center: Coordinate, radiusM: Double): Feature {
     val ring = (0..72).map { i ->
         val theta = 2 * Math.PI * i / 72
-        val (lat, lon) = offsetMeters(center, radiusM * sin(theta), radiusM * cos(theta))
-        Point.fromLngLat(lon, lat)
+        offsetMeters(center, radiusM * sin(theta), radiusM * cos(theta)).toPoint()
     }
     return Feature.fromGeometry(Polygon.fromLngLats(listOf(ring)))
 }
 
-/** [e] displaced by meters north/east into a (lat, lon) pair — flat-earth, fine at circle scale. */
-internal fun offsetMeters(e: StayDeriver.Endpoint, northM: Double, eastM: Double): Pair<Double, Double> {
-    val lat = e.lat + northM / 111_320.0
-    val lon = e.lon + eastM / (111_320.0 * cos(Math.toRadians(e.lat)))
-    return lat to lon
-}
+/** [e] displaced by meters north/east — flat-earth, fine at circle scale. */
+internal fun offsetMeters(e: Coordinate, northM: Double, eastM: Double): Coordinate = Coordinate(
+    lat = e.lat + northM / 111_320.0,
+    lon = e.lon + eastM / (111_320.0 * cos(Math.toRadians(e.lat))),
+)
 
 /** Fits the camera to the capture circle [radiusM] around [center] — the ring is the subject. */
-internal fun framePlace(map: MapLibreMap, center: StayDeriver.Endpoint, radiusM: Double) {
-    val (north, _) = offsetMeters(center, radiusM, 0.0)
-    val (south, _) = offsetMeters(center, -radiusM, 0.0)
-    val (_, east) = offsetMeters(center, 0.0, radiusM)
-    val (_, west) = offsetMeters(center, 0.0, -radiusM)
+internal fun framePlace(map: MapLibreMap, center: Coordinate, radiusM: Double) {
+    val north = offsetMeters(center, radiusM, 0.0).lat
+    val south = offsetMeters(center, -radiusM, 0.0).lat
+    val east = offsetMeters(center, 0.0, radiusM).lon
+    val west = offsetMeters(center, 0.0, -radiusM).lon
     val bounds = LatLngBounds.Builder()
         .include(LatLng(north, east))
         .include(LatLng(south, west))

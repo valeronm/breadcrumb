@@ -22,7 +22,7 @@ class DayCategoryTotalsTest {
             category = category?.code,
         ),
         visitCount = 1,
-        centroid = StayDeriver.Endpoint(1.0, -2.0),
+        centroid = Coordinate(1.0, -2.0),
     )
 
     private var nextTrackId = 0L
@@ -33,7 +33,7 @@ class DayCategoryTotalsTest {
         resolved: PlaceResolver.ResolvedStay? = place(category),
     ) = TimelineItem.StayItem(
         stay = StayDeriver.Stay(
-            start = start, end = end, location = StayDeriver.Endpoint(1.0, -2.0),
+            start = start, end = end, location = Coordinate(1.0, -2.0),
             provenance = StayDeriver.Provenance.OBSERVED, afterTrackId = ++nextTrackId, clusterId = 0,
         ),
         place = resolved,

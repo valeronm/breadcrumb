@@ -1,8 +1,8 @@
 package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
-import io.github.valeronm.breadcrumb.domain.StayDeriver
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -31,8 +31,8 @@ class ManualTrackTest {
     private suspend fun manualTrip(startMs: Long = TEST_START): TrackRepository.ManualTrackResult =
         repository.insertManualTrack(
             ActivityType.FLIGHT,
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.0, -2.0), startMs),
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), startMs + 3 * 3_600_000L),
+            TrackRepository.ManualEnd(Coordinate(1.0, -2.0), startMs),
+            TrackRepository.ManualEnd(Coordinate(1.5, -1.0), startMs + 3 * 3_600_000L),
         )
 
     private fun trackIdOf(result: TrackRepository.ManualTrackResult): Long =
@@ -91,8 +91,8 @@ class ManualTrackTest {
 
         val result = repository.insertManualTrack(
             ActivityType.FLIGHT,
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.0, -2.0), trimmedEnd),
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), trimmedEnd + 3_600_000L),
+            TrackRepository.ManualEnd(Coordinate(1.0, -2.0), trimmedEnd),
+            TrackRepository.ManualEnd(Coordinate(1.5, -1.0), trimmedEnd + 3_600_000L),
         )
 
         assertTrue("the trimmed fixes are not a path to collide with", result is TrackRepository.ManualTrackResult.Saved)
@@ -105,8 +105,8 @@ class ManualTrackTest {
         val result = repository.updateManualTrack(
             id,
             ActivityType.FERRY,
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.2, -2.2), movedStart),
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.4, -1.4), movedStart + 3_600_000L),
+            TrackRepository.ManualEnd(Coordinate(1.2, -2.2), movedStart),
+            TrackRepository.ManualEnd(Coordinate(1.4, -1.4), movedStart + 3_600_000L),
         )
 
         assertEquals(id, (result as TrackRepository.ManualTrackResult.Saved).trackId)
@@ -132,8 +132,8 @@ class ManualTrackTest {
         val result = repository.updateManualTrack(
             id,
             ActivityType.FLIGHT,
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.0, -2.0), TEST_START + 60_000L),
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), TEST_START + 3 * 3_600_000L),
+            TrackRepository.ManualEnd(Coordinate(1.0, -2.0), TEST_START + 60_000L),
+            TrackRepository.ManualEnd(Coordinate(1.5, -1.0), TEST_START + 3 * 3_600_000L),
         )
 
         assertTrue(result is TrackRepository.ManualTrackResult.Saved)
@@ -148,8 +148,8 @@ class ManualTrackTest {
         val result = repository.updateManualTrack(
             id,
             ActivityType.FLIGHT,
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.0, -2.0), TEST_START + 30_000L),
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), TEST_START + 4 * 3_600_000L),
+            TrackRepository.ManualEnd(Coordinate(1.0, -2.0), TEST_START + 30_000L),
+            TrackRepository.ManualEnd(Coordinate(1.5, -1.0), TEST_START + 4 * 3_600_000L),
         )
 
         assertTrue(result is TrackRepository.ManualTrackResult.Overlapping)
@@ -164,8 +164,8 @@ class ManualTrackTest {
         val result = repository.updateManualTrack(
             walk,
             ActivityType.FLIGHT,
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.0, -2.0), TEST_START),
-            TrackRepository.ManualEnd(StayDeriver.Endpoint(1.5, -1.0), TEST_START + 60_000),
+            TrackRepository.ManualEnd(Coordinate(1.0, -2.0), TEST_START),
+            TrackRepository.ManualEnd(Coordinate(1.5, -1.0), TEST_START + 60_000),
         )
 
         assertTrue(result is TrackRepository.ManualTrackResult.NotEditable)

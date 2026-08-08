@@ -8,6 +8,7 @@ import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingClient
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.backgroundGranted
 
@@ -47,17 +48,17 @@ class DepartureFence(private val context: Context) {
         private set
 
     /**
-     * Watch [latitude]/[longitude], replacing whatever was being watched — one fence, keyed on a
-     * constant id, so re-arming at a new stop cannot leave the old one live.
+     * Watch [at], replacing whatever was being watched — one fence, keyed on a constant id, so
+     * re-arming at a new stop cannot leave the old one live.
      */
     @SuppressLint("MissingPermission")
-    fun arm(latitude: Double, longitude: Double) {
+    fun arm(at: Coordinate) {
         // Background location is what makes a fence deliver while the screen is off; without it the
         // request is accepted and then silently starves.
         if (!context.backgroundGranted()) return
         val fence = Geofence.Builder()
             .setRequestId(FENCE_ID)
-            .setCircularRegion(latitude, longitude, RADIUS_M)
+            .setCircularRegion(at.lat, at.lon, RADIUS_M)
             .setExpirationDuration(Geofence.NEVER_EXPIRE)
             .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_EXIT)
             // Left unset, Play Services batches exits to save power and a departure from a phone
@@ -112,7 +113,7 @@ class DepartureFence(private val context: Context) {
         // corrupt.
         val ageS = (System.currentTimeMillis() - known.time) / 1000
         DebugLog.i(TAG, "departure fence: arming from last known (${known.provider}, ${ageS}s old)")
-        arm(known.latitude, known.longitude)
+        arm(Coordinate(known.latitude, known.longitude))
     }
 
     fun disarm() {

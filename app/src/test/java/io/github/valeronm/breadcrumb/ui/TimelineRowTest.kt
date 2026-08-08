@@ -17,6 +17,7 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -356,7 +357,7 @@ class TimelineRowTest {
 
     private companion object {
         /** The neutral fixture origin the rest of the suite uses; no real coordinate ships here. */
-        val ORIGIN = StayDeriver.Endpoint(lat = 1.0, lon = -2.0)
+        val ORIGIN = Coordinate(lat = 1.0, lon = -2.0)
 
         val SHAPE = RoundedCornerShape(12.dp)
         val MERGE_PLAN = TrackMerge.Plan(earlierId = 1, laterId = 2)

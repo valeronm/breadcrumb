@@ -21,7 +21,7 @@ class DepartureWatch(private val distance: DistanceFn) {
      * last good GPS fix, while a watch that begins with no fix at all adopts its first probe
      * position, which is the coarse kind being judged.
      */
-    data class Anchor(val latitude: Double, val longitude: Double, val accuracyM: Double)
+    data class Anchor(val position: Coordinate, val accuracyM: Double)
 
     /**
      * What a probe position turned out to be worth. Named cases rather than a boolean because the
@@ -96,30 +96,30 @@ class DepartureWatch(private val distance: DistanceFn) {
     }
 
     /**
-     * [Verdict.Departed] once [latitude]/[longitude] is further from the anchor than either
-     * position's own error can account for. Both accuracies are subtracted because a departure has
-     * to out-run the *sum* of the two uncertainties to mean anything — a coarse position beside a
-     * coarse anchor is not evidence of movement however far apart the two coordinates read.
+     * [Verdict.Departed] once [at] is further from the anchor than either position's own error can
+     * account for. Both accuracies are subtracted because a departure has to out-run the *sum* of
+     * the two uncertainties to mean anything — a coarse position beside a coarse anchor is not
+     * evidence of movement however far apart the two coordinates read.
      *
      * Adopts the position as the anchor when there is none and reports [Verdict.Anchored]: the first
      * one establishes where "here" is and cannot also be a departure from it. A position arriving
      * while nothing is watched for must decide nothing and must not become an anchor either.
      */
-    fun judge(latitude: Double, longitude: Double, accuracyM: Double): Verdict {
-        val verdict = decide(latitude, longitude, accuracyM)
+    fun judge(at: Coordinate, accuracyM: Double): Verdict {
+        val verdict = decide(at, accuracyM)
         lastVerdict = verdict
         return verdict
     }
 
-    private fun decide(latitude: Double, longitude: Double, accuracyM: Double): Verdict {
+    private fun decide(at: Coordinate, accuracyM: Double): Verdict {
         if (!watching) return Verdict.Dormant
         val from = anchor
         if (from == null) {
-            val fresh = Anchor(latitude, longitude, accuracyM)
+            val fresh = Anchor(at, accuracyM)
             anchor = fresh
             return Verdict.Anchored(fresh)
         }
-        val gap = distance.meters(from.latitude, from.longitude, latitude, longitude)
+        val gap = distance.meters(from.position.lat, from.position.lon, at.lat, at.lon)
         val bar = MARGIN_M + from.accuracyM + accuracyM
         return if (gap > bar) Verdict.Departed(gap, bar) else Verdict.Near(gap, bar)
     }

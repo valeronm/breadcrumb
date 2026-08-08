@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.Place
-import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Provenance
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
 import org.junit.Assert.assertEquals
@@ -15,19 +14,19 @@ class PlaceResolverTest {
     private val PIN_RADIUS = 350.0
 
     private var nextTrackId = 0L
-    private fun stay(location: Endpoint, end: Long? = 2_000L) = Stay(
+    private fun stay(location: Coordinate, end: Long? = 2_000L) = Stay(
         start = 1_000L, end = end, location = location,
         provenance = Provenance.OBSERVED, afterTrackId = ++nextTrackId, clusterId = 0,
     )
 
-    private fun place(id: Long, label: String, location: Endpoint) =
+    private fun place(id: Long, label: String, location: Coordinate) =
         Place(id = id, label = label, lat = location.lat, lon = location.lon, createdAt = 0L, radiusM = PlaceClusterer.DEFAULT_RADIUS_M)
 
     /** [locations] clustered against [places]' pins — the seeding production does. */
-    private fun clusterAt(locations: List<Endpoint>, places: List<Place>) =
+    private fun clusterAt(locations: List<Coordinate>, places: List<Place>) =
         PlaceClusterer.cluster(
             locations, distance = flatDistance,
-            seeds = places.map { PlaceClusterer.Seed(Endpoint(it.lat, it.lon), PIN_RADIUS) },
+            seeds = places.map { PlaceClusterer.Seed(it.pin, PIN_RADIUS) },
         )
 
     /**
@@ -171,7 +170,7 @@ class PlaceResolverTest {
         return PlaceResolver.summarize(stamped, clusters, places, NOW)
     }
 
-    private fun stayAt(location: Endpoint, start: Long, end: Long?) = Stay(
+    private fun stayAt(location: Coordinate, start: Long, end: Long?) = Stay(
         start = start, end = end, location = location,
         provenance = Provenance.OBSERVED, afterTrackId = ++nextTrackId, clusterId = 0,
     )
@@ -422,7 +421,7 @@ class PlaceResolverTest {
     // a re-derivation, so a summary whose key was assigned by the test would prove nothing.
 
     /** The one unnamed cluster in a history of stays at [locations]. */
-    private fun unnamedAt(vararg locations: Endpoint) =
+    private fun unnamedAt(vararg locations: Coordinate) =
         summarize(locations.map { stay(it) }, emptyList()).single()
 
     @Test fun `a live key resolves to its own summary`() {

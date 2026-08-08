@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.Place
-import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint
 import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -22,7 +21,7 @@ class TravelSummaryTest {
     private val atlas = atlasOf(hometown, seaside, hillTown)
 
     private val hour = 3_600_000L
-    private fun at(city: TestCity) = Endpoint(city.lat, city.lon)
+    private fun at(city: TestCity) = Coordinate(city.lat, city.lon)
 
     private var nextId = 0L
 
@@ -51,7 +50,7 @@ class TravelSummaryTest {
 
     private fun summarize(
         travel: TravelDeriver.Travel,
-        clusters: List<Endpoint>,
+        clusters: List<Coordinate>,
         places: List<Place> = emptyList(),
         tracks: List<TrackEnd> = emptyList(),
     ): TravelNaming.Summary {

@@ -3,7 +3,6 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Armed
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Disarmed
-import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Gap
 import io.github.valeronm.breadcrumb.domain.StayDeriver.GapReason
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Liveness
@@ -26,16 +25,16 @@ import java.time.ZoneId
  */
 class StayDeriverTest {
 
-    private val home = Endpoint(1.0, 1.0)
-    private val nearHome = Endpoint(1.0005, 1.0) // 50 m away — agrees
-    private val office = Endpoint(2.0, 2.0)
+    private val home = Coordinate(1.0, 1.0)
+    private val nearHome = Coordinate(1.0005, 1.0) // 50 m away — agrees
+    private val office = Coordinate(2.0, 2.0)
 
     /** A named-place pin at venue scale (the default place radius is 150 m; venues get widened). */
     private fun pin(meters: Double, radiusM: Double = 350.0) = PlaceClusterer.Seed(at(meters), radiusM)
 
     private val NOW = 1_000 * MIN
 
-    private fun track(id: Long, start: Long, end: Long, from: Endpoint? = home, to: Endpoint? = home) =
+    private fun track(id: Long, start: Long, end: Long, from: Coordinate? = home, to: Coordinate? = home) =
         TrackEnd(trackId = id, startedAt = start, endedAt = end, start = from, end = to)
 
     private fun derive(
@@ -48,13 +47,13 @@ class StayDeriverTest {
         .intervals
 
     /** Two tracks whose gap is [120, 240) min, both ending/starting near `home`. */
-    private fun homePair(to: Endpoint? = home, from: Endpoint? = nearHome) = listOf(
+    private fun homePair(to: Coordinate? = home, from: Coordinate? = nearHome) = listOf(
         track(1, start = 60 * MIN, end = 120 * MIN, to = to),
         track(2, start = 240 * MIN, end = 300 * MIN, from = from),
     )
 
     /** A trim seam: two same-place tracks sharing the boundary instant (0 ms gap). */
-    private fun seamPair(from: Endpoint? = home) = listOf(
+    private fun seamPair(from: Coordinate? = home) = listOf(
         track(1, start = 60 * MIN, end = 120 * MIN, to = home),
         track(2, start = 120 * MIN, end = 130 * MIN, from = from),
     )
@@ -162,7 +161,7 @@ class StayDeriverTest {
 
     @Test fun `endpoints exactly at the agreement radius still count as a stay`() {
         // 0.001° = exactly 100 m = the radius; the rule is ≤.
-        val stays = derive(homePair(from = Endpoint(1.001, 1.0))).filterIsInstance<Stay>()
+        val stays = derive(homePair(from = Coordinate(1.001, 1.0))).filterIsInstance<Stay>()
         assertTrue(stays.any { it.end == 240 * MIN })
     }
 

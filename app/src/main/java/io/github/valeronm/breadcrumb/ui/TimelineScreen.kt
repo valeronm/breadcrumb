@@ -94,6 +94,7 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.SweepStatus
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -1266,7 +1267,7 @@ internal fun GapCard(
  */
 private fun draftEndOf(
     place: PlaceResolver.ResolvedStay?,
-    at: StayDeriver.Endpoint?,
+    at: Coordinate?,
     atMs: Long,
 ) = TripDraftEnd(at = at ?: place?.pin, placeName = place?.label, timeMs = atMs)
 

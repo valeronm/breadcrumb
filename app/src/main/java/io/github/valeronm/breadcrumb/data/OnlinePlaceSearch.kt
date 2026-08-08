@@ -2,7 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
 import io.github.valeronm.breadcrumb.data.export.JsonPullReader
-import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
@@ -43,7 +43,7 @@ object OnlinePlaceSearch {
      * without touching the network when the Privacy switch is off. The gate lives here, with the
      * socket, so no later caller can put a query on the wire around it.
      */
-    suspend fun search(context: Context, query: String, near: StayDeriver.Endpoint?): List<Hit> {
+    suspend fun search(context: Context, query: String, near: Coordinate?): List<Hit> {
         if (!Settings.isOnlinePlaceSearch(context)) return emptyList()
         val url = buildString {
             append("https://photon.komoot.io/api/?limit=").append(LIMIT)

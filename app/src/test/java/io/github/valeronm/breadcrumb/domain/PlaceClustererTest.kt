@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -17,7 +16,7 @@ import kotlin.math.sqrt
  */
 class PlaceClustererTest {
 
-    private fun cluster(vararg locations: Endpoint) =
+    private fun cluster(vararg locations: Coordinate) =
         PlaceClusterer.cluster(locations.toList(), distance = flatDistance)
 
     @Test fun `empty input yields no clusters`() {
@@ -79,14 +78,14 @@ class PlaceClustererTest {
     }
 
     /** index → anchor of its cluster (cluster identity that's comparable across runs). */
-    private fun assignments(clusters: List<PlaceClusterer.Cluster>): Map<Int, Endpoint> =
+    private fun assignments(clusters: List<PlaceClusterer.Cluster>): Map<Int, Coordinate> =
         clusters.flatMap { c -> c.memberIndices.map { it to c.anchor } }.toMap()
 
     // --- Seeded clustering ------------------------------------------------------
 
     private fun seed(meters: Double, radius: Double = 350.0) = PlaceClusterer.Seed(at(meters), radius)
 
-    private fun clusterSeeded(seeds: List<PlaceClusterer.Seed>, vararg locations: Endpoint) =
+    private fun clusterSeeded(seeds: List<PlaceClusterer.Seed>, vararg locations: Coordinate) =
         PlaceClusterer.cluster(locations.toList(), distance = flatDistance, seeds = seeds)
 
     @Test fun `a seed captures locations at its own radius, beyond the organic one`() {
@@ -144,7 +143,7 @@ class PlaceClustererTest {
 
     /** The clustering as an unpruned scan of every anchor would assign it. */
     private fun referenceAssignments(
-        locations: List<Endpoint>,
+        locations: List<Coordinate>,
         radiusM: Double,
         distance: DistanceFn,
         seeds: List<PlaceClusterer.Seed>,
@@ -175,11 +174,11 @@ class PlaceClustererTest {
 
     /** A generated history around [lat]: 400 endpoints over a few hundred distinct locations,
      *  spread ~40 km east-west and [latSpread] × that north-south (0.02 = a linear city). */
-    private fun generatedHistory(lat: Double, latSpread: Double): Pair<List<Endpoint>, List<PlaceClusterer.Seed>> {
+    private fun generatedHistory(lat: Double, latSpread: Double): Pair<List<Coordinate>, List<PlaceClusterer.Seed>> {
         val rnd = java.util.Random(20260725L)
         val lonScale = 1.0 / cos(Math.toRadians(lat))
         val locations = List(60) {
-            Endpoint(
+            Coordinate(
                 lat = lat + (rnd.nextDouble() - 0.5) * 0.36 * latSpread,
                 lon = (rnd.nextDouble() - 0.5) * 0.36 * lonScale,
             )
@@ -187,7 +186,7 @@ class PlaceClustererTest {
         // Revisits with GPS scatter, so anchors and near-misses of every radius occur.
         val endpoints = List(400) {
             val base = locations[rnd.nextInt(locations.size)]
-            Endpoint(
+            Coordinate(
                 lat = base.lat + (rnd.nextDouble() - 0.5) * 0.004,
                 lon = base.lon + (rnd.nextDouble() - 0.5) * 0.004 * lonScale,
             )
@@ -216,11 +215,11 @@ class PlaceClustererTest {
         // (the longitude bound), due north (the latitude bound), and the diagonal between them.
         for (lat in listOf(0.0, 45.0, 84.0)) {
             val radius = 500.0
-            val pin = Endpoint(lat, 0.0)
+            val pin = Coordinate(lat, 0.0)
             val inside = 0.9999 * radius
-            val east = Endpoint(lat, inside / (degreeM * cos(Math.toRadians(lat))))
-            val north = Endpoint(lat + inside / degreeM, 0.0)
-            val diagonal = Endpoint(
+            val east = Coordinate(lat, inside / (degreeM * cos(Math.toRadians(lat))))
+            val north = Coordinate(lat + inside / degreeM, 0.0)
+            val diagonal = Coordinate(
                 lat + inside / degreeM / sqrt(2.0),
                 inside / (degreeM * cos(Math.toRadians(lat))) / sqrt(2.0),
             )
@@ -239,7 +238,7 @@ class PlaceClustererTest {
     private fun wouldCapture(
         radiusM: Double,
         rivals: List<PlaceClusterer.Seed> = emptyList(),
-        vararg candidates: Endpoint,
+        vararg candidates: Coordinate,
     ) = PlaceClusterer.wouldCapture(
         candidates.toList(), at(0.0), radiusM, rivals, flatDistance,
     )

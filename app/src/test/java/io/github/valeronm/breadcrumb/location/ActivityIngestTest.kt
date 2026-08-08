@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.location
 
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ORIGIN_LAT
@@ -57,7 +58,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
                 Effect.SchedulePauseWake(T0 + MINUTE + RESUME_WINDOW_MS),
                 // The stop is also where the next departure will be from — by every means switched
                 // on, and after the stop that would otherwise have disarmed the sensor.
-                Effect.ArmDepartureFence(Effect.ArmDepartureFence.Anchor(ORIGIN_LAT, lonAt(0.0))),
+                Effect.ArmDepartureFence(Coordinate(ORIGIN_LAT, lonAt(0.0))),
                 Effect.ArmSignificantMotion,
                 Effect.Publish,
             ),
@@ -392,9 +393,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
                 Effect.StopGps,
                 Effect.SchedulePauseWake(arrivedAt + RESUME_WINDOW_MS),
                 // A minute at [VEHICLE] from the origin — where the carrier came to rest.
-                Effect.ArmDepartureFence(
-                    Effect.ArmDepartureFence.Anchor(ORIGIN_LAT, lonAt(VEHICLE.mps * 60)),
-                ),
+                Effect.ArmDepartureFence(Coordinate(ORIGIN_LAT, lonAt(VEHICLE.mps * 60))),
                 Effect.ArmSignificantMotion,
                 Effect.Publish,
             ),

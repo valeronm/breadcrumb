@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.location
 
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.ORIGIN_LAT
 import io.github.valeronm.breadcrumb.domain.lonAt
 import org.junit.Assert.assertEquals
@@ -61,8 +62,8 @@ class DepartureTriggerTest : ActivityIngestFixture() {
         val effects = stop(atMs = T0 + 12_000)
 
         val anchor = effects.filterIsInstance<Effect.ArmDepartureFence>().single().from
-        assertEquals(ORIGIN_LAT, anchor?.latitude ?: 0.0, 1e-9)
-        assertEquals(lonAt(10.0), anchor?.longitude ?: 0.0, 1e-9)
+        assertEquals(ORIGIN_LAT, anchor?.lat ?: 0.0, 1e-9)
+        assertEquals(lonAt(10.0), anchor?.lon ?: 0.0, 1e-9)
     }
 
     @Test fun `a pause with a fix of its own needs no burst`() {
@@ -103,11 +104,11 @@ class DepartureTriggerTest : ActivityIngestFixture() {
 
         assertEquals(
             listOf(
-                Effect.ArmDepartureFence(Effect.ArmDepartureFence.Anchor(ORIGIN_LAT, lonAt(0.0))),
+                Effect.ArmDepartureFence(Coordinate(ORIGIN_LAT, lonAt(0.0))),
                 // The burst asked one question and has its answer.
                 Effect.StopDepartureProbe,
             ),
-            core.onProbeFix(ORIGIN_LAT, lonAt(0.0), 10.0, T0 + 5_000, settings),
+            core.onProbeFix(Coordinate(ORIGIN_LAT, lonAt(0.0)), 10.0, T0 + 5_000, settings),
         )
     }
 
@@ -115,7 +116,7 @@ class DepartureTriggerTest : ActivityIngestFixture() {
         val continuous = triggers(fence = true, continuous = true)
         core.onArmed(T0, continuous)
 
-        val out = core.onProbeFix(ORIGIN_LAT, lonAt(0.0), 10.0, T0 + 5_000, continuous)
+        val out = core.onProbeFix(Coordinate(ORIGIN_LAT, lonAt(0.0)), 10.0, T0 + 5_000, continuous)
 
         assertTrue("the fence is re-centred", out.any { it is Effect.ArmDepartureFence })
         assertFalse(
@@ -190,24 +191,24 @@ class DepartureTriggerTest : ActivityIngestFixture() {
     @Test fun `a probe position past the margin opens a track, one inside it does not`() {
         core.onArmed(T0, settings)
         // The anchorless case: the first position establishes where the phone is.
-        core.onProbeFix(ORIGIN_LAT, lonAt(0.0), 10.0, T0, settings)
+        core.onProbeFix(Coordinate(ORIGIN_LAT, lonAt(0.0)), 10.0, T0, settings)
 
-        val near = core.onProbeFix(ORIGIN_LAT, lonAt(100.0), 10.0, T0 + 30_000, settings)
+        val near = core.onProbeFix(Coordinate(ORIGIN_LAT, lonAt(100.0)), 10.0, T0 + 30_000, settings)
         assertTrue("still inside the margin", near.isEmpty())
 
-        val far = core.onProbeFix(ORIGIN_LAT, lonAt(1_000.0), 10.0, T0 + 60_000, settings)
+        val far = core.onProbeFix(Coordinate(ORIGIN_LAT, lonAt(1_000.0)), 10.0, T0 + 60_000, settings)
         assertEquals(ActivityType.UNKNOWN, far.filterIsInstance<Effect.OpenTrack>().single().activity)
     }
 
     @Test fun `a probe position decides nothing once the watch has been torn down`() {
         core.onArmed(T0, settings)
-        core.onProbeFix(ORIGIN_LAT, lonAt(0.0), 10.0, T0, settings)
+        core.onProbeFix(Coordinate(ORIGIN_LAT, lonAt(0.0)), 10.0, T0, settings)
         // Each of these stops the watch; a delivery can outlive the request that asked for it.
         reading(ActivityType.WALKING, T0 + 10_000)
         stop(T0 + 20_000)
         reading(ActivityType.WALKING, T0 + 30_000)
 
-        assertTrue(core.onProbeFix(ORIGIN_LAT, lonAt(50_000.0), 10.0, T0 + 40_000, settings).isEmpty())
+        assertTrue(core.onProbeFix(Coordinate(ORIGIN_LAT, lonAt(50_000.0)), 10.0, T0 + 40_000, settings).isEmpty())
     }
 
     // --- Opening on the trigger alone -------------------------------------------

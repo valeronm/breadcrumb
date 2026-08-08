@@ -34,7 +34,7 @@ object GreatCircle {
      * ends: a span too short for the bow to be visible, and an antipodal pair — where every
      * direction is a shortest path and drawing one of them would be an invention.
      */
-    fun arc(from: StayDeriver.Endpoint, to: StayDeriver.Endpoint): List<StayDeriver.Endpoint> {
+    fun arc(from: Coordinate, to: Coordinate): List<Coordinate> {
         val a = unitVector(from.lat, from.lon)
         val b = unitVector(to.lat, to.lon)
         val dot = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]).coerceIn(-1.0, 1.0)
@@ -42,7 +42,7 @@ object GreatCircle {
         if (angle < MIN_ANGLE_RAD || angle > Math.PI - MIN_ANGLE_RAD) return listOf(from, to)
         val steps = (angle * SAMPLES_PER_RADIAN).roundToInt().coerceIn(2, MAX_SAMPLES)
         val sinAngle = sin(angle)
-        val out = ArrayList<StayDeriver.Endpoint>(steps + 1)
+        val out = ArrayList<Coordinate>(steps + 1)
         var prevLon = from.lon
         for (i in 0..steps) {
             val t = i.toDouble() / steps
@@ -58,13 +58,13 @@ object GreatCircle {
             while (lon - prevLon > 180.0) lon -= 360.0
             while (prevLon - lon > 180.0) lon += 360.0
             prevLon = lon
-            out += StayDeriver.Endpoint(lat, lon)
+            out += Coordinate(lat, lon)
         }
         // The ends are the caller's own values, not the slerp's rounding of them — the last one
         // shifted onto the unwrapped turn the walk ended on.
         out[0] = from
         val turns = Math.round((out.last().lon - to.lon) / 360.0)
-        out[out.size - 1] = StayDeriver.Endpoint(to.lat, to.lon + 360.0 * turns)
+        out[out.size - 1] = Coordinate(to.lat, to.lon + 360.0 * turns)
         return out
     }
 

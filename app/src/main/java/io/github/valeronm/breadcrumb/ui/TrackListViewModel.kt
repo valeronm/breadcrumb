@@ -19,6 +19,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.CityAtlas
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.MonthTotals
 import io.github.valeronm.breadcrumb.domain.MonthlyTotals
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
@@ -108,7 +109,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
          *  covered by no interval, and only a track can place it ([TravelDeriver]). */
         val tracks: List<StayDeriver.TrackEnd>,
         /** Where each cluster's centroid sits, as the gazetteer has it — see [citiesOf]. */
-        val cities: Map<StayDeriver.Endpoint, CityAtlas.City>,
+        val cities: Map<Coordinate, CityAtlas.City>,
     )
 
     /** One derivation run's inputs and outputs, shared by [timeline] and [places]. */
@@ -117,7 +118,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val places: List<Place>,
         val now: Long,
         val tracks: List<StayDeriver.TrackEnd>,
-        val cities: Map<StayDeriver.Endpoint, CityAtlas.City>,
+        val cities: Map<Coordinate, CityAtlas.City>,
     ) {
         /** The unsliced stays, extracted once — every downstream flow needs them. */
         val stays: List<StayDeriver.Stay> = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
@@ -138,7 +139,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
          * that claimed it rather than paying a fresh gazetteer walk per track, which for a
          * mostly-imported history is thousands of walks for answers already in hand.
          */
-        private val clusterOfEndpoint: Map<StayDeriver.Endpoint, Int> by lazy {
+        private val clusterOfEndpoint: Map<Coordinate, Int> by lazy {
             buildMap {
                 derivation.clusters.forEachIndexed { index, cluster ->
                     for (member in cluster.members) put(member, index)
@@ -148,7 +149,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
         /** Each track's two ends, on their own clocks — a track can cross a border. */
         private val zonesByTrack: Map<Long, Pair<ZoneId, ZoneId>> by lazy {
-            val zoneAt = { at: StayDeriver.Endpoint? -> zoneOfCluster(at?.let(clusterOfEndpoint::get)) }
+            val zoneAt = { at: Coordinate? -> zoneOfCluster(at?.let(clusterOfEndpoint::get)) }
             tracks.associate { it.trackId to (zoneAt(it.start) to zoneAt(it.end)) }
         }
 
@@ -196,7 +197,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * below asks [Map.containsKey]. Written only from the [clustered] flow, which is one coroutine;
      * nothing else may touch it.
      */
-    private var cityByPoint: Map<StayDeriver.Endpoint, CityAtlas.City?> = emptyMap()
+    private var cityByPoint: Map<Coordinate, CityAtlas.City?> = emptyMap()
 
     /**
      * Where each of [points] sits, for the readers that need a name or a clock off it. Cluster
@@ -209,11 +210,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * lookup is three walks of a 160,000-row table.
      */
     private fun citiesOf(
-        points: List<StayDeriver.Endpoint>,
-    ): Map<StayDeriver.Endpoint, CityAtlas.City> {
+        points: List<Coordinate>,
+    ): Map<Coordinate, CityAtlas.City> {
         val previous = cityByPoint
-        val resolved = HashMap<StayDeriver.Endpoint, CityAtlas.City?>(points.size)
-        val found = HashMap<StayDeriver.Endpoint, CityAtlas.City>(points.size)
+        val resolved = HashMap<Coordinate, CityAtlas.City?>(points.size)
+        val found = HashMap<Coordinate, CityAtlas.City>(points.size)
         for (at in points) {
             if (at in resolved) continue
             val city = if (previous.containsKey(at)) previous[at] else cityOf(at)
@@ -225,7 +226,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** The gazetteer's reading of one coordinate — the single spelling of it in this file. */
-    private fun cityOf(at: StayDeriver.Endpoint): CityAtlas.City? =
+    private fun cityOf(at: Coordinate): CityAtlas.City? =
         Cities.atlas(getApplication()).naming(at.lat, at.lon, AndroidDistance)
 
     // Freshening the rows *over* the clustering's own is what makes a tag cheap: the pins are
@@ -447,7 +448,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     fun savePlace(
         existing: Place?,
         label: String,
-        pin: StayDeriver.Endpoint,
+        pin: Coordinate,
         radiusM: Double,
         onCreated: (Long) -> Unit,
     ) {
@@ -494,7 +495,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * identical ends yield one place. Default radius, untagged — naming and categorizing stay
      * separate steps, and the editor is where a circle gets judged.
      */
-    private suspend fun createTripPlaces(named: List<Pair<String, StayDeriver.Endpoint>>) {
+    private suspend fun createTripPlaces(named: List<Pair<String, Coordinate>>) {
         // The rows the screen is already collecting — warm by the time a trip commits.
         val seeds = PlaceClusterer.seedsOf(storedPlaces.value).toMutableList()
         for ((label, at) in named) {
@@ -629,7 +630,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * capital rather than its arrondissement. The first caller pays for reading the gazetteer, hence
      * a suspend function off the main thread rather than a value a composable can simply read.
      */
-    suspend fun cityAt(at: StayDeriver.Endpoint): CityAtlas.City? = withContext(Dispatchers.Default) {
+    suspend fun cityAt(at: Coordinate): CityAtlas.City? = withContext(Dispatchers.Default) {
         // Past [cityByCentroid] deliberately: a screen asks from its own coroutine, and that memo
         // belongs to the derivation's. One lookup for one open screen is not worth sharing state
         // across threads for.
@@ -650,7 +651,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * carries. The Privacy switch and the failure-is-absence contract are [OnlinePlaceSearch]'s
      * own; this only moves the blocking fetch off the caller's dispatcher.
      */
-    suspend fun searchOnline(query: String, near: StayDeriver.Endpoint?): List<OnlinePlaceSearch.Hit> =
+    suspend fun searchOnline(query: String, near: Coordinate?): List<OnlinePlaceSearch.Hit> =
         withContext(Dispatchers.IO) {
             OnlinePlaceSearch.search(getApplication(), query, near)
         }
@@ -660,8 +661,8 @@ private fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(
     trackId = id,
     startedAt = startedAt,
     endedAt = endedAt,
-    start = if (startLat != null && startLon != null) StayDeriver.Endpoint(startLat, startLon) else null,
-    end = if (endLat != null && endLon != null) StayDeriver.Endpoint(endLat, endLon) else null,
+    start = if (startLat != null && startLon != null) Coordinate(startLat, startLon) else null,
+    end = if (endLat != null && endLon != null) Coordinate(endLat, endLon) else null,
 )
 
 private fun LivenessEvent.toLiveness(): StayDeriver.Liveness? = when (type) {

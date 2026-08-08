@@ -69,12 +69,12 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.RoutePlaces
-import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.util.Measures
@@ -864,7 +864,7 @@ private fun tripDraftOf(
     zone: ZoneId,
 ): TripDraft {
     fun endAt(point: TrackPoint?, atMs: Long) = TripDraftEnd(
-        at = point?.let { StayDeriver.Endpoint(it.latitude, it.longitude) },
+        at = point?.let { Coordinate(it.latitude, it.longitude) },
         // The user's own name for the spot where a place holds this end — so the card reads as the
         // timeline does, and committing creates nothing: the place that would claim the pin is the
         // one the name came from.

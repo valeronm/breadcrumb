@@ -15,17 +15,17 @@ class DepartureWatchTest {
 
     /**
      * A position [metersEast] of the origin, known to [accuracyM]. Shaped as an [DepartureWatch.Anchor]
-     * so a case can hand the same value to `watch` and to `judge` — deliberately not named `at`,
-     * which `TestGeo` already uses for a track endpoint in this package.
+     * so a case can hand the same value to `watch` and to `verdictAt`, which splits it for `judge` —
+     * deliberately not named `at`, which `TestGeo` already uses for a track endpoint in this package.
      */
     private fun pos(metersEast: Double, accuracyM: Double = 0.0) =
-        DepartureWatch.Anchor(ORIGIN_LAT, lonAt(metersEast), accuracyM)
+        DepartureWatch.Anchor(Coordinate(ORIGIN_LAT, lonAt(metersEast)), accuracyM)
 
-    private fun DepartureWatch.verdictAt(position: DepartureWatch.Anchor) =
-        judge(position.latitude, position.longitude, position.accuracyM)
+    private fun DepartureWatch.verdictAt(pos: DepartureWatch.Anchor) =
+        judge(pos.position, pos.accuracyM)
 
-    private fun DepartureWatch.departedAt(position: DepartureWatch.Anchor) =
-        verdictAt(position) is DepartureWatch.Verdict.Departed
+    private fun DepartureWatch.departedAt(pos: DepartureWatch.Anchor) =
+        verdictAt(pos) is DepartureWatch.Verdict.Departed
 
     /** Watching begins at [T0]; only the cases about latency read the stamp back. */
     private fun DepartureWatch.begin(from: DepartureWatch.Anchor?) = watch(from, T0)

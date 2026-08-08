@@ -72,9 +72,10 @@ import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.CityAtlas
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
-import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.pin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -142,7 +143,7 @@ internal class EditedTrip(val trackId: Long, val activity: ActivityType?)
  */
 internal class TripDraftEnd(
     /** Null where the caller knows when but not where — a gap side the recorder never got a fix for. */
-    val at: StayDeriver.Endpoint?,
+    val at: Coordinate?,
     /** The user's own name for the spot, never a derived one — see [TripEnd.placeName]. */
     val placeName: String?,
     val timeMs: Long,
@@ -229,7 +230,7 @@ internal fun AddTripScreen(
     // Where the map is looking, as of its last settle — what the place search sorts around. Keyed
     // like the ends beside it: a second form opening while the first animates out gets a map of its
     // own, and would otherwise sort around wherever that one was left.
-    var mapCenter by remember(draft) { mutableStateOf<StayDeriver.Endpoint?>(null) }
+    var mapCenter by remember(draft) { mutableStateOf<Coordinate?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -265,7 +266,7 @@ internal fun AddTripScreen(
 
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    fun placePin(at: StayDeriver.Endpoint, placeName: String? = null) {
+    fun placePin(at: Coordinate, placeName: String? = null) {
         // Placing a pin — from a search result, a map pin or a long press — is done with the
         // field: drop its focus and the keyboard with it, or the results list closes onto a
         // keyboard covering the cards it just filled in.
@@ -374,7 +375,7 @@ internal fun AddTripScreen(
             val placeField = remember(savedPlaces) {
                 savedPlaces.map { place ->
                     OverviewPlace(
-                        marker = PlaceMarker(StayDeriver.Endpoint(place.lat, place.lon), place),
+                        marker = PlaceMarker(place.pin, place),
                         key = PlaceResolver.keyOf(place.id),
                     )
                 }
@@ -413,7 +414,7 @@ internal fun AddTripScreen(
             LaunchedEffect(placeMatches) {
                 for (place in placeMatches) {
                     if (place.id in placeCities) continue
-                    placeCities[place.id] = viewModel.cityAt(StayDeriver.Endpoint(place.lat, place.lon))
+                    placeCities[place.id] = viewModel.cityAt(place.pin)
                 }
             }
             val cityHits by produceState(emptyList<CityAtlas.Hit>(), query) {
@@ -481,7 +482,7 @@ internal fun AddTripScreen(
                                         label = place.label,
                                         detail = placeCities[place.id]?.let { localityLabel(it) },
                                     ) {
-                                        placePin(StayDeriver.Endpoint(place.lat, place.lon), place.label)
+                                        placePin(place.pin, place.label)
                                         query = ""
                                     }
                                 }
@@ -491,7 +492,7 @@ internal fun AddTripScreen(
                                         label = hit.name,
                                         detail = countryDisplayName(hit.country),
                                     ) {
-                                        placePin(StayDeriver.Endpoint(hit.lat, hit.lon))
+                                        placePin(Coordinate(hit.lat, hit.lon))
                                         query = ""
                                     }
                                 }
@@ -515,7 +516,7 @@ internal fun AddTripScreen(
                                     ) {
                                         // The one pick that knows its own name — carried so the
                                         // commit can create the place this end will have stayed at.
-                                        placePin(StayDeriver.Endpoint(hit.lat, hit.lon), hit.name)
+                                        placePin(Coordinate(hit.lat, hit.lon), hit.name)
                                         query = ""
                                     }
                                 }

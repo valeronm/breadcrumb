@@ -11,12 +11,12 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
-import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.util.DebugLog
@@ -141,7 +141,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /** One typed end of a manual track — where the user says the leg began or ended, and when. */
-    class ManualEnd(val at: StayDeriver.Endpoint, val timestampMs: Long)
+    class ManualEnd(val at: Coordinate, val timestampMs: Long)
 
     sealed class ManualTrackResult {
         class Saved(val trackId: Long) : ManualTrackResult()

@@ -26,7 +26,7 @@ object PlaceClusterer {
      * positionally throughout.
      */
     data class Seed(
-        val anchor: StayDeriver.Endpoint,
+        val anchor: Coordinate,
         val radiusM: Double,
     )
 
@@ -37,7 +37,7 @@ object PlaceClusterer {
      * changes cannot miss a move and cannot re-run on a rename.
      */
     fun seedsOf(places: List<Place>): List<Seed> =
-        places.map { Seed(StayDeriver.Endpoint(it.lat, it.lon), it.radiusM) }
+        places.map { Seed(it.pin, it.radiusM) }
 
     /**
      * Which of [seeds] claims ([lat], [lon]): the nearest one whose own radius covers it, or null
@@ -78,13 +78,13 @@ object PlaceClusterer {
 
     class Cluster(
         /** First member's location (or the seed pin) — the stable cluster identity. */
-        val anchor: StayDeriver.Endpoint,
+        val anchor: Coordinate,
         /** Arithmetic mean of member locations — the display/pin location. */
-        val centroid: StayDeriver.Endpoint,
+        val centroid: Coordinate,
         /** Indices into the input list. */
         val memberIndices: List<Int>,
         /** Member locations ([memberIndices] resolved), for showing the cluster on a map. */
-        val members: List<StayDeriver.Endpoint>,
+        val members: List<Coordinate>,
         /** The capture radius this cluster admits members within (seed's own, or the default). */
         val radiusM: Double,
         /** Index into the seed list when this cluster grew from a seed; null for organic clusters. */
@@ -97,16 +97,16 @@ object PlaceClusterer {
          * [centroid] cannot give, since an empty seed keeps its pin there. Only a seeded cluster
          * can be empty: an organic one exists because an endpoint founded it.
          */
-        val endpointMean: StayDeriver.Endpoint? get() = centroid.takeIf { members.isNotEmpty() }
+        val endpointMean: Coordinate? get() = centroid.takeIf { members.isNotEmpty() }
     }
 
     fun cluster(
-        locations: List<StayDeriver.Endpoint>,
+        locations: List<Coordinate>,
         radiusM: Double = DEFAULT_RADIUS_M,
         distance: DistanceFn,
         seeds: List<Seed> = emptyList(),
     ): List<Cluster> {
-        val anchors = mutableListOf<StayDeriver.Endpoint>()
+        val anchors = mutableListOf<Coordinate>()
         val radii = mutableListOf<Double>()
         val members = mutableListOf<MutableList<Int>>()
         for (seed in seeds) {
@@ -146,7 +146,7 @@ object PlaceClusterer {
                 centroid = if (locs.isEmpty()) {
                     anchor
                 } else {
-                    StayDeriver.Endpoint(
+                    Coordinate(
                         lat = locs.sumOf { it.lat } / locs.size,
                         lon = locs.sumOf { it.lon } / locs.size,
                     )
@@ -182,18 +182,18 @@ object PlaceClusterer {
      * tested against.
      */
     fun wouldCapture(
-        candidates: List<StayDeriver.Endpoint>,
-        anchor: StayDeriver.Endpoint,
+        candidates: List<Coordinate>,
+        anchor: Coordinate,
         radiusM: Double,
         rivals: List<Seed>,
         distance: DistanceFn,
-    ): List<StayDeriver.Endpoint> {
+    ): List<Coordinate> {
         val scan = scanCapture(candidates, anchor, radiusM, rivals, distance)
         return scan.winnable.filter { it.distanceM <= radiusM }.map { it.location }
     }
 
     /** A candidate still in play, with the distance that decides it. */
-    class Reach(val location: StayDeriver.Endpoint, val distanceM: Double)
+    class Reach(val location: Coordinate, val distanceM: Double)
 
     /**
      * [wouldCapture]'s work, done once for a radius about to move repeatedly. Dragging asks the
@@ -210,7 +210,7 @@ object PlaceClusterer {
          * nothing about these — one can sit well inside the circle and still belong to the
          * neighbor — so anything drawing them must treat them as settled, not compare them.
          */
-        val conceded: List<StayDeriver.Endpoint>,
+        val conceded: List<Coordinate>,
     ) {
         /**
          * How many candidates a radius of [radiusM] would take — [wouldCapture]'s answer counted
@@ -226,7 +226,7 @@ object PlaceClusterer {
          * [countWithin], so the two describe one set: no count of nothing with a position anyway,
          * nor the reverse.
          */
-        fun centroidWithin(radiusM: Double): StayDeriver.Endpoint? {
+        fun centroidWithin(radiusM: Double): Coordinate? {
             var lat = 0.0
             var lon = 0.0
             var taken = 0
@@ -236,7 +236,7 @@ object PlaceClusterer {
                 lon += reach.location.lon
                 taken++
             }
-            return if (taken == 0) null else StayDeriver.Endpoint(lat / taken, lon / taken)
+            return if (taken == 0) null else Coordinate(lat / taken, lon / taken)
         }
     }
 
@@ -250,8 +250,8 @@ object PlaceClusterer {
      * amortizes over every anchor in the history.
      */
     fun scanCapture(
-        candidates: List<StayDeriver.Endpoint>,
-        anchor: StayDeriver.Endpoint,
+        candidates: List<Coordinate>,
+        anchor: Coordinate,
         maxRadiusM: Double,
         rivals: List<Seed>,
         distance: DistanceFn,
@@ -261,7 +261,7 @@ object PlaceClusterer {
         val winnable = ArrayList<Reach>(candidates.size)
         // Most candidates are conceded in the case this exists for: a dense neighborhood seen
         // through a slider that stops well short of it.
-        val conceded = ArrayList<StayDeriver.Endpoint>(candidates.size)
+        val conceded = ArrayList<Coordinate>(candidates.size)
         for (candidate in candidates) {
             if (reach.outOfReach(candidate.lat, candidate.lon, maxRadiusM)) {
                 conceded += candidate
@@ -278,7 +278,7 @@ object PlaceClusterer {
     }
 
     private fun losesTo(
-        candidate: StayDeriver.Endpoint,
+        candidate: Coordinate,
         own: Double,
         rivals: List<Seed>,
         rivalReach: List<ReachBound>,

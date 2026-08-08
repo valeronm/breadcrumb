@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Derivation
-import io.github.valeronm.breadcrumb.domain.StayDeriver.Endpoint
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Gap
 import io.github.valeronm.breadcrumb.domain.StayDeriver.GapReason
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Interval
@@ -50,13 +49,13 @@ class TravelDeriverTest {
     private var nextTrackId = 0L
 
     /** Home as [locations]' clusters, with each one's capture area around it. */
-    private fun homeAt(vararg locations: Endpoint) = TravelDeriver.Home(
+    private fun homeAt(vararg locations: Coordinate) = TravelDeriver.Home(
         clusterIds = locations.map { known.indexOf(it) }.toSet(),
         seeds = locations.map { PlaceClusterer.Seed(it, PlaceClusterer.DEFAULT_RADIUS_M) },
     )
 
     private fun stay(
-        location: Endpoint,
+        location: Coordinate,
         from: Long,
         until: Long?,
         provenance: Provenance = Provenance.OBSERVED,
@@ -76,10 +75,10 @@ class TravelDeriverTest {
         afterTrackId = ++nextTrackId, fromClusterId = fromCluster, toClusterId = toCluster,
     )
 
-    private fun track(from: Endpoint?, to: Endpoint?, start: Long, end: Long) =
+    private fun track(from: Coordinate?, to: Coordinate?, start: Long, end: Long) =
         TrackEnd(trackId = ++nextTrackId, startedAt = start, endedAt = end, start = from, end = to)
 
-    private fun tagged(id: Long, label: String, location: Endpoint) = Place(
+    private fun tagged(id: Long, label: String, location: Coordinate) = Place(
         id = id, label = label, lat = location.lat, lon = location.lon,
         createdAt = 0L, radiusM = PlaceClusterer.DEFAULT_RADIUS_M, category = PlaceCategory.HOME.code,
     )
@@ -443,7 +442,7 @@ class TravelDeriverTest {
 
     private fun seededClusters(places: List<Place>) = PlaceClusterer.cluster(
         known, distance = flatDistance,
-        seeds = places.map { PlaceClusterer.Seed(Endpoint(it.lat, it.lon), it.radiusM) },
+        seeds = PlaceClusterer.seedsOf(places),
     )
 
     // --- the days a screen marks ---------------------------------------------
