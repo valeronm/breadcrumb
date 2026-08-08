@@ -41,6 +41,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.LiveFigures
 import io.github.valeronm.breadcrumb.domain.RecordCardState
 import io.github.valeronm.breadcrumb.domain.activityTotals
+import io.github.valeronm.breadcrumb.domain.cardStateWithSetup
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.location.TrackingStatus
@@ -82,18 +83,19 @@ internal fun RecordTab(
         } else {
             null
         }
-        val cardState = recordCardState(
-            // The stored flag, not `armed` above: a track already running when a requirement was
-            // revoked is still running, and this is the decision about what to draw of it. What
-            // keeps that from showing "Starting…" for a recorder that can never start is the setup
-            // branch below, which is ahead of every state this returns bar the live map.
-            armed = autoOn,
-            tracking = status.tracking,
-            recording = status.recording,
-            paused = status.pausedActivity != null,
-            gpsSuspended = status.gpsSuspended,
-            points = status.points,
-            hasOpenTrack = status.activeTrackId != null,
+        val cardState = cardStateWithSetup(
+            recordCardState(
+                // The stored flag, not `armed` above: a track already running when a requirement
+                // was revoked is still running, and this is the decision about what to draw of it.
+                armed = autoOn,
+                tracking = status.tracking,
+                recording = status.recording,
+                paused = status.pausedActivity != null,
+                gpsSuspended = status.gpsSuspended,
+                points = status.points,
+                hasOpenTrack = status.activeTrackId != null,
+            ),
+            setupComplete = setup.complete,
         )
         Spacer(Modifier.height(16.dp))
         val scrollingStats: @Composable ColumnScope.() -> Unit = {
@@ -118,18 +120,16 @@ internal fun RecordTab(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
             }
-            // Below the live map on purpose. Nothing can be armed while a requirement is missing, so
-            // the two normally cannot both be true — except where one is revoked *during* a
-            // recording, and then the track being drawn outranks the notice about it. With no
-            // recording to draw, setup is what this tab is about, and it owns the slot rather than
-            // sitting as a strip over totals that are a tab away anyway.
+            // The setup card owns the slot rather than sitting as a strip over totals that are a tab
+            // away anyway. Which states outrank it is [cardStateWithSetup]'s to say, not this
+            // list's — every branch here is an equality test, so their order carries no rule.
             //
             // The weight is on a box around the card, not on the card: a Column measures its
             // weightless children first and each takes all the room left, so a bare card here would
             // swallow the keep-screen-on row's space and push it off the screen. Holding the weight
             // one level out claims the slot for the card without dictating its height — inside it
             // the card wraps what it holds, capped by the slot, with the slack falling below.
-            !setup.complete -> Column(Modifier.weight(1f)) {
+            cardState == RecordCardState.SETUP -> Column(Modifier.weight(1f)) {
                 SetupCard(state = setup, onGrant = onGrantSetupStep)
             }
             cardState == RecordCardState.STATS_ONLY -> scrollingStats()

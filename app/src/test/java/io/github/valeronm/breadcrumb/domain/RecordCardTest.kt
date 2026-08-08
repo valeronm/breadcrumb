@@ -26,10 +26,54 @@ class RecordCardTest {
         hasOpenTrack: Boolean = true,
     ) = recordCardState(armed, tracking, recording, paused, gpsSuspended, points, hasOpenTrack)
 
+    /** The card's view: the recorder's own state with what setup still owes laid over it. */
+    private fun card(
+        setupComplete: Boolean,
+        armed: Boolean = true,
+        recording: Boolean = true,
+        gpsSuspended: Boolean = false,
+        points: Int = 10,
+    ) = cardStateWithSetup(
+        state(armed = armed, recording = recording, gpsSuspended = gpsSuspended, points = points),
+        setupComplete,
+    )
+
     @Test fun `not armed shows stats only, whatever the recorder claims`() {
         assertEquals(RecordCardState.STATS_ONLY, state(armed = false))
         assertEquals(RecordCardState.STATS_ONLY, state(armed = false, recording = true, points = 100))
         assertEquals(RecordCardState.STATS_ONLY, state(armed = false, tracking = false, recording = false))
+    }
+
+    @Test fun `the recorder never reports setup, whatever it is doing`() {
+        // The notification words every state this returns, and has nothing to say about setup.
+        assertNotEquals(RecordCardState.SETUP, state(armed = false, recording = false, points = 0))
+        assertNotEquals(RecordCardState.SETUP, state(recording = false, points = 0))
+    }
+
+    @Test fun `setup owing outranks every state but a drawable track`() {
+        // Nothing can be armed while a requirement is missing, so the unarmed row is the one that
+        // matters: read off the recorder alone this is STATS_ONLY, and the card would never appear.
+        assertEquals(RecordCardState.SETUP, card(setupComplete = false, armed = false))
+        assertEquals(RecordCardState.SETUP, card(setupComplete = false, recording = false, points = 0))
+        assertEquals(
+            RecordCardState.SETUP,
+            card(setupComplete = false, gpsSuspended = true, points = 0),
+        )
+    }
+
+    @Test fun `a drawable track outranks setup, for a requirement revoked mid-recording`() {
+        assertEquals(RecordCardState.LIVE_MAP, card(setupComplete = false, points = 10))
+        // Only while there is something to draw: a track without geometry loses to the notice.
+        assertEquals(RecordCardState.SETUP, card(setupComplete = false, points = 1))
+    }
+
+    @Test fun `a finished setup changes nothing about the recorder's own state`() {
+        for (armed in listOf(true, false)) {
+            for (points in listOf(0, 10)) {
+                val recorder = state(armed = armed, points = points)
+                assertEquals(recorder, cardStateWithSetup(recorder, setupComplete = true))
+            }
+        }
     }
 
     @Test fun `armed before the service publishes anything is starting`() {

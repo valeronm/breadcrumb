@@ -2,6 +2,9 @@ package io.github.valeronm.breadcrumb.domain
 
 /** What the Record tab's main area shows. Decided by [recordCardState]. */
 enum class RecordCardState {
+    /** Something recording needs is still owed — the card that lists it and asks for it. */
+    SETUP,
+
     /** Auto-record is off — just the recorded period stats. */
     STATS_ONLY,
 
@@ -28,10 +31,14 @@ enum class RecordCardState {
 const val MIN_MAP_POINTS = 2
 
 /**
- * Pure decision for the Record tab's main area. The live map wins as soon as the open track is
- * drawable — even while the no-fix guard is suspended mid-track (real geometry to show; the guard
- * state is the notification's job). [hasOpenTrack] can briefly disagree with [recording] around
- * track finalization; the waiting states cover that gap rather than flashing an empty map.
+ * What the *recorder* is doing, which is all either surface can read off it. The live map wins as
+ * soon as the open track is drawable — even while the no-fix guard is suspended mid-track (real
+ * geometry to show; the guard state is the notification's job). [hasOpenTrack] can briefly disagree
+ * with [recording] around track finalization; the waiting states cover that gap rather than flashing
+ * an empty map.
+ *
+ * Never returns [RecordCardState.SETUP], which is the card's alone — see [cardStateWithSetup]. The
+ * notification therefore has nothing to say about setup and is asked nothing about it.
  */
 fun recordCardState(
     armed: Boolean,
@@ -50,6 +57,21 @@ fun recordCardState(
     tracking -> RecordCardState.WAITING_FOR_MOVEMENT
     else -> RecordCardState.STARTING
 }
+
+/**
+ * The Record tab's own view of [recorder], with what setup still owes laid over it: owing outranks
+ * every state but a drawable track. That order is the whole rule — nothing can be armed while a
+ * requirement is missing, so the two normally cannot both be pressing, except where one is revoked
+ * *during* a recording, and there the track being drawn outranks the notice about it.
+ *
+ * Separate from [recordCardState] rather than a parameter on it, because the recorder cannot answer
+ * the question: its service goes on running through a revocation, so it would have to pass a
+ * constant standing in for a fact it does not have. Stated here, the priority is still one tested
+ * sentence rather than the order of the tab's branches, and the surface that cannot be about setup
+ * never mentions it.
+ */
+fun cardStateWithSetup(recorder: RecordCardState, setupComplete: Boolean): RecordCardState =
+    if (setupComplete || recorder == RecordCardState.LIVE_MAP) recorder else RecordCardState.SETUP
 
 /**
  * Every word the recorder says, supplied by the host — the seam that keeps this file free of both
@@ -195,10 +217,14 @@ fun RecorderVocabulary.recorderText(
 
         RecordCardState.STARTING -> RecorderText(words.starting(), null)
 
-        // Auto-record off: the card shows recorded totals instead and the service is stopping, so
-        // neither surface renders this. Present so the mapping is total rather than defaulting a live
-        // state into whichever branch happened to be last.
-        RecordCardState.STATS_ONLY -> RecorderText(words.idle(), words.nothingToRecord(null))
+        // Neither reaches a surface that renders words. Auto-record off is computed here and simply
+        // not drawn — the card shows recorded totals and the service is stopping. Setup owing is
+        // never computed here at all: only [cardStateWithSetup] produces it, and only the card calls
+        // that. Both are present so the mapping stays total rather than defaulting a live state into
+        // whichever branch happened to be last.
+        RecordCardState.STATS_ONLY,
+        RecordCardState.SETUP,
+        -> RecorderText(words.idle(), words.nothingToRecord(null))
     }
 }
 
