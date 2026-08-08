@@ -46,6 +46,21 @@ internal fun Context.backgroundGranted(): Boolean =
         isGranted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
 
 /**
+ * Whether the recording service may start. More than a location grant: location is a while-in-use
+ * permission, so from Android 14 starting a location-type foreground service while the app is in
+ * the background throws SecurityException unless location is granted *all the time* — a
+ * while-in-use grant passes a plain permission check and still crashes the start. Most of this
+ * service's starts are background ones (boot, the watchdog's self-heal, a sticky restart after
+ * the process died), so the all-the-time grant is required everywhere rather than per caller.
+ * Below Android 10 the background half answers true for good, like its neighbours above.
+ *
+ * `any`, where [locationGranted] wants both: the platform's start check is satisfied by either
+ * grade of location, and this predicate states what the platform requires, not what setup asks for.
+ */
+internal fun Context.canStartLocationService(): Boolean =
+    LOCATION_PERMISSIONS.any { isGranted(it) } && backgroundGranted()
+
+/**
  * Whether Android will no longer put a dialog up for [permission] — it stops after the second
  * refusal, and from then on only the app's settings page can turn it on. A button still offering to
  * request it is a button that does nothing at all, with nothing on screen to say why.

@@ -34,7 +34,7 @@ import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.ui.recorderWords
 import io.github.valeronm.breadcrumb.util.DebugLog
-import io.github.valeronm.breadcrumb.util.hasLocationPermission
+import io.github.valeronm.breadcrumb.util.canStartLocationService
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -175,16 +175,15 @@ class LocationRecordingService : Service() {
     }
 
     private fun handleStart() {
-        // A location-type foreground service can't start without location permission (SecurityException
-        // on Android 14+); reachable when the OS restarts the sticky service after location was revoked
-        // — or unused-app auto-revoked — with the armed flag still set. Bail cleanly instead of crash-looping;
-        // the UI's permission prompt takes over. (The startForegroundService caller path is guarded in
-        // [start], so this fires only for system-initiated restarts, which carry no startForeground deadline.)
-        if (!hasLocationPermission()) {
-            DebugLog.i(TAG, "handleStart: location permission missing — staying disarmed")
-            armed = false
-            TrackingStatus.reset()
-            stopSelf()
+        // The platform refuses this start without a sufficient grant — [canStartLocationService]
+        // has the rule. Reachable when the OS restarts the sticky service after location was
+        // revoked or downgraded to while-in-use — or unused-app auto-revoked — with the armed flag
+        // still set. Bail cleanly instead of crash-looping; the UI's permission prompt takes over.
+        // (The startForegroundService caller path is guarded in [start], so this fires only for
+        // system-initiated restarts, which carry no startForeground deadline.)
+        if (!canStartLocationService()) {
+            DebugLog.i(TAG, "handleStart: location grant insufficient — staying disarmed")
+            disarmAndStop()
             return
         }
         // Arming is requested from several places that can race (package-replaced receiver, the
@@ -207,7 +206,16 @@ class LocationRecordingService : Service() {
             deaf = false,
             live = null,
         )
-        notifications.startForeground(idle.title, idle.detailLine())
+        try {
+            notifications.startForeground(idle.title, idle.detailLine())
+        } catch (e: SecurityException) {
+            // The grant check above can pass and the platform still refuse: the FGS-type checks
+            // read app-op and foreground state, not just grants, and a refusal on a sticky restart
+            // would otherwise crash-loop the process.
+            DebugLog.e(TAG, "handleStart: foreground start refused: ${e.message}")
+            disarmAndStop()
+            return
+        }
         watchdogAlarm.schedule()
         TrackingStatus.update { it.copy(tracking = true) }
 
@@ -251,6 +259,13 @@ class LocationRecordingService : Service() {
                 }
             }
         }
+    }
+
+    /** The clean end of a start that cannot be satisfied: nothing to tear down yet, so no [handleStop]. */
+    private fun disarmAndStop() {
+        armed = false
+        TrackingStatus.reset()
+        stopSelf()
     }
 
     private fun handleStop() {
@@ -947,11 +962,11 @@ class LocationRecordingService : Service() {
         private const val HEARTBEAT_INTERVAL_MS = 15 * 60_000L
 
         fun start(context: Context) {
-            // Never start the location foreground service without location permission — the platform
-            // throws SecurityException on Android 14+, and startForegroundService obligates a
+            // Never start the location foreground service without a sufficient grant —
+            // [canStartLocationService] has the rule, and startForegroundService obligates a
             // startForeground call we couldn't satisfy. Leave disarmed so the UI prompts for the
             // grant; the user re-arms once it's granted.
-            if (!context.hasLocationPermission()) {
+            if (!context.canStartLocationService()) {
                 Settings.setAutoRecord(context, false)
                 return
             }

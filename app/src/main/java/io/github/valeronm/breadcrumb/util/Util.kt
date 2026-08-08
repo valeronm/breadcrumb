@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.util
 
-import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
@@ -35,11 +34,3 @@ fun avgSpeedKmh(distanceMeters: Double, durationS: Double): Double =
 /** Whether [permission] is currently granted to this context. */
 fun Context.isGranted(permission: String): Boolean =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
-
-/**
- * Whether either location permission is granted. Required before starting the location foreground
- * service: on Android 14+ starting an FGS of type `location` without it throws SecurityException.
- */
-fun Context.hasLocationPermission(): Boolean =
-    isGranted(Manifest.permission.ACCESS_FINE_LOCATION) ||
-        isGranted(Manifest.permission.ACCESS_COARSE_LOCATION)
