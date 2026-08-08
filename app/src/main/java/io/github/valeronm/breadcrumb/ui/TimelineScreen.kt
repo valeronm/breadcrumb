@@ -121,6 +121,10 @@ internal class TimelineViewedDay {
     var read: () -> LocalDate? = { null }
 }
 
+/** What the backup picker filters on. Named rather than spelled at the launch, which is all. */
+private val BACKUP_MIME_TYPES =
+    arrayOf("application/gzip", "application/x-gzip", "application/octet-stream")
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun TracksTab(
@@ -810,11 +814,13 @@ private fun dayLabel(
  * The Timeline's empty state — the only place that offers restoring a backup.
  * With tracks present a restore would have to merge with them, so the offer disappears as soon
  * as the first track exists.
+ *
+ * Octet-stream is accepted alongside the gzip types because that is what a file manager hands over
+ * for an extension it does not recognize; the importer rejects a file that isn't a backup anyway.
  */
 @Composable
 private fun EmptyTracksState(viewModel: TrackListViewModel) {
-    val context = LocalContext.current
-    val appContext = context.applicationContext
+    val appContext = LocalContext.current.applicationContext
     val progress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     val restoreLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -839,9 +845,7 @@ private fun EmptyTracksState(viewModel: TrackListViewModel) {
         val restoring = progress
         if (restoring == null) {
             TextButton(onClick = {
-                restoreLauncher.launch(
-                    arrayOf("application/gzip", "application/x-gzip", "application/octet-stream"),
-                )
+                restoreLauncher.launch(BACKUP_MIME_TYPES)
             }) { Text(stringResource(R.string.timeline_restore_button)) }
         } else {
             Text(
