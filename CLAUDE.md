@@ -217,10 +217,13 @@ moving carrier costs the trip, which is the verdict that retired the setting tha
 pre-witness behaviour, which is what runs whenever the ground can't answer; a consultation that
 can't be expressed as a `Motion.Unknown`-defaulted parameter is a design smell, not a workaround.
 Each consulting rule's suite keeps its pre-witness half unedited above a divider, which is what pins
-that fallback. **Exactly four consultations exist**, and that there are four and only four is the
+that fallback. **Exactly five consultations exist**, and that there are five and only five is the
 thing no one file says: the gate parks a contradicted STILL, the jump ceiling rises to fit measured
-ground speed, a `Moving` verdict vetoes the no-fix give-up, and every path that turns GPS off
-re-evaluates the parked slot on the way down. Promotion rides the `GnssStatus` callback, with the
+ground speed, a `Moving` verdict vetoes the no-fix give-up, every path that turns GPS off
+re-evaluates the parked slot on the way down, and a standstill the witness proved pauses a
+**signal-opened** track (`ArrivalWatch` — a track opened by a departure trigger has no reporter
+whose stop will ever end it, while a reading-opened track is never paused this way: its reporter
+lags, but delivers). Promotion rides the `GnssStatus` callback, with the
 15-minute watchdog alarm as the guaranteed revisit.
 
 **State bridge:** `location/TrackingStatus` is a process-wide `MutableStateFlow` the service writes
@@ -238,7 +241,9 @@ built — the user's own cut ships), `EdgeStayDetector` (the recorder's overrun 
 Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to the points),
 `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
 `DeafnessWarning` (decide when to tell the user about it), `MovementConfirmer` (the recording
-pipeline's second witness — see below), `PlaceCategorySuggester` (guess a place's category from
+pipeline's second witness — see below), `DepartureWatch` + `ArrivalWatch` (the two edges of a
+journey Play Services never reported — noticing the leaving from coarse positions, and the
+standstill that ends a track the departure side opened), `PlaceCategorySuggester` (guess a place's category from
 what the user called it — see below), `RoutePlaces` (the named places at a track's two ends),
 `TravelDeriver` + `TravelNaming` (journeys away from home — see below) and `CityAtlas` (the offline
 gazetteer they are named from). New

@@ -145,6 +145,7 @@ class LocationRecordingService : Service() {
     private val gnss = GnssWatch(this) {
         maybeGiveUpOnNoFix()
         checkParkedReading()
+        checkArrival()
     }
 
     override fun onCreate() {
@@ -510,6 +511,32 @@ class LocationRecordingService : Service() {
                 val effects = core.onMotion(ground, nowMs, settings)
                 if (effects.isEmpty()) return@withLock
                 DebugLog.i(TAG, "motion cross-check: releasing the held ${core.confirmed}")
+                logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L, ground = ground)
+                dispatch(effects)
+            }
+        }
+    }
+
+    /**
+     * A tick's worth of "has this signal-opened track arrived?" — the rule and its whole argument
+     * are [io.github.valeronm.breadcrumb.domain.ArrivalWatch]'s. The off-mutex pre-check (as in
+     * [checkParkedReading]) costs at most one tick's delay on a stale read.
+     */
+    private fun checkArrival() {
+        if (!core.watchingArrival) return
+        scope.launch {
+            mutex.withLock {
+                val settings = activitySettings()
+                val nowMs = now()
+                val was = core.confirmed
+                val wasPaused = core.isPaused
+                val ground = core.motionVerdict(nowMs)
+                val effects = core.onArrivalTick(ground, nowMs, settings)
+                if (effects.isEmpty()) return@withLock
+                DebugLog.i(
+                    TAG,
+                    "arrival watch: still for ${(nowMs - core.arrivalStoppedSinceMs) / 1000}s — pausing",
+                )
                 logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L, ground = ground)
                 dispatch(effects)
             }

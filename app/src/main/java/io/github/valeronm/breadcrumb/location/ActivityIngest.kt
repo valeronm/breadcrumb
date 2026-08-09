@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.location
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.ArrivalWatch
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DeafnessWarning
 import io.github.valeronm.breadcrumb.domain.DepartureWatch
@@ -247,6 +248,16 @@ class ActivityIngest(
     // fix path's seam rather than a second parameter, so the two cannot be wired to disagree.
     private val watch = DepartureWatch(ingest.distance)
 
+    // The stop side of what [watch] starts: fed the witness's verdicts on the satellite tick, fires
+    // the pause that ends a signal-opened track. See [onArrivalTick] for why only those tracks.
+    private val arrival = ArrivalWatch()
+
+    // Whether the open track was opened by a departure trigger rather than a reading — the arrival
+    // watch's gate. Explicit state rather than inferred from the UNKNOWN label, which a reading
+    // could one day confirm and a carrier rename already rewrites; set only by [onDeparture],
+    // cleared by [close] ahead of every open.
+    private var openedBySignal = false
+
     // Sanitizes AR event timestamps into gate reading times; see [ReadingClock].
     private val readingClock = ReadingClock()
 
@@ -287,6 +298,18 @@ class ActivityIngest(
     val phase: TrackController.Phase get() = controller.phase
     val isPaused: Boolean get() = controller.isPaused
     val deaf: Boolean get() = deafnessWarning.warned
+
+    /**
+     * Whether the arrival watch has anything to judge: a signal-opened track recording live
+     * ([TrackController.Phase.Recording] excludes a pause, which is its own phase). Read off-mutex
+     * by the service as a cheap racy pre-filter, like [parked]; [onArrivalTick] re-checks.
+     */
+    val watchingArrival: Boolean
+        get() = openedBySignal && controller.phase is TrackController.Phase.Recording
+
+    /** When the standstill behind the last arrival pause began — for the dispatcher's log. */
+    var arrivalStoppedSinceMs: Long = 0L
+        private set
 
     /** The witness's verdict at [atMs] — see [FixIngest.verdict]. */
     fun motionVerdict(atMs: Long): Motion = ingest.verdict(atMs)
@@ -390,6 +413,31 @@ class ActivityIngest(
         gate.adopt(ActivityType.UNKNOWN)
         waiting = null
         applyConfirmed(ActivityType.UNKNOWN, nowMs, nowMs, settings, out)
+        // The opener's provenance, read off the pass's own effects: [open] is the only emitter of
+        // [Effect.OpenTrack], and [close] has already cleared the flag ahead of every open — so a
+        // departure that opened a track (rather than resumed a paused one) is exactly this test.
+        if (out.any { it is Effect.OpenTrack }) openedBySignal = true
+        return out
+    }
+
+    /**
+     * The arrival consultation, on the same ~1 Hz satellite tick that revisits a parked reading:
+     * pause a signal-opened track once the ground has provably stood [ArrivalWatch]'s floor. Empty
+     * for every reading-opened track — why only trigger-opened tracks end this way is the watch's
+     * own argument. The pause is backdated to the standstill's start, so it closes at once, at the
+     * last good fix.
+     */
+    fun onArrivalTick(motion: Motion, nowMs: Long, settings: ActivitySettings): List<Effect> {
+        if (!watchingArrival) return emptyList()
+        val stoppedSinceMs =
+            arrival.onMotion(motion, nowMs, settings.resumeWindowMs) ?: return emptyList()
+        arrivalStoppedSinceMs = stoppedSinceMs
+        val out = ArrayList<Effect>()
+        // Adopted for the same reason [onDeparture] adopts: the ground is reporting an edge Play
+        // Services never will, and the pause path downstream needs the trusted activity to carry it.
+        gate.adopt(ActivityType.STILL)
+        waiting = null
+        applyConfirmed(ActivityType.STILL, stoppedSinceMs, nowMs, settings, out)
         return out
     }
 
@@ -767,6 +815,9 @@ class ActivityIngest(
     private fun resume(activity: ActivityType, out: MutableList<Effect>) {
         controller.onRecording(activity)
         ingest.markSegmentStart()
+        // The standstill the pause was (or would have been) built on ended with the resume; a new
+        // arrival needs the full floor of fresh evidence.
+        arrival.reset()
         out += Effect.EnsureGps
         stopWatchingForDeparture(out)
     }
@@ -775,6 +826,7 @@ class ActivityIngest(
         ingest.onTrackOpened(activity)
         noFixGuard.onTrackOpened()
         openTrackActivity = activity
+        arrival.reset()
         controller.onRecording(activity)
         out += Effect.OpenTrack(activity, startedAt)
         out += Effect.EnsureGps
@@ -802,6 +854,7 @@ class ActivityIngest(
         // when a track opens, so nothing carries over.
         val renameTo = openTrackActivity?.let { ingest.renameFor(it) }
         openTrackActivity = null
+        openedBySignal = false
         controller.onClosed()
         ingest.onTrackClosed()
         noFixGuard.onStopped()
