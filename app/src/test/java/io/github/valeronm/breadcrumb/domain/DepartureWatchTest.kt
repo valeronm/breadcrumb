@@ -36,15 +36,42 @@ class DepartureWatchTest {
     }
 
     @Test
-    fun `a position beyond the margin is a departure`() {
+    fun `a lone position beyond the solo margin is a departure`() {
         watch.begin(pos(0.0))
-        assertTrue(watch.departedAt(pos(DepartureWatch.MARGIN_M + 50)))
+        assertTrue(watch.departedAt(pos(DepartureWatch.SOLO_MARGIN_M + 50)))
     }
 
     @Test
-    fun `a position inside the margin is not`() {
+    fun `a lone position inside the solo margin is not`() {
         watch.begin(pos(0.0))
-        assertFalse(watch.departedAt(pos(DepartureWatch.MARGIN_M - 50)))
+        assertFalse(watch.departedAt(pos(DepartureWatch.SOLO_MARGIN_M - 50)))
+    }
+
+    @Test
+    fun `two consecutive positions past the corroborated margin are a departure`() {
+        watch.begin(pos(0.0, accuracyM = 20.0))
+        // Past the corroborated bar (50 + 20 + 20) but far under the solo one: alone it decides
+        // nothing, it only opens the question.
+        assertFalse(watch.departedAt(pos(100.0, accuracyM = 20.0)))
+        val verdict = watch.judge(pos(130.0, accuracyM = 20.0)) as DepartureWatch.Verdict.Departed
+        assertEquals(
+            "the second answers it, judged by the corroborated margin — which the verdict names",
+            DepartureWatch.MARGIN_M,
+            verdict.marginM,
+            0.0,
+        )
+    }
+
+    @Test
+    fun `a jump that retreats does not corroborate itself`() {
+        // The false positive the solo bar is priced for: a stationary phone re-derives its position
+        // from a changed Wi-Fi environment, lands one confident position away — and is back on the
+        // next delivery. The retreat spends the corroboration, so the same jump repeated later
+        // starts over rather than pairing with the first.
+        watch.begin(pos(0.0, accuracyM = 5.0))
+        assertFalse(watch.departedAt(pos(120.0, accuracyM = 45.0)))
+        assertFalse("back where it was", watch.departedAt(pos(10.0, accuracyM = 20.0)))
+        assertFalse("the earlier jump no longer vouches", watch.departedAt(pos(120.0, accuracyM = 45.0)))
     }
 
     @Test
@@ -52,8 +79,11 @@ class DepartureWatchTest {
         watch.begin(pos(0.0, accuracyM = 60.0))
         // Far enough on its own, and not once the anchor's own 60 m and the fix's 40 m are taken
         // off it: a coarse position beside a coarse anchor is no evidence of having moved.
-        val gap = DepartureWatch.MARGIN_M + 80
+        val gap = DepartureWatch.SOLO_MARGIN_M + 80
         assertFalse(watch.departedAt(pos(gap, accuracyM = 40.0)))
+        // A fresh watch, so the second judgment stands alone — on the same watch the first
+        // out-position would corroborate it, which is the other tests' subject.
+        watch.begin(pos(0.0, accuracyM = 60.0))
         assertTrue("the same distance, known better", watch.departedAt(pos(gap, accuracyM = 0.0)))
     }
 
@@ -77,23 +107,8 @@ class DepartureWatchTest {
             DepartureWatch.Verdict.Anchored(pos(5_000.0, accuracyM = 0.0)),
             watch.judge(pos(5_000.0)),
         )
-        assertFalse(watch.departedAt(pos(5_000.0 + DepartureWatch.MARGIN_M - 10)))
-        assertTrue(watch.departedAt(pos(5_000.0 + DepartureWatch.MARGIN_M + 10)))
-    }
-
-    /** So a reader asking at the wrong moment is told there is nothing to say, not handed a
-     *  plausible-looking measurement from a watch that has since been torn down. */
-    @Test
-    fun `the last verdict does not outlive the watch that produced it`() {
-        watch.begin(pos(0.0))
-        watch.judge(pos(100.0))
-        assertTrue(watch.lastVerdict is DepartureWatch.Verdict.Near)
-
-        watch.stop()
-        assertEquals(DepartureWatch.Verdict.Dormant, watch.lastVerdict)
-
-        watch.begin(pos(0.0))
-        assertEquals("a fresh watch has said nothing yet", DepartureWatch.Verdict.Dormant, watch.lastVerdict)
+        assertFalse(watch.departedAt(pos(5_000.0 + DepartureWatch.SOLO_MARGIN_M - 10)))
+        assertTrue(watch.departedAt(pos(5_000.0 + DepartureWatch.SOLO_MARGIN_M + 10)))
     }
 
     @Test
@@ -131,16 +146,13 @@ class DepartureWatchTest {
         val verdict = watch.judge(pos(100.0, accuracyM = 30.0)) as DepartureWatch.Verdict.Near
 
         assertEquals(100.0, verdict.gapM, 1.0)
-        assertEquals(DepartureWatch.MARGIN_M + 20.0 + 30.0, verdict.barM, 1e-9)
-    }
-
-    @Test
-    fun `the margin is set above the jump a stationary phone reports`() {
-        // The false positive this exists for: a phone that has not moved re-derives its position
-        // from a changed Wi-Fi environment and lands a couple of hundred meters away. It clears a
-        // bare accuracy test, and must not clear this one.
-        watch.begin(pos(0.0, accuracyM = 5.0))
-        assertFalse(watch.departedAt(pos(120.0, accuracyM = 45.0)))
+        assertEquals(
+            "a position standing alone is judged against the solo bar",
+            DepartureWatch.SOLO_MARGIN_M + 20.0 + 30.0,
+            verdict.barM,
+            1e-9,
+        )
+        assertEquals("and says so", DepartureWatch.SOLO_MARGIN_M, verdict.marginM, 0.0)
     }
 
     private companion object {

@@ -10,6 +10,11 @@ package io.github.valeronm.breadcrumb.domain
  * them — a standing slow request, and a short fast burst after the hardware motion sensor fires —
  * are suppliers rather than rules, and neither can drift from the other about what leaving means.
  *
+ * **Corroboration is the usual evidence**: two consecutive positions past [MARGIN_M] are a
+ * departure, while one alone must clear [SOLO_MARGIN_M] — the pricing is on the two constants.
+ * [Verdict.Near] carries the distance against the bar so the log can say what the real
+ * distributions are.
+ *
  * **Nothing here reaches a track.** These positions come from Wi-Fi and cell, land tens to hundreds
  * of meters out, and are a wake and nothing else — the same contract the departure fence has.
  */
@@ -28,17 +33,26 @@ class DepartureWatch(private val distance: DistanceFn) {
          * Judged, and not far enough. [gapM] against [barM] is **the measurement the whole rule
          * turns on**, and the one nothing outside this class could previously see: a burst that
          * ends with no departure otherwise says nothing about whether the phone stayed put or
-         * merely fell short of the bar.
+         * merely fell short of the bar. [barM] is the bar in force for this position's evidence,
+         * and [marginM] names which margin built it — the corroborated one or the solo one — since
+         * the two bars overlap once the accuracies are added, and a logged distribution that can't
+         * be split by regime can tune neither constant.
          */
-        data class Near(val gapM: Double, val barM: Double) : Verdict
+        data class Near(val gapM: Double, val barM: Double, val marginM: Double) : Verdict
 
-        data class Departed(val gapM: Double, val barM: Double) : Verdict
+        data class Departed(val gapM: Double, val barM: Double, val marginM: Double) : Verdict
 
         /** Nothing is being watched for; a delivery that outlived its request lands here. */
         data object Dormant : Verdict
     }
 
     private var anchor: MeasuredPosition? = null
+
+    // Whether the previous position already sat past the corroborated margin — the first half of
+    // the two-position evidence, holding across exactly one delivery. A delivery is a count, not a
+    // duration: under Doze the next one can be an hour away, and the vouch deliberately keeps — a
+    // stale pairing fires at worst the bounded false departure the margins' pricing accepts.
+    private var corroborating = false
 
     /**
      * Whether a departure is being watched for at all — **not** whether an anchor is held, which is
@@ -60,15 +74,6 @@ class DepartureWatch(private val distance: DistanceFn) {
         private set
 
     /**
-     * What the last position was judged to be. Held here rather than copied out by a caller so it
-     * cannot outlive the watch it describes: starting and stopping both reset it to [Verdict.Dormant],
-     * so a reader that asks at the wrong moment is told there is nothing to say instead of handed a
-     * plausible-looking measurement from a torn-down watch.
-     */
-    var lastVerdict: Verdict = Verdict.Dormant
-        private set
-
-    /**
      * Begin watching at [atMs] from [from], or from wherever the first probe position lands when it
      * is null. Adopting the first position is what keeps an anchorless watch from being a blind one:
      * arming happens with no track behind it and often no fix, and "wait for a good fix" resolves to
@@ -78,32 +83,27 @@ class DepartureWatch(private val distance: DistanceFn) {
         watching = true
         startedAtMs = atMs
         anchor = from
-        lastVerdict = Verdict.Dormant
+        corroborating = false
     }
 
     fun stop() {
         watching = false
         anchor = null
-        lastVerdict = Verdict.Dormant
+        corroborating = false
     }
 
     /**
      * [Verdict.Departed] once [position] is further from the anchor than either position's own
-     * error can account for. Both accuracies are subtracted because a departure has to out-run the
-     * *sum* of the two uncertainties to mean anything — a coarse position beside a coarse anchor is
-     * not evidence of movement however far apart the two coordinates read.
+     * error can account for, plus the margin its evidence earns ([MARGIN_M] / [SOLO_MARGIN_M]).
+     * Both accuracies are subtracted because a departure has to out-run the *sum* of the two
+     * uncertainties to mean anything — a coarse position beside a coarse anchor is not evidence of
+     * movement however far apart the two coordinates read.
      *
      * Adopts the position as the anchor when there is none and reports [Verdict.Anchored]: the first
      * one establishes where "here" is and cannot also be a departure from it. A position arriving
      * while nothing is watched for must decide nothing and must not become an anchor either.
      */
     fun judge(position: MeasuredPosition): Verdict {
-        val verdict = decide(position)
-        lastVerdict = verdict
-        return verdict
-    }
-
-    private fun decide(position: MeasuredPosition): Verdict {
         if (!watching) return Verdict.Dormant
         val from = anchor
         if (from == null) {
@@ -114,30 +114,32 @@ class DepartureWatch(private val distance: DistanceFn) {
             from.coordinate.lat, from.coordinate.lon,
             position.coordinate.lat, position.coordinate.lon,
         )
-        val bar = MARGIN_M + from.accuracyM + position.accuracyM
-        return if (gap > bar) Verdict.Departed(gap, bar) else Verdict.Near(gap, bar)
+        val errorM = from.accuracyM + position.accuracyM
+        val corroboratedBar = MARGIN_M + errorM
+        val marginM = if (corroborating) MARGIN_M else SOLO_MARGIN_M
+        val bar = marginM + errorM
+        corroborating = gap > corroboratedBar
+        return if (gap > bar) Verdict.Departed(gap, bar, marginM) else Verdict.Near(gap, bar, marginM)
     }
 
     companion object {
         /**
-         * How far past the combined error a position must sit — **provisional, and not yet set by
-         * anything measured.** It was picked to clear the false positive a coarse position stream is
-         * assumed to produce, a stationary phone re-deriving its position from a changed Wi-Fi
-         * environment; that assumption has not been tested against this app's own data, and until it
-         * is, the number rests on nothing firmer than plausibility.
-         *
-         * **What it costs is not this number alone.** The distance actually required is
-         * `MARGIN_M + anchorAccuracy + fixAccuracy`, so the two accuracies dominate it: against the
-         * ~100 m positions the fused engine has been observed to return, that is ~255 m from a pause
-         * anchored on a good GPS fix and ~350 m from an arming anchored on a coarse one. Tuning this
-         * constant alone therefore moves the bar much less than it appears to — and the departure
-         * fence answers the same question at a 100 m radius with its own error handling inside it.
-         *
-         * The direction of error is at least the safe one: a departure missed is a journey never
-         * recorded, while one imagined opens a track that `EdgeStayDetector` trims and `KeepRule`
-         * discards. [Verdict.Near] carries both numbers so a log can eventually say what the real
-         * distribution is, and replace this with something measured.
+         * The margin the usual evidence clears: two consecutive positions this far past the
+         * combined error. Corroboration is what makes it affordable — the coarse stream's one
+         * confident lie, a stationary phone re-deriving its position from a changed Wi-Fi
+         * environment, retreats on the next delivery and never corroborates itself, while measured
+         * standstill wander stays under ~20 m against accuracies in the tens. A lie that *repeats*
+         * still fires, and what that now costs is bounded: a false departure opens a track
+         * [ArrivalWatch] pauses minutes later and `KeepRule` discards.
          */
-        const val MARGIN_M = 150.0
+        const val MARGIN_M = 50.0
+
+        /**
+         * What a *lone* position must clear to fire by itself — this rule's solo bar, as
+         * `EdgeStayDetector`'s `soloMovingSpeed` is to its `movingSpeed`. Kept at the margin every
+         * position used to need, whose width was priced for exactly the single repositioning jump
+         * that corroboration now absorbs.
+         */
+        const val SOLO_MARGIN_M = 150.0
     }
 }

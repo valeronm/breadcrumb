@@ -781,11 +781,14 @@ class LocationRecordingService : Service() {
                         DebugLog.i(
                             TAG,
                             "departure: probe saw the phone leave " +
-                                "($latency, ${measured(verdict.gapM, verdict.barM)}, $quality)",
+                                "($latency, ${measured(verdict.gapM, verdict.barM, verdict.marginM)}, $quality)",
                         )
 
                     is DepartureWatch.Verdict.Near ->
-                        DebugLog.i(TAG, "departure watch: ${measured(verdict.gapM, verdict.barM)} ($quality)")
+                        DebugLog.i(
+                            TAG,
+                            "departure watch: ${measured(verdict.gapM, verdict.barM, verdict.marginM)} ($quality)",
+                        )
 
                     is DepartureWatch.Verdict.Anchored ->
                         DebugLog.i(TAG, "departure watch anchored ($quality)")
@@ -799,10 +802,12 @@ class LocationRecordingService : Service() {
 
     /**
      * The distance a probe position reached against the distance it needed, phrased for a log line.
-     * One spelling for both verdicts that carry the pair, so the two cannot drift apart on how the
-     * same measurement is written.
+     * One spelling for both verdicts that carry the trio, so the two cannot drift apart on how the
+     * same measurement is written. The margin names the regime, which the bar alone cannot: the
+     * solo and corroborated bars overlap once the accuracies are added.
      */
-    private fun measured(gapM: Double, barM: Double) = "${gapM.toInt()}m of ${barM.toInt()}m"
+    private fun measured(gapM: Double, barM: Double, marginM: Double) =
+        "${gapM.toInt()}m of ${barM.toInt()}m (margin ${marginM.toInt()})"
 
     /**
      * How long a departure has been watched for, phrased for a log line. **One stamp for every
