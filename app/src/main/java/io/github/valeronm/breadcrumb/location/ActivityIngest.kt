@@ -292,9 +292,14 @@ class ActivityIngest(
     /**
      * What the last probe position was judged to be — for the dispatcher's log, since the effects
      * alone cannot say how close a position came, and a burst that ends without a departure is
-     * otherwise indistinguishable from one that never saw the phone move.
+     * otherwise indistinguishable from one that never saw the phone move. Held here rather than on
+     * the watch because a departure's own dispatch stops the watch — a verdict living there is
+     * reset by the very pass that produces it, and it must survive to the dispatcher's log line. A
+     * stray delivery after teardown still lands [DepartureWatch.Verdict.Dormant] through the judge
+     * and overwrites.
      */
-    val lastProbeVerdict: DepartureWatch.Verdict get() = watch.lastVerdict
+    var lastProbeVerdict: DepartureWatch.Verdict = DepartureWatch.Verdict.Dormant
+        private set
     val phase: TrackController.Phase get() = controller.phase
     val isPaused: Boolean get() = controller.isPaused
     val deaf: Boolean get() = deafnessWarning.warned
@@ -509,10 +514,14 @@ class ActivityIngest(
         position: MeasuredPosition,
         nowMs: Long,
         settings: ActivitySettings,
-    ): List<Effect> = when (val verdict = watch.judge(position)) {
-        is DepartureWatch.Verdict.Anchored -> anchored(verdict.at, settings.triggers)
-        is DepartureWatch.Verdict.Departed -> onDeparture(nowMs, settings)
-        is DepartureWatch.Verdict.Near, DepartureWatch.Verdict.Dormant -> emptyList()
+    ): List<Effect> {
+        val verdict = watch.judge(position)
+        lastProbeVerdict = verdict
+        return when (verdict) {
+            is DepartureWatch.Verdict.Anchored -> anchored(verdict.at, settings.triggers)
+            is DepartureWatch.Verdict.Departed -> onDeparture(nowMs, settings)
+            is DepartureWatch.Verdict.Near, DepartureWatch.Verdict.Dormant -> emptyList()
+        }
     }
 
     /**

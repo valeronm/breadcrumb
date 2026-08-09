@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.location
 
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.DepartureWatch
 import io.github.valeronm.breadcrumb.domain.MeasuredPosition
 import io.github.valeronm.breadcrumb.domain.ORIGIN_LAT
 import io.github.valeronm.breadcrumb.domain.lonAt
@@ -263,5 +264,20 @@ class DepartureTriggerTest : ActivityIngestFixture() {
         assertTrue(out.contains(Effect.DisarmDepartureFence))
         assertTrue(out.contains(Effect.StopDepartureProbe))
         assertTrue("and it is a resume, not a new track", out.none { it is Effect.OpenTrack })
+    }
+
+    /**
+     * The one log line the whole trigger is judged by. A departure's own dispatch stops the watch,
+     * so a verdict held there was erased by the very pass it described — the dispatcher read back
+     * Dormant, and the fence-vs-probe latency comparison never accrued a probe side.
+     */
+    @Test fun `a departure's verdict survives the pass that acts on it`() {
+        core.onArmed(T0, settings)
+        core.onProbeFix(probeAt(0.0), T0 + 5_000, settings)
+
+        val out = core.onProbeFix(probeAt(500.0), T0 + 20_000, settings)
+
+        assertTrue(out.any { it is Effect.OpenTrack })
+        assertTrue(core.lastProbeVerdict is DepartureWatch.Verdict.Departed)
     }
 }
