@@ -29,14 +29,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -63,7 +60,6 @@ import io.github.valeronm.breadcrumb.domain.MonthTotals
 import io.github.valeronm.breadcrumb.domain.MonthlyTotals
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
-import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -75,29 +71,15 @@ import java.time.YearMonth
  * scales: a journey is an episode with a name and dates, a month's figures are a shape you compare
  * against the shapes before it. Nothing on either page restates the other.
  *
- * **Tabs rather than the Places tab's segmented pill**, and the difference is what is being chosen:
- * a pill picks a *view* of one set of content (the same places, on a map or in a list), tabs move
- * between content that shares nothing. A tab row promises a swipe, so there is a pager under it —
- * an indicator that slides while a drag does nothing is the promise broken.
- *
- * Which page is open is deliberately **not** persisted, unlike the Places view: that one is a
+ * Which page is open is deliberately **not** persisted, unlike the Places tab's pages: those are a
  * standing preference about how you read your places, this is where you happened to be last time.
  */
 @Composable
 internal fun InsightsTab(viewModel: TrackListViewModel, onOpenDay: (LocalDate) -> Unit) {
     val pages = InsightsPage.entries
     val pager = rememberPagerState { pages.size }
-    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize()) {
-        PrimaryTabRow(selectedTabIndex = pager.currentPage) {
-            pages.forEachIndexed { index, tab ->
-                Tab(
-                    selected = pager.currentPage == index,
-                    onClick = { scope.launch { pager.animateScrollToPage(index) } },
-                    text = { Text(stringResource(tab.labelRes)) },
-                )
-            }
-        }
+        PagerTabRow(pager, pages.map { stringResource(it.labelRes) })
         HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { index ->
             when (pages[index]) {
                 InsightsPage.JOURNEYS -> JourneysPage(viewModel, onOpenDay)

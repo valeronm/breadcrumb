@@ -7,8 +7,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -23,6 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -118,7 +118,9 @@ import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.openInMaps
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
@@ -152,14 +154,16 @@ private val LINE_BREAK_RUN = Regex("[ \\t]*[\\r\\n]+[ \\t]*")
 private fun PlaceResolver.PlaceSummary.isRareStop() =
     visitCount < PlaceResolver.NOTABLE_VISIT_MIN
 
-/** The Places tab: sortable list (tap for detail, swipe to delete) or an all-places map. */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+private enum class PlacesPage(@StringRes val labelRes: Int) {
+    MAP(R.string.places_view_map),
+    LIST(R.string.places_view_list),
+}
+
+/** The Places tab: an all-places map and a sortable list (tap for detail), two pages under a tab row. */
 @Composable
 internal fun PlacesTab(
     viewModel: TrackListViewModel,
     onOpenPlace: (String) -> Unit,
-    /** Removes a place and offers the Undo — hoisted, because the editor's Remove is the same act. */
-    onRemovePlace: (Place) -> Unit,
 ) {
     val context = LocalContext.current
     val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
@@ -169,7 +173,29 @@ internal fun PlacesTab(
     // marked rather than re-deciding eligibility here. Named places are exempt at the dot, not
     // here: the merge rule doesn't spare them, but a label still says the place is meant.
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
-    var showMap by remember { mutableStateOf(AppSettings.placesViewMap(context)) }
+    val pages = PlacesPage.entries
+    val pager = rememberPagerState(
+        initialPage = (if (AppSettings.placesViewMap(context)) PlacesPage.MAP else PlacesPage.LIST).ordinal,
+    ) { pages.size }
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(pager) {
+        // Which page is open is a standing preference about how you read your places (InsightsTab
+        // has the contrast), so it persists — written when a settle changes the page, not per
+        // frame of the drag, and not for the page the pager opened on.
+        launch {
+            snapshotFlow { pager.settledPage }
+                .drop(1)
+                .collect { AppSettings.setPlacesViewMap(context, pages[it] == PlacesPage.MAP) }
+        }
+        // The search keyboard doesn't survive leaving the list: disposing the focused field when
+        // the page unloads is not a reliable dismissal, so the focus is dropped the moment the
+        // pager commits to the map — mid-swipe past halfway, or on the tab tap.
+        launch {
+            snapshotFlow { pager.currentPage }
+                .drop(1)
+                .collect { if (pages[it] != PlacesPage.LIST) focusManager.clearFocus() }
+        }
+    }
     var sort by remember { mutableStateOf(PlacesSort.fromSettings(context)) }
     var showRareStops by remember { mutableStateOf(AppSettings.placesShowRareStops(context)) }
 
@@ -193,16 +219,42 @@ internal fun PlacesTab(
             )
     }
     // Search narrows the *list* only, so it sits with the list's chrome and the map keeps whatever
-    // it was showing — the same split the sort chips and the rare-stops chip already follow. It
+    // it was showing — the same split the sort row and the rare-stops chip already follow. It
     // matches whatever the row displays, which for an unnamed cluster is the city the gazetteer put
     // it in: a name on screen that a search for it doesn't return reads as a broken search.
     var query by remember { mutableStateOf("") }
-    // What the map draws — the list below shows `sorted` whole, since it has no chip and demoting
-    // rows there would bury places under a rule the screen gives no way to see or turn off. Note
-    // the chip's off default also hides the map's orange brief-stop dots: a one-off stop is a rare
-    // cluster by definition.
+    // What the map draws — the list page shows `sorted` whole, since it offers no such filter and
+    // demoting rows there would bury places under a rule the screen gives no way to see or turn
+    // off. Note the chip's off default also hides the map's orange brief-stop dots: a one-off stop
+    // is a rare cluster by definition.
     val mapVisible = remember(sorted, showRareStops) {
         if (showRareStops) sorted else sorted.filterNot { it.isRareStop() }
+    }
+    // Derived here rather than in the map page, which the pager composes on the first frame of a
+    // drag and disposes on leaving — there, this history-wide walk would re-run per swipe, in the
+    // jank window. Stay identity (afterTrackId + start) survives the timeline's per-day slicing —
+    // a mergeable stay is short, so its first slice is the whole stay.
+    val mergeableStays = remember(timeline) {
+        timeline.orEmpty().filterIsInstance<TimelineItem.StayItem>()
+            .filter { it.merge != null }
+            .mapTo(HashSet()) { it.stay.afterTrackId to it.stay.start }
+    }
+    val mapPlaces = remember(mapVisible, mergeableStays) {
+        mapVisible.map { summary ->
+            OverviewPlace(
+                marker = PlaceMarker(summary.anchor, summary.place),
+                key = summary.key,
+                // Never a named place: a merge offer says the split may be an artifact, but a
+                // label says the user meant this place, and the dot claims the opposite.
+                brief = !summary.isNamed &&
+                    summary.stays.singleOrNull()
+                        ?.let { (it.afterTrackId to it.start) in mergeableStays } == true,
+                // Only a named place's reach is drawn: it is a number the user set and can judge
+                // against its neighbours here, where an unnamed cluster's is the clusterer's
+                // default repeated under every dot.
+                radiusM = summary.radiusM.takeIf { summary.isNamed },
+            )
+        }
     }
     // Folded once per list change rather than once per place per keystroke: accent-stripping is an
     // NFD normalisation and a regex pass, and this list is the whole named history.
@@ -218,10 +270,112 @@ internal fun PlacesTab(
         }
     }
 
-    // The search field keeps focus (and the keyboard) until something takes it away. Two gestures
-    // should: a tap that no row or control claimed, and the first scroll of the list — by then the
-    // user is reading results rather than typing. Only in list mode, so the map's own touch handling
-    // is left alone; it has no field to focus anyway.
+    Column(Modifier.fillMaxSize()) {
+        PagerTabRow(pager, pages.map { stringResource(it.labelRes) })
+        // Deriving and an empty history are the tab's states, not a page's — gated here, so the
+        // pager never offers a swipe between two identical blanks.
+        if (derivedPlaces == null) {
+            DerivingState(Modifier.weight(1f).fillMaxWidth())
+        } else if (sorted.isEmpty()) {
+            EmptyState(
+                stringResource(R.string.places_empty),
+                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+            )
+        } else {
+            // The pager takes drags only while the list is settled: Compose claims a horizontal
+            // drag before the map's own view sees it, so an always-swipeable pager turns every
+            // pan into a page switch. Swiping list→map keeps the tab row's promise; a settled
+            // map owns every gesture and is left by the tab tap.
+            HorizontalPager(
+                state = pager,
+                userScrollEnabled = pages[pager.settledPage] == PlacesPage.LIST,
+                modifier = Modifier.fillMaxSize(),
+            ) { pageIndex ->
+                when (pages[pageIndex]) {
+                    PlacesPage.MAP -> PlacesMapPage(
+                        mapPlaces = mapPlaces,
+                        showRareStops = showRareStops,
+                        onToggleRareStops = {
+                            showRareStops = !showRareStops
+                            AppSettings.setPlacesShowRareStops(context, showRareStops)
+                        },
+                        onOpenPlace = onOpenPlace,
+                    )
+
+                    PlacesPage.LIST -> PlacesListPage(
+                        listed = listed,
+                        query = query,
+                        onQueryChange = { query = it },
+                        sort = sort,
+                        onSortChange = {
+                            sort = it
+                            AppSettings.setPlacesSort(context, it.name)
+                        },
+                        onOpenPlace = onOpenPlace,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** The all-places map in its card; the rare-stops filter rides on the map it declutters. */
+@Composable
+private fun PlacesMapPage(
+    mapPlaces: List<OverviewPlace>,
+    showRareStops: Boolean,
+    onToggleRareStops: () -> Unit,
+    onOpenPlace: (String) -> Unit,
+) {
+    // Card padding keeps the texture-mode map off the back-gesture edge strips.
+    Card(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .padding(top = 12.dp, bottom = 16.dp),
+    ) {
+        Box(Modifier.fillMaxSize().clipToBounds()) {
+            if (mapPlaces.isEmpty()) {
+                // The filter, not the history, emptied this view — a bare basemap would read as
+                // "no places". The chip below stays on top of this message.
+                EmptyState(
+                    stringResource(
+                        R.string.places_all_rare,
+                        stringResource(R.string.places_rare_stops),
+                    ),
+                    Modifier.fillMaxSize().padding(24.dp),
+                )
+            } else {
+                MapLibrePlacesMap(
+                    places = mapPlaces,
+                    onOpen = onOpenPlace,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            MapFilterChip(
+                selected = showRareStops,
+                label = stringResource(R.string.places_rare_stops),
+            ) { onToggleRareStops() }
+        }
+    }
+}
+
+/**
+ * The sortable, searchable list. The search field keeps focus (and the keyboard) until something
+ * takes it away. Two gestures should: a tap that no row or control claimed, and the first scroll
+ * of the list — by then the user is reading results rather than typing. Both live here, so the
+ * map page's own touch handling is left alone; it has no field to focus anyway.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlacesListPage(
+    listed: List<PlaceResolver.PlaceSummary>,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    sort: PlacesSort,
+    onSortChange: (PlacesSort) -> Unit,
+    onOpenPlace: (String) -> Unit,
+) {
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
     LaunchedEffect(listState.isScrollInProgress) {
@@ -230,140 +384,40 @@ internal fun PlacesTab(
     Column(
         Modifier
             .fillMaxSize()
-            .then(
-                if (showMap) {
-                    Modifier
-                } else {
-                    Modifier.pointerInput(Unit) {
-                        detectTapGestures(onTap = { focusManager.clearFocus() })
-                    }
-                },
-            ),
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { focusManager.clearFocus() })
+            },
     ) {
-        // Chrome beyond the view switch belongs to the view it controls: sort chips pin above
-        // the list, the rare-stops filter rides on the map.
+        // Chrome pinned above the list (not scrolling with it), the search pill first: narrowing
+        // the list is the header's main act, and the sort applies to whatever the search leaves.
+        PlacesSearchField(
+            query = query,
+            onQueryChange = onQueryChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(top = 12.dp, bottom = 8.dp),
+        )
         SingleChoiceSegmentedButtonRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .padding(top = 12.dp, bottom = if (showMap) 12.dp else 12.dp - chipHalo),
+                .padding(bottom = 4.dp),
         ) {
-            val views = listOf(
-                true to stringResource(R.string.places_view_map),
-                false to stringResource(R.string.places_view_list),
-            )
-            views.forEachIndexed { index, (isMap, label) ->
+            PlacesSort.entries.forEachIndexed { index, option ->
                 SegmentedButton(
-                    selected = showMap == isMap,
+                    selected = sort == option,
+                    // Re-sorting means reading the list, not typing on — and the button claims
+                    // the tap, so the header's own tap-to-dismiss never sees it.
                     onClick = {
-                        showMap = isMap
-                        AppSettings.setPlacesViewMap(context, isMap)
+                        focusManager.clearFocus()
+                        onSortChange(option)
                     },
-                    shape = SegmentedButtonDefaults.itemShape(index, 2),
-                ) { Text(label) }
+                    shape = SegmentedButtonDefaults.itemShape(index, PlacesSort.entries.size),
+                ) { Text(stringResource(option.labelRes)) }
             }
         }
-        if (!showMap) {
-            // The switch and the sort chips are both controls *of* the view and stay together under
-            // it; the search pill sits last, against the rows it narrows.
-            // Pinned above the list (not scrolling with it): sort stays visible and reachable
-            // mid-scroll. Default touch-target spacing between wrapped lines is left in place.
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(horizontal = 16.dp),
-            ) {
-                PlacesSort.entries.forEach { option ->
-                    FilterToggleChip(
-                        selected = sort == option,
-                        label = stringResource(option.labelRes),
-                        onClick = {
-                            sort = option
-                            AppSettings.setPlacesSort(context, option.name)
-                        },
-                    )
-                }
-            }
-            PlacesSearchField(
-                query = query,
-                onQueryChange = { query = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    // Top gap measured from the chips' *visible* edge — their touch halo overhangs
-                    // downward, so it comes off the spacing here rather than showing as a wide gap.
-                    .padding(top = (10.dp - chipHalo).coerceAtLeast(0.dp), bottom = 8.dp),
-            )
-        }
-        if (derivedPlaces == null) {
-            DerivingState(Modifier.weight(1f).fillMaxWidth())
-        } else if (sorted.isEmpty()) {
-            EmptyState(
-                stringResource(R.string.places_empty),
-                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
-            )
-        } else if (showMap) {
-            // Card padding keeps the texture-mode map off the back-gesture edge strips.
-            Card(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 16.dp),
-            ) {
-                Box(Modifier.fillMaxSize().clipToBounds()) {
-                    // Stay identity (afterTrackId + start) survives the timeline's per-day
-                    // slicing — a mergeable stay is short, so its first slice is the whole stay.
-                    val mergeableStays = remember(timeline) {
-                        timeline.orEmpty().filterIsInstance<TimelineItem.StayItem>()
-                            .filter { it.merge != null }
-                            .mapTo(HashSet()) { it.stay.afterTrackId to it.stay.start }
-                    }
-                    val mapPlaces = remember(mapVisible, mergeableStays) {
-                        mapVisible.map { summary ->
-                            OverviewPlace(
-                                marker = PlaceMarker(summary.anchor, summary.place),
-                                key = summary.key,
-                                // Never a named place: a merge offer says the split may be an
-                                // artifact, but a label says the user meant this place, and the
-                                // dot claims the opposite.
-                                brief = !summary.isNamed &&
-                                    summary.stays.singleOrNull()
-                                        ?.let { (it.afterTrackId to it.start) in mergeableStays } == true,
-                                // Only a named place's reach is drawn: it is a number the user set
-                                // and can judge against its neighbours here, where an unnamed
-                                // cluster's is the clusterer's default repeated under every dot.
-                                radiusM = summary.radiusM.takeIf { summary.isNamed },
-                            )
-                        }
-                    }
-                    if (mapPlaces.isEmpty()) {
-                        // The filter, not the history, emptied this view — a bare basemap would
-                        // read as "no places". The chip below stays on top of this message.
-                        EmptyState(
-                            stringResource(
-                                R.string.places_all_rare,
-                                stringResource(R.string.places_rare_stops),
-                            ),
-                            Modifier.fillMaxSize().padding(24.dp),
-                        )
-                    } else {
-                        MapLibrePlacesMap(
-                            places = mapPlaces,
-                            onOpen = onOpenPlace,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    // The filter rides on the map it declutters.
-                    MapFilterChip(
-                        selected = showRareStops,
-                        label = stringResource(R.string.places_rare_stops),
-                    ) {
-                        showRareStops = !showRareStops
-                        AppSettings.setPlacesShowRareStops(context, showRareStops)
-                    }
-                }
-            }
-        } else if (listed.isEmpty()) {
+        if (listed.isEmpty()) {
             // The search emptied the list, not the history — say which, and leave the field above
             // it holding the query that did it.
             EmptyState(
@@ -377,13 +431,15 @@ internal fun PlacesTab(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                // No swipe action on these rows: under a pager, a row's horizontal drag detector
+                // claims the swipe the tab row promises, whatever direction it can act on.
+                // Removing a place lives on its editor's Remove button instead.
                 itemsIndexed(listed, key = { _, s -> s.key }) { index, summary ->
-                    PlaceRow(
+                    PlaceRowCard(
                         summary = summary,
                         sort = sort,
                         shape = groupedRowShape(index, listed.size),
-                        onOpen = { onOpenPlace(summary.key) },
-                        onDelete = onRemovePlace,
+                        onClick = { onOpenPlace(summary.key) },
                     )
                 }
             }
@@ -392,9 +448,9 @@ internal fun PlacesTab(
 }
 
 /**
- * The list's search box, shaped like the chips it sits above, not like a form field: a Material text
- * field's 56dp minimum and heavy outline read as borrowed from another screen in a header of 32dp
- * chips — hence [BasicTextField] in a pill of the app's own making, height, shape and placeholder all
+ * The list's search box, shaped like the compact header it sits in, not like a form field: a Material
+ * text field's 56dp minimum and heavy outline read as borrowed from another screen — hence
+ * [BasicTextField] in a pill of the app's own making, height, shape and placeholder all
  * this composable's to set. Filtering is live; with nothing to submit, the keyboard's Done dismisses itself.
  */
 @Composable
@@ -455,33 +511,6 @@ internal fun PlacesSearchField(
     }
 }
 
-@Composable
-private fun PlaceRow(
-    summary: PlaceResolver.PlaceSummary,
-    sort: PlacesSort,
-    shape: RoundedCornerShape,
-    onOpen: () -> Unit,
-    onDelete: (Place) -> Unit,
-) {
-    // Only named places can be deleted (there's a label to remove) — unnamed clusters render as a
-    // plain card with no swipe.
-    val place = summary.place
-    if (place == null) {
-        PlaceRowCard(summary, sort, shape, onOpen)
-        return
-    }
-    SwipeActionRow(
-        shape = shape,
-        containerColor = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        icon = Icons.Filled.Delete,
-        iconDescription = stringResource(R.string.common_delete),
-        onDismiss = { onDelete(place) },
-    ) {
-        PlaceRowCard(summary, sort, shape, onOpen)
-    }
-}
-
 /**
  * Whether [title] would be cut on the single line a closed top bar gives it — the question of
  * whether an expanding bar has anything to offer this particular name.
@@ -519,8 +548,7 @@ private val TOP_BAR_TITLE_INSET = 12.dp
  * does not edit** — bar the category, whose one-tap chips are read off the name and belong beside the
  * suggestions that produced them. Name, area and pin are [PlaceEditScreen]'s, reached through
  * [onAdjustArea]: one screen changes what the user said about a place, and the title is a heading
- * rather than a second way in. Removing a place is that screen's own button, or the Places list's
- * swipe — both with an Undo.
+ * rather than a second way in. Removing a place is that screen's own button, with an Undo.
  *
  * **No map.** One framed on the capture circle answers neither question worth asking here — at this
  * size it is a texture swatch rather than a locator, it cannot say where a place *is* without
@@ -928,9 +956,9 @@ internal fun PlaceEditScreen(
             }
             // Under the map rather than up with the fields: removing is not one more thing to adjust,
             // and it must not sit next to the name it would once have been performed by clearing.
-            // Low emphasis in the error color, and it takes effect at once with an Undo, as the
-            // Places list's swipe does — the app answers a destructive tap with a way back rather
-            // than with a question first. Nothing to remove until there is a row.
+            // Low emphasis in the error color, and it takes effect at once with an Undo — the app
+            // answers a destructive tap with a way back rather than with a question first. Nothing
+            // to remove until there is a row.
             if (place != null) {
                 TextButton(
                     onClick = { onRemove(place) },

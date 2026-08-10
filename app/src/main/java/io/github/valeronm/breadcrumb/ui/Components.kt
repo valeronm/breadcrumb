@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -48,6 +49,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -58,6 +60,7 @@ import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -959,6 +962,30 @@ internal fun canvasTopBarColors() = TopAppBarDefaults.topAppBarColors(
     containerColor = MaterialTheme.colorScheme.background,
     scrolledContainerColor = MaterialTheme.colorScheme.background,
 )
+
+/**
+ * The tab row over a pager, on the scaffold canvas: the default surface reads as a pale stripe
+ * between the top bar and the content on the light theme's dipped canvas ([canvasTopBarColors] is
+ * the same rule one bar up). A tab row promises a swipe, which is why this takes the pager it
+ * indicates rather than a bare index — an indicator that slides while a drag does nothing is the
+ * promise broken.
+ */
+@Composable
+internal fun PagerTabRow(pager: PagerState, labels: List<String>) {
+    val scope = rememberCoroutineScope()
+    PrimaryTabRow(
+        selectedTabIndex = pager.currentPage,
+        containerColor = MaterialTheme.colorScheme.background,
+    ) {
+        labels.forEachIndexed { index, label ->
+            Tab(
+                selected = pager.currentPage == index,
+                onClick = { scope.launch { pager.animateScrollToPage(index) } },
+                text = { Text(label) },
+            )
+        }
+    }
+}
 
 @Composable
 internal fun HeaderStat(label: String, value: String, modifier: Modifier = Modifier) {

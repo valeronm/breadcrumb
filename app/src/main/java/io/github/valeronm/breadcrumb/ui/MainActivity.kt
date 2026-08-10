@@ -57,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
@@ -220,6 +221,10 @@ private fun MainScreen(
     var autoOn by remember { mutableStateOf(AppSettings.isAutoRecord(context)) }
     var mainPage by remember { mutableStateOf<MainPage?>(null) }
     var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
+    // A tab switch replaces the tab's whole composition, but disposing a focused search field is
+    // not a reliable keyboard dismissal — drop the focus with the tab that owned it.
+    val tabFocusManager = LocalFocusManager.current
+    LaunchedEffect(selectedTab) { tabFocusManager.clearFocus() }
     // The run of asks behind one "start recording". Started only by arming, so a run reaching its
     // end is always a run that meant to arm — the card's own buttons ask for a single step and go
     // nowhere near it.
@@ -434,15 +439,15 @@ private fun MainScreen(
         onDismiss = { tripDraft = null },
     )
 
-    // Undo snackbars for the swipe actions on the Timeline and Places lists. Owned here, not in the
+    // Undo snackbars for the Timeline's swipe actions and place removal. Owned here, not in the
     // tabs: a tab switch would take the tab's composition (and its coroutine scope) with it, killing
     // a snackbar mid-timer and the undo with it.
     val snackbarHostState = remember { SnackbarHostState() }
     val undo = rememberUndoSnackbar(snackbarHostState)
-    // One removal, two entry points (the Places list's swipe and the editor's button): a place goes,
-    // and the way back is the Undo — which has to be raised from this host, not from a screen that
-    // may be dismissed by the same tap. Deleting removes only the label; the stays stay, as a
-    // detected stop again, and restoring re-pins the row exactly as it was.
+    // A place goes by the editor's Remove button, and the way back is the Undo — which has to be
+    // raised from this host, not from a screen that may be dismissed by the same tap. Deleting
+    // removes only the label; the stays stay, as a detected stop again, and restoring re-pins the
+    // row exactly as it was.
     // Resolved here: the callback below runs outside the composition.
     val placeDeleted = stringResource(R.string.places_deleted)
     val removePlace: (Place) -> Unit = { place ->
@@ -562,7 +567,6 @@ private fun MainScreen(
                     HomeTab.PLACES -> PlacesTab(
                         viewModel = viewModel,
                         onOpenPlace = { placeDetailKey = it },
-                        onRemovePlace = removePlace,
                     )
                     HomeTab.INSIGHTS -> InsightsTab(
                         viewModel = viewModel,
