@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import io.github.valeronm.breadcrumb.data.DerivationStore
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.TrackStats
@@ -70,6 +71,22 @@ class App : Application() {
             if (Settings.statsRuleVersion(this@App) < TrackStats.RULE_VERSION) {
                 repository.sweepStats()
                 Settings.setStatsRuleVersion(this@App, TrackStats.RULE_VERSION)
+            }
+            val derivation = DerivationStore(this@App)
+            // A one-time conversion: each existing place gets the cluster that now carries its pin.
+            // Before the re-derivation below, which seeds itself from those clusters — a place
+            // converted afterwards would be invisible to it until something else re-derived.
+            if (!Settings.isPlaceClusterLinkDone(this@App)) {
+                derivation.linkPlacesToClusters()
+                Settings.setPlaceClusterLinkDone(this@App)
+            }
+            // Last, and the order is load-bearing: both sweeps above rewrite the first and last
+            // good coordinates of a track, which are the endpoints this derives from. Deriving
+            // ahead of them would store a reading of coordinates about to move, with nothing to
+            // say it was stale.
+            if (Settings.derivedLogicVersion(this@App) < DerivationStore.LOGIC_VERSION) {
+                derivation.rebuild()
+                Settings.setDerivedLogicVersion(this@App, DerivationStore.LOGIC_VERSION)
             }
         }
     }

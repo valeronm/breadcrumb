@@ -11,9 +11,7 @@ import io.github.valeronm.breadcrumb.data.PlaceRepository
 import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
-import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.Place
-import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
@@ -31,6 +29,8 @@ import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.toLiveness
+import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -655,19 +655,4 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         withContext(Dispatchers.IO) {
             OnlinePlaceSearch.search(getApplication(), query, near)
         }
-}
-
-private fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(
-    trackId = id,
-    startedAt = startedAt,
-    endedAt = endedAt,
-    start = if (startLat != null && startLon != null) Coordinate(startLat, startLon) else null,
-    end = if (endLat != null && endLon != null) Coordinate(endLat, endLon) else null,
-)
-
-private fun LivenessEvent.toLiveness(): StayDeriver.Liveness? = when (type) {
-    LivenessEvent.TYPE_ARMED -> StayDeriver.Armed(at)
-    LivenessEvent.TYPE_DISARMED -> StayDeriver.Disarmed(at)
-    LivenessEvent.TYPE_OUTAGE -> until?.let { StayDeriver.Outage(at, it) }
-    else -> null
 }

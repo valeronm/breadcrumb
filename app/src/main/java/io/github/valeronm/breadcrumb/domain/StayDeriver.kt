@@ -1,8 +1,27 @@
 package io.github.valeronm.breadcrumb.domain
 
+import io.github.valeronm.breadcrumb.data.db.LivenessEvent
+import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import java.time.Instant
 import java.time.ZoneId
+
+/** A finished track as the deriver reads it: an interval and the two coordinates bounding it. */
+fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(
+    trackId = id,
+    startedAt = startedAt,
+    endedAt = endedAt,
+    start = if (startLat != null && startLon != null) Coordinate(startLat, startLon) else null,
+    end = if (endLat != null && endLon != null) Coordinate(endLat, endLon) else null,
+)
+
+/** Null for a row this build's vocabulary doesn't cover, and for an outage with no end recorded. */
+fun LivenessEvent.toLiveness(): StayDeriver.Liveness? = when (type) {
+    LivenessEvent.TYPE_ARMED -> StayDeriver.Armed(at)
+    LivenessEvent.TYPE_DISARMED -> StayDeriver.Disarmed(at)
+    LivenessEvent.TYPE_OUTAGE -> until?.let { StayDeriver.Outage(at, it) }
+    else -> null
+}
 
 /**
  * Derives *stays* — where the user was between recorded tracks — from data the app already has, at
@@ -242,6 +261,30 @@ object StayDeriver {
         return Derivation(out, clusters)
     }
 
+    /** One endpoint the clustering reads: which track's, which of its two ends, when and where. */
+    data class EndpointRef(
+        val trackId: Long,
+        val isStart: Boolean,
+        val atMs: Long,
+        val at: Coordinate,
+    )
+
+    /**
+     * Every endpoint of [tracks], in the order the clustering reads them — each track's start then
+     * its end, skipping an end the recorder never fixed.
+     *
+     * **The order is the contract.** [PlaceClusterer.Cluster.memberIndices] index into exactly this
+     * list, so a caller that wants to know *which* endpoints a cluster holds reads them from here
+     * rather than rebuilding the order and hoping it still matches. The one index this cannot
+     * explain is a recording track's first fix, which [derive] appends after these when it has one.
+     */
+    fun endpointsOf(tracks: List<TrackEnd>): List<EndpointRef> = buildList {
+        for (track in tracks) {
+            track.start?.let { add(EndpointRef(track.trackId, true, track.startedAt, it)) }
+            track.end?.let { add(EndpointRef(track.trackId, false, track.endedAt, it)) }
+        }
+    }
+
     /**
      * Clusters every track endpoint (chronological: each track's start then end) so anchors stay
      * stable as history grows; pin seeds put endpoints near a named place in its cluster. Identical
@@ -255,10 +298,7 @@ object StayDeriver {
         distance: DistanceFn,
     ): Pair<List<PlaceClusterer.Cluster>, Map<Coordinate, Int>> {
         val endpoints = buildList {
-            for (track in tracks) {
-                track.start?.let { add(it) }
-                track.end?.let { add(it) }
-            }
+            endpointsOf(tracks).forEach { add(it.at) }
             // The active track's first fix joins the clustering so the tail's agreement check
             // can use cluster identity like every other pair.
             activeStart?.let { add(it) }

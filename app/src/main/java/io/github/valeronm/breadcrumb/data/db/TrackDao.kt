@@ -262,4 +262,9 @@ interface TrackDao {
     @RewriteQueriesToDropUnusedColumns
     @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt ASC")
     fun observeEndpoints(): Flow<List<TrackEndpoints>>
+
+    /** [observeEndpoints] for a caller deriving once inside a transaction rather than observing. */
+    @RewriteQueriesToDropUnusedColumns
+    @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt ASC")
+    suspend fun endpointsOnce(): List<TrackEndpoints>
 }
