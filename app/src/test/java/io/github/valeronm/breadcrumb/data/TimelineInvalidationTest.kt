@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.data
 
+import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,12 +24,18 @@ import java.util.concurrent.atomic.AtomicInteger
  * `tracks` while it records. Room's Flow re-emits on any invalidation of a table its query reads —
  * it doesn't compare results — so counting emissions counts re-runs: a re-introduced join or subquery
  * over `track_points`, or a per-fix write to the track row, wakes these collectors and fails here.
+ *
+ * The stored derivation joins that contract rather than sitting outside it. Its three tables are
+ * observed too, and now written by the mutation paths rather than by one pass per version — so the
+ * question "may a recorded fix reach the timeline" is asked of them on the same terms, and answered
+ * the same way: a fix writes points, a finish writes the derivation.
  */
 @RunWith(RobolectricTestRunner::class)
 class TimelineInvalidationTest {
 
     private val test = TestDb()
     private val repository get() = test.repository
+    private val derivation = DerivationStore(ApplicationProvider.getApplicationContext(), test.db)
 
     @After fun tearDown() = test.close()
 
@@ -46,14 +53,18 @@ class TimelineInvalidationTest {
         val jobs = listOf<Job>(
             launch(Dispatchers.IO) { repository.observeSummaries().collect { emissions.incrementAndGet() } },
             launch(Dispatchers.IO) { repository.observeEndpoints().collect { emissions.incrementAndGet() } },
+            // The stored stays, read as one snapshot of three tables — so a fix that reached any of
+            // them counts here exactly as a fix reaching `tracks` does above.
+            launch(Dispatchers.IO) { derivation.observeStored().collect { emissions.incrementAndGet() } },
         )
-        awaitUntil { emissions.get() >= 2 }
+        awaitUntil { emissions.get() >= 3 }
 
         // Opening a track inserts a row into `tracks`, which does wake them — once per track, which
-        // is fine. The contract under test is per *fix*, so wait out the open's own re-emission of
-        // both flows before measuring.
+        // is fine. The contract under test is per *fix*, so wait out the open's own re-emission
+        // before measuring, then hold still long enough that a late one cannot be mistaken for it.
         val recording = repository.startTrack(ActivityType.WALKING, TEST_START + 120_000)
-        awaitUntil { emissions.get() >= 4 }
+        awaitUntil { emissions.get() >= 5 }
+        delay(SETTLE_MS)
         val before = emissions.get()
 
         repeat(30) { i -> repository.addPoints(listOf(test.point(recording, i))) }

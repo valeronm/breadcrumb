@@ -4,10 +4,6 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.toLiveness
-import io.github.valeronm.breadcrumb.domain.toTrackEnd
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -49,63 +45,10 @@ class DerivationStoreTest {
         return id
     }
 
-    /**
-     * One interval as the two passes can be compared on: everything it says, with the clusters it
-     * names resolved to **where they are** rather than to what they are numbered.
-     *
-     * A cluster index is a position in one pass's own list, and only the named ones have an order
-     * anything depends on ([PlaceResolver] reads those positionally; the rest are free). A rebuild
-     * numbers them as it derives them, a repair by the row ids its founding happened to take — so
-     * comparing indices would compare two numberings and fail on a difference that means nothing.
-     */
-    private fun StayDeriver.Interval.described(clusters: List<PlaceClusterer.Cluster>): List<Any?> {
-        fun anchor(index: Int?) = index?.let { clusters[it].anchor }
-        return when (this) {
-            is StayDeriver.Stay ->
-                listOf("stay", start, end, provenance, afterTrackId, anchor(clusterId), null, null, null)
-            is StayDeriver.Gap ->
-                listOf("gap", start, end, reason, afterTrackId, anchor(fromClusterId), anchor(toClusterId), from, to)
-        }
-    }
-
-    /**
-     * What was stored, read back, against a derivation run from scratch over the same tracks.
-     *
-     * Read through [DerivedReadModel] rather than field by field off the rows: that is the pair the
-     * app actually runs — write then read — and describing whole intervals covers every column
-     * without a hand-written list that a new one would quietly escape.
-     */
-    private suspend fun assertDerivedMatchesFreshDerive(nowMs: Long) {
-        val fresh = StayDeriver.derive(
-            tracks = db.trackDao().endpointsOnce().map { it.toTrackEnd() },
-            liveness = db.livenessDao().allEvents().mapNotNull { it.toLiveness() },
-            nowMs = nowMs,
-            activeTrack = null,
-            distance = AndroidDistance,
-            placePins = derived.namedClusters().map { it.toSeed() },
-            emitTail = false,
-        )
-        val read = DerivedReadModel.derivationOf(
-            stored = store.observeStored().first(),
-            places = db.placeDao().allPlaces(),
-            liveness = db.livenessDao().allEvents(),
-            nowMs = nowMs,
-            activeStartedAt = null,
-        )
-
-        // The reference derives with no trailing stay, so the stored rows are the read's prefix;
-        // that the tail follows them is `DerivedReadModelTest`'s to say.
-        assertEquals(
-            fresh.intervals.map { it.described(fresh.clusters) },
-            read.intervals.take(fresh.intervals.size).map { it.described(read.clusters) },
-        )
-        // Sorted for the same reason the intervals are described: the two agree on which clusters
-        // exist and where, not on what order to list them in.
-        assertEquals(
-            fresh.clusters.map { it.anchor }.sortedWith(compareBy({ it.lat }, { it.lon })),
-            read.clusters.map { it.anchor }.sortedWith(compareBy({ it.lat }, { it.lon })),
-        )
-    }
+    /** [DerivedConsistency.assertMatchesFreshDerive] — the shared guard, which is where what this
+     *  suite's cases all end on is defined. */
+    private suspend fun assertDerivedMatchesFreshDerive(nowMs: Long) =
+        DerivedConsistency.assertMatchesFreshDerive(db, nowMs)
 
     /** Two walks from the same spot, three hours apart — a history with one interval in it. */
     private suspend fun twoTracks() {

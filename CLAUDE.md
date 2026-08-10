@@ -47,7 +47,20 @@ run the tests after touching anything they cover. **Room runs in these host test
 (in-memory DB, `TestDb` fixture), so the repository's DB rules and the schema migrations are
 covered without a device — see `TrackRepositoryTest`, `Migration10To11Test`,
 `TimelineInvalidationTest`, and the stored derivation's own suites (`DerivationStoreTest`,
-`DerivedReadModelTest`, `Migration15To16Test`). Robolectric emulates up to SDK 36 while the app targets 37, so its
+`DerivedConsistencyTest`, `DerivedReadModelTest`, `Migration15To16Test`).
+
+**Persisting a derivation makes two implementations of one rule**, so it owes a guard that they
+agree — `DerivedConsistency`, shared by every suite that writes those rows so the question has one
+answer. It holds in two strengths, and which one a case is owed is the whole of the design. **Exact**
+(`assertMatchesFreshDerive`): the rows are, column for column, what deriving the whole history afresh
+produces — owed wherever the history only grew or was rewritten in place. **Coherent**
+(`assertInternallyConsistent`): the assignments are legal, the arithmetic over them holds, and the
+intervals are what `StayDeriver.verdictBetween` says *given* those assignments — all that is owed
+after a delete or a merge, since a cluster's anchor is its first-ever member and losing that track
+strands the anchor where a fresh pass would not put it. A rebuild must then restore the exact claim,
+which is what keeps "coherent" from becoming a place to hide a bug. `DerivedConsistencyTest` asks
+this of *sequences* of mutations rather than one at a time, which is where the two writers actually
+diverge: a repair judges a seam against rows an earlier repair left. Robolectric emulates up to SDK 36 while the app targets 37, so its
 tests are pinned in `app/src/test/resources/robolectric.properties`; raise it when Robolectric
 catches up. **Robolectric's native runtime ships no Linux aarch64 build**, so on an arm64 dev box
 every Room-backed test fails with an architecture assertion, whatever the change — that's the
