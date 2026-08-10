@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.CancellationException
@@ -98,12 +99,18 @@ internal fun <T : Any> rememberOverlayLayer(
     val state = remember { OverlayLayerState<T>(over) }
     // Snapshot the content while present; held stable through the close animation.
     if (content != null) state.rendered = content
+    val focusManager = LocalFocusManager.current
     LaunchedEffect(content != null) {
         // Set from the effect, not from composition: a parent reads it to decide whether to yield
         // its gesture, and it is composed first, so writing it inline would be a write to state
         // already read this pass.
         state.requested = content != null
         if (content != null) {
+            // The page beneath stays composed under this layer, so a focused search field there
+            // would keep its keyboard up over the new page — the focus goes with the covering.
+            // A field of this layer's own can still take focus: its request composes later, so
+            // it runs after this.
+            focusManager.clearFocus()
             state.backProgress.snapTo(0f)
             state.backOffsetY.snapTo(0f)
             state.presence.animateTo(1f, tween(300))
