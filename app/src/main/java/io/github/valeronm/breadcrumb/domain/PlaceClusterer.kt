@@ -105,44 +105,65 @@ object PlaceClusterer {
         val endpointMean: Coordinate? get() = centroid.takeIf { members.isNotEmpty() }
     }
 
+    /**
+     * The anchors an endpoint can join, **growing as endpoints found new ones**. That growth is the
+     * rule, not an implementation detail: an endpoint no anchor reaches becomes one, and every later
+     * endpoint sees it — which is what makes a pass that appends to a history agree with one that
+     * walks it from the start.
+     *
+     * Held as parallel lists rather than [Seed]s because [cluster] runs this per endpoint over the
+     * whole history, and a `Seed` per endpoint is an allocation in the hot path for nothing.
+     */
+    class Anchoring(seeds: List<Seed>, private val defaultRadiusM: Double, private val distance: DistanceFn) {
+        private val points = seeds.mapTo(mutableListOf()) { it.anchor }
+        private val radii = seeds.mapTo(mutableListOf()) { it.radiusM }
+
+        /** How many anchors there are — the seeded ones first, then each founded since. */
+        val size: Int get() = points.size
+
+        fun anchorAt(index: Int): Coordinate = points[index]
+
+        fun radiusAt(index: Int): Double = radii[index]
+
+        /**
+         * The index of the anchor claiming [at] — **nearest qualifying**, not merely within range —
+         * founding one there when none reaches it. All but the handful in reach are rejected on
+         * their coordinates ([ReachBound]) rather than on a distance call.
+         */
+        fun claim(at: Coordinate): Int {
+            val reach = ReachBound.around(at.lat, at.lon, distance)
+            var nearest = -1
+            var nearestD = Double.MAX_VALUE
+            for (index in points.indices) {
+                if (reach.outOfReach(points[index].lat, points[index].lon, radii[index])) continue
+                val d = distance.meters(points[index].lat, points[index].lon, at.lat, at.lon)
+                if (d <= radii[index] && d < nearestD) {
+                    nearest = index
+                    nearestD = d
+                }
+            }
+            if (nearest >= 0) return nearest
+            points += at
+            radii += defaultRadiusM
+            return points.size - 1
+        }
+    }
+
     fun cluster(
         locations: List<Coordinate>,
         radiusM: Double = DEFAULT_RADIUS_M,
         distance: DistanceFn,
         seeds: List<Seed> = emptyList(),
     ): List<Cluster> {
-        val anchors = mutableListOf<Coordinate>()
-        val radii = mutableListOf<Double>()
-        val members = mutableListOf<MutableList<Int>>()
-        for (seed in seeds) {
-            anchors += seed.anchor
-            radii += seed.radiusM
-            members += mutableListOf<Int>()
-        }
+        val anchoring = Anchoring(seeds, radiusM, distance)
+        val members = MutableList(seeds.size) { mutableListOf<Int>() }
         locations.forEachIndexed { index, location ->
-            // Nearest qualifying anchor, scanned inline — this runs per endpoint on every
-            // derivation, so all but the handful of anchors in reach are rejected on their
-            // coordinates ([ReachBound]) rather than on a distance call.
-            val reach = ReachBound.around(location.lat, location.lon, distance)
-            var nearest = -1
-            var nearestD = Double.MAX_VALUE
-            for (ci in anchors.indices) {
-                val anchor = anchors[ci]
-                if (reach.outOfReach(anchor.lat, anchor.lon, radii[ci])) continue
-                val d = distance.meters(anchor.lat, anchor.lon, location.lat, location.lon)
-                if (d <= radii[ci] && d < nearestD) {
-                    nearest = ci
-                    nearestD = d
-                }
-            }
-            if (nearest >= 0) {
-                members[nearest] += index
-            } else {
-                anchors += location
-                radii += radiusM
-                members += mutableListOf(index)
-            }
+            val claimed = anchoring.claim(location)
+            while (members.size <= claimed) members += mutableListOf<Int>()
+            members[claimed] += index
         }
+        val anchors = List(anchoring.size) { anchoring.anchorAt(it) }
+        val radii = List(anchoring.size) { anchoring.radiusAt(it) }
         return anchors.mapIndexed { ci, anchor ->
             val locs = members[ci].map { locations[it] }
             Cluster(

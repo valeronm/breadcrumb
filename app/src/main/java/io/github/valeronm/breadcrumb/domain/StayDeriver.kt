@@ -207,51 +207,37 @@ object StayDeriver {
         val evidence = summarizeLiveness(liveness, nowMs)
         val (clusters, clusterOf) = clusterEndpoints(tracks, activeTrack?.start, placePins, params, distance)
         val out = mutableListOf<Interval>()
-
-        fun nearestPin(e: Coordinate): Int? =
-            PlaceClusterer.nearestSeedIndex(e.lat, e.lon, placePins, distance)
+        val agreement = Agreement(params, distance, placePins)
 
         fun samePlace(a: Coordinate, b: Coordinate): Boolean =
-            clusterOf.getValue(a) == clusterOf.getValue(b) ||
-                distance.meters(a.lat, a.lon, b.lat, b.lon) <= params.agreementRadiusM ||
-                (nearestPin(a)?.let { it == nearestPin(b) } ?: false)
+            agreement.samePlace(a, b, sameCluster = clusterOf.getValue(a) == clusterOf.getValue(b))
 
         for (i in 0 until tracks.size - 1) {
             val prev = tracks[i]
             val next = tracks[i + 1]
-            val gapStart = prev.endedAt
-            val gapEnd = next.startedAt
-            // Negative gap (clock stepped backwards between tracks): emit nothing.
-            if (gapEnd < gapStart) continue
             val a = prev.end
             val b = next.start
-            if (a == null || b == null || !samePlace(a, b)) {
-                // A zero-length disagreement ("moved without recording, in zero time") is
-                // meaningless — whereas a zero-length *agreeing* gap below is a split seam (an
-                // edge-stay trim's cut), and its stay carries the merge-back offer.
-                if (gapEnd == gapStart) continue
-                val reason = if (a == null || b == null) {
-                    GapReason.UNKNOWN_ENDPOINT
-                } else {
-                    GapReason.MOVED_UNRECORDED
-                }
-                out += Gap(
-                    gapStart, gapEnd, reason,
+            val sameCluster = a != null &&
+                b != null &&
+                clusterOf.getValue(a) == clusterOf.getValue(b)
+            when (val verdict = verdictBetween(prev, next, sameCluster, agreement, evidence)) {
+                Verdict.None -> Unit
+                is Verdict.Moved -> out += Gap(
+                    prev.endedAt, next.startedAt, verdict.reason,
                     afterTrackId = prev.trackId,
                     fromClusterId = a?.let(clusterOf::getValue),
                     toClusterId = b?.let(clusterOf::getValue),
                     from = a,
                     to = b,
                 )
-                continue
+                is Verdict.Stayed -> out += Stay(
+                    start = prev.endedAt,
+                    end = next.startedAt,
+                    provenance = verdict.provenance,
+                    afterTrackId = prev.trackId,
+                    clusterId = clusterOf.getValue(checkNotNull(a) { "an agreeing pair has both ends" }),
+                )
             }
-            out += Stay(
-                start = gapStart,
-                end = gapEnd,
-                provenance = evidence.provenanceOver(gapStart, gapEnd),
-                afterTrackId = prev.trackId,
-                clusterId = clusterOf.getValue(a),
-            )
         }
 
         if (emitTail) {
@@ -259,6 +245,73 @@ object StayDeriver {
                 ?.let { out += it }
         }
         return Derivation(out, clusters)
+    }
+
+    /**
+     * **When two adjacent endpoints are the same place** — the rule, stated once, for both the pass
+     * that derives a whole history and the one that repairs a few rows of a stored derivation.
+     * Two implementations of this test would be two answers to what a stay is.
+     *
+     * The ways to agree are tried in order of what they cost, not of what they mean: cluster
+     * identity is already in hand, a distance is one call, and the shared-pin override is a scan of
+     * the named pins.
+     */
+    class Agreement(
+        private val params: Params,
+        private val distance: DistanceFn,
+        private val placePins: List<PlaceClusterer.Seed>,
+    ) {
+        fun samePlace(a: Coordinate, b: Coordinate, sameCluster: Boolean): Boolean =
+            sameCluster ||
+                distance.meters(a.lat, a.lon, b.lat, b.lon) <= params.agreementRadiusM ||
+                (nearestPin(a)?.let { it == nearestPin(b) } ?: false)
+
+        private fun nearestPin(e: Coordinate): Int? =
+            PlaceClusterer.nearestSeedIndex(e.lat, e.lon, placePins, distance)
+    }
+
+    /**
+     * What the interval between two adjacent kept tracks is — **without saying where**, which is the
+     * one term the two passes that ask this represent differently: a derivation names a cluster by
+     * its position in its own list, a repair by a row id or a row it is about to insert.
+     *
+     * Everything else about the decision lives here rather than in each of them: that a pair whose
+     * clocks run backwards leaves nothing, that a *disagreeing* pair with no time in it is
+     * meaningless and also leaves nothing, which kind of gap a missing endpoint makes, and whether
+     * the app could attest the silence.
+     */
+    sealed interface Verdict {
+        /** Nothing to record between these two tracks. */
+        data object None : Verdict
+
+        data class Moved(val reason: GapReason) : Verdict
+
+        data class Stayed(val provenance: Provenance) : Verdict
+    }
+
+    internal fun verdictBetween(
+        before: TrackEnd,
+        after: TrackEnd,
+        sameCluster: Boolean,
+        agreement: Agreement,
+        evidence: LivenessEvidence,
+    ): Verdict {
+        val start = before.endedAt
+        val end = after.startedAt
+        // Negative gap (clock stepped backwards between tracks): emit nothing.
+        if (end < start) return Verdict.None
+        val a = before.end
+        val b = after.start
+        if (a == null || b == null || !agreement.samePlace(a, b, sameCluster)) {
+            // A zero-length disagreement ("moved without recording, in zero time") is meaningless —
+            // whereas a zero-length *agreeing* pair is a split seam (an edge-stay trim's cut), and
+            // its stay carries the merge-back offer.
+            if (end == start) return Verdict.None
+            return Verdict.Moved(
+                if (a == null || b == null) GapReason.UNKNOWN_ENDPOINT else GapReason.MOVED_UNRECORDED,
+            )
+        }
+        return Verdict.Stayed(evidence.provenanceOver(start, end))
     }
 
     /** One endpoint the clustering reads: which track's, which of its two ends, when and where. */
@@ -402,9 +455,13 @@ object StayDeriver {
 
     // --- Liveness evidence ----------------------------------------------------
 
-    /** The liveness log reduced to the question every interval asks of it: was the app alive
-     *  throughout. */
-    private class LivenessEvidence(
+    /**
+     * The liveness log reduced to the question every interval asks of it: was the app alive
+     * throughout. Reduced once and passed around rather than re-read per interval — which is why
+     * [StayLedger], deciding the provenance of a handful of intervals at a time, takes this rather
+     * than the log.
+     */
+    internal class LivenessEvidence(
         /** Half-open [start, end) intervals where the app was known dead or disarmed. */
         val deadIntervals: List<Pair<Long, Long>>,
         /** Time of the earliest liveness evidence; anything before it is unattested. */
@@ -419,7 +476,7 @@ object StayDeriver {
         }
     }
 
-    private fun summarizeLiveness(liveness: List<Liveness>, nowMs: Long): LivenessEvidence {
+    internal fun summarizeLiveness(liveness: List<Liveness>, nowMs: Long): LivenessEvidence {
         val dead = mutableListOf<Pair<Long, Long>>()
         var disarmedSince: Long? = null
         for (event in liveness) {
