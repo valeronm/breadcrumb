@@ -181,6 +181,9 @@ object StayDeriver {
          *  (in pin order — [PlaceResolver] maps [PlaceClusterer.Cluster.seedIndex] back to the
          *  same places list) and drive the same-nearest-pin agreement override. */
         placePins: List<PlaceClusterer.Seed> = emptyList(),
+        /** Whether the trailing interval is emitted — the only one that is not a fact about two
+         *  finished tracks, and so the only one that goes stale on its own. See [tailStay]. */
+        emitTail: Boolean = true,
     ): Derivation {
         val evidence = summarizeLiveness(liveness, nowMs)
         val (clusters, clusterOf) = clusterEndpoints(tracks, activeTrack?.start, placePins, params, distance)
@@ -232,8 +235,10 @@ object StayDeriver {
             )
         }
 
-        tailStay(tracks.lastOrNull(), evidence, nowMs, activeTrack, clusterOf, ::samePlace)
-            ?.let { out += it }
+        if (emitTail) {
+            tailStay(tracks.lastOrNull(), evidence, nowMs, activeTrack, clusterOf, ::samePlace)
+                ?.let { out += it }
+        }
         return Derivation(out, clusters)
     }
 
@@ -267,13 +272,15 @@ object StayDeriver {
     }
 
     /**
-     * The stay after the last finished track: open-ended while idle (where the user is right
-     * now), closed at the active track's start while recording — so the timeline shows the
-     * just-ended stay live instead of only after the track finalizes.
+     * The trailing interval, and **the one case where it is not a stay**: a recording track whose
+     * first fix disagrees with where the last one ended is movement the recorder missed, which is a
+     * [Gap] by the same rule that governs two finished tracks. Everything else about the trailing
+     * interval is [tail]'s; this wrapper exists because the disagreement can only be judged where
+     * the coordinates are.
      */
     private fun tailStay(
         last: TrackEnd?,
-        evidence: LivenessSummary,
+        evidence: LivenessEvidence,
         nowMs: Long,
         activeTrack: ActiveTrack?,
         clusterOf: Map<Coordinate, Int>,
@@ -282,47 +289,82 @@ object StayDeriver {
         if (last == null) return null
         val lastEnd = last.end ?: return null
         val start = last.endedAt
-        if (activeTrack != null) {
+        // No fix yet counts as agreement: the interval re-derives for real once the track finishes.
+        val activeStart = activeTrack?.start
+        if (activeStart != null && !samePlace(lastEnd, activeStart)) {
             val end = activeTrack.startedAt
             if (end <= start) return null
-            // A known first fix that disagrees means the recorder missed movement — same rule
-            // as between finished tracks. No fix yet counts as agreement; the interval
-            // re-derives for real once the track finishes.
-            val b = activeTrack.start
-            if (b != null && !samePlace(lastEnd, b)) {
-                return Gap(
-                    start, end, GapReason.MOVED_UNRECORDED,
-                    afterTrackId = last.trackId,
-                    fromClusterId = clusterOf.getValue(lastEnd),
-                    toClusterId = clusterOf.getValue(b),
-                    from = lastEnd,
-                    to = b,
-                )
-            }
-            return Stay(
-                start = start,
-                end = end,
-                provenance = evidence.provenanceOver(start, end),
+            return Gap(
+                start, end, GapReason.MOVED_UNRECORDED,
                 afterTrackId = last.trackId,
-                clusterId = clusterOf.getValue(lastEnd),
+                fromClusterId = clusterOf.getValue(lastEnd),
+                toClusterId = clusterOf.getValue(activeStart),
+                from = lastEnd,
+                to = activeStart,
             )
         }
-        if (start > nowMs) return null
-        // If currently disarmed, the app can attest nothing past the disarm — close the stay there.
-        val end = evidence.disarmedSince?.coerceAtLeast(start)
-        val effectiveEnd = end ?: nowMs
+        val anchor = TailAnchor(last.trackId, start, clusterOf.getValue(lastEnd))
+        return tail(anchor, evidence, nowMs, activeTrack?.startedAt)
+    }
+
+    /**
+     * What the trailing stay hangs off: the last kept track's id and end bound, and the cluster that
+     * track ended in. One value rather than three arguments because it is one fact with one source —
+     * the newest kept track's end endpoint — which is where the requirement that all three describe
+     * the *same* track has somewhere to be stated.
+     */
+    data class TailAnchor(val trackId: Long, val endedAt: Long, val clusterId: Int)
+
+    /**
+     * The stay still running after the last kept track — where the user is now — closed at
+     * [activeStartedAt] while a track is recording, so the just-ended stay reads live rather than
+     * only once that track finalizes.
+     *
+     * **This interval cannot be snapshotted**, which is why it is reachable on its own: it is a
+     * function of [nowMs] and of whether something is recording, and both move with no write behind
+     * them. A cluster is all it needs of place, every other term being a bound.
+     *
+     * **It answers the agreeing case only.** Where a recording track's first fix disagrees with
+     * where the last one ended, the trailing interval is a [Gap] and not any [Stay] — a distinction
+     * that needs the two coordinates, which this does not take. A caller that has them owes that
+     * check itself; one that does not cannot reach the case.
+     */
+    fun tail(
+        anchor: TailAnchor,
+        liveness: List<Liveness>,
+        nowMs: Long,
+        activeStartedAt: Long?,
+    ): Stay? = tail(anchor, summarizeLiveness(liveness, nowMs), nowMs, activeStartedAt)
+
+    private fun tail(
+        anchor: TailAnchor,
+        evidence: LivenessEvidence,
+        nowMs: Long,
+        activeStartedAt: Long?,
+    ): Stay? {
+        val start = anchor.endedAt
+        val end = if (activeStartedAt != null) {
+            if (activeStartedAt <= start) return null
+            activeStartedAt
+        } else {
+            if (start > nowMs) return null
+            // Disarmed: the app can attest nothing past the disarm, so the stay closes there.
+            evidence.disarmedSince?.coerceAtLeast(start)
+        }
         return Stay(
             start = start,
             end = end,
-            provenance = evidence.provenanceOver(start, effectiveEnd),
-            afterTrackId = last.trackId,
-            clusterId = clusterOf.getValue(lastEnd),
+            provenance = evidence.provenanceOver(start, end ?: nowMs),
+            afterTrackId = anchor.trackId,
+            clusterId = anchor.clusterId,
         )
     }
 
     // --- Liveness evidence ----------------------------------------------------
 
-    private class LivenessSummary(
+    /** The liveness log reduced to the question every interval asks of it: was the app alive
+     *  throughout. */
+    private class LivenessEvidence(
         /** Half-open [start, end) intervals where the app was known dead or disarmed. */
         val deadIntervals: List<Pair<Long, Long>>,
         /** Time of the earliest liveness evidence; anything before it is unattested. */
@@ -337,7 +379,7 @@ object StayDeriver {
         }
     }
 
-    private fun summarizeLiveness(liveness: List<Liveness>, nowMs: Long): LivenessSummary {
+    private fun summarizeLiveness(liveness: List<Liveness>, nowMs: Long): LivenessEvidence {
         val dead = mutableListOf<Pair<Long, Long>>()
         var disarmedSince: Long? = null
         for (event in liveness) {
@@ -353,7 +395,7 @@ object StayDeriver {
         // A trailing disarm is dead through "now" for mid-list gaps; the tail stay handles it
         // explicitly via disarmedSince.
         disarmedSince?.let { dead += it to nowMs }
-        return LivenessSummary(
+        return LivenessEvidence(
             deadIntervals = dead,
             firstEvidenceAt = liveness.firstOrNull()?.at?.coerceAtMost(nowMs),
             disarmedSince = disarmedSince,

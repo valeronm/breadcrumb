@@ -43,8 +43,10 @@ class StayDeriverTest {
         now: Long = NOW,
         active: StayDeriver.ActiveTrack? = null,
         pins: List<PlaceClusterer.Seed> = emptyList(),
-    ) = StayDeriver.derive(tracks, liveness, now, active, StayDeriver.Params(), flatDistance, pins)
-        .intervals
+        emitTail: Boolean = true,
+    ) = StayDeriver.derive(
+        tracks, liveness, now, active, StayDeriver.Params(), flatDistance, pins, emitTail,
+    ).intervals
 
     /** Two tracks whose gap is [120, 240) min, both ending/starting near `home`. */
     private fun homePair(to: Coordinate? = home, from: Coordinate? = nearHome) = listOf(
@@ -325,6 +327,28 @@ class StayDeriverTest {
     }
 
     // --- The ongoing (tail) stay --------------------------------------------
+
+    @Test fun `the tail answers from a bound, a cluster and the log, with no derivation behind it`() {
+        val anchor = StayDeriver.TailAnchor(trackId = 1L, endedAt = 120 * MIN, clusterId = 3)
+        val armed = listOf<Liveness>(Armed(0))
+
+        val open = StayDeriver.tail(anchor, armed, NOW, activeStartedAt = null)
+        assertEquals(120 * MIN, open?.start)
+        assertNull(open?.end)
+        assertEquals(3, open?.clusterId)
+
+        // A recording track closes it where that track began…
+        assertEquals(200 * MIN, StayDeriver.tail(anchor, armed, NOW, 200 * MIN)?.end)
+        // …and a disarm closes it there, the app attesting nothing past one.
+        val disarmed = listOf(Armed(0), Disarmed(200 * MIN))
+        assertEquals(200 * MIN, StayDeriver.tail(anchor, disarmed, NOW, null)?.end)
+    }
+
+    @Test fun `emitTail false leaves the trailing interval out`() {
+        val tracks = listOf(track(1, start = 60 * MIN, end = 120 * MIN))
+        assertEquals(1, derive(tracks).size)
+        assertTrue(derive(tracks, emitTail = false).isEmpty())
+    }
 
     @Test fun `after the last track an ongoing stay is open-ended`() {
         val stay = derive(listOf(track(1, start = 60 * MIN, end = 120 * MIN)))
