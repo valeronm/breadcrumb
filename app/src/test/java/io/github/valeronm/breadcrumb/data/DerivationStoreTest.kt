@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.data
 
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
-import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -34,21 +33,13 @@ class DerivationStoreTest {
     @After fun tearDown() = test.close()
 
     /** A kept track from [fromIndex] to [toIndex] on the fixture's northbound line. */
-    private suspend fun track(fromIndex: Int, toIndex: Int, startedAt: Long): Long {
-        val id = test.repository.startTrack(ActivityType.WALKING, startedAt)
-        test.repository.addPoints(
-            (fromIndex..toIndex).map { i ->
-                test.point(id, i).copy(timestamp = startedAt + (i - fromIndex) * 10_000L)
-            },
-        )
-        test.repository.finishTrack(id, startedAt + (toIndex - fromIndex) * 10_000L)
-        return id
-    }
+    private suspend fun track(fromIndex: Int, toIndex: Int, startedAt: Long): Long =
+        test.walk(startedAt, fromIndex, toIndex)
 
     /** [DerivedConsistency.assertMatchesFreshDerive] — the shared guard, which is where what this
      *  suite's cases all end on is defined. */
-    private suspend fun assertDerivedMatchesFreshDerive(nowMs: Long) =
-        DerivedConsistency.assertMatchesFreshDerive(db, nowMs)
+    private suspend fun assertDerivedMatchesFreshDerive() =
+        DerivedConsistency.assertMatchesFreshDerive(db, now)
 
     /** Two walks from the same spot, three hours apart — a history with one interval in it. */
     private suspend fun twoTracks() {
@@ -62,7 +53,7 @@ class DerivationStoreTest {
         store.rebuild(now)
 
         assertTrue("the history has an interval between its two tracks", derived.intervalsOnce().isNotEmpty())
-        assertDerivedMatchesFreshDerive(now)
+        assertDerivedMatchesFreshDerive()
     }
 
     @Test fun `the open stay is not among the stored rows`() = runTest {
@@ -106,12 +97,19 @@ class DerivationStoreTest {
     //
     // Every case here ends on the same assertion the rebuild cases do: what the mutation path left
     // behind must be what a derivation of the resulting history produces. No rebuild is called.
+    //
+    // These ask for **exact** agreement even of the paths that drop a track, which is more than
+    // `StayLedger` promises in general — and they can, because of the fixture rather than the rule:
+    // every track here begins at the same spot and ends at the same one, so no cluster's founder can
+    // be removed while the cluster survives, which is the one way a repair is allowed to diverge.
+    // `DerivedConsistencyTest` is where a history without that property is put through the same
+    // paths, and where they are owed the weaker claim.
 
     @Test fun `a track finishing leaves what a rebuild would have left`() = runTest {
         twoTracks()
 
         assertTrue("the history has an interval between its two tracks", derived.intervalsOnce().isNotEmpty())
-        assertDerivedMatchesFreshDerive(now)
+        assertDerivedMatchesFreshDerive()
     }
 
     @Test fun `deleting a track closes the seam its neighbours now share, and restoring reopens it`() = runTest {
@@ -121,11 +119,11 @@ class DerivationStoreTest {
 
         test.repository.deleteTrack(middle)
         assertEquals("one interval spans where three tracks were two", 1, derived.intervalsOnce().size)
-        assertDerivedMatchesFreshDerive(now)
+        assertDerivedMatchesFreshDerive()
 
         test.repository.restoreTrack(middle)
         assertEquals(2, derived.intervalsOnce().size)
-        assertDerivedMatchesFreshDerive(now)
+        assertDerivedMatchesFreshDerive()
     }
 
     @Test fun `merging two tracks and unmerging them each leave the derivation of what stands`() = runTest {
@@ -134,10 +132,10 @@ class DerivationStoreTest {
         track(0, 5, TEST_START + 6 * 60 * 60_000L)
 
         val merged = checkNotNull(test.repository.mergeTracks(earlier, later))
-        assertDerivedMatchesFreshDerive(now)
+        assertDerivedMatchesFreshDerive()
 
         test.repository.unmergeTracks(merged, earlier, later)
-        assertDerivedMatchesFreshDerive(now)
+        assertDerivedMatchesFreshDerive()
     }
 
     @Test fun `splitting a track and undoing the split each leave the derivation of what stands`() = runTest {
@@ -145,10 +143,10 @@ class DerivationStoreTest {
         track(0, 5, TEST_START + 3 * 60 * 60_000L)
 
         val split = checkNotNull(test.repository.splitTrack(id, TEST_START + 30_000L))
-        assertDerivedMatchesFreshDerive(now)
+        assertDerivedMatchesFreshDerive()
 
         test.repository.unsplitTracks(id, split)
-        assertDerivedMatchesFreshDerive(now)
+        assertDerivedMatchesFreshDerive()
     }
 
     @Test fun `naming a place re-derives the history, and renaming it does not`() = runTest {
@@ -161,7 +159,7 @@ class DerivationStoreTest {
             "the organic clusters were derived again",
             derived.clustersOnce().none { it.id in organic },
         )
-        assertDerivedMatchesFreshDerive(now)
+        assertDerivedMatchesFreshDerive()
 
         // A label reaches clustering nowhere, so nothing is re-derived and every row stands.
         val named = derived.clustersOnce().map { it.id }
@@ -177,10 +175,10 @@ class DerivationStoreTest {
 
         places.delete(id)
         assertTrue("its cluster went with it", derived.namedClusters().isEmpty())
-        assertDerivedMatchesFreshDerive(now)
+        assertDerivedMatchesFreshDerive()
 
         places.restore(named)
         assertEquals("the round trip lands where it started", withPlace, derived.intervalsOnce().map { it.type to it.start })
-        assertDerivedMatchesFreshDerive(now)
+        assertDerivedMatchesFreshDerive()
     }
 }

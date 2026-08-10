@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.data
 
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
-import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.toLiveness
@@ -38,14 +37,7 @@ class DerivedReadModelTest {
 
     @After fun tearDown() = test.close()
 
-    private suspend fun track(startedAt: Long): Long {
-        val id = test.repository.startTrack(ActivityType.WALKING, startedAt)
-        test.repository.addPoints(
-            (0..5).map { i -> test.point(id, i).copy(timestamp = startedAt + i * 10_000L) },
-        )
-        test.repository.finishTrack(id, startedAt + 50_000L)
-        return id
-    }
+    private suspend fun track(startedAt: Long): Long = test.walk(startedAt, 0, 5)
 
     /** The derivation as the app used to compute it, for the same history. */
     private suspend fun fresh(activeStartedAt: Long? = null): StayDeriver.Derivation =

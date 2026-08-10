@@ -6,7 +6,6 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -20,10 +19,15 @@ import org.robolectric.RobolectricTestRunner
  * assembles one — a track at a time, with deletes, merges, splits, hand-entered trips and renames
  * among them — must leave the rows a single pass over that same history would have written.
  *
- * `DerivationStoreTest` asks this of one mutation at a time, which is where a broken path is easiest
- * to read. This suite asks it of *sequences*, which is where the two writers actually diverge: a
- * repair judges a seam against rows an earlier repair left, so an error survives, moves and compounds
- * where a single-mutation case would never show it.
+ * **What divides this suite from `DerivationStoreTest` is the history, not the number of mutations.**
+ * That one runs its paths over tracks that all begin and end at the same two spots, where no cluster
+ * can lose its founder and survive — so it can ask exact agreement of every path and read as a plain
+ * statement of what each one does. This one runs the same paths over a history with several places
+ * in it, which is where a delete or a merge can strand an anchor and where exact agreement stops
+ * being owed. It also holds what only a longer history reaches: a crash-recovered finalize, a trip
+ * entered and rewritten by hand, a retype across the tuning line, and a run of every mutation in
+ * turn — the last being where the two writers really diverge, a repair judging each seam against
+ * rows an earlier repair left, so an error survives and compounds.
  *
  * Both modes are [DerivedConsistency]'s, and which one a case is owed is the point of the split.
  * Exact agreement is owed wherever the history only ever grew or was rewritten in place. Where a
@@ -50,27 +54,8 @@ class DerivedConsistencyTest {
 
     private suspend fun assertCoherent() = DerivedConsistency.assertInternallyConsistent(db, now)
 
-    /**
-     * A recorded walk from [fromIndex] to [toIndex] on the fixture's northbound line, offset
-     * [lonOffset] degrees east — which is how a case puts a track somewhere else entirely, an
-     * offset of 0.01 being ~1.1 km and well outside any capture radius.
-     */
-    private suspend fun walk(startedAt: Long, fromIndex: Int, toIndex: Int, lonOffset: Double = 0.0): Long {
-        // Either direction along the line — a walk home retraces the one out, and its endpoints
-        // therefore land in the other's clusters, which is what gives the history places to share.
-        val steps = if (fromIndex <= toIndex) fromIndex..toIndex else fromIndex downTo toIndex
-        val id = repository.startTrack(ActivityType.WALKING, startedAt)
-        repository.addPoints(
-            steps.mapIndexed { step, i ->
-                test.point(id, i).copy(
-                    timestamp = startedAt + step * 10_000L,
-                    longitude = -2.0 + lonOffset,
-                )
-            },
-        )
-        repository.finishTrack(id, startedAt + (steps.count() - 1) * 10_000L)
-        return id
-    }
+    private suspend fun walk(startedAt: Long, fromIndex: Int, toIndex: Int, lonOffset: Double = 0.0) =
+        test.walk(startedAt, fromIndex, toIndex, lonOffset)
 
     private fun hours(n: Int) = TEST_START + n * 60L * 60_000L
 
@@ -78,29 +63,35 @@ class DerivedConsistencyTest {
      * A history a phone could have recorded: walks out and back over four days, two of them from a
      * second neighbourhood, so the clustering has more than one place to get wrong. Returns the ids
      * in the order they were recorded.
+     *
+     * It asserts its own shape before handing over, and that is not belt-and-braces: every case here
+     * takes on trust that this is a history with something in it, so a fixture that quietly stopped
+     * producing several places — a radius change, a mistyped offset, a track too short to keep —
+     * would leave every case passing about a history with one place and no absences in it.
      */
-    private suspend fun recordedHistory(): List<Long> = listOf(
-        walk(hours(0), 0, 5),
-        walk(hours(6), 5, 0),
-        walk(hours(30), 0, 4),
-        walk(hours(36), 4, 0, lonOffset = 0.01),
-        walk(hours(54), 0, 5, lonOffset = 0.01),
-        walk(hours(60), 5, 0),
-        walk(hours(78), 0, 3),
-        walk(hours(84), 3, 0),
-    )
+    private suspend fun recordedHistory(): List<Long> {
+        val ids = listOf(
+            walk(hours(0), 0, 5),
+            walk(hours(6), 5, 0),
+            walk(hours(30), 0, 4),
+            walk(hours(36), 4, 0, lonOffset = 0.01),
+            walk(hours(54), 0, 5, lonOffset = 0.01),
+            walk(hours(60), 5, 0),
+            walk(hours(78), 0, 3),
+            walk(hours(84), 3, 0),
+        )
+        val dao = db.derivedDao()
+        assertTrue("the fixture holds several places", dao.clustersOnce().size >= 3)
+        assertTrue("and an interval between each pair", dao.intervalsOnce().size >= ids.size - 1)
+        assertEquals("every track's two endpoints are filed", 2 * ids.size, dao.membersOnce().size)
+        return ids
+    }
 
     // --- Exact agreement, where the history only grew or was rewritten in place ----
 
     @Test fun `a history recorded a track at a time is what one pass over it would leave`() = runTest {
         recordedHistory()
 
-        // What the rest of this suite takes on trust: the fixture is a history with something in it.
-        // A guard that agreed about nothing would pass every case below.
-        val dao = db.derivedDao()
-        assertTrue("the fixture holds several places", dao.clustersOnce().size >= 3)
-        assertTrue("and an interval between each pair", dao.intervalsOnce().size >= 5)
-        assertEquals("every endpoint is filed somewhere", 16, dao.membersOnce().size)
         assertExact()
     }
 
@@ -121,19 +112,16 @@ class DerivedConsistencyTest {
             ActivityType.DRIVING,
             TrackRepository.ManualEnd(Coordinate(1.0, -2.0), hours(31)),
             TrackRepository.ManualEnd(Coordinate(1.02, -1.98), hours(33)),
-        )
-        assertTrue(entered is TrackRepository.ManualTrackResult.Saved)
+        ) as TrackRepository.ManualTrackResult.Saved
         assertExact()
 
-        val trackId = (entered as TrackRepository.ManualTrackResult.Saved).trackId
-        val rewritten = repository.updateManualTrack(
-            trackId,
+        repository.updateManualTrack(
+            entered.trackId,
             ActivityType.TRANSIT,
             // Both ends moved, so its endpoints leave the clusters they were in and join others.
             TrackRepository.ManualEnd(Coordinate(1.03, -2.0), hours(31)),
             TrackRepository.ManualEnd(Coordinate(1.05, -1.95), hours(33)),
-        )
-        assertTrue(rewritten is TrackRepository.ManualTrackResult.Saved)
+        ) as TrackRepository.ManualTrackResult.Saved
         assertExact()
     }
 
@@ -166,30 +154,18 @@ class DerivedConsistencyTest {
         recordedHistory()
         val id = places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
         val named = db.placeDao().allPlaces().single()
-        val before = DerivedReadModel.derivationOf(
-            stored = store.observeStored().first(),
-            places = db.placeDao().allPlaces(),
-            liveness = db.livenessDao().allEvents(),
-            nowMs = now,
-            activeStartedAt = null,
-        )
+        assertExact()
 
         places.delete(id)
         assertExact()
 
         // The whole argument for clearing the link rather than keeping the boundary: the round trip
         // has to land where it started, which an O(1) delete that kept the cluster would break.
+        // Snapshotting the derivation either side would say it less: the tracks and the place are
+        // identical to what stood before the delete, so exact agreement at both ends *is* the round
+        // trip — and it compares radius, membership and cluster identity, which a snapshot did not.
         places.restore(named)
         assertExact()
-        val after = DerivedReadModel.derivationOf(
-            stored = store.observeStored().first(),
-            places = db.placeDao().allPlaces(),
-            liveness = db.livenessDao().allEvents(),
-            nowMs = now,
-            activeStartedAt = null,
-        )
-        assertEquals(before.intervals, after.intervals)
-        assertEquals(before.clusters.map { it.anchor }, after.clusters.map { it.anchor })
     }
 
     @Test fun `splitting a track and undoing it agrees at each step`() = runTest {

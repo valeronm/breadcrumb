@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import org.junit.Assert.assertEquals
 
 /** Fixed epoch millis for test tracks — a real timestamp, so durations read sensibly. */
@@ -38,6 +39,29 @@ class TestDb {
         assertEquals(expected.startLon, track.startLon)
         assertEquals(expected.endLat, track.endLat)
         assertEquals(expected.endLon, track.endLon)
+    }
+
+    /**
+     * A kept walk along the fixture's line, from [fromIndex] to [toIndex] — either direction, so a
+     * walk home retraces the one out and its endpoints land in the other's clusters — offset
+     * [lonOffset] degrees east, which is how a case puts a track in another neighbourhood (0.01 is
+     * ~1.1 km, well outside any capture radius). Recorded the way the app records one: opened,
+     * filled a fix at a time, finished.
+     *
+     * Here rather than in each suite because the relationship between a point's timestamp and the
+     * track's end bound is the fixture's to know, and three copies of it had already begun to
+     * disagree about how to state it.
+     */
+    suspend fun walk(startedAt: Long, fromIndex: Int, toIndex: Int, lonOffset: Double = 0.0): Long {
+        val steps = if (fromIndex <= toIndex) fromIndex..toIndex else fromIndex downTo toIndex
+        val id = repository.startTrack(ActivityType.WALKING, startedAt)
+        repository.addPoints(
+            steps.mapIndexed { step, i ->
+                point(id, i).copy(timestamp = startedAt + step * 10_000L, longitude = -2.0 + lonOffset)
+            },
+        )
+        repository.finishTrack(id, startedAt + (steps.count() - 1) * 10_000L)
+        return id
     }
 
     /**

@@ -64,8 +64,7 @@ class TimelineInvalidationTest {
         // before measuring, then hold still long enough that a late one cannot be mistaken for it.
         val recording = repository.startTrack(ActivityType.WALKING, TEST_START + 120_000)
         awaitUntil { emissions.get() >= 5 }
-        delay(SETTLE_MS)
-        val before = emissions.get()
+        val before = awaitQuiet(emissions)
 
         repeat(30) { i -> repository.addPoints(listOf(test.point(recording, i))) }
         // Room's invalidation refresh is asynchronous — give it every chance to fire.
@@ -88,8 +87,30 @@ class TimelineInvalidationTest {
         }
     }
 
+    /**
+     * The count once it has stopped moving — a baseline taken while a straggler was still in flight
+     * would read as a fix that reached the queries. Waited for rather than slept through: the
+     * emissions being counted arrive within a poll or two of the write, so a fixed settle would
+     * spend its whole length on every run to cover a case that has already passed.
+     */
+    private suspend fun awaitQuiet(emissions: AtomicInteger): Int {
+        var last = emissions.get()
+        var quietPolls = 0
+        awaitUntil {
+            val seen = emissions.get()
+            quietPolls = if (seen == last) quietPolls + 1 else 0
+            last = seen
+            quietPolls >= QUIET_POLLS
+        }
+        return last
+    }
+
     private companion object {
         const val SETTLE_MS = 500L
         const val AWAIT_TIMEOUT_MS = 5_000L
+
+        /** Unchanged polls (of [awaitUntil]'s 20 ms) that count as quiet — the same order as the
+         *  settle below, bar that it is paid only when something really is still arriving. */
+        const val QUIET_POLLS = 5
     }
 }
