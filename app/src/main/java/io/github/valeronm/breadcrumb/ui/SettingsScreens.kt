@@ -34,6 +34,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -44,10 +45,14 @@ import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
+import io.github.valeronm.breadcrumb.data.export.LogExporter
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.UnitChoice
 import io.github.valeronm.breadcrumb.util.canAuthenticate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /** A Settings sub-page stacked above the Settings hub (shares one overlay slot in MainScreen). */
@@ -769,12 +774,21 @@ internal fun LogsScreen(onBack: () -> Unit) {
                 actions = {
                     // The chooser title is chrome and translates; the log body it carries does not.
                     val shareLogs = stringResource(R.string.logs_share)
+                    val scope = rememberCoroutineScope()
                     IconButton(onClick = {
-                        val share = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, DebugLog.dump())
+                        // A stream, not EXTRA_TEXT: the persisted history runs to megabytes, and a
+                        // string that size dies in the binder transaction the intent rides.
+                        scope.launch(Dispatchers.IO) {
+                            val uri = LogExporter.export(context)
+                            val share = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            withContext(Dispatchers.Main) {
+                                context.startActivity(Intent.createChooser(share, shareLogs))
+                            }
                         }
-                        context.startActivity(Intent.createChooser(share, shareLogs))
                     }) { Icon(Icons.Filled.Share, contentDescription = shareLogs) }
                     IconButton(onClick = { DebugLog.clear() }) {
                         Icon(

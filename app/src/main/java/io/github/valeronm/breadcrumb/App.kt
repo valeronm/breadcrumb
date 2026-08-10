@@ -13,11 +13,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.io.File
 
 class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // First, so no line of this process's life predates the file — the log is the only record
+        // of a field session that survives the process, and the earliest lines (a boot re-arm, a
+        // transition that cold-started us) are usually the ones an investigation wants.
+        DebugLog.attach(File(filesDir, "logs"))
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.channel_tracking),

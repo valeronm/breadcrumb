@@ -17,6 +17,17 @@ import java.util.TimeZone
 internal fun exportFileStamp(at: Long): String =
     SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(at))
 
+/**
+ * A file in the app's exports dir — the one directory `file_paths.xml` lets the FileProvider
+ * serve, so every share-by-Uri writes here. One spelling of the dir for all of them.
+ */
+internal fun exportsFile(context: Context, name: String): File =
+    File(File(context.filesDir, "exports").apply { mkdirs() }, name)
+
+/** The shareable content Uri for a file in the exports dir — one spelling of the authority. */
+internal fun exportUri(context: Context, file: File): Uri =
+    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+
 /** Serialises a stored track to a GPX 1.1 file and returns a shareable content Uri. */
 object GpxExporter {
 
@@ -39,15 +50,9 @@ object GpxExporter {
     suspend fun export(context: Context, repository: TrackRepository, trackId: Long): Uri? {
         val (track, points) = loadTrack(repository, trackId) ?: return null
 
-        val dir = File(context.filesDir, "exports").apply { mkdirs() }
-        val file = File(dir, fileName(track))
+        val file = exportsFile(context, fileName(track))
         file.bufferedWriter().use { writeGpx(it, track, points) }
-
-        return FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            file,
-        )
+        return exportUri(context, file)
     }
 
     /**
