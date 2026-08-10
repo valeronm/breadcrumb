@@ -146,6 +146,128 @@ data class LivenessEvent(
 }
 
 /**
+ * A group of track endpoints that are one spot, and **the durable entity a stay belongs to** — the
+ * place row beside it holds only what the user called it.
+ *
+ * [anchorLat]/[anchorLon] is the first member's position (or a named place's pin) and decides
+ * membership: an endpoint joins the nearest cluster whose [radiusM] covers it. The centroid — where
+ * the cluster is *reported* to be — is [sumLat]/[sumLon] over [memberCount], kept as running sums so
+ * adding or removing one member is an exact O(1) update in either direction, and so that placing a
+ * cluster on a map reads this row alone rather than joining [ClusterMember].
+ *
+ * A row with a [placeId] is a **seed**, and that is the whole difference user curation makes to the
+ * grouping: a seed's anchor and radius are given, where an unnamed cluster's are whatever its
+ * members made them.
+ */
+@Entity(tableName = "derived_clusters", indices = [Index("placeId")])
+data class DerivedCluster(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** The place naming this cluster, or null while nothing has named it. No foreign key: the two
+     *  are maintained together in one transaction, and a place delete clears this by hand. */
+    val placeId: Long? = null,
+    val anchorLat: Double,
+    val anchorLon: Double,
+    val radiusM: Double,
+    /** Running sums of member positions; the centroid is these over [memberCount], and the anchor
+     *  when that is zero — a named cluster whose stays were all deleted keeps its pin. */
+    val sumLat: Double,
+    val sumLon: Double,
+    val memberCount: Int,
+)
+
+/**
+ * One track endpoint's membership of a cluster — two rows per track, its start and its end.
+ *
+ * The assignment made durable: which spot an endpoint belongs to is a fact about that endpoint,
+ * held here rather than recomputed from every other endpoint in the history. That is what makes the
+ * neighbourhood of one track answerable on its own. [atMs] is the endpoint's own time, which orders
+ * them.
+ */
+@Entity(
+    tableName = "cluster_members",
+    foreignKeys = [
+        ForeignKey(
+            entity = DerivedCluster::class,
+            parentColumns = ["id"],
+            childColumns = ["clusterId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["trackId", "isStart"], unique = true), Index("clusterId")],
+)
+data class ClusterMember(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val clusterId: Long,
+    val trackId: Long,
+    /** True for the track's first good fix, false for its last. */
+    val isStart: Boolean,
+    val lat: Double,
+    val lon: Double,
+    val atMs: Long,
+)
+
+/**
+ * A stay or a gap between two kept tracks, as derived. One row per track — the one that *follows*
+ * [afterTrackId] — which is why that column is unique, and why an interval is identified by the
+ * track before it rather than by its own bounds, which the day slicing rewrites.
+ *
+ * **No row here is open-ended.** The stay still running after the newest track closes at the clock,
+ * or when recording starts, so it is not a fact about two finished tracks and has no row to be
+ * stale in ([io.github.valeronm.breadcrumb.domain.StayDeriver.tail] answers it).
+ *
+ * Which columns carry meaning depends on [type], the two shapes differing in the way stays and gaps
+ * differ: a stay names the [clusterId] its endpoints agreed on and no position, a gap names the two
+ * positions whose disagreement made it one — the ends a trip entered by hand to fill it runs
+ * between — beside the clusters they fell into, and no single place.
+ */
+@Entity(
+    tableName = "derived_intervals",
+    indices = [Index(value = ["afterTrackId"], unique = true), Index("start")],
+)
+data class DerivedInterval(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** [TYPE_STAY] | [TYPE_GAP]. */
+    val type: String,
+    val start: Long,
+    /** Always closed. Named unlike the domain's `end`, which is a SQLite keyword every hand-written
+     *  query would have to quote, and matches `tracks.endedAt` besides. */
+    val endedAt: Long,
+    /** The kept track this interval follows. */
+    val afterTrackId: Long,
+    /** STAY: [PROVENANCE_OBSERVED] | [PROVENANCE_INFERRED] — whether the app was alive throughout,
+     *  or only knows that the two ends agree. */
+    val provenance: String? = null,
+    /** STAY: the cluster both endpoints agreed on. */
+    val clusterId: Long? = null,
+    /** GAP: [REASON_MOVED_UNRECORDED] | [REASON_UNKNOWN_ENDPOINT]. */
+    val reason: String? = null,
+    /** GAP: the clusters either side, null on a side no fix was had for. */
+    val fromClusterId: Long? = null,
+    val toClusterId: Long? = null,
+    /** GAP: where the recording left off and where it picked up — the phone's own positions at
+     *  those instants, not the pins of the places holding them. Null on a side with no fix. */
+    val fromLat: Double? = null,
+    val fromLon: Double? = null,
+    val toLat: Double? = null,
+    val toLon: Double? = null,
+) {
+    /**
+     * The stored spellings of the three vocabularies these columns hold. Constants rather than
+     * literals at each writer, and declared here rather than taken from the domain enums whose
+     * names they echo: what is on disk outlives any one build's Kotlin identifiers, so a rename
+     * there must stay a rename and not a silent data migration.
+     */
+    companion object {
+        const val TYPE_STAY = "STAY"
+        const val TYPE_GAP = "GAP"
+        const val PROVENANCE_OBSERVED = "OBSERVED"
+        const val PROVENANCE_INFERRED = "INFERRED"
+        const val REASON_MOVED_UNRECORDED = "MOVED_UNRECORDED"
+        const val REASON_UNKNOWN_ENDPOINT = "UNKNOWN_ENDPOINT"
+    }
+}
+
+/**
  * A user-named place, created/renamed/deleted from the stay-naming dialog — the places feature's
  * only persisted layer, carrying what the user said about the spot (its name, what it is for,
  * how wide it captures) and nothing derived; stays, clusters and visit counts derive on read.

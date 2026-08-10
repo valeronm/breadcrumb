@@ -8,8 +8,11 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Track::class, TrackPoint::class, LivenessEvent::class, Place::class],
-    version = 15,
+    entities = [
+        Track::class, TrackPoint::class, LivenessEvent::class, Place::class,
+        DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
+    ],
+    version = 16,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -256,6 +259,78 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v16 adds the derived stay/place tables. DDL only, and they start **empty**: what belongs
+         * in them is a function of the tracks, the places and the liveness log already stored, so it
+         * is derived on the next launch rather than carried across by hand. A half-filled set of
+         * rows would be worse than none, nothing here distinguishing a row not yet written from one
+         * whose inputs said nothing.
+         */
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS derived_clusters (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                      placeId INTEGER,
+                      anchorLat REAL NOT NULL, anchorLon REAL NOT NULL,
+                      radiusM REAL NOT NULL,
+                      sumLat REAL NOT NULL, sumLon REAL NOT NULL,
+                      memberCount INTEGER NOT NULL)
+                    """,
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_derived_clusters_placeId " +
+                        "ON derived_clusters(placeId)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS cluster_members (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                      clusterId INTEGER NOT NULL,
+                      trackId INTEGER NOT NULL,
+                      isStart INTEGER NOT NULL,
+                      lat REAL NOT NULL, lon REAL NOT NULL,
+                      atMs INTEGER NOT NULL,
+                      FOREIGN KEY(clusterId) REFERENCES derived_clusters(id)
+                        ON UPDATE NO ACTION ON DELETE CASCADE )
+                    """,
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_cluster_members_trackId_isStart " +
+                        "ON cluster_members(trackId, isStart)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_cluster_members_clusterId " +
+                        "ON cluster_members(clusterId)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS derived_intervals (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                      type TEXT NOT NULL,
+                      start INTEGER NOT NULL,
+                      endedAt INTEGER NOT NULL,
+                      afterTrackId INTEGER NOT NULL,
+                      provenance TEXT,
+                      clusterId INTEGER,
+                      reason TEXT,
+                      fromClusterId INTEGER, toClusterId INTEGER,
+                      fromLat REAL, fromLon REAL,
+                      toLat REAL, toLon REAL)
+                    """,
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_derived_intervals_afterTrackId " +
+                        "ON derived_intervals(afterTrackId)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_derived_intervals_start " +
+                        "ON derived_intervals(start)",
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -266,6 +341,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                     MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                     MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15,
+                    MIGRATION_15_16,
                 ).build().also { instance = it }
             }
     }
