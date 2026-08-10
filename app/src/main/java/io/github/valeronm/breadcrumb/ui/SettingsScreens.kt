@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -146,10 +145,10 @@ internal fun SettingsScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             for (choice in UnitChoice.entries) {
-                                FilterChip(
+                                FilterToggleChip(
                                     selected = choice == unitChoice,
+                                    label = stringResource(choice.labelRes),
                                     onClick = { onUnitChoice(choice) },
-                                    label = { Text(stringResource(choice.labelRes)) },
                                 )
                             }
                         }
@@ -624,10 +623,10 @@ private fun LockGraceChips(graceSec: Pref<Int>) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         for (seconds in LOCK_GRACE_CHOICES) {
-            FilterChip(
+            FilterToggleChip(
                 selected = seconds == graceSec.value,
+                label = lockGraceLabel(seconds),
                 onClick = { graceSec.set(seconds) },
-                label = { Text(lockGraceLabel(seconds)) },
             )
         }
     }
