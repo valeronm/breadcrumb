@@ -58,6 +58,15 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     private val appContext = context.applicationContext
     private val dao = db.trackDao()
 
+    /**
+     * The stored stay/place derivation, repaired from inside the transactions that move a track's
+     * endpoints. Held here rather than left to a caller because the repair is part of the write:
+     * every path below that changes which tracks the timeline holds, or where one begins and ends,
+     * owes the derivation either a [DerivationStore.reknit] over the ids it touched or — where the
+     * change is historical and out of order — a [DerivationStore.rebuild].
+     */
+    private val derivation = DerivationStore(context, db)
+
     fun observeSummaries(): Flow<List<TrackSummary>> = dao.observeSummaries()
 
     fun observeEndpoints(): Flow<List<TrackEndpoints>> = dao.observeEndpoints()
@@ -137,6 +146,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                     "$overlapping overlapping skipped",
             )
         }
+        // A whole derivation, not a seam per track: an import lands historical tracks in whatever
+        // order the file holds them, and a repair around one of them assumes the stretch it reaches
+        // is otherwise settled.
+        if (imported > 0) derivation.rebuild()
         return GpxImportCounts(imported, duplicates, overlapping)
     }
 
@@ -179,7 +192,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.insertPoints(manualPoints(id, origin, destination))
             id
         }
-        finalizeImportedTrack(trackId)
+        finalizeManualTrack(trackId)
         DebugLog.i(TAG, "manual track: ${activityType.name} inserted as #$trackId")
         return ManualTrackResult.Saved(trackId)
     }
@@ -212,9 +225,22 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 trackId, activityType.name, origin.timestampMs, destination.timestampMs,
             )
         }
-        finalizeImportedTrack(trackId)
+        finalizeManualTrack(trackId)
         DebugLog.i(TAG, "manual track: #$trackId rewritten as ${activityType.name}")
         return ManualTrackResult.Saved(trackId)
+    }
+
+    /**
+     * The finalize an entered trip gets: the aggregates, then the derivation repaired around it. One
+     * transaction, so the row and the stays either side of it commit together — and separate from
+     * [finalizeImportedTrack], which a whole file goes through and which answers with one rebuild
+     * at the end rather than a seam per track.
+     */
+    private suspend fun finalizeManualTrack(trackId: Long) {
+        db.withTransaction {
+            finalizeImportedTrack(trackId)
+            derivation.reknit(listOf(trackId))
+        }
     }
 
     /** [ManualTrackResult.Overlapping] where some other track already covers this span, else null. */
@@ -335,7 +361,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // Run unconditionally once either rule is in play: restoring a fix moves the first or
             // last *good* point, which is where the overrun rule takes its bearings from.
             val applied = applyEdgeStays(retyped, endedAt, restored ?: stored)
-            if (restored != null || applied.changed) refreshStats(trackId, applied.points)
+            if (restored != null || applied.changed) {
+                refreshStats(trackId, applied.points)
+                // Not the free column write it looks like: either rule moves the track's bounds and
+                // its first and last good coordinates, which are the whole of what a stay is derived
+                // from. A retype that moved neither leaves the derivation alone.
+                derivation.reknit(listOf(trackId))
+            }
         }
     }
 
@@ -436,7 +468,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val applied = applyEdgeStays(closing, endedAt, points)
         val stats = refreshStats(track.id, applied.points)
         when (keepVerdict(track, applied.startedAt, applied.endedAt, stats)) {
-            KeepRule.Verdict.KEEP -> dao.closeTrack(track.id, applied.endedAt)
+            // The only verdict that puts the track on the timeline, and so the only one the
+            // derivation has anything to say about: an open track was never in it, and one
+            // discarded or purged at birth never enters.
+            KeepRule.Verdict.KEEP -> {
+                dao.closeTrack(track.id, applied.endedAt)
+                derivation.reknit(listOf(track.id))
+            }
             KeepRule.Verdict.DISCARD -> dao.discardTrack(
                 track.id,
                 endedAt = applied.endedAt,
@@ -530,10 +568,14 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * and a crash mid-pass costs only a re-run (the version is stored after). Points are loaded one
      * track at a time — the whole history is over a million rows and must never be resident at once
      * — and tracks commit in batches: `tracks` is observed, so a commit per track would re-run the
-     * timeline's queries and the derivation behind them thousands of times, while one transaction
-     * for the lot would hold every rewritten point row in the journal at once.
+     * timeline's queries and everything they feed thousands of times, while one transaction for the
+     * lot would hold every rewritten point row in the journal at once.
+     *
+     * Returns whether it rewrote anything, which is what the stored derivation hangs on: the bounds
+     * and the first/last good coordinates this moves are exactly what a stay is derived from, so a
+     * sweep that wrote is a derivation that is stale.
      */
-    suspend fun sweepEdgeStays() {
+    suspend fun sweepEdgeStays(): Boolean {
         val tracks = dao.exportTracks()
         val changed = sweep(tracks) { rederiveEdgeStays(it) }
         DebugLog.i(
@@ -541,6 +583,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             "edge-stay sweep (rule v${EdgeStayDetector.RULE_VERSION}) over ${tracks.size} " +
                 "tracks: $changed rewritten",
         )
+        return changed > 0
     }
 
     /**
@@ -586,9 +629,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * stored after, so an interrupted sweep costs a re-run. Points load one track at a time and
      * commit in batches, for the reasons on [sweepEdgeStays] — and a track whose stored columns
      * already agree is left alone: `tracks` is observed, so a needless UPDATE per track re-runs the
-     * timeline.
+     * timeline. Returns whether it rewrote anything, as [sweepEdgeStays] does and for the same
+     * reason.
      */
-    suspend fun sweepStats() {
+    suspend fun sweepStats(): Boolean {
         val tracks = dao.finishedTracks()
         val changed = sweep(tracks) { track ->
             val stats = TrackStats.of(dao.allPointsFor(track.id))
@@ -604,6 +648,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             "stats sweep (rule v${TrackStats.RULE_VERSION}) over ${tracks.size} " +
                 "tracks: $changed rewritten",
         )
+        return changed > 0
     }
 
     /**
@@ -623,11 +668,19 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * and is only hard-deleted by [purgeOldDiscarded] after the retention window.
      */
     suspend fun deleteTrack(trackId: Long) {
-        dao.setDiscarded(trackId, System.currentTimeMillis(), Track.REASON_DELETED)
+        db.withTransaction {
+            dao.setDiscarded(trackId, System.currentTimeMillis(), Track.REASON_DELETED)
+            derivation.reknit(listOf(trackId))
+        }
     }
 
     /** Bring a discarded track back to the timeline (undoes a delete/discard within retention). */
-    suspend fun restoreTrack(trackId: Long) = dao.restoreTrack(trackId)
+    suspend fun restoreTrack(trackId: Long) {
+        db.withTransaction {
+            dao.restoreTrack(trackId)
+            derivation.reknit(listOf(trackId))
+        }
+    }
 
     /** Hard-delete everything in Recently deleted right now (the user's "clear all"). */
     suspend fun purgeAllDiscarded() {
@@ -670,6 +723,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             val now = System.currentTimeMillis()
             dao.setDiscarded(earlierId, now, Track.REASON_MERGED)
             dao.setDiscarded(laterId, now, Track.REASON_MERGED)
+            derivation.reknit(listOf(mergedId, earlierId, laterId))
             mergedId
         }
     }
@@ -745,6 +799,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // writer of the denormalized columns in charge.
             refreshStats(trackId, applyEdgeStays(first, plan.firstEndTs, before).points)
             refreshStats(secondId, applyEdgeStays(second, endedAt, after).points)
+            derivation.reknit(listOf(trackId, secondId))
             DebugLog.i(
                 TAG,
                 "track $trackId split at $atTs: kept ${before.size} points, " +
@@ -769,6 +824,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.closeTrack(originalId, split.originalEndedAt)
             val applied = applyEdgeStays(original, split.originalEndedAt, dao.allPointsFor(originalId))
             refreshStats(originalId, applied.points)
+            derivation.reknit(listOf(originalId, split.secondId))
         }
     }
 
@@ -781,6 +837,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.purgeTrack(mergedId)
             dao.restoreTrack(earlierId)
             dao.restoreTrack(laterId)
+            derivation.reknit(listOf(mergedId, earlierId, laterId))
         }
     }
 

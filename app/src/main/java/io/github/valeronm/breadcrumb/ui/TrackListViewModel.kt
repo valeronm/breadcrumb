@@ -54,7 +54,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private val livenessRepository = LivenessRepository(app)
     private val placeRepository = PlaceRepository(app)
     private val derivationStore = DerivationStore(app)
-    private val backupRepositories = BackupRepositories(repository, placeRepository, livenessRepository)
+    private val backupRepositories =
+        BackupRepositories(repository, placeRepository, livenessRepository, derivationStore)
 
     /** GPX import/export/share and full backup/restore — the transfer half of this screen's API. */
     internal val importExport = ImportExportController(app, viewModelScope, repository, backupRepositories)
@@ -446,23 +447,28 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * Places for the trip ends the form picked *by name* — created only where no existing place
      * already claims the spot: a pin inside a place's capture radius is that place
      * ([PlaceClusterer.nearestSeedIndex], the rule's one author), and a second row there would
-     * split its stays. Sequential, with each create joining the seed list, so a round trip's two
-     * identical ends yield one place. Default radius, untagged — naming and categorizing stay
-     * separate steps, and the editor is where a circle gets judged.
+     * split its stays. Judged one after another, each accepted end joining the seed list, so a round
+     * trip's two identical ends yield one place — then written together, a create being what
+     * re-derives the history and two of them being one derivation's worth of change. Default radius,
+     * untagged — naming and categorizing stay separate steps, and the editor is where a circle gets
+     * judged.
      */
     private suspend fun createTripPlaces(named: List<Pair<String, Coordinate>>) {
         // The rows the screen is already collecting — warm by the time a trip commits.
         val seeds = PlaceClusterer.seedsOf(storedPlaces.value).toMutableList()
+        val now = System.currentTimeMillis()
+        val rows = mutableListOf<Place>()
         for ((label, at) in named) {
             val trimmed = label.trim()
             if (trimmed.isEmpty()) continue
             if (PlaceClusterer.nearestSeedIndex(at.lat, at.lon, seeds, AndroidDistance) != null) continue
-            placeRepository.create(
-                trimmed, at.lat, at.lon,
-                System.currentTimeMillis(), PlaceClusterer.DEFAULT_RADIUS_M,
+            rows += Place(
+                label = trimmed, lat = at.lat, lon = at.lon,
+                createdAt = now, radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
             )
             seeds += PlaceClusterer.Seed(at, PlaceClusterer.DEFAULT_RADIUS_M)
         }
+        if (rows.isNotEmpty()) placeRepository.createAll(rows)
     }
 
     /** One trip end as the form commits it: the typed end, and the name it was picked by —

@@ -284,9 +284,14 @@ object StayDeriver {
         /** Nothing to record between these two tracks. */
         data object None : Verdict
 
-        data class Moved(val reason: GapReason) : Verdict
+        /** A verdict an interval can be built from — the whole of [Verdict] bar [None], so that a
+         *  caller holding one of these has already ruled the empty case out and every writer of an
+         *  interval row answers exhaustively over two cases rather than guarding a third at runtime. */
+        sealed interface Recorded : Verdict
 
-        data class Stayed(val provenance: Provenance) : Verdict
+        data class Moved(val reason: GapReason) : Recorded
+
+        data class Stayed(val provenance: Provenance) : Recorded
     }
 
     internal fun verdictBetween(

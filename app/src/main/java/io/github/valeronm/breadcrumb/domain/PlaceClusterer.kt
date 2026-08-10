@@ -31,13 +31,17 @@ object PlaceClusterer {
     )
 
     /**
-     * What clustering reads off stored places, in the list's order: where each sits and how far it
-     * reaches. **This is the whole of a place's influence on the derivation** — its name and its
-     * category reach clustering nowhere — so an observer that re-derives only when this projection
-     * changes cannot miss a move and cannot re-run on a rename.
+     * What clustering reads off a stored place: where it sits and how far it reaches. **This is the
+     * whole of a place's influence on the derivation** — its name and its category reach clustering
+     * nowhere — so an observer that re-derives only when this projection changes cannot miss a move
+     * and cannot re-run on a rename. One function rather than a `Seed(…)` at each such observer,
+     * because a term added here has to reach every one of them or the ones it misses stop noticing
+     * what they exist to notice.
      */
-    fun seedsOf(places: List<Place>): List<Seed> =
-        places.map { Seed(it.pin, it.radiusM) }
+    fun seedOf(place: Place): Seed = Seed(place.pin, place.radiusM)
+
+    /** [seedOf] over a list, in the list's order — which is the order clustering seeds in. */
+    fun seedsOf(places: List<Place>): List<Seed> = places.map(::seedOf)
 
     /**
      * Which of [seeds] claims ([lat], [lon]): the nearest one whose own radius covers it, or null

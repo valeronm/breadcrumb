@@ -41,14 +41,13 @@ code can resurface its entry as new, which is intended.
 ## Unit tests
 
 Unit tests live in `app/src/test` and cover the pure logic in `domain/` plus data-layer pieces
-(TrackQuality, TrackStats, GpxExporter/GpxParser, BackupExporter/BackupImporter) and the view
-model's flow gating (`PlaceDerivationGateTest`, which drives the real `pinnedRows` rather than a
-copy of it, and needs no database — so unlike the Room-backed tests below it runs on any dev box) — run them with
+(TrackQuality, TrackStats, GpxExporter/GpxParser, BackupExporter/BackupImporter) — run them with
 `./gradlew :app:testDebugUnitTest`, and note that `assembleDebug` does **not** compile them, so
 run the tests after touching anything they cover. **Room runs in these host tests via Robolectric**
 (in-memory DB, `TestDb` fixture), so the repository's DB rules and the schema migrations are
-covered without a device — see `TrackRepositoryTest`, `Migration10To11Test`, and
-`TimelineInvalidationTest`. Robolectric emulates up to SDK 36 while the app targets 37, so its
+covered without a device — see `TrackRepositoryTest`, `Migration10To11Test`,
+`TimelineInvalidationTest`, and the stored derivation's own suites (`DerivationStoreTest`,
+`DerivedReadModelTest`, `Migration15To16Test`). Robolectric emulates up to SDK 36 while the app targets 37, so its
 tests are pinned in `app/src/test/resources/robolectric.properties`; raise it when Robolectric
 catches up. **Robolectric's native runtime ships no Linux aarch64 build**, so on an arm64 dev box
 every Room-backed test fails with an architecture assertion, whatever the change — that's the
@@ -313,13 +312,44 @@ same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `web/js/stays.js`, t
 against `StayDeriverTest`), so a rule that moves here moves there. `PlaceRepository` backs the
 Places tab.
 
+**The timeline's stays are stored, not derived on read** — `data/DerivationStore` over three tables
+(`derived_clusters`, `cluster_members`, `derived_intervals`, schema v16). Showing a day is a query,
+and the derivation runs where a track *changes* rather than where one is read, which is what lets a
+reader outside the app's own screens ask what a day held without walking the history. **Two passes
+write those rows and they must agree**: `rebuild` derives the whole history, `StayLedger.reknit`
+repairs the handful of rows one change reaches. What keeps them honest is that the rule they share
+is written once — `StayDeriver.verdictBetween` decides what the interval between two adjacent tracks
+is, and `Agreement` what "the same place" means — and where they are *allowed* to diverge is stated
+on `StayLedger` rather than hidden: a cluster's anchor is its first-ever member, so deleting the
+track that founded one leaves the anchor put. `DerivedReadModel` is the exact inverse of the write
+mapping (a code added to one is unreadable until added to the other), and the trailing stay is
+appended there rather than stored — it closes at the clock, so no row could hold it.
+
+**Which paths repair and which re-derive** is what a new mutation path has to decide, and all three
+answers live in `TrackRepository` beside the writes they belong to. A change that moves a known
+stretch of the timeline calls `reknit` with the ids it touched, inside its own transaction — a track
+finished, deleted, restored, merged, unmerged, split, unsplit, entered or rewritten by hand, or
+retyped across a boundary that moved its edges (that last one being why a retype is not the free
+column write it looks like). A change that is historical or out of order calls `rebuild`: a GPX
+import, a backup restore, or either versioned sweep having rewritten endpoints — which is why both
+sweeps now report whether they wrote anything. And a change to the **seeds** goes through
+`reconcile`, which is the only way a rebuild is reached outside a repair: it brings the seed clusters
+back into agreement with the `places` table and re-derives when one moved — or when the caller says
+the rows are stale for a reason of its own (`stale = true`), so a launch that must rebuild anyway
+pays for one pass. One write reaches backwards over rows already derived and is none of the three:
+materializing an OUTAGE re-asks what the stays across it witnessed, through
+`StayDeriver.summarizeLiveness` so that rule keeps one author. Nothing there changes place, bound or
+existence — the window is a fact about the app, not about where anyone was.
+
 **A place row holds what the user said about a spot, and only that** — its name, its capture radius,
 and its `category` (`PlaceCategory.code`, null = untagged). Everything else about a place is derived
 on read. **A category and a name feed nothing on the way to a stay**, and the plumbing is built to
-say so: the derivation is gated on `PlaceClusterer.seedsOf` — a place's pin and its reach — rather
-than on the rows (`pinnedRows` in `TrackListViewModel`, pinned by `PlaceDerivationGateTest`), and a
-fresher reading of the rows is **matched by id onto the list the clustering was built from**, never
-substituted for it, because `PlaceResolver` resolves positionally.
+say so: what reaches the derivation is a place's pin and its reach — `PlaceClusterer.seedOf`, the one
+projection that says so — carried into the derived tables as that place's seed cluster
+(`DerivationStore.reconcile`). A rename or a re-categorization moves no seed, so it writes nothing
+and re-derives nothing, which `DerivationStoreTest` pins. On the read side a place is matched to its
+cluster **by position**, `PlaceResolver` resolving positionally, which is why `DerivedReadModel`
+orders named clusters by their place's index and unnamed ones after them.
 
 The vocabulary is a closed set of permanent codes stored raw and mapped in the domain
 (`Place.placeCategory`, following the `activityType` / `IgnoreReason.code` precedent), with untagged
@@ -387,8 +417,12 @@ opening. Make the pass idempotent — a crash between the work and the flag writ
 Delete the pass, its flag, and any DAO queries only it used once the installed base has run it;
 `git log --grep=backfill` holds worked examples to copy from (the ignore-reason backfill, the
 drive-start leading-stray repair, the point-starved-track purge). **No backfill is live right
-now**: `App.onCreate` runs the discarded-track retention purge and the two versioned sweeps (edge
-stays, then track stats), and `sweepEdgeStays` says why a sweep is not one.
+now**: `App.onCreate` runs the discarded-track retention purge, the two versioned sweeps (edge
+stays, then track stats) and then the derivation — seeds reconciled, and the history re-derived if
+those seeds moved, if a sweep rewrote an endpoint, or if `DerivationStore.LOGIC_VERSION` outran what
+the rows were derived by. That last order is load-bearing: the sweeps rewrite the very coordinates
+the derivation reads. `sweepEdgeStays` says why a sweep is not a backfill, and `reconcile` is not
+one either — it is a reconciliation with no completion to record.
 
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places / Insights) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus

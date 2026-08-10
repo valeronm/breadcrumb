@@ -94,6 +94,10 @@ object BackupImporter {
             },
         )
         flush()
+        // Once, at the end: the restored places become the seeds, and the derivation over every
+        // track the file carried is one pass rather than a repair per batch — the tracks arrive in
+        // the file's order, which a repair around one of them has no way to assume anything about.
+        repositories.derivation.reconcile(stale = true)
         return Summary(tracks, points, places, events)
     }
 

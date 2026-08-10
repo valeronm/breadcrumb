@@ -73,7 +73,6 @@ class DerivedReadModelTest {
 
     @Test fun `rows read back are the derivation, intervals and clusters alike`() = runTest {
         places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
-        store.linkPlacesToClusters()
         track(TEST_START)
         track(TEST_START + 3 * 60 * 60_000L)
         track(TEST_START + 6 * 60 * 60_000L)
@@ -121,7 +120,6 @@ class DerivedReadModelTest {
         // of its place in the places list — not merely somewhere in the list.
         places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
         places.create("Far", 9.0, -9.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
-        store.linkPlacesToClusters()
         track(TEST_START)
         store.rebuild(now)
 

@@ -267,4 +267,33 @@ interface TrackDao {
     @RewriteQueriesToDropUnusedColumns
     @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt ASC")
     suspend fun endpointsOnce(): List<TrackEndpoints>
+
+    /**
+     * Which of [ids] are on the timeline at all — a repair asks about the tracks a change touched,
+     * and the ones it discarded or purged answer by being absent rather than by a second query.
+     */
+    @RewriteQueriesToDropUnusedColumns
+    @Query(
+        "SELECT * FROM tracks WHERE id IN (:ids) AND endedAt IS NOT NULL AND discardedAt IS NULL " +
+            "ORDER BY startedAt ASC",
+    )
+    suspend fun endpointsFor(ids: List<Long>): List<TrackEndpoints>
+
+    /**
+     * The kept track on either side of a stretch being repaired — [excluding] holds the ids the
+     * change itself touched, whose own rows must not answer as their own neighbour.
+     */
+    @RewriteQueriesToDropUnusedColumns
+    @Query(
+        "SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL " +
+            "AND id NOT IN (:excluding) AND startedAt < :before ORDER BY startedAt DESC LIMIT 1",
+    )
+    suspend fun keptTrackBefore(before: Long, excluding: List<Long>): TrackEndpoints?
+
+    @RewriteQueriesToDropUnusedColumns
+    @Query(
+        "SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL " +
+            "AND id NOT IN (:excluding) AND startedAt >= :after ORDER BY startedAt ASC LIMIT 1",
+    )
+    suspend fun keptTrackAfter(after: Long, excluding: List<Long>): TrackEndpoints?
 }

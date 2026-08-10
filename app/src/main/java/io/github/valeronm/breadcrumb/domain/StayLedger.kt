@@ -18,11 +18,14 @@ package io.github.valeronm.breadcrumb.domain
  */
 object StayLedger {
 
-    /** A cluster to assign against: where it sits, how far it reaches, and what it holds. */
+    /**
+     * A cluster to assign against: where it sits and how far it reaches — which is a
+     * [PlaceClusterer.Seed] and is held as one rather than as a copy of its two fields, so the
+     * clusterer is handed the row's own reach and not a second reading of it — plus what it holds.
+     */
     class ClusterRow(
         val id: Long,
-        val anchor: Coordinate,
-        val radiusM: Double,
+        val seed: PlaceClusterer.Seed,
         /** Named clusters are seeds — they survive with no members, and they are the pins the
          *  shared-pin agreement override reads. */
         val named: Boolean,
@@ -46,11 +49,13 @@ object StayLedger {
         val cluster: ClusterRef,
     )
 
-    /** A cluster this pass founds because no stored one reached the endpoint that made it. */
-    class FoundedCluster(val anchor: Coordinate, val radiusM: Double)
-
-    /** How one stored cluster's membership moved — applied to its running sums and count. */
-    class ClusterDelta(val id: Long, val sumLat: Double, val sumLon: Double, val count: Int)
+    /**
+     * How one cluster's membership moved — applied to its running sums and count. Every membership
+     * this pass adds or takes away is in exactly one of these, [founded] clusters included, so a
+     * caller has one rule to apply rather than a rule and an exception: a founded row is inserted
+     * empty and then shifted like any other.
+     */
+    class ClusterDelta(val cluster: ClusterRef, val sumLat: Double, val sumLon: Double, val count: Int)
 
     /**
      * An interval to store: the verdict, its bounds, and the clusters it names — as [ClusterRef],
@@ -62,7 +67,7 @@ object StayLedger {
      * answer it has to where it was" is worse than a row shape that never pretends.
      */
     class Interval(
-        val verdict: StayDeriver.Verdict,
+        val verdict: StayDeriver.Verdict.Recorded,
         val start: Long,
         val end: Long,
         val afterTrackId: Long,
@@ -106,15 +111,28 @@ object StayLedger {
         val removed: Removals,
         val intervals: List<Interval>,
         val memberships: List<Membership>,
-        val founded: List<FoundedCluster>,
+        /** Clusters this pass founds, in [ClusterRef.Founded]'s index order — an anchor with a
+         *  reach and nothing else, which is all a new cluster is until an endpoint joins it. */
+        val founded: List<PlaceClusterer.Seed>,
         val deltas: List<ClusterDelta>,
     )
 
-    /** The stretch of history a change reaches, in time order. */
+    /**
+     * The stretch of history a change reaches, in time order. [added] must be contiguous in the kept
+     * order — no kept track the change left alone may sit between two of them, since the intervals
+     * are recomputed over `prev + added + next` and a track missing from that chain would have the
+     * pair either side of it joined across it.
+     */
     class Seam(
         /** The kept track before the change, whose following interval is recomputed. */
         val prev: StayDeriver.TrackEnd?,
-        val removed: List<StayDeriver.TrackEnd>,
+        /**
+         * Tracks whose stored endpoints stop counting, **by id alone** — a removal is a fact about
+         * what was stored, and where the track used to be is in the memberships rather than in
+         * anything a caller would have to reconstruct. A track being rewritten belongs here *and* in
+         * [added]: its old endpoints leave and its new ones arrive.
+         */
+        val removed: List<Long>,
         val added: List<StayDeriver.TrackEnd>,
         /** The kept track after the change; null when the change reaches the end of the history,
          *  where the interval that would follow is the open one and is never stored. */
@@ -136,17 +154,16 @@ object StayLedger {
         params: StayDeriver.Params = StayDeriver.Params(),
         distance: DistanceFn,
     ): Mutations {
-        val pins = stored.clusters.filter { it.named }
-            .map { PlaceClusterer.Seed(it.anchor, it.radiusM) }
+        val pins = stored.clusters.filter { it.named }.map { it.seed }
         val agreement = StayDeriver.Agreement(params, distance, pins)
         val evidence = StayDeriver.summarizeLiveness(stored.liveness, stored.nowMs)
 
         val anchors = Anchors(stored.clusters, params.placeRadiusM, distance)
-        val deltas = HashMap<Long, ClusterDelta>()
-        fun shift(id: Long, at: Coordinate, by: Int) {
-            val current = deltas[id]
-            deltas[id] = ClusterDelta(
-                id = id,
+        val deltas = HashMap<ClusterRef, ClusterDelta>()
+        fun shift(cluster: ClusterRef, at: Coordinate, by: Int) {
+            val current = deltas[cluster]
+            deltas[cluster] = ClusterDelta(
+                cluster = cluster,
                 sumLat = (current?.sumLat ?: 0.0) + at.lat * by,
                 sumLon = (current?.sumLon ?: 0.0) + at.lon * by,
                 count = (current?.count ?: 0) + by,
@@ -154,9 +171,9 @@ object StayLedger {
         }
 
         // What leaves: the removed tracks' endpoints stop counting toward their clusters.
-        for (track in seam.removed) {
-            for (member in stored.membershipOf[track.trackId].orEmpty()) {
-                (member.cluster as? ClusterRef.Stored)?.let { shift(it.id, member.at, -1) }
+        for (trackId in seam.removed) {
+            for (member in stored.membershipOf[trackId].orEmpty()) {
+                shift(member.cluster, member.at, -1)
             }
         }
 
@@ -167,7 +184,7 @@ object StayLedger {
             val ref = anchors.claim(endpoint.at)
             memberships += Membership(endpoint.trackId, endpoint.isStart, endpoint.at, endpoint.atMs, ref)
             clusterOf[Endpoint(endpoint.trackId, endpoint.isStart)] = ref
-            (ref as? ClusterRef.Stored)?.let { shift(it.id, endpoint.at, +1) }
+            shift(ref, endpoint.at, +1)
         }
         for (id in listOfNotNull(seam.prev?.trackId, seam.next?.trackId)) {
             for (member in stored.membershipOf[id].orEmpty()) {
@@ -185,12 +202,12 @@ object StayLedger {
 
         return Mutations(
             removed = Removals(
-                intervalsAfterTracks = (listOfNotNull(seam.prev) + seam.added + seam.removed)
-                    .map { it.trackId },
-                membershipsOfTracks = (seam.added + seam.removed).map { it.trackId },
+                intervalsAfterTracks = (listOfNotNull(seam.prev) + seam.added).map { it.trackId } +
+                    seam.removed,
+                membershipsOfTracks = seam.added.map { it.trackId } + seam.removed,
                 emptiedClusters = stored.clusters
                     .filterNot { it.named }
-                    .filter { it.memberCount + (deltas[it.id]?.count ?: 0) <= 0 }
+                    .filter { it.memberCount + (deltas[ClusterRef.Stored(it.id)]?.count ?: 0) <= 0 }
                     .map { it.id },
             ),
             intervals = intervals,
@@ -217,8 +234,7 @@ object StayLedger {
         val to = clusterOf[Endpoint(after.trackId, isStart = true)]
         val verdict = StayDeriver.verdictBetween(
             before, after, sameCluster = from != null && from == to, agreement, evidence,
-        )
-        if (verdict is StayDeriver.Verdict.None) return null
+        ) as? StayDeriver.Verdict.Recorded ?: return null
         val moved = verdict is StayDeriver.Verdict.Moved
         return Interval(
             verdict = verdict,
@@ -248,10 +264,8 @@ object StayLedger {
         radiusM: Double,
         distance: DistanceFn,
     ) {
-        private val anchoring = PlaceClusterer.Anchoring(
-            stored.map { PlaceClusterer.Seed(it.anchor, it.radiusM) }, radiusM, distance,
-        )
-        val founded = mutableListOf<FoundedCluster>()
+        private val anchoring = PlaceClusterer.Anchoring(stored.map { it.seed }, radiusM, distance)
+        val founded = mutableListOf<PlaceClusterer.Seed>()
 
         /**
          * Which cluster an endpoint joins, by [PlaceClusterer.Anchoring]'s rule and no other — the
@@ -260,10 +274,14 @@ object StayLedger {
         fun claim(endpoint: Coordinate): ClusterRef {
             val index = anchoring.claim(endpoint)
             if (index < stored.size) return ClusterRef.Stored(stored[index].id)
-            while (founded.size <= index - stored.size) {
-                founded += FoundedCluster(anchoring.anchorAt(stored.size + founded.size), anchoring.radiusAt(index))
+            val slot = index - stored.size
+            // A new anchor lands at the end of the list, so a claim either fills the one slot past
+            // what is recorded here or names one already recorded — a later endpoint joining an
+            // anchor an earlier one founded.
+            if (slot == founded.size) {
+                founded += PlaceClusterer.Seed(anchoring.anchorAt(index), anchoring.radiusAt(index))
             }
-            return ClusterRef.Founded(index - stored.size)
+            return ClusterRef.Founded(slot)
         }
     }
 }

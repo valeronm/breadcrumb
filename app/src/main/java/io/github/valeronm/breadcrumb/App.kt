@@ -61,33 +61,30 @@ class App : Application() {
             // The ignored edge stays are verdicts of a rule that keeps moving, so they are
             // re-derived whenever the detector's version outruns the one they were computed
             // with — not once.
+            // Whether either sweep below rewrote a track's bounds or its first/last good
+            // coordinates — the derivation's whole input, and so what the rebuild at the end hangs
+            // on as much as on its own rule version.
+            var endpointsMoved = false
             if (Settings.edgeStayRuleVersion(this@App) < EdgeStayDetector.RULE_VERSION) {
-                repository.sweepEdgeStays()
+                if (repository.sweepEdgeStays()) endpointsMoved = true
                 Settings.setEdgeStayRuleVersion(this@App, EdgeStayDetector.RULE_VERSION)
             }
             // The aggregates on a track row are the output of a walk that keeps moving too, and
             // they are re-derived the same way. It runs second: the edge-stay sweep decides which
             // fixes are on the path, and this one totals whatever that leaves.
             if (Settings.statsRuleVersion(this@App) < TrackStats.RULE_VERSION) {
-                repository.sweepStats()
+                if (repository.sweepStats()) endpointsMoved = true
                 Settings.setStatsRuleVersion(this@App, TrackStats.RULE_VERSION)
             }
-            val derivation = DerivationStore(this@App)
-            // A one-time conversion: each existing place gets the cluster that now carries its pin.
-            // Before the re-derivation below, which seeds itself from those clusters — a place
-            // converted afterwards would be invisible to it until something else re-derived.
-            if (!Settings.isPlaceClusterLinkDone(this@App)) {
-                derivation.linkPlacesToClusters()
-                Settings.setPlaceClusterLinkDone(this@App)
-            }
             // Last, and the order is load-bearing: both sweeps above rewrite the first and last
-            // good coordinates of a track, which are the endpoints this derives from. Deriving
+            // good coordinates of a track, which are the endpoints the derivation reads. Deriving
             // ahead of them would store a reading of coordinates about to move, with nothing to
-            // say it was stale.
-            if (Settings.derivedLogicVersion(this@App) < DerivationStore.LOGIC_VERSION) {
-                derivation.rebuild()
-                Settings.setDerivedLogicVersion(this@App, DerivationStore.LOGIC_VERSION)
-            }
+            // say it was stale — which is also why a sweep that *did* move any of them re-derives
+            // here whether or not this build's rules changed. A seed moved while the app was closed
+            // (none can be today, but a future importer could) is the reconcile's own business.
+            val ruleMoved = Settings.derivedLogicVersion(this@App) < DerivationStore.LOGIC_VERSION
+            DerivationStore(this@App).reconcile(stale = endpointsMoved || ruleMoved)
+            if (ruleMoved) Settings.setDerivedLogicVersion(this@App, DerivationStore.LOGIC_VERSION)
         }
     }
 

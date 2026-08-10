@@ -40,7 +40,6 @@ object Settings {
 
     private const val KEY_STATS_RULE_VERSION = "stats_rule_version"
     private const val KEY_DERIVED_LOGIC_VERSION = "derived_logic_version"
-    private const val KEY_PLACE_CLUSTER_LINK_DONE = "place_cluster_link_done"
 
     const val DEFAULT_SAMPLING_MIN_INTERVAL_SEC = 5
     const val DEFAULT_SAMPLING_MIN_DISTANCE_M = 5
@@ -359,18 +358,5 @@ object Settings {
 
     fun setDerivedLogicVersion(context: Context, version: Int) {
         prefs(context).edit { putInt(KEY_DERIVED_LOGIC_VERSION, version) }
-    }
-
-    /**
-     * Whether every existing place has been given the cluster that now carries its pin. A one-time
-     * conversion with its own flag rather than a share of [derivedLogicVersion], because the two
-     * have different lifetimes: re-deriving is a standing lever, while this runs once per install
-     * and goes — pass, flag and all — once the installed base has passed through it.
-     */
-    fun isPlaceClusterLinkDone(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_PLACE_CLUSTER_LINK_DONE, false)
-
-    fun setPlaceClusterLinkDone(context: Context) {
-        prefs(context).edit { putBoolean(KEY_PLACE_CLUSTER_LINK_DONE, true) }
     }
 }

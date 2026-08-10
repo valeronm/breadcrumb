@@ -9,6 +9,7 @@ import io.github.valeronm.breadcrumb.data.db.DerivedInterval
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.StayLedger
 import io.github.valeronm.breadcrumb.domain.toLiveness
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.util.DebugLog
@@ -112,10 +113,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
                     val seedIndex = cluster.seedIndex
                     if (seedIndex == null) {
                         derived.insertCluster(
-                            DerivedCluster(
-                                anchorLat = cluster.anchor.lat,
-                                anchorLon = cluster.anchor.lon,
-                                radiusM = cluster.radiusM,
+                            seedRow(PlaceClusterer.Seed(cluster.anchor, cluster.radiusM)).copy(
                                 sumLat = sumLat,
                                 sumLon = sumLon,
                                 memberCount = cluster.visitCount,
@@ -133,10 +131,14 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
                 val endpoints = StayDeriver.endpointsOf(trackEnds)
                 derived.insertMembers(
                     derivation.clusters.flatMapIndexed { index, cluster ->
-                        cluster.memberIndices.map { endpoints[it].toRow(clusterRowIds[index]) }
+                        cluster.memberIndices.map {
+                            endpoints[it].asMembership(clusterRowIds[index]).toRow()
+                        }
                     },
                 )
-                derived.insertIntervals(derivation.intervals.map { it.toRow(clusterRowIds) })
+                derived.insertIntervals(
+                    derivation.intervals.map { it.asLedgerInterval(clusterRowIds).toRow() },
+                )
                 DebugLog.i(
                     TAG,
                     "derivation rebuild (logic v$LOGIC_VERSION) over ${trackEnds.size} tracks: " +
@@ -149,36 +151,206 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /**
-     * Give every place a cluster of its own, from the pin and reach it was created with.
+     * Bring the derivation back into agreement with what it is derived from, re-deriving the history
+     * when it has to — the one entry point for every caller that has changed a *seed*, and the only
+     * way [rebuild] is reached outside a repair.
      *
-     * This is what carries user curation into these tables: a place's influence on the derivation is
-     * its pin and its reach, and here that becomes a seed row the derivation can preserve, rather
-     * than a projection of the places table taken afresh each time. Places that already have one are
-     * skipped, which makes it safe to re-run — as a pass that crashes between the work and its flag
-     * will be.
+     * The seed half is the whole of how user curation reaches these tables. A place's influence on
+     * the derivation is its pin and its reach ([PlaceClusterer.seedOf], the one projection that says
+     * so), so a place with no cluster gets one, a place whose circle moved moves its cluster's, and a
+     * cluster whose place is gone goes with it — the rebuild then re-derives that ground organically.
+     * A rename or a re-categorization moves no seed: nothing is written and no history is re-derived.
+     *
+     * [stale] is for a caller that knows the rows are wrong for a reason of its own — a sweep having
+     * rewritten the endpoints under them, a restore having just landed a history, this build's rules
+     * having outrun what they were derived by. Taking it here rather than leaving each caller to pair
+     * a check with a rebuild is what keeps a seed move from being noticed and then dropped, and it
+     * costs those callers nothing: one pass covers both reasons.
+     *
+     * The seed pass is idempotent and cheap enough to run on every launch and every place write: two
+     * small queries against tables measured in hundreds of rows.
      */
-    suspend fun linkPlacesToClusters() {
+    suspend fun reconcile(stale: Boolean = false) {
         db.withTransaction {
-            val alreadyLinked = derived.namedClusters().mapTo(HashSet()) { it.placeId }
-            for (place in places.allPlaces()) {
-                if (place.id in alreadyLinked) continue
-                derived.insertCluster(
-                    DerivedCluster(
-                        placeId = place.id,
-                        anchorLat = place.lat,
-                        anchorLon = place.lon,
-                        radiusM = place.radiusM,
-                        sumLat = 0.0,
-                        sumLon = 0.0,
-                        memberCount = 0,
-                    ),
-                )
+            // Seeds first whatever the reason, since a rebuild derives against them: a `stale`
+            // caller that rebuilt before this pass would derive from the seeds it is replacing.
+            val seedsMoved = alignSeeds()
+            if (seedsMoved || stale) rebuild()
+        }
+    }
+
+    /** Whether reconciling the seeds moved one. Separate only so [reconcile] can read as the rule
+     *  it enforces; nothing else may call it, a true answer being an obligation to re-derive. */
+    private suspend fun alignSeeds(): Boolean {
+        val seeded = derived.namedClusters().associateBy { checkNotNull(it.placeId) }
+        val rows = places.allPlaces()
+        val kept = rows.mapTo(HashSet()) { it.id }
+        var changed = false
+        val orphaned = seeded.filterKeys { it !in kept }.map { (_, cluster) -> cluster.id }
+        if (orphaned.isNotEmpty()) {
+            derived.deleteClusters(orphaned)
+            changed = true
+        }
+        for (place in rows) {
+            val seed = PlaceClusterer.seedOf(place)
+            val cluster = seeded[place.id]
+            if (cluster == null) {
+                derived.insertCluster(seedRow(seed, placeId = place.id))
+                changed = true
+            } else if (cluster.toSeed() != seed) {
+                derived.setClusterSeed(cluster.id, seed.anchor.lat, seed.anchor.lon, seed.radiusM)
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    /** A cluster row at a bare anchor and reach — the inverse of [toSeed], and empty of members
+     *  either because nothing has joined it yet or because it is a pin nothing has visited. */
+    private fun seedRow(seed: PlaceClusterer.Seed, placeId: Long? = null) = DerivedCluster(
+        placeId = placeId,
+        anchorLat = seed.anchor.lat,
+        anchorLon = seed.anchor.lon,
+        radiusM = seed.radiusM,
+        sumLat = 0.0,
+        sumLon = 0.0,
+        memberCount = 0,
+    )
+
+    /**
+     * Re-ask what the stored stays over a window witnessed, the liveness behind them having changed.
+     *
+     * **The one thing that reaches backwards over rows already derived**, and the only change that
+     * is neither a repair nor a rebuild: an outage is learned after the fact — the app finds out it
+     * was dead only once it is alive again — so the stays across it were derived believing the
+     * silence was attested. Nothing about where anyone was moves, so no interval changes place,
+     * bound or existence; only what the app claims to have seen.
+     *
+     * Re-judged through [StayDeriver.summarizeLiveness] rather than written by a rule of its own, so
+     * that what a silence makes of a stay keeps one author — including the half about evidence
+     * predating the record, which no query over a window could express. The rows are the handful an
+     * outage overlaps, and one whose answer has not changed is not written.
+     */
+    suspend fun rejudgeProvenance(from: Long, until: Long) {
+        db.withTransaction {
+            val evidence = StayDeriver.summarizeLiveness(
+                liveness.allEvents().mapNotNull { it.toLiveness() },
+                nowMs = until,
+            )
+            for (row in derived.intervalsOverlapping(from, until)) {
+                if (row.type != DerivedInterval.TYPE_STAY) continue
+                val code = when (evidence.provenanceOver(row.start, row.endedAt)) {
+                    StayDeriver.Provenance.OBSERVED -> DerivedInterval.PROVENANCE_OBSERVED
+                    StayDeriver.Provenance.INFERRED -> DerivedInterval.PROVENANCE_INFERRED
+                }
+                if (code != row.provenance) derived.setIntervalProvenance(row.id, code)
             }
         }
     }
 
-    private fun StayDeriver.EndpointRef.toRow(clusterRowId: Long) = ClusterMember(
-        clusterId = clusterRowId,
+    /**
+     * Repair the stored rows around the tracks a change touched, instead of deriving the history
+     * again — the seam is worked out here and judged by [StayLedger], which owns the rule.
+     *
+     * [changedTrackIds] is whatever the caller wrote to: finished, deleted, restored, merged, split
+     * or rewritten. Which of them are still on the timeline decides what arrives, and which of them
+     * have stored endpoints decides what leaves, so a caller lists what it touched rather than
+     * classifying it — a rewritten track is in both sets and needs no saying so.
+     *
+     * Runs inside the caller's transaction (Room's are re-entrant), which is the point: the track
+     * rows and the derivation over them commit together or not at all.
+     */
+    suspend fun reknit(changedTrackIds: Collection<Long>, nowMs: Long = System.currentTimeMillis()) {
+        val ids = changedTrackIds.distinct()
+        if (ids.isEmpty()) return
+        db.withTransaction {
+            val added = tracks.endpointsFor(ids).map { it.toTrackEnd() }
+            val leaving = derived.membersForTracks(ids)
+            // Neither on the timeline nor in the derivation: a track discarded at birth by the keep
+            // thresholds, whose finish nothing here ever saw.
+            if (added.isEmpty() && leaving.isEmpty()) return@withTransaction
+            // Both lists are in time order, and no kept track overlaps another, so the first and
+            // last of them bound the stretch the change can have altered.
+            val from = minOf(
+                added.firstOrNull()?.startedAt ?: Long.MAX_VALUE,
+                leaving.firstOrNull()?.atMs ?: Long.MAX_VALUE,
+            )
+            val to = maxOf(
+                added.lastOrNull()?.endedAt ?: Long.MIN_VALUE,
+                leaving.lastOrNull()?.atMs ?: Long.MIN_VALUE,
+            )
+            val prev = tracks.keptTrackBefore(from, ids)?.toTrackEnd()
+            val next = tracks.keptTrackAfter(to, ids)?.toTrackEnd()
+            val neighbours = derived.membersForTracks(listOfNotNull(prev?.trackId, next?.trackId))
+            apply(
+                StayLedger.reknit(
+                    // Every touched id, not the subset with stored endpoints: the ledger reads a
+                    // removal only through the memberships it finds, so one with none takes nothing
+                    // away, and classifying them here would be a rule with a second author.
+                    seam = StayLedger.Seam(prev, ids, added, next),
+                    stored = StayLedger.Stored(
+                        clusters = derived.clustersOnce().map { it.toClusterRow() },
+                        membershipOf = (leaving + neighbours).map { it.toMembership() }
+                            .groupBy { it.trackId },
+                        liveness = liveness.allEvents().mapNotNull { it.toLiveness() },
+                        nowMs = nowMs,
+                    ),
+                    distance = AndroidDistance,
+                ),
+            )
+        }
+    }
+
+    /**
+     * Write what a repair decided. The order is the whole of it: what goes, goes first, so a founded
+     * cluster cannot collide with a membership about to be deleted; the founded rows are inserted
+     * empty and filled by the same deltas that move every other cluster's; and the clusters left
+     * holding nothing are dropped after those deltas, which is what makes them nothing.
+     */
+    private suspend fun apply(mutations: StayLedger.Mutations) {
+        derived.deleteIntervalsAfter(mutations.removed.intervalsAfterTracks)
+        derived.deleteMembersOf(mutations.removed.membershipsOfTracks)
+        val founded = mutations.founded.map { derived.insertCluster(seedRow(it)) }
+        derived.insertMembers(mutations.memberships.map { it.toRow(founded) })
+        for (delta in mutations.deltas) {
+            derived.shiftClusterMembership(
+                delta.cluster.rowId(founded), delta.sumLat, delta.sumLon, delta.count,
+            )
+        }
+        derived.deleteClusters(mutations.removed.emptiedClusters)
+        derived.insertIntervals(mutations.intervals.map { it.toRow(founded) })
+    }
+
+    private fun DerivedCluster.toClusterRow() = StayLedger.ClusterRow(
+        id = id,
+        seed = toSeed(),
+        named = placeId != null,
+        memberCount = memberCount,
+    )
+
+    private fun ClusterMember.toMembership() = StayLedger.Membership(
+        trackId = trackId,
+        isStart = isStart,
+        at = Coordinate(lat, lon),
+        atMs = atMs,
+        cluster = StayLedger.ClusterRef.Stored(clusterId),
+    )
+
+    /** A whole derivation's endpoint in the shape a repair produces, the cluster it fell into being
+     *  a row the rebuild has already inserted. */
+    private fun StayDeriver.EndpointRef.asMembership(clusterRowId: Long) = StayLedger.Membership(
+        trackId = trackId,
+        isStart = isStart,
+        at = at,
+        atMs = atMs,
+        cluster = StayLedger.ClusterRef.Stored(clusterRowId),
+    )
+
+    /** **The one writer of a membership row**, as [toRow] is of an interval's and for the reason
+     *  given there — both passes state an endpoint's cluster as a [StayLedger.ClusterRef] and
+     *  resolve it here. */
+    private fun StayLedger.Membership.toRow(founded: List<Long> = emptyList()) = ClusterMember(
+        clusterId = cluster.rowId(founded),
         trackId = trackId,
         isStart = isStart,
         lat = at.lat,
@@ -186,35 +358,73 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         atMs = atMs,
     )
 
-    private fun StayDeriver.Interval.toRow(clusterRowIds: List<Long>): DerivedInterval = when (this) {
-        is StayDeriver.Stay -> DerivedInterval(
+    /** Which row a repair's reference names — [founded] holds the ids its new clusters were given,
+     *  in the order it declared them. A rebuild founds nothing and passes none. */
+    private fun StayLedger.ClusterRef.rowId(founded: List<Long>): Long = when (this) {
+        is StayLedger.ClusterRef.Stored -> id
+        is StayLedger.ClusterRef.Founded -> founded[index]
+    }
+
+    /**
+     * **The one writer of an interval row**, reached by both passes: a rebuild states its clusters
+     * as positions in its own list and converts them here, a repair as row ids and rows it is about
+     * to insert. Two of these would be two spellings of the same vocabulary, which is the failure
+     * [DerivedReadModel] is the other half of.
+     */
+    private fun StayLedger.Interval.toRow(founded: List<Long> = emptyList()): DerivedInterval = when (verdict) {
+        is StayDeriver.Verdict.Stayed -> DerivedInterval(
             type = DerivedInterval.TYPE_STAY,
             start = start,
-            // Only the open stay has no end, and this derivation does not emit one.
-            endedAt = checkNotNull(end) { "a stored stay must be closed" },
+            endedAt = end,
             afterTrackId = afterTrackId,
-            provenance = when (provenance) {
+            provenance = when (verdict.provenance) {
                 StayDeriver.Provenance.OBSERVED -> DerivedInterval.PROVENANCE_OBSERVED
                 StayDeriver.Provenance.INFERRED -> DerivedInterval.PROVENANCE_INFERRED
             },
-            clusterId = clusterRowIds[clusterId],
+            clusterId = checkNotNull(cluster) { "an agreeing pair has both ends" }.rowId(founded),
         )
-        is StayDeriver.Gap -> DerivedInterval(
+        is StayDeriver.Verdict.Moved -> DerivedInterval(
             type = DerivedInterval.TYPE_GAP,
             start = start,
             endedAt = end,
             afterTrackId = afterTrackId,
-            reason = when (reason) {
+            reason = when (verdict.reason) {
                 StayDeriver.GapReason.MOVED_UNRECORDED -> DerivedInterval.REASON_MOVED_UNRECORDED
                 StayDeriver.GapReason.UNKNOWN_ENDPOINT -> DerivedInterval.REASON_UNKNOWN_ENDPOINT
             },
-            fromClusterId = fromClusterId?.let { clusterRowIds[it] },
-            toClusterId = toClusterId?.let { clusterRowIds[it] },
+            fromClusterId = cluster?.rowId(founded),
+            toClusterId = toCluster?.rowId(founded),
             fromLat = from?.lat,
             fromLon = from?.lon,
             toLat = to?.lat,
             toLon = to?.lon,
         )
+    }
+
+    /**
+     * A whole derivation's interval in the shape a repair produces — the clusters it names by
+     * position translated to the rows they were stored as, which is all the two representations
+     * differ by.
+     */
+    private fun StayDeriver.Interval.asLedgerInterval(clusterRowIds: List<Long>): StayLedger.Interval {
+        fun ref(clusterId: Int) = StayLedger.ClusterRef.Stored(clusterRowIds[clusterId])
+        return when (this) {
+            is StayDeriver.Stay -> StayLedger.Interval(
+                verdict = StayDeriver.Verdict.Stayed(provenance),
+                start = start,
+                // Only the open stay has no end, and this derivation does not emit one.
+                end = checkNotNull(end) { "a stored stay must be closed" },
+                afterTrackId = afterTrackId,
+                ends = StayLedger.Ends(ref(clusterId), null, null, null),
+            )
+            is StayDeriver.Gap -> StayLedger.Interval(
+                verdict = StayDeriver.Verdict.Moved(reason),
+                start = start,
+                end = end,
+                afterTrackId = afterTrackId,
+                ends = StayLedger.Ends(fromClusterId?.let(::ref), toClusterId?.let(::ref), from, to),
+            )
+        }
     }
 
     companion object {

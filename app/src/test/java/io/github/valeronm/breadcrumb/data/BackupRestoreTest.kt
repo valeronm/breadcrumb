@@ -67,6 +67,7 @@ class BackupRestoreTest {
                 tracks = target.repository,
                 places = PlaceRepository(context, target.db),
                 liveness = LivenessRepository(context, target.db),
+                derivation = DerivationStore(context, target.db),
             ),
         )
     }

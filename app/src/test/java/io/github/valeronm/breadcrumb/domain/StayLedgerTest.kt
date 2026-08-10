@@ -42,8 +42,7 @@ class StayLedgerTest {
         val clusters = derivation.clusters.mapIndexed { index, cluster ->
             StayLedger.ClusterRow(
                 id = index + 1L,
-                anchor = cluster.anchor,
-                radiusM = cluster.radiusM,
+                seed = PlaceClusterer.Seed(cluster.anchor, cluster.radiusM),
                 named = index in named,
                 memberCount = cluster.visitCount,
             )
@@ -86,7 +85,7 @@ class StayLedgerTest {
         mutations: StayLedger.Mutations,
     ): Coordinate? = when (ref) {
         null -> null
-        is StayLedger.ClusterRef.Stored -> stored.clusters.first { it.id == ref.id }.anchor
+        is StayLedger.ClusterRef.Stored -> stored.clusters.first { it.id == ref.id }.seed.anchor
         is StayLedger.ClusterRef.Founded -> mutations.founded[ref.index].anchor
     }
 
@@ -118,7 +117,7 @@ class StayLedgerTest {
         added: List<TrackEnd> = emptyList(),
         next: TrackEnd? = null,
     ) = StayLedger.reknit(
-        StayLedger.Seam(prev, removed, added, next),
+        StayLedger.Seam(prev, removed.map { it.trackId }, added, next),
         StayLedger.Stored(
             clusters = stored.clusters,
             membershipOf = stored.members.groupBy { it.trackId },
@@ -231,6 +230,23 @@ class StayLedgerTest {
         assertEquals(derived(listOf(merged, after)), mutations.intervals.map { it.described(stored, mutations) })
     }
 
+    @Test fun `a rewritten track's old endpoints leave as its new ones arrive`() {
+        // What editing a manual trip is: one row removed and added at once, so both halves of the
+        // membership arithmetic have to run for the same id.
+        val first = track(1, 60 * MIN, 120 * MIN)
+        val away = track(2, 240 * MIN, 300 * MIN, from = office, to = office)
+        val stored = store(listOf(first, away))
+        val rewritten = track(2, 240 * MIN, 300 * MIN)
+
+        val mutations = reknit(stored, prev = first, removed = listOf(away), added = listOf(rewritten))
+
+        assertEquals(
+            derived(listOf(first, rewritten)),
+            mutations.intervals.map { it.described(stored, mutations) },
+        )
+        assertEquals("the cluster it used to be in is left empty", listOf(2L), mutations.removed.emptiedClusters)
+    }
+
     @Test fun `no interval is left after the newest track, that one being the open stay`() {
         val first = track(1, 60 * MIN, 120 * MIN)
         val stored = store(listOf(first))
@@ -251,7 +267,7 @@ class StayLedgerTest {
         val mutations = reknit(stored, removed = listOf(founding), next = later)
 
         assertTrue("the cluster survives its founder", mutations.removed.emptiedClusters.isEmpty())
-        assertEquals("and keeps the anchor it was founded at", home, stored.clusters.single().anchor)
+        assertEquals("and keeps the anchor it was founded at", home, stored.clusters.single().seed.anchor)
         // A fresh derivation of what remains would anchor on the surviving endpoint instead.
         val afresh = StayDeriver.derive(
             listOf(later), listOf(Armed(0)), NOW, null, StayDeriver.Params(), flatDistance,
@@ -268,7 +284,7 @@ class StayLedgerTest {
         val second = track(2, 240 * MIN, 300 * MIN, from = wide, to = wide)
         val stored = Stored(
             clusters = listOf(
-                StayLedger.ClusterRow(1L, home, radiusM = 500.0, named = true, memberCount = 2),
+                StayLedger.ClusterRow(1L, PlaceClusterer.Seed(home, 500.0), named = true, memberCount = 2),
             ),
             members = StayDeriver.endpointsOf(listOf(first)).map {
                 StayLedger.Membership(it.trackId, it.isStart, it.at, it.atMs, StayLedger.ClusterRef.Stored(1L))
