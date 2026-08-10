@@ -54,7 +54,7 @@ class MonthlyTotalsTest {
         zone: ZoneId = utc,
     ) = TimelineItem.StayItem(
         stay = StayDeriver.Stay(
-            start = start, end = end, location = Coordinate(1.0, -2.0),
+            start = start, end = end,
             provenance = StayDeriver.Provenance.OBSERVED, afterTrackId = ++nextId, clusterId = 0,
         ),
         place = PlaceResolver.ResolvedStay(

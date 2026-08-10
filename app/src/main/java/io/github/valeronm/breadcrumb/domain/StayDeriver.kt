@@ -111,10 +111,16 @@ object StayDeriver {
         override val start: Long,
         /** Null = ongoing (the current stay). */
         override val end: Long?,
-        val location: Coordinate,
         val provenance: Provenance,
         override val afterTrackId: Long,
-        /** Index into [Derivation.clusters] — the place this stay belongs to. */
+        /**
+         * Index into [Derivation.clusters] — the place this stay belongs to, and **the only answer
+         * it has to where it was**. A stay is the interval two tracks leave between them, so where
+         * is a question about the cluster its endpoints agreed on, whose centroid is the mean of
+         * every visit rather than a point between one pair. The asymmetry with [Gap], which does
+         * carry coordinates, is the point: a gap exists *because* its two ends disagree, so there
+         * is no cluster to ask.
+         */
         val clusterId: Int,
     ) : Interval {
         /** This stay's length when its own bounds are worth reporting as one, else null;
@@ -220,7 +226,6 @@ object StayDeriver {
             out += Stay(
                 start = gapStart,
                 end = gapEnd,
-                location = midpoint(a, b),
                 provenance = evidence.provenanceOver(gapStart, gapEnd),
                 afterTrackId = prev.trackId,
                 clusterId = clusterOf.getValue(a),
@@ -275,7 +280,7 @@ object StayDeriver {
         samePlace: (Coordinate, Coordinate) -> Boolean,
     ): Interval? {
         if (last == null) return null
-        val location = last.end ?: return null
+        val lastEnd = last.end ?: return null
         val start = last.endedAt
         if (activeTrack != null) {
             val end = activeTrack.startedAt
@@ -284,23 +289,22 @@ object StayDeriver {
             // as between finished tracks. No fix yet counts as agreement; the interval
             // re-derives for real once the track finishes.
             val b = activeTrack.start
-            if (b != null && !samePlace(location, b)) {
+            if (b != null && !samePlace(lastEnd, b)) {
                 return Gap(
                     start, end, GapReason.MOVED_UNRECORDED,
                     afterTrackId = last.trackId,
-                    fromClusterId = clusterOf.getValue(location),
+                    fromClusterId = clusterOf.getValue(lastEnd),
                     toClusterId = clusterOf.getValue(b),
-                    from = location,
+                    from = lastEnd,
                     to = b,
                 )
             }
             return Stay(
                 start = start,
                 end = end,
-                location = location,
                 provenance = evidence.provenanceOver(start, end),
                 afterTrackId = last.trackId,
-                clusterId = clusterOf.getValue(location),
+                clusterId = clusterOf.getValue(lastEnd),
             )
         }
         if (start > nowMs) return null
@@ -310,15 +314,11 @@ object StayDeriver {
         return Stay(
             start = start,
             end = end,
-            location = location,
             provenance = evidence.provenanceOver(start, effectiveEnd),
             afterTrackId = last.trackId,
-            clusterId = clusterOf.getValue(location),
+            clusterId = clusterOf.getValue(lastEnd),
         )
     }
-
-    private fun midpoint(a: Coordinate, b: Coordinate) =
-        Coordinate((a.lat + b.lat) / 2, (a.lon + b.lon) / 2)
 
     // --- Liveness evidence ----------------------------------------------------
 

@@ -296,8 +296,21 @@ object PlaceClusterer {
     }
 
     /**
-     * 1.5× the stay agreement radius: a stay's location is a midpoint of endpoints that may be
-     * up to 100 m apart, so same-place stays scatter beyond 100 m before they're truly elsewhere.
+     * How far apart one spot's endpoints may sit and still be filed as that spot — a different bay
+     * in the car park, a fix that landed a street early.
+     *
+     * **What it governs is attribution, not agreement.** Two endpoints within
+     * [StayDeriver.Params.agreementRadiusM] make a stay whatever the clustering decides, that test
+     * being a disjunction, so shrinking this cannot turn stays into gaps. What it does is split one
+     * place in two: the stay is filed under the cluster of its *earlier* endpoint, and a spot whose
+     * scatter exceeds this radius accumulates two clusters, halving its visit count, listing it
+     * twice on the Places tab and dividing its nights between them. Widening has the opposite
+     * failure — neighbouring spots merge into one — and no radius suits every venue, which is why a
+     * named place carries [Place.radiusM] of its own and this is only where an unnamed one starts.
+     *
+     * Also the capture radius a newly created place is given, so it is read well outside the
+     * clustering. [StayDeriver.Params.placeRadiusM] defaults back to it, so the ratio to the
+     * agreement radius is prose either way and nothing enforces it.
      */
     const val DEFAULT_RADIUS_M = 150.0
 }

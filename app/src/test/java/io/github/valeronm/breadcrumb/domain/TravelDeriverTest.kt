@@ -54,6 +54,8 @@ class TravelDeriverTest {
         seeds = locations.map { PlaceClusterer.Seed(it, PlaceClusterer.DEFAULT_RADIUS_M) },
     )
 
+    /** [location] names the cluster the stay belongs to; the night's longitude is read off that
+     *  cluster's centroid, exactly as production does. */
     private fun stay(
         location: Coordinate,
         from: Long,
@@ -61,7 +63,7 @@ class TravelDeriverTest {
         provenance: Provenance = Provenance.OBSERVED,
         cluster: Int = known.indexOf(location),
     ) = Stay(
-        start = from, end = until, location = location, provenance = provenance,
+        start = from, end = until, provenance = provenance,
         afterTrackId = ++nextTrackId, clusterId = cluster,
     )
 

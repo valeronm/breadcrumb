@@ -139,7 +139,6 @@ class TimelineRowTest {
         stay = StayDeriver.Stay(
             start = start,
             end = end,
-            location = ORIGIN,
             provenance = StayDeriver.Provenance.OBSERVED,
             afterTrackId = 1,
             clusterId = 0,

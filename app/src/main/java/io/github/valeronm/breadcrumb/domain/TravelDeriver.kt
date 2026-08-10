@@ -137,10 +137,10 @@ object TravelDeriver {
         for (interval in intervals) {
             if (interval !is StayDeriver.Stay) continue
             val end = interval.end ?: continue
-            if (interval.clusterId in clusters.indices) {
-                nightsPerCluster[interval.clusterId] +=
-                    nightsWithin(interval.start, end, interval.location.lon)
-            }
+            // The cluster's centroid, a stay carrying no position of its own: the mean of what the
+            // spot's endpoints measured, which is the nearest thing to a longitude it has.
+            val cluster = clusters.getOrNull(interval.clusterId) ?: continue
+            nightsPerCluster[interval.clusterId] += nightsWithin(interval.start, end, cluster.centroid.lon)
         }
         val tagged = places.withIndex()
             .filter { (_, place) -> place.placeCategory == PlaceCategory.HOME }

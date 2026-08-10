@@ -33,7 +33,7 @@ class DayCategoryTotalsTest {
         resolved: PlaceResolver.ResolvedStay? = place(category),
     ) = TimelineItem.StayItem(
         stay = StayDeriver.Stay(
-            start = start, end = end, location = Coordinate(1.0, -2.0),
+            start = start, end = end,
             provenance = StayDeriver.Provenance.OBSERVED, afterTrackId = ++nextTrackId, clusterId = 0,
         ),
         place = resolved,

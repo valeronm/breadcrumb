@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.ui
 
-import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import org.junit.Assert.assertEquals
@@ -25,7 +24,7 @@ class TimelineDayGroupingTest {
     /** A stay of no consequence at [at], read on [zone] — only its instant and clock matter here. */
     private fun row(at: Long, zone: ZoneId, id: Long = at) = TimelineItem.StayItem(
         stay = StayDeriver.Stay(
-            start = at, end = at + 60_000, location = Coordinate(1.0, 1.0),
+            start = at, end = at + 60_000,
             provenance = StayDeriver.Provenance.OBSERVED, afterTrackId = id, clusterId = 0,
         ),
         zone = zone,

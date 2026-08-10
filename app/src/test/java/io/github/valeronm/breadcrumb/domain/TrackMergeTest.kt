@@ -73,7 +73,7 @@ class TrackMergeTest {
     private val neighbors = mapOf(before.id to (before to after))
 
     private fun stay(start: Long, end: Long) = StayDeriver.Stay(
-        start = start, end = end, location = Coordinate(1.0, 1.0),
+        start = start, end = end,
         provenance = StayDeriver.Provenance.OBSERVED, afterTrackId = before.id, clusterId = 0,
     )
 

@@ -21,9 +21,10 @@ import { metersBetween, reachBound } from "./geo.js";
 const AGREEMENT_RADIUS_M = 100;
 
 /**
- * Radius for clustering track endpoints into places: 1.5x the agreement radius, because a stay's
- * location is a midpoint of endpoints that may be a full radius apart, so same-place stays scatter
- * beyond it before they are truly elsewhere. PlaceClusterer.DEFAULT_RADIUS_M.
+ * How far apart one spot's endpoints may sit and still be filed as that spot. It governs
+ * attribution, not agreement: two endpoints within AGREEMENT_RADIUS_M make a stay whatever the
+ * clustering decides, so shrinking this splits one place into two clusters — halving its visits and
+ * dividing its nights — rather than turning stays into gaps. PlaceClusterer.DEFAULT_RADIUS_M.
  */
 export const PLACE_RADIUS_M = 150;
 
@@ -203,7 +204,6 @@ export function deriveStays({
       kind: "stay",
       start: gapStart,
       end: gapEnd,
-      location: midpoint(a, b),
       provenance: evidence.provenanceOver(gapStart, gapEnd),
       afterTrackId: prev.trackId,
       clusterId: clusterOf.get(key(a)),
@@ -222,8 +222,8 @@ export function deriveStays({
  * recording when it was written isn't in it. */
 function tailStay(last, evidence, nowMs, clusterOf) {
   if (!last) return null;
-  const location = last.end;
-  if (!location) return null;
+  const lastEnd = last.end;
+  if (!lastEnd) return null;
   const start = last.endedAt;
   if (start > nowMs) return null;
   const end = evidence.disarmedSince == null ? null : Math.max(evidence.disarmedSince, start);
@@ -232,15 +232,10 @@ function tailStay(last, evidence, nowMs, clusterOf) {
     kind: "stay",
     start,
     end,
-    location,
     provenance: evidence.provenanceOver(start, effectiveEnd),
     afterTrackId: last.trackId,
-    clusterId: clusterOf.get(key(location)),
+    clusterId: clusterOf.get(key(lastEnd)),
   };
-}
-
-function midpoint(a, b) {
-  return { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 };
 }
 
 /** This stay's length when its own bounds are worth reporting as one, else null. */

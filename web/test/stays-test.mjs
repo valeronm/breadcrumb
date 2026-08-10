@@ -56,7 +56,6 @@ const gaps = (intervals) => intervals.filter((i) => i.kind === "gap");
   assert.equal(stay.end, 240 * MIN);
   assert.equal(stay.provenance, "OBSERVED", "agreeing endpoints with full liveness are observed");
   assert.equal(stay.afterTrackId, 1);
-  assert.ok(Math.abs(stay.location.lat - 1.00025) < 1e-9, "located at the endpoints' midpoint");
 }
 
 {
@@ -198,7 +197,20 @@ const gaps = (intervals) => intervals.filter((i) => i.kind === "gap");
   const tail = stays(intervalsOf([track(1, 60 * MIN, 120 * MIN)]))[0];
   assert.equal(tail.end, null, "after the last track the stay is open-ended");
   assert.equal(tail.provenance, "OBSERVED");
-  assert.deepEqual(tail.location, home);
+}
+
+{
+  // Which cluster the tail is filed under — the only thing it says about where it was. Two clusters
+  // in the history, because with one endpoint every id is 0 and the claim would hold regardless.
+  const derivation = derive([
+    track(1, 60 * MIN, 120 * MIN, home, home),
+    track(2, 240 * MIN, 300 * MIN, home, office),
+  ]);
+  const tail = stays(derivation.intervals).at(-1);
+  assert.deepEqual(
+    derivation.clusters[tail.clusterId].anchor, office,
+    "the tail stay belongs to the cluster its track ended in",
+  );
 }
 
 {

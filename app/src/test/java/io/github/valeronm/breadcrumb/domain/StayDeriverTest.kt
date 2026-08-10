@@ -67,8 +67,6 @@ class StayDeriverTest {
         assertEquals(240 * MIN, stay.end)
         assertEquals(Provenance.OBSERVED, stay.provenance)
         assertEquals(1L, stay.afterTrackId)
-        // Midpoint of the two endpoints.
-        assertEquals(1.00025, stay.location.lat, 1e-9)
     }
 
     @Test fun `an outage inside the gap downgrades to inferred`() {
@@ -289,7 +287,7 @@ class StayDeriverTest {
     }
 
     private fun stayAt(start: Long, end: Long?) = Stay(
-        start = start, end = end, location = home,
+        start = start, end = end,
         provenance = Provenance.OBSERVED, afterTrackId = 1L, clusterId = 0,
     )
 
@@ -333,7 +331,22 @@ class StayDeriverTest {
             .filterIsInstance<Stay>().single()
         assertNull(stay.end)
         assertEquals(Provenance.OBSERVED, stay.provenance)
-        assertEquals(home, stay.location)
+    }
+
+    @Test fun `the tail stay belongs to the cluster its track ended in`() {
+        // Asserted against a history holding more than one cluster: with a single endpoint every id
+        // is 0 and the claim would pass on any implementation. The cluster is resolved and its
+        // anchor compared, rather than an index asserted — the id is an ordering this does not mean
+        // to pin.
+        val derivation = StayDeriver.derive(
+            listOf(
+                track(1, start = 60 * MIN, end = 120 * MIN, to = home),
+                track(2, start = 240 * MIN, end = 300 * MIN, from = home, to = office),
+            ),
+            listOf(Armed(0)), NOW, null, StayDeriver.Params(), flatDistance,
+        )
+        val tail = derivation.intervals.filterIsInstance<Stay>().last()
+        assertEquals(office, derivation.clusters[tail.clusterId].anchor)
     }
 
     @Test fun `recording closes the tail stay at the active track's start`() {
@@ -343,7 +356,6 @@ class StayDeriverTest {
         ).filterIsInstance<Stay>().single()
         assertEquals(120 * MIN, stay.start)
         assertEquals(200 * MIN, stay.end)
-        assertEquals(home, stay.location)
     }
 
     @Test fun `an active track that started immediately leaves no tail interval`() {
@@ -424,7 +436,7 @@ class StayDeriverTest {
 
     @Test fun `a midnight-spanning stay splits into per-day slices with clamped bounds`() {
         val stay = Stay(
-            start = 20 * 60 * MIN, end = DAY + 9 * 60 * MIN, location = home,
+            start = 20 * 60 * MIN, end = DAY + 9 * 60 * MIN,
             provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0,
         )
         val slices = sliced(listOf(stay), { utc to utc }, nowMs = 2 * DAY)
@@ -445,7 +457,7 @@ class StayDeriverTest {
      */
     @Test fun `a stay's pieces say which of its bounds are its own`() {
         val stay = Stay(
-            start = 20 * 60 * MIN, end = 2 * DAY + 9 * 60 * MIN, location = home,
+            start = 20 * 60 * MIN, end = 2 * DAY + 9 * 60 * MIN,
             provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0,
         )
         val slices = StayDeriver.slicePerDay(listOf(stay), { utc to utc }, 3 * DAY)
@@ -466,7 +478,7 @@ class StayDeriverTest {
 
     @Test fun `an ongoing stay keeps its null end on the final slice only`() {
         val stay = Stay(
-            start = 20 * 60 * MIN, end = null, location = home,
+            start = 20 * 60 * MIN, end = null,
             provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0,
         )
         val slices = sliced(listOf(stay), { utc to utc }, nowMs = DAY + 9 * 60 * MIN)
@@ -479,7 +491,7 @@ class StayDeriverTest {
         // A stay, deliberately: a gap now returns before the loop, so asking this of one would
         // exercise the early return and leave the loop's terminating branch with no witness.
         val stay = Stay(
-            start = 10 * 60 * MIN, end = 11 * 60 * MIN, location = home,
+            start = 10 * 60 * MIN, end = 11 * 60 * MIN,
             provenance = Provenance.OBSERVED, afterTrackId = 1, clusterId = 0,
         )
         assertEquals(listOf<StayDeriver.Interval>(stay), sliced(listOf(stay), { utc to utc }, 2 * DAY))
@@ -495,7 +507,7 @@ class StayDeriverTest {
         val start = 20 * 60 * MIN
         val end = DAY + 3 * 60 * MIN
         val gap = Gap(start, end, GapReason.UNKNOWN_ENDPOINT, afterTrackId = 1)
-        val stay = Stay(start, end, home, Provenance.OBSERVED, afterTrackId = 1, clusterId = 0)
+        val stay = Stay(start, end, Provenance.OBSERVED, afterTrackId = 1, clusterId = 0)
 
         assertEquals(2, sliced(listOf(stay), { utc to utc }, 2 * DAY).size)
 
@@ -515,7 +527,7 @@ class StayDeriverTest {
         val end = java.time.LocalDate.of(2026, 3, 29).atStartOfDay(lisbon)
             .plusHours(12).toInstant().toEpochMilli()
         val slices = sliced(
-            listOf(Stay(start, end, home, Provenance.OBSERVED, 1, clusterId = 0)), { lisbon to lisbon }, end + DAY,
+            listOf(Stay(start, end, Provenance.OBSERVED, 1, clusterId = 0)), { lisbon to lisbon }, end + DAY,
         )
         assertEquals(2, slices.size)
         assertTrue(slices[0].end!! <= slices[1].start)
@@ -529,8 +541,8 @@ class StayDeriverTest {
         val tokyo = ZoneId.of("Asia/Tokyo")
         val evening = java.time.LocalDate.of(2026, 7, 18).atStartOfDay(tokyo)
             .plusHours(20).toInstant().toEpochMilli()
-        val abroad = Stay(evening, evening + 8 * 60 * MIN, home, Provenance.OBSERVED, 1, clusterId = 0)
-        val athome = Stay(evening, evening + 8 * 60 * MIN, home, Provenance.OBSERVED, 2, clusterId = 1)
+        val abroad = Stay(evening, evening + 8 * 60 * MIN, Provenance.OBSERVED, 1, clusterId = 0)
+        val athome = Stay(evening, evening + 8 * 60 * MIN, Provenance.OBSERVED, 2, clusterId = 1)
         val zones = mapOf(1L to tokyo, 2L to utc)
 
         val slices = sliced(
@@ -626,7 +638,7 @@ class StayDeriverTest {
             summary(2, startedAt = 240 * MIN),
             summary(1, startedAt = 60 * MIN),
         )
-        val stay = Stay(120 * MIN, 240 * MIN, home, Provenance.OBSERVED, 1, clusterId = 0)
+        val stay = Stay(120 * MIN, 240 * MIN, Provenance.OBSERVED, 1, clusterId = 0)
         val items = StayDeriver.interleave(summaries, oneClock(stay))
         assertEquals(
             listOf(240 * MIN, 120 * MIN, 60 * MIN),
@@ -637,7 +649,7 @@ class StayDeriverTest {
 
     @Test fun `on a start-time tie an ongoing interval sorts newer than the track`() {
         val summaries = listOf(summary(1, startedAt = 60 * MIN))
-        val stay = Stay(60 * MIN, null, home, Provenance.OBSERVED, 1, clusterId = 0)
+        val stay = Stay(60 * MIN, null, Provenance.OBSERVED, 1, clusterId = 0)
         val items = StayDeriver.interleave(summaries, oneClock(stay))
         assertTrue(items[0] is TimelineItem.StayItem)
         assertTrue(items[1] is TimelineItem.TrackItem)
@@ -647,7 +659,7 @@ class StayDeriverTest {
         // The seam ties with the departing track's start; being closed, it must render
         // below that track — between the pair — not above it.
         val summaries = listOf(summary(2, startedAt = 120 * MIN), summary(1, startedAt = 60 * MIN))
-        val seam = Stay(120 * MIN, 120 * MIN, home, Provenance.OBSERVED, 1, clusterId = 0)
+        val seam = Stay(120 * MIN, 120 * MIN, Provenance.OBSERVED, 1, clusterId = 0)
         val items = StayDeriver.interleave(summaries, oneClock(seam))
         assertTrue(items[0] is TimelineItem.TrackItem)
         assertTrue(items[1] is TimelineItem.StayItem)
@@ -659,7 +671,7 @@ class StayDeriverTest {
         // Two tracks sharing an instant leave a stay of no duration between them. It says nothing
         // about where anyone was, so what it is worth is whatever it offers: with a merge plan it
         // is the way back from the join, and with none it is a row about nothing.
-        val seam = Stay(120 * MIN, 120 * MIN, home, Provenance.OBSERVED, 1, clusterId = 0)
+        val seam = Stay(120 * MIN, 120 * MIN, Provenance.OBSERVED, 1, clusterId = 0)
         val bare = TimelineItem.StayItem(seam)
 
         assertTrue(bare.isBareSeam)

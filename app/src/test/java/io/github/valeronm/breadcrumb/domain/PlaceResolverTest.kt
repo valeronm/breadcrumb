@@ -14,10 +14,18 @@ class PlaceResolverTest {
     private val PIN_RADIUS = 350.0
 
     private var nextTrackId = 0L
-    private fun stay(location: Coordinate, end: Long? = 2_000L) = Stay(
-        start = 1_000L, end = end, location = location,
-        provenance = Provenance.OBSERVED, afterTrackId = ++nextTrackId, clusterId = 0,
-    )
+
+    /**
+     * Where each fixture stay was. A [Stay] names its cluster and nothing more, so the coordinate a
+     * case writes lives here, and [withClusters] clusters the same endpoints production would
+     * without every case threading a position it states once. **Only stays minted by [stayAt] are
+     * in it** — a hand-built one has no entry and fails there rather than clustering to something
+     * arbitrary.
+     */
+    private val locationOfStay = mutableMapOf<Long, Coordinate>()
+
+    private fun stay(location: Coordinate, end: Long? = 2_000L) =
+        stayAt(location, start = 1_000L, end = end)
 
     private fun place(id: Long, label: String, location: Coordinate) =
         Place(id = id, label = label, lat = location.lat, lon = location.lon, createdAt = 0L, radiusM = PlaceClusterer.DEFAULT_RADIUS_M)
@@ -37,7 +45,11 @@ class PlaceResolverTest {
         stays: List<Stay>,
         places: List<Place>,
     ): Pair<List<Stay>, List<PlaceClusterer.Cluster>> {
-        val clusters = clusterAt(stays.map { it.location }, places)
+        val locations = stays.map {
+            locationOfStay[it.afterTrackId]
+                ?: error("stay ${it.afterTrackId} was not built by stayAt(), so it has no position")
+        }
+        val clusters = clusterAt(locations, places)
         val clusterIdByStay = IntArray(stays.size)
         clusters.forEachIndexed { ci, cluster ->
             for (index in cluster.memberIndices) clusterIdByStay[index] = ci
@@ -170,10 +182,14 @@ class PlaceResolverTest {
         return PlaceResolver.summarize(stamped, clusters, places, NOW)
     }
 
-    private fun stayAt(location: Coordinate, start: Long, end: Long?) = Stay(
-        start = start, end = end, location = location,
-        provenance = Provenance.OBSERVED, afterTrackId = ++nextTrackId, clusterId = 0,
-    )
+    private fun stayAt(location: Coordinate, start: Long, end: Long?): Stay {
+        val trackId = ++nextTrackId
+        locationOfStay[trackId] = location
+        return Stay(
+            start = start, end = end,
+            provenance = Provenance.OBSERVED, afterTrackId = trackId, clusterId = 0,
+        )
+    }
 
     @Test fun `a named summary aggregates count, last seen and total over its stays`() {
         val stays = listOf(
