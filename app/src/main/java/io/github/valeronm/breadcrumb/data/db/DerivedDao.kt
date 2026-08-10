@@ -31,6 +31,9 @@ interface DerivedDao {
     @Query("SELECT * FROM derived_intervals ORDER BY start ASC")
     suspend fun intervalsOnce(): List<DerivedInterval>
 
+    @Query("SELECT * FROM cluster_members ORDER BY atMs ASC")
+    suspend fun membersOnce(): List<ClusterMember>
+
     @Query("UPDATE derived_clusters SET sumLat = :sumLat, sumLon = :sumLon, memberCount = :count WHERE id = :id")
     suspend fun setClusterMembership(id: Long, sumLat: Double, sumLon: Double, count: Int)
 

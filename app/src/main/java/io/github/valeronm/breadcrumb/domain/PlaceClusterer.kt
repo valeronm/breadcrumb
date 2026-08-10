@@ -81,7 +81,11 @@ object PlaceClusterer {
         val anchor: Coordinate,
         /** Arithmetic mean of member locations — the display/pin location. */
         val centroid: Coordinate,
-        /** Indices into the input list. */
+        /**
+         * Indices into the input list, for a caller that has to say *which* endpoints these are —
+         * empty when the cluster was read back from storage rather than derived, where the input
+         * list it would index does not exist. [members] is the same set either way.
+         */
         val memberIndices: List<Int>,
         /** Member locations ([memberIndices] resolved), for showing the cluster on a map. */
         val members: List<Coordinate>,
@@ -90,7 +94,8 @@ object PlaceClusterer {
         /** Index into the seed list when this cluster grew from a seed; null for organic clusters. */
         val seedIndex: Int? = null,
     ) {
-        val visitCount: Int get() = memberIndices.size
+        /** Counted off [members], which every cluster has — [memberIndices] only a derived one. */
+        val visitCount: Int get() = members.size
 
         /**
          * The members' mean, or null where there are no members to average — the reading

@@ -2,12 +2,12 @@ package io.github.valeronm.breadcrumb.data
 
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
-import io.github.valeronm.breadcrumb.data.db.DerivedInterval
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.toLiveness
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -50,18 +50,15 @@ class DerivationStoreTest {
     }
 
     /**
-     * Every stored interval against a derivation run from scratch over the same tracks, each one's
-     * cluster resolved back to the anchor it was derived at — an id alone would compare two
-     * numberings rather than two answers.
+     * What was stored, read back, against a derivation run from scratch over the same tracks.
      *
-     * The `when` is exhaustive on purpose: a third kind of interval must fail here rather than being
-     * quietly skipped by a filter, which is what the pair of `filterIsInstance` passes this replaced
-     * would have done.
+     * Read through [DerivedReadModel] rather than field by field off the rows: that is the pair the
+     * app actually runs — write then read — and comparing whole intervals covers every column
+     * without a hand-written list that a new one would quietly escape.
      */
     private suspend fun assertDerivedMatchesFreshDerive(nowMs: Long) {
-        val trackEnds = db.trackDao().endpointsOnce().map { it.toTrackEnd() }
         val fresh = StayDeriver.derive(
-            tracks = trackEnds,
+            tracks = db.trackDao().endpointsOnce().map { it.toTrackEnd() },
             liveness = db.livenessDao().allEvents().mapNotNull { it.toLiveness() },
             nowMs = nowMs,
             activeTrack = null,
@@ -69,36 +66,18 @@ class DerivationStoreTest {
             placePins = derived.namedClusters().map { it.toSeed() },
             emitTail = false,
         )
-        val clusterById = derived.clustersOnce().associateBy { it.id }
-        val stored = derived.intervalsOnce()
-        val rowFor = stored.associateBy { it.afterTrackId }
+        val read = DerivedReadModel.derivationOf(
+            stored = store.observeStored().first(),
+            places = db.placeDao().allPlaces(),
+            liveness = db.livenessDao().allEvents(),
+            nowMs = nowMs,
+            activeStartedAt = null,
+        )
 
-        assertEquals("one row per derived interval", fresh.intervals.size, stored.size)
-        assertEquals(fresh.intervals.map { it.afterTrackId }, stored.map { it.afterTrackId })
-
-        fresh.intervals.forEach { interval ->
-            val row = rowFor.getValue(interval.afterTrackId)
-            assertEquals(interval.start, row.start)
-            assertEquals(interval.end, row.endedAt)
-            when (interval) {
-                is StayDeriver.Stay -> {
-                    assertEquals(DerivedInterval.TYPE_STAY, row.type)
-                    assertEquals(interval.provenance.name, row.provenance)
-                    val anchor = fresh.clusters[interval.clusterId].anchor
-                    val row2 = clusterById.getValue(row.clusterId!!)
-                    assertEquals(anchor.lat, row2.anchorLat, 1e-9)
-                    assertEquals(anchor.lon, row2.anchorLon, 1e-9)
-                }
-                is StayDeriver.Gap -> {
-                    assertEquals(DerivedInterval.TYPE_GAP, row.type)
-                    assertEquals(interval.reason.name, row.reason)
-                    assertEquals(interval.from?.lat, row.fromLat)
-                    assertEquals(interval.from?.lon, row.fromLon)
-                    assertEquals(interval.to?.lat, row.toLat)
-                    assertEquals(interval.to?.lon, row.toLon)
-                }
-            }
-        }
+        // The reference derives with no trailing stay, so the stored rows are the read's prefix;
+        // that the tail follows them is `DerivedReadModelTest`'s to say.
+        assertEquals(fresh.intervals, read.intervals.take(fresh.intervals.size))
+        assertEquals(fresh.clusters.map { it.anchor }, read.clusters.map { it.anchor })
     }
 
     /** Two walks from the same spot, three hours apart — a history with one interval in it. */

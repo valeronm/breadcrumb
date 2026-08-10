@@ -12,6 +12,8 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.toLiveness
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.util.DebugLog
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 private const val TAG = "Breadcrumb"
 
@@ -24,7 +26,7 @@ internal fun DerivedCluster.toSeed() =
     PlaceClusterer.Seed(Coordinate(anchorLat, anchorLon), radiusM)
 
 /**
- * Writes the stay/place derivation into the database, so that reading the timeline is a query
+ * The stay/place derivation's storage, read and written — so that showing the timeline is a query
  * rather than a walk over every track in the history.
  *
  * [rebuild] is O(history), which is what a *whole-derivation* answer costs: it is the pass behind
@@ -39,6 +41,30 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
     private val tracks = db.trackDao()
     private val liveness = db.livenessDao()
     private val places = db.placeDao()
+
+    /**
+     * The derived tables as **one reading of all three**, re-emitted whenever any of them is
+     * written.
+     *
+     * One flow rather than a query each, for two reasons that point the same way. A rebuild
+     * rewrites all three in a single transaction, and three observers would turn that into three
+     * re-emissions, each re-running every reader downstream. And the three are only meaningful
+     * together — an interval names a cluster, a cluster is placed by its members — so they are read
+     * inside a transaction, which is what makes a set of rows a snapshot rather than three
+     * timings.
+     */
+    fun observeStored(): Flow<StoredDerivation> =
+        db.invalidationTracker
+            .createFlow("derived_clusters", "cluster_members", "derived_intervals")
+            .map {
+                db.withTransaction {
+                    StoredDerivation(
+                        clusters = derived.clustersOnce(),
+                        members = derived.membersOnce(),
+                        intervals = derived.intervalsOnce(),
+                    )
+                }
+            }
 
     /**
      * Re-derive the whole history and replace the stored rows with it, in one transaction.

@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Cities
+import io.github.valeronm.breadcrumb.data.DerivationStore
+import io.github.valeronm.breadcrumb.data.DerivedReadModel
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.PlaceRepository
@@ -29,7 +31,6 @@ import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
-import io.github.valeronm.breadcrumb.domain.toLiveness
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Dispatchers
@@ -47,27 +48,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZoneId
 
-/**
- * The places table, admitted only when a reading would cluster differently from the last one —
- * compared through [PlaceClusterer.seedsOf], so the rule is stated in the type the clusterer
- * actually consumes and a new seed field cannot be forgotten in a comparison kept somewhere else.
- * A rename or a tag projects to the same seeds and is dropped here.
- *
- * This is the gate on the most expensive computation in the app: whatever survives it re-clusters
- * the entire history, and the user waits behind that. Rows rather than seeds come out, because the
- * clustering has to keep the exact list it was built from — see [TrackListViewModel.Clustered].
- * Extracted so the rule is reachable by a test without a database — see `PlaceDerivationGateTest`.
- */
-internal fun pinnedRows(rows: Flow<List<Place>>): Flow<List<Place>> = rows
-    .distinctUntilChanged { before, after ->
-        PlaceClusterer.seedsOf(before) == PlaceClusterer.seedsOf(after)
-    }
-
 class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repository = TrackRepository(app)
     private val livenessRepository = LivenessRepository(app)
     private val placeRepository = PlaceRepository(app)
+    private val derivationStore = DerivationStore(app)
     private val backupRepositories = BackupRepositories(repository, placeRepository, livenessRepository)
 
     /** GPX import/export/share and full backup/restore — the transfer half of this screen's API. */
@@ -95,24 +81,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * A clustering run, the clock it was taken against, and **the exact places list it was built
-     * from**. That list is not incidental: [PlaceResolver] resolves a cluster to a place by position
-     * (`seedIndex`), so a derivation is only meaningful beside the reading that seeded it. Pairing
-     * one with a later reading is what deleting a place would otherwise do — every row after the
-     * gap shifts, and clusters resolve to their neighbours.
+     * One reading of the derivation and everything resolved against it, shared by [timeline] and
+     * [places].
+     *
+     * **[places] is the list the clusters were ordered against, not merely a fresh one.**
+     * [PlaceResolver] resolves a cluster to a place by position (`seedIndex`), so the two are only
+     * meaningful together — pairing a derivation with a later reading is what deleting a place would
+     * otherwise do: every entry after the gap shifts, and clusters resolve to their neighbours.
      */
-    private class Clustered(
-        val derivation: StayDeriver.Derivation,
-        val places: List<Place>,
-        val now: Long,
-        /** The same track bounds the derivation ran on — kept because a night spent moving is
-         *  covered by no interval, and only a track can place it ([TravelDeriver]). */
-        val tracks: List<StayDeriver.TrackEnd>,
-        /** Where each cluster's centroid sits, as the gazetteer has it — see [citiesOf]. */
-        val cities: Map<Coordinate, CityAtlas.City>,
-    )
-
-    /** One derivation run's inputs and outputs, shared by [timeline] and [places]. */
     private class Derived(
         val derivation: StayDeriver.Derivation,
         val places: List<Place>,
@@ -124,7 +100,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val stays: List<StayDeriver.Stay> = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
 
         /**
-         * The clock each cluster runs on, in the clustering's order. Resolved once per derivation
+         * The clock each cluster runs on, in the derivation's order. Resolved once per derivation
          * rather than per lookup: `ZoneId.of` parses and allocates, the timeline asks per interval
          * *and* again per emitted slice, and every row of a history then holds its own equal-but-
          * distinct instance. Lazy because only the timeline asks.
@@ -164,37 +140,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .distinctUntilChanged()
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
-    // The stay/place derivation is the most expensive pure computation in the app, so it runs once
-    // here and both screens map from it. Of the live status only the active track's start matters
-    // (constant per track) — distinctUntilChanged keeps per-fix status emissions from re-running
-    // the clustering.
-    private val clustered: Flow<Clustered> = combine(
-        repository.observeEndpoints().distinctUntilChanged(),
-        livenessRepository.observeEvents().distinctUntilChanged(),
-        pinnedRows(placeRows),
-        TrackingStatus.state.map { if (it.recording) it.startedAtMillis else null }.distinctUntilChanged(),
-    ) { endpoints, events, places, activeStartedAt ->
-        val now = System.currentTimeMillis()
-        val trackEnds = endpoints.map { it.toTrackEnd() }
-        val derivation = StayDeriver.derive(
-            tracks = trackEnds,
-            liveness = events.mapNotNull { it.toLiveness() },
-            nowMs = now,
-            activeTrack = activeStartedAt?.let { StayDeriver.ActiveTrack(it) },
-            distance = AndroidDistance,
-            placePins = PlaceClusterer.seedsOf(places),
-        )
-        Clustered(derivation, places, now, trackEnds, citiesOf(derivation.clusters.map { it.centroid }))
-    }.flowOn(Dispatchers.Default)
-
     /**
-     * Last pass's answers, so a re-clustering only pays for the coordinates that moved. Rebuilt from
-     * the clustering each pass rather than added to: a cluster's centroid is the mean of its
-     * members, so every finished track nudges one, and a memo that only grew would collect an entry
-     * per nudge for as long as the process lives — which is weeks.
+     * Last pass's answers, so a reading only pays the gazetteer for the coordinates that moved.
+     * Rebuilt each pass rather than added to: a cluster's centroid is the mean of its members, so
+     * every finished track nudges one, and a memo that only grew would collect an entry per nudge
+     * for as long as the process lives — which is weeks.
      *
      * A null value is an answer (nothing in the gazetteer reaches there), not a miss, so the lookup
-     * below asks [Map.containsKey]. Written only from the [clustered] flow, which is one coroutine;
+     * below asks [Map.containsKey]. Written only from the [derived] flow, which is one coroutine;
      * nothing else may touch it.
      */
     private var cityByPoint: Map<Coordinate, CityAtlas.City?> = emptyMap()
@@ -205,9 +158,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * it is in or what time it is there, and what a label *does* outrank is [PlaceResolver]'s to
      * decide.
      *
-     * Runs beside the clustering rather than where the rows are built: the resolvers re-run on
-     * writes that leave the clustering untouched — a rename, a track's activity retyped — and a
-     * lookup is three walks of a 160,000-row table.
+     * Runs once per reading of the derivation rather than where the rows are built: the resolvers
+     * re-run on writes that move no cluster — a rename, a track's activity retyped — and a lookup
+     * is three walks of a 160,000-row table.
      */
     private fun citiesOf(
         points: List<Coordinate>,
@@ -229,28 +182,30 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private fun cityOf(at: Coordinate): CityAtlas.City? =
         Cities.atlas(getApplication()).naming(at.lat, at.lon, AndroidDistance)
 
-    // Freshening the rows *over* the clustering's own is what makes a tag cheap: the pins are
-    // unchanged, so the cached derivation is reused and only what reads a label or category runs
-    // again. Matched by id onto the list the clustering was built from — never replaced by it — so
-    // the positional contract holds whatever the newer reading added or removed; a place deleted
-    // while a re-clustering is in flight stays until that lands, which is correct, because it is
-    // still in the clustering.
-    private val derived: Flow<Derived> = combine(clustered, placeRows) { clustering, fresh ->
-        val byId = fresh.associateBy { it.id }
+    /**
+     * The derivation every screen maps from: stored rows mapped to shapes, against this reading of
+     * the places table, with the trailing stay and the gazetteer's answers resolved onto it.
+     *
+     * Only the active track's *start* is taken from the live status, and it is constant per track,
+     * so the per-fix emissions behind it cannot re-run anything here.
+     */
+    private val derived: Flow<Derived> = combine(
+        derivationStore.observeStored(),
+        placeRows,
+        livenessRepository.observeEvents().distinctUntilChanged(),
+        repository.observeEndpoints().distinctUntilChanged(),
+        TrackingStatus.state.map { if (it.recording) it.startedAtMillis else null }.distinctUntilChanged(),
+    ) { stored, places, events, endpoints, activeStartedAt ->
+        val now = System.currentTimeMillis()
+        val derivation = DerivedReadModel.derivationOf(stored, places, events, now, activeStartedAt)
         Derived(
-            clustering.derivation,
-            clustering.places.map { byId[it.id] ?: it },
-            clustering.now,
-            clustering.tracks,
-            clustering.cities,
+            derivation,
+            places,
+            now,
+            endpoints.map { it.toTrackEnd() },
+            citiesOf(derivation.clusters.map { it.centroid }),
         )
     }
-        // A places write that moved a pin re-emits both sides; the first carries a list the patch
-        // above has just restored to what the previous emission held, and re-deriving the timeline
-        // off it would walk the whole history for an identical answer.
-        .distinctUntilChanged { before, after ->
-            before.derivation === after.derivation && before.places == after.places
-        }
         .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
@@ -318,7 +273,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * The runs of nights spent away from home, oldest first — what the Timeline marks its days with.
      * Rides the shared derivation rather than collecting anything of its own, and costs one sample
-     * per night in the history, which is nothing beside the clustering it maps off.
+     * per night in the history, which is nothing beside the derivation it maps off.
      *
      * **Null until the first derivation lands**, for the reason given on [timeline]: empty is a real
      * answer — a history with no tagged home has no journeys — and a screen that cannot tell it from
@@ -407,10 +362,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * The places table as stored — what the user *said* about places, with nothing derived around
      * it. Not a leaner [places]: that one answers "which spots does this history hold, and what is
-     * known about each", and waits on the clustering to do it, while this answers "where are the
+     * known about each", and waits on the derivation to do it, while this answers "where are the
      * user's pins" off a table read. A screen with a map and no interest in visits (a track's own,
      * which annotates a route with the places it ran through) wants the second question, and asking
-     * the first would leave it blank behind the most expensive computation in the app.
+     * the first would leave it blank behind rows it has no use for.
      *
      * Seeded empty rather than null, unlike [places]: no pin is a real and ordinary answer here, and
      * nothing reads it as evidence the history is empty.
@@ -422,7 +377,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * What the user's own naming says about a place's category, retrained whenever the places table
      * changes — a rename or a fresh tag is exactly the evidence this learns from, so there is
      * nothing to invalidate by hand. Reads [placeRows] rather than [derived]: retraining owes
-     * nothing to the clustering, and waiting on it would retrain on every finished track.
+     * nothing to the derivation, and waiting on it would retrain on every finished track.
      */
     val categorySuggester: StateFlow<PlaceCategorySuggester.Model> = placeRows
         .map(PlaceCategorySuggester::train)
@@ -435,8 +390,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * naming and categorizing are separate steps and the category suggestion is read off the name.
      *
      * An unchanged place writes nothing. That guard belongs here rather than at the button: every
-     * write invalidates `places` and re-runs the derivation each screen reads, and a pin or a radius
-     * moving re-clusters the whole history — so what counts as "changed" is a data-layer question,
+     * write invalidates `places` and re-maps the derivation each screen reads, and a pin or a radius
+     * moving re-derives the whole history — so what counts as "changed" is a data-layer question,
      * not something a Done tap should be trusted to have asked.
      *
      * [onCreated] gets the inserted row's id, and only on a create. Creating is the one act that
