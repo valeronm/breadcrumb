@@ -723,13 +723,6 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         /** The new track that took everything from the cut onwards. The first half is the original
          *  row, which keeps its id. */
         val secondId: Long,
-        /**
-         * The original's end before the cut moved it, offered back when the halves are rejoined.
-         * Only an offer: [TrackBounds] re-derives the reunited end from the points, and agrees with
-         * this wherever the track holds a usable fix — it stands alone for one that doesn't, having
-         * no fix to be read off.
-         */
-        val originalEndedAt: Long,
     )
 
     /**
@@ -796,25 +789,32 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 "track $trackId split at $atTs: kept ${before.size} points, " +
                     "moved ${after.size} to new track $secondId",
             )
-            Split(secondId = secondId, originalEndedAt = endedAt)
+            Split(secondId = secondId)
         }
     }
 
     /**
      * Undo a [splitTrack]: the second half's fixes go back onto [originalId], its now-empty row is
      * dropped, and the reunited track is re-derived — an exact inverse, since the overrun rule reads
-     * the raw recording rather than its own output, so the pre-cut flags and bounds come back.
-     * [Split.originalEndedAt] is offered back as the end for the one track that cannot be read off a
-     * fix, and says so itself.
+     * the raw recording rather than its own output, so the pre-cut flags and bounds come back. The
+     * reunited end is the later half's end, and the row holding it is the second half's until it is
+     * purged — so it is read there rather than carried through the undo, where it would be a
+     * snapshot taken before a sweep the snackbar can easily outlive.
      */
     suspend fun unsplitTracks(originalId: Long, split: Split) {
         db.withTransaction {
             val original = dao.track(originalId) ?: return@withTransaction
+            // Absence is the only state this covers — a second tap of the same undo, with nothing
+            // left to take back. The row is closed by construction, [splitTrack] having inserted it
+            // with the original's own end.
+            val rejoinedEnd = dao.track(split.secondId)?.endedAt ?: return@withTransaction
             // Points first: purging the row while they still hang off it would cascade them away.
             dao.movePointsFrom(originalId, split.secondId, Long.MIN_VALUE)
             dao.purgeTrack(split.secondId)
-            dao.closeTrack(originalId, split.originalEndedAt)
-            val applied = settleTrack(original, split.originalEndedAt, dao.allPointsFor(originalId))
+            // Written here rather than left to the settle below, which only rewrites an end it
+            // disagrees with — and where it agrees, the row would keep the cut's own end.
+            dao.closeTrack(originalId, rejoinedEnd)
+            val applied = settleTrack(original, rejoinedEnd, dao.allPointsFor(originalId))
             refreshStats(originalId, applied.points)
             derivation.reknit(listOf(originalId, split.secondId))
         }

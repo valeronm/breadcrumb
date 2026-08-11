@@ -715,7 +715,7 @@ class TrackRepositoryTest {
         assertEquals("every fix is back on the original", 40, dao.allPointsFor(id).size)
         val reunited = dao.track(id)!!
         // The overrun rule reads the raw recording, so the reunited track re-derives to exactly what
-        // it was — and the recorder's stop time comes back with the Split rather than from the rule.
+        // it was — the end included, the second half having carried it on its own row until purged.
         assertEquals(before.endedAt, reunited.endedAt)
         assertEquals(before.startedAt, reunited.startedAt)
         assertEquals(before.pointCount, reunited.pointCount)
