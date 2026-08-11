@@ -55,7 +55,7 @@ class MonthlyTotalsTest {
     ) = TimelineItem.StayItem(
         stay = StayDeriver.Stay(
             start = start, end = end,
-            provenance = StayDeriver.Provenance.OBSERVED, afterTrackId = ++nextId, clusterId = 0,
+            afterTrackId = ++nextId, clusterId = 0,
         ),
         place = PlaceResolver.ResolvedStay(
             place = Place(

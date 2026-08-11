@@ -6,9 +6,9 @@ import androidx.lifecycle.viewModelScope
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Cities
 import io.github.valeronm.breadcrumb.data.DerivationStore
-import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.PlaceRepository
+import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
@@ -52,11 +52,10 @@ import java.time.ZoneId
 class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repository = TrackRepository(app)
-    private val livenessRepository = LivenessRepository(app)
     private val placeRepository = PlaceRepository(app)
     private val derivationStore = DerivationStore(app)
     private val backupRepositories =
-        BackupRepositories(repository, placeRepository, livenessRepository, derivationStore)
+        BackupRepositories(repository, placeRepository, derivationStore)
 
     /** GPX import/export/share and full backup/restore — the transfer half of this screen's API. */
     internal val importExport = ImportExportController(app, viewModelScope, repository, backupRepositories)
@@ -192,24 +191,29 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * second arm turns one transaction into two emissions here, and
      * [DerivationStore.observeStored] says what the reading in between holds.
      *
-     * Only the active track's *start* is taken from the live status, and it is constant per track,
-     * so the per-fix emissions behind it cannot re-run anything here.
+     * Only the recorder arm's two fields are taken from the live status — the active track's
+     * *start*, constant per track, and the armed flag — so the per-fix emissions behind it cannot
+     * re-run anything here.
      *
-     * **The liveness arm carries a trigger, not the log.** Only the trailing stay asks anything of
-     * it, and what it asks is two seeks that [DerivationStore.read] makes for itself — where holding
-     * the log here means a list that grows for as long as the app is installed, retained by the
-     * replay and folded again on every emission, to answer about one interval.
+     * **The armed flag is a trigger; the value it stands for is the disarm timestamp in Settings**,
+     * read fresh in the block below and handed to [DerivationStore.read], which is what closes the
+     * trailing stay. The pairing rests on the service writing that timestamp *before* it flips
+     * [TrackingStatus] — the order both `handleStart` and `handleStop` keep.
      */
     private val derived: Flow<Derived> = combine(
         derivationStore.observeStored(),
-        livenessRepository.observeChanges().distinctUntilChanged(),
-        // Mapped in the arm rather than in the block below, so a reading of the derivation or a
-        // liveness event does not re-map every track in the history for a list that did not move.
+        TrackingStatus.state
+            .map { it.tracking to (if (it.recording) it.startedAtMillis else null) }
+            .distinctUntilChanged(),
+        // Mapped in the arm rather than in the block below, so a reading of the derivation or an
+        // arm/disarm does not re-map every track in the history for a list that did not move.
         repository.observeEndpoints().distinctUntilChanged().map { ends -> ends.map { it.toTrackEnd() } },
-        TrackingStatus.state.map { if (it.recording) it.startedAtMillis else null }.distinctUntilChanged(),
-    ) { stored, _, trackEnds, activeStartedAt ->
+    ) { stored, (_, activeStartedAt), trackEnds ->
         val now = System.currentTimeMillis()
-        val derivation = derivationStore.read(stored, now, activeStartedAt)
+        val derivation = derivationStore.read(
+            stored, now, activeStartedAt,
+            disarmedSince = Settings.disarmedSinceMs(getApplication()),
+        )
         Derived(
             derivation,
             stored.places,

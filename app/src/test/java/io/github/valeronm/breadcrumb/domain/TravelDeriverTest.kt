@@ -5,7 +5,6 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver.Derivation
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Gap
 import io.github.valeronm.breadcrumb.domain.StayDeriver.GapReason
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Interval
-import io.github.valeronm.breadcrumb.domain.StayDeriver.Provenance
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
 import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
 import org.junit.Assert.assertEquals
@@ -60,10 +59,9 @@ class TravelDeriverTest {
         location: Coordinate,
         from: Long,
         until: Long?,
-        provenance: Provenance = Provenance.OBSERVED,
         cluster: Int = known.indexOf(location),
     ) = Stay(
-        start = from, end = until, provenance = provenance,
+        start = from, end = until,
         afterTrackId = ++nextTrackId, clusterId = cluster,
     )
 
@@ -137,7 +135,6 @@ class TravelDeriverTest {
         assertEquals(3, travel.nightCount)
         assertEquals(t(1, 8), travel.leftHomeAt)
         assertEquals(t(4, 15), travel.reachedHomeAt)
-        assertEquals(Provenance.OBSERVED, travel.provenance)
         // Only what was spent away, and only stays wholly inside the leaving and arriving bounds.
         assertEquals(mapOf(known.indexOf(abroad) to t(4, 9) - t(1, 14)), travel.clusterStayMs)
     }
@@ -248,8 +245,6 @@ class TravelDeriverTest {
         val travel = travels.single()
         assertEquals(day(1), travel.firstNight)
         assertEquals(day(3), travel.lastNight)
-        // Fixes attest a night in motion as much as a stay does — nothing here is inferred.
-        assertEquals(Provenance.OBSERVED, travel.provenance)
     }
 
     @Test fun `a night driving inside home's own capture area is still a night at home`() {
@@ -265,7 +260,7 @@ class TravelDeriverTest {
         assertTrue(travels.isEmpty())
     }
 
-    @Test fun `a night inside a gap is placed only when both sides agree, and never as observed`() {
+    @Test fun `a night inside a gap is placed only when both sides agree`() {
         val travels = derive(
             listOf(
                 stay(home, t(0, 12), t(1, 8)),
@@ -280,7 +275,6 @@ class TravelDeriverTest {
         val travel = travels.single()
         assertEquals(day(2), travel.firstNight)
         assertEquals(day(3), travel.lastNight)
-        assertEquals(Provenance.INFERRED, travel.provenance)
     }
 
     @Test fun `a night the two sides disagree about opens no travel`() {
@@ -316,7 +310,6 @@ class TravelDeriverTest {
         assertEquals(day(2), travel.firstNight)
         assertEquals(day(4), travel.lastNight)
         assertEquals(3, travel.nightCount)
-        assertEquals(Provenance.INFERRED, travel.provenance)
     }
 
     @Test fun `a travel does not end on an unplaceable night`() {

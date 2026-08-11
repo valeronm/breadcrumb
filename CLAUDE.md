@@ -47,8 +47,8 @@ run the tests after touching anything they cover. **Room runs in these host test
 (in-memory DB, `TestDb` fixture), so the repository's DB rules and the schema migrations are
 covered without a device — see `TrackRepositoryTest`, `Migration10To11Test`,
 `TimelineInvalidationTest`, and the stored derivation's own suites (`DerivationStoreTest`,
-`DerivedConsistencyTest`, `DerivedReadModelTest`, `LivenessWindowTest`, `Migration15To16Test`,
-`Migration16To17Test`, `SchemaMatchesEntitiesTest`).
+`DerivedConsistencyTest`, `DerivedReadModelTest`, `Migration15To16Test`,
+`Migration16To17Test`, `Migration18To19Test`, `SchemaMatchesEntitiesTest`).
 **Whether a migrated schema is the one Room builds from the entities is asked at the end of the
 chain**, which is the only place it can be true — Room compares what it finds against head on the
 first open after an upgrade, so a case pinned to a single step stops asking anything the moment
@@ -215,9 +215,9 @@ The pieces below only make sense together — read them as a unit.
 - `ActivityRecognitionManager` registers Activity Transition updates (and a one-shot activity
   *snapshot* on arming). Results arrive at `ActivityTransitionReceiver`, which forwards the detected
   `ActivityType` to `LocationRecordingService.instance` (it does not start the service).
-- `WatchdogReceiver` fires on an alarm every 15 min while armed, and does five things the coroutine
+- `WatchdogReceiver` fires on an alarm every 15 min while armed, and does four things the coroutine
   timers can't be trusted with in Doze: re-*requests* the transition registration (a request, never
-  a restart), stamps a heartbeat, closes a pause whose resume window lapsed while the wake was
+  a restart), closes a pause whose resume window lapsed while the wake was
   frozen, revisits a held reading, and restarts the service if the armed flag is set but the
   service is dead.
 - **Both receivers hold their broadcast open (`goAsync`) until the service has applied the
@@ -305,7 +305,8 @@ evidence a car-borne history has of being in a city.
 time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
 auto-pause resume window, the GPS give-up timeout, and keep-track
 thresholds (min duration/length/extent). It also holds recorder bookkeeping that isn't a user
-setting at all: the liveness heartbeat, which permissions this install has ever put a dialog up for,
+setting at all: when the recorder was last disarmed (the instant the timeline's trailing stay
+closes at), which permissions this install has ever put a dialog up for,
 and the two sweep rule versions (edge stays, track stats)
 that are what make `App.onCreate` re-derive the whole history. Sampling is read by the service when
 each track's GPS request starts; keep thresholds by the repository when a track finishes.
@@ -322,7 +323,8 @@ reassigns them. `GpxExporter` (`data/export/`) builds GPX for share intents (`Fi
 bulk-writes to a user-picked folder (Storage Access Framework); `GpxParser` imports GPX files
 shared/opened into the app, and `importTracks` refuses a file whose period an existing track
 already covers. `BackupExporter`/`BackupImporter` (`data/export/`) are the full backup — one
-gzipped JSON file with every kept track's points, places and liveness events, streamed both ways.
+gzipped JSON file with every kept track's points and the places, streamed both ways (the importer
+still skips the `liveness` array an older file carries).
 Restore is offered only on the Timeline's empty state, and that
 screen is where it reports its progress. With tracks present a restore would have to merge with
 them, so the offer disappears as soon as the first track exists. The format also feeds the
@@ -333,7 +335,7 @@ against `StayDeriverTest`), so a rule that moves here moves there. `PlaceReposit
 Places tab.
 
 **The timeline's stays are stored, not derived on read** — `data/DerivationStore` over
-`derived_clusters`, `cluster_members` and `derived_intervals` (schema v18). Showing a day is a query,
+`derived_clusters`, `cluster_members` and `derived_intervals` (schema v19). Showing a day is a query,
 and the derivation runs where a track *changes* rather than where one is read, which is what lets a
 reader outside the app's own screens ask what a day held without walking the history. **Two passes
 write those rows and they must agree**: `rebuild` derives the whole history, `StayLedger.reknit`
@@ -350,12 +352,12 @@ same thing — which on the largest of these tables was a second index maintaine
 something nothing read.
 
 **Reading the derivation is `DerivationStore.read`, and that is the only entry point.** It maps the
-stored rows, fetches the liveness the trailing stay needs and pairs the two — a sequence every caller
-would otherwise repeat, and one that has to answer for reading outside the transaction the rows came
-from (it can, because the stretch it reads over is bounded by rows already in hand and the log only
-grows forward). It is a method rather than part of `observeStored` because two of its inputs move
-with no write behind them: the clock, and whether something is recording. **The mapped rows are kept
-while the rows are** — a liveness write, a recording starting or the clock advancing cannot have
+stored rows and appends the trailing stay — a sequence every caller would otherwise repeat. It is a
+method rather than part of `observeStored` because its other inputs move with no write behind them:
+the clock, whether something is recording, and the disarm timestamp in `Settings` that closes the
+trailing stay (the app attests nothing past a disarm, so that stay must not stretch to the clock
+while the recorder is off). **The mapped rows are kept
+while the rows are** — a recording starting, a disarm or the clock advancing cannot have
 moved a row, and mapping ~20,000 of them again is the larger half of what a reading costs; identity
 of the lists `observeStored` carries over is what decides.
 
@@ -395,37 +397,15 @@ sweeps now report whether they wrote anything. And a change to the **seeds** goe
 `reconcile`, which is the only way a rebuild is reached outside a repair: it brings the seed clusters
 back into agreement with the `places` table and re-derives when one moved — or when the caller says
 the rows are stale for a reason of its own (`stale = true`), so a launch that must rebuild anyway
-pays for one pass. One write reaches backwards over rows already derived and is none of the three:
-materializing an OUTAGE re-asks what the stays across it witnessed, through
-`StayDeriver.LivenessEvidence` so that rule keeps one author. Nothing there changes place, bound or
-existence — the window is a fact about the app, not about where anyone was.
+pays for one pass.
 
-**A repair reads the liveness log over the stretch it judges, a rebuild reads all of it**, and the
-two are separate functions rather than one with a flag: `summarizeLiveness` takes the whole log,
-`summarizeLivenessOver` takes a slice, the stretch it answers for, and the one fact a slice cannot
-carry — when the record begins, since evidence predating it leaves an interval inferred however alive
-the app was inside the window. **A narrowed reduction is not the same value as a whole-log one**, only
-the same answers inside its range, so `LivenessEvidence` carries that range: asked outside it, it
-refuses, and `disarmedSince` — which a slice can only answer with the last unclosed disarm it
-happened to fetch — refuses outright.
-
-**Which events a window needs is a domain rule, not a query** — `StayDeriver.bearingOn`: the events
-inside it, any outage still open when it began, and the last arm or disarm before it, that last being
-the whole of the state the fold carries from one event to the next. **The query does not restate that
-rule, it feeds it**: `LivenessDao.eventsAround` is a read an index can serve that is guaranteed to
-*contain* the rule, and `evidenceOver` passes what comes back through `bearingOn` before using it. So
-the query owes a superset and nothing finer — it may be generous where being exact would cost a scan,
-and only a *missing* event is a fault. Every arm being a bounded range over an indexed column is the
-point rather than a detail: asking for the outages that *reach* the window reads as the plainer
-question and makes SQLite walk every row back to the log's beginning, the read it exists to avoid.
-
-Three guards, and each catches what the others cannot. `StayDeriverTest` puts every window on a grid
-through both readings — total over the rule, on a plain JVM, but blind to the SQL and to
-minimality. `LivenessWindowTest` holds the query against the rule over the same kind of grid, which
-is the only thing making "the query implements the rule" a checked sentence; it is also where the
-outages-cannot-overlap invariant is load-bearing, an earlier outage still open being one the last-one
-arm would miss. `DerivedConsistencyTest` runs the real writers against a laid-down log, which is the
-only place the two are wired together.
+**The derivation deliberately carries no record of the app's own attention.** An earlier design kept
+a liveness log (armed/disarmed/outage events) and stamped every stay observed or inferred by it; it
+was removed because observed/inferred describes the app, not where anyone was, and nothing rendered
+it — the customer cannot act on it either way. What survives of it is one timestamp in `Settings`
+(when the recorder was last disarmed, which closes the trailing stay) and the importer's tolerance
+for the `liveness` array older backup files carry. Reintroducing an app-facts surface is a design
+decision to raise, not a gap to fill.
 
 **A place row holds what the user said about a spot, and only that** — its name, its capture radius,
 and its `category` (`PlaceCategory.code`, null = untagged). Everything else about a place is derived

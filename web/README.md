@@ -31,13 +31,11 @@ python3 -m http.server -d web 8000
   they are a cache of the file, not a second copy of the history.
 - `js/stays.js` — the app's stay derivation (`StayDeriver` + `PlaceClusterer` +
   `PlaceResolver.resolveClusters`), ported: where the user was *between* tracks, derived from the
-  two things the backup already carries — every kept track's endpoints, and the liveness log. Two
+  one thing the backup already carries — every kept track's endpoints. Two
   neighboring endpoints at the same place (same endpoint cluster, or within the agreement radius, or
   sharing a nearest named-place pin) make a **stay**; endpoints that disagree mean movement the
-  recorder missed and make a **gap**. A stay is *observed* only where the liveness log attests the
-  app was alive and armed throughout — an outage, a disarm, or history from before the log existed
-  leaves it *inferred*. Derivation is "as of" the export's own timestamp, so the last stay is open
-  as of the backup rather than growing every time the page is reloaded.
+  recorder missed and make a **gap**. Derivation is "as of" the export's own timestamp, so the last
+  stay is open as of the backup rather than growing every time the page is reloaded.
 
   A stay row also names **what the place is for** where the user tagged it (`PlaceCategory` in the
   app; `CATEGORY_LABELS` here), after the duration — the app's own order. The codes are the stored

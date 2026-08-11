@@ -74,7 +74,7 @@ class TrackMergeTest {
 
     private fun stay(start: Long, end: Long) = StayDeriver.Stay(
         start = start, end = end,
-        provenance = StayDeriver.Provenance.OBSERVED, afterTrackId = before.id, clusterId = 0,
+        afterTrackId = before.id, clusterId = 0,
     )
 
     @Test fun `a short interval's plan is keyed by the track it follows`() {

@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.data.export
 
-import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -11,14 +10,13 @@ internal fun exportJson(
     tracks: List<Track> = emptyList(),
     points: Map<Long, List<TrackPoint>> = emptyMap(),
     places: List<Place> = emptyList(),
-    liveness: List<LivenessEvent> = emptyList(),
 ): String {
     val out = StringBuilder()
     runTest {
         BackupExporter.writeJson(
             out,
             5_000L,
-            BackupExporter.Content(tracks, { points[it].orEmpty() }, places, liveness),
+            BackupExporter.Content(tracks, { points[it].orEmpty() }, places),
         )
     }
     return out.toString()

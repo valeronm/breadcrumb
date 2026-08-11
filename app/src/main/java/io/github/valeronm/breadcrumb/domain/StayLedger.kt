@@ -141,41 +141,19 @@ object StayLedger {
         /** The tracks the intervals are recomputed over, in time order — this seam's whole subject. */
         internal val chain: List<StayDeriver.TrackEnd>
             get() = listOfNotNull(prev) + added + listOfNotNull(next)
-
-        /**
-         * The stretch every interval this seam can produce lies within — **empty where it produces
-         * none**, a chain of fewer than two tracks having no pair between them. That case is a real
-         * one and not a guard: a track deleted with no kept neighbour either side takes its stored
-         * rows away and writes no interval at all.
-         *
-         * Asked here rather than worked out by the caller: which pairs a repair rewrites is this
-         * class's own rule, and a caller that re-derived the bounds — to fetch the liveness evidence
-         * those intervals are judged against, which is the one reason to want them — would be
-         * restating that rule somewhere it could not be kept in step with it.
-         */
-        fun span(): LongRange =
-            if (chain.size < 2) LongRange.EMPTY else chain.first().startedAt..chain.last().endedAt
     }
 
     /**
      * Everything already stored that the seam is judged against.
      *
-     * **Two of these are narrowed to the seam and one cannot be**, which is worth saying because they
-     * sit side by side and the next reader will ask. The memberships are the seam's own and its
-     * neighbours'; the evidence covers [Seam.span] and no more. [clusters] is every cluster in the
-     * history and has to be: an endpoint can join any anchor anywhere, and one left out is not a
-     * slower answer but a different cluster.
+     * The memberships are narrowed to the seam's own and its neighbours'; [clusters] is every
+     * cluster in the history and has to be: an endpoint can join any anchor anywhere, and one left
+     * out is not a slower answer but a different cluster.
      */
     class Stored(
         val clusters: List<ClusterRow>,
         /** Memberships of [Seam.prev], [Seam.next] and every removed track, by track id. */
         val membershipOf: Map<Long, List<Membership>>,
-        /**
-         * The liveness log already reduced to the question the intervals ask of it, rather than the
-         * log — a repair judges a handful of intervals over a known stretch, so what it needs is
-         * evidence about that stretch and the caller is the one that can fetch just it.
-         */
-        val evidence: StayDeriver.LivenessEvidence,
     )
 
     fun reknit(
@@ -225,7 +203,7 @@ object StayLedger {
         // others. An interval after the last track in the chain is the open one, which is never
         // stored ([StayDeriver.tail]).
         val intervals = seam.chain.zipWithNext().mapNotNull { (before, after) ->
-            intervalBetween(before, after, clusterOf, agreement, stored.evidence)
+            intervalBetween(before, after, clusterOf, agreement)
         }
 
         return Mutations(
@@ -256,12 +234,11 @@ object StayLedger {
         after: StayDeriver.TrackEnd,
         clusterOf: Map<Endpoint, ClusterRef>,
         agreement: StayDeriver.Agreement,
-        evidence: StayDeriver.LivenessEvidence,
     ): Interval? {
         val from = clusterOf[Endpoint(before.trackId, isStart = false)]
         val to = clusterOf[Endpoint(after.trackId, isStart = true)]
         val verdict = StayDeriver.verdictBetween(
-            before, after, sameCluster = from != null && from == to, agreement, evidence,
+            before, after, sameCluster = from != null && from == to, agreement,
         ) as? StayDeriver.Verdict.Recorded ?: return null
         val moved = verdict is StayDeriver.Verdict.Moved
         return Interval(

@@ -123,31 +123,6 @@ data class TrackPoint(
 )
 
 /**
- * Recorder-lifecycle evidence for deriving stays: a gap between tracks only counts as "stayed
- * here" if the app was alive and armed throughout. Low volume (a few rows per day at most); the
- * high-frequency liveness signal is the heartbeat timestamp in Settings, which materializes as
- * an OUTAGE row here only when a restart discovers it went stale.
- */
-// The composite is what lets a reader ask about one stretch of time rather than the whole log — see
-// [LivenessDao.eventsAround], which is the query it exists for and where the argument lives.
-@Entity(tableName = "liveness_events", indices = [Index("at"), Index("type", "at")])
-data class LivenessEvent(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    /** "ARMED" | "DISARMED" | "OUTAGE". */
-    val type: String,
-    /** Event time (epoch ms). For OUTAGE: when the app was last known alive before dying. */
-    val at: Long,
-    /** OUTAGE only: when the app came back (the restart time). Null for ARMED/DISARMED. */
-    val until: Long? = null,
-) {
-    companion object {
-        const val TYPE_ARMED = "ARMED"
-        const val TYPE_DISARMED = "DISARMED"
-        const val TYPE_OUTAGE = "OUTAGE"
-    }
-}
-
-/**
  * A group of track endpoints that are one spot, and **the durable entity a stay belongs to** — the
  * place row beside it holds only what the user called it.
  *
@@ -239,9 +214,6 @@ data class DerivedInterval(
     val endedAt: Long,
     /** The kept track this interval follows. */
     val afterTrackId: Long,
-    /** STAY: [PROVENANCE_OBSERVED] | [PROVENANCE_INFERRED] — whether the app was alive throughout,
-     *  or only knows that the two ends agree. */
-    val provenance: String? = null,
     /** STAY: the cluster both endpoints agreed on. */
     val clusterId: Long? = null,
     /** GAP: [REASON_MOVED_UNRECORDED] | [REASON_UNKNOWN_ENDPOINT]. */
@@ -257,7 +229,7 @@ data class DerivedInterval(
     val toLon: Double? = null,
 ) {
     /**
-     * The stored spellings of the three vocabularies these columns hold. Constants rather than
+     * The stored spellings of the vocabularies these columns hold. Constants rather than
      * literals at each writer, and declared here rather than taken from the domain enums whose
      * names they echo: what is on disk outlives any one build's Kotlin identifiers, so a rename
      * there must stay a rename and not a silent data migration.
@@ -265,8 +237,6 @@ data class DerivedInterval(
     companion object {
         const val TYPE_STAY = "STAY"
         const val TYPE_GAP = "GAP"
-        const val PROVENANCE_OBSERVED = "OBSERVED"
-        const val PROVENANCE_INFERRED = "INFERRED"
         const val REASON_MOVED_UNRECORDED = "MOVED_UNRECORDED"
         const val REASON_UNKNOWN_ENDPOINT = "UNKNOWN_ENDPOINT"
     }

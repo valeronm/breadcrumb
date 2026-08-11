@@ -7,7 +7,6 @@ import io.github.valeronm.breadcrumb.data.db.DerivedCluster
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.toLiveness
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertEquals
@@ -66,8 +65,6 @@ internal object DerivedConsistency {
         val tracks = db.trackDao().endpointsOnce().map { it.toTrackEnd() }
         val fresh = StayDeriver.derive(
             tracks = tracks,
-            liveness = db.livenessDao().allEvents().mapNotNull { it.toLiveness() },
-            nowMs = nowMs,
             distance = AndroidDistance,
             // The named rows are *inputs* to the reference pass, not outputs compared against it:
             // they are the pins the app's own derivation was seeded from, so a reference seeded any
@@ -176,7 +173,7 @@ internal object DerivedConsistency {
             }
         }
 
-        val expected = intervalsGivenStoredAssignments(db, stored, nowMs)
+        val expected = intervalsGivenStoredAssignments(db, stored)
         val read = readBack(db, stored, nowMs)
         assertEquals("interval count", expected.size, stored.intervals.size)
         assertEquals(
@@ -197,16 +194,11 @@ internal object DerivedConsistency {
     private suspend fun intervalsGivenStoredAssignments(
         db: AppDatabase,
         stored: StoredDerivation,
-        nowMs: Long,
     ): List<StayDeriver.Interval> {
         val agreement = StayDeriver.Agreement(
             StayDeriver.Params(),
             AndroidDistance,
             stored.seeds().map { it.toSeed() },
-        )
-        val evidence = StayDeriver.summarizeLiveness(
-            db.livenessDao().allEvents().mapNotNull { it.toLiveness() },
-            nowMs,
         )
         val positionOf = stored.clusters.withIndex().associate { (index, row) -> row.id to index }
         val clusterOfEndpoint = stored.members.associate { (it.trackId to it.isStart) to positionOf.getValue(it.clusterId) }
@@ -215,14 +207,13 @@ internal object DerivedConsistency {
             val from = clusterOfEndpoint[before.trackId to false]
             val to = clusterOfEndpoint[after.trackId to true]
             val verdict = StayDeriver.verdictBetween(
-                before, after, sameCluster = from != null && from == to, agreement, evidence,
+                before, after, sameCluster = from != null && from == to, agreement,
             )
             when (verdict) {
                 StayDeriver.Verdict.None -> null
-                is StayDeriver.Verdict.Stayed -> StayDeriver.Stay(
+                StayDeriver.Verdict.Stayed -> StayDeriver.Stay(
                     start = before.endedAt,
                     end = after.startedAt,
-                    provenance = verdict.provenance,
                     afterTrackId = before.trackId,
                     clusterId = checkNotNull(from) { "an agreeing pair has both ends" },
                 )
@@ -253,7 +244,7 @@ internal object DerivedConsistency {
         fun anchor(index: Int?) = index?.let(anchorOf)
         return when (this) {
             is StayDeriver.Stay ->
-                listOf("stay", start, end, provenance, afterTrackId, anchor(clusterId), null, null, null)
+                listOf("stay", start, end, afterTrackId, anchor(clusterId), null, null, null)
             is StayDeriver.Gap ->
                 listOf("gap", start, end, reason, afterTrackId, anchor(fromClusterId), anchor(toClusterId), from, to)
         }

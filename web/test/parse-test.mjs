@@ -8,12 +8,11 @@ const text = loadExportText(process.argv, "node parse-test.mjs");
 const expected = JSON.parse(text);
 
 function run(chunkSize) {
-  const got = { tracks: [], places: null, liveness: null, header: null };
+  const got = { tracks: [], places: null, header: null };
   const parser = new BackupParser({
     onHeader: (h) => { got.header = structuredClone(h); },
     onTrack: (t) => got.tracks.push(t),
     onPlaces: (p) => { got.places = p; },
-    onLiveness: (l) => { got.liveness = l; },
   });
   feed(parser, text, chunkSize);
 
@@ -24,7 +23,8 @@ function run(chunkSize) {
   assert.equal(got.tracks.length, expected.tracks.length);
   assert.deepEqual(got.tracks, expected.tracks);
   assert.deepEqual(got.places, expected.places);
-  assert.deepEqual(got.liveness, expected.liveness);
+  // An older file's retired `liveness` array is parsed and dropped, never kept in the header.
+  assert.equal(got.header.liveness, undefined);
   console.log(`chunk=${chunkSize}: ok (${got.tracks.length} tracks)`);
 }
 

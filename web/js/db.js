@@ -1,4 +1,4 @@
-// IndexedDB layer, four stores: meta (key "export": header info, places, liveness, import stamp —
+// IndexedDB layer, four stores: meta (key "export": header info, places, import stamp —
 // one small record); tracks (key id: track row + bbox + one simplified overview geometry per stretch
 // the recorder watched, loaded whole at startup); geometry (key trackId: lon/lat + flags +
 // ignore-reason typed arrays, per selected track); extras (key trackId: time/alt/speed/accuracy

@@ -5,7 +5,6 @@ import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.toLiveness
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -51,8 +50,6 @@ class DerivedReadModelTest {
     private suspend fun fresh(): StayDeriver.Derivation =
         StayDeriver.derive(
             tracks = db.trackDao().endpointsOnce().map { it.toTrackEnd() },
-            liveness = db.livenessDao().allEvents().mapNotNull { it.toLiveness() },
-            nowMs = now,
             distance = AndroidDistance,
             placePins = PlaceClusterer.seedsOf(db.placeDao().allPlaces()),
         )
@@ -69,7 +66,7 @@ class DerivedReadModelTest {
         track(TEST_START)
         track(TEST_START + 3 * 60 * 60_000L)
         track(TEST_START + 6 * 60 * 60_000L)
-        store.rebuild(now)
+        store.rebuild()
 
         val fresh = fresh()
         val read = read()
@@ -90,7 +87,7 @@ class DerivedReadModelTest {
     @Test fun `the trailing stay is synthesized, not stored`() = runTest {
         track(TEST_START)
         track(TEST_START + 3 * 60 * 60_000L)
-        store.rebuild(now)
+        store.rebuild()
 
         // Stored rows stop at the last track; the reader adds the stay still running after it.
         val read = read()
@@ -101,7 +98,7 @@ class DerivedReadModelTest {
 
     @Test fun `a recording track closes the trailing stay where it began`() = runTest {
         track(TEST_START)
-        store.rebuild(now)
+        store.rebuild()
 
         val active = TEST_START + 60 * 60_000L
         val read = read(active)
@@ -126,7 +123,7 @@ class DerivedReadModelTest {
         // A second walk ending a neighbourhood away, so the history holds two clusters and the
         // newest track's end is not also the oldest's.
         val newest = test.walk(TEST_START + 3 * 60 * 60_000L, 0, 5, lonOffset = 0.01)
-        store.rebuild(now)
+        store.rebuild()
 
         val read = read()
         val tail = read.intervals.last()
@@ -142,7 +139,7 @@ class DerivedReadModelTest {
 
     /**
      * **The history is mapped again only when the rows change.** Most of what re-runs a reading
-     * cannot have moved a row — the clock, a recording starting, a liveness write — and mapping
+     * cannot have moved a row — the clock, a recording starting, a disarm — and mapping
      * ~20,000 rows into objects is the larger half of what a reading costs, so a reading driven by
      * one of those reuses what the last one built.
      *
@@ -153,7 +150,7 @@ class DerivedReadModelTest {
     @Test fun `the rows are mapped again only when they change`() = runTest {
         track(TEST_START)
         track(TEST_START + 3 * 60 * 60_000L)
-        store.rebuild(now)
+        store.rebuild()
         val stored = store.observeStored().first()
 
         val first = store.read(stored, now, activeStartedAt = null)
@@ -172,7 +169,7 @@ class DerivedReadModelTest {
         places.create(test.place("Home", 1.0, -2.0))
         places.create(test.place("Far", 9.0, -9.0))
         track(TEST_START)
-        store.rebuild(now)
+        store.rebuild()
 
         val read = read()
         val all = db.placeDao().allPlaces()

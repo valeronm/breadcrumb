@@ -350,9 +350,9 @@ internal fun TracksTab(
  * it can be named. Nights and distance are not here — they would repeat on every header of a journey
  * to say something that does not change, and the Insights tab states them once.
  *
- * **How the nights were placed is deliberately not shown**: a journey resting partly on unobserved
- * nights looks the same as one observed throughout, because the difference is not something a reader
- * can act on. Provenance stays on the model, exactly as [StayDeriver.Provenance] does for stay rows.
+ * **How the nights were placed is deliberately not shown**: a journey resting partly on unplaced
+ * nights looks the same as one placed throughout, because the difference is not something a reader
+ * can act on.
  */
 @Composable
 private fun TravelHeading(away: AwayDay) {
@@ -770,9 +770,7 @@ private fun SweepBanner(progress: SweepStatus.Progress, modifier: Modifier = Mod
 
 /**
  * A derived stationary period between two tracks. A resolved place shows its label, an unnamed one
- * the city it sits in, and an unnamed recurring cluster its visit count as well. Tap → name. (The
- * derivation's observed/inferred provenance is deliberately NOT rendered: the customer can't act on
- * it either way.)
+ * the city it sits in, and an unnamed recurring cluster its visit count as well. Tap → name.
  */
 @Composable
 private fun StayRow(

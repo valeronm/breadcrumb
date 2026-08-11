@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.Place
-import io.github.valeronm.breadcrumb.domain.StayDeriver.Provenance
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -187,7 +186,7 @@ class PlaceResolverTest {
         locationOfStay[trackId] = location
         return Stay(
             start = start, end = end,
-            provenance = Provenance.OBSERVED, afterTrackId = trackId, clusterId = 0,
+            afterTrackId = trackId, clusterId = 0,
         )
     }
 

@@ -60,18 +60,6 @@ interface DerivedDao {
     )
     suspend fun shiftClusterMembership(id: Long, sumLat: Double, sumLon: Double, count: Int)
 
-    /**
-     * The stored intervals a window could bear on — every row that overlaps it, whatever its type.
-     * Deliberately a *candidate* filter and not a rule: what an overlap means for a stay's
-     * provenance is the domain's to say, and a query that decided it here would be that rule's
-     * second author.
-     */
-    @Query("SELECT * FROM derived_intervals WHERE start < :until AND endedAt > :at")
-    suspend fun intervalsOverlapping(at: Long, until: Long): List<DerivedInterval>
-
-    @Query("UPDATE derived_intervals SET provenance = :provenance WHERE afterTrackId = :afterTrackId")
-    suspend fun setIntervalProvenance(afterTrackId: Long, provenance: String)
-
     @Query("DELETE FROM derived_intervals WHERE afterTrackId IN (:trackIds)")
     suspend fun deleteIntervalsAfter(trackIds: List<Long>)
 

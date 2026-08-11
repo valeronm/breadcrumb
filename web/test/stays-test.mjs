@@ -1,5 +1,5 @@
 // The stay derivation, case for case against the app's own suite — the two must agree about what
-// counts as the same place, what a gap is, and what the liveness log can attest. Needs no export
+// counts as the same place and what a gap is. Needs no export
 // file. Run: node web/test/stays-test.mjs
 //
 // Distance is stubbed flat-earth, scaled so 0.001° ≈ 100 m, exactly as the app's domain tests do:
@@ -32,8 +32,8 @@ const pin = (meters, radiusM = 350) => ({ anchor: at(meters), radiusM });
 const track = (trackId, startedAt, endedAt, start = home, end = home) =>
   ({ trackId, startedAt, endedAt, start, end });
 
-const derive = (tracks, { liveness = [{ type: "ARMED", at: 0 }], now = NOW, placePins = [] } = {}) =>
-  deriveStays({ tracks, liveness, nowMs: now, distance: flatDistance, placePins });
+const derive = (tracks, { now = NOW, placePins = [] } = {}) =>
+  deriveStays({ tracks, nowMs: now, distance: flatDistance, placePins });
 
 const intervalsOf = (...args) => derive(...args).intervals;
 
@@ -54,50 +54,12 @@ const gaps = (intervals) => intervals.filter((i) => i.kind === "gap");
   const stay = stays(betweenTracks(homePair()))[0];
   assert.equal(stay.start, 120 * MIN);
   assert.equal(stay.end, 240 * MIN);
-  assert.equal(stay.provenance, "OBSERVED", "agreeing endpoints with full liveness are observed");
   assert.equal(stay.afterTrackId, 1);
 }
 
 {
-  const withOutage = betweenTracks(homePair(), {
-    liveness: [{ type: "ARMED", at: 0 }, { type: "OUTAGE", at: 150 * MIN, until: 180 * MIN }],
-  });
-  assert.equal(stays(withOutage)[0].provenance, "INFERRED", "an outage inside the gap downgrades it");
-}
-
-{
-  const twoOutages = betweenTracks(homePair(), {
-    liveness: [
-      { type: "ARMED", at: 0 },
-      { type: "OUTAGE", at: 130 * MIN, until: 140 * MIN },
-      { type: "OUTAGE", at: 200 * MIN, until: 210 * MIN },
-    ],
-  });
-  assert.equal(stays(twoOutages).length, 1, "two outages in one gap still yield a single stay");
-  assert.equal(stays(twoOutages)[0].provenance, "INFERRED");
-}
-
-{
-  const rearmed = betweenTracks(homePair(), {
-    liveness: [
-      { type: "ARMED", at: 0 },
-      { type: "DISARMED", at: 150 * MIN },
-      { type: "ARMED", at: 200 * MIN },
-    ],
-  });
-  assert.equal(stays(rearmed)[0].provenance, "INFERRED", "a disarm-rearm inside the gap is inferred");
-}
-
-{
-  // First evidence arrives after the gap — history from before the liveness log existed.
-  const old = betweenTracks(homePair(), { liveness: [{ type: "ARMED", at: 500 * MIN }] });
-  assert.equal(stays(old)[0].provenance, "INFERRED");
-  assert.equal(stays(betweenTracks(homePair(), { liveness: [] }))[0].provenance, "INFERRED");
-}
-
-{
   const gap = gaps(betweenTracks(homePair(home, office)))[0];
-  assert.equal(gap.reason, "MOVED_UNRECORDED", "disagreeing endpoints are a gap whatever the liveness");
+  assert.equal(gap.reason, "MOVED_UNRECORDED", "disagreeing endpoints are a gap");
   assert.equal(gap.start, 120 * MIN);
   assert.equal(gap.end, 240 * MIN);
   assert.equal(gap.afterTrackId, 1, "a gap names the track it follows, like a stay");
@@ -196,7 +158,6 @@ const gaps = (intervals) => intervals.filter((i) => i.kind === "gap");
 {
   const tail = stays(intervalsOf([track(1, 60 * MIN, 120 * MIN)]))[0];
   assert.equal(tail.end, null, "after the last track the stay is open-ended");
-  assert.equal(tail.provenance, "OBSERVED");
 }
 
 {
@@ -211,26 +172,6 @@ const gaps = (intervals) => intervals.filter((i) => i.kind === "gap");
     derivation.clusters[tail.clusterId].anchor, office,
     "the tail stay belongs to the cluster its track ended in",
   );
-}
-
-{
-  const disarmed = stays(intervalsOf([track(1, 60 * MIN, 120 * MIN)], {
-    liveness: [{ type: "ARMED", at: 0 }, { type: "DISARMED", at: 200 * MIN }],
-  }))[0];
-  assert.equal(disarmed.end, 200 * MIN, "a tail disarm closes the open stay at the disarm");
-  assert.equal(disarmed.provenance, "OBSERVED");
-  const brief = stays(intervalsOf([track(1, 60 * MIN, 120 * MIN)], {
-    liveness: [{ type: "ARMED", at: 0 }, { type: "DISARMED", at: 121 * MIN }],
-  }))[0];
-  assert.equal(brief.end, 121 * MIN, "even a short one is bounded there");
-}
-
-{
-  const outaged = stays(intervalsOf([track(1, 60 * MIN, 120 * MIN)], {
-    liveness: [{ type: "ARMED", at: 0 }, { type: "OUTAGE", at: 150 * MIN, until: 160 * MIN }],
-  }))[0];
-  assert.equal(outaged.end, null);
-  assert.equal(outaged.provenance, "INFERRED", "an outage in the tail makes the open stay inferred");
 }
 
 assert.equal(
@@ -256,7 +197,7 @@ assert.equal(
     startOfDay: (ms) => Math.floor(ms / DAY) * DAY,
     nextMidnight: (ms) => Math.floor(ms / DAY) * DAY + DAY,
   };
-  const stay = { kind: "stay", start: 20 * 60 * MIN, end: DAY + 9 * 60 * MIN, provenance: "OBSERVED" };
+  const stay = { kind: "stay", start: 20 * 60 * MIN, end: DAY + 9 * 60 * MIN, clusterId: 3 };
   const slices = slicePerDay([stay], 2 * DAY, utcClock);
   assert.equal(slices.length, 2, "a midnight-spanning stay splits per day");
   assert.deepEqual([slices[0].start, slices[0].end], [20 * 60 * MIN, DAY]);
@@ -264,7 +205,7 @@ assert.equal(
   // The stamp at the cut: which bounds are the stay's own, so no reader works it out from a clock.
   assert.deepEqual(slices.map((s) => s.holdsStart), [true, false]);
   assert.deepEqual(slices.map((s) => s.holdsEnd), [false, true]);
-  assert.ok(slices.every((s) => s.provenance === "OBSERVED"), "slices keep what they are");
+  assert.ok(slices.every((s) => s.clusterId === 3), "slices keep what they are");
 
   const open = slicePerDay([{ ...stay, end: null }], DAY + 9 * 60 * MIN, utcClock);
   assert.equal(open[0].end, DAY);

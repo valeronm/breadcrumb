@@ -49,7 +49,7 @@ class DerivationStoreTest {
     @Test fun `a rebuild stores what the deriver derives`() = runTest {
         twoTracks()
 
-        store.rebuild(now)
+        store.rebuild()
 
         assertTrue("the history has an interval between its two tracks", derived.intervalsOnce().isNotEmpty())
         assertDerivedMatchesFreshDerive()
@@ -58,7 +58,7 @@ class DerivationStoreTest {
     @Test fun `the open stay is not among the stored rows`() = runTest {
         track(0, 5, TEST_START)
 
-        store.rebuild(now)
+        store.rebuild()
 
         // One track has nothing after it but the stay still running, which closes at the clock.
         assertTrue(derived.intervalsOnce().isEmpty())
@@ -81,7 +81,7 @@ class DerivationStoreTest {
         val before = derived.namedClusters().single()
 
         twoTracks()
-        store.rebuild(now)
+        store.rebuild()
 
         val after = derived.namedClusters().single()
         assertEquals(before.id, after.id)

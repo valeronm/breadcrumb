@@ -1,12 +1,10 @@
 // Stays, gaps and the endpoint clustering they index into — a port of the app's `StayDeriver`,
-// `PlaceClusterer` and `PlaceResolver.resolveClusters`, running on the backup's two inputs: every
-// kept track's endpoints, and the liveness log. A stay is the interval between one track's end and
+// `PlaceClusterer` and `PlaceResolver.resolveClusters`, running on the backup's one input: every
+// kept track's endpoints. A stay is the interval between one track's end and
 // the next's start when both endpoints land at "the same place" (same endpoint cluster, OR raw
 // distance within the agreement radius, OR the same nearest named-place pin within that pin's own
 // radius); endpoint disagreement means movement the recorder missed, reported as a gap instead.
-// Provenance is OBSERVED only where the liveness log attests the app was alive and armed
-// throughout — an outage, a disarm-rearm inside the interval, or history from before the log
-// existed marks it INFERRED. The rules are the app's, restated once here because a viewer that
+// The rules are the app's, restated once here because a viewer that
 // reads the same history a second way is worse than one that doesn't read it at all; one
 // presentation rule is ported too, being a rule about the data and not about pixels: which
 // clusters are worth drawing (`mapVisiblePlaces`, from PlacesScreens.kt). Every constant below
@@ -117,11 +115,10 @@ export function clusterEndpoints(locations, radiusM, distance, seeds) {
   });
 }
 
-/** Derives the timeline's intervals from tracks + liveness.
+/** Derives the timeline's intervals from the tracks.
  * @param tracks ascending by time: {trackId, startedAt, endedAt, start, end} — start/end the
  *   first/last *good* point's {lat, lon}, or null (an unknown endpoint can only produce gaps,
  *   as in the app).
- * @param liveness ascending: {type: "ARMED"|"DISARMED"|"OUTAGE", at, until}.
  * @param nowMs the instant the derivation is "as of" — the viewer passes the backup's export time,
  *   so an open tail stay is open as of the export rather than growing on every page load.
  * @param placePins named places as clustering seeds: {anchor: {lat, lon}, radiusM}, in places-list
@@ -130,14 +127,12 @@ export function clusterEndpoints(locations, radiusM, distance, seeds) {
  *   `clusterId`, a gap the cluster id of each known side. */
 export function deriveStays({
   tracks,
-  liveness = [],
   nowMs,
   params = {},
   distance = metersBetween,
   placePins = [],
 }) {
   const p = { ...DEFAULT_PARAMS, ...params };
-  const evidence = summarizeLiveness(liveness, nowMs);
   const endpoints = [];
   for (const track of tracks) {
     if (track.start) endpoints.push(track.start);
@@ -204,35 +199,30 @@ export function deriveStays({
       kind: "stay",
       start: gapStart,
       end: gapEnd,
-      provenance: evidence.provenanceOver(gapStart, gapEnd),
       afterTrackId: prev.trackId,
       clusterId: clusterOf.get(key(a)),
     });
   }
 
-  const tail = tailStay(tracks[tracks.length - 1], evidence, nowMs, clusterOf);
+  const tail = tailStay(tracks[tracks.length - 1], nowMs, clusterOf);
   if (tail) out.push(tail);
   return { intervals: out, clusters };
 }
 
-/** The stay after the last finished track: open-ended (where the user was left) unless the
- * liveness log says the app was disarmed — it can attest nothing past the disarm, so the stay
- * closes there. The app's third case — a live recording closing the tail at the active track's
- * start — can't arise from a backup: the export is a finished snapshot, and a track still
- * recording when it was written isn't in it. */
-function tailStay(last, evidence, nowMs, clusterOf) {
+/** The stay after the last finished track: open-ended — where the user was left as of the export
+ * instant. The app's two closing cases can't arise from a backup: a track still recording when the
+ * file was written isn't in it, and the disarm bound lives on the device (Settings), not in the
+ * file — a snapshot attests nothing past its own stamp either way. */
+function tailStay(last, nowMs, clusterOf) {
   if (!last) return null;
   const lastEnd = last.end;
   if (!lastEnd) return null;
   const start = last.endedAt;
   if (start > nowMs) return null;
-  const end = evidence.disarmedSince == null ? null : Math.max(evidence.disarmedSince, start);
-  const effectiveEnd = end ?? nowMs;
   return {
     kind: "stay",
     start,
-    end,
-    provenance: evidence.provenanceOver(start, effectiveEnd),
+    end: null,
     afterTrackId: last.trackId,
     clusterId: clusterOf.get(key(lastEnd)),
   };
@@ -252,37 +242,6 @@ export function reportableDurationMs(stay, nowMs) {
  */
 export function hasNoDuration(stay) {
   return stay.end === stay.start;
-}
-
-// --- liveness evidence ---------------------------------------------------------------------------
-
-function summarizeLiveness(liveness, nowMs) {
-  const dead = []; // half-open [start, end) intervals where the app was known dead or disarmed
-  let disarmedSince = null;
-  // Time of the earliest liveness evidence; anything before it is unattested — which is how
-  // history from before the log existed derives as inferred rather than as observed silence.
-  const firstEvidenceAt = liveness.length ? Math.min(liveness[0].at, nowMs) : null;
-  for (const event of liveness) {
-    if (event.type === "OUTAGE") {
-      // An outage row without an end says nothing bounded — the app skips it too.
-      if (event.until != null) dead.push([Math.min(event.at, nowMs), Math.min(event.until, nowMs)]);
-    } else if (event.type === "DISARMED") {
-      if (disarmedSince == null) disarmedSince = Math.min(event.at, nowMs);
-    } else if (event.type === "ARMED") {
-      if (disarmedSince != null) dead.push([disarmedSince, Math.min(event.at, nowMs)]);
-      disarmedSince = null;
-    }
-  }
-  // A trailing disarm is dead through "now" for mid-list gaps; the tail stay handles it explicitly.
-  if (disarmedSince != null) dead.push([disarmedSince, nowMs]);
-  return {
-    disarmedSince,
-    provenanceOver(start, end) {
-      if (firstEvidenceAt == null || start < firstEvidenceAt) return "INFERRED";
-      if (dead.some(([ds, de]) => ds < end && start < de)) return "INFERRED";
-      return "OBSERVED";
-    },
-  };
 }
 
 // --- display helpers -----------------------------------------------------------------------------

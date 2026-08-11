@@ -9,15 +9,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
-        Track::class, TrackPoint::class, LivenessEvent::class, Place::class,
+        Track::class, TrackPoint::class, Place::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
-    abstract fun livenessDao(): LivenessDao
     abstract fun placeDao(): PlaceDao
     abstract fun derivedDao(): DerivedDao
 
@@ -262,7 +261,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         /**
          * v16 adds the derived stay/place tables. DDL only, and they start **empty**: what belongs
-         * in them is a function of the tracks, the places and the liveness log already stored, so it
+         * in them is a function of the tracks and places already stored, so it
          * is derived on the next launch rather than carried across by hand. A half-filled set of
          * rows would be worse than none, nothing here distinguishing a row not yet written from one
          * whose inputs said nothing.
@@ -399,15 +398,63 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
-         * v18 indexes `liveness_events(type, at)`, which is what makes reading the log over one
-         * stretch of time cheaper than reading all of it — [LivenessDao.eventsAround] is the query
-         * it exists for and says why. DDL only; no row is read or written.
+         * v18 indexed `liveness_events(type, at)` for the windowed log reads of that era. DDL only;
+         * v19 drops the table it indexed.
          */
         val MIGRATION_17_18 = object : Migration(17, 18) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_liveness_events_type_at " +
                         "ON liveness_events(type, at)",
+                )
+            }
+        }
+
+        /**
+         * v19 retires the liveness log: the `liveness_events` table goes, and `derived_intervals`
+         * loses its `provenance` column — observed/inferred described the app's attention, not
+         * where anyone was, and nothing rendered it. The trailing stay's disarm bound, the one
+         * user-visible fact the log fed, now lives as a timestamp in [Settings]. The log's own
+         * trailing disarm is deliberately not carried into that timestamp: an install upgrading
+         * while disarmed shows its trailing stay open until the next disarm writes one, which was
+         * judged cheaper than a one-shot backfill for a value the next toggle re-establishes.
+         * minSdk 26's SQLite
+         * predates `ALTER TABLE … DROP COLUMN`, so the table is rebuilt and its rows copied — they
+         * are unchanged by the column going, so no re-derivation follows.
+         */
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS liveness_events")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS derived_intervals_new (
+                      type TEXT NOT NULL,
+                      start INTEGER NOT NULL,
+                      endedAt INTEGER NOT NULL,
+                      afterTrackId INTEGER NOT NULL,
+                      clusterId INTEGER,
+                      reason TEXT,
+                      fromClusterId INTEGER, toClusterId INTEGER,
+                      fromLat REAL, fromLon REAL,
+                      toLat REAL, toLon REAL,
+                      PRIMARY KEY(afterTrackId) )
+                    """,
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO derived_intervals_new
+                        (type, start, endedAt, afterTrackId, clusterId, reason,
+                         fromClusterId, toClusterId, fromLat, fromLon, toLat, toLon)
+                    SELECT type, start, endedAt, afterTrackId, clusterId, reason,
+                           fromClusterId, toClusterId, fromLat, fromLon, toLat, toLon
+                    FROM derived_intervals
+                    """,
+                )
+                db.execSQL("DROP TABLE derived_intervals")
+                db.execSQL("ALTER TABLE derived_intervals_new RENAME TO derived_intervals")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_derived_intervals_start " +
+                        "ON derived_intervals(start)",
                 )
             }
         }
@@ -423,7 +470,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
             MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
             MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15,
-            MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
+            MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19,
         )
 
         fun get(context: Context): AppDatabase =

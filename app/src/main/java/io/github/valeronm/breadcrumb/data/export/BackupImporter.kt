@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.data.export
 
 import android.content.Context
 import android.net.Uri
-import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -19,7 +18,7 @@ import java.util.zip.GZIPInputStream
  */
 object BackupImporter {
 
-    class Summary(val tracks: Int, val points: Int, val places: Int, val events: Int)
+    class Summary(val tracks: Int, val points: Int, val places: Int)
 
     /** Tracks per insert transaction: one commit (and one observed-query wake) per batch, not per track. */
     private const val INSERT_BATCH = 50
@@ -63,7 +62,6 @@ object BackupImporter {
         var tracks = 0
         var points = 0
         var places = 0
-        var events = 0
         var total: Int? = null
         val batch = mutableListOf<Pair<Track, List<TrackPoint>>>()
         suspend fun flush() {
@@ -88,29 +86,25 @@ object BackupImporter {
                 repositories.places.restorePlaces(it)
                 places = it.size
             },
-            onLiveness = {
-                repositories.liveness.restoreEvents(it)
-                events = it.size
-            },
         )
         flush()
         // Once, at the end: the restored places become the seeds, and the derivation over every
         // track the file carried is one pass rather than a repair per batch — the tracks arrive in
         // the file's order, which a repair around one of them has no way to assume anything about.
         repositories.derivation.reconcile(stale = true)
-        return Summary(tracks, points, places, events)
+        return Summary(tracks, points, places)
     }
 
     /**
      * Streams the export document (already gunzipped) in [reader]: each track (with all its
-     * points) goes to [onTrack] as it's read, places and liveness as whole lists — they're small.
-     * Track and point ids in the callbacks are the file's; insertion re-keys them.
+     * points) goes to [onTrack] as it's read, places as a whole list — it's small. A `liveness`
+     * array in an older file falls to the unknown-key skip below. Track and point ids in the
+     * callbacks are the file's; insertion re-keys them.
      */
     internal suspend fun parse(
         reader: Reader,
         onTrack: suspend (Track, List<TrackPoint>, tracksTotal: Int?) -> Unit,
         onPlaces: suspend (List<Place>) -> Unit,
-        onLiveness: suspend (List<LivenessEvent>) -> Unit,
     ) {
         val json = JsonPullReader(reader)
         var formatSeen = false
@@ -153,13 +147,6 @@ object BackupImporter {
                     while (json.hasNext()) places.add(readPlace(json))
                     json.endArray()
                     onPlaces(places)
-                }
-                "liveness" -> {
-                    val eventList = mutableListOf<LivenessEvent>()
-                    json.beginArray()
-                    while (json.hasNext()) eventList.add(readLiveness(json))
-                    json.endArray()
-                    onLiveness(eventList)
                 }
                 else -> json.skipValue()
             }
@@ -315,22 +302,5 @@ object BackupImporter {
             id = id, label = label, lat = lat, lon = lon, createdAt = createdAt,
             radiusM = radiusM, category = category,
         )
-    }
-
-    private fun readLiveness(json: JsonPullReader): LivenessEvent {
-        var type = ""
-        var at = 0L
-        var until: Long? = null
-        json.beginObject()
-        while (json.hasNext()) {
-            when (json.nextName()) {
-                "type" -> type = json.nextString()
-                "at" -> at = json.nextNumber().toLong()
-                "until" -> until = json.nextNumberOrNull()?.toLong()
-                else -> json.skipValue()
-            }
-        }
-        json.endObject()
-        return LivenessEvent(type = type, at = at, until = until)
     }
 }

@@ -11,7 +11,6 @@ import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.StayLedger
-import io.github.valeronm.breadcrumb.domain.toLiveness
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
@@ -42,7 +41,6 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
 
     private val derived = db.derivedDao()
     private val tracks = db.trackDao()
-    private val liveness = db.livenessDao()
     private val places = db.placeDao()
 
     /**
@@ -117,7 +115,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * track's fixes queue behind it — a second or so, against the sweeps that precede it here
      * holding it far longer.
      */
-    suspend fun rebuild(nowMs: Long = System.currentTimeMillis()) {
+    suspend fun rebuild() {
         try {
             db.withTransaction {
                 val trackEnds = tracks.endpointsOnce().map { it.toTrackEnd() }
@@ -125,8 +123,6 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
                 val seeds = derived.namedClusters()
                 val derivation = StayDeriver.derive(
                     tracks = trackEnds,
-                    liveness = liveness.allEvents().mapNotNull { it.toLiveness() },
-                    nowMs = nowMs,
                     distance = AndroidDistance,
                     placePins = seeds.map { it.toSeed() },
                 )
@@ -249,35 +245,6 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
     )
 
     /**
-     * Re-ask what the stored stays over a window witnessed, the liveness behind them having changed.
-     *
-     * **The one thing that reaches backwards over rows already derived**, and the only change that
-     * is neither a repair nor a rebuild: an outage is learned after the fact — the app finds out it
-     * was dead only once it is alive again — so the stays across it were derived believing the
-     * silence was attested. Nothing about where anyone was moves, so no interval changes place,
-     * bound or existence; only what the app claims to have seen.
-     *
-     * Re-judged through [StayDeriver.LivenessEvidence] rather than by a rule of its own, so
-     * that what a silence makes of a stay keeps one author — including the half about evidence
-     * predating the record, which no query over a window could express. The rows are the handful an
-     * outage overlaps, and one whose answer has not changed is not written.
-     */
-    suspend fun rejudgeProvenance(from: Long, until: Long) {
-        db.withTransaction {
-            val rows = derived.intervalsOverlapping(from, until)
-                .filter { it.type == DerivedInterval.TYPE_STAY }
-            if (rows.isEmpty()) return@withTransaction
-            // Over what the rows span, not over the window that found them: an overlapping stay
-            // reaches outside it at either end, and its provenance is a claim about the whole stay.
-            val evidence = evidenceOver(rows.minOf { it.start }..rows.maxOf { it.endedAt }, until)
-            for (row in rows) {
-                val code = codeOf(evidence.provenanceOver(row.start, row.endedAt))
-                if (code != row.provenance) derived.setIntervalProvenance(row.afterTrackId, code)
-            }
-        }
-    }
-
-    /**
      * Repair the stored rows around the tracks a change touched, instead of deriving the history
      * again — the seam is worked out here and judged by [StayLedger], which owns the rule.
      *
@@ -289,7 +256,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * Runs inside the caller's transaction (Room's are re-entrant), which is the point: the track
      * rows and the derivation over them commit together or not at all.
      */
-    suspend fun reknit(changedTrackIds: Collection<Long>, nowMs: Long = System.currentTimeMillis()) {
+    suspend fun reknit(changedTrackIds: Collection<Long>) {
         val ids = changedTrackIds.distinct()
         if (ids.isEmpty()) return
         db.withTransaction {
@@ -314,19 +281,13 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             // Every touched id, not the subset with stored endpoints: the ledger reads a removal only
             // through the memberships it finds, so one with none takes nothing away, and classifying
             // them here would be a rule with a second author.
-            val seam = StayLedger.Seam(prev, ids, added, next)
             apply(
                 StayLedger.reknit(
-                    seam = seam,
+                    seam = StayLedger.Seam(prev, ids, added, next),
                     stored = StayLedger.Stored(
                         clusters = derived.clustersOnce().map { it.toClusterRow() },
                         membershipOf = (leaving + neighbours).map { it.toMembership() }
                             .groupBy { it.trackId },
-                        // The log read over the stretch the seam will write into and no further: it
-                        // grows for as long as the app is installed, and a track finishing is not an
-                        // occasion to walk it. Which stretch that is comes from the seam rather than
-                        // being worked out again here — see [StayLedger.Seam.span].
-                        evidence = evidenceOver(seam.span(), nowMs),
                     ),
                     distance = AndroidDistance,
                 ),
@@ -392,63 +353,34 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
     )
 
     /**
-     * What the liveness log says about `[from, until)`, read over that stretch alone.
-     *
-     * The pairing is the whole of it: [LivenessDao.eventsAround] gathers every event that can bear
-     * on the window, and [LivenessDao.earliestEventAt] supplies the one thing a window cannot see —
-     * when the record begins. Read apart, a narrowed pass would call every interval observed back to
-     * the first event it happened to fetch, which is the opposite of what a young log means.
-     */
-    private suspend fun evidenceOver(
-        over: LongRange,
-        nowMs: Long,
-    ): StayDeriver.LivenessEvidence = StayDeriver.summarizeLivenessOver(
-        // Fetched by [LivenessDao.eventsAround] and then held to [StayDeriver.bearingOn], which is
-        // the rule that query implements. Both, rather than either: the query narrows the *read* to
-        // something an index can serve, and the rule decides what is *used* — so the query owes only
-        // to over-fetch, which is a far easier obligation than matching the rule exactly, and the
-        // domain keeps the last word on which events a window is answered from.
-        liveness = StayDeriver.bearingOn(
-            liveness.eventsAround(over.first, over.last).mapNotNull { it.toLiveness() },
-            over,
-        ),
-        over = over,
-        nowMs = nowMs,
-        earliestAt = liveness.earliestEventAt(),
-    )
-
-    /**
      * A reading of [stored] as the derivation the screens consume — **the one entry point for it**,
-     * so that mapping the rows, fetching the liveness the trailing stay needs and pairing the two is
-     * one act with one author rather than a sequence every caller repeats.
+     * so that mapping the rows and appending the trailing stay is one act with one author rather
+     * than a sequence every caller repeats.
      *
-     * It is a method and not part of [observeStored] because two of its inputs move with no write
-     * behind them: the clock, and whether something is recording. What that costs is a second read
-     * outside the transaction the rows came from, and the answer to whether that matters lives here
-     * — the window it reads over is bounded by rows already in hand, and the log only ever grows
-     * forward, so an event arriving between the two reads can only be one *after* the stretch being
-     * asked about.
+     * It is a method and not part of [observeStored] because its other inputs move with no write
+     * behind them: the clock, whether something is recording, and [disarmedSince] — when the
+     * recorder was last turned off ([Settings.disarmedSinceMs]), which is the instant the trailing
+     * stay closes at.
      *
      * **The mapped rows are kept while the rows are.** [observeStored] carries its lists over
      * unchanged when a write reached no derived table, so identity is enough to know the mapping
-     * still holds — and every other input to this (a liveness write, a recording starting, the clock)
+     * still holds — and every other input to this (a recording starting, a disarm, the clock)
      * re-emits without touching them. Mapping the history again for those would be the larger half
      * of what a reading costs, paid for something that cannot have changed it.
      */
-    internal suspend fun read(
+    internal fun read(
         stored: StoredDerivation,
         nowMs: Long,
         activeStartedAt: Long?,
+        disarmedSince: Long? = null,
     ): StayDeriver.Derivation {
         val rows = mapped?.takeIf { it.matches(stored) }?.rows
             ?: DerivedReadModel.mappedRows(stored).also { mapped = Mapped(stored, it) }
         val out = rows.intervals.toMutableList()
         rows.tailAnchor?.let { anchor ->
-            val over = rows.tailWindow(nowMs) ?: return@let
             StayDeriver.tail(
                 anchor = anchor,
-                evidence = evidenceOver(over, nowMs),
-                disarmedSince = disarmedSince(nowMs),
+                disarmedSince = disarmedSince?.coerceAtMost(nowMs),
                 nowMs = nowMs,
                 activeStartedAt = activeStartedAt,
             )?.let { out += it }
@@ -472,20 +404,6 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
 
     private var mapped: Mapped? = null
 
-    /** When the app last stopped attesting, clamped as the fold clamps it — see
-     *  [StayDeriver.disarmedSince], which is that rule's author, and `LivenessDao.disarmedSince`,
-     *  which is the seek this asks. */
-    private suspend fun disarmedSince(nowMs: Long): Long? =
-        liveness.disarmedSince()?.coerceAtMost(nowMs)
-
-    /** What a stay's provenance is stored as — the inverse of `DerivedReadModel.provenanceOf`, and
-     *  written here once because a rebuild states it and a repair over a learned outage restates it
-     *  against rows that rebuild already wrote. */
-    private fun codeOf(provenance: StayDeriver.Provenance) = when (provenance) {
-        StayDeriver.Provenance.OBSERVED -> DerivedInterval.PROVENANCE_OBSERVED
-        StayDeriver.Provenance.INFERRED -> DerivedInterval.PROVENANCE_INFERRED
-    }
-
     /** Which row a repair's reference names — [founded] holds the ids its new clusters were given,
      *  in the order it declared them. A rebuild founds nothing and passes none. */
     private fun StayLedger.ClusterRef.rowId(founded: List<Long>): Long = when (this) {
@@ -500,12 +418,11 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * [DerivedReadModel] is the other half of.
      */
     private fun StayLedger.Interval.toRow(founded: List<Long> = emptyList()): DerivedInterval = when (verdict) {
-        is StayDeriver.Verdict.Stayed -> DerivedInterval(
+        StayDeriver.Verdict.Stayed -> DerivedInterval(
             type = DerivedInterval.TYPE_STAY,
             start = start,
             endedAt = end,
             afterTrackId = afterTrackId,
-            provenance = codeOf(verdict.provenance),
             clusterId = checkNotNull(cluster) { "an agreeing pair has both ends" }.rowId(founded),
         )
         is StayDeriver.Verdict.Moved -> DerivedInterval(
@@ -535,7 +452,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         fun ref(clusterId: Int) = StayLedger.ClusterRef.Stored(clusterRowIds[clusterId])
         return when (this) {
             is StayDeriver.Stay -> StayLedger.Interval(
-                verdict = StayDeriver.Verdict.Stayed(provenance),
+                verdict = StayDeriver.Verdict.Stayed,
                 start = start,
                 // Only the open stay has no end, and this derivation does not emit one.
                 end = checkNotNull(end) { "a stored stay must be closed" },

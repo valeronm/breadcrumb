@@ -136,10 +136,8 @@ sealed interface Effect {
     /** Raise or withdraw the user-facing detection-stalled alert. */
     data class DeafWarning(val show: Boolean) : Effect
 
-    /** A reading arrived, at its own sanitized time — the liveness the Record card shows. */
+    /** A reading arrived, at its own sanitized time — the delivery proof the Record card shows. */
     data class StampReading(val readingMs: Long) : Effect
-
-    data object StampHeartbeat : Effect
 
     data object Publish : Effect
 }
@@ -844,15 +842,14 @@ class ActivityIngest(
     }
 
     /**
-     * Close whatever is open. Nothing open is not nothing to do — GPS goes off and the heartbeat is
-     * stamped either way, which is what makes this safe to run ahead of every [open]. The phase is
+     * Close whatever is open. Nothing open is not nothing to do — GPS goes off either way, which is
+     * what makes this safe to run ahead of every [open]. The phase is
      * what says whether a track exists, rather than the id the dispatcher holds: they agree except
      * after a failed insert, and there the phase is the one that recovers, since closing on it
      * resets a core that would otherwise spend the rest of the outing believing it was recording.
      */
     private fun close(nowMs: Long, out: MutableList<Effect>) {
         out += Effect.StopGps
-        out += Effect.StampHeartbeat
         if (controller.phase == TrackController.Phase.Idle) return
         // A paused track ended when its last fix arrived, not now — don't count the idle gap. Read
         // before [TrackController.onClosed] clears the phase the question is asked of.

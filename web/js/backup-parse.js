@@ -15,8 +15,7 @@ const WS = " \t\n\r";
 
 export class BackupParser {
   /** @param {{onHeader?: (header: object) => void, onTrack?: (track: object) => void,
-   *          onPlaces?: (places: object[]) => void,
-   *          onLiveness?: (events: object[]) => void}} callbacks
+   *          onPlaces?: (places: object[]) => void}} callbacks
    * onHeader fires once, before the first onTrack, with every scalar/small field seen so far —
    * pointFields is guaranteed present (the exporter writes it before tracks). */
   constructor(callbacks) {
@@ -201,7 +200,9 @@ export class BackupParser {
 
   takeValue(key, value) {
     if (key === "places") this.cb.onPlaces?.(value);
-    else if (key === "liveness") this.cb.onLiveness?.(value);
+    // "liveness": retired from the format; an older file's array is parsed and dropped rather
+    // than kept in the header, where it would bloat the stored meta for nothing that reads it.
+    else if (key === "liveness") { /* skip */ }
     else {
       this.header[key] = value;
       if (key === "format" && value !== FORMAT) throw new Error("not a Breadcrumb export");

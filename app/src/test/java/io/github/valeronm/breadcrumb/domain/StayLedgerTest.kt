@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.domain.StayDeriver.Armed
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Gap
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
 import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
@@ -35,7 +34,7 @@ class StayLedgerTest {
      */
     private fun store(tracks: List<TrackEnd>, named: Set<Int> = emptySet()): Stored {
         val derivation = StayDeriver.derive(
-            tracks, listOf(Armed(0)), NOW, StayDeriver.Params(), flatDistance, emptyList(),
+            tracks, StayDeriver.Params(), flatDistance, emptyList(),
         )
         val endpoints = StayDeriver.endpointsOf(tracks)
         val clusters = derivation.clusters.mapIndexed { index, cluster ->
@@ -91,7 +90,7 @@ class StayLedgerTest {
     /** The same description, taken off a full derivation's interval. */
     private fun StayDeriver.Interval.described(clusters: List<PlaceClusterer.Cluster>) = when (this) {
         is Stay -> describe(
-            StayDeriver.Verdict.Stayed(provenance), start, end!!, afterTrackId,
+            StayDeriver.Verdict.Stayed, start, end!!, afterTrackId,
             clusters[clusterId].anchor, null,
         )
         is Gap -> describe(
@@ -103,7 +102,7 @@ class StayLedgerTest {
     /** What a full derivation of [tracks] says, described for comparison. */
     private fun derived(tracks: List<TrackEnd>): List<List<Any?>> {
         val derivation = StayDeriver.derive(
-            tracks, listOf(Armed(0)), NOW, StayDeriver.Params(), flatDistance, emptyList(),
+            tracks, StayDeriver.Params(), flatDistance, emptyList(),
         )
         return derivation.intervals.map { it.described(derivation.clusters) }
     }
@@ -119,7 +118,6 @@ class StayLedgerTest {
         StayLedger.Stored(
             clusters = stored.clusters,
             membershipOf = stored.members.groupBy { it.trackId },
-            evidence = StayDeriver.summarizeLiveness(listOf(Armed(0)), NOW),
         ),
         distance = flatDistance,
     )
@@ -267,7 +265,7 @@ class StayLedgerTest {
         assertEquals("and keeps the anchor it was founded at", home, stored.clusters.single().seed.anchor)
         // A fresh derivation of what remains would anchor on the surviving endpoint instead.
         val afresh = StayDeriver.derive(
-            listOf(later), listOf(Armed(0)), NOW, StayDeriver.Params(), flatDistance, emptyList(),
+            listOf(later), StayDeriver.Params(), flatDistance, emptyList(),
         )
         assertEquals(nearby, afresh.clusters.single().anchor)
     }

@@ -34,7 +34,7 @@ class DayCategoryTotalsTest {
     ) = TimelineItem.StayItem(
         stay = StayDeriver.Stay(
             start = start, end = end,
-            provenance = StayDeriver.Provenance.OBSERVED, afterTrackId = ++nextTrackId, clusterId = 0,
+            afterTrackId = ++nextTrackId, clusterId = 0,
         ),
         place = resolved,
     )

@@ -12,7 +12,7 @@ import org.robolectric.RobolectricTestRunner
 
 /** The tables the migrated chain builds from scratch, and so the ones this can compare. */
 private val CHAIN_BUILT_TABLES =
-    listOf("derived_clusters", "cluster_members", "derived_intervals", "liveness_events")
+    listOf("derived_clusters", "cluster_members", "derived_intervals")
 
 /**
  * **The guard every migration is actually exposed to**: Room validates the schema it finds against
@@ -42,9 +42,9 @@ class SchemaMatchesEntitiesTest {
     /**
      * What the chain from [FROM_VERSION] needs to already exist. `tracks` is a stub of the one column
      * those migrations touch — an index needs something to sit on, and nothing reads the rest of it,
-     * so it stays out of the comparison. `liveness_events` is whole and *is* compared: writing it by
-     * hand and then holding it against Room is what makes the copy self-checking rather than a second
-     * schema kept in step by hope.
+     * so it stays out of the comparison. `liveness_events` exists only so the chain has something to
+     * operate on — v18 indexes it, v19 drops it — and cannot be compared, there being no entity at
+     * head to compare against; that the drop leaves no trace is `Migration18To19Test`'s.
      */
     private val fixture = MigrationDb(FROM_VERSION) { db ->
         db.execSQL(

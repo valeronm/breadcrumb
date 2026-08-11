@@ -44,7 +44,6 @@ class TravelSummaryTest {
             reachedHomeAt = null,
             windowStart = span.first,
             windowEnd = span.last,
-            provenance = StayDeriver.Provenance.OBSERVED,
             clusterStayMs = clusterStayMs,
         )
 

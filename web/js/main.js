@@ -102,7 +102,7 @@ async function refresh() {
   $("timeline").hidden = false;
   tracks = (await getAllTracks(db)).sort((a, b) => b.startedAt - a.startedAt);
   nowMs = derivationInstant(meta.exportedAt, tracks);
-  const stays = buildTimeline(meta.places ?? [], meta.liveness ?? []);
+  const stays = buildTimeline(meta.places ?? []);
   $("summary").textContent = configError ??
     `${meta.trackCount} tracks · ${stays} stays · ${(meta.pointCount / 1000).toFixed(0)}k points · ` +
     `exported ${formatDate(meta.exportedAt)}`;
@@ -132,11 +132,10 @@ function paintPlaceLayer() {
  * per-day slicing, which would count a three-day stay three times). Places seed the clustering in
  * their export order, so a cluster's seedIndex indexes straight back into this list — the same
  * contract the app relies on. */
-function buildTimeline(places, liveness) {
+function buildTimeline(places) {
   const ascending = tracks.slice().reverse();
   const { intervals, clusters } = deriveStays({
     tracks: ascending.map(toTrackEnd),
-    liveness,
     nowMs,
     placePins: places.map((p) => ({
       anchor: { lat: p.lat, lon: p.lon },

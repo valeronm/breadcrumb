@@ -45,8 +45,7 @@ internal object DerivedReadModel {
      * translated to that position here; no row id escapes this file.
      *
      * **The walk is over the whole history and is meant to be.** A screen that draws every day of a
-     * history pays for every day of it, which is a different bargain from the one the liveness log
-     * was struck for: that was read in full to answer about a single interval and drew nothing.
+     * history pays for every day of it.
      */
     fun mappedRows(stored: StoredDerivation): MappedRows {
         val placeOrder = stored.places.withIndex().associate { (index, place) -> place.id to index }
@@ -89,26 +88,6 @@ internal object DerivedReadModel {
         val clusters: List<PlaceClusterer.Cluster>,
         val intervals: List<StayDeriver.Interval>,
         val tailAnchor: StayDeriver.TailAnchor?,
-    ) {
-        /** The stretch the liveness behind the trailing stay must cover — from the newest kept
-         *  track's end to the clock, or nothing where no track anchors one. Closed at the far end
-         *  even where the anchor is somehow ahead of the clock, a reversed range being a window no
-         *  reader can answer over. */
-        fun tailWindow(nowMs: Long): LongRange? =
-            tailAnchor?.let { it.endedAt..maxOf(it.endedAt, nowMs) }
-    }
-
-    /**
-     * The liveness the trailing stay needs, and nothing else of the log.
-     *
-     * Two facts, not one, and they are shaped differently: whether the app was alive over a stretch,
-     * which a reading of that stretch answers, and whether it has stopped attesting since, which is
-     * about the log's end and no window can answer. `StayDeriver.tail` takes them apart for that
-     * reason; `DerivationStore.read` fetches them, each by a seek.
-     */
-    class TailReading(
-        val evidence: StayDeriver.LivenessEvidence,
-        val disarmedSince: Long?,
     )
 
     /**
@@ -145,7 +124,6 @@ internal object DerivedReadModel {
                     StayDeriver.Stay(
                         start = start,
                         end = endedAt,
-                        provenance = provenanceOf(provenance),
                         afterTrackId = afterTrackId,
                         clusterId = cluster,
                     )
@@ -164,20 +142,8 @@ internal object DerivedReadModel {
             else -> null
         }
 
-    /**
-     * A stored code this build doesn't know reads as the *unattested* value of its vocabulary, and
-     * says so: both of these decide how much the app claims to know, and claiming less than the
-     * writer meant is the harmless direction.
-     */
-    private fun provenanceOf(code: String?): StayDeriver.Provenance = when (code) {
-        DerivedInterval.PROVENANCE_OBSERVED -> StayDeriver.Provenance.OBSERVED
-        DerivedInterval.PROVENANCE_INFERRED -> StayDeriver.Provenance.INFERRED
-        else -> {
-            DebugLog.w(TAG, "unreadable stay provenance '$code'; read as inferred")
-            StayDeriver.Provenance.INFERRED
-        }
-    }
-
+    /** A stored code this build doesn't know reads as the *unknown* value of its vocabulary, and
+     *  says so — claiming less than the writer meant is the harmless direction. */
     private fun reasonOf(code: String?): StayDeriver.GapReason = when (code) {
         DerivedInterval.REASON_MOVED_UNRECORDED -> StayDeriver.GapReason.MOVED_UNRECORDED
         DerivedInterval.REASON_UNKNOWN_ENDPOINT -> StayDeriver.GapReason.UNKNOWN_ENDPOINT

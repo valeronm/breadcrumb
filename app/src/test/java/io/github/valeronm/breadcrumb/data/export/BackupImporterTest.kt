@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.data.export
 
-import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -23,7 +22,6 @@ class BackupImporterTest {
         val tracks = mutableListOf<Pair<Track, List<TrackPoint>>>()
         val totals = mutableListOf<Int?>()
         var places: List<Place> = emptyList()
-        var liveness: List<LivenessEvent> = emptyList()
     }
 
     private fun parse(json: String): Collected {
@@ -36,7 +34,6 @@ class BackupImporterTest {
                     out.totals.add(total)
                 },
                 onPlaces = { out.places = it },
-                onLiveness = { out.liveness = it },
             )
         }
         return out
@@ -62,11 +59,9 @@ class BackupImporterTest {
             ),
         )
         val place = Place(id = 7, label = """Joe's "Bar"""", lat = 1.5, lon = 2.5, createdAt = 100L, radiusM = 60.0)
-        val outage = LivenessEvent(id = 1, type = "OUTAGE", at = 10L, until = 20L)
-        val armed = LivenessEvent(id = 2, type = "ARMED", at = 30L)
 
         val result = parse(
-            exportJson(listOf(track), mapOf(3L to points), listOf(place), listOf(outage, armed)),
+            exportJson(listOf(track), mapOf(3L to points), listOf(place)),
         )
 
         val (parsedTrack, parsedPoints) = result.tracks.single()
@@ -75,7 +70,19 @@ class BackupImporterTest {
         assertEquals(points.map { it.copy(id = 0) }, parsedPoints.map { it.copy(id = 0) })
         assertEquals(listOf<Int?>(1), result.totals) // trackCount rode along
         assertEquals(place, result.places.single().copy(id = place.id))
-        assertEquals(listOf(outage, armed), result.liveness.mapIndexed { i, e -> e.copy(id = (i + 1).toLong()) })
+    }
+
+    @Test fun `an older file's liveness array is skipped, not a parse error`() {
+        // The key was retired from the format; files that carry it must stay restorable.
+        val json = """
+            {"format":"breadcrumb-export","version":1,"exportedAt":1,
+             "pointFields":["timestamp","lat","lon"],
+             "tracks":[{"id":1,"activityType":"WALKING","startedAt":1,"endedAt":2,
+                        "points":[[1000,1.05,-2.05]]}],
+             "places":[],
+             "liveness":[{"type":"ARMED","at":10},{"type":"OUTAGE","at":20,"until":30}]}
+        """.trimIndent()
+        assertEquals(1, parse(json).tracks.size)
     }
 
     @Test fun `null endpoint coordinates survive the round-trip`() {
@@ -91,7 +98,7 @@ class BackupImporterTest {
              "pointFields":["newThing","lon","lat","timestamp"],
              "tracks":[{"id":1,"activityType":"WALKING","startedAt":1,"endedAt":2,
                         "futureFlag":true,"points":[[99,-2.05,1.05,1000]]}],
-             "places":[],"liveness":[]}
+             "places":[]}
         """.trimIndent()
         val (_, points) = parse(json).tracks.single()
         val p = points.single()
@@ -112,7 +119,7 @@ class BackupImporterTest {
                        {"id":2,"activityType":"WALKING","startedAt":3,"endedAt":4,
                         "points":[[2000,1.06,-2.06,null]]},
                        {"id":3,"activityType":"WALKING","startedAt":5,"endedAt":6,"points":[]}],
-             "places":[],"liveness":[]}
+             "places":[]}
         """.trimIndent()
         val tracks = parse(json).tracks.map { it.first }
         assertEquals(listOf("recorded", "imported", null), tracks.map { it.source })
@@ -126,7 +133,7 @@ class BackupImporterTest {
              "pointFields":["timestamp","lat","lon","accuracy"],
              "tracks":[{"id":1,"activityType":"WALKING","startedAt":1,"endedAt":2,
                         "source":"imported","points":[[1000,1.05,-2.05,4.5]]}],
-             "places":[],"liveness":[]}
+             "places":[]}
         """.trimIndent()
         assertEquals("imported", parse(json).tracks.single().first.source)
     }
@@ -139,7 +146,7 @@ class BackupImporterTest {
              "pointFields":["timestamp","lat","lon","accuracy"],
              "tracks":[{"id":1,"activityType":"FLIGHT","startedAt":1,"endedAt":2,
                         "source":"manual","points":[[1000,1.05,-2.05,null],[2000,1.5,-1.0,null]]}],
-             "places":[],"liveness":[]}
+             "places":[]}
         """.trimIndent()
         assertEquals("manual", parse(json).tracks.single().first.source)
     }

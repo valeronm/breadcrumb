@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.data.export
 
-import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -74,9 +73,8 @@ class BackupExporterTest {
         tracks: List<Track> = emptyList(),
         points: Map<Long, List<TrackPoint>> = emptyMap(),
         places: List<Place> = emptyList(),
-        liveness: List<LivenessEvent> = emptyList(),
     ): Map<String, Any?> {
-        val reader = JsonPullReader(StringReader(exportJson(tracks, points, places, liveness)))
+        val reader = JsonPullReader(StringReader(exportJson(tracks, points, places)))
         val doc = reader.readValue() as Map<String, Any?>
         reader.expectEnd()
         return doc
@@ -139,23 +137,18 @@ class BackupExporterTest {
         assertEquals("JUMP", p[13])
     }
 
-    @Test fun `places and liveness events are carried whole`() {
+    @Test fun `places are carried whole`() {
         val doc = export(
             places = listOf(Place(id = 7, label = "Home", lat = 1.5, lon = 2.5, createdAt = 100L, radiusM = 60.0)),
-            liveness = listOf(LivenessEvent(id = 1, type = "OUTAGE", at = 10L, until = 20L)),
         )
         val place = doc["places"].arr().single().obj()
         assertEquals(7L, place["id"])
         assertEquals("Home", place["label"])
         assertEquals(60.0, place["radiusM"])
-        val event = doc["liveness"].arr().single().obj()
-        assertEquals("OUTAGE", event["type"])
-        assertEquals(20L, event["until"])
     }
 
-    @Test fun `an ARMED event's open until stays null`() {
-        val doc = export(liveness = listOf(LivenessEvent(id = 1, type = "ARMED", at = 10L)))
-        assertNull(doc["liveness"].arr().single().obj()["until"])
+    @Test fun `the retired liveness key is not written`() {
+        assertNull(export()["liveness"])
     }
 
     @Test fun `labels with quotes and backslashes survive escaping`() {

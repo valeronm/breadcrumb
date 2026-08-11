@@ -23,7 +23,7 @@ object Settings {
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_UNIT_CHOICE = "unit_choice"
-    private const val KEY_LAST_HEARTBEAT_MS = "last_heartbeat_ms"
+    private const val KEY_DISARMED_SINCE_MS = "disarmed_since_ms"
     private const val KEY_APP_LOCK = "app_lock"
     private const val KEY_APP_LOCK_GRACE_SEC = "app_lock_grace_sec"
     private const val KEY_APP_LOCK_TRUSTS_KEYGUARD = "app_lock_trusts_keyguard"
@@ -79,16 +79,20 @@ object Settings {
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
-    // --- Liveness heartbeat --------------------------------------------------
+    // --- Recorder disarm bookkeeping -----------------------------------------
 
-    /** When the app was last known alive (epoch ms, 0 = never). See LivenessRepository. */
-    fun lastHeartbeatMs(context: Context): Long =
-        prefs(context).getLong(KEY_LAST_HEARTBEAT_MS, 0L)
+    /**
+     * When the recorder was last turned off with nothing since (epoch ms), or null while armed —
+     * the instant the timeline's trailing stay closes at, the app attesting nothing past a disarm.
+     * Written by the service on arm/disarm, beside the armed flag.
+     */
+    fun disarmedSinceMs(context: Context): Long? =
+        prefs(context).getLong(KEY_DISARMED_SINCE_MS, 0L).takeIf { it > 0 }
 
-    fun setLastHeartbeatMs(context: Context, now: Long, sync: Boolean = false) {
-        // sync commits on the caller's thread — for ACTION_SHUTDOWN, where the process is dying
-        // and an async apply() may never hit disk.
-        prefs(context).edit(commit = sync) { putLong(KEY_LAST_HEARTBEAT_MS, now) }
+    fun setDisarmedSinceMs(context: Context, at: Long?) {
+        prefs(context).edit {
+            if (at == null) remove(KEY_DISARMED_SINCE_MS) else putLong(KEY_DISARMED_SINCE_MS, at)
+        }
     }
 
     /** Keep the screen on while the app is open and the phone is charging (car-mount use). */

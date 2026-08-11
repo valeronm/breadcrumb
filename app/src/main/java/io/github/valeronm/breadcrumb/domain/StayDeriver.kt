@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import java.time.Instant
@@ -15,14 +14,6 @@ fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(
     end = if (endLat != null && endLon != null) Coordinate(endLat, endLon) else null,
 )
 
-/** Null for a row this build's vocabulary doesn't cover, and for an outage with no end recorded. */
-fun LivenessEvent.toLiveness(): StayDeriver.Liveness? = when (type) {
-    LivenessEvent.TYPE_ARMED -> StayDeriver.Armed(at)
-    LivenessEvent.TYPE_DISARMED -> StayDeriver.Disarmed(at)
-    LivenessEvent.TYPE_OUTAGE -> until?.let { StayDeriver.Outage(at, it) }
-    else -> null
-}
-
 /**
  * Derives *stays* — where the user was between recorded tracks — from data the app already has, at
  * zero sensing cost: the interval between the end of one kept track and the start of the next,
@@ -34,13 +25,12 @@ fun LivenessEvent.toLiveness(): StayDeriver.Liveness? = when (type) {
  *    still agree;
  *  - the same nearest *named place* pin within that pin's radius, for the residual case where a
  *    nearer organic anchor pulled one endpoint out of the pin's seeded cluster.
- * Endpoint disagreement means movement the recorder missed, reported as a [Gap] instead. Honesty
- * rule: silence is only a stay if the app was alive and armed throughout, per the liveness log
- * ([Armed]/[Disarmed]/[Outage] events); an outage or disarm-rearm interrupting an otherwise-agreeing
- * interval still emits the stay, marked [Provenance.INFERRED] (the endpoints agree; the middle is
- * unattested) rather than [Provenance.OBSERVED], and pre-log history derives the same way. Pure and
- * Android-free; nothing is persisted — stays re-derive from tracks + liveness on read, so history
- * backfills automatically and track deletions self-heal.
+ * Endpoint disagreement means movement the recorder missed, reported as a [Gap] instead. The
+ * endpoints alone decide: whether the app was watching in between is a fact about the app, not
+ * about where anyone was, so an agreeing interval is a stay however the silence came about —
+ * recorder off, app dead, or history imported from before the app existed. Pure and Android-free;
+ * nothing is persisted — stays re-derive from the tracks on read, so history backfills
+ * automatically and track deletions self-heal.
  *
  * **This rule is ported.** The web companion viewer derives the same timeline from a backup export
  * (`web/js/stays.js`, a port of this and [PlaceClusterer], tested case for case against
@@ -71,17 +61,6 @@ object StayDeriver {
         val end: Coordinate?,
     )
 
-    /** Recorder-lifecycle evidence, ascending by time. */
-    sealed interface Liveness {
-        val at: Long
-    }
-
-    data class Armed(override val at: Long) : Liveness
-    data class Disarmed(override val at: Long) : Liveness
-
-    /** The app was dead (or the phone off) from [at] to [until]. */
-    data class Outage(override val at: Long, val until: Long) : Liveness
-
     data class Params(
         /** Fallback: endpoints at most this far apart (meters) agree even across cluster lines. */
         val agreementRadiusM: Double = 100.0,
@@ -89,12 +68,7 @@ object StayDeriver {
         val placeRadiusM: Double = PlaceClusterer.DEFAULT_RADIUS_M,
         // No minimum stay duration belongs here — see the rule on [StayDeriver]. One was tried and
         // taken out, and adding it back empties the three reader-side floors that replaced it.
-        /** Heartbeat staleness after which a restart materializes an outage — the single source
-         *  of truth for that threshold. */
-        val heartbeatToleranceMs: Long = 30 * 60_000L,
     )
-
-    enum class Provenance { OBSERVED, INFERRED }
 
     enum class GapReason { MOVED_UNRECORDED, UNKNOWN_ENDPOINT }
 
@@ -122,7 +96,6 @@ object StayDeriver {
         override val start: Long,
         /** Null = ongoing (the current stay). */
         override val end: Long?,
-        val provenance: Provenance,
         override val afterTrackId: Long,
         /**
          * Index into [Derivation.clusters] — the place this stay belongs to, and **the only answer
@@ -190,8 +163,6 @@ object StayDeriver {
      */
     fun derive(
         tracks: List<TrackEnd>,
-        liveness: List<Liveness>,
-        nowMs: Long,
         params: Params = Params(),
         distance: DistanceFn,
         /** Named-place pins with their per-place capture radii: seed the endpoint clustering
@@ -199,7 +170,6 @@ object StayDeriver {
          *  same places list) and drive the same-nearest-pin agreement override. */
         placePins: List<PlaceClusterer.Seed> = emptyList(),
     ): Derivation {
-        val evidence = summarizeLiveness(liveness, nowMs)
         val (clusters, clusterOf) = clusterEndpoints(tracks, placePins, params, distance)
         val out = mutableListOf<Interval>()
         val agreement = Agreement(params, distance, placePins)
@@ -212,7 +182,7 @@ object StayDeriver {
             val sameCluster = a != null &&
                 b != null &&
                 clusterOf.getValue(a) == clusterOf.getValue(b)
-            when (val verdict = verdictBetween(prev, next, sameCluster, agreement, evidence)) {
+            when (val verdict = verdictBetween(prev, next, sameCluster, agreement)) {
                 Verdict.None -> Unit
                 is Verdict.Moved -> out += Gap(
                     prev.endedAt, next.startedAt, verdict.reason,
@@ -222,10 +192,9 @@ object StayDeriver {
                     from = a,
                     to = b,
                 )
-                is Verdict.Stayed -> out += Stay(
+                Verdict.Stayed -> out += Stay(
                     start = prev.endedAt,
                     end = next.startedAt,
-                    provenance = verdict.provenance,
                     afterTrackId = prev.trackId,
                     clusterId = clusterOf.getValue(checkNotNull(a) { "an agreeing pair has both ends" }),
                 )
@@ -265,8 +234,7 @@ object StayDeriver {
      *
      * Everything else about the decision lives here rather than in each of them: that a pair whose
      * clocks run backwards leaves nothing, that a *disagreeing* pair with no time in it is
-     * meaningless and also leaves nothing, which kind of gap a missing endpoint makes, and whether
-     * the app could attest the silence.
+     * meaningless and also leaves nothing, and which kind of gap a missing endpoint makes.
      */
     sealed interface Verdict {
         /** Nothing to record between these two tracks. */
@@ -279,7 +247,7 @@ object StayDeriver {
 
         data class Moved(val reason: GapReason) : Recorded
 
-        data class Stayed(val provenance: Provenance) : Recorded
+        data object Stayed : Recorded
     }
 
     internal fun verdictBetween(
@@ -287,7 +255,6 @@ object StayDeriver {
         after: TrackEnd,
         sameCluster: Boolean,
         agreement: Agreement,
-        evidence: LivenessEvidence,
     ): Verdict {
         val start = before.endedAt
         val end = after.startedAt
@@ -304,7 +271,7 @@ object StayDeriver {
                 if (a == null || b == null) GapReason.UNKNOWN_ENDPOINT else GapReason.MOVED_UNRECORDED,
             )
         }
-        return Verdict.Stayed(evidence.provenanceOver(start, end))
+        return Verdict.Stayed
     }
 
     /** One endpoint the clustering reads: which track's, which of its two ends, when and where. */
@@ -374,18 +341,13 @@ object StayDeriver {
      * the same rule that governs two finished tracks — and telling the two apart needs both
      * coordinates, which this does not take. A caller that has them owes that check itself; what
      * follows from no caller having them is the reader's to state, not this leaf's.
-     */
-    /**
-     * **[disarmedSince] is a parameter rather than something read off [evidence] because the two are
-     * shaped differently.** Provenance is a question about a stretch, which a reading of that stretch
-     * answers; when the app last stopped attesting is a question about the log's end, and no window
-     * can answer it — the last unclosed disarm a window holds need not be the first of the run.
-     * Carried on one value they would look interchangeable, and a narrowed reading would close the
-     * stay at an instant off by however long the app sat disarmed before that window.
+     *
+     * [disarmedSince] is when the recorder was last turned off with nothing since, or null while
+     * armed: the app can attest nothing past a disarm, so the stay closes there rather than
+     * stretching to the clock.
      */
     internal fun tail(
         anchor: TailAnchor,
-        evidence: LivenessEvidence,
         disarmedSince: Long?,
         nowMs: Long,
         activeStartedAt: Long?,
@@ -396,145 +358,14 @@ object StayDeriver {
             activeStartedAt
         } else {
             if (start > nowMs) return null
-            // Disarmed: the app can attest nothing past the disarm, so the stay closes there.
             disarmedSince?.coerceAtLeast(start)
         }
         return Stay(
             start = start,
             end = end,
-            provenance = evidence.provenanceOver(start, end ?: nowMs),
             afterTrackId = anchor.trackId,
             clusterId = anchor.clusterId,
         )
-    }
-
-    // --- Liveness evidence ----------------------------------------------------
-
-    /**
-     * The liveness log reduced to the question every interval asks of it: was the app alive
-     * throughout. Reduced once and passed around rather than re-read per interval — which is why
-     * [StayLedger], deciding the provenance of a handful of intervals at a time, takes this rather
-     * than the log.
-     */
-    class LivenessEvidence internal constructor(
-        /** Half-open [start, end) stretches where the app was known dead or disarmed. */
-        private val deadIntervals: List<Pair<Long, Long>>,
-        /** Time of the earliest liveness evidence; anything before it is unattested. */
-        private val firstEvidenceAt: Long?,
-        /**
-         * The stretch the log was read over, null where the whole of it was — closed, and so a
-         * superset of the half-open window it comes from, which is the safe direction for a guard.
-         *
-         * **A reduction over a slice is not the same value as one over the log — it only gives the
-         * same answers inside this range**, which is why the range is carried rather than assumed:
-         * the dead runs it holds are the ones this stretch touches, and no others.
-         */
-        private val readOver: LongRange?,
-    ) {
-        fun provenanceOver(start: Long, end: Long): Provenance {
-            require(readOver == null || (start in readOver && end in readOver)) {
-                "[$start, $end] is outside the stretch this evidence was read over"
-            }
-            return when {
-                firstEvidenceAt == null || start < firstEvidenceAt -> Provenance.INFERRED
-                deadIntervals.any { (ds, de) -> ds < end && start < de } -> Provenance.INFERRED
-                else -> Provenance.OBSERVED
-            }
-        }
-    }
-
-    /**
-     * When the app last stopped attesting with nothing since, or null while armed — the instant the
-     * trailing stay closes at.
-     *
-     * **A fact about the log's end, not about any window**, which is why it is its own function and
-     * a parameter of [tail] rather than something carried on evidence: a reading over a stretch
-     * holds the last unclosed disarm *it* saw, and the run may have opened at one it never did.
-     * `LivenessDao.disarmedSince` answers the same question with two seeks instead of a fold, and
-     * `LivenessWindowTest` holds the two together — this is the author, that is the shortcut.
-     */
-    internal fun disarmedSince(liveness: List<Liveness>, nowMs: Long): Long? =
-        readLiveness(liveness, nowMs).trailingDisarm
-
-    /** The whole log reduced to what [LivenessEvidence] answers with — asked about any stretch,
-     *  having read every event there is. */
-    internal fun summarizeLiveness(liveness: List<Liveness>, nowMs: Long): LivenessEvidence =
-        LivenessEvidence(
-            deadIntervals = readLiveness(liveness, nowMs).dead,
-            firstEvidenceAt = liveness.firstOrNull()?.at?.coerceAtMost(nowMs),
-            readOver = null,
-        )
-
-    /**
-     * The same reduction over a **slice** — for a caller that only asks about one stretch of time, a
-     * repair judging the handful of intervals around one change.
-     *
-     * A separate entry point rather than a defaulted parameter, because the two differ in what the
-     * caller owes and nothing at a call site would otherwise show which it is handing over.
-     * [liveness] must hold every event that can bear on [over] (`LivenessDao.eventsAround` is what
-     * that means in a query), and [earliestAt] is the one thing a slice cannot say for itself:
-     * evidence *predating* the record leaves an interval inferred however alive the app was inside
-     * it. The result answers only about [over] — see [LivenessEvidence.readOver].
-     */
-    internal fun summarizeLivenessOver(
-        liveness: List<Liveness>,
-        over: LongRange,
-        nowMs: Long,
-        earliestAt: Long?,
-    ): LivenessEvidence = LivenessEvidence(
-        deadIntervals = readLiveness(liveness, nowMs).dead,
-        firstEvidenceAt = earliestAt?.coerceAtMost(nowMs),
-        readOver = over,
-    )
-
-    /**
-     * **Which events can bear on [over]** — the rule [summarizeLivenessOver]'s slice has to satisfy,
-     * stated here rather than only in the query that implements it.
-     *
-     * It follows from what the walk below carries across an event, and nothing else: an event inside
-     * the window obviously counts; an outage still open when the window began counts because its
-     * dead stretch reaches inside; and the last arm or disarm before the window counts because
-     * whether the app was disarmed entering it is the whole of the state carried from one event to
-     * the next. Everything earlier has been closed off by one of those.
-     *
-     * `LivenessDao.eventsAround` is the same rule as SQL, and deliberately keeps *less*: it takes
-     * only the last outage before the window, which is sound because outages cannot overlap. That
-     * one divergence is the price of every arm being an indexed range, and stating the general rule
-     * here is what makes it a divergence one can name rather than the whole contract being prose.
-     */
-    internal fun bearingOn(liveness: List<Liveness>, over: LongRange): List<Liveness> {
-        // By index, not by value: these are data classes, so two arm/disarm events at one instant
-        // are equal, and matching by value would keep an earlier duplicate as well.
-        val carried = liveness.indexOfLast { it.at < over.first && it !is Outage }
-        return liveness.filterIndexed { index, event ->
-            index == carried ||
-                event.at in over ||
-                (event is Outage && event.at < over.first && event.until > over.first)
-        }
-    }
-
-    /** What one walk of the log yields, whether the log was all of it or a slice. */
-    private class LivenessRead(val dead: List<Pair<Long, Long>>, val trailingDisarm: Long?)
-
-    /** **The one walk of the log**, so a slice and the whole are reduced by the same rule and can
-     *  only differ in what the caller is then entitled to ask of the result. */
-    private fun readLiveness(liveness: List<Liveness>, nowMs: Long): LivenessRead {
-        val dead = mutableListOf<Pair<Long, Long>>()
-        var disarmedSince: Long? = null
-        for (event in liveness) {
-            when (event) {
-                is Outage -> dead += event.at.coerceAtMost(nowMs) to event.until.coerceAtMost(nowMs)
-                is Disarmed -> if (disarmedSince == null) disarmedSince = event.at.coerceAtMost(nowMs)
-                is Armed -> {
-                    disarmedSince?.let { dead += it to event.at.coerceAtMost(nowMs) }
-                    disarmedSince = null
-                }
-            }
-        }
-        // A trailing disarm is dead through "now" for mid-list gaps; the tail stay handles it
-        // explicitly via disarmedSince.
-        disarmedSince?.let { dead += it to nowMs }
-        return LivenessRead(dead, disarmedSince)
     }
 
     // --- Display helpers -------------------------------------------------------

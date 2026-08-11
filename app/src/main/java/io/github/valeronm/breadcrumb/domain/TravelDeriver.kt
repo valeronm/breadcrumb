@@ -96,13 +96,6 @@ object TravelDeriver {
          */
         val windowStart: Long,
         val windowEnd: Long,
-        /**
-         * [StayDeriver.Provenance.OBSERVED] only when every night was placed by an observed stay or
-         * by fixes; a night placed across a gap, or one that could not be placed at all, makes the
-         * whole travel inferred — the same honesty rule the stays underneath already follow.
-         * **Not for display** — see the band that draws this.
-         */
-        val provenance: StayDeriver.Provenance,
         /** Time spent per endpoint cluster between [leftHomeAt] and [reachedHomeAt], for naming the
          *  travel after where it was actually spent. Keys index [StayDeriver.Derivation.clusters]. */
         val clusterStayMs: Map<Int, Long>,
@@ -183,7 +176,6 @@ object TravelDeriver {
         val date: LocalDate,
         val at: Long,
         val place: NightPlace,
-        val attested: Boolean,
     )
 
     /** One derivation's worth of state, so the passes below can read it rather than pass it along. */
@@ -227,11 +219,7 @@ object TravelDeriver {
         }
 
         private fun sample(date: LocalDate, at: Long): Sample = when (val interval = covering(at)) {
-            is StayDeriver.Stay -> Sample(
-                date, at,
-                placeOf(interval.clusterId),
-                attested = interval.provenance == StayDeriver.Provenance.OBSERVED,
-            )
+            is StayDeriver.Stay -> Sample(date, at, placeOf(interval.clusterId))
             is StayDeriver.Gap -> acrossGap(date, at, interval)
             else -> inMotion(date, at)
         }
@@ -268,10 +256,7 @@ object TravelDeriver {
         private fun acrossGap(date: LocalDate, at: Long, gap: StayDeriver.Gap): Sample {
             val from = placeOf(gap.fromClusterId)
             val to = placeOf(gap.toClusterId)
-            if (from != to || from == NightPlace.UNKNOWN) {
-                return Sample(date, at, NightPlace.UNKNOWN, attested = false)
-            }
-            return Sample(date, at, from, attested = false)
+            return Sample(date, at, if (from == to) from else NightPlace.UNKNOWN)
         }
 
         /**
@@ -286,7 +271,7 @@ object TravelDeriver {
             val from = track?.start
             val to = track?.end
             if (track == null || from == null || to == null) {
-                return Sample(date, at, NightPlace.UNKNOWN, attested = false)
+                return Sample(date, at, NightPlace.UNKNOWN)
             }
             val span = (track.endedAt - track.startedAt).coerceAtLeast(1)
             val fraction = (at - track.startedAt).toDouble() / span
@@ -295,7 +280,7 @@ object TravelDeriver {
                 lon = from.lon + (to.lon - from.lon) * fraction,
             )
             val held = PlaceClusterer.nearestSeedIndex(point.lat, point.lon, home.seeds, distance) != null
-            return Sample(date, at, if (held) NightPlace.HOME else NightPlace.AWAY, attested = true)
+            return Sample(date, at, if (held) NightPlace.HOME else NightPlace.AWAY)
         }
 
         private fun startOfDay(date: LocalDate): Long =
@@ -362,11 +347,6 @@ object TravelDeriver {
                 reachedHomeAt = reachedHomeAt,
                 windowStart = windowStart,
                 windowEnd = windowEnd,
-                provenance = if (run.all { it.attested }) {
-                    StayDeriver.Provenance.OBSERVED
-                } else {
-                    StayDeriver.Provenance.INFERRED
-                },
                 clusterStayMs = clusterStayMs,
             )
         }

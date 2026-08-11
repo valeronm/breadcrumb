@@ -33,9 +33,8 @@ class ActivityIngestTest : ActivityIngestFixture() {
             listOf(
                 Effect.StampReading(T0),
                 // The close runs ahead of every open; with nothing open it still stops GPS and
-                // stamps the heartbeat, and emits no CloseTrack.
+                // emits no CloseTrack.
                 Effect.StopGps,
-                Effect.StampHeartbeat,
                 Effect.OpenTrack(ActivityType.WALKING, T0),
                 Effect.EnsureGps,
                 Effect.DisarmDepartureFence,
@@ -97,7 +96,6 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertEquals(
             listOf(
                 Effect.StopGps,
-                Effect.StampHeartbeat,
                 // The paused track ended when its last fix arrived, not at the return — the idle
                 // gap belongs to neither track.
                 Effect.CloseTrack(endedAt = T0, renameTo = null),
@@ -119,7 +117,6 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertEquals(
             listOf(
                 Effect.StopGps,
-                Effect.StampHeartbeat,
                 // Recording, not paused: the walk ended now rather than at its last fix.
                 Effect.CloseTrack(endedAt = T0 + MINUTE, renameTo = null),
                 Effect.OpenTrack(ActivityType.DRIVING, T0 + MINUTE),
@@ -143,7 +140,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         )
     }
 
-    @Test fun `a reading the gate already believes asks for nothing but the liveness stamp`() {
+    @Test fun `a reading the gate already believes asks for nothing but the delivery stamp`() {
         startWalking()
 
         assertEquals(listOf(Effect.StampReading(T0 + MINUTE)), reading(ActivityType.WALKING, T0 + MINUTE))
@@ -187,7 +184,6 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertEquals(
             listOf(
                 Effect.StopGps,
-                Effect.StampHeartbeat,
                 Effect.CloseTrack(endedAt = T0, renameTo = null),
                 // The recorder settles into the idle state the motion trigger exists to watch, and
                 // the stop above just took it down with the rest of the resume signals.
@@ -493,7 +489,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
         val out = reading(ActivityType.STILL, T0 + MINUTE)
 
-        assertEquals("nothing but the liveness stamp", listOf(Effect.StampReading(T0 + MINUTE)), out)
+        assertEquals("nothing but the delivery stamp", listOf(Effect.StampReading(T0 + MINUTE)), out)
         assertFalse("the track keeps recording", core.isPaused)
         assertEquals(ActivityType.STILL, core.parked)
     }
@@ -524,7 +520,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         val returnedAt = T0 + MINUTE + HOLD_CAP_MS - 1
         val out = reading(ActivityType.WALKING, returnedAt)
 
-        assertEquals("the liveness stamp and nothing else", listOf(Effect.StampReading(returnedAt)), out)
+        assertEquals("the delivery stamp and nothing else", listOf(Effect.StampReading(returnedAt)), out)
         assertNull("the held stop is dropped, not left to land later", core.parked)
         assertFalse(core.isPaused)
     }

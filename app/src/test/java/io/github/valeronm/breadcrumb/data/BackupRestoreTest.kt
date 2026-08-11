@@ -3,7 +3,6 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
-import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
@@ -42,7 +41,6 @@ class BackupRestoreTest {
     private val target = TestDb()
     private val targetDb: AppDatabase = target.db
     private val targetPlaces = targetDb.placeDao()
-    private val targetLiveness = targetDb.livenessDao()
 
     @After fun tearDown() {
         source.close()
@@ -58,7 +56,6 @@ class BackupRestoreTest {
                 tracks = source.repository.exportTracks(),
                 pointsFor = { source.repository.allPointsFor(it) },
                 places = source.db.placeDao().allPlaces(),
-                liveness = source.db.livenessDao().allEvents(),
             ),
         )
         return BackupImporter.restore(
@@ -66,7 +63,6 @@ class BackupRestoreTest {
             BackupRepositories(
                 tracks = target.repository,
                 places = PlaceRepository(context, target.db),
-                liveness = LivenessRepository(context, target.db),
                 derivation = DerivationStore(context, target.db),
             ),
         )
@@ -102,15 +98,11 @@ class BackupRestoreTest {
                 radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
             ),
         )
-        source.db.livenessDao().insert(LivenessEvent(type = "ARMED", at = TEST_START))
-        source.db.livenessDao().insert(LivenessEvent(type = "OUTAGE", at = TEST_START + 1_000L, until = TEST_START + 2_000L))
-
         val summary = roundTrip()
 
         assertEquals(2, summary.tracks) // discarded and open tracks stayed behind
         assertEquals(10, summary.points)
         assertEquals(2, summary.places)
-        assertEquals(2, summary.events)
 
         fun Track.comparable() = copy(id = 0)
         assertEquals(
@@ -126,10 +118,6 @@ class BackupRestoreTest {
         assertEquals(
             source.db.placeDao().allPlaces().map { it.copy(id = 0) },
             targetPlaces.allPlaces().map { it.copy(id = 0) },
-        )
-        assertEquals(
-            source.db.livenessDao().allEvents().map { it.copy(id = 0) },
-            targetLiveness.allEvents().map { it.copy(id = 0) },
         )
         // The restored timeline actually shows the tracks.
         assertEquals(2, targetDb.trackDao().observeSummaries().first().size)

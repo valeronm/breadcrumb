@@ -63,8 +63,8 @@ build. No real history is ever shot.*
 - GPX import & export — import `.gpx` files (via the picker, a share target, or opening a `.gpx`
   file); export a single track from its page, a whole day from the day header, or everything to a
   folder of `.gpx` files.
-- Backup & restore — your whole history as one file: every kept trip with its points, the places,
-  and the liveness log the timeline is derived from, with restore offered on an empty timeline. A
+- Backup & restore — your whole history as one file: every kept trip with its points and the
+  places, with restore offered on an empty timeline. A
   single trip needs no backup to come back: deletions, and trips the keep limits discard, wait in
   Recently deleted until they age out.
 - App lock — an optional unlock on opening (fingerprint or device PIN), and a switch that blocks
@@ -91,8 +91,7 @@ build. No real history is ever shot.*
   stitches back into it instead of splitting. Those failing the configured keep-thresholds (e.g.
   too few points) are discarded automatically, including any left dangling by a crash. A track's
   distance and point counts live on its own row, so drawing the timeline never walks the points.
-- Stays and places are derived from where consecutive trips begin and end, plus a liveness log that
-  distinguishes real stays from gaps where the app wasn't recording. Named places persist and
+- Stays and places are derived from where consecutive trips begin and end. Named places persist and
   label the timeline; journeys are then read off the same derivation as runs of nights whose
   cluster is not one of your Home places.
 - The map is MapLibre GL Native on a bundled Protomaps vector basemap, dark or light with the app's

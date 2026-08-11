@@ -25,7 +25,7 @@ class TimelineDayGroupingTest {
     private fun row(at: Long, zone: ZoneId, id: Long = at) = TimelineItem.StayItem(
         stay = StayDeriver.Stay(
             start = at, end = at + 60_000,
-            provenance = StayDeriver.Provenance.OBSERVED, afterTrackId = id, clusterId = 0,
+            afterTrackId = id, clusterId = 0,
         ),
         zone = zone,
     )
