@@ -33,8 +33,9 @@ import org.junit.Assert.assertTrue
 internal object DerivedConsistency {
 
     /**
-     * The rows as the screens get them — one transactional reading of all three tables, through the
-     * query the app itself observes, so the guard cannot pass against a snapshot the app never sees.
+     * The rows as the screens get them — one transactional reading of every table the derivation is
+     * made of, through the query the app itself observes, so the guard cannot pass against a
+     * snapshot the app never sees.
      */
     private suspend fun read(db: AppDatabase): StoredDerivation =
         DerivationStore(ApplicationProvider.getApplicationContext(), db).observeStored().first()
@@ -44,7 +45,6 @@ internal object DerivedConsistency {
     private suspend fun readBack(db: AppDatabase, stored: StoredDerivation, nowMs: Long) =
         DerivedReadModel.derivationOf(
             stored = stored,
-            places = db.placeDao().allPlaces(),
             liveness = db.livenessDao().allEvents(),
             nowMs = nowMs,
             activeStartedAt = null,

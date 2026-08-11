@@ -505,6 +505,82 @@ class PlaceResolverTest {
         assertNull(PlaceResolver.reacquire(emptyList(), key = "place:7", previous = null))
     }
 
+    // --- A write the derivation has not caught up with ------------------------
+
+    @Test fun `a summary dressed in a fresh write shows it, and keeps what only a derivation knows`() {
+        val cluster = unnamedAt(at(0.0), at(120.0))
+        val named = place(0, "Home", at(60.0))
+
+        val dressed = cluster.withPlace(named)
+
+        assertEquals("Home", dressed.name)
+        assertEquals(named.pin, dressed.pin)
+        assertEquals(named.radiusM, dressed.radiusM, 1e-9)
+        // Naming re-captures, so these are the derivation's to move and this must not guess at them.
+        assertEquals(cluster.visitCount, dressed.visitCount)
+        assertEquals(cluster.endpoints, dressed.endpoints)
+        assertEquals(cluster.stays, dressed.stays)
+    }
+
+    @Test fun `a dressed summary keeps the identity the screen holding it opened`() {
+        // Naming moves a place's key from `cluster:` to `place:`, and the row has no id yet — so a
+        // re-keyed summary would answer to `place:0`, which nothing is looking for, and the screen
+        // that asked for the name would lose the spot at the moment of drawing it.
+        val cluster = unnamedAt(at(0.0))
+
+        val dressed = cluster.withPlace(place(0, "Home", at(0.0)))
+
+        assertEquals(cluster.key, dressed.key)
+    }
+
+    @Test fun `a summary the derivation has caught up with is left exactly alone`() {
+        // What stops the dressing outliving the write: the resolved place already says this, so its
+        // answer is the better one — it carries the real row id and the visits the circle earned.
+        val stored = place(7, "Home", at(0.0))
+        val derived = summarize(listOf(stay(at(0.0))), listOf(stored)).single()
+
+        assertTrue(derived.withPlace(stored) === derived)
+        // A category tagged since the write is not the write coming back undone.
+        assertTrue(derived.withPlace(stored.copy(category = PlaceCategory.HOME.code)) === derived)
+    }
+
+    @Test fun `a timeline row and a Places row answer to one key`() {
+        // A write in flight is matched to the stop it was made against by key, and the two readings
+        // are dressed in different flows off the same one — so a Places summary's key and the key
+        // its own timeline rows answer to must be the same string, or a name lands on one surface
+        // and not the other. Two endpoints, so the anchor and the mean are in different places:
+        // with one they coincide and the case would pass however the two were spelled.
+        val stays = listOf(stay(at(0.0)), stay(at(120.0)))
+
+        val summary = summarize(stays, emptyList()).single()
+        val rows = resolve(stays, emptyList()).values
+
+        rows.forEach { assertEquals(summary.key, it.key) }
+    }
+
+    @Test fun `a stay dressed in a fresh write shows it, and keeps what only a derivation knows`() {
+        val row = resolve(listOf(stay(at(0.0)), stay(at(120.0))), emptyList()).values.first()
+        val named = place(0, "Home", at(60.0))
+
+        val dressed = row.withPlace(named)
+
+        assertEquals("Home", dressed.name)
+        assertEquals(named.pin, dressed.pin)
+        // Naming re-captures, so where the visits landed and how many there were stay the
+        // derivation's — and the reader keeps the identity they opened the stop by.
+        assertEquals(row.centroid, dressed.centroid)
+        assertEquals(row.visitCount, dressed.visitCount)
+        assertEquals(row.key, dressed.key)
+    }
+
+    @Test fun `a stay the derivation has caught up with is left exactly alone`() {
+        val stored = place(7, "Home", at(0.0))
+        val row = resolve(listOf(stay(at(0.0))), listOf(stored)).values.single()
+
+        assertTrue(row.withPlace(stored) === row)
+        assertTrue(row.withPlace(stored.copy(category = PlaceCategory.HOME.code)) === row)
+    }
+
     @Test fun `a key that is merely absent still prefers a pin match over the stale summary`() {
         // Deleting a place leaves its cluster unnamed again, so the row's key changes without the
         // place moving. The pin match must win: the *fresh* summary is the one carrying the visit

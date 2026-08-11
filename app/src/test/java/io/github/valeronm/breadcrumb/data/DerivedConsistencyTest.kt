@@ -5,7 +5,6 @@ import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
-import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -137,13 +136,13 @@ class DerivedConsistencyTest {
 
     @Test fun `naming a place agrees, and renaming it changes nothing at all`() = runTest {
         recordedHistory()
-        val id = places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
+        val id = places.create(test.place("Home", 1.0, -2.0))
         assertExact()
         val afterNaming = db.derivedDao().clustersOnce()
 
         // The two ops that reach clustering nowhere. Each must leave every row exactly as it was —
         // not merely leave the derivation *equivalent*, which a needless rebuild would also do.
-        places.save(id, "Home base", 1.0, -2.0, PlaceClusterer.DEFAULT_RADIUS_M)
+        places.save(test.place("Home base", 1.0, -2.0).copy(id = id))
         places.setCategory(id, PlaceCategory.HOME)
 
         assertEquals("metadata writes re-derive nothing", afterNaming, db.derivedDao().clustersOnce())
@@ -152,7 +151,7 @@ class DerivedConsistencyTest {
 
     @Test fun `a place deleted and restored leaves the derivation it had before the delete`() = runTest {
         recordedHistory()
-        val id = places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
+        val id = places.create(test.place("Home", 1.0, -2.0))
         val named = db.placeDao().allPlaces().single()
         assertExact()
 
@@ -212,7 +211,7 @@ class DerivedConsistencyTest {
         // The case single-mutation tests cannot reach: each repair judges a seam against what the
         // last one left, so an error that survives one step is carried into the next.
         val ids = recordedHistory()
-        places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
+        places.create(test.place("Home", 1.0, -2.0))
         repository.deleteTrack(ids[2])
         val merged = checkNotNull(repository.mergeTracks(ids[4], ids[5]))
         repository.setActivityType(ids[6], ActivityType.DRIVING)

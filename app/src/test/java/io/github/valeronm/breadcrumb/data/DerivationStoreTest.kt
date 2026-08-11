@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.data
 
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
-import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -66,7 +65,7 @@ class DerivationStoreTest {
     }
 
     @Test fun `every place gets a cluster, and reconciling again does not give it two`() = runTest {
-        places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
+        places.create(test.place("Home", 1.0, -2.0))
 
         store.reconcile()
 
@@ -78,7 +77,7 @@ class DerivationStoreTest {
 
     @Test fun `a named cluster keeps its id across a rebuild`() = runTest {
         // What a stay's place *is* — repointing it would silently rewrite the history's places.
-        places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
+        places.create(test.place("Home", 1.0, -2.0))
         val before = derived.namedClusters().single()
 
         twoTracks()
@@ -154,7 +153,7 @@ class DerivationStoreTest {
         val organic = derived.clustersOnce().map { it.id }
 
         // Naming moves the pin set, so the ground is re-clustered and the organic rows are replaced.
-        val id = places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
+        val id = places.create(test.place("Home", 1.0, -2.0))
         assertTrue(
             "the organic clusters were derived again",
             derived.clustersOnce().none { it.id in organic },
@@ -163,13 +162,13 @@ class DerivationStoreTest {
 
         // A label reaches clustering nowhere, so nothing is re-derived and every row stands.
         val named = derived.clustersOnce().map { it.id }
-        places.save(id, "Home base", 1.0, -2.0, PlaceClusterer.DEFAULT_RADIUS_M)
+        places.save(test.place("Home base", 1.0, -2.0).copy(id = id))
         assertEquals("a rename costs no derivation", named, derived.clustersOnce().map { it.id })
     }
 
     @Test fun `deleting a place and undoing it leave the derivation either side of the delete`() = runTest {
         twoTracks()
-        val id = places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
+        val id = places.create(test.place("Home", 1.0, -2.0))
         val named = db.placeDao().allPlaces().single()
         val withPlace = derived.intervalsOnce().map { it.type to it.start }
 

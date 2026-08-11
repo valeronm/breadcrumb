@@ -44,25 +44,27 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
     private val places = db.placeDao()
 
     /**
-     * The derived tables as **one reading of all three**, re-emitted whenever any of them is
-     * written.
+     * The derivation as **one reading of every table it is made of**, re-emitted whenever any of
+     * them is written.
      *
-     * One flow rather than a query each, for two reasons that point the same way. A rebuild
-     * rewrites all three in a single transaction, and three observers would turn that into three
-     * re-emissions, each re-running every reader downstream. And the three are only meaningful
-     * together — an interval names a cluster, a cluster is placed by its members — so they are read
-     * inside a transaction, which is what makes a set of rows a snapshot rather than three
-     * timings.
+     * One flow rather than a query each, for two reasons that point the same way. A write rewrites
+     * several of them in a single transaction, and an observer each would turn that into a
+     * re-emission each, every one re-running every reader downstream. And they are only meaningful
+     * together — an interval names a cluster, a cluster is placed by its members, and **a cluster is
+     * named by a place**, whose row read apart from them is a named place no cluster points at, which
+     * is a place with no visits. So they are read inside a transaction, which is what makes a set of
+     * rows a snapshot rather than several timings.
      */
     fun observeStored(): Flow<StoredDerivation> =
         db.invalidationTracker
-            .createFlow("derived_clusters", "cluster_members", "derived_intervals")
+            .createFlow("derived_clusters", "cluster_members", "derived_intervals", "places")
             .map {
                 db.withTransaction {
                     StoredDerivation(
                         clusters = derived.clustersOnce(),
                         members = derived.membersOnce(),
                         intervals = derived.intervalsOnce(),
+                        places = places.allPlaces(),
                     )
                 }
             }
@@ -112,13 +114,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
                     val sumLon = cluster.members.sumOf { it.lon }
                     val seedIndex = cluster.seedIndex
                     if (seedIndex == null) {
-                        derived.insertCluster(
-                            seedRow(PlaceClusterer.Seed(cluster.anchor, cluster.radiusM)).copy(
-                                sumLat = sumLat,
-                                sumLon = sumLon,
-                                memberCount = cluster.visitCount,
-                            ),
-                        )
+                        derived.insertCluster(seedRow(cluster.seed, sumLat, sumLon, cluster.visitCount))
                     } else {
                         val id = seeds[seedIndex].id
                         derived.setClusterMembership(id, sumLat, sumLon, cluster.visitCount)
@@ -205,16 +201,22 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         return changed
     }
 
-    /** A cluster row at a bare anchor and reach — the inverse of [toSeed], and empty of members
-     *  either because nothing has joined it yet or because it is a pin nothing has visited. */
-    private fun seedRow(seed: PlaceClusterer.Seed, placeId: Long? = null) = DerivedCluster(
+    /** A cluster row at an anchor and reach — the inverse of [toSeed]. Empty of members by default,
+     *  which is what a pin nothing has visited and a cluster nothing has joined yet both are. */
+    private fun seedRow(
+        seed: PlaceClusterer.Seed,
+        sumLat: Double = 0.0,
+        sumLon: Double = 0.0,
+        memberCount: Int = 0,
+        placeId: Long? = null,
+    ) = DerivedCluster(
         placeId = placeId,
         anchorLat = seed.anchor.lat,
         anchorLon = seed.anchor.lon,
         radiusM = seed.radiusM,
-        sumLat = 0.0,
-        sumLon = 0.0,
-        memberCount = 0,
+        sumLat = sumLat,
+        sumLon = sumLon,
+        memberCount = memberCount,
     )
 
     /**
@@ -239,10 +241,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             )
             for (row in derived.intervalsOverlapping(from, until)) {
                 if (row.type != DerivedInterval.TYPE_STAY) continue
-                val code = when (evidence.provenanceOver(row.start, row.endedAt)) {
-                    StayDeriver.Provenance.OBSERVED -> DerivedInterval.PROVENANCE_OBSERVED
-                    StayDeriver.Provenance.INFERRED -> DerivedInterval.PROVENANCE_INFERRED
-                }
+                val code = codeOf(evidence.provenanceOver(row.start, row.endedAt))
                 if (code != row.provenance) derived.setIntervalProvenance(row.id, code)
             }
         }
@@ -358,6 +357,14 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         atMs = atMs,
     )
 
+    /** What a stay's provenance is stored as — the inverse of `DerivedReadModel.provenanceOf`, and
+     *  written here once because a rebuild states it and a repair over a learned outage restates it
+     *  against rows that rebuild already wrote. */
+    private fun codeOf(provenance: StayDeriver.Provenance) = when (provenance) {
+        StayDeriver.Provenance.OBSERVED -> DerivedInterval.PROVENANCE_OBSERVED
+        StayDeriver.Provenance.INFERRED -> DerivedInterval.PROVENANCE_INFERRED
+    }
+
     /** Which row a repair's reference names — [founded] holds the ids its new clusters were given,
      *  in the order it declared them. A rebuild founds nothing and passes none. */
     private fun StayLedger.ClusterRef.rowId(founded: List<Long>): Long = when (this) {
@@ -377,10 +384,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             start = start,
             endedAt = end,
             afterTrackId = afterTrackId,
-            provenance = when (verdict.provenance) {
-                StayDeriver.Provenance.OBSERVED -> DerivedInterval.PROVENANCE_OBSERVED
-                StayDeriver.Provenance.INFERRED -> DerivedInterval.PROVENANCE_INFERRED
-            },
+            provenance = codeOf(verdict.provenance),
             clusterId = checkNotNull(cluster) { "an agreeing pair has both ends" }.rowId(founded),
         )
         is StayDeriver.Verdict.Moved -> DerivedInterval(

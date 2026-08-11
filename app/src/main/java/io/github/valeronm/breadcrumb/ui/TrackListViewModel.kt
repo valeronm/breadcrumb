@@ -35,6 +35,7 @@ import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -46,6 +47,7 @@ import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.ZoneId
 
 class TrackListViewModel(app: Application) : AndroidViewModel(app) {
@@ -184,31 +186,73 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         Cities.atlas(getApplication()).naming(at.lat, at.lon, AndroidDistance)
 
     /**
-     * The derivation every screen maps from: stored rows mapped to shapes, against this reading of
-     * the places table, with the trailing stay and the gazetteer's answers resolved onto it.
+     * The derivation every screen maps from: stored rows mapped to shapes, with the trailing stay
+     * and the gazetteer's answers resolved onto it.
+     *
+     * **The places come from the same snapshot as the rows**, not from an arm of their own — a
+     * second arm turns one transaction into two emissions here, and
+     * [DerivationStore.observeStored] says what the reading in between holds.
      *
      * Only the active track's *start* is taken from the live status, and it is constant per track,
      * so the per-fix emissions behind it cannot re-run anything here.
      */
     private val derived: Flow<Derived> = combine(
         derivationStore.observeStored(),
-        placeRows,
         livenessRepository.observeEvents().distinctUntilChanged(),
-        repository.observeEndpoints().distinctUntilChanged(),
+        // Mapped in the arm rather than in the block below, so a reading of the derivation or a
+        // liveness event does not re-map every track in the history for a list that did not move.
+        repository.observeEndpoints().distinctUntilChanged().map { ends -> ends.map { it.toTrackEnd() } },
         TrackingStatus.state.map { if (it.recording) it.startedAtMillis else null }.distinctUntilChanged(),
-    ) { stored, places, events, endpoints, activeStartedAt ->
+    ) { stored, events, trackEnds, activeStartedAt ->
         val now = System.currentTimeMillis()
-        val derivation = DerivedReadModel.derivationOf(stored, places, events, now, activeStartedAt)
+        val derivation = DerivedReadModel.derivationOf(stored, events, now, activeStartedAt)
         Derived(
             derivation,
-            places,
+            stored.places,
             now,
-            endpoints.map { it.toTrackEnd() },
+            trackEnds,
             citiesOf(derivation.clusters.map { it.centroid }),
         )
     }
         .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /**
+     * A row the editor has committed, and the key of the summary it was committed against — matched
+     * by that key, so a write can only dress the spot it was made against, and each reading decides
+     * for itself what a written row may claim ([PlaceResolver.PlaceSummary.withPlace] and its
+     * counterpart on a resolved stay).
+     *
+     * The two [dress] overloads are the two readings of one resolution, and the rule matching a write
+     * to a stop is stated once across them.
+     */
+    private class PendingPlace(val editing: String, val row: Place) {
+        fun dress(summary: PlaceResolver.PlaceSummary) =
+            if (summary.key == editing) summary.withPlace(row) else summary
+
+        fun dress(stay: PlaceResolver.ResolvedStay) =
+            if (stay.key == editing) stay.withPlace(row) else stay
+    }
+
+    /**
+     * The place write in flight, if any — **what every reader of the derivation sees in place of the
+     * spot as it was**, until the derivation behind that write lands.
+     *
+     * Naming re-derives the whole history, and until that finishes the stored rows still describe
+     * the unnamed cluster the reader has just named. A screen drawing only what is derived would
+     * therefore keep the old page — old name, Create button and all — for the length of a rebuild
+     * and then swap, which reads as a glitch rather than as a stat being refined.
+     *
+     * Held here rather than by the screen that asked, so **every** surface answers alike: the detail
+     * the editor closed onto, the Places list a back press away, and the [timeline] row whose naming
+     * invitation is what usually asked in the first place.
+     *
+     * It stands over a rebuild that `SweepStatus` is meanwhile announcing on the Timeline, and the
+     * two do not conflict: the banner is the honest account of a history being reprocessed, this is
+     * the answer to a question the reader just asked and is owed. Were a seed change ever repaired
+     * regionally rather than rebuilt, this is the mechanism that would go.
+     */
+    private val pendingPlace = MutableStateFlow<PendingPlace?>(null)
 
     /**
      * Tracks interleaved with derived stays and data gaps, newest first, sliced per local day.
@@ -219,11 +263,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * backup restore — an offer that is only safe *because* there is nothing to merge with — so a
      * reader that can't tell the two apart makes that offer over the user's data.
      */
-    val timeline: StateFlow<List<TimelineItem>?> = combine(trackRows, derived) { summaries, d ->
+    val timeline: StateFlow<List<TimelineItem>?> = combine(trackRows, derived, pendingPlace) { summaries, d, pending ->
         // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
         // as 3 visits. Cluster ids survive the slicing copies, so items look up directly.
+        // Left alone rather than re-mapped when nothing is in flight, which is nearly always.
         val clusterPlaces =
             PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
+                .let { if (pending == null) it else it.map(pending::dress) }
         // Each track paired with its chronological successor, keyed by the track an interval
         // follows — what merging the two tracks around a short interval needs. observeSummaries
         // returns newest first, so chronological order is a reversed *view*: no re-sort of the
@@ -355,10 +401,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * **Null until the first derivation lands**, for the reason given on [timeline]: a screen that
      * reads "not yet" as "nothing" tells the user their history is empty while it is being read.
      */
-    val places: StateFlow<List<PlaceResolver.PlaceSummary>?> = derived.map { d ->
-        PlaceResolver.summarize(d.stays, d.derivation.clusters, d.places, d.now, d.cities)
-    }.flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val places: StateFlow<List<PlaceResolver.PlaceSummary>?> =
+        combine(derived, pendingPlace) { d, pending ->
+            PlaceResolver.summarize(d.stays, d.derivation.clusters, d.places, d.now, d.cities)
+                .let { if (pending == null) it else it.map(pending::dress) }
+        }.flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * The places table as stored — what the user *said* about places, with nothing derived around
@@ -390,38 +438,76 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * sits and how far it reaches. [existing] null creates the place — always untagged, because
      * naming and categorizing are separate steps and the category suggestion is read off the name.
      *
-     * An unchanged place writes nothing. That guard belongs here rather than at the button: every
-     * write invalidates `places` and re-maps the derivation each screen reads, and a pin or a radius
-     * moving re-derives the whole history — so what counts as "changed" is a data-layer question,
-     * not something a Done tap should be trusted to have asked.
+     * A place the editor left as it found it writes nothing. That guard belongs here rather than at
+     * the button: a pin or a radius moving re-derives the whole history, so what counts as "changed"
+     * is a data-layer question, not something a Done tap should be trusted to have asked. It asks
+     * [PlaceResolver.saysSameAs], which is the same question the pending row is retired on — a write
+     * worth making and a write not yet seen are one comparison read from two ends, and two spellings
+     * of it drift into a guard that skips a write the dressing then waits out.
      *
-     * [onCreated] gets the inserted row's id, and only on a create. Creating is the one act that
-     * changes a place's key, and until a derivation has run that id is all that identifies the row:
-     * [PlaceResolver.reacquire] can otherwise only follow a named cluster by position, which a
-     * hand-placed pin has just moved. Handed to the caller rather than broadcast, so the screen that
-     * asked is the screen that follows it.
+     * [editing] is the summary the editor was opened on, and what is written becomes [pendingPlace]
+     * against its key for as long as the write takes — see there for why. It is a whole summary
+     * rather than its place because an unnamed cluster has no place and still has to be identified.
+     *
+     * [onCreated] answers a different question at a different time: the inserted row's *id*, which
+     * exists only once the write has run. Creating is the one act that changes a place's key, and the
+     * id is what re-finds the row under its new one. The pending row above covers the same screen
+     * while the write is in flight and would usually be enough — but [places] is a `StateFlow`, so a
+     * dressed emission can be conflated away entirely, and [PlaceResolver.reacquire] is then down to
+     * matching by position, which a hand-placed pin may just have moved. Handed to the caller rather
+     * than broadcast, so the screen that asked is the screen that follows it.
      */
     fun savePlace(
-        existing: Place?,
+        editing: PlaceResolver.PlaceSummary,
         label: String,
         pin: Coordinate,
         radiusM: Double,
         onCreated: (Long) -> Unit,
     ) {
+        val existing = editing.place
         val trimmed = label.trim()
         if (trimmed.isEmpty()) return
-        val unchanged = existing != null &&
-            trimmed == existing.label &&
-            pin.lat == existing.lat &&
-            pin.lon == existing.lon &&
-            radiusM == existing.radiusM
-        if (unchanged) return
+        val row = existing?.copy(label = trimmed, lat = pin.lat, lon = pin.lon, radiusM = radiusM)
+            ?: Place(
+                label = trimmed,
+                lat = pin.lat,
+                lon = pin.lon,
+                createdAt = System.currentTimeMillis(),
+                radiusM = radiusM,
+            )
+        if (PlaceResolver.saysSameAs(existing, row)) return
+        var pending = PendingPlace(editing.key, row)
+        pendingPlace.value = pending
         viewModelScope.launch {
-            val now = System.currentTimeMillis()
-            if (existing == null) {
-                onCreated(placeRepository.create(trimmed, pin.lat, pin.lon, now, radiusM))
-            } else {
-                placeRepository.save(existing.id, trimmed, pin.lat, pin.lon, radiusM)
+            try {
+                if (existing == null) {
+                    val id = placeRepository.create(row)
+                    // **A created row has no id until the insert answers**, and a summary dressed in
+                    // one that hasn't is a place whose id-keyed controls write nowhere — the category
+                    // chips beside it, and a second edit sent back here, both of which address a row
+                    // by id. So the pending row takes its id as soon as there is one, and only while
+                    // it is still the one on screen: a write made since has the better claim to that.
+                    val identified = PendingPlace(editing.key, row.copy(id = id))
+                    if (pendingPlace.compareAndSet(pending, identified)) pending = identified
+                    onCreated(id)
+                } else {
+                    placeRepository.save(row)
+                }
+                // **A write committing is not the moment the screens see it.** Room's invalidation
+                // is asynchronous, so the derivation this write carried has not been read back yet;
+                // dropping the pending row here would put the pre-write list on screen once more —
+                // the very flash this exists to prevent, moved to the end. So the stop condition is
+                // evidence: a derivation that already says what was written, which is the same test
+                // [PlaceResolver.PlaceSummary.withPlace] retires itself on. Bounded, because a
+                // pending row is worth showing for about as long as a rebuild and no longer.
+                withTimeoutOrNull(PENDING_PLACE_TIMEOUT_MS) {
+                    derived.first { d -> d.places.any { PlaceResolver.saysSameAs(it, row) } }
+                }
+            } finally {
+                // Only what this write put there. An edit made while it was in flight replaced it,
+                // and that write's own wait is what its row is owed — clearing unconditionally here
+                // would drop a name the reader has just given back off the screen.
+                pendingPlace.compareAndSet(pending, null)
             }
         }
     }
@@ -462,11 +548,15 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             val trimmed = label.trim()
             if (trimmed.isEmpty()) continue
             if (PlaceClusterer.nearestSeedIndex(at.lat, at.lon, seeds, AndroidDistance) != null) continue
-            rows += Place(
+            val row = Place(
                 label = trimmed, lat = at.lat, lon = at.lon,
                 createdAt = now, radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
             )
-            seeds += PlaceClusterer.Seed(at, PlaceClusterer.DEFAULT_RADIUS_M)
+            rows += row
+            // Off the row, not off the pin beside it: the accepted end has to enter the seed list as
+            // the same projection the rows already in it entered by, or the two halves this is
+            // judged against are read by different rules.
+            seeds += PlaceClusterer.seedOf(row)
         }
         if (rows.isNotEmpty()) placeRepository.createAll(rows)
     }
@@ -616,4 +706,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         withContext(Dispatchers.IO) {
             OnlinePlaceSearch.search(getApplication(), query, near)
         }
+
+    private companion object {
+        /** How long a committed place row may stand in for what the derivation will say. Generous
+         *  against the rebuild it waits on, and a bound rather than a duration: it exists so a
+         *  derivation that never arrives cannot leave a name on screen for the process's life. */
+        const val PENDING_PLACE_TIMEOUT_MS = 30_000L
+    }
 }

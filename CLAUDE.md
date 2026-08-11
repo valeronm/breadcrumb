@@ -325,8 +325,8 @@ same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `web/js/stays.js`, t
 against `StayDeriverTest`), so a rule that moves here moves there. `PlaceRepository` backs the
 Places tab.
 
-**The timeline's stays are stored, not derived on read** — `data/DerivationStore` over three tables
-(`derived_clusters`, `cluster_members`, `derived_intervals`, schema v16). Showing a day is a query,
+**The timeline's stays are stored, not derived on read** — `data/DerivationStore` over
+`derived_clusters`, `cluster_members` and `derived_intervals` (schema v16). Showing a day is a query,
 and the derivation runs where a track *changes* rather than where one is read, which is what lets a
 reader outside the app's own screens ask what a day held without walking the history. **Two passes
 write those rows and they must agree**: `rebuild` derives the whole history, `StayLedger.reknit`
@@ -337,6 +337,23 @@ on `StayLedger` rather than hidden: a cluster's anchor is its first-ever member,
 track that founded one leaves the anchor put. `DerivedReadModel` is the exact inverse of the write
 mapping (a code added to one is unreadable until added to the other), and the trailing stay is
 appended there rather than stored — it closes at the clock, so no row could hold it.
+
+**`observeStored` reads `places` with them**, in the same transaction, because a cluster is named by
+one: observed apart, naming a place — which writes the row and re-derives in a single transaction —
+reached the screens as two emissions, and the one in between held a place no cluster pointed at yet,
+which renders as a named place with no visits. What a screen must *not* wait for is the derivation
+itself: naming re-derives the history, so until that lands every reader is correctly showing the
+unnamed cluster just named. So `TrackListViewModel` holds the committed row against the key of the
+summary it was written against, and every reading of the derivation dresses that spot with it —
+`withPlace` on `PlaceResolver`'s two readings (`PlaceSummary` for the Places surfaces, `ResolvedStay`
+for the timeline row whose naming invitation usually asked) splitting what the writer owns (label,
+pin, reach) from what the derivation does (the visits, and where they landed), and keeping the
+identity the screen opened so it does not lose the spot while the name is being drawn. That the two
+readings key a cluster alike is what lets one write dress both, and is pinned rather than assumed.
+The row takes its id as soon as the insert answers with one, since the chips and a second edit beside
+it address a row by id. It is dropped on a
+derivation that already says the same thing, never merely on the write returning: Room's
+invalidation is asynchronous, so the commit and the screens seeing it are different moments.
 
 **Which paths repair and which re-derive** is what a new mutation path has to decide, and all three
 answers live in `TrackRepository` beside the writes they belong to. A change that moves a known

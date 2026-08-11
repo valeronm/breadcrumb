@@ -879,7 +879,7 @@ internal fun PlaceEditScreen(
                     }
                     IconButton(
                         onClick = {
-                            viewModel.savePlace(place, name.value, pin, radiusM.toDouble(), onCreated)
+                            viewModel.savePlace(summary, name.value, pin, radiusM.toDouble(), onCreated)
                             onClose()
                         },
                         // A place must be called something. Clearing the field is not how one is

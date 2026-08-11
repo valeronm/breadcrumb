@@ -57,14 +57,13 @@ class DerivedReadModelTest {
     private suspend fun read(activeStartedAt: Long? = null): StayDeriver.Derivation =
         DerivedReadModel.derivationOf(
             stored = store.observeStored().first(),
-            places = db.placeDao().allPlaces(),
             liveness = db.livenessDao().allEvents(),
             nowMs = now,
             activeStartedAt = activeStartedAt,
         )
 
     @Test fun `rows read back are the derivation, intervals and clusters alike`() = runTest {
-        places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
+        places.create(test.place("Home", 1.0, -2.0))
         track(TEST_START)
         track(TEST_START + 3 * 60 * 60_000L)
         track(TEST_START + 6 * 60 * 60_000L)
@@ -110,8 +109,8 @@ class DerivedReadModelTest {
     @Test fun `a named place keeps its position, so its cluster still resolves to it`() = runTest {
         // PlaceResolver maps seedIndex positionally, so a cluster read back must land at the index
         // of its place in the places list — not merely somewhere in the list.
-        places.create("Home", 1.0, -2.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
-        places.create("Far", 9.0, -9.0, TEST_START, PlaceClusterer.DEFAULT_RADIUS_M)
+        places.create(test.place("Home", 1.0, -2.0))
+        places.create(test.place("Far", 9.0, -9.0))
         track(TEST_START)
         store.rebuild(now)
 

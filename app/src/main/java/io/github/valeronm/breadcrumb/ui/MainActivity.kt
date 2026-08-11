@@ -785,6 +785,11 @@ private fun MainPageOverlay(
  * Place detail: the tabs beneath it, the capture-area editor above. The live summary is re-found by
  * the layer's key each derivation; [onResolved] reports what it resolved to so the caller can keep
  * its snapshot (and key) tracking a renamed cluster.
+ *
+ * A write the editor has just committed is already carried by the summary this resolves to, dressed
+ * in `TrackListViewModel.places` for every reader of it. So the key machinery here reads one thing —
+ * what the derivation says — and [snapshot] means only what it has always meant: the last summary
+ * this key resolved to, kept so a re-derivation cannot empty the screen mid-flight.
  */
 @Composable
 private fun PlaceDetailOverlay(

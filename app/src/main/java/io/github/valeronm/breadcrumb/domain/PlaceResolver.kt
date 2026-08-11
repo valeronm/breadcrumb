@@ -103,7 +103,7 @@ object PlaceResolver {
     private fun visitsAmong(stays: List<StayDeriver.Stay>): List<StayDeriver.Stay> =
         stays.filterNot { it.hasNoDuration }
 
-    class ResolvedStay(
+    data class ResolvedStay(
         /**
          * The matched place, or null for an unnamed cluster — the row itself rather than a copy
          * per attribute, so a new place column reaches the timeline without a field here and the
@@ -126,6 +126,9 @@ object PlaceResolver {
          * Tokyo's clock. What a label outranks is the *name* below, and nothing else.
          */
         val locality: CityAtlas.City? = null,
+        /** The identity this stop keeps whatever else is done to it — see [PlaceSummary.keptKey],
+         *  which is the same rule for the same reason. */
+        private val keptKey: String? = null,
     ) {
         /** The matched place's label, or null for an unnamed cluster. */
         val label: String? get() = place?.label
@@ -153,7 +156,16 @@ object PlaceResolver {
          * This cluster's stable identity — the same string [PlaceSummary.key] gives for it, so a
          * stay row and a Places row open the same place.
          */
-        val key: String get() = placeKey(placeId, centroid)
+        val key: String get() = keptKey ?: placeKey(placeId, centroid)
+
+        /**
+         * This stop as a place just written describes it — [PlaceSummary.withPlace] for the reading
+         * a timeline row is made of, and the same split: the name is the writer's and lands at once,
+         * while the centroid and the visit count are the derivation's answer to what that circle
+         * captures and stand until it replaces the row.
+         */
+        fun withPlace(named: Place): ResolvedStay =
+            if (saysSameAs(place, named)) this else copy(place = named, keptKey = key)
     }
 
     /**
@@ -185,6 +197,14 @@ object PlaceResolver {
         val stays: List<StayDeriver.Stay> = emptyList(),
         /** Where on earth this place sits, as the gazetteer has it — see [ResolvedStay.locality]. */
         val locality: CityAtlas.City? = null,
+        /**
+         * The identity this summary keeps whatever else is done to it — set only by [withPlace], and
+         * the reason that method cannot simply be a `copy`. Naming changes what a place is keyed by
+         * (`cluster:` → `place:`), so a summary dressed in a write the derivation has not caught up
+         * with would answer to a key nothing is holding it by, and the screen that opened the spot
+         * would lose it exactly while its name was being drawn.
+         */
+        private val keptKey: String? = null,
     ) {
         val isNamed: Boolean get() = place != null
 
@@ -207,10 +227,34 @@ object PlaceResolver {
          */
         val pin: Coordinate get() = pinOf(place, endpointCentroid ?: anchor)
 
-        /** This place's stable identity — see [placeKey]. Held rather than computed per read: an
-         *  unnamed cluster's key is a formatted string, and it is read once per row by a list key,
-         *  once per candidate by [reacquire]'s scan, and again by every timeline row. */
-        val key: String = placeKey(place?.id, pin)
+        /** This place's stable identity — see [placeKey], and [keptKey] for the one case that keeps
+         *  an older one. Held rather than computed per read: an unnamed cluster's key is a formatted
+         *  string, and it is read once per row by a list key, once per candidate by [reacquire]'s
+         *  scan, and again by every timeline row. */
+        val key: String = keptKey ?: placeKey(place?.id, pin)
+
+        /**
+         * This summary as a place just written describes it — for a screen showing one while the
+         * derivation that will confirm it is still running.
+         *
+         * **The split is what the writer and the derivation each own.** A label, a pin and a reach
+         * are the writer's and are true the moment they are written, so they take effect here.
+         * Visits, their endpoints and the mean of them are the derivation's answer to what that
+         * circle now captures — naming genuinely moves those, and guessing would be inventing a
+         * number — so they stand until it replaces the whole summary.
+         *
+         * **Unchanged once it has**, which is what stops this applying forever: a resolved place
+         * already saying what [named] says is a derivation that has caught up, and its answer is the
+         * better one, carrying the row's real id and the visits the new circle earned.
+         *
+         * The identity is [keptKey]'s — see there for why a dressed summary must not be re-keyed.
+         */
+        fun withPlace(named: Place): PlaceSummary =
+            if (saysSameAs(place, named)) {
+                this
+            } else {
+                copy(place = named, anchor = named.pin, radiusM = named.radiusM, keptKey = key)
+            }
     }
 
     /**
@@ -423,4 +467,25 @@ object PlaceResolver {
     /** The place whose pin seeded this cluster, or null for an organic (unnamed) cluster. */
     private fun matchedPlace(cluster: PlaceClusterer.Cluster, places: List<Place>): Place? =
         cluster.seedIndex?.let(places::getOrNull)
+
+    /**
+     * Whether [place] says everything [written] does — **exactly what the editor commits**, which is
+     * what lets a write be recognised coming back before its row id exists.
+     *
+     * Stated as the row's own equality with what the editor cannot reach normalized away, rather
+     * than as a list of the fields it can: a column added to `places` and wired into the editor then
+     * joins this test by itself, where a list would go on answering over the old set — and answering
+     * "same" to a write still in flight is exactly the flash the dressing exists to prevent. What is
+     * normalized is what the writer does not decide: the row id (a create has none yet), when the
+     * row was made, and the category — tagging being a separate act, so one arriving later must not
+     * read as a write still outstanding.
+     *
+     * The one test for "has the derivation caught up with this write", and the one for "did the
+     * editor change anything at all": asked by both [PlaceSummary.withPlace] and [ResolvedStay] of
+     * the stop they would dress, and by the writer both before committing and of the places the
+     * derivation came back with.
+     */
+    fun saysSameAs(place: Place?, written: Place): Boolean =
+        place != null &&
+            place.copy(id = written.id, createdAt = written.createdAt, category = written.category) == written
 }

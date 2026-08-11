@@ -13,11 +13,13 @@ import io.github.valeronm.breadcrumb.util.DebugLog
 
 private const val TAG = "Breadcrumb"
 
-/** One consistent reading of the three derived tables — see [DerivationStore.observeStored]. */
+/** One consistent reading of everything the derivation is made of, [places] included — see
+ *  [DerivationStore.observeStored], which says why they are one reading. */
 class StoredDerivation(
     val clusters: List<DerivedCluster>,
     val members: List<ClusterMember>,
     val intervals: List<DerivedInterval>,
+    val places: List<Place>,
 )
 
 /**
@@ -35,8 +37,8 @@ internal object DerivedReadModel {
      * Rows in, a derivation out.
      *
      * **Cluster order is a contract, not a convenience.** [PlaceResolver] resolves a cluster to a
-     * place *positionally* — `seedIndex` indexes [places] — so named clusters come first in the
-     * order [places] are given, and unnamed ones follow. A stay's stored cluster is a row id,
+     * place *positionally* — `seedIndex` indexes [StoredDerivation.places] — so named clusters come
+     * first in the order those are given, and unnamed ones follow. A stay's stored cluster is a row id,
      * translated to that position here; no row id escapes this file.
      *
      * The trailing stay is appended rather than read: it closes at [nowMs] or at [activeStartedAt],
@@ -44,12 +46,11 @@ internal object DerivedReadModel {
      */
     fun derivationOf(
         stored: StoredDerivation,
-        places: List<Place>,
         liveness: List<LivenessEvent>,
         nowMs: Long,
         activeStartedAt: Long?,
     ): StayDeriver.Derivation {
-        val placeOrder = places.withIndex().associate { (index, place) -> place.id to index }
+        val placeOrder = stored.places.withIndex().associate { (index, place) -> place.id to index }
         // Resolved once per row and used for both the order and the seed index, so the two cannot
         // disagree about which clusters are named.
         val positionOf = { row: DerivedCluster -> row.placeId?.let(placeOrder::get) }
@@ -60,14 +61,12 @@ internal object DerivedReadModel {
         val membersByCluster = stored.members.groupBy { it.clusterId }
         val clusters = ordered.map { row ->
             val locations = membersByCluster[row.id].orEmpty().map { Coordinate(it.lat, it.lon) }
+            val anchor = Coordinate(row.anchorLat, row.anchorLon)
             PlaceClusterer.Cluster(
-                anchor = Coordinate(row.anchorLat, row.anchorLon),
-                // A cluster with no members keeps its pin, exactly as the clusterer leaves one.
-                centroid = if (row.memberCount == 0) {
-                    Coordinate(row.anchorLat, row.anchorLon)
-                } else {
-                    Coordinate(row.sumLat / row.memberCount, row.sumLon / row.memberCount)
-                },
+                anchor = anchor,
+                // Asked of the clusterer rather than restated over the stored sums, so a cluster
+                // read back reports itself where a freshly derived one would.
+                centroid = PlaceClusterer.centroidOf(row.sumLat, row.sumLon, row.memberCount, anchor),
                 memberIndices = emptyList(),
                 members = locations,
                 radiusM = row.radiusM,
@@ -87,13 +86,15 @@ internal object DerivedReadModel {
      * What the trailing stay hangs off: the newest kept track's end endpoint, whose `atMs` is that
      * track's end bound. Found among the member rows already read rather than by its own query —
      * one row out of a table held in full is not worth a second observer, and a second one could
-     * disagree with the first about which track is newest.
+     * disagree with the first about which track is newest. Taken off the back of the list, which
+     * `DerivedDao.membersOnce` orders by `atMs`: scanning for the maximum would copy half the
+     * member table on every reading to answer for one row.
      */
     private fun tailAnchor(
         members: List<ClusterMember>,
         indexOfRow: Map<Long, Int>,
     ): StayDeriver.TailAnchor? {
-        val last = members.filterNot { it.isStart }.maxByOrNull { it.atMs } ?: return null
+        val last = members.lastOrNull { !it.isStart } ?: return null
         val cluster = indexOfRow[last.clusterId] ?: return null
         return StayDeriver.TailAnchor(last.trackId, last.atMs, cluster)
     }

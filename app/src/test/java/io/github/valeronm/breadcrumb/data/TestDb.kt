@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import org.junit.Assert.assertEquals
 
 /** Fixed epoch millis for test tracks — a real timestamp, so durations read sensibly. */
@@ -40,6 +42,14 @@ class TestDb {
         assertEquals(expected.endLat, track.endLat)
         assertEquals(expected.endLon, track.endLon)
     }
+
+    /**
+     * A place row at a coordinate with the default reach — what a suite means by "the user named
+     * this spot". Here rather than in each suite for the reason [walk] is: the repository takes
+     * whole rows, so a row built per call site is a row per suite to keep in step with the entity.
+     */
+    fun place(label: String, lat: Double, lon: Double, radiusM: Double = PlaceClusterer.DEFAULT_RADIUS_M) =
+        Place(label = label, lat = lat, lon = lon, createdAt = TEST_START, radiusM = radiusM)
 
     /**
      * A kept walk along the fixture's line, from [fromIndex] to [toIndex] — either direction, so a

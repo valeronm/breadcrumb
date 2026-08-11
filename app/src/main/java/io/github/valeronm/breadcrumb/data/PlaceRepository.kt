@@ -30,15 +30,9 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
      *  Seeded by the restore's own pass, which has a whole history to derive besides. */
     suspend fun restorePlaces(places: List<Place>) = dao.insertAll(places.map { it.copy(id = 0) })
 
-    suspend fun create(
-        label: String,
-        lat: Double,
-        lon: Double,
-        now: Long,
-        radiusM: Double,
-    ): Long = seeding {
-        dao.insert(Place(label = label, lat = lat, lon = lon, createdAt = now, radiusM = radiusM))
-    }
+    /** Inserts [place] and answers with the id Room gave it. Takes the whole row, as [createAll] and
+     *  [restore] do, so a caller that has to *show* what it wrote shows the row that was written. */
+    suspend fun create(place: Place): Long = seeding { dao.insert(place) }
 
     /**
      * Several places as one write. A create re-derives the history, so a caller with more than one
@@ -47,9 +41,11 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun createAll(places: List<Place>) = seeding { dao.insertAll(places) }
 
-    /** Everything the editor commits about an existing place, as one row write — see [PlaceDao.update]. */
-    suspend fun save(id: Long, label: String, lat: Double, lon: Double, radiusM: Double) = seeding {
-        dao.update(id, label, lat, lon, radiusM)
+    /** Everything the editor commits about an existing place, as one row write — see [PlaceDao.update],
+     *  whose column list is what "everything the editor commits" means. Takes the row for [create]'s
+     *  reason: a caller showing what it wrote must be showing the same value. */
+    suspend fun save(place: Place) = seeding {
+        dao.update(place.id, place.label, place.lat, place.lon, place.radiusM)
     }
 
     /**
