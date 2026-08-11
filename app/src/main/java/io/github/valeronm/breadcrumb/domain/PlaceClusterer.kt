@@ -40,6 +40,16 @@ object PlaceClusterer {
      */
     fun seedOf(place: Place): Seed = Seed(place.pin, place.radiusM)
 
+    /**
+     * **Where a cluster reports itself to be**, from its members' sums and count — with [anchor] the
+     * answer when it has none, a seed keeping its pin until something joins it. One function because
+     * a cluster is arrived at two ways, derived from a list of members and read back from stored
+     * running sums, and a spot that moved on one path and not the other is a place that names itself
+     * differently on the Places map than on the timeline row for the same stop.
+     */
+    fun centroidOf(sumLat: Double, sumLon: Double, count: Int, anchor: Coordinate): Coordinate =
+        if (count == 0) anchor else Coordinate(sumLat / count, sumLon / count)
+
     /** [seedOf] over a list, in the list's order — which is the order clustering seeds in. */
     fun seedsOf(places: List<Place>): List<Seed> = places.map(::seedOf)
 
@@ -101,6 +111,10 @@ object PlaceClusterer {
         /** Counted off [members], which every cluster has — [memberIndices] only a derived one. */
         val visitCount: Int get() = members.size
 
+        /** What this cluster is to the clustering: an anchor with a reach — see [seedOf], which
+         *  says why that projection is never spelled at a call site. */
+        val seed: Seed get() = Seed(anchor, radiusM)
+
         /**
          * The members' mean, or null where there are no members to average — the reading
          * [centroid] cannot give, since an empty seed keeps its pin there. Only a seeded cluster
@@ -125,9 +139,9 @@ object PlaceClusterer {
         /** How many anchors there are — the seeded ones first, then each founded since. */
         val size: Int get() = points.size
 
-        fun anchorAt(index: Int): Coordinate = points[index]
-
-        fun radiusAt(index: Int): Double = radii[index]
+        /** The anchor at [index] as a seed. Built on the way out, never on the way in: this is what
+         *  a caller wants once per cluster, where [claim] runs once per endpoint. */
+        fun seedAt(index: Int): Seed = Seed(points[index], radii[index])
 
         /**
          * The index of the anchor claiming [at] — **nearest qualifying**, not merely within range —
@@ -163,27 +177,19 @@ object PlaceClusterer {
         val members = MutableList(seeds.size) { mutableListOf<Int>() }
         locations.forEachIndexed { index, location ->
             val claimed = anchoring.claim(location)
-            while (members.size <= claimed) members += mutableListOf<Int>()
+            // claim() founds at most one anchor per call, and does so at the end.
+            if (claimed == members.size) members += mutableListOf<Int>()
             members[claimed] += index
         }
-        val anchors = List(anchoring.size) { anchoring.anchorAt(it) }
-        val radii = List(anchoring.size) { anchoring.radiusAt(it) }
-        return anchors.mapIndexed { ci, anchor ->
+        return List(anchoring.size) { ci ->
+            val seed = anchoring.seedAt(ci)
             val locs = members[ci].map { locations[it] }
             Cluster(
-                anchor = anchor,
-                // A seed with no members keeps its pin as the centroid.
-                centroid = if (locs.isEmpty()) {
-                    anchor
-                } else {
-                    Coordinate(
-                        lat = locs.sumOf { it.lat } / locs.size,
-                        lon = locs.sumOf { it.lon } / locs.size,
-                    )
-                },
+                anchor = seed.anchor,
+                centroid = centroidOf(locs.sumOf { it.lat }, locs.sumOf { it.lon }, locs.size, seed.anchor),
                 memberIndices = members[ci],
                 members = locs,
-                radiusM = radii[ci],
+                radiusM = seed.radiusM,
                 seedIndex = ci.takeIf { it < seeds.size },
             )
         }

@@ -279,7 +279,7 @@ object StayLedger {
             // what is recorded here or names one already recorded — a later endpoint joining an
             // anchor an earlier one founded.
             if (slot == founded.size) {
-                founded += PlaceClusterer.Seed(anchoring.anchorAt(index), anchoring.radiusAt(index))
+                founded += anchoring.seedAt(index)
             }
             return ClusterRef.Founded(slot)
         }
