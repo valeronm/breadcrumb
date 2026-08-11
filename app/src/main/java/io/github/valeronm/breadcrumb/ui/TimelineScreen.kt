@@ -46,7 +46,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.UnfoldMore
@@ -1275,7 +1274,7 @@ private fun draftEndOf(
 ) = TripDraftEnd(at = at ?: place?.pin, placeName = place?.label, timeMs = atMs)
 
 /**
- * One side of a gap: a full-width tappable line (pin glyph + place name, ripple across the row
+ * One side of a gap: a full-width tappable line (category disc + place name, ripple across the row
  * like every other tappable row) opening the place's detail — stay-less clusters have zero-visit
  * rows (summarize emits every cluster), so every known side opens. An unknown side renders
  * nothing; its position tells the story.
@@ -1291,24 +1290,22 @@ private fun GapPlaceLine(
     onOpenPlace: (String) -> Unit,
 ) {
     if (place == null) return
+    val category = place.category
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onOpenPlace(place.key) }
             // A floor rather than more padding, which would loosen the connector this row sits
-            // against: the 36.dp glyph box and 4.dp either side leave the row short of a finger.
+            // against: the 36.dp disc and 4.dp either side leave the row short of a finger.
             .heightIn(min = 48.dp)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = Icons.Filled.Place,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.size(20.dp),
-            )
-        }
+        IconDisc(
+            icon = category.discIcon,
+            style = placeDiscStyle(category),
+            contentDescription = category?.let { stringResource(it.labelRes) },
+        )
         Spacer(Modifier.width(16.dp))
         Text(
             text = place.name ?: stringResource(R.string.timeline_unnamed_place),
