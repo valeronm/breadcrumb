@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.location.LocationListenerCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.location.LocationRequestCompat
+import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.Settings
@@ -196,7 +197,14 @@ class LocationRecordingService : Service() {
         armed = true
         armedAtMs = now()
         transitionSinceArm = false
-        DebugLog.i(TAG, "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)})")
+        // Stamped on arming rather than once per process: an install fires the package-replaced
+        // receiver, which arms, so this is the line a reader scrolling back stops at, and everything
+        // below it belongs to the build it names. The label earns its place — `debug` and `release`
+        // carry the same versionName and `perf` installs over the debug package, so nothing else in
+        // a log tells the three apart.
+        val build = BuildConfig.VERSION_NAME +
+            if (BuildConfig.BUILD_LABEL.isEmpty()) "" else " ${BuildConfig.BUILD_LABEL}"
+        DebugLog.i(TAG, "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)}) [$build]")
         // Armed with nothing recording is a state [recordCardState] already names, so the first
         // notification is worded by the same call the updates use rather than paired again here —
         // two spellings of one state is exactly what that seam exists to prevent.
