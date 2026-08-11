@@ -321,6 +321,12 @@ android {
                     .withPropertyName("stringResources")
                     .withPathSensitivity(PathSensitivity.RELATIVE)
                 qemuJavaLauncher?.let { launcher -> it.executable = launcher.path }
+                // Each fork pays the Robolectric sandbox + Compose-harness warm-up on its own,
+                // so forks trade total CPU for wall clock — and past a point they trade it back:
+                // the Robolectric workers are multi-threaded (doubly so under qemu), and measured
+                // spans on a 10-core box were 174 s at 1 fork, 135 s at 2, 109 s at 3, 141 s at 5.
+                // Scaled by cores so a small CI runner is not oversubscribed into the same cliff.
+                it.maxParallelForks = (Runtime.getRuntime().availableProcessors() / 3).coerceIn(1, 3)
             }
         }
     }
