@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -82,6 +83,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -660,6 +662,19 @@ internal fun BackNavIcon(onBack: () -> Unit) {
             Icons.AutoMirrored.Filled.ArrowBack,
             contentDescription = stringResource(R.string.common_back),
         )
+    }
+}
+
+/**
+ * The shared top-bar commit for the editors that hold their changes — the trip form and the place
+ * editor. A word rather than a tick, because the control that ends an editor is the one saying what
+ * becomes of what was typed, and a glyph leaves that to be guessed at. [enabled] is the editor's own
+ * test of whether it has enough to write.
+ */
+@Composable
+internal fun SaveAction(enabled: Boolean, onSave: () -> Unit) {
+    TextButton(onClick = onSave, enabled = enabled) {
+        Text(stringResource(R.string.common_save))
     }
 }
 
@@ -1275,9 +1290,13 @@ private val categorizedDiscStyles: Map<PlaceCategory, DiscStyle> by lazy {
 }
 
 /**
- * A single-choice option in a dialog: glyph, label, and either the current-choice tick or a
- * Shared by both option dialogs — the track-type and place-category
- * pickers — so the corner radius, paddings and tick affordance are stated once, not copied.
+ * A single-choice option in a dialog: glyph, label, and the tick marking the current choice. Shared
+ * by both option dialogs — the track-type and place-category pickers — so the corner radius,
+ * paddings and tick affordance are stated once, not copied.
+ *
+ * `selectable` rather than `clickable`: the row is one option out of a set, so which one is current
+ * is state the row carries and a screen reader states with it. The tick is then the sighted reading
+ * of that same state and describes nothing of its own.
  */
 @Composable
 internal fun OptionRow(
@@ -1286,15 +1305,16 @@ internal fun OptionRow(
     tint: Color,
     labelColor: Color = MaterialTheme.colorScheme.onSurface,
     selected: Boolean = false,
-    selectedDescription: String? = null,
     onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            // 12 rather than 10 against the 24.dp glyph: `selectable` carries no minimum-size
+            // enforcement of its own, and a picker row is a finger's target like any other.
+            .padding(horizontal = 8.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, contentDescription = null, tint = tint)
@@ -1304,7 +1324,7 @@ internal fun OptionRow(
         if (selected) {
             Icon(
                 Icons.Filled.Check,
-                contentDescription = selectedDescription,
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
             )
         }

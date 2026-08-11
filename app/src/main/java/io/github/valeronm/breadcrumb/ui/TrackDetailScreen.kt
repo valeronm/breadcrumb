@@ -376,7 +376,6 @@ internal fun TrackMapScreen(
                             // Each option in its own hue, as the category picker wears its groups'.
                             tint = activityColor(option),
                             selected = option == activity,
-                            selectedDescription = stringResource(R.string.track_type_current),
                         ) {
                             viewModel.setTrackActivity(trackId, option)
                             showTypeDialog = false

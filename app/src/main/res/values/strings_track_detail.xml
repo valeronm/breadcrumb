@@ -13,7 +13,6 @@
     <string name="track_caption_imported">Imported</string>
     <string name="track_filter_noisy">Noisy points</string>
     <string name="track_type_dialog_title">Trip type</string>
-    <string name="track_type_current">Current type</string>
 
     <string name="track_stat_avg_speed">Avg speed</string>
 

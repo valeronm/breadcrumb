@@ -10,7 +10,7 @@
     <string name="common_off">Desligado</string>
     <string name="common_stop">Parar</string>
     <string name="common_delete">Eliminar</string>
-    <string name="common_done">Concluir</string>
+    <string name="common_save">Guardar</string>
     <string name="common_stat_distance">Distância</string>
     <string name="common_stat_duration">Duração</string>
 

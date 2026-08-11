@@ -15,11 +15,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.TravelExplore
@@ -30,7 +30,6 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
@@ -56,12 +55,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -306,42 +307,34 @@ internal fun AddTripScreen(
                 },
                 navigationIcon = { BackNavIcon(onClose) },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            val type = activity ?: return@IconButton
-                            val from = origin.pin ?: return@IconButton
-                            val to = destination.pin ?: return@IconButton
-                            if (departMs == null || arriveMs == null) return@IconButton
-                            viewModel.saveManualTrack(
-                                draft.editing?.trackId,
-                                type,
-                                TrackListViewModel.ManualTripEnd(
-                                    TrackRepository.ManualEnd(from, departMs),
-                                    origin.placeName,
-                                ),
-                                TrackListViewModel.ManualTripEnd(
-                                    TrackRepository.ManualEnd(to, arriveMs),
-                                    destination.placeName,
-                                ),
-                            ) { result ->
-                                val refusal = when (result) {
-                                    is TrackRepository.ManualTrackResult.Saved -> null
-                                    TrackRepository.ManualTrackResult.Overlapping -> overlapsMessage
-                                    TrackRepository.ManualTrackResult.NotEditable -> goneMessage
-                                }
-                                if (refusal == null) {
-                                    onClose()
-                                } else {
-                                    scope.launch { snackbarHostState.showSnackbar(refusal) }
-                                }
+                    SaveAction(enabled = ready) {
+                        val type = activity ?: return@SaveAction
+                        val from = origin.pin ?: return@SaveAction
+                        val to = destination.pin ?: return@SaveAction
+                        if (departMs == null || arriveMs == null) return@SaveAction
+                        viewModel.saveManualTrack(
+                            draft.editing?.trackId,
+                            type,
+                            TrackListViewModel.ManualTripEnd(
+                                TrackRepository.ManualEnd(from, departMs),
+                                origin.placeName,
+                            ),
+                            TrackListViewModel.ManualTripEnd(
+                                TrackRepository.ManualEnd(to, arriveMs),
+                                destination.placeName,
+                            ),
+                        ) { result ->
+                            val refusal = when (result) {
+                                is TrackRepository.ManualTrackResult.Saved -> null
+                                TrackRepository.ManualTrackResult.Overlapping -> overlapsMessage
+                                TrackRepository.ManualTrackResult.NotEditable -> goneMessage
                             }
-                        },
-                        enabled = ready,
-                    ) {
-                        Icon(
-                            Icons.Filled.Check,
-                            contentDescription = stringResource(R.string.common_done),
-                        )
+                            if (refusal == null) {
+                                onClose()
+                            } else {
+                                scope.launch { snackbarHostState.showSnackbar(refusal) }
+                            }
+                        }
                     }
                 },
             )
@@ -772,6 +765,9 @@ private fun TripEndCard(
             val at = end.epochIn(zone)
             val reader = timelineZone()
             val shiftColor = zoneShiftColor
+            // The line is a control, not a caption — it opens both pickers — so it takes a row's
+            // worth of height and a bounded ripple rather than the glyph box a clickable Text
+            // would leave for a finger.
             Text(
                 if (at != null) {
                     annotatedStringResource(
@@ -788,7 +784,12 @@ private fun TripEndCard(
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
-                modifier = Modifier.clickable(enabled = pin != null, onClick = onEditTime),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(enabled = pin != null, role = Role.Button, onClick = onEditTime)
+                    .heightIn(min = 48.dp)
+                    .wrapContentHeight(),
             )
             // Which clock the pickers will write on, said before a time exists to carry the
             // mark — as an offset from the reader's own, the way the timeline says it, never as

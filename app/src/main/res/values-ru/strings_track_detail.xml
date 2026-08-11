@@ -8,7 +8,6 @@
     <string name="track_caption_imported">Импортирована</string>
     <string name="track_filter_noisy">Отклонённые точки</string>
     <string name="track_type_dialog_title">Тип поездки</string>
-    <string name="track_type_current">Текущий тип</string>
 
     <string name="track_stat_avg_speed">Сред. скорость</string>
 

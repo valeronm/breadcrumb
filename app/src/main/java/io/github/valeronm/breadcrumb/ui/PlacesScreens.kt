@@ -32,7 +32,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -877,19 +876,11 @@ internal fun PlaceEditScreen(
                             )
                         }
                     }
-                    IconButton(
-                        onClick = {
-                            viewModel.savePlace(summary, name.value, pin, radiusM.toDouble(), onCreated)
-                            onClose()
-                        },
-                        // A place must be called something. Clearing the field is not how one is
-                        // deleted — that offer belongs to the Remove button below.
-                        enabled = nameGiven,
-                    ) {
-                        Icon(
-                            Icons.Filled.Check,
-                            contentDescription = stringResource(R.string.common_done),
-                        )
+                    // A place must be called something. Clearing the field is not how one is
+                    // deleted — that offer belongs to the Remove button below.
+                    SaveAction(enabled = nameGiven) {
+                        viewModel.savePlace(summary, name.value, pin, radiusM.toDouble(), onCreated)
+                        onClose()
                     }
                 },
             )
@@ -1218,7 +1209,6 @@ private fun CategoryRow(
         tint = categoryGlyphTint(category),
         labelColor = placeTitleColor(named = category != null),
         selected = selected,
-        selectedDescription = stringResource(R.string.places_category_current),
         onClick = onClick,
     )
 }

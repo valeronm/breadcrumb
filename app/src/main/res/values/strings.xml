@@ -16,8 +16,9 @@
     <string name="common_stop">Stop</string>
     <!-- The swipe-to-delete action, read aloud on a place row and on a track row alike. -->
     <string name="common_delete">Delete</string>
-    <!-- The check-mark that commits an editor. -->
-    <string name="common_done">Done</string>
+    <!-- Commits an editor: the trip form and the place editor both hold everything until it is
+         pressed, so the word says a row is written rather than that the reader has finished. -->
+    <string name="common_save">Save</string>
     <!-- Stat-cell labels, on the Record card and on a track's detail. -->
     <string name="common_stat_distance">Distance</string>
     <string name="common_stat_duration">Duration</string>

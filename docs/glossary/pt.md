@@ -63,6 +63,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | restore-trip | recuperar | Matches *recuperáveis* on the same screens. Plain-prose "puts the trip back" (undo explainers) may still say *repõe*. |
 | restore-backup | restaurar | |
 | reset | repor | |
+| save | guardar | European Portuguese, and the verb already used of a trip too short to keep. Never *salvar*, which is Brazilian. |
 
 ### The app
 

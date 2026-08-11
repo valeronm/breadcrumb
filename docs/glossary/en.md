@@ -64,6 +64,7 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | restore-trip | restore | Putting one trip back from Recently deleted — "Restore trip". |
 | restore-backup | restore | Rebuilding everything from a backup file — "Restore from backup". The object carries the difference; English does not split the verb. |
 | reset | reset | Returning settings to their defaults. |
+| save | save | Committing an editor that has been holding its changes — the trip form, the place editor. Never *done*, which says the reader has finished rather than that anything was kept, and would be a promise the screen has not made: nothing on either is written until the button is pressed. A control that only dismisses changes already in effect is not this word either — it needs no verb at all. |
 
 ### The app
 

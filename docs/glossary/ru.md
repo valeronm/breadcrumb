@@ -63,6 +63,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | restore-trip | восстановить | |
 | restore-backup | восстановить | Like English, the object carries the difference; Russian does not split the verb. |
 | reset | сбросить | |
+| save | сохранить | Not «готово», which answers a different question — whether the reader is finished, not whether anything was kept. |
 
 ### The app
 

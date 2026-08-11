@@ -10,7 +10,7 @@
     <string name="common_off">Выключено</string>
     <string name="common_stop">Остановить</string>
     <string name="common_delete">Удалить</string>
-    <string name="common_done">Готово</string>
+    <string name="common_save">Сохранить</string>
     <string name="common_stat_distance">Расстояние</string>
     <string name="common_stat_duration">Длительность</string>
 

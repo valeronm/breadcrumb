@@ -71,7 +71,6 @@
     <string name="places_pin_moved">Pino movido</string>
     <string name="places_remove">Eliminar o local</string>
     <string name="places_category_question">Para que serve?</string>
-    <string name="places_category_current">Categoria atual</string>
 
     <!-- A label agreeing with the number above it, never carrying one — see the English original. -->
     <plurals name="places_stat_visits" tools:ignore="ImpliedQuantity">

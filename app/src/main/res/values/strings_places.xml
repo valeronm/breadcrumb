@@ -73,7 +73,6 @@
     <string name="places_pin_moved">Pin moved</string>
     <string name="places_remove">Delete place</string>
     <string name="places_category_question">What is it for?</string>
-    <string name="places_category_current">Current category</string>
 
     <!-- Detail stats -->
     <!--
