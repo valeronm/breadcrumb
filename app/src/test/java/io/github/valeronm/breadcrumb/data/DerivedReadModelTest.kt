@@ -11,7 +11,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,12 +62,7 @@ class DerivedReadModelTest {
      * screens are fed by, so a snapshot the app never takes cannot pass here.
      */
     private suspend fun read(activeStartedAt: Long? = null): StayDeriver.Derivation =
-        DerivedReadModel.derivationOf(
-            stored = store.observeStored().first(),
-            liveness = db.livenessDao().allEvents(),
-            nowMs = now,
-            activeStartedAt = activeStartedAt,
-        )
+        store.read(store.observeStored().first(), now, activeStartedAt)
 
     @Test fun `rows read back are the derivation, intervals and clusters alike`() = runTest {
         places.create(test.place("Home", 1.0, -2.0))
@@ -141,6 +138,32 @@ class DerivedReadModelTest {
             Coordinate(endedIn.lat, endedIn.lon),
             read.clusters[(tail as StayDeriver.Stay).clusterId].members.last(),
         )
+    }
+
+    /**
+     * **The history is mapped again only when the rows change.** Most of what re-runs a reading
+     * cannot have moved a row — the clock, a recording starting, a liveness write — and mapping
+     * ~20,000 rows into objects is the larger half of what a reading costs, so a reading driven by
+     * one of those reuses what the last one built.
+     *
+     * Asserted by identity, which is also how the reuse decides: the rows carried over by
+     * `observeStored` are the same lists, and asking whether ~20,000 rows are *equal* would cost
+     * what the mapping costs.
+     */
+    @Test fun `the rows are mapped again only when they change`() = runTest {
+        track(TEST_START)
+        track(TEST_START + 3 * 60 * 60_000L)
+        store.rebuild(now)
+        val stored = store.observeStored().first()
+
+        val first = store.read(stored, now, activeStartedAt = null)
+        val again = store.read(stored, now + 60_000L, activeStartedAt = null)
+        assertSame("the same rows map to the same clusters", first.clusters, again.clusters)
+
+        // A fresh reading of the tables is a fresh set of lists, and is mapped afresh.
+        val reread = store.read(store.observeStored().first(), now, activeStartedAt = null)
+        assertNotSame("new rows are mapped again", first.clusters, reread.clusters)
+        assertEquals("and say the same thing", first.clusters.map { it.anchor }, reread.clusters.map { it.anchor })
     }
 
     @Test fun `a named place keeps its position, so its cluster still resolves to it`() = runTest {

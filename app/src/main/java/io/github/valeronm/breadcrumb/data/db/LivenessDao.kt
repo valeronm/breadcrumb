@@ -17,8 +17,11 @@ interface LivenessDao {
     @Query("SELECT * FROM liveness_events ORDER BY at DESC, id DESC LIMIT 1")
     suspend fun lastEvent(): LivenessEvent?
 
-    @Query("SELECT * FROM liveness_events ORDER BY at ASC, id ASC")
-    fun observeAll(): Flow<List<LivenessEvent>>
+    /** A value that moves whenever a row is written and costs nothing to read — see
+     *  [LivenessRepository.observeChanges], which is what wants it and why nothing observes the
+     *  rows themselves. */
+    @Query("SELECT MAX(id) FROM liveness_events")
+    fun observeLatestId(): Flow<Long?>
 
     @Query("SELECT * FROM liveness_events ORDER BY at ASC, id ASC")
     suspend fun allEvents(): List<LivenessEvent>
@@ -66,4 +69,25 @@ interface LivenessDao {
     /** When the record begins — see [eventsAround], which cannot answer it. */
     @Query("SELECT MIN(at) FROM liveness_events")
     suspend fun earliestEventAt(): Long?
+
+    /**
+     * When the app last stopped attesting with nothing since — the instant the trailing stay closes
+     * at, or null while armed.
+     *
+     * **Two seeks rather than a fold over the log**, which is the whole reason it is a query: the
+     * last arm, then the earliest disarm after it. Reading it off a windowed reduction is the one
+     * thing that cannot work, a window holding the last unclosed disarm it happened to contain
+     * rather than the first of the run — see `StayDeriver.tail`, which takes the two apart.
+     *
+     * `MAX`/`MIN` over `(type, at)` are covering-index seeks, so this is constant whatever the log
+     * has grown to. The `IFNULL` is what makes a log with no ARMED row in it answer as the fold
+     * does — every disarm is then unclosed, and the earliest opens the run — rather than as SQL's
+     * `at > NULL` would, which matches nothing and would report a disarmed app as armed.
+     */
+    @Query(
+        "SELECT MIN(at) FROM liveness_events WHERE type = '" + LivenessEvent.TYPE_DISARMED + "' " +
+            "AND at > IFNULL((SELECT MAX(at) FROM liveness_events " +
+            "WHERE type = '" + LivenessEvent.TYPE_ARMED + "'), -9223372036854775808)",
+    )
+    suspend fun disarmedSince(): Long?
 }

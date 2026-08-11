@@ -417,6 +417,67 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         earliestAt = liveness.earliestEventAt(),
     )
 
+    /**
+     * A reading of [stored] as the derivation the screens consume — **the one entry point for it**,
+     * so that mapping the rows, fetching the liveness the trailing stay needs and pairing the two is
+     * one act with one author rather than a sequence every caller repeats.
+     *
+     * It is a method and not part of [observeStored] because two of its inputs move with no write
+     * behind them: the clock, and whether something is recording. What that costs is a second read
+     * outside the transaction the rows came from, and the answer to whether that matters lives here
+     * — the window it reads over is bounded by rows already in hand, and the log only ever grows
+     * forward, so an event arriving between the two reads can only be one *after* the stretch being
+     * asked about.
+     *
+     * **The mapped rows are kept while the rows are.** [observeStored] carries its lists over
+     * unchanged when a write reached no derived table, so identity is enough to know the mapping
+     * still holds — and every other input to this (a liveness write, a recording starting, the clock)
+     * re-emits without touching them. Mapping the history again for those would be the larger half
+     * of what a reading costs, paid for something that cannot have changed it.
+     */
+    internal suspend fun read(
+        stored: StoredDerivation,
+        nowMs: Long,
+        activeStartedAt: Long?,
+    ): StayDeriver.Derivation {
+        val rows = mapped?.takeIf { it.matches(stored) }?.rows
+            ?: DerivedReadModel.mappedRows(stored).also { mapped = Mapped(stored, it) }
+        val out = rows.intervals.toMutableList()
+        rows.tailAnchor?.let { anchor ->
+            val over = rows.tailWindow(nowMs) ?: return@let
+            StayDeriver.tail(
+                anchor = anchor,
+                evidence = evidenceOver(over, nowMs),
+                disarmedSince = disarmedSince(nowMs),
+                nowMs = nowMs,
+                activeStartedAt = activeStartedAt,
+            )?.let { out += it }
+        }
+        return StayDeriver.Derivation(out, rows.clusters)
+    }
+
+    /**
+     * Last reading's mapping, against the row lists it was made from. Written only from [read], which
+     * one flow's coroutine drives; nothing else may touch it. Held by identity rather than by value —
+     * the question is whether these are the same lists, not whether they say the same thing, and
+     * comparing ~20,000 rows for equality would cost what the mapping costs.
+     */
+    private class Mapped(private val of: StoredDerivation, val rows: DerivedReadModel.MappedRows) {
+        fun matches(stored: StoredDerivation) =
+            of.clusters === stored.clusters &&
+                of.members === stored.members &&
+                of.intervals === stored.intervals &&
+                of.places === stored.places
+    }
+
+    private var mapped: Mapped? = null
+
+    /** When the app last stopped attesting, clamped as the fold clamps it — see
+     *  [StayDeriver.disarmedSince], which is that rule's author, and `LivenessDao.disarmedSince`,
+     *  which is the seek this asks. */
+    private suspend fun disarmedSince(nowMs: Long): Long? =
+        liveness.disarmedSince()?.coerceAtMost(nowMs)
+
     /** What a stay's provenance is stored as — the inverse of `DerivedReadModel.provenanceOf`, and
      *  written here once because a rebuild states it and a repair over a learned outage restates it
      *  against rows that rebuild already wrote. */

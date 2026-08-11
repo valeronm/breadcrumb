@@ -37,18 +37,16 @@ internal object DerivedConsistency {
      * made of, through the query the app itself observes, so the guard cannot pass against a
      * snapshot the app never sees.
      */
-    private suspend fun read(db: AppDatabase): StoredDerivation =
-        DerivationStore(ApplicationProvider.getApplicationContext(), db).observeStored().first()
+    private suspend fun read(db: AppDatabase): StoredDerivation = store(db).observeStored().first()
 
-    /** Those same rows read back as a derivation — the inverse mapping, which is half of the pair
-     *  under test and the side every comparison here is made against. */
+    private fun store(db: AppDatabase) =
+        DerivationStore(ApplicationProvider.getApplicationContext(), db)
+
+    /** Those same rows read back as a derivation — through the app's own entry point, so the side
+     *  every comparison is made against is the reading the screens take and not one only a test
+     *  could assemble. */
     private suspend fun readBack(db: AppDatabase, stored: StoredDerivation, nowMs: Long) =
-        DerivedReadModel.derivationOf(
-            stored = stored,
-            liveness = db.livenessDao().allEvents(),
-            nowMs = nowMs,
-            activeStartedAt = null,
-        )
+        store(db).read(stored, nowMs, activeStartedAt = null)
 
     /** The named rows in seed order — the pins the app's own derivation was seeded from, taken from
      *  the snapshot rather than re-queried so both readings are of one moment. */

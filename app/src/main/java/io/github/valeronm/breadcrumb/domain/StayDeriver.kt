@@ -375,16 +375,18 @@ object StayDeriver {
      * coordinates, which this does not take. A caller that has them owes that check itself; what
      * follows from no caller having them is the reader's to state, not this leaf's.
      */
-    fun tail(
+    /**
+     * **[disarmedSince] is a parameter rather than something read off [evidence] because the two are
+     * shaped differently.** Provenance is a question about a stretch, which a reading of that stretch
+     * answers; when the app last stopped attesting is a question about the log's end, and no window
+     * can answer it — the last unclosed disarm a window holds need not be the first of the run.
+     * Carried on one value they would look interchangeable, and a narrowed reading would close the
+     * stay at an instant off by however long the app sat disarmed before that window.
+     */
+    internal fun tail(
         anchor: TailAnchor,
-        liveness: List<Liveness>,
-        nowMs: Long,
-        activeStartedAt: Long?,
-    ): Stay? = tail(anchor, summarizeLiveness(liveness, nowMs), nowMs, activeStartedAt)
-
-    private fun tail(
-        anchor: TailAnchor,
-        evidence: LivenessEvidence.WholeLog,
+        evidence: LivenessEvidence,
+        disarmedSince: Long?,
         nowMs: Long,
         activeStartedAt: Long?,
     ): Stay? {
@@ -395,7 +397,7 @@ object StayDeriver {
         } else {
             if (start > nowMs) return null
             // Disarmed: the app can attest nothing past the disarm, so the stay closes there.
-            evidence.disarmedSince?.coerceAtLeast(start)
+            disarmedSince?.coerceAtLeast(start)
         }
         return Stay(
             start = start,
@@ -414,7 +416,7 @@ object StayDeriver {
      * [StayLedger], deciding the provenance of a handful of intervals at a time, takes this rather
      * than the log.
      */
-    open class LivenessEvidence internal constructor(
+    class LivenessEvidence internal constructor(
         /** Half-open [start, end) stretches where the app was known dead or disarmed. */
         private val deadIntervals: List<Pair<Long, Long>>,
         /** Time of the earliest liveness evidence; anything before it is unattested. */
@@ -439,36 +441,29 @@ object StayDeriver {
                 else -> Provenance.OBSERVED
             }
         }
-
-        /**
-         * The whole log reduced — **a reading that can answer one further question**, and the type a
-         * caller needing that answer asks for.
-         *
-         * The extra question is [disarmedSince], and it is a separate type rather than a guarded
-         * getter because a slice cannot answer it *at all*: the last unclosed disarm a slice fetched
-         * need not be the first of the run, so the honest answer over a window is not a wrong instant
-         * but no instant. Stating that in the type rather than at runtime is what stops the next
-         * narrowing — the timeline's read path is the obvious one — from compiling against a value
-         * that cannot serve it.
-         */
-        class WholeLog internal constructor(
-            deadIntervals: List<Pair<Long, Long>>,
-            firstEvidenceAt: Long?,
-            /** Set when the latest state is "disarmed with no re-arm" — dead from here on, which is
-             *  how the trailing stay knows when to close. */
-            val disarmedSince: Long?,
-        ) : LivenessEvidence(deadIntervals, firstEvidenceAt, readOver = null)
     }
 
-    /** The whole log reduced to what [LivenessEvidence] answers with. */
-    internal fun summarizeLiveness(liveness: List<Liveness>, nowMs: Long): LivenessEvidence.WholeLog {
-        val read = readLiveness(liveness, nowMs)
-        return LivenessEvidence.WholeLog(
-            deadIntervals = read.dead,
+    /**
+     * When the app last stopped attesting with nothing since, or null while armed — the instant the
+     * trailing stay closes at.
+     *
+     * **A fact about the log's end, not about any window**, which is why it is its own function and
+     * a parameter of [tail] rather than something carried on evidence: a reading over a stretch
+     * holds the last unclosed disarm *it* saw, and the run may have opened at one it never did.
+     * `LivenessDao.disarmedSince` answers the same question with two seeks instead of a fold, and
+     * `LivenessWindowTest` holds the two together — this is the author, that is the shortcut.
+     */
+    internal fun disarmedSince(liveness: List<Liveness>, nowMs: Long): Long? =
+        readLiveness(liveness, nowMs).trailingDisarm
+
+    /** The whole log reduced to what [LivenessEvidence] answers with — asked about any stretch,
+     *  having read every event there is. */
+    internal fun summarizeLiveness(liveness: List<Liveness>, nowMs: Long): LivenessEvidence =
+        LivenessEvidence(
+            deadIntervals = readLiveness(liveness, nowMs).dead,
             firstEvidenceAt = liveness.firstOrNull()?.at?.coerceAtMost(nowMs),
-            disarmedSince = read.trailingDisarm,
+            readOver = null,
         )
-    }
 
     /**
      * The same reduction over a **slice** — for a caller that only asks about one stretch of time, a

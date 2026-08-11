@@ -3,12 +3,10 @@ package io.github.valeronm.breadcrumb.data
 import io.github.valeronm.breadcrumb.data.db.ClusterMember
 import io.github.valeronm.breadcrumb.data.db.DerivedCluster
 import io.github.valeronm.breadcrumb.data.db.DerivedInterval
-import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.toLiveness
 import io.github.valeronm.breadcrumb.util.DebugLog
 
 private const val TAG = "Breadcrumb"
@@ -34,31 +32,23 @@ class StoredDerivation(
 internal object DerivedReadModel {
 
     /**
-     * Rows in, a derivation out.
+     * The stored rows as the shapes the screens consume — **everything a derivation holds that a row
+     * can hold**, which is all of it bar the stay still running.
+     *
+     * Separate from that trailing stay because the two go stale on different terms: this is a
+     * function of the rows alone, so it is worth keeping while they are, and the tail moves with the
+     * clock. [DerivationStore.read] is what pairs them.
      *
      * **Cluster order is a contract, not a convenience.** [PlaceResolver] resolves a cluster to a
      * place *positionally* — `seedIndex` indexes [StoredDerivation.places] — so named clusters come
      * first in the order those are given, and unnamed ones follow. A stay's stored cluster is a row id,
      * translated to that position here; no row id escapes this file.
      *
-     * The trailing stay is appended rather than read: it closes at [nowMs] or at [activeStartedAt],
-     * so no row could hold it ([StayDeriver.tail]).
-     *
-     * **What that stay cannot say is that the reader has moved on.** `tail` decides between a stay
-     * and a gap from bounds alone; separating them needs the recording track's first fix beside the
-     * last track's end, and only [activeStartedAt] reaches here. So while a track that began
-     * somewhere else is recording, the timeline shows the previous place held until that track
-     * started — corrected, not merely refreshed, the moment it finishes and the pair is derived from
-     * two stored endpoints. Closing that would mean carrying the live fix this far and clustering it
-     * on the read path, which is the walk persisting the derivation removed; the reading is wrong
-     * for the length of one live track and fixes itself, which is why it is written down instead.
+     * **The walk is over the whole history and is meant to be.** A screen that draws every day of a
+     * history pays for every day of it, which is a different bargain from the one the liveness log
+     * was struck for: that was read in full to answer about a single interval and drew nothing.
      */
-    fun derivationOf(
-        stored: StoredDerivation,
-        liveness: List<LivenessEvent>,
-        nowMs: Long,
-        activeStartedAt: Long?,
-    ): StayDeriver.Derivation {
+    fun mappedRows(stored: StoredDerivation): MappedRows {
         val placeOrder = stored.places.withIndex().associate { (index, place) -> place.id to index }
         // Resolved once per row and used for both the order and the seed index, so the two cannot
         // disagree about which clusters are named.
@@ -83,13 +73,43 @@ internal object DerivedReadModel {
             )
         }
 
-        val out = stored.intervals.mapNotNull { it.toInterval(indexOfRow) }.toMutableList()
-        tailAnchor(stored.members, indexOfRow)?.let { anchor ->
-            StayDeriver.tail(anchor, liveness.mapNotNull { it.toLiveness() }, nowMs, activeStartedAt)
-                ?.let { out += it }
-        }
-        return StayDeriver.Derivation(out, clusters)
+        return MappedRows(
+            clusters = clusters,
+            intervals = stored.intervals.mapNotNull { it.toInterval(indexOfRow) },
+            tailAnchor = tailAnchor(stored.members, indexOfRow),
+        )
     }
+
+    /**
+     * A reading of the stored rows, and the anchor the stay still running would hang off. Everything
+     * here is a function of those rows and of nothing else — no clock, no recording track — which is
+     * what lets a caller keep one while the rows it was mapped from are unchanged.
+     */
+    class MappedRows(
+        val clusters: List<PlaceClusterer.Cluster>,
+        val intervals: List<StayDeriver.Interval>,
+        val tailAnchor: StayDeriver.TailAnchor?,
+    ) {
+        /** The stretch the liveness behind the trailing stay must cover — from the newest kept
+         *  track's end to the clock, or nothing where no track anchors one. Closed at the far end
+         *  even where the anchor is somehow ahead of the clock, a reversed range being a window no
+         *  reader can answer over. */
+        fun tailWindow(nowMs: Long): LongRange? =
+            tailAnchor?.let { it.endedAt..maxOf(it.endedAt, nowMs) }
+    }
+
+    /**
+     * The liveness the trailing stay needs, and nothing else of the log.
+     *
+     * Two facts, not one, and they are shaped differently: whether the app was alive over a stretch,
+     * which a reading of that stretch answers, and whether it has stopped attesting since, which is
+     * about the log's end and no window can answer. `StayDeriver.tail` takes them apart for that
+     * reason; `DerivationStore.read` fetches them, each by a seek.
+     */
+    class TailReading(
+        val evidence: StayDeriver.LivenessEvidence,
+        val disarmedSince: Long?,
+    )
 
     /**
      * What the trailing stay hangs off: the newest kept track's end endpoint, whose `atMs` is that

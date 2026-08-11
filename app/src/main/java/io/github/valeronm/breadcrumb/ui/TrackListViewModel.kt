@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Cities
 import io.github.valeronm.breadcrumb.data.DerivationStore
-import io.github.valeronm.breadcrumb.data.DerivedReadModel
 import io.github.valeronm.breadcrumb.data.LivenessRepository
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.PlaceRepository
@@ -195,17 +194,22 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      *
      * Only the active track's *start* is taken from the live status, and it is constant per track,
      * so the per-fix emissions behind it cannot re-run anything here.
+     *
+     * **The liveness arm carries a trigger, not the log.** Only the trailing stay asks anything of
+     * it, and what it asks is two seeks that [DerivationStore.read] makes for itself — where holding
+     * the log here means a list that grows for as long as the app is installed, retained by the
+     * replay and folded again on every emission, to answer about one interval.
      */
     private val derived: Flow<Derived> = combine(
         derivationStore.observeStored(),
-        livenessRepository.observeEvents().distinctUntilChanged(),
+        livenessRepository.observeChanges().distinctUntilChanged(),
         // Mapped in the arm rather than in the block below, so a reading of the derivation or a
         // liveness event does not re-map every track in the history for a list that did not move.
         repository.observeEndpoints().distinctUntilChanged().map { ends -> ends.map { it.toTrackEnd() } },
         TrackingStatus.state.map { if (it.recording) it.startedAtMillis else null }.distinctUntilChanged(),
-    ) { stored, events, trackEnds, activeStartedAt ->
+    ) { stored, _, trackEnds, activeStartedAt ->
         val now = System.currentTimeMillis()
-        val derivation = DerivedReadModel.derivationOf(stored, events, now, activeStartedAt)
+        val derivation = derivationStore.read(stored, now, activeStartedAt)
         Derived(
             derivation,
             stored.places,

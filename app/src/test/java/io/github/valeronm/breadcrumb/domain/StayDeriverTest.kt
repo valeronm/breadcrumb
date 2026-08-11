@@ -251,12 +251,7 @@ class StayDeriverTest {
         // Only the earliest disarm bounds what the app can attest to. A later one is the recorder
         // being re-armed and disarmed inside a stay it has already stopped vouching for. Asked of
         // the tail, that being the interval a disarm closes.
-        val stay = StayDeriver.tail(
-            StayDeriver.TailAnchor(trackId = 1L, endedAt = 120 * MIN, clusterId = 0),
-            listOf(Armed(0), Disarmed(500 * MIN), Disarmed(600 * MIN)),
-            NOW,
-            activeStartedAt = null,
-        )
+        val stay = tail(liveness = listOf(Armed(0), Disarmed(500 * MIN), Disarmed(600 * MIN)))
         assertEquals(500 * MIN, stay?.end)
     }
 
@@ -382,11 +377,21 @@ class StayDeriverTest {
     private val anchor = StayDeriver.TailAnchor(trackId = 1L, endedAt = 120 * MIN, clusterId = 3)
     private val armed = listOf<Liveness>(Armed(0))
 
+    /** The tail as the app reaches it — the two facts apart, each from its own author, which is the
+     *  shape `DerivationStore.read` fetches. Handing it a log and letting it reduce would be a third
+     *  spelling of the whole-log reading and one no caller takes. */
     private fun tail(
         liveness: List<Liveness> = armed,
         now: Long = NOW,
         activeStartedAt: Long? = null,
-    ) = StayDeriver.tail(anchor, liveness, now, activeStartedAt)
+        anchor: StayDeriver.TailAnchor = this.anchor,
+    ) = StayDeriver.tail(
+        anchor = anchor,
+        evidence = StayDeriver.summarizeLiveness(liveness, now),
+        disarmedSince = StayDeriver.disarmedSince(liveness, now),
+        nowMs = now,
+        activeStartedAt = activeStartedAt,
+    )
 
     @Test fun `the tail answers from a bound, a cluster and the log, with no derivation behind it`() {
         val open = tail()
@@ -422,7 +427,7 @@ class StayDeriverTest {
     }
 
     @Test fun `a track ending in the future emits no tail stay`() {
-        assertNull(StayDeriver.tail(anchor.copy(endedAt = NOW + MIN), armed, NOW, null))
+        assertNull(tail(anchor = anchor.copy(endedAt = NOW + MIN)))
     }
 
     // --- slicePerDay ----------------------------------------------------------

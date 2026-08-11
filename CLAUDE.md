@@ -349,6 +349,16 @@ track, so each is keyed on that rather than on a generated column beside a uniqu
 same thing — which on the largest of these tables was a second index maintained by every rebuild for
 something nothing read.
 
+**Reading the derivation is `DerivationStore.read`, and that is the only entry point.** It maps the
+stored rows, fetches the liveness the trailing stay needs and pairs the two — a sequence every caller
+would otherwise repeat, and one that has to answer for reading outside the transaction the rows came
+from (it can, because the stretch it reads over is bounded by rows already in hand and the log only
+grows forward). It is a method rather than part of `observeStored` because two of its inputs move
+with no write behind them: the clock, and whether something is recording. **The mapped rows are kept
+while the rows are** — a liveness write, a recording starting or the clock advancing cannot have
+moved a row, and mapping ~20,000 of them again is the larger half of what a reading costs; identity
+of the lists `observeStored` carries over is what decides.
+
 **`observeStored` reads `places` with them**, in the same transaction, because a cluster is named by
 one: observed apart, naming a place — which writes the row and re-derives in a single transaction —
 reached the screens as two emissions, and the one in between held a place no cluster pointed at yet,

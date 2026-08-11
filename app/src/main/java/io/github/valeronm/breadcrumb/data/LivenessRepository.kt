@@ -27,7 +27,17 @@ class LivenessRepository(context: Context, private val db: AppDatabase = AppData
     private val dao = db.livenessDao()
     private val derivation = DerivationStore(context, db)
 
-    fun observeEvents(): Flow<List<LivenessEvent>> = dao.observeAll()
+    /**
+     * That the log changed, without saying how — **the only way to observe this table**, and
+     * deliberately so.
+     *
+     * The log has no retention: it grows for as long as the app is installed and nothing renders it,
+     * so a reader holding it in a flow holds a list that only gets longer, re-read on every write.
+     * What a reader actually wants of it is a fact or two, which `DerivationStore.read` fetches by
+     * seek. `MAX(id)` moves on every insert, which is all a trigger owes; SQLite answers it by
+     * walking to the last row of the table rather than scanning, so it costs the same at any size.
+     */
+    fun observeChanges(): Flow<Long?> = dao.observeLatestId()
 
     suspend fun allEvents(): List<LivenessEvent> = dao.allEvents()
 
