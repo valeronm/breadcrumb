@@ -15,7 +15,6 @@ import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -89,7 +88,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -100,6 +98,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
@@ -826,48 +825,58 @@ internal fun <T> BoxScope.FastScroller(
             stopIdx.toFloat() / (stops.size - 1)
         }
     }
-    val fraction = if (dragging) dragFraction else listFraction
+    val density = LocalDensity.current
+    val thumbHeight = 56.dp
+    val thumbWidth = 32.dp
+    val touchPad = 12.dp
+    val thumbPx = with(density) { thumbHeight.toPx() }
+    val touchPadPx = with(density) { touchPad.toPx() }
+    val bubbleGap = with(density) { (thumbWidth + 12.dp).roundToPx() }
+    val bubbleLift = with(density) { 16.dp.roundToPx() }
+    // The track, measured rather than subcomposed: `BoxWithConstraints` would put every read below
+    // inside a `SubcomposeLayout`, and only the height is wanted.
+    var trackPx by remember { mutableFloatStateOf(1f) }
 
-    BoxWithConstraints(Modifier.matchParentSize()) {
-        val density = LocalDensity.current
-        val thumbHeight = 56.dp
-        val thumbWidth = 32.dp
-        val thumbPx = with(density) { thumbHeight.toPx() }
-        val trackPx = (constraints.maxHeight - thumbPx).coerceAtLeast(1f)
-        val thumbY = (trackPx * fraction).roundToInt()
+    fun stopAt(f: Float): ScrollStop<T> =
+        stops[(f * (stops.size - 1)).roundToInt().coerceIn(stops.indices)]
 
-        fun stopAt(f: Float): ScrollStop<T> =
-            stops[(f * (stops.size - 1)).roundToInt().coerceIn(stops.indices)]
+    // Where the thumb is, read as a function rather than held as a value: called from the offset
+    // lambdas it is a layout-phase read, so a drag moves the handle without recomposing it.
+    fun fraction(): Float = if (dragging) dragFraction else listFraction
 
-        fun applyFraction(f: Float) {
-            dragFraction = f.coerceIn(0f, 1f)
-            val stop = stopAt(dragFraction)
-            bandTick.onChange(stop.band)
-            // Requested rather than scrolled to: this runs per pointer event, and a suspending
-            // scroll would take the scroll mutex and force a relayout outside the frame for each
-            // one. A request folds into the frame's own measure pass.
-            state.requestScrollToItem(stop.itemIndex)
-        }
+    fun thumbTop(): Float = trackPx * fraction()
 
+    fun applyFraction(f: Float) {
+        dragFraction = f.coerceIn(0f, 1f)
+        val stop = stopAt(dragFraction)
+        bandTick.onChange(stop.band)
+        // Requested rather than scrolled to: this runs per pointer event, and a suspending scroll
+        // would take the scroll mutex and force a relayout outside the frame for each one. A
+        // request folds into the frame's own measure pass.
+        state.requestScrollToItem(stop.itemIndex)
+    }
+
+    Box(
+        Modifier
+            .matchParentSize()
+            .onSizeChanged { trackPx = (it.height - thumbPx).coerceAtLeast(1f) },
+    ) {
         // The handle: a half-circle hugging the edge inside a larger touch box that captures on
         // first touch-down — no slop wait, so grabs aren't eaten by drag detection (which loses
         // slow or slightly diagonal starts). Only the handle area takes input; the rest of the
         // edge scrolls the list as usual.
-        val touchPad = 12.dp
-        val touchPadPx = with(density) { touchPad.toPx() }
-        val currentFraction = rememberUpdatedState(fraction)
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .offset { IntOffset(0, (thumbY - touchPadPx).roundToInt()) }
+                .offset { IntOffset(0, (thumbTop() - touchPadPx).roundToInt()) }
                 .size(width = thumbWidth + touchPad, height = thumbHeight + touchPad * 2)
-                .pointerInput(stops.size, trackPx) {
+                .pointerInput(stops.size) {
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         down.consume()
+                        dragFraction = fraction()
                         dragging = true
                         bandTick.reset()
-                        dragFraction = currentFraction.value
                         // This box moves with the thumb, so map local positions to track space
                         // through the thumb's current offset; anchor the grab point so the
                         // handle doesn't jump under the finger.
@@ -911,16 +920,18 @@ internal fun <T> BoxScope.FastScroller(
                 }
             }
         }
-        if (dragging) {
-            val shown = label(stopAt(fraction).band)
+        // Which stop is being named, derived so the bubble recomposes when the answer changes
+        // rather than on every event of the drag that asks it.
+        val naming by remember(stops) {
+            derivedStateOf { if (dragging) stopAt(dragFraction) else null }
+        }
+        naming?.let { stop ->
+            val shown = label(stop.band)
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .offset {
-                        IntOffset(
-                            -with(density) { (thumbWidth + 12.dp).roundToPx() },
-                            (thumbY + (thumbPx / 2).roundToInt() - with(density) { 16.dp.roundToPx() }),
-                        )
+                        IntOffset(-bubbleGap, (thumbTop() + thumbPx / 2).roundToInt() - bubbleLift)
                     },
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.secondaryContainer,
