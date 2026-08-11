@@ -4,6 +4,8 @@
     <string name="insights_empty">No journeys yet. They appear here once you tag a place as Home in Places — any run of nights spent elsewhere is a journey.</string>
     <!-- Read aloud for a journey row's icon. -->
     <string name="insights_journey">Journey</string>
+    <!-- The scrubber handle, read aloud. Named for what dragging travels through. -->
+    <string name="insights_scroll_to_year">Scroll to a year</string>
 
     <!--
       A year's totals. Plurals rather than an "n one/many" helper: two forms is an English fact,

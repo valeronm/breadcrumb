@@ -1,26 +1,17 @@
 package io.github.valeronm.breadcrumb.ui
 
-import android.os.SystemClock
-import android.view.HapticFeedbackConstants
-import android.view.View
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -31,12 +22,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,45 +37,35 @@ import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
@@ -105,10 +84,8 @@ import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
 import io.github.valeronm.breadcrumb.util.PerLocale
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
-import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -191,7 +168,7 @@ internal fun TracksTab(
         buildList {
             var index = 0
             groups.forEach { group ->
-                add(dayLabel(group.date, today, todayText, yesterdayText) to index)
+                add(ScrollStop(dayLabel(group.date, today, todayText, yesterdayText), index))
                 index += group.items.size + 1
             }
         }
@@ -201,7 +178,7 @@ internal fun TracksTab(
     // never per scroll frame.
     viewedDay.read = {
         val first = listState.firstVisibleItemIndex
-        dayAnchors.indexOfLast { it.second <= first }.takeIf { it >= 0 }?.let { groups[it].date }
+        dayAnchors.indexOfLast { it.itemIndex <= first }.takeIf { it >= 0 }?.let { groups[it].date }
     }
     // The holder outlives this tab (it belongs to the top bar's scope): a closure left behind
     // would pin the whole day-group derivation of a list no longer on screen.
@@ -238,7 +215,7 @@ internal fun TracksTab(
                     it.stay.afterTrackId == target.afterTrackId &&
                     it.stay.start == target.start
             }
-            if (i >= 0) (dayAnchors[g].second + 1 + i) to groups[g].items[i] else null
+            if (i >= 0) (dayAnchors[g].itemIndex + 1 + i) to groups[g].items[i] else null
         }
         if (hit != null) {
             // One row above the stay so it sits below the sticky day header, not under it.
@@ -250,7 +227,7 @@ internal fun TracksTab(
             // Groups descend, so the first whose oldest row is at or before the target holds it.
             groups.indexOfFirst { it.items.last().startedAt <= target.start }
                 .takeIf { it >= 0 }
-                ?.let { listState.scrollToItem(dayAnchors[it].second) }
+                ?.let { listState.scrollToItem(dayAnchors[it].itemIndex) }
         }
         onVisitTargetShown()
     }
@@ -266,7 +243,7 @@ internal fun TracksTab(
         val group = groups.indexOfFirst { it.date == date }.takeIf { it >= 0 }
             ?: groups.indexOfFirst { it.date <= date }.takeIf { it >= 0 }
             ?: groups.lastIndex
-        if (group >= 0) listState.scrollToItem(dayAnchors[group].second)
+        if (group >= 0) listState.scrollToItem(dayAnchors[group].itemIndex)
         onDayTargetShown()
     }
     // Both interval rows offer the same merge, so they share one handler rather than two copies
@@ -351,183 +328,15 @@ internal fun TracksTab(
                 }
             }
         }
-        TimelineFastScroller(state = listState, dayAnchors = dayAnchors)
-    }
-}
-
-/**
- * Haptic CLOCK_TICK when a scrubbed value crosses keys, throttled (30 ms) so a fast drag feels like
- * a picker, not a buzz; a plain holder because gesture lambdas capture a composition and go stale.
- * [tickOnFirst]: does the first non-null key after construction (or a [reset]) tick.
- */
-internal class ThrottledTick(private val view: View, private val tickOnFirst: Boolean) {
-    private var last: Any? = null
-    private var lastTickAt = 0L
-
-    fun onChange(key: Any?) {
-        val changedKey = key != null && key != last
-        val firstKeyTicks = last != null || tickOnFirst
-        if (changedKey && firstKeyTicks) {
-            val now = SystemClock.uptimeMillis()
-            if (now - lastTickAt >= 30) {
-                lastTickAt = now
-                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-            }
-        }
-        last = key
-    }
-
-    fun reset() {
-        last = null
-    }
-}
-
-/**
- * Fast scroller for the timeline: a finger-sized handle that fades in while the list scrolls and
- * can be grabbed and dragged through the history; the drag snaps to day headers (never inside a
- * day), a bubble names the day under the thumb, and crossing days ticks like the track scrubber.
- */
-@Composable
-private fun BoxScope.TimelineFastScroller(state: LazyListState, dayAnchors: List<Pair<String, Int>>) {
-    val scope = rememberCoroutineScope()
-    val view = LocalView.current
-    var dragging by remember { mutableStateOf(false) }
-    var dragFraction by remember { mutableFloatStateOf(0f) }
-    // Tick when the drag crosses into a different day (never on the day under the initial grab).
-    val dayTick = remember { ThrottledTick(view, tickOnFirst = false) }
-    // Linger after the scroll stops so there's time to reach for the handle before it fades.
-    var shown by remember { mutableStateOf(false) }
-    val active = dragging || state.isScrollInProgress
-    LaunchedEffect(active) {
-        if (active) {
-            shown = true
-        } else {
-            delay(1_500.milliseconds)
-            shown = false
-        }
-    }
-    val alpha by animateFloatAsState(
-        targetValue = if (shown) 1f else 0f,
-        animationSpec = tween(if (shown) 100 else 500),
-        label = "fastScrollerAlpha",
-    )
-    if (alpha == 0f || dayAnchors.isEmpty()) return
-
-    // Where the thumb sits when the finger isn't driving it: the day currently at the top,
-    // on the same day-quantized scale the drag uses (so grabbing the handle doesn't jump).
-    val listFraction by remember(state, dayAnchors) {
-        derivedStateOf {
-            val first = state.layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: return@derivedStateOf 0f
-            val dayIdx = dayAnchors.indexOfLast { it.second <= first }.coerceAtLeast(0)
-            if (dayAnchors.size <= 1) 0f else dayIdx.toFloat() / (dayAnchors.size - 1)
-        }
-    }
-    val fraction = if (dragging) dragFraction else listFraction
-
-    BoxWithConstraints(Modifier.matchParentSize()) {
-        val density = LocalDensity.current
-        val thumbHeight = 56.dp
-        val thumbWidth = 32.dp
-        val thumbPx = with(density) { thumbHeight.toPx() }
-        val trackPx = (constraints.maxHeight - thumbPx).coerceAtLeast(1f)
-        val thumbY = (trackPx * fraction).roundToInt()
-
-        fun dayIndexAt(f: Float): Int =
-            (f * (dayAnchors.size - 1)).roundToInt().coerceIn(dayAnchors.indices)
-
-        fun applyFraction(f: Float) {
-            dragFraction = f.coerceIn(0f, 1f)
-            val (day, headerIndex) = dayAnchors[dayIndexAt(dragFraction)]
-            dayTick.onChange(day)
-            scope.launch { state.scrollToItem(headerIndex) }
-        }
-
-        // The handle: a half-circle hugging the edge inside a larger touch box that captures on
-        // first touch-down — no slop wait, so grabs aren't eaten by drag detection (which loses
-        // slow or slightly diagonal starts). Only the handle area takes input; the rest of the
-        // edge scrolls the list as usual.
-        val touchPad = 12.dp
-        val touchPadPx = with(density) { touchPad.toPx() }
-        val currentFraction = rememberUpdatedState(fraction)
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset { IntOffset(0, (thumbY - touchPadPx).roundToInt()) }
-                .size(width = thumbWidth + touchPad, height = thumbHeight + touchPad * 2)
-                .pointerInput(dayAnchors.size, trackPx) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown()
-                        down.consume()
-                        dragging = true
-                        dayTick.reset()
-                        dragFraction = currentFraction.value
-                        // This box moves with the thumb, so map local positions to track space
-                        // through the thumb's current offset; anchor the grab point so the
-                        // handle doesn't jump under the finger.
-                        fun trackY(localY: Float) = localY + trackPx * dragFraction - touchPadPx
-                        val grabDelta = (trackPx * dragFraction + thumbPx / 2) - trackY(down.position.y)
-                        try {
-                            drag(down.id) { change ->
-                                change.consume()
-                                val center = trackY(change.position.y) + grabDelta
-                                applyFraction((center - thumbPx / 2) / trackPx)
-                            }
-                        } finally {
-                            dragging = false
-                        }
-                    }
-                },
-            contentAlignment = Alignment.CenterEnd,
-        ) {
-            Surface(
-                modifier = Modifier.size(width = thumbWidth, height = thumbHeight).alpha(alpha),
-                shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
-                color = if (dragging) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.secondaryContainer
-                },
-                tonalElevation = 3.dp,
-                shadowElevation = 3.dp,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Filled.UnfoldMore,
-                        contentDescription = stringResource(R.string.timeline_scroll_to_day),
-                        tint = if (dragging) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSecondaryContainer
-                        },
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-            }
-        }
-        if (dragging) {
-            val label = dayAnchors[dayIndexAt(fraction)].first
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .offset {
-                        IntOffset(
-                            -with(density) { (thumbWidth + 12.dp).roundToPx() },
-                            (thumbY + (thumbPx / 2).roundToInt() - with(density) { 16.dp.roundToPx() }),
-                        )
-                    },
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                tonalElevation = 3.dp,
-                shadowElevation = 3.dp,
-            ) {
-                Text(
-                    label,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-            }
-        }
+        FastScroller(
+            // A day is both where the drag lands and what it ticks on: the history is read by the
+            // day, and a stop inside one would leave the reader mid-afternoon with the heading
+            // above scrolled past.
+            state = listState,
+            stops = dayAnchors,
+            contentDescription = stringResource(R.string.timeline_scroll_to_day),
+            label = { it },
+        )
     }
 }
 

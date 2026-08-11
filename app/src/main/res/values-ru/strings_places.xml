@@ -36,6 +36,8 @@
     <string name="places_sort_most_visits">Посещения</string>
     <string name="places_sort_time_spent">Время</string>
     <string name="places_rare_stops">Редко посещаемые</string>
+    <string name="places_scroll_list">Пролистать места</string>
+    <string name="places_scroll_visits">Перейти к месяцу</string>
 
     <string name="places_empty">Мест пока нет. Они появятся здесь, когда запись найдёт, где вы останавливались.</string>
     <string name="places_all_rare">Все места здесь посещались редко. Включите «%1$s», чтобы их увидеть.</string>

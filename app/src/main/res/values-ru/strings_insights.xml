@@ -2,6 +2,7 @@
 <resources>
     <string name="insights_empty">Путешествий пока нет. Они появятся здесь, когда вы отметите место как «Дом» в «Местах» — любая череда ночей не дома считается путешествием.</string>
     <string name="insights_journey">Путешествие</string>
+    <string name="insights_scroll_to_year">Перейти к году</string>
 
     <plurals name="insights_journeys">
         <item quantity="one">%d путешествие</item>

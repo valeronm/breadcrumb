@@ -1,12 +1,21 @@
 package io.github.valeronm.breadcrumb.ui
 
+import android.os.SystemClock
 import android.text.format.DateFormat
+import android.view.HapticFeedbackConstants
+import android.view.View
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -16,9 +25,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
@@ -37,6 +48,7 @@ import androidx.compose.material.icons.filled.DirectionsTransit
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardColors
@@ -55,6 +67,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxDefaults
 import androidx.compose.material3.SwipeToDismissBoxState
@@ -67,13 +80,18 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -81,6 +99,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -91,6 +112,7 @@ import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.core.graphics.ColorUtils
@@ -106,6 +128,7 @@ import io.github.valeronm.breadcrumb.util.snapToStep
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -115,6 +138,8 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
 
 /** Settings-style switch with a check/cross icon in the thumb mirroring its state. */
 @Composable
@@ -662,6 +687,254 @@ internal fun BackNavIcon(onBack: () -> Unit) {
             Icons.AutoMirrored.Filled.ArrowBack,
             contentDescription = stringResource(R.string.common_back),
         )
+    }
+}
+
+/**
+ * Haptic CLOCK_TICK when a scrubbed value crosses keys, throttled (30 ms) so a fast drag feels like
+ * a picker, not a buzz; a plain holder because gesture lambdas capture a composition and go stale.
+ * [tickOnFirst]: does the first non-null key after construction (or a [reset]) tick.
+ */
+internal class ThrottledTick(private val view: View, private val tickOnFirst: Boolean) {
+    private var last: Any? = null
+    private var lastTickAt = 0L
+
+    fun onChange(key: Any?) {
+        val changedKey = key != null && key != last
+        val firstKeyTicks = last != null || tickOnFirst
+        if (changedKey && firstKeyTicks) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastTickAt >= 30) {
+                lastTickAt = now
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            }
+        }
+        last = key
+    }
+
+    fun reset() {
+        last = null
+    }
+}
+
+/**
+ * How many screenfuls a list must run to before a scrubber earns its place. Counted in screenfuls
+ * rather than rows because that is the thing the reader feels — a hundred rows are nothing to a
+ * flick if they are all short, and thirty tall ones are a journey. Measured, so a list that reaches
+ * the bar on a phone need not on a tablet, which is the same answer given honestly.
+ */
+private const val SCREENFULS_BEFORE_SCRUBBER = 3
+
+/**
+ * One position a fast scroller can put a list in: the [itemIndex] it scrolls to and the [band] it
+ * belongs to.
+ *
+ * **A band is the structure the list is showing, so that a click means something the eye can also
+ * see.** A grouped list bands by its groups — the timeline's days, a place's months — and a click
+ * lands where a heading passes. A list with no groups on screen has only its rows, and there each
+ * stop is its own band: the rhythm is then honest about being a rhythm, which a rule invented for
+ * the occasion would not be, having nothing on screen to correspond to.
+ *
+ * The band is also what the bubble is drawn from, which is why it is the group itself rather than a
+ * key standing for one — a month, a year, the place at that row — and why it carries its type. Only
+ * the stop under a moving thumb is ever read, so a list states what its stops *are* and leaves the
+ * wording to be asked for at the one place it is wanted.
+ */
+internal class ScrollStop<out T>(val band: T, val itemIndex: Int)
+
+/**
+ * Stops for a list that draws a heading and then that group's rows, given each group's band and how
+ * many rows follow it: one stop per emitted item, so the drag travels at the list's own resolution
+ * while the tick still marks a group boundary.
+ *
+ * **The order is the contract** — this counts what a `LazyListScope` block elsewhere emits, and
+ * nothing checks the two agree, so a header, footer or banner added to that block belongs here too
+ * or every stop after it points a row short.
+ */
+internal fun <T> groupedScrollStops(groups: List<Pair<T, Int>>): List<ScrollStop<T>> = buildList {
+    var index = 0
+    for ((band, rows) in groups) {
+        repeat(rows + 1) { add(ScrollStop(band, index++)) }
+    }
+}
+
+/**
+ * A finger-sized handle that fades in while a list scrolls and can be grabbed and dragged through
+ * it. The drag lands on [stops], a bubble reads [label] of the one under the thumb, and crossing
+ * into another band ticks like the track scrubber.
+ *
+ * A list with headings can stop on those alone (the timeline's days), which lands the drag on a
+ * heading and never inside one; a list without them stops per row and bands them by whatever it is
+ * ordered by. So the caller decides both what the scrubber is a scale *of* and how finely it moves,
+ * and nothing here knows what a row holds.
+ *
+ * [label] is asked only for the stop being shown, and only while a drag is in flight — a list of
+ * thousands would otherwise format a date or a plural per row, on entering the screen and again
+ * whenever the rows change, for text no one is looking at.
+ */
+@Composable
+internal fun <T> BoxScope.FastScroller(
+    state: LazyListState,
+    stops: List<ScrollStop<T>>,
+    contentDescription: String,
+    label: @Composable (T) -> String,
+) {
+    val scope = rememberCoroutineScope()
+    val view = LocalView.current
+    var dragging by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableFloatStateOf(0f) }
+    // Tick when the drag crosses into another band (never on the one under the initial grab).
+    val bandTick = remember { ThrottledTick(view, tickOnFirst = false) }
+    // Linger after the scroll stops so there's time to reach for the handle before it fades.
+    var shown by remember { mutableStateOf(false) }
+    val active = dragging || state.isScrollInProgress
+    LaunchedEffect(active) {
+        if (active) {
+            shown = true
+        } else {
+            delay(1_500.milliseconds)
+            shown = false
+        }
+    }
+    val alpha by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = tween(if (shown) 100 else 500),
+        label = "fastScrollerAlpha",
+    )
+    // Whether the list runs far enough to be worth a handle. Latched, because the measurement moves
+    // under the reader: rows here are of unequal height by design, so a list near the bar fits fewer
+    // of them over a run of tall ones, and a handle appearing and vanishing mid-scroll fails during
+    // the very gesture it exists to replace.
+    var longEnough by remember(state) { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        snapshotFlow { state.layoutInfo.visibleItemsInfo.size to state.layoutInfo.totalItemsCount }
+            .first { (visible, total) -> visible > 0 && total >= visible * SCREENFULS_BEFORE_SCRUBBER }
+            .let { longEnough = true }
+    }
+    // A single stop is a handle that can only ever land where it already is.
+    if (alpha == 0f || stops.size < 2 || !longEnough) return
+
+    // Where the thumb sits when the finger isn't driving it: the stop currently at the top, on the
+    // same scale the drag uses (so grabbing the handle doesn't jump). Read off
+    // `firstVisibleItemIndex` rather than `layoutInfo`, which notifies on every measure pass and
+    // would re-run this per frame of a fling; the search is a seek because a stop list ascends.
+    val listFraction by remember(state, stops) {
+        derivedStateOf {
+            val first = state.firstVisibleItemIndex
+            val found = stops.binarySearch { it.itemIndex.compareTo(first) }
+            val stopIdx = (if (found >= 0) found else -found - 2).coerceAtLeast(0)
+            stopIdx.toFloat() / (stops.size - 1)
+        }
+    }
+    val fraction = if (dragging) dragFraction else listFraction
+
+    BoxWithConstraints(Modifier.matchParentSize()) {
+        val density = LocalDensity.current
+        val thumbHeight = 56.dp
+        val thumbWidth = 32.dp
+        val thumbPx = with(density) { thumbHeight.toPx() }
+        val trackPx = (constraints.maxHeight - thumbPx).coerceAtLeast(1f)
+        val thumbY = (trackPx * fraction).roundToInt()
+
+        fun stopAt(f: Float): ScrollStop<T> =
+            stops[(f * (stops.size - 1)).roundToInt().coerceIn(stops.indices)]
+
+        fun applyFraction(f: Float) {
+            dragFraction = f.coerceIn(0f, 1f)
+            val stop = stopAt(dragFraction)
+            bandTick.onChange(stop.band)
+            // Requested rather than scrolled to: this runs per pointer event, and a suspending
+            // scroll would take the scroll mutex and force a relayout outside the frame for each
+            // one. A request folds into the frame's own measure pass.
+            state.requestScrollToItem(stop.itemIndex)
+        }
+
+        // The handle: a half-circle hugging the edge inside a larger touch box that captures on
+        // first touch-down — no slop wait, so grabs aren't eaten by drag detection (which loses
+        // slow or slightly diagonal starts). Only the handle area takes input; the rest of the
+        // edge scrolls the list as usual.
+        val touchPad = 12.dp
+        val touchPadPx = with(density) { touchPad.toPx() }
+        val currentFraction = rememberUpdatedState(fraction)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset { IntOffset(0, (thumbY - touchPadPx).roundToInt()) }
+                .size(width = thumbWidth + touchPad, height = thumbHeight + touchPad * 2)
+                .pointerInput(stops.size, trackPx) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        down.consume()
+                        dragging = true
+                        bandTick.reset()
+                        dragFraction = currentFraction.value
+                        // This box moves with the thumb, so map local positions to track space
+                        // through the thumb's current offset; anchor the grab point so the
+                        // handle doesn't jump under the finger.
+                        fun trackY(localY: Float) = localY + trackPx * dragFraction - touchPadPx
+                        val grabDelta = (trackPx * dragFraction + thumbPx / 2) - trackY(down.position.y)
+                        try {
+                            drag(down.id) { change ->
+                                change.consume()
+                                val center = trackY(change.position.y) + grabDelta
+                                applyFraction((center - thumbPx / 2) / trackPx)
+                            }
+                        } finally {
+                            dragging = false
+                        }
+                    }
+                },
+            contentAlignment = Alignment.CenterEnd,
+        ) {
+            Surface(
+                modifier = Modifier.size(width = thumbWidth, height = thumbHeight).alpha(alpha),
+                shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
+                color = if (dragging) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.secondaryContainer
+                },
+                tonalElevation = 3.dp,
+                shadowElevation = 3.dp,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Filled.UnfoldMore,
+                        contentDescription = contentDescription,
+                        tint = if (dragging) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        },
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+        }
+        if (dragging) {
+            val shown = label(stopAt(fraction).band)
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset {
+                        IntOffset(
+                            -with(density) { (thumbWidth + 12.dp).roundToPx() },
+                            (thumbY + (thumbPx / 2).roundToInt() - with(density) { 16.dp.roundToPx() }),
+                        )
+                    },
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                tonalElevation = 3.dp,
+                shadowElevation = 3.dp,
+            ) {
+                Text(
+                    shown,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+        }
     }
 }
 

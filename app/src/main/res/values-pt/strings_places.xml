@@ -52,6 +52,8 @@
     <string name="places_sort_most_visits">Visitas</string>
     <string name="places_sort_time_spent">Tempo</string>
     <string name="places_rare_stops">Pouco visitados</string>
+    <string name="places_scroll_list">Percorrer os locais</string>
+    <string name="places_scroll_visits">Ir para um mês</string>
 
     <string name="places_empty">Ainda sem locais. Aparecem aqui assim que a gravação encontrar sítios onde parou.</string>
     <string name="places_all_rare">Todos os locais aqui são pouco visitados. Ative %1$s para os ver.</string>

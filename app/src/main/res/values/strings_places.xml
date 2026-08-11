@@ -46,6 +46,10 @@
     <string name="places_sort_time_spent">Time spent</string>
     <!-- The map's filter chip. The empty state below names it, so both read from here. -->
     <string name="places_rare_stops">Rarely visited</string>
+    <!-- The scrubber handles, read aloud. Each names what dragging travels through, since that is
+         what differs between the two lists, not the gesture. -->
+    <string name="places_scroll_list">Scroll through the places</string>
+    <string name="places_scroll_visits">Scroll to a month</string>
 
     <!-- Empty states -->
     <string name="places_empty">No places yet. They appear here once recording finds somewhere you stopped.</string>

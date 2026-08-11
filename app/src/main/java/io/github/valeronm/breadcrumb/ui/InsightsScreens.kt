@@ -6,6 +6,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -135,31 +137,47 @@ private fun TravelsList(travels: List<TravelNaming.Summary>, onOpenDay: (LocalDa
             // The heading still words the sums — that part is language, and it is cheap.
             .map { (year, ofYear) -> yearSectionOf(year, ofYear) }
     }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        // No padding at the top: content padding does not clip, so cards would scroll through it
-        // while the sticky heading pins below, showing one year's journeys above another's heading.
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-        // Rows within a year sit tight so the group reads as one block, as the Timeline's days do.
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        for (section in byYear) {
-            stickyHeader(key = "year:${section.year}") { YearHeading(section) }
-            itemsIndexed(section.rows, key = { _, (row, _) -> row.travel.firstNightAt }) { index, entry ->
-                val (summary, days) = entry
-                // Opens the Timeline at the journey's latest day, where its heading first meets the
-                // eye — the rows there run newest first.
-                TravelRow(summary, days, today, groupedRowShape(index, section.rows.size)) {
-                    onOpenDay(days.last())
+    val listState = rememberLazyListState()
+    // A stop per journey, so a year holding a dozen of them can be entered rather than only landed
+    // on, banded by the year its headings already show.
+    val stops = remember(byYear) {
+        groupedScrollStops(byYear.map { it.label to it.rows.size })
+    }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            // No padding at the top: content padding does not clip, so cards would scroll through it
+            // while the sticky heading pins below, showing one year's journeys above another's heading.
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            // Rows within a year sit tight so the group reads as one block, as the Timeline's days do.
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            for (section in byYear) {
+                stickyHeader(key = "year:${section.label}") { YearHeading(section) }
+                itemsIndexed(section.rows, key = { _, (row, _) -> row.travel.firstNightAt }) { index, entry ->
+                    val (summary, days) = entry
+                    // Opens the Timeline at the journey's latest day, where its heading first meets
+                    // the eye — the rows there run newest first.
+                    TravelRow(summary, days, today, groupedRowShape(index, section.rows.size)) {
+                        onOpenDay(days.last())
+                    }
                 }
             }
         }
+        FastScroller(
+            state = listState,
+            stops = stops,
+            contentDescription = stringResource(R.string.insights_scroll_to_year),
+            label = { it },
+        )
     }
 }
 
 /** One year's journeys, newest first, and what they came to. */
 private class YearSection(
-    val year: Int,
+    /** The year as it is written — once, so the heading and the scrubber's bubble cannot differ. */
+    val label: String,
     val journeys: Int,
     val nights: Int,
     val cities: Int,
@@ -173,7 +191,7 @@ private fun yearSectionOf(
 ): YearSection {
     val travels = ofYear.map { (row, _) -> row }
     return YearSection(
-        year = year,
+        label = year.toString(),
         journeys = travels.size,
         nights = travels.sumOf { it.travel.nightCount },
         cities = travels.flatMap { it.cities }.toSet().size,
@@ -191,7 +209,7 @@ private fun YearHeading(section: YearSection) {
             .background(MaterialTheme.colorScheme.background)
             .padding(top = 14.dp, bottom = 8.dp),
     ) {
-        Text(section.year.toString(), style = MaterialTheme.typography.titleMedium)
+        Text(section.label, style = MaterialTheme.typography.titleMedium)
         Text(
             listOf(
                 pluralStringResource(R.plurals.insights_journeys, section.journeys, section.journeys),

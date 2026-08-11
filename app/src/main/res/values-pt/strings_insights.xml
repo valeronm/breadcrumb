@@ -2,6 +2,7 @@
 <resources>
     <string name="insights_empty">Ainda sem viagens. Aparecem aqui assim que marcar um local como Casa em Locais — qualquer série de noites passadas noutro sítio é uma viagem.</string>
     <string name="insights_journey">Viagem</string>
+    <string name="insights_scroll_to_year">Ir para um ano</string>
 
     <plurals name="insights_journeys">
         <item quantity="one">%d viagem</item>

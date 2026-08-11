@@ -380,6 +380,19 @@ private fun PlacesListPage(
     LaunchedEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress) focusManager.clearFocus()
     }
+    // Re-sorting or narrowing makes a different list; a position kept through it is a position
+    // measured against rows that are no longer there. The values this page composed with are not a
+    // change, though — `rememberLazyListState` restores where the reader was across a rotation or a
+    // return to this tab, and resetting on entry would throw exactly that away.
+    val sortAtEntry = remember { sort }
+    val queryAtEntry = remember { query }
+    LaunchedEffect(sort, query) {
+        if (sort == sortAtEntry && query == queryAtEntry) return@LaunchedEffect
+        // Requested rather than scrolled: no coroutine and no forced relayout for a jump that has
+        // nothing to travel through, this being the list arriving rather than the reader moving.
+        listState.requestScrollToItem(0)
+    }
+    val scrubberStops = placeScrubberStops(listed)
     Column(
         Modifier
             .fillMaxSize()
@@ -424,23 +437,34 @@ private fun PlacesListPage(
                 Modifier.weight(1f).fillMaxWidth().padding(24.dp),
             )
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                state = listState,
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                // No swipe action on these rows: under a pager, a row's horizontal drag detector
-                // claims the swipe the tab row promises, whatever direction it can act on.
-                // Removing a place lives on its editor's Remove button instead.
-                itemsIndexed(listed, key = { _, s -> s.key }) { index, summary ->
-                    PlaceRowCard(
-                        summary = summary,
-                        sort = sort,
-                        shape = groupedRowShape(index, listed.size),
-                        onClick = { onOpenPlace(summary.key) },
-                    )
+            Box(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    state = listState,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    // No swipe action on these rows: under a pager, a row's horizontal drag detector
+                    // claims the swipe the tab row promises, whatever direction it can act on.
+                    // Removing a place lives on its editor's Remove button instead.
+                    itemsIndexed(listed, key = { _, s -> s.key }) { index, summary ->
+                        PlaceRowCard(
+                            summary = summary,
+                            sort = sort,
+                            shape = groupedRowShape(index, listed.size),
+                            onClick = { onOpenPlace(summary.key) },
+                        )
+                    }
                 }
+                FastScroller(
+                    state = listState,
+                    stops = scrubberStops,
+                    contentDescription = stringResource(R.string.places_scroll_list),
+                    // The row's own line, off the one function that decides what a place says on
+                    // the metric it is sorted by — a bubble wording it a second way would be a
+                    // second answer to the question the reader is dragging to ask.
+                    label = { placeSubtitle(it, sort) },
+                )
             }
         }
     }
@@ -588,6 +612,15 @@ internal fun PlaceDetailScreen(
     val visitGroups = remember(summary.stays) {
         summary.stays.groupBy { YearMonth.from(it.start.toLocalDate(zone)) }
     }
+    val visitsState = rememberLazyListState()
+    // One value for the headings and for the scrubber's labels alike: a month names itself against
+    // the current year, and two readings of "now" could disagree across a midnight.
+    val today = remember(zone) { LocalDate.now(zone) }
+    // A stop per visit, so the drag reaches inside a month a place was visited daily for, banded by
+    // the month so the tick still marks the crossing rather than every row.
+    val visitStops = remember(visitGroups) {
+        groupedScrollStops(visitGroups.map { (month, visits) -> month to visits.size })
+    }
     val title = place?.label ?: stringResource(R.string.place_detected_stop)
     // A bar that expands is only worth having when there is something to expand *to*. Most names fit
     // the one line a closed bar gives them, and for those the pull-down reveals the same words in
@@ -714,14 +747,23 @@ internal fun PlaceDetailScreen(
                     Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp),
                 )
             } else {
-                // The scroller the collapsing title reads. Lazy because a long-lived place
-                // accumulates visits by the hundred.
-                LazyColumn(
-                    Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    contentPadding = PaddingValues(bottom = 16.dp),
-                ) {
-                    placeVisits(visitGroups, zone, nowMs, onOpenVisit)
+                Box(Modifier.weight(1f)) {
+                    // The scroller the collapsing title reads. Lazy because a long-lived place
+                    // accumulates visits by the hundred.
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        state = visitsState,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        contentPadding = PaddingValues(bottom = 16.dp),
+                    ) {
+                        placeVisits(visitGroups, zone, today, nowMs, onOpenVisit)
+                    }
+                    FastScroller(
+                        state = visitsState,
+                        stops = visitStops,
+                        contentDescription = stringResource(R.string.places_scroll_visits),
+                        label = { monthLabel(it, today) },
+                    )
                 }
             }
         }
@@ -1295,10 +1337,10 @@ private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {
 private fun LazyListScope.placeVisits(
     groups: Map<YearMonth, List<StayDeriver.Stay>>,
     zone: ZoneId,
+    today: LocalDate,
     nowMs: Long,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
 ) {
-    val today = LocalDate.now(zone)
     groups.forEach { (month, visits) ->
         item(key = "month:$month") {
             Text(
@@ -1429,6 +1471,19 @@ private fun placeSubtitle(summary: PlaceResolver.PlaceSummary, sort: PlacesSort)
 @ReadOnlyComposable
 private fun visitPhrase(summary: PlaceResolver.PlaceSummary): String =
     pluralStringResource(R.plurals.place_row_visits, summary.visitCount, summary.visitCount)
+
+/**
+ * The scrubber's scale for this list: **a stop per row, each its own band**. The list draws no
+ * headings, so a row is the only division it has, and the tick keeps a row's rhythm rather than
+ * marking a rule that has nothing on screen to correspond to.
+ *
+ * A place is its own band, rather than the row's position standing in for one: two lists of the
+ * same places in a different order then tick alike, and nothing is allocated to say what the row
+ * already holds.
+ */
+@Composable
+private fun placeScrubberStops(listed: List<PlaceResolver.PlaceSummary>): List<ScrollStop<PlaceResolver.PlaceSummary>> =
+    remember(listed) { listed.mapIndexed { index, summary -> ScrollStop(summary, index) } }
 
 @Composable
 @ReadOnlyComposable
