@@ -659,6 +659,10 @@ private fun PinSearchResult(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onPick)
+            // A floor rather than more padding: a row carrying a locality line under its name is
+            // tall enough already, and one without it would otherwise stand at two thirds of a
+            // finger — in a stacked, scrolling list, which is where a mis-hit picks the wrong pin.
+            .heightIn(min = 48.dp)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Icon(

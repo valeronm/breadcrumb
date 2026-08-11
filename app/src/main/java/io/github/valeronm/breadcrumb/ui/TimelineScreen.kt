@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1294,6 +1295,9 @@ private fun GapPlaceLine(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onOpenPlace(place.key) }
+            // A floor rather than more padding, which would loosen the connector this row sits
+            // against: the 36.dp glyph box and 4.dp either side leave the row short of a finger.
+            .heightIn(min = 48.dp)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
