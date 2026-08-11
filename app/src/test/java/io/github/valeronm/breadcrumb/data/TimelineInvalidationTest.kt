@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -115,9 +116,20 @@ class TimelineInvalidationTest {
         assertEquals("and so is its cluster", listOf(id), named.clusters.mapNotNull { it.placeId })
 
         // A rename writes only `places`, and must still reach a reader — this flow is the only one
-        // the screens have.
+        // the screens have. It must also *not* re-read the derived rows, which are one per endpoint
+        // and one per interval in the whole history for a write that cannot have moved any of them;
+        // carrying the very lists is what proves the read was skipped rather than merely quick.
         places.save(test.place("Home base", 1.0, -2.0).copy(id = id))
         awaitUntil { readings.last().places.single().label == "Home base" }
+        val renamed = readings.last()
+        assertSame("the clusters were re-read", named.clusters, renamed.clusters)
+        assertSame("the members were re-read", named.members, renamed.members)
+        assertSame("the intervals were re-read", named.intervals, renamed.intervals)
+
+        // And a write that *does* move a seed reads them again — a carried-over derivation must not
+        // outlive the rows it was carried past.
+        places.save(test.place("Home base", 1.0, -2.0).copy(id = id, radiusM = 250.0))
+        awaitUntil { readings.last().clusters.single { it.placeId == id }.radiusM == 250.0 }
 
         job.cancel()
     }

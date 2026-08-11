@@ -6,6 +6,7 @@ import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.ClusterMember
 import io.github.valeronm.breadcrumb.data.db.DerivedCluster
 import io.github.valeronm.breadcrumb.data.db.DerivedInterval
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -14,7 +15,8 @@ import io.github.valeronm.breadcrumb.domain.toLiveness
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.runningFold
 
 private const val TAG = "Breadcrumb"
 
@@ -54,20 +56,49 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * named by a place**, whose row read apart from them is a named place no cluster points at, which
      * is a place with no visits. So they are read inside a transaction, which is what makes a set of
      * rows a snapshot rather than several timings.
+     *
+     * **A write that reached no derived table re-reads none of them**, which is what a rename and a
+     * re-categorization are: the invalidation says which tables were written, and the derived rows —
+     * one per endpoint and one per interval in the whole history — are carried over instead of read
+     * again. Carried over on two conditions, not one: the reuse is only sound while the rows still
+     * describe the places just read, and the emission naming a table is evidence about the moment the
+     * tracker last refreshed rather than about this read. So the seeds are held against the fresh
+     * rows here too — cheap, being over rows already in hand — and a disagreement reads everything.
      */
     fun observeStored(): Flow<StoredDerivation> =
         db.invalidationTracker
-            .createFlow("derived_clusters", "cluster_members", "derived_intervals", "places")
-            .map {
+            .createFlow(TABLE_PLACES, *DERIVED_TABLES)
+            .runningFold(null as StoredDerivation?) { previous, invalidated ->
                 db.withTransaction {
+                    val rows = places.allPlaces()
+                    val carried = previous
+                        ?.takeIf { DERIVED_TABLES.none(invalidated::contains) }
+                        ?.takeIf { seedsAgree(it.clusters, rows) }
                     StoredDerivation(
-                        clusters = derived.clustersOnce(),
-                        members = derived.membersOnce(),
-                        intervals = derived.intervalsOnce(),
-                        places = places.allPlaces(),
+                        clusters = carried?.clusters ?: derived.clustersOnce(),
+                        members = carried?.members ?: derived.membersOnce(),
+                        intervals = carried?.intervals ?: derived.intervalsOnce(),
+                        places = rows,
                     )
                 }
             }
+            .filterNotNull()
+
+    /**
+     * Whether [clusters] still says exactly what [rows] do about seeds — the correspondence
+     * [reconcile] establishes, asked of rows already in hand rather than of the database. A place
+     * with no seed cluster, or one whose circle has moved out from under it, is precisely the reading
+     * [observeStored] exists to prevent.
+     */
+    private fun seedsAgree(clusters: List<DerivedCluster>, rows: List<Place>): Boolean {
+        val seeded = clusters.mapNotNull { row -> row.placeId?.let { it to row } }.toMap()
+        return seeded.size == rows.size && rows.all { seeds(seeded[it.id], it) }
+    }
+
+    /** Whether [cluster] is the seed cluster [place] should have — what [alignSeeds] establishes
+     *  one place at a time and [seedsAgree] asks of a whole reading. */
+    private fun seeds(cluster: DerivedCluster?, place: Place) =
+        cluster != null && cluster.toSeed() == PlaceClusterer.seedOf(place)
 
     /**
      * Re-derive the whole history and replace the stored rows with it, in one transaction.
@@ -188,15 +219,15 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             changed = true
         }
         for (place in rows) {
-            val seed = PlaceClusterer.seedOf(place)
             val cluster = seeded[place.id]
+            if (seeds(cluster, place)) continue
+            val seed = PlaceClusterer.seedOf(place)
             if (cluster == null) {
                 derived.insertCluster(seedRow(seed, placeId = place.id))
-                changed = true
-            } else if (cluster.toSeed() != seed) {
+            } else {
                 derived.setClusterSeed(cluster.id, seed.anchor.lat, seed.anchor.lon, seed.radiusM)
-                changed = true
             }
+            changed = true
         }
         return changed
     }
@@ -438,5 +469,12 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
          * for rows nobody trusts.
          */
         const val LOGIC_VERSION = 1
+
+        /** The tables this class writes — the ones [observeStored] carries over when a write
+         *  reached none of them. Named apart from `places`, which is the writing the user does. */
+        private val DERIVED_TABLES =
+            arrayOf("derived_clusters", "cluster_members", "derived_intervals")
+
+        private const val TABLE_PLACES = "places"
     }
 }
