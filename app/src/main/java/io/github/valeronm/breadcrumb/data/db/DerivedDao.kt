@@ -69,8 +69,8 @@ interface DerivedDao {
     @Query("SELECT * FROM derived_intervals WHERE start < :until AND endedAt > :at")
     suspend fun intervalsOverlapping(at: Long, until: Long): List<DerivedInterval>
 
-    @Query("UPDATE derived_intervals SET provenance = :provenance WHERE id = :id")
-    suspend fun setIntervalProvenance(id: Long, provenance: String)
+    @Query("UPDATE derived_intervals SET provenance = :provenance WHERE afterTrackId = :afterTrackId")
+    suspend fun setIntervalProvenance(afterTrackId: Long, provenance: String)
 
     @Query("DELETE FROM derived_intervals WHERE afterTrackId IN (:trackIds)")
     suspend fun deleteIntervalsAfter(trackIds: List<Long>)

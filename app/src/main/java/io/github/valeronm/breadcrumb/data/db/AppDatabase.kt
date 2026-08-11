@@ -12,7 +12,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Track::class, TrackPoint::class, LivenessEvent::class, Place::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -332,6 +332,72 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v17 keys the two derived tables on what already identified a row and indexes `startedAt`.
+         *
+         * A membership *is* a track's start or its end, and an interval *is* what follows a track,
+         * so each carried a generated id beside a unique index over the columns that said the same
+         * thing — a second index over the largest of these tables, maintained on every rebuild, for
+         * a column nothing read. SQLite cannot re-key a table in place, and these rows are output:
+         * the two are dropped and recreated empty, as v16 first created them.
+         *
+         * [DerivationStore.LOGIC_VERSION] moves with this, which is what refills them — the seed
+         * clusters are emptied rather than dropped, so a history with no named place still has a
+         * reason to derive.
+         *
+         * `tracks(startedAt)` is the index the repair's two neighbour lookups want: each is an
+         * `ORDER BY startedAt LIMIT 1`, run inside the transaction that finishes a track, and
+         * without it each scans every track in the history. Its write cost lands per track row,
+         * which is per finish, never per fix.
+         */
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS cluster_members")
+                db.execSQL("DROP TABLE IF EXISTS derived_intervals")
+                db.execSQL("DELETE FROM derived_clusters")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS cluster_members (
+                      clusterId INTEGER NOT NULL,
+                      trackId INTEGER NOT NULL,
+                      isStart INTEGER NOT NULL,
+                      lat REAL NOT NULL, lon REAL NOT NULL,
+                      atMs INTEGER NOT NULL,
+                      PRIMARY KEY(trackId, isStart),
+                      FOREIGN KEY(clusterId) REFERENCES derived_clusters(id)
+                        ON UPDATE NO ACTION ON DELETE CASCADE )
+                    """,
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_cluster_members_clusterId " +
+                        "ON cluster_members(clusterId)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS derived_intervals (
+                      type TEXT NOT NULL,
+                      start INTEGER NOT NULL,
+                      endedAt INTEGER NOT NULL,
+                      afterTrackId INTEGER NOT NULL,
+                      provenance TEXT,
+                      clusterId INTEGER,
+                      reason TEXT,
+                      fromClusterId INTEGER, toClusterId INTEGER,
+                      fromLat REAL, fromLon REAL,
+                      toLat REAL, toLon REAL,
+                      PRIMARY KEY(afterTrackId) )
+                    """,
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_derived_intervals_start " +
+                        "ON derived_intervals(start)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_tracks_startedAt ON tracks(startedAt)",
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -342,7 +408,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                     MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                     MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15,
-                    MIGRATION_15_16,
+                    MIGRATION_15_16, MIGRATION_16_17,
                 ).build().also { instance = it }
             }
     }

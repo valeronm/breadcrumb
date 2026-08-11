@@ -47,7 +47,11 @@ run the tests after touching anything they cover. **Room runs in these host test
 (in-memory DB, `TestDb` fixture), so the repository's DB rules and the schema migrations are
 covered without a device — see `TrackRepositoryTest`, `Migration10To11Test`,
 `TimelineInvalidationTest`, and the stored derivation's own suites (`DerivationStoreTest`,
-`DerivedConsistencyTest`, `DerivedReadModelTest`, `Migration15To16Test`).
+`DerivedConsistencyTest`, `DerivedReadModelTest`, `Migration15To16Test`, `Migration16To17Test`).
+**Whether a migrated schema is the one Room builds from the entities is asked at the end of the
+chain**, which is the only place it can be true — Room compares what it finds against head on the
+first open after an upgrade, so a case pinned to an older migration stops asking anything the moment
+another follows it. It lives with the newest migration's suite and moves when one is added.
 
 **Persisting a derivation makes two implementations of one rule**, so it owes a guard that they
 agree — `DerivedConsistency`, shared by every suite that writes those rows so the question has one
@@ -326,7 +330,7 @@ against `StayDeriverTest`), so a rule that moves here moves there. `PlaceReposit
 Places tab.
 
 **The timeline's stays are stored, not derived on read** — `data/DerivationStore` over
-`derived_clusters`, `cluster_members` and `derived_intervals` (schema v16). Showing a day is a query,
+`derived_clusters`, `cluster_members` and `derived_intervals` (schema v17). Showing a day is a query,
 and the derivation runs where a track *changes* rather than where one is read, which is what lets a
 reader outside the app's own screens ask what a day held without walking the history. **Two passes
 write those rows and they must agree**: `rebuild` derives the whole history, `StayLedger.reknit`
@@ -336,7 +340,11 @@ is, and `Agreement` what "the same place" means — and where they are *allowed*
 on `StayLedger` rather than hidden: a cluster's anchor is its first-ever member, so deleting the
 track that founded one leaves the anchor put. `DerivedReadModel` is the exact inverse of the write
 mapping (a code added to one is unreadable until added to the other), and the trailing stay is
-appended there rather than stored — it closes at the clock, so no row could hold it.
+appended there rather than stored — it closes at the clock, so no row could hold it. **Two of the
+three carry no id**: a membership *is* a track's start or its end and an interval *is* what follows a
+track, so each is keyed on that rather than on a generated column beside a unique index saying the
+same thing — which on the largest of these tables was a second index maintained by every rebuild for
+something nothing read.
 
 **`observeStored` reads `places` with them**, in the same transaction, because a cluster is named by
 one: observed apart, naming a place — which writes the row and re-derives in a single transaction —

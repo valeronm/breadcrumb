@@ -10,7 +10,7 @@ import androidx.room.PrimaryKey
  * A single continuous recording session for one activity type (e.g. one drive, one walk).
  * A new track is opened whenever the detected activity changes, and closed when it ends.
  */
-@Entity(tableName = "tracks")
+@Entity(tableName = "tracks", indices = [Index("startedAt")])
 data class Track(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val activityType: String,
@@ -193,10 +193,13 @@ data class DerivedCluster(
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index(value = ["trackId", "isStart"], unique = true), Index("clusterId")],
+    // A track's start and its end are one row each, so that pair *is* the row's identity — carried
+    // as the key rather than beside a generated one, which would have been a second index over the
+    // largest of these tables for a column nothing reads.
+    primaryKeys = ["trackId", "isStart"],
+    indices = [Index("clusterId")],
 )
 data class ClusterMember(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val clusterId: Long,
     val trackId: Long,
     /** True for the track's first good fix, false for its last. */
@@ -208,7 +211,7 @@ data class ClusterMember(
 
 /**
  * A stay or a gap between two kept tracks, as derived. One row per track — the one that *follows*
- * [afterTrackId] — which is why that column is unique, and why an interval is identified by the
+ * [afterTrackId] — which is why that column is the key, and why an interval is identified by the
  * track before it rather than by its own bounds, which the day slicing rewrites.
  *
  * **No row here is open-ended.** The stay still running after the newest track closes at the clock,
@@ -222,10 +225,10 @@ data class ClusterMember(
  */
 @Entity(
     tableName = "derived_intervals",
-    indices = [Index(value = ["afterTrackId"], unique = true), Index("start")],
+    primaryKeys = ["afterTrackId"],
+    indices = [Index("start")],
 )
 data class DerivedInterval(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
     /** [TYPE_STAY] | [TYPE_GAP]. */
     val type: String,
     val start: Long,

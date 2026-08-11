@@ -273,7 +273,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             for (row in derived.intervalsOverlapping(from, until)) {
                 if (row.type != DerivedInterval.TYPE_STAY) continue
                 val code = codeOf(evidence.provenanceOver(row.start, row.endedAt))
-                if (code != row.provenance) derived.setIntervalProvenance(row.id, code)
+                if (code != row.provenance) derived.setIntervalProvenance(row.afterTrackId, code)
             }
         }
     }
@@ -468,7 +468,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
          * next launch, which is the lever for a rule change here or in the deriver — and the repair
          * for rows nobody trusts.
          */
-        const val LOGIC_VERSION = 1
+        const val LOGIC_VERSION = 2
 
         /** The tables this class writes — the ones [observeStored] carries over when a write
          *  reached none of them. Named apart from `places`, which is the writing the user does. */
