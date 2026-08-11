@@ -128,7 +128,9 @@ data class TrackPoint(
  * high-frequency liveness signal is the heartbeat timestamp in Settings, which materializes as
  * an OUTAGE row here only when a restart discovers it went stale.
  */
-@Entity(tableName = "liveness_events", indices = [Index("at")])
+// The composite is what lets a reader ask about one stretch of time rather than the whole log — see
+// [LivenessDao.eventsAround], which is the query it exists for and where the argument lives.
+@Entity(tableName = "liveness_events", indices = [Index("at"), Index("type", "at")])
 data class LivenessEvent(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     /** "ARMED" | "DISARMED" | "OUTAGE". */

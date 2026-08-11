@@ -12,7 +12,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Track::class, TrackPoint::class, LivenessEvent::class, Place::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -398,18 +398,41 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v18 indexes `liveness_events(type, at)`, which is what makes reading the log over one
+         * stretch of time cheaper than reading all of it — [LivenessDao.eventsAround] is the query
+         * it exists for and says why. DDL only; no row is read or written.
+         */
+        val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_liveness_events_type_at " +
+                        "ON liveness_events(type, at)",
+                )
+            }
+        }
+
+        /**
+         * Every migration, in order — **one list, because two would be kept in step by hand.** The
+         * builder spreads it, and `SchemaMatchesEntitiesTest` walks it to check the schema the chain
+         * reaches is the one Room builds from the entities, which is the check a real upgrade makes
+         * on its first open. A migration appended here therefore joins both at once; appended to
+         * only one of two lists, it would either never run or never be checked.
+         */
+        val MIGRATIONS = arrayOf(
+            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+            MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+            MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15,
+            MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
+        )
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "tracks.db",
-                ).addMigrations(
-                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
-                    MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15,
-                    MIGRATION_15_16, MIGRATION_16_17,
-                ).build().also { instance = it }
+                ).addMigrations(*MIGRATIONS).build().also { instance = it }
             }
     }
 }

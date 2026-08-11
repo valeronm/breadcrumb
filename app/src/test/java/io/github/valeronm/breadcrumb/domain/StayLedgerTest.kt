@@ -121,8 +121,7 @@ class StayLedgerTest {
         StayLedger.Stored(
             clusters = stored.clusters,
             membershipOf = stored.members.groupBy { it.trackId },
-            liveness = listOf(Armed(0)),
-            nowMs = NOW,
+            evidence = StayDeriver.summarizeLiveness(listOf(Armed(0)), NOW),
         ),
         distance = flatDistance,
     )

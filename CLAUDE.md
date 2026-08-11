@@ -47,11 +47,14 @@ run the tests after touching anything they cover. **Room runs in these host test
 (in-memory DB, `TestDb` fixture), so the repository's DB rules and the schema migrations are
 covered without a device — see `TrackRepositoryTest`, `Migration10To11Test`,
 `TimelineInvalidationTest`, and the stored derivation's own suites (`DerivationStoreTest`,
-`DerivedConsistencyTest`, `DerivedReadModelTest`, `Migration15To16Test`, `Migration16To17Test`).
+`DerivedConsistencyTest`, `DerivedReadModelTest`, `Migration15To16Test`, `Migration16To17Test`,
+`SchemaMatchesEntitiesTest`).
 **Whether a migrated schema is the one Room builds from the entities is asked at the end of the
 chain**, which is the only place it can be true — Room compares what it finds against head on the
-first open after an upgrade, so a case pinned to an older migration stops asking anything the moment
-another follows it. It lives with the newest migration's suite and moves when one is added.
+first open after an upgrade, so a case pinned to a single step stops asking anything the moment
+another follows it. `SchemaMatchesEntitiesTest` walks `AppDatabase.MIGRATIONS`, which is also the
+list the builder spreads: a migration added there is run *and* checked by having been added there,
+where two lists would be kept in step by hand.
 
 **Persisting a derivation makes two implementations of one rule**, so it owes a guard that they
 agree — `DerivedConsistency`, shared by every suite that writes those rows so the question has one
@@ -330,7 +333,7 @@ against `StayDeriverTest`), so a rule that moves here moves there. `PlaceReposit
 Places tab.
 
 **The timeline's stays are stored, not derived on read** — `data/DerivationStore` over
-`derived_clusters`, `cluster_members` and `derived_intervals` (schema v17). Showing a day is a query,
+`derived_clusters`, `cluster_members` and `derived_intervals` (schema v18). Showing a day is a query,
 and the derivation runs where a track *changes* rather than where one is read, which is what lets a
 reader outside the app's own screens ask what a day held without walking the history. **Two passes
 write those rows and they must agree**: `rebuild` derives the whole history, `StayLedger.reknit`
@@ -384,8 +387,28 @@ back into agreement with the `places` table and re-derives when one moved — or
 the rows are stale for a reason of its own (`stale = true`), so a launch that must rebuild anyway
 pays for one pass. One write reaches backwards over rows already derived and is none of the three:
 materializing an OUTAGE re-asks what the stays across it witnessed, through
-`StayDeriver.summarizeLiveness` so that rule keeps one author. Nothing there changes place, bound or
+`StayDeriver.LivenessEvidence` so that rule keeps one author. Nothing there changes place, bound or
 existence — the window is a fact about the app, not about where anyone was.
+
+**A repair reads the liveness log over the stretch it judges, a rebuild reads all of it**, and the
+two are separate functions rather than one with a flag: `summarizeLiveness` takes the whole log,
+`summarizeLivenessOver` takes a slice, the stretch it answers for, and the one fact a slice cannot
+carry — when the record begins, since evidence predating it leaves an interval inferred however alive
+the app was inside the window. **A narrowed reduction is not the same value as a whole-log one**, only
+the same answers inside its range, so `LivenessEvidence` carries that range: asked outside it, it
+refuses, and `disarmedSince` — which a slice can only answer with the last unclosed disarm it
+happened to fetch — refuses outright.
+
+`LivenessDao.eventsAround` is what a window is held to need, and each arm is a case the fold would
+otherwise miss: the events inside it, the last outage before it, and the last arm or disarm before
+it, that last being the whole of the state the fold carries from one event to the next. **Every arm
+is bounded by an indexed column, and that is the point rather than a detail** — asking for the
+outages that *reach* the window reads as the plainer question and makes the query walk every row back
+to the log's beginning, which is the read it exists to avoid. The last outage suffices because
+outages cannot overlap, and `liveness_events(type, at)` is what makes finding it a seek. Get any of
+it wrong and a repaired stay reads observed where a derived one reads inferred, which is why
+`DerivedConsistencyTest` runs a case with a log laid down under it — including an outage that spans
+*into* a repair's window, since one sitting wholly before it agrees either way.
 
 **A place row holds what the user said about a spot, and only that** — its name, its capture radius,
 and its `category` (`PlaceCategory.code`, null = untagged). Everything else about a place is derived

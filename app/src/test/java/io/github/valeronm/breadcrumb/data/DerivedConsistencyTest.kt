@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.data.db.LivenessEvent
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
@@ -90,6 +91,47 @@ class DerivedConsistencyTest {
 
     @Test fun `a history recorded a track at a time is what one pass over it would leave`() = runTest {
         recordedHistory()
+
+        assertExact()
+    }
+
+    /**
+     * **A repair reads the liveness log over the stretch it is judging; a fresh derive reads all of
+     * it.** That is a narrowing, and the only thing making the two agree is which events a window is
+     * held to need — those inside it, an outage spanning into it, and the last arm or disarm before
+     * it, that being the whole of the state the fold carries. Get any of the three wrong and a
+     * repaired stay is observed where a derived one is inferred, or the reverse.
+     *
+     * So the log here is laid out to reach each: a disarm closed by a re-arm a day later, an outage
+     * inside a later day, and a disarm that nothing closes. Every case above runs with an empty log,
+     * where a slice and the whole are the same list and the narrowing is never asked anything.
+     */
+    @Test fun `a repair reading part of the liveness log says what the whole of it does`() = runTest {
+        // Laid down before the history, as a recorder lays it down: a stay's provenance is judged
+        // when the track after it finishes, so evidence arriving later is not something the stored
+        // rows are expected to know — that is `rejudgeProvenance`'s errand and a different claim.
+        val log = db.livenessDao()
+        log.insert(LivenessEvent(type = LivenessEvent.TYPE_ARMED, at = TEST_START - 60_000L))
+        // A disarm closed by a re-arm, spanning the absence between the first two days.
+        log.insert(LivenessEvent(type = LivenessEvent.TYPE_DISARMED, at = hours(8)))
+        log.insert(LivenessEvent(type = LivenessEvent.TYPE_ARMED, at = hours(28)))
+        // A death and a return inside a later day's absence.
+        log.insert(LivenessEvent(type = LivenessEvent.TYPE_OUTAGE, at = hours(62), until = hours(70)))
+        // And one that begins before the last track and ends after it, so it reaches *into* the
+        // window a repair around a later track opens rather than sitting wholly before it. Nothing
+        // else here does, and a slice that fetched only the events inside its window would agree
+        // with a full derive on every other case in this file.
+        log.insert(LivenessEvent(type = LivenessEvent.TYPE_OUTAGE, at = hours(80), until = hours(94)))
+        // And a disarm nothing closes, so the dead stretch runs to the clock.
+        log.insert(LivenessEvent(type = LivenessEvent.TYPE_DISARMED, at = hours(126)))
+
+        val ids = recordedHistory()
+        assertExact()
+
+        // Each of these repairs a different stretch of that log.
+        repository.setActivityType(ids.last(), ActivityType.CYCLING)
+        walk(hours(96), 0, 5)
+        walk(hours(120), 5, 0)
 
         assertExact()
     }

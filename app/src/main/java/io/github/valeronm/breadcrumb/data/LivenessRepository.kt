@@ -13,6 +13,14 @@ private const val TAG = "Breadcrumb"
  * Records recorder-lifecycle evidence for stay derivation. ARMED/DISARMED rows are written on
  * explicit toggles; an OUTAGE row is materialized at restart when the heartbeat (in [Settings])
  * turns out to have gone stale while armed — i.e. the app died rather than being turned off.
+ *
+ * **Two outages never overlap**, and a reader is entitled to that: [materializeOutageIfDead] writes
+ * one only on finding the log ends ARMED, so an earlier outage has been closed and ended before this
+ * one began. It is what lets a reader asking about one stretch of time fetch the *last* outage before
+ * it rather than every outage that might still be open (`LivenessDao.eventsAround`), which is the
+ * difference between a seek and a walk of the whole log. [restoreEvents] is the one writer that does
+ * not establish it — it inserts what a backup file holds — and is where it would have to be upheld if
+ * a file could ever carry overlapping outages.
  */
 class LivenessRepository(context: Context, private val db: AppDatabase = AppDatabase.get(context)) {
 

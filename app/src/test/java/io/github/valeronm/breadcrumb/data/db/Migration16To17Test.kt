@@ -1,10 +1,6 @@
 package io.github.valeronm.breadcrumb.data.db
 
-import android.content.Context
-import androidx.room.Room
-import androidx.room.util.TableInfo
 import androidx.sqlite.db.SupportSQLiteDatabase
-import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -18,7 +14,8 @@ private val DERIVED_TABLES = listOf("derived_clusters", "cluster_members", "deri
 
 /**
  * v17 keys `cluster_members` and `derived_intervals` on what already identified a row, and indexes
- * `tracks(startedAt)`.
+ * `tracks(startedAt)`. That the schema it reaches is the one Room builds from the entities is
+ * `SchemaMatchesEntitiesTest`'s, which asks it of the whole chain — the only place it can be true.
  */
 @RunWith(RobolectricTestRunner::class)
 class Migration16To17Test {
@@ -67,43 +64,6 @@ class Migration16To17Test {
                 assertTrue(c.moveToFirst())
                 assertEquals("$table should be left empty", 0, c.getInt(0))
             }
-        }
-    }
-
-    /**
-     * **The guard this migration is actually exposed to**, and it belongs to whichever migration is
-     * newest: Room validates the schema it finds against the one its entities describe, on the first
-     * open after an upgrade, so a column type, a nullability, a missing index or the
-     * `ON UPDATE NO ACTION` half of a foreign key is not a test failure but a crash on a real
-     * install with real history behind it. Only the *end* of the chain is ever compared that way, so
-     * a case pinned to an older migration stops asking anything the moment another follows it — this
-     * one moves to the next migration's suite when there is one.
-     *
-     * With `exportSchema = false` there is no schema JSON for Room's own `MigrationTestHelper` to
-     * read, so the comparison is made here instead, against the tables Room generates from the same
-     * entities. [TableInfo] is the shape Room compares, rather than the `CREATE` text, so formatting
-     * is not mistaken for drift and neither is drift for formatting.
-     *
-     * Its `SupportSQLiteDatabase` overload is deprecated — Room's own generated code reads through
-     * an `SQLiteConnection` now — and kept because that connection is not reachable from a test
-     * holding this database. If it is withdrawn, compare the normalized `CREATE` statements out of
-     * `sqlite_master` instead, which catches the same drift less precisely.
-     */
-    @Suppress("DEPRECATION")
-    @Test
-    fun `the migrated schema is exactly what Room would create`() {
-        AppDatabase.MIGRATION_16_17.migrate(db)
-
-        val room = Room.inMemoryDatabaseBuilder(
-            ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
-        ).allowMainThreadQueries().build()
-        try {
-            val generated = room.openHelper.writableDatabase
-            DERIVED_TABLES.forEach { table ->
-                assertEquals(table, TableInfo.read(generated, table), TableInfo.read(db, table))
-            }
-        } finally {
-            room.close()
         }
     }
 

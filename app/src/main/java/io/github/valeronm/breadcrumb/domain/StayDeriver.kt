@@ -466,22 +466,78 @@ object StayDeriver {
      * [StayLedger], deciding the provenance of a handful of intervals at a time, takes this rather
      * than the log.
      */
-    internal class LivenessEvidence(
-        /** Half-open [start, end) intervals where the app was known dead or disarmed. */
-        val deadIntervals: List<Pair<Long, Long>>,
+    class LivenessEvidence internal constructor(
+        /** Half-open [start, end) stretches where the app was known dead or disarmed. */
+        private val deadIntervals: List<Pair<Long, Long>>,
         /** Time of the earliest liveness evidence; anything before it is unattested. */
-        val firstEvidenceAt: Long?,
-        /** Set when the latest state is "disarmed with no re-arm" — dead from here on. */
-        val disarmedSince: Long?,
+        private val firstEvidenceAt: Long?,
+        private val trailingDisarm: Long?,
+        /**
+         * The stretch the log was read over, null where the whole of it was — closed, and so a
+         * superset of the half-open window it comes from, which is the safe direction for a guard.
+         *
+         * **A reduction over a slice is not the same value as one over the log — it only gives the
+         * same answers inside this range**, which is why the range is carried rather than assumed.
+         * Both other fields are relative to it: the dead runs are the ones this stretch touches, and
+         * the trailing disarm is the last unclosed one the slice *saw*.
+         */
+        private val readOver: LongRange?,
     ) {
-        fun provenanceOver(start: Long, end: Long): Provenance = when {
-            firstEvidenceAt == null || start < firstEvidenceAt -> Provenance.INFERRED
-            deadIntervals.any { (ds, de) -> ds < end && start < de } -> Provenance.INFERRED
-            else -> Provenance.OBSERVED
+        /**
+         * Set when the latest state is "disarmed with no re-arm" — dead from here on, which is how
+         * the trailing stay knows when to close.
+         *
+         * **Only a reading of the whole log can answer it.** A slice carries the last unclosed
+         * disarm it happened to fetch, and the run may have begun at an earlier one it never saw —
+         * so a narrowed reading refuses rather than answering an instant that is off by however long
+         * the app sat disarmed before the window. Unreachable as things stand, the tail being the
+         * one caller and always holding the whole log; it is a `check` so that stays true.
+         */
+        val disarmedSince: Long? get() {
+            check(readOver == null) { "a windowed reading cannot say when a disarm began" }
+            return trailingDisarm
+        }
+
+        fun provenanceOver(start: Long, end: Long): Provenance {
+            require(readOver == null || (start in readOver && end in readOver)) {
+                "[$start, $end] is outside the stretch this evidence was read over"
+            }
+            return when {
+                firstEvidenceAt == null || start < firstEvidenceAt -> Provenance.INFERRED
+                deadIntervals.any { (ds, de) -> ds < end && start < de } -> Provenance.INFERRED
+                else -> Provenance.OBSERVED
+            }
         }
     }
 
-    internal fun summarizeLiveness(liveness: List<Liveness>, nowMs: Long): LivenessEvidence {
+    /** The whole log reduced to what [LivenessEvidence] answers with. */
+    internal fun summarizeLiveness(liveness: List<Liveness>, nowMs: Long): LivenessEvidence =
+        reduceLiveness(liveness, nowMs, earliestAt = liveness.firstOrNull()?.at, readOver = null)
+
+    /**
+     * The same reduction over a **slice** — for a caller that only asks about one stretch of time, a
+     * repair judging the handful of intervals around one change.
+     *
+     * A separate entry point rather than a defaulted parameter, because the two differ in what the
+     * caller owes and nothing at a call site would otherwise show which it is handing over.
+     * [liveness] must hold every event that can bear on [over] (`LivenessDao.eventsAround` is what
+     * that means in a query), and [earliestAt] is the one thing a slice cannot say for itself:
+     * evidence *predating* the record leaves an interval inferred however alive the app was inside
+     * it. The result answers only about [over] — see [LivenessEvidence.readOver].
+     */
+    internal fun summarizeLivenessOver(
+        liveness: List<Liveness>,
+        over: LongRange,
+        nowMs: Long,
+        earliestAt: Long?,
+    ): LivenessEvidence = reduceLiveness(liveness, nowMs, earliestAt, over)
+
+    private fun reduceLiveness(
+        liveness: List<Liveness>,
+        nowMs: Long,
+        earliestAt: Long?,
+        readOver: LongRange?,
+    ): LivenessEvidence {
         val dead = mutableListOf<Pair<Long, Long>>()
         var disarmedSince: Long? = null
         for (event in liveness) {
@@ -499,8 +555,9 @@ object StayDeriver {
         disarmedSince?.let { dead += it to nowMs }
         return LivenessEvidence(
             deadIntervals = dead,
-            firstEvidenceAt = liveness.firstOrNull()?.at?.coerceAtMost(nowMs),
-            disarmedSince = disarmedSince,
+            firstEvidenceAt = earliestAt?.coerceAtMost(nowMs),
+            trailingDisarm = disarmedSince,
+            readOver = readOver,
         )
     }
 

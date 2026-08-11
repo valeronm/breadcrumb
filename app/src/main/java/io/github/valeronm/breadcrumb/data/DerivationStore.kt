@@ -259,19 +259,20 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * silence was attested. Nothing about where anyone was moves, so no interval changes place,
      * bound or existence; only what the app claims to have seen.
      *
-     * Re-judged through [StayDeriver.summarizeLiveness] rather than written by a rule of its own, so
+     * Re-judged through [StayDeriver.LivenessEvidence] rather than by a rule of its own, so
      * that what a silence makes of a stay keeps one author — including the half about evidence
      * predating the record, which no query over a window could express. The rows are the handful an
      * outage overlaps, and one whose answer has not changed is not written.
      */
     suspend fun rejudgeProvenance(from: Long, until: Long) {
         db.withTransaction {
-            val evidence = StayDeriver.summarizeLiveness(
-                liveness.allEvents().mapNotNull { it.toLiveness() },
-                nowMs = until,
-            )
-            for (row in derived.intervalsOverlapping(from, until)) {
-                if (row.type != DerivedInterval.TYPE_STAY) continue
+            val rows = derived.intervalsOverlapping(from, until)
+                .filter { it.type == DerivedInterval.TYPE_STAY }
+            if (rows.isEmpty()) return@withTransaction
+            // Over what the rows span, not over the window that found them: an overlapping stay
+            // reaches outside it at either end, and its provenance is a claim about the whole stay.
+            val evidence = evidenceOver(rows.minOf { it.start }..rows.maxOf { it.endedAt }, until)
+            for (row in rows) {
                 val code = codeOf(evidence.provenanceOver(row.start, row.endedAt))
                 if (code != row.provenance) derived.setIntervalProvenance(row.afterTrackId, code)
             }
@@ -312,18 +313,22 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             val prev = tracks.keptTrackBefore(from, ids)?.toTrackEnd()
             val next = tracks.keptTrackAfter(to, ids)?.toTrackEnd()
             val neighbours = derived.membersForTracks(listOfNotNull(prev?.trackId, next?.trackId))
+            // Every touched id, not the subset with stored endpoints: the ledger reads a removal only
+            // through the memberships it finds, so one with none takes nothing away, and classifying
+            // them here would be a rule with a second author.
+            val seam = StayLedger.Seam(prev, ids, added, next)
             apply(
                 StayLedger.reknit(
-                    // Every touched id, not the subset with stored endpoints: the ledger reads a
-                    // removal only through the memberships it finds, so one with none takes nothing
-                    // away, and classifying them here would be a rule with a second author.
-                    seam = StayLedger.Seam(prev, ids, added, next),
+                    seam = seam,
                     stored = StayLedger.Stored(
                         clusters = derived.clustersOnce().map { it.toClusterRow() },
                         membershipOf = (leaving + neighbours).map { it.toMembership() }
                             .groupBy { it.trackId },
-                        liveness = liveness.allEvents().mapNotNull { it.toLiveness() },
-                        nowMs = nowMs,
+                        // The log read over the stretch the seam will write into and no further: it
+                        // grows for as long as the app is installed, and a track finishing is not an
+                        // occasion to walk it. Which stretch that is comes from the seam rather than
+                        // being worked out again here — see [StayLedger.Seam.span].
+                        evidence = evidenceOver(seam.span(), nowMs),
                     ),
                     distance = AndroidDistance,
                 ),
@@ -386,6 +391,24 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         lat = at.lat,
         lon = at.lon,
         atMs = atMs,
+    )
+
+    /**
+     * What the liveness log says about `[from, until)`, read over that stretch alone.
+     *
+     * The pairing is the whole of it: [LivenessDao.eventsAround] gathers every event that can bear
+     * on the window, and [LivenessDao.earliestEventAt] supplies the one thing a window cannot see —
+     * when the record begins. Read apart, a narrowed pass would call every interval observed back to
+     * the first event it happened to fetch, which is the opposite of what a young log means.
+     */
+    private suspend fun evidenceOver(
+        over: LongRange,
+        nowMs: Long,
+    ): StayDeriver.LivenessEvidence = StayDeriver.summarizeLivenessOver(
+        liveness = liveness.eventsAround(over.first, over.last).mapNotNull { it.toLiveness() },
+        over = over,
+        nowMs = nowMs,
+        earliestAt = liveness.earliestEventAt(),
     )
 
     /** What a stay's provenance is stored as — the inverse of `DerivedReadModel.provenanceOf`, and
