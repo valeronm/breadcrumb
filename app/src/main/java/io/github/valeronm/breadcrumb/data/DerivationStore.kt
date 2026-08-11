@@ -108,8 +108,8 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * re-inserting them would silently repoint every stay in the history at a new row. Everything
      * else is output, and is written afresh.
      *
-     * No open stay is stored ([StayDeriver.derive] with `emitTail = false`): it closes at the clock,
-     * so a row holding it would be wrong by the time anything read it.
+     * No open stay is stored — [StayDeriver.derive] emits none, it closing at the clock, so a row
+     * holding it would be wrong by the time anything read it.
      *
      * One transaction for the lot, and deliberately not chunked the way the point sweeps are: a
      * half-replaced derivation is not a slower answer but a wrong one, mixing intervals derived
@@ -127,10 +127,8 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
                     tracks = trackEnds,
                     liveness = liveness.allEvents().mapNotNull { it.toLiveness() },
                     nowMs = nowMs,
-                    activeTrack = null,
                     distance = AndroidDistance,
                     placePins = seeds.map { it.toSeed() },
-                    emitTail = false,
                 )
                 SweepStatus.advance(trackEnds.size)
 
@@ -405,7 +403,15 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         over: LongRange,
         nowMs: Long,
     ): StayDeriver.LivenessEvidence = StayDeriver.summarizeLivenessOver(
-        liveness = liveness.eventsAround(over.first, over.last).mapNotNull { it.toLiveness() },
+        // Fetched by [LivenessDao.eventsAround] and then held to [StayDeriver.bearingOn], which is
+        // the rule that query implements. Both, rather than either: the query narrows the *read* to
+        // something an index can serve, and the rule decides what is *used* — so the query owes only
+        // to over-fetch, which is a far easier obligation than matching the rule exactly, and the
+        // domain keeps the last word on which events a window is answered from.
+        liveness = StayDeriver.bearingOn(
+            liveness.eventsAround(over.first, over.last).mapNotNull { it.toLiveness() },
+            over,
+        ),
         over = over,
         nowMs = nowMs,
         earliestAt = liveness.earliestEventAt(),

@@ -43,6 +43,15 @@ internal object DerivedReadModel {
      *
      * The trailing stay is appended rather than read: it closes at [nowMs] or at [activeStartedAt],
      * so no row could hold it ([StayDeriver.tail]).
+     *
+     * **What that stay cannot say is that the reader has moved on.** `tail` decides between a stay
+     * and a gap from bounds alone; separating them needs the recording track's first fix beside the
+     * last track's end, and only [activeStartedAt] reaches here. So while a track that began
+     * somewhere else is recording, the timeline shows the previous place held until that track
+     * started — corrected, not merely refreshed, the moment it finishes and the pair is derived from
+     * two stored endpoints. Closing that would mean carrying the live fix this far and clustering it
+     * on the read path, which is the walk persisting the derivation removed; the reading is wrong
+     * for the length of one live track and fixes itself, which is why it is written down instead.
      */
     fun derivationOf(
         stored: StoredDerivation,

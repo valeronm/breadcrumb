@@ -97,14 +97,15 @@ class DerivedConsistencyTest {
 
     /**
      * **A repair reads the liveness log over the stretch it is judging; a fresh derive reads all of
-     * it.** That is a narrowing, and the only thing making the two agree is which events a window is
-     * held to need — those inside it, an outage spanning into it, and the last arm or disarm before
-     * it, that being the whole of the state the fold carries. Get any of the three wrong and a
-     * repaired stay is observed where a derived one is inferred, or the reverse.
+     * it** — the two must still agree, and this is that claim end to end, through the real writers
+     * and the real query rather than through either half of the narrowing.
      *
-     * So the log here is laid out to reach each: a disarm closed by a re-arm a day later, an outage
-     * inside a later day, and a disarm that nothing closes. Every case above runs with an empty log,
-     * where a slice and the whole are the same list and the narrowing is never asked anything.
+     * Which events a window needs is `StayDeriver.bearingOn`'s to say, and the two suites that hold
+     * it in the abstract are named there. What only this case can catch is the pair of them wired
+     * up wrong, so the log is laid out to reach each shape a repair's window can meet — including an
+     * outage that spans *into* one, since one sitting wholly before it agrees either way. Every case
+     * above runs with an empty log, where a slice and the whole are the same list and the narrowing
+     * is never asked anything.
      */
     @Test fun `a repair reading part of the liveness log says what the whole of it does`() = runTest {
         // Laid down before the history, as a recorder lays it down: a stay's provenance is judged

@@ -47,8 +47,8 @@ run the tests after touching anything they cover. **Room runs in these host test
 (in-memory DB, `TestDb` fixture), so the repository's DB rules and the schema migrations are
 covered without a device — see `TrackRepositoryTest`, `Migration10To11Test`,
 `TimelineInvalidationTest`, and the stored derivation's own suites (`DerivationStoreTest`,
-`DerivedConsistencyTest`, `DerivedReadModelTest`, `Migration15To16Test`, `Migration16To17Test`,
-`SchemaMatchesEntitiesTest`).
+`DerivedConsistencyTest`, `DerivedReadModelTest`, `LivenessWindowTest`, `Migration15To16Test`,
+`Migration16To17Test`, `SchemaMatchesEntitiesTest`).
 **Whether a migrated schema is the one Room builds from the entities is asked at the end of the
 chain**, which is the only place it can be true — Room compares what it finds against head on the
 first open after an upgrade, so a case pinned to a single step stops asking anything the moment
@@ -399,16 +399,23 @@ the same answers inside its range, so `LivenessEvidence` carries that range: ask
 refuses, and `disarmedSince` — which a slice can only answer with the last unclosed disarm it
 happened to fetch — refuses outright.
 
-`LivenessDao.eventsAround` is what a window is held to need, and each arm is a case the fold would
-otherwise miss: the events inside it, the last outage before it, and the last arm or disarm before
-it, that last being the whole of the state the fold carries from one event to the next. **Every arm
-is bounded by an indexed column, and that is the point rather than a detail** — asking for the
-outages that *reach* the window reads as the plainer question and makes the query walk every row back
-to the log's beginning, which is the read it exists to avoid. The last outage suffices because
-outages cannot overlap, and `liveness_events(type, at)` is what makes finding it a seek. Get any of
-it wrong and a repaired stay reads observed where a derived one reads inferred, which is why
-`DerivedConsistencyTest` runs a case with a log laid down under it — including an outage that spans
-*into* a repair's window, since one sitting wholly before it agrees either way.
+**Which events a window needs is a domain rule, not a query** — `StayDeriver.bearingOn`: the events
+inside it, any outage still open when it began, and the last arm or disarm before it, that last being
+the whole of the state the fold carries from one event to the next. **The query does not restate that
+rule, it feeds it**: `LivenessDao.eventsAround` is a read an index can serve that is guaranteed to
+*contain* the rule, and `evidenceOver` passes what comes back through `bearingOn` before using it. So
+the query owes a superset and nothing finer — it may be generous where being exact would cost a scan,
+and only a *missing* event is a fault. Every arm being a bounded range over an indexed column is the
+point rather than a detail: asking for the outages that *reach* the window reads as the plainer
+question and makes SQLite walk every row back to the log's beginning, the read it exists to avoid.
+
+Three guards, and each catches what the others cannot. `StayDeriverTest` puts every window on a grid
+through both readings — total over the rule, on a plain JVM, but blind to the SQL and to
+minimality. `LivenessWindowTest` holds the query against the rule over the same kind of grid, which
+is the only thing making "the query implements the rule" a checked sentence; it is also where the
+outages-cannot-overlap invariant is load-bearing, an earlier outage still open being one the last-one
+arm would miss. `DerivedConsistencyTest` runs the real writers against a laid-down log, which is the
+only place the two are wired together.
 
 **A place row holds what the user said about a spot, and only that** — its name, its capture radius,
 and its `category` (`PlaceCategory.code`, null = untagged). Everything else about a place is derived

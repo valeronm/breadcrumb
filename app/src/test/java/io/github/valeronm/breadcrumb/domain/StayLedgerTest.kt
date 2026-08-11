@@ -35,8 +35,7 @@ class StayLedgerTest {
      */
     private fun store(tracks: List<TrackEnd>, named: Set<Int> = emptySet()): Stored {
         val derivation = StayDeriver.derive(
-            tracks, listOf(Armed(0)), NOW, null, StayDeriver.Params(), flatDistance, emptyList(),
-            emitTail = false,
+            tracks, listOf(Armed(0)), NOW, StayDeriver.Params(), flatDistance, emptyList(),
         )
         val endpoints = StayDeriver.endpointsOf(tracks)
         val clusters = derivation.clusters.mapIndexed { index, cluster ->
@@ -104,8 +103,7 @@ class StayLedgerTest {
     /** What a full derivation of [tracks] says, described for comparison. */
     private fun derived(tracks: List<TrackEnd>): List<List<Any?>> {
         val derivation = StayDeriver.derive(
-            tracks, listOf(Armed(0)), NOW, null, StayDeriver.Params(), flatDistance, emptyList(),
-            emitTail = false,
+            tracks, listOf(Armed(0)), NOW, StayDeriver.Params(), flatDistance, emptyList(),
         )
         return derivation.intervals.map { it.described(derivation.clusters) }
     }
@@ -269,8 +267,7 @@ class StayLedgerTest {
         assertEquals("and keeps the anchor it was founded at", home, stored.clusters.single().seed.anchor)
         // A fresh derivation of what remains would anchor on the surviving endpoint instead.
         val afresh = StayDeriver.derive(
-            listOf(later), listOf(Armed(0)), NOW, null, StayDeriver.Params(), flatDistance,
-            emptyList(), emitTail = false,
+            listOf(later), listOf(Armed(0)), NOW, StayDeriver.Params(), flatDistance, emptyList(),
         )
         assertEquals(nearby, afresh.clusters.single().anchor)
     }

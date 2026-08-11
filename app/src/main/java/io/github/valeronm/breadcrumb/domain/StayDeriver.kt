@@ -71,14 +71,6 @@ object StayDeriver {
         val end: Coordinate?,
     )
 
-    /**
-     * The currently-recording track: its presence closes the tail stay at [startedAt] instead of
-     * suppressing it, so the just-ended stay shows live rather than only after the track finalizes.
-     * [start], the first good fix when already known, lets the tail run the usual endpoint-agreement
-     * check; null (no fix yet) counts as agreement until the finished track re-derives for real.
-     */
-    data class ActiveTrack(val startedAt: Long, val start: Coordinate? = null)
-
     /** Recorder-lifecycle evidence, ascending by time. */
     sealed interface Liveness {
         val at: Long
@@ -189,28 +181,28 @@ object StayDeriver {
         val clusters: List<PlaceClusterer.Cluster>,
     )
 
+    /**
+     * Every interval **between two finished tracks**, and no other. The one that follows the newest
+     * track is not a fact about a pair — it closes at the clock or at a recording track's start, both
+     * of which move with no write behind them — so it is [tail]'s, and a caller that wants a whole
+     * timeline appends it. Emitting it here as well would be a second author for the trailing stay,
+     * and the one this pass produced would be stale by the time anything read it.
+     */
     fun derive(
         tracks: List<TrackEnd>,
         liveness: List<Liveness>,
         nowMs: Long,
-        activeTrack: ActiveTrack?,
         params: Params = Params(),
         distance: DistanceFn,
         /** Named-place pins with their per-place capture radii: seed the endpoint clustering
          *  (in pin order — [PlaceResolver] maps [PlaceClusterer.Cluster.seedIndex] back to the
          *  same places list) and drive the same-nearest-pin agreement override. */
         placePins: List<PlaceClusterer.Seed> = emptyList(),
-        /** Whether the trailing interval is emitted — the only one that is not a fact about two
-         *  finished tracks, and so the only one that goes stale on its own. See [tailStay]. */
-        emitTail: Boolean = true,
     ): Derivation {
         val evidence = summarizeLiveness(liveness, nowMs)
-        val (clusters, clusterOf) = clusterEndpoints(tracks, activeTrack?.start, placePins, params, distance)
+        val (clusters, clusterOf) = clusterEndpoints(tracks, placePins, params, distance)
         val out = mutableListOf<Interval>()
         val agreement = Agreement(params, distance, placePins)
-
-        fun samePlace(a: Coordinate, b: Coordinate): Boolean =
-            agreement.samePlace(a, b, sameCluster = clusterOf.getValue(a) == clusterOf.getValue(b))
 
         for (i in 0 until tracks.size - 1) {
             val prev = tracks[i]
@@ -240,10 +232,6 @@ object StayDeriver {
             }
         }
 
-        if (emitTail) {
-            tailStay(tracks.lastOrNull(), evidence, nowMs, activeTrack, clusterOf, ::samePlace)
-                ?.let { out += it }
-        }
         return Derivation(out, clusters)
     }
 
@@ -331,10 +319,11 @@ object StayDeriver {
      * Every endpoint of [tracks], in the order the clustering reads them — each track's start then
      * its end, skipping an end the recorder never fixed.
      *
-     * **The order is the contract.** [PlaceClusterer.Cluster.memberIndices] index into exactly this
-     * list, so a caller that wants to know *which* endpoints a cluster holds reads them from here
-     * rather than rebuilding the order and hoping it still matches. The one index this cannot
-     * explain is a recording track's first fix, which [derive] appends after these when it has one.
+     * **The order is the contract**, and it is total. [PlaceClusterer.Cluster.memberIndices] index
+     * into exactly this list, so a caller that wants to know *which* endpoints a cluster holds reads
+     * them from here rather than rebuilding the order and hoping it still matches — and every index
+     * a derivation produces is explained by an entry here, there being nothing else in what it
+     * clusters.
      */
     fun endpointsOf(tracks: List<TrackEnd>): List<EndpointRef> = buildList {
         for (track in tracks) {
@@ -350,59 +339,17 @@ object StayDeriver {
      */
     private fun clusterEndpoints(
         tracks: List<TrackEnd>,
-        activeStart: Coordinate?,
         placePins: List<PlaceClusterer.Seed>,
         params: Params,
         distance: DistanceFn,
     ): Pair<List<PlaceClusterer.Cluster>, Map<Coordinate, Int>> {
-        val endpoints = buildList {
-            endpointsOf(tracks).forEach { add(it.at) }
-            // The active track's first fix joins the clustering so the tail's agreement check
-            // can use cluster identity like every other pair.
-            activeStart?.let { add(it) }
-        }
+        val endpoints = endpointsOf(tracks).map { it.at }
         val clusters = PlaceClusterer.cluster(endpoints, params.placeRadiusM, distance, seeds = placePins)
         val clusterOf = HashMap<Coordinate, Int>(endpoints.size)
         clusters.forEachIndexed { ci, cluster ->
             for (index in cluster.memberIndices) clusterOf[endpoints[index]] = ci
         }
         return clusters to clusterOf
-    }
-
-    /**
-     * The trailing interval, and **the one case where it is not a stay**: a recording track whose
-     * first fix disagrees with where the last one ended is movement the recorder missed, which is a
-     * [Gap] by the same rule that governs two finished tracks. Everything else about the trailing
-     * interval is [tail]'s; this wrapper exists because the disagreement can only be judged where
-     * the coordinates are.
-     */
-    private fun tailStay(
-        last: TrackEnd?,
-        evidence: LivenessEvidence,
-        nowMs: Long,
-        activeTrack: ActiveTrack?,
-        clusterOf: Map<Coordinate, Int>,
-        samePlace: (Coordinate, Coordinate) -> Boolean,
-    ): Interval? {
-        if (last == null) return null
-        val lastEnd = last.end ?: return null
-        val start = last.endedAt
-        // No fix yet counts as agreement: the interval re-derives for real once the track finishes.
-        val activeStart = activeTrack?.start
-        if (activeStart != null && !samePlace(lastEnd, activeStart)) {
-            val end = activeTrack.startedAt
-            if (end <= start) return null
-            return Gap(
-                start, end, GapReason.MOVED_UNRECORDED,
-                afterTrackId = last.trackId,
-                fromClusterId = clusterOf.getValue(lastEnd),
-                toClusterId = clusterOf.getValue(activeStart),
-                from = lastEnd,
-                to = activeStart,
-            )
-        }
-        val anchor = TailAnchor(last.trackId, start, clusterOf.getValue(lastEnd))
-        return tail(anchor, evidence, nowMs, activeTrack?.startedAt)
     }
 
     /**
@@ -423,9 +370,10 @@ object StayDeriver {
      * them. A cluster is all it needs of place, every other term being a bound.
      *
      * **It answers the agreeing case only.** Where a recording track's first fix disagrees with
-     * where the last one ended, the trailing interval is a [Gap] and not any [Stay] — a distinction
-     * that needs the two coordinates, which this does not take. A caller that has them owes that
-     * check itself; one that does not cannot reach the case.
+     * where the last one ended, the trailing interval is movement the recorder missed — a [Gap] by
+     * the same rule that governs two finished tracks — and telling the two apart needs both
+     * coordinates, which this does not take. A caller that has them owes that check itself; what
+     * follows from no caller having them is the reader's to state, not this leaf's.
      */
     fun tail(
         anchor: TailAnchor,
@@ -436,7 +384,7 @@ object StayDeriver {
 
     private fun tail(
         anchor: TailAnchor,
-        evidence: LivenessEvidence,
+        evidence: LivenessEvidence.WholeLog,
         nowMs: Long,
         activeStartedAt: Long?,
     ): Stay? {
@@ -466,38 +414,21 @@ object StayDeriver {
      * [StayLedger], deciding the provenance of a handful of intervals at a time, takes this rather
      * than the log.
      */
-    class LivenessEvidence internal constructor(
+    open class LivenessEvidence internal constructor(
         /** Half-open [start, end) stretches where the app was known dead or disarmed. */
         private val deadIntervals: List<Pair<Long, Long>>,
         /** Time of the earliest liveness evidence; anything before it is unattested. */
         private val firstEvidenceAt: Long?,
-        private val trailingDisarm: Long?,
         /**
          * The stretch the log was read over, null where the whole of it was — closed, and so a
          * superset of the half-open window it comes from, which is the safe direction for a guard.
          *
          * **A reduction over a slice is not the same value as one over the log — it only gives the
-         * same answers inside this range**, which is why the range is carried rather than assumed.
-         * Both other fields are relative to it: the dead runs are the ones this stretch touches, and
-         * the trailing disarm is the last unclosed one the slice *saw*.
+         * same answers inside this range**, which is why the range is carried rather than assumed:
+         * the dead runs it holds are the ones this stretch touches, and no others.
          */
         private val readOver: LongRange?,
     ) {
-        /**
-         * Set when the latest state is "disarmed with no re-arm" — dead from here on, which is how
-         * the trailing stay knows when to close.
-         *
-         * **Only a reading of the whole log can answer it.** A slice carries the last unclosed
-         * disarm it happened to fetch, and the run may have begun at an earlier one it never saw —
-         * so a narrowed reading refuses rather than answering an instant that is off by however long
-         * the app sat disarmed before the window. Unreachable as things stand, the tail being the
-         * one caller and always holding the whole log; it is a `check` so that stays true.
-         */
-        val disarmedSince: Long? get() {
-            check(readOver == null) { "a windowed reading cannot say when a disarm began" }
-            return trailingDisarm
-        }
-
         fun provenanceOver(start: Long, end: Long): Provenance {
             require(readOver == null || (start in readOver && end in readOver)) {
                 "[$start, $end] is outside the stretch this evidence was read over"
@@ -508,11 +439,36 @@ object StayDeriver {
                 else -> Provenance.OBSERVED
             }
         }
+
+        /**
+         * The whole log reduced — **a reading that can answer one further question**, and the type a
+         * caller needing that answer asks for.
+         *
+         * The extra question is [disarmedSince], and it is a separate type rather than a guarded
+         * getter because a slice cannot answer it *at all*: the last unclosed disarm a slice fetched
+         * need not be the first of the run, so the honest answer over a window is not a wrong instant
+         * but no instant. Stating that in the type rather than at runtime is what stops the next
+         * narrowing — the timeline's read path is the obvious one — from compiling against a value
+         * that cannot serve it.
+         */
+        class WholeLog internal constructor(
+            deadIntervals: List<Pair<Long, Long>>,
+            firstEvidenceAt: Long?,
+            /** Set when the latest state is "disarmed with no re-arm" — dead from here on, which is
+             *  how the trailing stay knows when to close. */
+            val disarmedSince: Long?,
+        ) : LivenessEvidence(deadIntervals, firstEvidenceAt, readOver = null)
     }
 
     /** The whole log reduced to what [LivenessEvidence] answers with. */
-    internal fun summarizeLiveness(liveness: List<Liveness>, nowMs: Long): LivenessEvidence =
-        reduceLiveness(liveness, nowMs, earliestAt = liveness.firstOrNull()?.at, readOver = null)
+    internal fun summarizeLiveness(liveness: List<Liveness>, nowMs: Long): LivenessEvidence.WholeLog {
+        val read = readLiveness(liveness, nowMs)
+        return LivenessEvidence.WholeLog(
+            deadIntervals = read.dead,
+            firstEvidenceAt = liveness.firstOrNull()?.at?.coerceAtMost(nowMs),
+            disarmedSince = read.trailingDisarm,
+        )
+    }
 
     /**
      * The same reduction over a **slice** — for a caller that only asks about one stretch of time, a
@@ -530,14 +486,44 @@ object StayDeriver {
         over: LongRange,
         nowMs: Long,
         earliestAt: Long?,
-    ): LivenessEvidence = reduceLiveness(liveness, nowMs, earliestAt, over)
+    ): LivenessEvidence = LivenessEvidence(
+        deadIntervals = readLiveness(liveness, nowMs).dead,
+        firstEvidenceAt = earliestAt?.coerceAtMost(nowMs),
+        readOver = over,
+    )
 
-    private fun reduceLiveness(
-        liveness: List<Liveness>,
-        nowMs: Long,
-        earliestAt: Long?,
-        readOver: LongRange?,
-    ): LivenessEvidence {
+    /**
+     * **Which events can bear on [over]** — the rule [summarizeLivenessOver]'s slice has to satisfy,
+     * stated here rather than only in the query that implements it.
+     *
+     * It follows from what the walk below carries across an event, and nothing else: an event inside
+     * the window obviously counts; an outage still open when the window began counts because its
+     * dead stretch reaches inside; and the last arm or disarm before the window counts because
+     * whether the app was disarmed entering it is the whole of the state carried from one event to
+     * the next. Everything earlier has been closed off by one of those.
+     *
+     * `LivenessDao.eventsAround` is the same rule as SQL, and deliberately keeps *less*: it takes
+     * only the last outage before the window, which is sound because outages cannot overlap. That
+     * one divergence is the price of every arm being an indexed range, and stating the general rule
+     * here is what makes it a divergence one can name rather than the whole contract being prose.
+     */
+    internal fun bearingOn(liveness: List<Liveness>, over: LongRange): List<Liveness> {
+        // By index, not by value: these are data classes, so two arm/disarm events at one instant
+        // are equal, and matching by value would keep an earlier duplicate as well.
+        val carried = liveness.indexOfLast { it.at < over.first && it !is Outage }
+        return liveness.filterIndexed { index, event ->
+            index == carried ||
+                event.at in over ||
+                (event is Outage && event.at < over.first && event.until > over.first)
+        }
+    }
+
+    /** What one walk of the log yields, whether the log was all of it or a slice. */
+    private class LivenessRead(val dead: List<Pair<Long, Long>>, val trailingDisarm: Long?)
+
+    /** **The one walk of the log**, so a slice and the whole are reduced by the same rule and can
+     *  only differ in what the caller is then entitled to ask of the result. */
+    private fun readLiveness(liveness: List<Liveness>, nowMs: Long): LivenessRead {
         val dead = mutableListOf<Pair<Long, Long>>()
         var disarmedSince: Long? = null
         for (event in liveness) {
@@ -553,12 +539,7 @@ object StayDeriver {
         // A trailing disarm is dead through "now" for mid-list gaps; the tail stay handles it
         // explicitly via disarmedSince.
         disarmedSince?.let { dead += it to nowMs }
-        return LivenessEvidence(
-            deadIntervals = dead,
-            firstEvidenceAt = earliestAt?.coerceAtMost(nowMs),
-            trailingDisarm = disarmedSince,
-            readOver = readOver,
-        )
+        return LivenessRead(dead, disarmedSince)
     }
 
     // --- Display helpers -------------------------------------------------------

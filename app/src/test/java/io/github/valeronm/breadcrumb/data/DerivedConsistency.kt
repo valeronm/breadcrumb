@@ -70,13 +70,11 @@ internal object DerivedConsistency {
             tracks = tracks,
             liveness = db.livenessDao().allEvents().mapNotNull { it.toLiveness() },
             nowMs = nowMs,
-            activeTrack = null,
             distance = AndroidDistance,
             // The named rows are *inputs* to the reference pass, not outputs compared against it:
             // they are the pins the app's own derivation was seeded from, so a reference seeded any
             // other way would be answering a different question.
             placePins = seeds.map { it.toSeed() },
-            emitTail = false,
         )
         val endpoints = StayDeriver.endpointsOf(tracks)
         val membersOf = stored.members.groupBy { it.clusterId }

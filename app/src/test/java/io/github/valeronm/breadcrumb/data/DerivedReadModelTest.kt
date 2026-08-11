@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.toLiveness
@@ -39,13 +40,17 @@ class DerivedReadModelTest {
 
     private suspend fun track(startedAt: Long): Long = test.walk(startedAt, 0, 5)
 
-    /** The derivation as the app used to compute it, for the same history. */
-    private suspend fun fresh(activeStartedAt: Long? = null): StayDeriver.Derivation =
+    /**
+     * The intervals **between finished tracks** as a fresh pass over the same history gives them —
+     * which is all of them, the trailing stay being no row's and no pass's ([StayDeriver.tail]).
+     * The cases below that reach it therefore compare the read-back rows against this and the tail
+     * against `tail`, rather than against one reference holding both.
+     */
+    private suspend fun fresh(): StayDeriver.Derivation =
         StayDeriver.derive(
             tracks = db.trackDao().endpointsOnce().map { it.toTrackEnd() },
             liveness = db.livenessDao().allEvents().mapNotNull { it.toLiveness() },
             nowMs = now,
-            activeTrack = activeStartedAt?.let { StayDeriver.ActiveTrack(it) },
             distance = AndroidDistance,
             placePins = PlaceClusterer.seedsOf(db.placeDao().allPlaces()),
         )
@@ -72,7 +77,8 @@ class DerivedReadModelTest {
         val fresh = fresh()
         val read = read()
 
-        assertEquals(fresh.intervals, read.intervals)
+        // Bar the trailing stay, which the reader appends and no pass over the pairs produces.
+        assertEquals(fresh.intervals, read.intervals.dropLast(1))
         assertEquals(fresh.clusters.map { it.anchor }, read.clusters.map { it.anchor })
         assertEquals(fresh.clusters.map { it.seedIndex }, read.clusters.map { it.seedIndex })
         assertEquals(fresh.clusters.map { it.visitCount }, read.clusters.map { it.visitCount })
@@ -91,7 +97,7 @@ class DerivedReadModelTest {
 
         // Stored rows stop at the last track; the reader adds the stay still running after it.
         val read = read()
-        assertEquals(fresh().intervals, read.intervals)
+        assertEquals("the pairs are what a fresh pass gives", fresh().intervals, read.intervals.dropLast(1))
         assertEquals(derived.intervalsOnce().size + 1, read.intervals.size)
         assertNull("the trailing stay is open", read.intervals.last().end)
     }
@@ -102,8 +108,39 @@ class DerivedReadModelTest {
 
         val active = TEST_START + 60 * 60_000L
         val read = read(active)
-        assertEquals(fresh(active).intervals, read.intervals)
+        // One track, so there is no pair to derive an interval between — everything on screen here
+        // is the trailing stay, which is exactly the reading no stored row can hold.
+        assertTrue("a lone track leaves no pair", fresh().intervals.isEmpty())
         assertEquals(active, read.intervals.single().end)
+    }
+
+    /**
+     * **Where the trailing stay says the reader is** — the cluster the newest track ended in, which
+     * is the whole of what that row places on a map or a timeline.
+     *
+     * Asked against a history holding more than one cluster, deliberately: with a single cluster
+     * every id is 0 and the claim passes on any implementation, including one that took the *first*
+     * endpoint or the wrong track's. The rule now lives in `DerivedReadModel.tailAnchor`, which picks
+     * the last non-start membership and rests on `DerivedDao.membersOnce` ordering by `atMs` — an
+     * ordering nothing else here would notice changing.
+     */
+    @Test fun `the trailing stay belongs to the cluster the newest track ended in`() = runTest {
+        test.walk(TEST_START, 0, 5)
+        // A second walk ending a neighbourhood away, so the history holds two clusters and the
+        // newest track's end is not also the oldest's.
+        val newest = test.walk(TEST_START + 3 * 60 * 60_000L, 0, 5, lonOffset = 0.01)
+        store.rebuild(now)
+
+        val read = read()
+        val tail = read.intervals.last()
+        val endedIn = db.derivedDao().membersForTracks(listOf(newest)).single { !it.isStart }
+
+        assertNull("the trailing stay is the open one", tail.end)
+        assertEquals(
+            "it sits where that track ended",
+            Coordinate(endedIn.lat, endedIn.lon),
+            read.clusters[(tail as StayDeriver.Stay).clusterId].members.last(),
+        )
     }
 
     @Test fun `a named place keeps its position, so its cluster still resolves to it`() = runTest {
