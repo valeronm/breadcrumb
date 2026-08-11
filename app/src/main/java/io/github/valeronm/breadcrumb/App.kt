@@ -61,29 +61,31 @@ class App : Application() {
             // The ignored edge stays are verdicts of a rule that keeps moving, so they are
             // re-derived whenever the detector's version outruns the one they were computed
             // with — not once.
-            // Whether either sweep below rewrote a track's bounds or its first/last good
-            // coordinates — the derivation's whole input, and so what the rebuild at the end hangs
-            // on as much as on its own rule version.
-            var endpointsMoved = false
+            // Whether either sweep below moved a track's bounds or its first/last good coordinates —
+            // the derivation's whole input, and so what the rebuild at the end hangs on as much as
+            // on its own rule version.
+            var derivedInputMoved = false
             if (Settings.edgeStayRuleVersion(this@App) < EdgeStayDetector.RULE_VERSION) {
-                if (repository.sweepEdgeStays()) endpointsMoved = true
+                if (repository.sweepEdgeStays()) derivedInputMoved = true
                 Settings.setEdgeStayRuleVersion(this@App, EdgeStayDetector.RULE_VERSION)
             }
             // The aggregates on a track row are the output of a walk that keeps moving too, and
             // they are re-derived the same way. It runs second: the edge-stay sweep decides which
             // fixes are on the path, and this one totals whatever that leaves.
             if (Settings.statsRuleVersion(this@App) < TrackStats.RULE_VERSION) {
-                if (repository.sweepStats()) endpointsMoved = true
+                if (repository.sweepStats()) derivedInputMoved = true
                 Settings.setStatsRuleVersion(this@App, TrackStats.RULE_VERSION)
             }
-            // Last, and the order is load-bearing: both sweeps above rewrite the first and last
-            // good coordinates of a track, which are the endpoints the derivation reads. Deriving
-            // ahead of them would store a reading of coordinates about to move, with nothing to
+            // Last, and the order is load-bearing: both sweeps above rewrite a track's bounds and
+            // its first and last good coordinates, which are the whole of what the derivation reads.
+            // Deriving ahead of them would store a reading of values about to move, with nothing to
             // say it was stale — which is also why a sweep that *did* move any of them re-derives
-            // here whether or not this build's rules changed. A seed moved while the app was closed
-            // (none can be today, but a future importer could) is the reconcile's own business.
+            // here whether or not this build's rules changed. A bound moves without a coordinate
+            // moving whenever a track's clock was out past its fixes, so the flag cannot be read off
+            // the coordinates alone. A seed moved while the app was closed (none can be today, but a
+            // future importer could) is the reconcile's own business.
             val ruleMoved = Settings.derivedLogicVersion(this@App) < DerivationStore.LOGIC_VERSION
-            DerivationStore(this@App).reconcile(stale = endpointsMoved || ruleMoved)
+            DerivationStore(this@App).reconcile(stale = derivedInputMoved || ruleMoved)
             if (ruleMoved) Settings.setDerivedLogicVersion(this@App, DerivationStore.LOGIC_VERSION)
         }
     }

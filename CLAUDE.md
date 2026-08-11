@@ -380,7 +380,7 @@ stretch of the timeline calls `reknit` with the ids it touched, inside its own t
 finished, deleted, restored, merged, unmerged, split, unsplit, entered or rewritten by hand, or
 retyped across a boundary that moved its edges (that last one being why a retype is not the free
 column write it looks like). A change that is historical or out of order calls `rebuild`: a GPX
-import, a backup restore, or either versioned sweep having rewritten endpoints — which is why both
+import, a backup restore, or either versioned sweep having moved a bound or an endpoint — which is why both
 sweeps now report whether they wrote anything. And a change to the **seeds** goes through
 `reconcile`, which is the only way a rebuild is reached outside a repair: it brings the seed clusters
 back into agreement with the `places` table and re-derives when one moved — or when the caller says
@@ -446,9 +446,19 @@ derivation.
 bad-fix rule, and `EdgeStayIgnore`'s `IgnoreReason.EDGE_STAY` for good fixes recorded past the stop
 at a track's edges (`IgnoreReason` holds the distinction). The second is applied automatically
 wherever a track's points change — finished, imported, merged, split, restored, or retyped across
-the foot/vehicle line — with the track's `startedAt`/`endedAt` pulled in to the boundary fix,
-and `TrackRepository.sweepEdgeStays` re-derives the whole history when
+the foot/vehicle line — and `TrackRepository.sweepEdgeStays` re-derives the whole history when
 `EdgeStayDetector.RULE_VERSION` moves.
+
+**A track's clock is then set from the fixes that survive** (`TrackBounds`, applied in the same pass):
+its bounds are the first and last *good* point, never the transition that opened or closed the row.
+Activity Recognition reports a stop minutes after GPS went silent at an arrival — a garage, indoors —
+and the overrun rule cannot reach that edge, having no fixes there to find a dwell in or place a
+speed collapse at; held, those minutes claim a whereabouts nothing measured and take them from the
+stay beside them, since every minute the track holds is one the interval around it doesn't. Because
+an edge-stay flag makes a fix ignored, this lands on the boundary fix by itself wherever an overrun
+*was* found — so the bounds are one rule with one author rather than two that agree by convention.
+`EdgeStayIgnore.plan` speaks for the flags alone; `EdgeStayIgnore.settle` is the order the two run
+in, and every writer enters through it.
 
 **The track row carries its points' aggregates, and the recorder must never write it.** Distance,
 point/ignored counts and the first/last good coordinates are columns on `tracks`, written only by
@@ -470,8 +480,9 @@ writers rather than inventing one, which also keeps typed endpoints from being a
 measured fixes. Besides that refusal it is read by `availableColorModes` (`ui/TrackColoring`),
 which drops the colour metrics an import or a manual entry can't carry. Manual tracks bypass the
 keep thresholds like imports do — `KeepRule`'s two-point purge floor would otherwise delete every
-one on arrival — and their two points are stamped exactly at the row's bounds so the edge-stay
-boundary fix and the stats sweep have nothing to rewrite.
+one on arrival — and their two points are stamped exactly at the row's bounds, since `TrackBounds`
+derives those same bounds back off them: a fix stamped anywhere else would move the clock away from
+what the user typed.
 
 **A manual track is also the only one that can be rewritten** (`updateManualTrack`, reached by the
 track detail's pencil, which on any other track opens the type dialog instead): the same two pins and

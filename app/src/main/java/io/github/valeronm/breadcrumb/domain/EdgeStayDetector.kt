@@ -100,19 +100,23 @@ object EdgeStayDetector {
     }
 
     /**
-     * Bumped whenever detection changes what it would find — a new stage, a moved threshold, a
-     * different boundary. The [IgnoreReason.EDGE_STAY][io.github.valeronm.breadcrumb.data.IgnoreReason.EDGE_STAY]
-     * flags on stored points are this code's verdicts, so a moved rule leaves them stale in both
-     * directions; the app re-sweeps its history when the version it last swept is behind this one,
-     * making the bump part of changing the rule, not a follow-up chore.
+     * Bumped whenever the sweep this drives would settle a track differently — a new stage, a moved
+     * threshold, a different boundary, or a change to the clock [TrackBounds] reads off the flags.
+     * The [IgnoreReason.EDGE_STAY][io.github.valeronm.breadcrumb.data.IgnoreReason.EDGE_STAY] flags
+     * on stored points and the bounds over them are this pass's verdicts, so a moved rule leaves them
+     * stale in both directions; the app re-sweeps its history when the version it last swept is
+     * behind this one, making the bump part of changing the rule, not a follow-up chore. One version
+     * for the one pass: a second keyed to the same sweep would only be a second thing to forget.
      * 1 — the original half-minute edge-stay sweep.
      * 2 — displacement vetoes Doppler, real-fix boundary, dwell retraction, per-bin voting, vehicle standstill floor.
      * 3 — no rule change (a bump taken to watch the sweep run).
      * 4 — the per-bin vote floor scales with the track's own cadence, so bin-scale sampling is detectable at all.
      * 5 — no rule change: the verdict moved from a review mark onto the points ([EdgeStayIgnore]); history re-swept to acquire it.
      * 6 — no rule change: every flag is now reconsidered wherever it sits, so a merge-buried overrun is handed back.
+     * 7 — no detection change: the clock follows the good fixes ([TrackBounds]), covering the edge
+     *     this rule declines — an arrival GPS went blind for leaves nothing to place a boundary in.
      */
-    const val RULE_VERSION = 6
+    const val RULE_VERSION = 7
 
     enum class Side { START, END }
 
@@ -120,8 +124,8 @@ object EdgeStayDetector {
      * A stay at [side]. [boundaryTs] is the **cut point**: the timestamp of the last good fix the
      * track keeps (the first, at a start edge), the stay running from there to the track's edge.
      * One value, used by everything — the fixes strictly beyond it are the ones flagged
-     * [io.github.valeronm.breadcrumb.data.IgnoreReason.EDGE_STAY], the track's clock is pulled in
-     * to it, and the track screen grays from it. It is a real fix, not the speed-bin edge it is
+     * [io.github.valeronm.breadcrumb.data.IgnoreReason.EDGE_STAY], and the track screen grays from
+     * it. The track's clock arrives here too without being told to — see [TrackBounds]. It is a real fix, not the speed-bin edge it is
      * derived from: a bin edge falls between fixes (measured: 288 of 387 in gaps up to 94 s), and
      * a polyline needs both its endpoints, so marking the first *removed* fix would leave the
      * trimmed track ending a leg short of the line the user was shown.

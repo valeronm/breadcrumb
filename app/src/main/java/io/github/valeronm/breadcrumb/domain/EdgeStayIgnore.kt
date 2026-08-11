@@ -3,7 +3,8 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
 /**
- * How [EdgeStayDetector]'s verdict is recorded: the overrun's fixes are flagged
+ * How [EdgeStayDetector]'s verdict is recorded, and — through [settle], which every writer enters by
+ * — where a track's clock is read once it has been: the overrun's fixes are flagged
  * [IgnoreReason.EDGE_STAY] and stay on the track — not bad fixes but perfectly good fixes of a
  * phone that had already arrived, and "ignored" is exactly the status they need, which the app
  * already has: ignored points keep their rows while dropping out of distance, the rendered line,
@@ -31,67 +32,76 @@ object EdgeStayIgnore {
 
     /**
      * What a track's rows should read once the current rule has had its say: which points gain the
-     * flag, which lose it, and where the track's clock now starts and ends. Empty index sets and
-     * unchanged bounds mean the stored state already agrees — the usual re-sweep case, and why one
-     * costs no writes. Points are named by their **index** in the list handed to [plan], not by
-     * [TrackPoint.id]: a backup carries no point ids (its `pointFields` has no such column), so
-     * every restored point has id 0 and an id-keyed set would match them all at once; the caller
-     * maps an index back to a row id when it has one.
+     * flag and which lose it. Empty index sets mean the stored state already agrees — the usual
+     * re-sweep case, and why one costs no writes. Points are named by their **index** in the list
+     * handed to [plan], not by [TrackPoint.id]: a backup carries no point ids (its `pointFields`
+     * has no such column), so every restored point has id 0 and an id-keyed set would match them
+     * all at once; the caller maps an index back to a row id when it has one. Where the clock then
+     * sits is [TrackBounds]' to say, off the points this leaves.
      */
     data class Plan(
         val ignore: Set<Int>,
         val restore: Set<Int>,
-        /** The track's bounds after the cut — pulled in to a boundary fix, or pushed back out to
-         *  the raw recording where a stay was withdrawn. */
-        val startedAt: Long,
-        val endedAt: Long,
         val stays: List<EdgeStayDetector.EdgeStay>,
     ) {
         val movesPoints: Boolean get() = ignore.isNotEmpty() || restore.isNotEmpty()
     }
 
+    /** A track's points and clock as the current rules leave them — see [settle]. */
+    data class Settled(
+        val plan: Plan,
+        /** [points] with [plan] applied: the same instance when it moves nothing. */
+        val points: List<TrackPoint>,
+        val bounds: TrackBounds.Bounds,
+    )
+
     /**
-     * [points] is *all* of a track's points in order, good and ignored alike; [startedAt]/[endedAt]
-     * the track's current bounds. Each bound comes back as a stay's boundary fix where one was
-     * found, else the wider of the stored bound and the outermost fix — which restores the clock
-     * when a stay is withdrawn: the raw bound isn't stored anywhere, so the outermost fix stands in
-     * for it, differing only by the seconds between the last fix and the recorder noticing, and
-     * only ever in that direction.
+     * Both rules over one track, in the order that makes them one answer: the overrun is planned off
+     * the raw recording, applied, and the clock then read from what survives. The order is the whole
+     * of it — bounds taken before the flags land would keep the overrun's own fixes — so it is a
+     * function rather than a recipe each writer repeats. What a caller then does with the result
+     * differs and stays theirs: a stored track has rows to update, a restored one has none yet.
      */
-    fun plan(
+    fun settle(
         points: List<TrackPoint>,
         startedAt: Long,
         endedAt: Long,
         params: EdgeStayDetector.Params,
         distance: DistanceFn,
+    ): Settled {
+        val plan = plan(points, params, distance)
+        val applied = applied(points, plan)
+        return Settled(plan, applied, TrackBounds.of(applied, startedAt, endedAt))
+    }
+
+    /** [points] is *all* of a track's points in order, good and ignored alike. Half of [settle],
+     *  which is how a writer runs it — apart, the clock would be read off the wrong points. */
+    internal fun plan(
+        points: List<TrackPoint>,
+        params: EdgeStayDetector.Params,
+        distance: DistanceFn,
     ): Plan {
         val held = points.indices.filterTo(HashSet()) { i -> isEdgeStay(points[i]) }
 
-        // Cleared, not filtered out: the detector reads the recording as it arrived.
-        val raw = points.mapIndexed { i, p ->
-            if (i in held) p.copy(ignored = false, ignoreReason = null) else p
+        // Cleared, not filtered out: the detector reads the recording as it arrived. Nothing to
+        // clear hands back the same list, as [applied] does at the other end of the pass.
+        val raw = if (held.isEmpty()) {
+            points
+        } else {
+            points.mapIndexed { i, p -> if (i in held) p.copy(ignored = false, ignoreReason = null) else p }
         }
         val stays = EdgeStayDetector.detect(raw, params, distance)
         val wanted = raw.indices.filterTo(HashSet()) { i ->
             !raw[i].ignored && stays.any { it.movesOut(raw[i].timestamp) }
         }
 
-        fun boundary(side: EdgeStayDetector.Side) =
-            stays.firstOrNull { it.side == side }?.boundaryTs
-        return Plan(
-            ignore = wanted - held,
-            restore = held - wanted,
-            startedAt = boundary(EdgeStayDetector.Side.START)
-                ?: minOf(startedAt, points.firstOrNull()?.timestamp ?: startedAt),
-            endedAt = boundary(EdgeStayDetector.Side.END)
-                ?: maxOf(endedAt, points.lastOrNull()?.timestamp ?: endedAt),
-            stays = stays,
-        )
+        return Plan(ignore = wanted - held, restore = held - wanted, stays = stays)
     }
 
     /** [plan] applied to the points in memory — what the rows will read after the writes, and the
-     *  only form available to a backup restore, whose points have no rows yet. */
-    fun applied(points: List<TrackPoint>, plan: Plan): List<TrackPoint> =
+     *  only form available to a backup restore, whose points have no rows yet. The other half of
+     *  [settle]. */
+    internal fun applied(points: List<TrackPoint>, plan: Plan): List<TrackPoint> =
         if (!plan.movesPoints) {
             points
         } else {

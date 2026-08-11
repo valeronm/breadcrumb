@@ -50,22 +50,26 @@ class EdgeStayIgnoreTest {
     private fun TrackPoint.asEdgeStay() =
         copy(ignored = true, ignoreReason = IgnoreReason.EDGE_STAY.code)
 
-    private fun plan(points: List<TrackPoint>, startedAt: Long, endedAt: Long) =
-        EdgeStayIgnore.plan(points, startedAt, endedAt, params, flatDistance)
+    private fun plan(points: List<TrackPoint>) = EdgeStayIgnore.plan(points, params, flatDistance)
+
+    /** Both rules over one track, as every writer runs them. */
+    private fun settle(points: List<TrackPoint>, startedAt: Long, endedAt: Long) =
+        EdgeStayIgnore.settle(points, startedAt, endedAt, params, flatDistance)
 
     @Test
     fun `the arrival tail is flagged and the clock stops at the boundary`() {
         val points = walkThenLinger()
         val endedAt = points.last().timestamp + 5_000L
 
-        val plan = plan(points, startedAt = 0L, endedAt = endedAt)
+        val settled = settle(points, startedAt = 0L, endedAt = endedAt)
 
-        assertTrue("the tail comes off the path", plan.ignore.size >= 15)
-        assertTrue(plan.restore.isEmpty())
-        val kept = EdgeStayIgnore.applied(points, plan).filter { !it.ignored }
-        assertEquals(plan.endedAt, kept.last().timestamp)
-        assertTrue("nothing before the boundary is touched", plan.endedAt < endedAt)
-        assertEquals(0L, plan.startedAt)
+        assertTrue("the tail comes off the path", settled.plan.ignore.size >= 15)
+        assertTrue(settled.plan.restore.isEmpty())
+        // The boundary fix and the outermost surviving fix are the same fix — which is why the clock
+        // is read off the points rather than announced by the plan.
+        assertEquals(settled.bounds.endedAt, settled.points.last { !it.ignored }.timestamp)
+        assertTrue("nothing before the boundary is touched", settled.bounds.endedAt < endedAt)
+        assertEquals(0L, settled.bounds.startedAt)
     }
 
     @Test
@@ -74,15 +78,13 @@ class EdgeStayIgnoreTest {
         // not from what the last plan left behind. Detection fed its own output would keep
         // finding a fresh stay in the remainder and walk the track backwards, sweep by sweep.
         val points = walkThenLinger()
-        val first = plan(points, startedAt = 0L, endedAt = points.last().timestamp + 5_000L)
-        val applied = EdgeStayIgnore.applied(points, first)
+        val first = settle(points, 0L, points.last().timestamp + 5_000L)
 
-        val again = plan(applied, startedAt = first.startedAt, endedAt = first.endedAt)
+        val again = settle(first.points, first.bounds.startedAt, first.bounds.endedAt)
 
-        assertTrue(again.ignore.isEmpty())
-        assertTrue(again.restore.isEmpty())
-        assertEquals(first.startedAt, again.startedAt)
-        assertEquals(first.endedAt, again.endedAt)
+        assertTrue(again.plan.ignore.isEmpty())
+        assertTrue(again.plan.restore.isEmpty())
+        assertEquals(first.bounds, again.bounds)
     }
 
     @Test
@@ -96,12 +98,12 @@ class EdgeStayIgnoreTest {
         }
         val cutAt = walk[walk.size - 9].timestamp
 
-        val plan = plan(flagged, startedAt = 0L, endedAt = cutAt)
+        val settled = settle(flagged, 0L, cutAt)
 
-        assertEquals(8, plan.restore.size)
-        assertTrue(plan.ignore.isEmpty())
-        assertEquals(walk.last().timestamp, plan.endedAt)
-        assertTrue(EdgeStayIgnore.applied(flagged, plan).none { it.ignored })
+        assertEquals(8, settled.plan.restore.size)
+        assertTrue(settled.plan.ignore.isEmpty())
+        assertEquals(walk.last().timestamp, settled.bounds.endedAt)
+        assertTrue(settled.points.none { it.ignored })
     }
 
     @Test
@@ -115,7 +117,7 @@ class EdgeStayIgnoreTest {
             if (i in middle) p.asEdgeStay() else p
         }
 
-        val plan = plan(flagged, startedAt = 0L, endedAt = points.last().timestamp)
+        val plan = plan(flagged)
 
         assertEquals(middle, plan.restore)
         assertTrue(plan.ignore.isEmpty())
@@ -128,7 +130,7 @@ class EdgeStayIgnoreTest {
         // with id 0. A plan keyed by id would match all of them at once and flag the whole track.
         val points = walkThenLinger().map { it.copy(id = 0) }
 
-        val plan = plan(points, startedAt = 0L, endedAt = points.last().timestamp)
+        val plan = plan(points)
         val applied = EdgeStayIgnore.applied(points, plan)
 
         val kept = applied.filter { !it.ignored }
@@ -201,7 +203,7 @@ class EdgeStayIgnoreTest {
         // what keeps the common case from copying every point row to change none of them.
         val points = walk(0.0, 0L, 10)
 
-        val plan = plan(points, startedAt = 0L, endedAt = points.last().timestamp)
+        val plan = plan(points)
 
         assertTrue("a steady walk plans nothing", !plan.movesPoints)
         assertTrue(EdgeStayIgnore.applied(points, plan) === points)
@@ -212,7 +214,7 @@ class EdgeStayIgnoreTest {
         val points = walkThenLinger()
         val applied = EdgeStayIgnore.applied(
             points,
-            plan(points, startedAt = 0L, endedAt = points.last().timestamp),
+            plan(points),
         )
         val good = applied.filter { !it.ignored }
         val stay = applied.filter { EdgeStayIgnore.isEdgeStay(it) }

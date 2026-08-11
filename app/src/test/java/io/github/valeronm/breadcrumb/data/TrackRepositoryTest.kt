@@ -297,8 +297,7 @@ class TrackRepositoryTest {
         // The clock ends at the speed collapse — the walk-to-linger transition, bin-quantized.
         val walkEndTs = TEST_START + 59 * 10_000L
         assertTrue(track.endedAt!! in walkEndTs..(walkEndTs + 60_000))
-        // ...and that is where the last good fix is, so the row and the points agree.
-        assertEquals(track.endedAt, goodPoints(id).last().timestamp)
+        // ...and the helper below is what says that is also where the last good fix is.
         test.assertStatsMatchPoints(id)
         assertEquals(
             repository.trackPointsFor(id).edgeStay.map { it.id },
@@ -309,13 +308,14 @@ class TrackRepositoryTest {
     @Test fun `a track with nothing to cut keeps every fix`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
         repository.addPoints(walkPoints(id, 0, 90, fromLat = 1.0))
-        val endedAt = TEST_START + 90 * 10_000L
-        repository.finishTrack(id, endedAt)
+        repository.finishTrack(id, TEST_START + 90 * 10_000L)
 
         val track = dao.track(id)!!
         assertEquals(90, track.pointCount)
         assertEquals(0, track.ignoredCount)
-        assertEquals(endedAt, track.endedAt)
+        // Every fix survives — and the clock still comes back to the last of them rather than to the
+        // moment the walk was declared over, which here is one cadence later.
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `a track that starts lingering loses its head instead of its tail`() = runTest {
@@ -336,7 +336,6 @@ class TrackRepositoryTest {
         // (TEST_START is not bin-aligned, so up to one speed bin of slop either way).
         val walkStartTs = TEST_START + 90 * 10_000L
         assertTrue(walk.startedAt in (walkStartTs - 60_000)..(walkStartTs + 30_000))
-        assertEquals(walk.startedAt, goodPoints(id).first().timestamp)
         assertTrue(repository.trackPointsFor(id).edgeStay.all { it.timestamp < walk.startedAt })
         test.assertStatsMatchPoints(id)
     }
@@ -356,7 +355,7 @@ class TrackRepositoryTest {
         val restored = dao.track(id)!!
         assertEquals(90, restored.pointCount)
         assertEquals(0, restored.ignoredCount)
-        // The raw end time is gone with the old cut, so the clock goes back to the last fix.
+        // The fixes handed back are the last ones, so the clock reopens onto them.
         assertEquals(TEST_START + 89 * 10_000L, restored.endedAt)
         test.assertStatsMatchPoints(id)
     }

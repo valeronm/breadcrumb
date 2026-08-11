@@ -28,12 +28,22 @@ class TestDb {
     fun close() = db.close()
 
     /**
-     * What the stored aggregates should be, recomputed from the track's points on the spot — the
-     * one invariant every path that touches points is measured against (see [TrackRepositoryTest]).
+     * What the stored aggregates and bounds should be, recomputed from the track's points on the
+     * spot — the one invariant every path that touches points is measured against (see
+     * [TrackRepositoryTest]).
+     *
+     * The bounds are here rather than in a suite of their own because they are the same claim: the
+     * row's clock and its stored endpoint coordinates must describe **one** pair of fixes, and two
+     * functions derive them — [TrackStats] takes the coordinates, `TrackBounds` the timestamps, off
+     * separate walks. Nothing in production compares the two, so a path that settles one and not the
+     * other would leave a row whose start coordinate is not where it says the track started, and
+     * only this would notice. Two rows are exempt: one with no usable fix, whose bounds are whatever
+     * it was given, and one still open, whose clock is the recorder's until it finishes.
      */
     suspend fun assertStatsMatchPoints(trackId: Long) {
         val track = dao.track(trackId)!!
-        val expected = TrackStats.of(dao.allPointsFor(trackId))
+        val points = dao.allPointsFor(trackId)
+        val expected = TrackStats.of(points)
         assertEquals(expected.pointCount, track.pointCount)
         assertEquals(expected.ignoredCount, track.ignoredCount)
         assertEquals(expected.distanceMeters, track.distanceMeters, 0.5)
@@ -41,6 +51,11 @@ class TestDb {
         assertEquals(expected.startLon, track.startLon)
         assertEquals(expected.endLat, track.endLat)
         assertEquals(expected.endLon, track.endLon)
+        val good = points.filterNot { it.ignored }
+        if (good.isEmpty()) return
+        val endedAt = track.endedAt ?: return
+        assertEquals("startedAt is the fix startLat/startLon came from", good.first().timestamp, track.startedAt)
+        assertEquals("endedAt is the fix endLat/endLon came from", good.last().timestamp, endedAt)
     }
 
     /**
