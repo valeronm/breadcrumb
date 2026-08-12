@@ -8,8 +8,10 @@ Produces, in Breadcrumb's icon design language (home-glow gradient, Google Sans)
 Output lands beside the listing text because that folder is what gets uploaded to the
 Play Console.
 
-Source captures are docs/screenshots/ — the same demo-build shots the README embeds,
-deliberately not a second copy, so a re-shoot updates both at once. Each is composited
+Source captures are tools/demo-data/screenshots/ — the full-resolution raws
+shoot_screenshots.py writes (the README's docs/screenshots/ are the same shots compressed,
+too small and too dithered to composite from). One shoot feeds both, but the raws are
+gitignored, so regenerating store assets starts with a shoot. Each capture is composited
 onto a captioned branded frame. CAPTIONS below picks which of them ship and in what
 order, so the folder may hold shots the store does not use.
 
@@ -25,9 +27,10 @@ import subprocess
 from pathlib import Path
 from typing import NamedTuple
 
+from shoot_screenshots import RAW
+
 REPO = Path(__file__).resolve().parent.parent
 FONT = REPO / "app/src/main/res/font/google_sans.ttf"
-RAW = REPO / "docs/screenshots"
 LISTING = REPO / "docs/store-listing"
 OUT = LISTING / "screenshots"
 
