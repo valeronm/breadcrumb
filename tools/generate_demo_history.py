@@ -7,9 +7,7 @@ describes need what GPX cannot carry:
 
   - named places with categories, and the HOME tag journeys are defined against;
   - per-point accuracy / satellite count / C/N0, without which the map's colour modes drop to
-    speed alone (`availableColorModes` refuses metrics an imported track can't have);
-  - the liveness log, so silence between tracks reads as an observed stay rather than an
-    inferred one.
+    speed alone (`availableColorModes` refuses metrics an imported track can't have).
 
 Two spans, not one. The routine — commutes, gym, weekends — runs thirteen months, because Statistics
 reads one month against the year behind it and an empty year is the emptiest screen in the app. The
@@ -180,9 +178,9 @@ JOURNEYS = [
 #
 # A journey older than the routine stands alone: no commutes around it, just its own week. It still
 # derives, because each night away is bracketed within the block — the day of arrival ends at the
-# hotel, the day of departure back at home — and because the liveness log is ARMED throughout, so
-# the months of silence either side are an attested stay at home rather than a gap, and their nights
-# are placed at home where they neither open a run nor close one. Generating a second year of
+# hotel, the day of departure back at home — and because the silent months either side begin and
+# end at home, so their two endpoints agree and they derive as one long stay there, their nights
+# placed at home where they neither open a run nor close one. Generating a second year of
 # commutes to reach a journey inside it would double the file for days no screen is shot from.
 JOURNEY_LEAD_DAYS = 2
 HISTORY_DAYS = max(ROUTINE_DAYS,
@@ -427,10 +425,6 @@ def generate(base_day, now_ms, seed=7):
         lon, lat = fine[route][end]
         places.append({"id": i + 1, "label": label, "lat": round(lat, 6), "lon": round(lon, 6),
                        "createdAt": history_start_ms, "radiusM": radius, "category": category})
-    # Armed for the whole history and never disarmed: every silence between tracks is then an
-    # attested stay, which is what the timeline should look like in a screenshot.
-    liveness = [{"type": "ARMED", "at": history_start_ms, "until": None}]
-
     return {
         "format": FORMAT,
         "version": VERSION,
@@ -439,7 +433,6 @@ def generate(base_day, now_ms, seed=7):
         "pointFields": POINT_FIELDS,
         "tracks": tracks,
         "places": places,
-        "liveness": liveness,
     }
 
 
@@ -486,10 +479,9 @@ def verify(doc):
     days = sorted(by_day)
     # Keyed on the day a track actually falls in, not on its position among the days that have
     # one: outside the routine window most days hold nothing, so counting entries would walk off
-    # into the wrong week. The ARMED record is stamped at the history's first midnight, which is
-    # the one reference that survives both the sparse days and the cut tail.
-    assert doc["liveness"][0]["type"] == "ARMED", "first liveness entry is not the ARMED stamp"
-    first_epoch_day = doc["liveness"][0]["at"] // 86_400_000
+    # into the wrong week. The reference that survives both the sparse days and the cut tail:
+    # every place is stamped at the history's first midnight.
+    first_epoch_day = doc["places"][0]["createdAt"] // 86_400_000
     for from_end, nights, prefix in JOURNEYS:
         first = day_index(from_end)
         for n in range(nights + 1):
