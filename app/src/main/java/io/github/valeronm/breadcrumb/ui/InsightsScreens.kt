@@ -443,9 +443,9 @@ private fun SectionHeading(text: String) {
  * across twelve months.
  *
  * The two halves take equal weight and the strip is as tall as the text beside it, summed from the
- * three line heights rather than measured off the row: `IntrinsicSize.Min` would answer the same
- * question by laying every one of those `Text`s out twice on each pass, which a list of these pays
- * on every scroll frame. The sum still tracks the reader's font size, that being what a `sp` line
+ * left half's vertical terms rather than measured off the row: `IntrinsicSize.Min` would answer the
+ * same question by laying every one of those `Text`s out twice on each pass, which a list of these
+ * pays on every scroll frame. The sum still tracks the reader's font size, that being what a `sp` line
  * height is — which was the reason for measuring in the first place.
  */
 @Composable
@@ -461,14 +461,16 @@ private fun MetricRow(
     shape: RoundedCornerShape,
     onPickMonth: (Int) -> Unit,
 ) {
-    // The three styles the left half is written in, named once: the strip's height is their line
-    // heights summed, so reading them from one place is what keeps a restyled row from silently
-    // mismeasuring the bars beside it.
+    // Every vertical term the left half is built from, named once: the strip's height is their
+    // sum, so reading them from one place is what keeps a restyled row from silently mismeasuring
+    // the bars beside it.
     val labelStyle = MaterialTheme.typography.bodyLarge
     val valueStyle = MaterialTheme.typography.titleMedium
     val secondStyle = MaterialTheme.typography.labelSmall
+    val labelGap = 4.dp
     val stripHeight = with(LocalDensity.current) {
-        labelStyle.lineHeight.toDp() + valueStyle.lineHeight.toDp() + secondStyle.lineHeight.toDp()
+        labelStyle.lineHeight.toDp() + valueStyle.lineHeight.toDp() + secondStyle.lineHeight.toDp() +
+            labelGap
     }
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
         Row(
@@ -488,7 +490,7 @@ private fun MetricRow(
                     Spacer(Modifier.width(8.dp))
                     Text(label, style = labelStyle)
                 }
-                Text(value, style = valueStyle)
+                Text(value, style = valueStyle, modifier = Modifier.padding(top = labelGap))
                 Text(
                     second,
                     style = secondStyle,
