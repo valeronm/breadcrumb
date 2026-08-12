@@ -46,6 +46,8 @@ build. No real history is ever shot.*
   keeps working with the screen off or the app closed, survives reboots and the system killing it,
   and runs GPS only while you are moving — a guard switches the receiver off when a "moving"
   detection never produces a position, and by default only what the satellites measured is kept.
+  A journey you sit still through — a train, a taxi — can escape recognition entirely, so the app
+  also notices you have set off by other means: see *Starting a trip* under How it works.
 - Places — recurring stays cluster into places you name (home, work, the gym), each with a capture
   radius you can adjust and a category from a fixed vocabulary; categories the app suggests are
   learned from the ones you have already tagged. The Places tab shows them on a map and as a
@@ -77,7 +79,8 @@ build. No real history is ever shot.*
   running, cycling, driving, or going still. A one-shot snapshot on arming starts recording
   immediately if you're already moving. Recognition describes your body rather than the journey —
   it will call you still aboard a moving train — so a second witness cross-checks it against
-  measured ground speed before a "stationary" reading is allowed to end a trip.
+  measured ground speed before a "stationary" reading is allowed to end a trip. The same doubt
+  covers starting — see *Starting a trip* below.
 - A foreground service (`LocationRecordingService`) keeps recording while the app is in the
   background. A persistent notification is mandatory on modern Android — there is no truly
   invisible always-on location option. The service checks location permission before starting, so
@@ -102,6 +105,26 @@ build. No real history is ever shot.*
   a folder you pick via the Storage Access Framework. `BackupExporter` / `BackupImporter` stream
   the whole history as one gzipped JSON file, which is also what the companion viewer in `web/`
   reads.
+
+### Starting a trip
+
+Activity recognition's departure report is the usual start, but a journey you sit still through —
+a train, a taxi, a bus — can produce no report at all. Three more ways of noticing you have set
+off run beside it, each switchable on the *Starting a trip* settings page. All three answer one
+shared rule — the phone has left once a position sits further from where you stopped than both
+positions' stated error can explain — and differ only in what feeds them, a trade of how soon a
+trip is noticed against what it costs:
+
+- Leaving where you stopped — a geofence around the last stop. Costs no battery, and can take
+  several minutes to notice.
+- Movement the phone senses — the hardware significant-motion sensor fires a short burst of
+  coarse position checks. Costs nothing until the phone moves.
+- Regular position checks — a standing coarse request through the whole idle stretch. Notices
+  soonest, and is the only one that uses battery while you are going nowhere, so it is off by
+  default.
+
+A trip opened this way has no "stationary" report coming to end it, so it is closed by the second
+witness instead: a standstill proven by measured ground speed.
 
 ## Permissions
 
