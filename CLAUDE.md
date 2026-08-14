@@ -27,6 +27,17 @@ adb shell am start -n io.github.valeronm.breadcrumb.debug/io.github.valeronm.bre
 adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png   # screenshot to inspect UI
 ```
 
+Two more build types sit beside debug and release, each with its full rationale in
+`app/build.gradle.kts`. **`installPerf` is the build performance questions are answered on**:
+identical to debug but not debuggable — `debuggable = true` holds ART's optimizer back far enough
+to read as a regression that isn't there — and it reuses the `.debug` suffix, so it replaces the
+debug app in place with its recorded history intact, and `installDebug` puts the debuggable one
+back. **`installDemo` is the build screenshots are shot from**: a `.demo` install of its own whose
+empty database the generated demo history (`tools/generate_demo_history.py`) restores into.
+`tools/shoot_screenshots.py` drives it over adb to re-shoot the README set, and
+`tools/generate_store_assets.py` composites the store assets from the full-resolution raws that
+shoot leaves behind.
+
 The Gradle and AGP versions are pinned and coupled — if you upgrade one, move the other to a
 compatible pair, not one alone.
 
@@ -172,6 +183,10 @@ verification:
      adb exec-out run-as io.github.valeronm.breadcrumb.debug cat databases/$f > $f
    done
    ```
+
+   `run-as` works only against a debuggable install: with the perf build on the phone the pull
+   above is refused, and `installDebug` — which replaces it in place, history intact — is the way
+   back to one it works on.
 
    Open `tracks.db` from the directory holding all three and SQLite replays the log on open. A track
    still missing its `endedAt` after that is genuinely dangling (a process death mid-recording, which
@@ -503,7 +518,8 @@ one either — it is a reconciliation with no completion to record.
 
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places / Insights) Scaffold
 with full-screen **overlay** layers on top: sealed `Overlay` (`TrackDetail` | `Settings`) plus
-stacked layers for place detail, the Settings sub-pages (sampling, point filter, auto-pause, GPS
+stacked layers for place detail, journey detail (reached from the Insights tab or a Timeline band,
+keyed by the journey's first night), the Settings sub-pages (sampling, point filter, auto-pause, GPS
 search, track filtering, app lock, online services, Recently deleted, Logs), discarded-track detail,
 and the add-trip
 form (`AddTripScreen`, opened from the Timeline tab's top-bar "+" or from a gap row) — each
