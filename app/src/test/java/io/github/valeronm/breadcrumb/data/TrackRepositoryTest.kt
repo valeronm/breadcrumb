@@ -296,12 +296,13 @@ class TrackRepositoryTest {
         assertTrue(discardedTracks().isEmpty())
         // The clock ends at the speed collapse — the walk-to-linger transition, bin-quantized.
         val walkEndTs = TEST_START + 59 * 10_000L
-        assertTrue(track.endedAt!! in walkEndTs..(walkEndTs + 60_000))
+        val endedAt = track.endedAt!!
+        assertTrue(endedAt in walkEndTs..(walkEndTs + 60_000))
         // ...and the helper below is what says that is also where the last good fix is.
         test.assertStatsMatchPoints(id)
         assertEquals(
             repository.trackPointsFor(id).edgeStay.map { it.id },
-            dao.allPointsFor(id).filter { it.timestamp > track.endedAt!! }.map { it.id },
+            dao.allPointsFor(id).filter { it.timestamp > endedAt }.map { it.id },
         )
     }
 

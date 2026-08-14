@@ -267,7 +267,7 @@ class PlaceResolverTest {
      */
     @Test fun `a resolved stay exposes the matched place's attributes from one row`() {
         val tagged = place(7, "Corner shop", at(0.0)).copy(category = PlaceCategory.GROCERIES.code)
-        val r = resolve(listOf(stay(at(0.0))), listOf(tagged)).values.single()!!
+        val r = resolve(listOf(stay(at(0.0))), listOf(tagged)).values.single()
         assertEquals(tagged, r.place)
         assertEquals("Corner shop", r.label)
         assertEquals(7L, r.placeId)
@@ -277,12 +277,12 @@ class PlaceResolverTest {
     /** Untagged and unknown-code places both resolve with no category, and keep their label. */
     @Test fun `an untagged or unrecognized category resolves to none`() {
         val untagged = place(7, "Corner shop", at(0.0))
-        resolve(listOf(stay(at(0.0))), listOf(untagged)).values.single()!!.let {
+        resolve(listOf(stay(at(0.0))), listOf(untagged)).values.single().let {
             assertNull(it.category)
             assertEquals("Corner shop", it.label)
         }
         val future = untagged.copy(category = "laundromat")
-        resolve(listOf(stay(at(0.0))), listOf(future)).values.single()!!.let {
+        resolve(listOf(stay(at(0.0))), listOf(future)).values.single().let {
             assertNull(it.category)
             assertEquals("Corner shop", it.label)
         }
@@ -290,7 +290,7 @@ class PlaceResolverTest {
 
     /** An unnamed cluster has no place row at all — so no label, id or category. */
     @Test fun `an unnamed cluster resolves with nothing from a place`() {
-        val r = resolve(listOf(stay(at(0.0))), emptyList()).values.single()!!
+        val r = resolve(listOf(stay(at(0.0))), emptyList()).values.single()
         assertNull(r.place)
         assertNull(r.label)
         assertNull(r.placeId)

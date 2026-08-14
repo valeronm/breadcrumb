@@ -21,7 +21,7 @@ class MigrationDb(version: Int, createSchema: (SupportSQLiteDatabase) -> Unit) {
             .name(null) // in-memory
             .callback(object : SupportSQLiteOpenHelper.Callback(version) {
                 override fun onCreate(db: SupportSQLiteDatabase) = createSchema(db)
-                override fun onUpgrade(db: SupportSQLiteDatabase, old: Int, new: Int) = Unit
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
             })
             .build(),
     )
