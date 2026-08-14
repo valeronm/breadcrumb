@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="journey_view_in_timeline">Показать в истории</string>
+
+    <string name="journey_stat_cities">Города</string>
+    <string name="journey_stat_countries">Страны</string>
+
+    <string name="journey_all_days">Всё</string>
+
+    <string name="journey_tab_map">Карта</string>
+    <string name="journey_tab_stats">Статистика</string>
+    <string name="journey_tab_cities">Города</string>
+
+    <string name="journey_movement">Движение</string>
+    <string name="journey_places">Места</string>
+
+    <plurals name="journey_visits">
+        <item quantity="one">%d раз</item>
+        <item quantity="few">%d раза</item>
+        <item quantity="many">%d раз</item>
+        <item quantity="other">%d раза</item>
+    </plurals>
+</resources>

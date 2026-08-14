@@ -171,3 +171,22 @@ fun dayCategoryTotals(items: List<TimelineItem>, nowMs: Long): List<CategoryTota
     TimelineTotalsBuilder().apply { addAll(items, nowMs) }.build().categories.values
         .filter { it.durationMs >= REPORTED_TOTAL_FLOOR_MS }
         .sortedByDescending { it.durationMs }
+
+/** A journey's two tables, each sorted by its own measure — see [journeyTotals]. */
+class JourneyTotals(val activities: List<ActivityTotal>, val categories: List<CategoryTotal>)
+
+/**
+ * A journey's totals — activities furthest first, categories longest first, and **no category
+ * floor, deliberately**, where the day applies one: the day's line is a strip of chips where a
+ * two-minute category costs the reading what a six-hour one does, while the journey page gives
+ * every category a row with room for its figures — and a journey is exactly the reading where a
+ * brief stop is still worth a line. The third scale beside [dayCategoryTotals] and
+ * `MonthlyTotals`, all three summing through [TimelineTotalsBuilder].
+ */
+fun journeyTotals(items: List<TimelineItem>, nowMs: Long): JourneyTotals {
+    val totals = TimelineTotalsBuilder().apply { addAll(items, nowMs) }.build()
+    return JourneyTotals(
+        activities = totals.activities.values.sortedByDescending { it.meters },
+        categories = totals.categories.values.sortedByDescending { it.durationMs },
+    )
+}

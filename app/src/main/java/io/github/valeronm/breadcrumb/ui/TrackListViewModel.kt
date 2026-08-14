@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Cities
 import io.github.valeronm.breadcrumb.data.DerivationStore
+import io.github.valeronm.breadcrumb.data.JourneyPolylines
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.PlaceRepository
 import io.github.valeronm.breadcrumb.data.Settings
@@ -59,6 +60,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     /** GPX import/export/share and full backup/restore — the transfer half of this screen's API. */
     internal val importExport = ImportExportController(app, viewModelScope, repository, backupRepositories)
+
+    /** The journey map's per-track lines, loaded once and kept — see [JourneyPolylines]. */
+    internal val journeyPolylines = JourneyPolylines(repository)
 
     // These read `tracks` only, so a live recording's points can't wake them (see TrackDao) — the
     // distinctUntilChanged calls are for the writes that do: opening a track re-emits a list that

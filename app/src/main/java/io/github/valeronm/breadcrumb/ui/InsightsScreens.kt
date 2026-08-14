@@ -77,14 +77,14 @@ import java.time.YearMonth
  * standing preference about how you read your places, this is where you happened to be last time.
  */
 @Composable
-internal fun InsightsTab(viewModel: TrackListViewModel, onOpenDay: (LocalDate) -> Unit) {
+internal fun InsightsTab(viewModel: TrackListViewModel, onOpenJourney: (TravelNaming.Summary) -> Unit) {
     val pages = InsightsPage.entries
     val pager = rememberPagerState { pages.size }
     Column(Modifier.fillMaxSize()) {
         PagerTabRow(pager, pages.map { stringResource(it.labelRes) })
         HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { index ->
             when (pages[index]) {
-                InsightsPage.JOURNEYS -> JourneysPage(viewModel, onOpenDay)
+                InsightsPage.JOURNEYS -> JourneysPage(viewModel, onOpenJourney)
                 InsightsPage.STATISTICS -> StatisticsPage(viewModel)
             }
         }
@@ -104,7 +104,7 @@ private enum class InsightsPage(@StringRes val labelRes: Int) {
  * of; a separate view would restate the same numbers somewhere you had to go and look.
  */
 @Composable
-private fun JourneysPage(viewModel: TrackListViewModel, onOpenDay: (LocalDate) -> Unit) {
+private fun JourneysPage(viewModel: TrackListViewModel, onOpenJourney: (TravelNaming.Summary) -> Unit) {
     val travels by viewModel.travels.collectAsStateWithLifecycle()
     val rows = travels
     when {
@@ -115,14 +115,14 @@ private fun JourneysPage(viewModel: TrackListViewModel, onOpenDay: (LocalDate) -
             stringResource(R.string.insights_empty),
             Modifier.fillMaxSize().padding(32.dp),
         )
-        else -> TravelsList(rows, onOpenDay)
+        else -> TravelsList(rows, onOpenJourney)
     }
 }
 
 /** Journeys newest first, in year sections — the deriver hands them over oldest first. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TravelsList(travels: List<TravelNaming.Summary>, onOpenDay: (LocalDate) -> Unit) {
+private fun TravelsList(travels: List<TravelNaming.Summary>, onOpenJourney: (TravelNaming.Summary) -> Unit) {
     val zone = timelineZone()
     val today = LocalDate.now(zone)
     // Journeys are dated by the days they cover, never by their nights: a one-night journey covers
@@ -157,10 +157,8 @@ private fun TravelsList(travels: List<TravelNaming.Summary>, onOpenDay: (LocalDa
                 stickyHeader(key = "year:${section.label}") { YearHeading(section) }
                 itemsIndexed(section.rows, key = { _, (row, _) -> row.travel.firstNightAt }) { index, entry ->
                     val (summary, days) = entry
-                    // Opens the Timeline at the journey's latest day, where its heading first meets
-                    // the eye — the rows there run newest first.
                     TravelRow(summary, days, today, groupedRowShape(index, section.rows.size)) {
-                        onOpenDay(days.last())
+                        onOpenJourney(summary)
                     }
                 }
             }
@@ -238,14 +236,18 @@ private fun TravelRow(
         disc = DiscStyle.tonal(MaterialTheme.colorScheme.tertiary),
         title = travelTitle(TravelNaming.label(summary.destinations, travel.nightCount)),
         titleColor = MaterialTheme.colorScheme.onSurface,
-        subtitle = AnnotatedString(
-            dateRange(days.first(), days.last(), today) + " · " +
-                pluralStringResource(R.plurals.insights_nights, travel.nightCount, travel.nightCount),
-        ),
+        subtitle = AnnotatedString(travelSubtitle(days, today, travel.nightCount)),
         iconDescription = stringResource(R.string.insights_journey),
         onClick = onOpen,
     )
 }
+
+/** A journey's dates and nights as one line — this row's subtitle, and the journey detail's own
+ *  header, so the two cannot word the same journey differently. */
+@Composable
+internal fun travelSubtitle(days: List<LocalDate>, today: LocalDate, nightCount: Int): String =
+    dateRange(days.first(), days.last(), today) + " · " +
+        pluralStringResource(R.plurals.insights_nights, nightCount, nightCount)
 
 /**
  * A journey's dates, dropping what the two ends share: "12–17 May", "28 Apr – 3 May 2019". Never a
@@ -419,16 +421,6 @@ private fun MonthSelector(
             )
         }
     }
-}
-
-@Composable
-private fun SectionHeading(text: String) {
-    Text(
-        text,
-        modifier = Modifier.padding(top = 20.dp, bottom = 6.dp),
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-    )
 }
 
 /**

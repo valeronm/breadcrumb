@@ -58,7 +58,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -700,14 +699,6 @@ private fun PinSearchResult(
 @Composable
 private fun localityLabel(city: CityAtlas.City): String =
     "${city.name}, ${countryDisplayName(city.country)}"
-
-/** [countryNameOf] remembered per code — the ICU lookup would otherwise re-run for every result
- *  row on every keystroke — falling back to the raw code where it resolves to nothing. */
-@Composable
-private fun countryDisplayName(code: String): String {
-    val locale = LocalConfiguration.current.locales[0]
-    return remember(code, locale) { countryNameOf(code, locale).ifEmpty { code } }
-}
 
 /**
  * One end of the trip: which city (and so whose clock) its pin resolved to, and its time row.

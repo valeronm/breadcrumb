@@ -57,6 +57,22 @@ class SegmentBreaksTest {
     }
 
     @Test
+    fun `splitting cuts at each break, the break's own fix opening the next stretch`() {
+        val points = listOf(point(1), point(2), point(3, segmentStart = true), point(4))
+
+        val stretches = SegmentBreaks.split(points)
+
+        assertEquals(listOf(listOf(1L, 2L), listOf(3L, 4L)), stretches.map { s -> s.map { it.id } })
+    }
+
+    @Test
+    fun `a break on the first fix marks nothing to cut`() {
+        val points = listOf(point(1, segmentStart = true), point(2))
+
+        assertEquals(1, SegmentBreaks.split(points).size)
+    }
+
+    @Test
     fun `a run of ignored fixes carrying a break resumes once`() {
         // A rejected resume fix followed by more rejects — the boundary is still one boundary.
         val points = listOf(

@@ -328,16 +328,7 @@ object TravelDeriver {
             val lastDay = startOfDay(run.last().date.plusDays(1))
             val windowStart = maxOf(leftHomeAt ?: Long.MIN_VALUE, firstDay)
             val windowEnd = minOf(reachedHomeAt ?: nowMs, lastDay)
-            val clusterStayMs = mutableMapOf<Int, Long>()
-            for (stay in stays) {
-                // The overlap, not only the stays wholly inside: one straddling either edge spent
-                // real time on this journey, and the stay someone is in *right now* ends at now,
-                // past every bound a finished journey has. Containment alone would name a journey
-                // in progress after wherever its traveller was the day before.
-                val overlap = minOf(stay.end ?: nowMs, windowEnd) - maxOf(stay.start, windowStart)
-                if (overlap <= 0L) continue
-                clusterStayMs[stay.clusterId] = (clusterStayMs[stay.clusterId] ?: 0L) + overlap
-            }
+            val clusterStayMs = clusterStayMsWithin(stays, windowStart, windowEnd, nowMs)
             return Travel(
                 firstNight = run.first().date,
                 lastNight = run.last().date,
@@ -350,6 +341,30 @@ object TravelDeriver {
                 clusterStayMs = clusterStayMs,
             )
         }
+    }
+
+    /**
+     * Time per cluster within `[windowStart, windowEnd)` — the rule [Travel.clusterStayMs] is
+     * measured by.
+     *
+     * The overlap, not only the stays wholly inside: one straddling either edge spent real time in
+     * the window, and the stay someone is in *right now* ends at [nowMs], past every bound a
+     * finished journey has. Containment alone would name a journey in progress after wherever its
+     * traveller was the day before.
+     */
+    private fun clusterStayMsWithin(
+        stays: List<StayDeriver.Stay>,
+        windowStart: Long,
+        windowEnd: Long,
+        nowMs: Long,
+    ): Map<Int, Long> {
+        val clusterStayMs = mutableMapOf<Int, Long>()
+        for (stay in stays) {
+            val overlap = overlapMs(stay.start, stay.end ?: nowMs, windowStart, windowEnd)
+            if (overlap <= 0L) continue
+            clusterStayMs[stay.clusterId] = (clusterStayMs[stay.clusterId] ?: 0L) + overlap
+        }
+        return clusterStayMs
     }
 
     /**

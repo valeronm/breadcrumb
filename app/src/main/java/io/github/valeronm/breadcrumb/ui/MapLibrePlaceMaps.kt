@@ -382,8 +382,7 @@ internal fun MapLibrePlacesMap(
         onUpdate = { _, style ->
             if (applied.places !== places) {
                 applied.places = places
-                style.getSourceAs<GeoJsonSource>(OVERVIEW_SOURCE)
-                    ?.setGeoJson(overviewCollection(places))
+                updateOverviewSource(style, places)
                 style.getSourceAs<GeoJsonSource>(OVERVIEW_CIRCLE_SOURCE)
                     ?.setGeoJson(overviewCircles(places))
             }
@@ -468,12 +467,36 @@ private const val GLYPH_ZOOM = 9f
  */
 private const val LABEL_ZOOM = 11f
 
-private fun addOverviewLayers(ctx: Context, style: Style, places: List<OverviewPlace>) {
+// Shared with the journey map, which draws the same field of places over its own lines — a style
+// belongs to one MapView, so the source and layer names cannot collide across screens.
+//
+// [fullSize] keeps the pins at the size, glyph and label the base layer already draws — the
+// track map's end-pin behavior. The zoom ramp below is a property of a *field* of places framed
+// to a whole history; a journey holds a handful, which cannot smudge into each other any more
+// than a track's two ends can.
+internal fun addOverviewLayers(ctx: Context, style: Style, places: List<OverviewPlace>, fullSize: Boolean = false) {
     addEndpointDotImages(ctx, style, withBrief = true)
     addPlacePinImages(ctx, style)
     style.addSource(GeoJsonSource(OVERVIEW_SOURCE, overviewCollection(places)))
-    style.addLayer(
-        labeledSymbolLayer(ctx, OVERVIEW_LAYER, OVERVIEW_SOURCE).withProperties(
+    val layer = labeledSymbolLayer(ctx, OVERVIEW_LAYER, OVERVIEW_SOURCE).withProperties(
+        // Labels arrive at street zoom in either mode — a name is worth showing where a street
+        // is, not over a whole country, however big its pin. Emptied rather than faded out: an
+        // invisible label still takes part in collision and would push its neighbours' names
+        // around from behind.
+        PropertyFactory.textField(
+            Expression.step(
+                Expression.zoom(),
+                Expression.literal(""),
+                Expression.stop(LABEL_ZOOM, Expression.get(LABEL_KEY)),
+            ),
+        ),
+    )
+    if (fullSize) {
+        // The glyphed variant at full size at every zoom; a dot names its own icon twice, so this
+        // reads correctly for both kinds.
+        layer.withProperties(PropertyFactory.iconImage(Expression.get(GLYPH_KEY)))
+    } else {
+        layer.withProperties(
             // Every feature names both of its variants; zoom picks which one is drawn. A dot names
             // its own icon twice — it has no glyph to gain, and a missing image draws nothing.
             PropertyFactory.iconImage(
@@ -484,17 +507,9 @@ private fun addOverviewLayers(ctx: Context, style: Style, places: List<OverviewP
                 ),
             ),
             PropertyFactory.iconSize(overviewIconSize()),
-            // Emptied rather than faded out: an invisible label still takes part in collision and
-            // would push its neighbours' names around from behind.
-            PropertyFactory.textField(
-                Expression.step(
-                    Expression.zoom(),
-                    Expression.literal(""),
-                    Expression.stop(LABEL_ZOOM, Expression.get(LABEL_KEY)),
-                ),
-            ),
-        ),
-    )
+        )
+    }
+    style.addLayer(layer)
 }
 
 /**
@@ -531,6 +546,12 @@ private fun sizeByMarker(pin: Float, dot: Float): Expression =
         Expression.literal(pin),
         Expression.literal(dot),
     )
+
+/** Refreshes the field of places [addOverviewLayers] installed — the one update path, so every
+ *  map showing the field rebuilds its collection the same way. */
+internal fun updateOverviewSource(style: Style, places: List<OverviewPlace>) {
+    style.getSourceAs<GeoJsonSource>(OVERVIEW_SOURCE)?.setGeoJson(overviewCollection(places))
+}
 
 private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
     FeatureCollection.fromFeatures(
@@ -658,8 +679,7 @@ internal fun MapLibreTripMap(
         onUpdate = { map, style ->
             if (applied.places !== places) {
                 applied.places = places
-                style.getSourceAs<GeoJsonSource>(OVERVIEW_SOURCE)
-                    ?.setGeoJson(overviewCollection(places))
+                updateOverviewSource(style, places)
             }
             if (applied.pins != origin to destination) {
                 applied.pins = origin to destination

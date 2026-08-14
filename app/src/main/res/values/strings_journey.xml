@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- JourneyDetailScreen: one journey opened from the Insights list. -->
+<resources>
+    <!-- Read aloud for the top bar action that opens the Timeline at this journey's latest day. -->
+    <string name="journey_view_in_timeline">View in timeline</string>
+
+    <!-- The header figures; the numbers come separately, so these are bare nouns. -->
+    <string name="journey_stat_cities">Cities</string>
+    <string name="journey_stat_countries">Countries</string>
+
+    <!-- The map page's day chips: the whole journey, or one day of it — dated, not numbered. -->
+    <string name="journey_all_days">All</string>
+
+    <!--
+      The pages. The map is a page rather than a card in a scroller so a pan is never a scroll;
+      Cities is time per city, every one the journey touched — a person's place keeps their name
+      there.
+    -->
+    <string name="journey_tab_map">Map</string>
+    <string name="journey_tab_stats">Statistics</string>
+    <string name="journey_tab_cities">Cities</string>
+
+    <!-- The statistics page's sections, worded as the Insights statistics page words the same rows. -->
+    <string name="journey_movement">Movement</string>
+    <string name="journey_places">Places</string>
+
+    <plurals name="journey_visits">
+        <item quantity="one">%d visit</item>
+        <item quantity="other">%d visits</item>
+    </plurals>
+</resources>

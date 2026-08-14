@@ -83,6 +83,32 @@ class TravelNamingTest {
         )
     }
 
+    @Test fun `countries rank by their summed time, cities within each by their own`() {
+        val sections = TravelNaming.citySections(
+            linkedMapOf(
+                TravelNaming.SpentCity("Braga", "PT") to 4 * hour,
+                TravelNaming.SpentCity("Vigo", "ES") to 10 * hour,
+                TravelNaming.SpentCity("Porto", "PT") to 8 * hour,
+            ),
+        )
+
+        // Portugal's two cities outweigh Spain's one; within Portugal, Porto leads Braga.
+        assertEquals(listOf("PT", "ES"), sections.map { it.country })
+        assertEquals(listOf("Porto" to 8 * hour, "Braga" to 4 * hour), sections[0].cities)
+        assertEquals(listOf("Vigo" to 10 * hour), sections[1].cities)
+    }
+
+    @Test fun `tied cities keep the order they were visited in`() {
+        val sections = TravelNaming.citySections(
+            linkedMapOf(
+                TravelNaming.SpentCity("First", "XX") to 6 * hour,
+                TravelNaming.SpentCity("Second", "XX") to 6 * hour,
+            ),
+        )
+
+        assertEquals(listOf("First" to 6 * hour, "Second" to 6 * hour), sections.single().cities)
+    }
+
     @Test fun `names with no time at all are kept rather than filtered to nothing`() {
         // A journey whose stays are all zero-length still happened somewhere; the floor is a
         // proportion, and a proportion of nothing must not empty the list.

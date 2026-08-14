@@ -22,6 +22,7 @@ class TravelSummaryTest {
 
     private val hour = 3_600_000L
     private fun at(city: TestCity) = Coordinate(city.lat, city.lon)
+    private fun spentCity(city: TestCity) = TravelNaming.SpentCity(city.name, city.country)
 
     private var nextId = 0L
 
@@ -131,6 +132,67 @@ class TravelSummaryTest {
         // Four hours on the road, and neither end earns the two hours a name takes; the longest
         // stay names it rather than leaving the journey anonymous.
         assertEquals(1, summary.destinations.size)
+    }
+
+    @Test fun `the city time map keeps what the naming floor drops`() {
+        val summary = summarize(
+            travel(mapOf(0 to 20 * hour, 1 to hour / 2)),
+            listOf(at(seaside), at(hillTown)),
+        )
+
+        // Half an hour is not a destination, but it is still half an hour spent somewhere.
+        assertEquals(listOf("Seaside"), summary.destinations)
+        assertEquals(
+            mapOf(spentCity(seaside) to 20 * hour, spentCity(hillTown) to hour / 2),
+            summary.timeByCity,
+        )
+    }
+
+    @Test fun `two clusters in one city are one entry in the city time map`() {
+        // A hotel and a car park a kilometre apart: two clusters, one city, one place someone went.
+        val nearSeaside = Coordinate(seaside.lat, seaside.lon + 0.01)
+        val summary = summarize(
+            travel(mapOf(0 to 3 * hour, 1 to 4 * hour)),
+            listOf(at(seaside), nearSeaside),
+        )
+
+        assertEquals(mapOf(spentCity(seaside) to 7 * hour), summary.timeByCity)
+    }
+
+    @Test fun `the road contributes nothing to the city time map`() {
+        val places = listOf(place("Motorway services", hillTown, PlaceCategory.SERVICE_AREA))
+        val summary = summarize(
+            travel(mapOf(0 to 3 * hour, 1 to 20 * hour)),
+            listOf(at(hillTown), at(seaside)),
+            places,
+        )
+
+        assertEquals(mapOf(spentCity(seaside) to 20 * hour), summary.timeByCity)
+    }
+
+    @Test fun `a person's place credits the city it sits in, not their name`() {
+        // The naming keeps "Mum's" (the visit is the destination); the city map answers where the
+        // journey went, and Mum lives somewhere.
+        val places = listOf(place("Mum's", hillTown, PlaceCategory.FRIENDS_FAMILY))
+        val summary = summarize(
+            travel(mapOf(0 to 5 * hour)),
+            listOf(at(hillTown)),
+            places,
+        )
+
+        assertEquals(listOf("Mum's"), summary.destinations)
+        assertEquals(mapOf(spentCity(hillTown) to 5 * hour), summary.timeByCity)
+    }
+
+    @Test fun `a same-city track's credit is clipped to the journey's window`() {
+        val summary = summarize(
+            travel(mapOf(0 to 10 * 60_000L), span = 0L..(24 * hour)),
+            listOf(at(seaside)),
+            tracks = listOf(track(seaside, seaside, startedAt = 20 * hour, endedAt = 30 * hour)),
+        )
+
+        // Ten minutes of pauses plus the four in-window hours of a track that runs six past it.
+        assertEquals(mapOf(spentCity(seaside) to (4 * hour + 10 * 60_000L)), summary.timeByCity)
     }
 
     @Test fun `tracks outside the journey's own window are not its time`() {

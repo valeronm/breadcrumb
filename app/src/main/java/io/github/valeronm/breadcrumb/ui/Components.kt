@@ -99,6 +99,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.pluralStringResource
@@ -307,10 +308,44 @@ internal val fullDayFormat by PerLocale { localizedDateFormat("dMMMM", it) }
 
 internal val fullDayYearFormat by PerLocale { localizedDateFormat("dMMMMy", it) }
 
+/** A list section's heading, in the primary tint the section titles wear across the stat screens. */
+@Composable
+internal fun SectionHeading(text: String) {
+    Text(
+        text,
+        modifier = Modifier.padding(top = 20.dp, bottom = 6.dp),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+/**
+ * The flag emoji for an ISO 3166-1 alpha-2 code — two regional-indicator code points, which is the
+ * mechanical mapping every flag rests on, so every country the gazetteer knows has one without a
+ * table to keep in step. A device with no glyph for a given pair renders the two letters instead,
+ * which is the same information. Empty for anything that is not a two-letter upper-case code.
+ */
+internal fun flagOf(country: String): String {
+    if (country.length != 2 || !country.all { it in 'A'..'Z' }) return ""
+    return country.map { Character.toChars(REGIONAL_INDICATOR_A + (it - 'A')).concatToString() }
+        .joinToString("")
+}
+
+private const val REGIONAL_INDICATOR_A = 0x1F1E6
+
 /** The device-locale display name of an ISO 3166-1 alpha-2 code, empty when it resolves to
  *  nothing — each caller decides what an unresolvable country should read as. */
 internal fun countryNameOf(code: String, locale: Locale): String =
     Locale.Builder().setRegion(code).build().getDisplayCountry(locale)
+
+/** [countryNameOf] remembered per code — the ICU lookup would otherwise re-run on every
+ *  recomposition of every row naming one — falling back to the raw code where it resolves to
+ *  nothing. */
+@Composable
+internal fun countryDisplayName(code: String): String {
+    val locale = LocalConfiguration.current.locales[0]
+    return remember(code, locale) { countryNameOf(code, locale).ifEmpty { code } }
+}
 
 // `LLLL`, not `MMMM`: a month named on its own takes the stand-alone form, which in the Slavic
 // languages is the nominative — `MMMM` there yields the genitive a full date needs ("of July").
@@ -1353,7 +1388,11 @@ private const val ACTIVITY_LUM = 0.62f
  * mistaken for a kind of stop even at neighboring hues.
  */
 @Composable
-internal fun activityColor(activity: ActivityType?): Color = when (activity) {
+internal fun activityColor(activity: ActivityType?): Color =
+    activityColorOr(activity, MaterialTheme.colorScheme.onSurfaceVariant)
+
+/** [activityColor] for a caller outside composition, handed the theme fallback it read there. */
+internal fun activityColorOr(activity: ActivityType?, fallback: Color): Color = when (activity) {
     ActivityType.DRIVING -> Color.hsl(210f, ACTIVITY_SAT, ACTIVITY_LUM) // blue
     ActivityType.TAXI -> Color.hsl(48f, ACTIVITY_SAT, ACTIVITY_LUM)     // taxi yellow
     ActivityType.FERRY -> Color.hsl(330f, ACTIVITY_SAT, ACTIVITY_LUM)   // magenta
@@ -1362,7 +1401,7 @@ internal fun activityColor(activity: ActivityType?): Color = when (activity) {
     ActivityType.CYCLING -> Color.hsl(165f, ACTIVITY_SAT, ACTIVITY_LUM) // teal-green
     ActivityType.RUNNING -> Color.hsl(30f, ACTIVITY_SAT, ACTIVITY_LUM)  // orange
     ActivityType.WALKING -> Color.hsl(275f, ACTIVITY_SAT, ACTIVITY_LUM) // violet
-    else -> MaterialTheme.colorScheme.onSurfaceVariant
+    else -> fallback
 }
 
 // The places' categorical palette: what a place was for, by category group rather than by category —

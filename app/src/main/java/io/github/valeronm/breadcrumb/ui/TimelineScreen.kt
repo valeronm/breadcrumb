@@ -119,6 +119,8 @@ internal fun TracksTab(
     viewedDay: TimelineViewedDay,
     onOpen: (Long) -> Unit,
     onOpenPlace: (String) -> Unit,
+    /** Open the journey detail — the band over a day inside one is the way in from here. */
+    onOpenJourney: (TravelNaming.Summary) -> Unit,
     /** Open the add-trip form on an absence, holding whatever the gap row it came from knows. */
     onAddTrip: (TripDraft) -> Unit,
     onReplay: (TrackSummary) -> Unit,
@@ -284,7 +286,7 @@ internal fun TracksTab(
                     // sharing a key is a hard crash in a lazy list rather than a cosmetic clash.
                     stickyHeader(key = "header:${group.items.first().startedAt}") {
                         val label = dayLabel(group.date, today, todayText, yesterdayText)
-                        DayHeader(label, dayTracks, dayItems, away) {
+                        DayHeader(label, dayTracks, dayItems, away, onOpenJourney) {
                             viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
                                 if (intent != null) context.startActivity(intent)
                             }
@@ -355,11 +357,13 @@ internal fun TracksTab(
  * can act on.
  */
 @Composable
-private fun TravelHeading(away: AwayDay) {
+private fun TravelHeading(away: AwayDay, onOpen: () -> Unit) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(bottom = 2.dp),
+        // The band is the journey's presence on this screen, so tapping it opens the journey —
+        // same destination as the Insights row, from the other end.
+        modifier = Modifier.clickable(onClick = onOpen).padding(bottom = 2.dp),
     ) {
         // Shared with the Travel place category on purpose: a chip on a place and a heading over a
         // run of days are read in different places, and the same glyph means "a trip" in both.
@@ -390,6 +394,7 @@ private fun DayHeader(
     dayTracks: List<TrackSummary>,
     dayItems: List<TimelineItem>,
     away: AwayDay?,
+    onOpenJourney: (TravelNaming.Summary) -> Unit,
     onShare: () -> Unit,
 ) {
     val totals = remember(dayTracks) { activityTotals(dayTracks, System.currentTimeMillis()) }
@@ -404,7 +409,7 @@ private fun DayHeader(
             .background(MaterialTheme.colorScheme.background)
             .padding(top = 14.dp, bottom = 6.dp),
     ) {
-        away?.let { TravelHeading(it) }
+        away?.let { TravelHeading(it) { onOpenJourney(it.summary) } }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

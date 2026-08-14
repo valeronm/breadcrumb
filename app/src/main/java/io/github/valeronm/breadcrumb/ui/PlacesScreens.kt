@@ -1303,19 +1303,6 @@ private fun PlaceLocality(at: Coordinate, nowMs: Long, viewModel: TrackListViewM
     )
 }
 
-/**
- * A country's flag, built from its code rather than looked up: a regional-indicator pair *is* the
- * flag, so every country the gazetteer knows has one without a table to keep in step. A device with
- * no glyph for a given pair renders the two letters instead, which is the same information.
- */
-private fun flagOf(country: String): String {
-    if (country.length != 2 || !country.all { it in 'A'..'Z' }) return ""
-    return country.map { Character.toChars(REGIONAL_INDICATOR_A + (it - 'A')).concatToString() }
-        .joinToString("")
-}
-
-private const val REGIONAL_INDICATOR_A = 0x1F1E6
-
 @Composable
 private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {
     val noValue = stringResource(R.string.common_no_value)

@@ -20,7 +20,6 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
-import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.pin
@@ -351,21 +350,13 @@ private fun framePositions(
 
 /**
  * The positions a run of fixes is drawn through: the fixes themselves, or with [greatCircleLegs]
- * each leg densified along its great circle ([GreatCircle.arc]). Each arc starts from the previous
- * *drawn* position rather than the raw fix, so the unwrapped longitudes stay continuous across an
- * antimeridian however many legs cross it.
+ * each leg densified along its great circle ([greatCirclePositions]).
  */
 private fun linePositions(points: List<TrackPoint>, greatCircleLegs: Boolean): List<Point> {
     if (!greatCircleLegs || points.size < 2) {
         return points.map { Point.fromLngLat(it.longitude, it.latitude) }
     }
-    val out = ArrayList<Coordinate>()
-    out += Coordinate(points[0].latitude, points[0].longitude)
-    for (i in 1 until points.size) {
-        val arc = GreatCircle.arc(out.last(), Coordinate(points[i].latitude, points[i].longitude))
-        for (j in 1 until arc.size) out += arc[j]
-    }
-    return out.map { it.toPoint() }
+    return greatCirclePositions(points.map { Coordinate(it.latitude, it.longitude) }).map { it.toPoint() }
 }
 
 /** The points as one polyline, or null below the two positions a GeoJSON LineString needs. */

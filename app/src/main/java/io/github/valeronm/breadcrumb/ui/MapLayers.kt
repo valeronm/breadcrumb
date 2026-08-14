@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -176,6 +177,22 @@ private fun mutedOpacity(): Expression = Expression.switchCase(
 
 /** The axis swap GeoJSON demands, made in exactly one place: a [Point] is longitude-first. */
 internal fun Coordinate.toPoint(): Point = Point.fromLngLat(lon, lat)
+
+/**
+ * [points] densified along each leg's great circle ([GreatCircle.arc]). Each arc starts from the
+ * previous *drawn* position rather than the raw point, so the unwrapped longitudes stay continuous
+ * across an antimeridian however many legs cross it.
+ */
+internal fun greatCirclePositions(points: List<Coordinate>): List<Coordinate> {
+    if (points.size < 2) return points
+    val out = ArrayList<Coordinate>()
+    out += points[0]
+    for (i in 1 until points.size) {
+        val arc = GreatCircle.arc(out.last(), points[i])
+        for (j in 1 until arc.size) out += arc[j]
+    }
+    return out
+}
 
 internal fun Coordinate.toLatLng(): LatLng = LatLng(lat, lon)
 

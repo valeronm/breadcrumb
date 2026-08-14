@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="journey_view_in_timeline">Ver na cronologia</string>
+
+    <string name="journey_stat_cities">Cidades</string>
+    <string name="journey_stat_countries">Países</string>
+
+    <string name="journey_all_days">Tudo</string>
+
+    <string name="journey_tab_map">Mapa</string>
+    <string name="journey_tab_stats">Estatísticas</string>
+    <string name="journey_tab_cities">Cidades</string>
+
+    <string name="journey_movement">Movimento</string>
+    <string name="journey_places">Locais</string>
+
+    <plurals name="journey_visits">
+        <item quantity="one">%d visita</item>
+        <item quantity="other">%d visitas</item>
+    </plurals>
+</resources>

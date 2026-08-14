@@ -36,4 +36,23 @@ object SegmentBreaks {
         }
         return good
     }
+
+    /**
+     * [points] — a path's fixes, breaks already carried ([goodWithCarriedBreaks]) — cut into the
+     * stretches the recorder watched: each break starts a new stretch, and the leg across it
+     * belongs to neither. A break on the first fix marks nothing to cut.
+     */
+    fun split(points: List<TrackPoint>): List<List<TrackPoint>> {
+        if (points.isEmpty()) return emptyList()
+        val stretches = ArrayList<List<TrackPoint>>()
+        var from = 0
+        for (i in 1 until points.size) {
+            if (points[i].segmentStart) {
+                stretches += points.subList(from, i)
+                from = i
+            }
+        }
+        stretches += points.subList(from, points.size)
+        return stretches
+    }
 }

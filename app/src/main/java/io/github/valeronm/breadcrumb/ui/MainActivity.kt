@@ -47,6 +47,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -74,6 +75,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.UnitChoice
@@ -374,6 +376,9 @@ private fun MainScreen(
     // A flag rather than a second key: it can only ever be the place the detail below is showing,
     // so deriving the layer's content from that key keeps the two from needing to agree.
     var editingArea by remember { mutableStateOf(false) }
+    // A journey opened from Insights or a Timeline band, keyed by its first night's sample
+    // instant — the same key its list row uses, and the only identity a derived journey has.
+    var journeyKey by remember { mutableStateOf<Long?>(null) }
     // A visit tapped on the place detail: the Timeline scrolls to this stay when it next composes.
     var timelineVisitTarget by remember { mutableStateOf<StayDeriver.Stay?>(null) }
     var timelineDayTarget by remember { mutableStateOf<LocalDate?>(null) }
@@ -437,6 +442,12 @@ private fun MainScreen(
         content = tripDraft,
         over = mainPageLayer,
         onDismiss = { tripDraft = null },
+    )
+    // Journey detail: reached from the Insights tab, so back previews the tabs — like place detail.
+    val journeyLayer = rememberOverlayLayer(
+        content = journeyKey,
+        over = tabsLayer,
+        onDismiss = { journeyKey = null },
     )
 
     // Undo snackbars for the Timeline's swipe actions and place removal. Owned here, not in the
@@ -557,6 +568,7 @@ private fun MainScreen(
                         viewedDay = timelineViewedDay,
                         onOpen = { mainPage = MainPage.TrackDetail(it) },
                         onOpenPlace = { placeDetailKey = it },
+                        onOpenJourney = { journeyKey = it.travel.firstNightAt },
                         onAddTrip = { tripDraft = it },
                         onReplay = { track ->
                             TrackReplayer.start(context, track.id)
@@ -570,10 +582,7 @@ private fun MainScreen(
                     )
                     HomeTab.INSIGHTS -> InsightsTab(
                         viewModel = viewModel,
-                        onOpenDay = { day ->
-                            timelineDayTarget = day
-                            selectedTab = HomeTab.TRACKS
-                        },
+                        onOpenJourney = { journeyKey = it.travel.firstNightAt },
                     )
                 }
             }
@@ -656,6 +665,17 @@ private fun MainScreen(
             layer = addTripLayer,
             viewModel = viewModel,
             onClose = { tripDraft = null },
+        )
+
+        JourneyDetailOverlay(
+            layer = journeyLayer,
+            viewModel = viewModel,
+            onClose = { journeyKey = null },
+            onOpenDay = { day ->
+                journeyKey = null
+                timelineDayTarget = day
+                selectedTab = HomeTab.TRACKS
+            },
         )
 
         // Dismissing any of these leaves nothing to answer for the step, so a run waiting on one
@@ -816,6 +836,37 @@ private fun PlaceDetailOverlay(
                 onBack = onClose,
                 onOpenVisit = onOpenVisit,
                 onAdjustArea = onAdjustArea,
+            )
+        }
+    }
+}
+
+/** Journey detail, over the tabs — back lands on the Insights list that opened it. */
+@Composable
+private fun JourneyDetailOverlay(
+    layer: OverlayLayerState<Long>,
+    viewModel: TrackListViewModel,
+    onClose: () -> Unit,
+    onOpenDay: (LocalDate) -> Unit,
+) {
+    OverlayFrame(layer) { key ->
+        // Inside the frame, so the derivation is subscribed only while this layer is up.
+        val travels by viewModel.travels.collectAsStateWithLifecycle()
+        // The last summary the key resolved to keeps the screen alive while the derivation
+        // re-runs, and through a re-derivation that moved the journey's first night out from
+        // under its key. Local to the frame: its lifetime is the layer's, so nothing above
+        // needs to hold or clear it.
+        var snapshot by remember { mutableStateOf<TravelNaming.Summary?>(null) }
+        val resolved = travels?.firstOrNull { it.travel.firstNightAt == key }
+        // Unconditional: state writes are structural-equality gated, so an unchanged summary
+        // invalidates nothing.
+        if (resolved != null) SideEffect { snapshot = resolved }
+        (resolved ?: snapshot)?.let { detail ->
+            JourneyDetailScreen(
+                summary = detail,
+                viewModel = viewModel,
+                onBack = onClose,
+                onOpenDay = onOpenDay,
             )
         }
     }

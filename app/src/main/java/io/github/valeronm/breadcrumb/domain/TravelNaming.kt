@@ -42,7 +42,37 @@ object TravelNaming {
          * stop there was long enough to be worth naming the trip after.
          */
         val countries: Set<String>,
+        /**
+         * Time spent per **city** within the journey's window — stays plus tracks that begin and
+         * end in the same one, unfloored: a city too brief to make the name still carries the
+         * minutes that put it in [cities]. Keyed by the gazetteer alone, unlike the naming — a stay
+         * at a person's place credits the city their place sits in, since this map answers where
+         * the journey went, not what to call it. Insertion order is chronological, values in
+         * milliseconds.
+         */
+        val timeByCity: Map<SpentCity, Long>,
     )
+
+    /**
+     * A city and the country holding it — the pair a Cities row is named by, and what keeps two
+     * towns sharing a name across a border from summing into one.
+     */
+    data class SpentCity(val name: String, val country: String)
+
+    /** One country's share of a journey: its cities most time first; their sum ranks it among its peers. */
+    class CitySection(val country: String, val cities: List<Pair<String, Long>>)
+
+    /**
+     * [Summary.timeByCity] as a Cities panel renders it: countries by the time the journey spent in
+     * them, each holding its cities likewise. No floor — a pass-through's minutes are still where
+     * part of the journey went. Ties keep arrival order, which is chronological — the stable sort
+     * preserves it.
+     */
+    fun citySections(timeByCity: Map<SpentCity, Long>): List<CitySection> =
+        timeByCity.entries
+            .groupBy({ it.key.country }, { it.key.name to it.value })
+            .map { (country, rows) -> CitySection(country, rows.sortedByDescending { it.second }) }
+            .sortedByDescending { section -> section.cities.sumOf { it.second } }
 
     /**
      * The gazetteer with a places table beside it, answering "what is this coordinate called" once
@@ -92,9 +122,28 @@ object TravelNaming {
         timeline: TravelDeriver.Timeline,
         gazetteer: Gazetteer,
     ): Summary {
-        val timeByName = LinkedHashMap<String, Long>()
-        val cities = LinkedHashSet<String>()
-        val countries = LinkedHashSet<String>()
+        val spent = spent(travel, timeline, gazetteer)
+        return Summary(travel, ranked(spent.timeByName), spent.cities, spent.countries, spent.timeByCity)
+    }
+
+    /**
+     * What a journey was spent in, measured twice over one walk: by resolved name (what feeds
+     * [ranked]) and by city alone (what [Summary.timeByCity] reports), with the cities and
+     * countries it touched.
+     */
+    private class Spent(
+        val timeByName: LinkedHashMap<String, Long> = LinkedHashMap(),
+        val timeByCity: LinkedHashMap<SpentCity, Long> = LinkedHashMap(),
+        val cities: LinkedHashSet<String> = LinkedHashSet(),
+        val countries: LinkedHashSet<String> = LinkedHashSet(),
+    )
+
+    private fun spent(
+        travel: TravelDeriver.Travel,
+        timeline: TravelDeriver.Timeline,
+        gazetteer: Gazetteer,
+    ): Spent {
+        val spent = Spent()
         for ((clusterId, ms) in travel.clusterStayMs) {
             val cluster = timeline.derivation.clusters.getOrNull(clusterId) ?: continue
             val at = cluster.endpointMean ?: cluster.anchor
@@ -102,14 +151,21 @@ object TravelNaming {
             val place = gazetteer.placeOf(cluster)
             // A country crossed is a country visited even when the only stop in it was for fuel, so
             // countries are counted from every cluster; a city is not visited by refuelling in it.
-            city?.let { countries += it.country }
+            city?.let { spent.countries += it.country }
             if (place?.placeCategory?.visited == false) continue
-            city?.let { cities += it.name }
+            city?.let {
+                // Stays alone, where timeByCity below also takes moving time: [cities] counts where
+                // the journey *stopped*, and a city only driven around in all day would otherwise
+                // join the count with no stay anywhere in it to show for itself.
+                spent.cities += it.name
+                val key = SpentCity(it.name, it.country)
+                spent.timeByCity[key] = (spent.timeByCity[key] ?: 0L) + ms
+            }
             val name = nameOf(place) { city?.name } ?: continue
-            timeByName[name] = (timeByName[name] ?: 0L) + ms
+            spent.timeByName[name] = (spent.timeByName[name] ?: 0L) + ms
         }
-        addTimeMoving(travel, timeline.tracks, gazetteer, timeByName)
-        return Summary(travel, ranked(timeByName), cities, countries)
+        addTimeMoving(travel, timeline.tracks, gazetteer, spent)
+        return spent
     }
 
     /**
@@ -128,13 +184,21 @@ object TravelNaming {
         travel: TravelDeriver.Travel,
         tracks: List<StayDeriver.TrackEnd>,
         gazetteer: Gazetteer,
-        timeByName: MutableMap<String, Long>,
+        spent: Spent,
     ) {
-        fun nameAt(at: Coordinate?): String? {
-            if (at == null) return null
+        // One resolution per endpoint, both readings behind one pin gate: a track between two
+        // service areas is the road however it is keyed. Past the gate they diverge as the maps
+        // do — resolved name against city.
+        fun spentAt(at: Coordinate?): Pair<String?, SpentCity?> {
+            if (at == null) return null to null
             val place = gazetteer.pinAt(at)
-            if (place?.placeCategory?.visited == false) return null
-            return nameOf(place) { gazetteer.cityAt(at)?.name }
+            if (place?.placeCategory?.visited == false) return null to null
+            val city = gazetteer.cityAt(at)
+            return nameOf(place) { city?.name } to city?.let { SpentCity(it.name, it.country) }
+        }
+        fun <K : Any> credit(into: MutableMap<K, Long>, start: K?, end: K?, ms: Long) {
+            if (start == null || start != end) return
+            into[start] = (into[start] ?: 0L) + ms
         }
         // Tracks are in time order, so the journey's own are a slice rather than a filter — every
         // journey would otherwise walk the whole history to discard all but a few hours of it.
@@ -143,11 +207,12 @@ object TravelNaming {
         for (index in from until tracks.size) {
             val track = tracks[index]
             if (track.startedAt >= travel.windowEnd) break
-            val overlap = minOf(track.endedAt, travel.windowEnd) - maxOf(track.startedAt, travel.windowStart)
+            val overlap = overlapMs(track.startedAt, track.endedAt, travel.windowStart, travel.windowEnd)
             if (overlap <= 0L) continue
-            val name = nameAt(track.start) ?: continue
-            if (name != nameAt(track.end)) continue
-            timeByName[name] = (timeByName[name] ?: 0L) + overlap
+            val (startName, startCity) = spentAt(track.start)
+            val (endName, endCity) = spentAt(track.end)
+            credit(spent.timeByName, startName, endName, overlap)
+            credit(spent.timeByCity, startCity, endCity, overlap)
         }
     }
 
