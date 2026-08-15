@@ -55,17 +55,29 @@ Unit tests live in `app/src/test` and cover the pure logic in `domain/` plus dat
 (TrackQuality, TrackStats, GpxExporter/GpxParser, BackupExporter/BackupImporter) — run them with
 `./gradlew :app:testDebugUnitTest`, and note that `assembleDebug` does **not** compile them, so
 run the tests after touching anything they cover. **Room runs in these host tests via Robolectric**
-(in-memory DB, `TestDb` fixture), so the repository's DB rules and the schema migrations are
-covered without a device — see `TrackRepositoryTest`, `Migration10To11Test`,
-`TimelineInvalidationTest`, and the stored derivation's own suites (`DerivationStoreTest`,
-`DerivedConsistencyTest`, `DerivedReadModelTest`, `Migration15To16Test`,
-`Migration16To17Test`, `Migration18To19Test`, `SchemaMatchesEntitiesTest`).
-**Whether a migrated schema is the one Room builds from the entities is asked at the end of the
-chain**, which is the only place it can be true — Room compares what it finds against head on the
-first open after an upgrade, so a case pinned to a single step stops asking anything the moment
-another follows it. `SchemaMatchesEntitiesTest` walks `AppDatabase.MIGRATIONS`, which is also the
-list the builder spreads: a migration added there is run *and* checked by having been added there,
-where two lists would be kept in step by hand.
+(in-memory DB, `TestDb` fixture), so the repository's DB rules are covered without a device — see
+`TrackRepositoryTest`, `TimelineInvalidationTest`, and the stored derivation's own suites
+(`DerivationStoreTest`, `DerivedConsistencyTest`, `DerivedReadModelTest`).
+
+**v18 is the schema floor**: an older database fails to open rather than migrating, and the KDoc on
+`AppDatabase.MIGRATIONS` says why, including why no destructive fallback belongs in the builder.
+**Where the floor sits is a fact about the installs, not a preference** — a floor above an install's
+schema version bricks it on the next update, so check before raising it: `adb shell dumpsys package
+<id> | grep versionName` names the commit a build came from, and the `version` declared at that
+commit is the schema its database is on.
+
+Room's schema is exported to `app/schemas/` and committed, one JSON per version, so a schema change
+reviews as a diff; a bump **adds** a file rather than replacing the ones before it, so don't prune
+them. A migration test then owes two things. **Shape** — that what the chain reaches is what Room
+builds from the entities — belongs on the *last* migration in the chain, that being the only place
+Room itself asks it, so it moves as the chain grows rather than staying where it was written.
+**Carriage** — that the rows came across — is what Room checks nothing about, and is the whole
+reason a rebuild-and-copy migration owes a test at all. Keep the *before* schema frozen: hand-written
+raw SQL, no entity or DAO imports, since it is a shape that can never change again. (The shape
+assertion is the exception that must move with the entities, which is why the rule is on the fixture
+and not the file.) `MigrationTestHelper` off the exported JSON is the intended direction for a start
+version that has one, and would want `androidx.room:room-testing`; nothing below v19 was ever
+exported, which is what `MigrationDb` is for.
 
 **Persisting a derivation makes two implementations of one rule**, so it owes a guard that they
 agree — `DerivedConsistency`, shared by every suite that writes those rows so the question has one
@@ -478,9 +490,9 @@ a backgrounded Compose tree keeps collecting otherwise, and the process outlives
 inserts the row — the recorder in `startTrack`, the GPX import, the add-trip form
 (`insertManualTrack`, a `manual` track: two typed endpoints and nothing between), a backup restore,
 and merge/split handing it on to the rows they create. `TrackOrigin.inferFrom` reconstructs it only
-where no declaration exists: the v15 migration's SQL fill, and a backup file carrying no `source`
-key (a source-less manual track reads as imported there — a path, not a measurement, which is the
-honest half of the truth). **No "mixed" writer exists** — `TrackMerge.plan` refuses a merge across
+where no declaration exists: a backup file carrying no `source` key (a source-less manual track
+reads as imported there — a path, not a measurement, which is the honest half of the
+truth). **No "mixed" writer exists** — `TrackMerge.plan` refuses a merge across
 writers rather than inventing one, which also keeps typed endpoints from being absorbed into
 measured fixes. Besides that refusal it is read by `availableColorModes` (`ui/TrackColoring`),
 which drops the colour metrics an import or a manual entry can't carry. Manual tracks bypass the

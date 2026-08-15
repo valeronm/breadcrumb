@@ -178,8 +178,7 @@ the Timeline's empty state — every screen then has a history to show. The gene
 gitignored: it has to end today to be worth shooting, so it is made per shoot rather than kept.
 
 Unit tests cover the domain rules and the data layer, and reach further than plain JVM code through
-Robolectric — the Room database and its migrations, and the timeline's rows read back off the
-semantics tree:
+Robolectric — the Room database, and the timeline's rows read back off the semantics tree:
 
 ```bash
 ./gradlew :app:testDebugUnitTest

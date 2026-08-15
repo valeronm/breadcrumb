@@ -35,10 +35,10 @@ enum class TrackOrigin(
         fun fromCode(code: String?): TrackOrigin? = entries.firstOrNull { it.code == code }
 
         /**
-         * The writer reconstructed from the fixes, for rows that never got to declare one — points
-         * written before the column existed, and backup files made before it did. **Not a substitute
-         * for the declaration**: it reads a side effect rather than a fact, so it is wrong wherever
-         * the side effect and the writer come apart.
+         * The writer reconstructed from the fixes, for rows that never got to declare one — which
+         * is a backup file made before the column existed. **Not a substitute for the declaration**:
+         * it reads a side effect rather than a fact, so it is wrong wherever the side effect and the
+         * writer come apart.
          *
          * The side effect is the accuracy radius: the recorder stores the platform's on every fix,
          * and a GPX file carries none to store. Deliberately "any point has one" rather than "all

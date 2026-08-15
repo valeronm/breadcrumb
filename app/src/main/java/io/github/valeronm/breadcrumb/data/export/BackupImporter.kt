@@ -222,7 +222,7 @@ object BackupImporter {
             id = id,
             activityType = requireNotNull(activityType) { "track without activityType" },
             // A file written before tracks declared a writer has none to restore, so the fixes are
-            // read for it — the same reconstruction the column's own migration ran.
+            // read for it instead.
             source = source ?: TrackOrigin.inferFrom(points)?.code,
             startedAt = startedAt,
             endedAt = endedAt,
