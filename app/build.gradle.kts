@@ -9,6 +9,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+    id("androidx.room")
     id("org.jlleitschuh.gradle.ktlint")
     id("io.gitlab.arturbosch.detekt")
 }
@@ -336,6 +337,16 @@ kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_17
     }
+}
+
+// Through the Room plugin rather than a bare `room.schemaLocation` KSP arg. The plugin tracks this
+// committed directory as an annotation-processing *input*, so deleting a schema re-derives it,
+// where the arg wrote the file as a side effect nothing tracked at all and an up-to-date or cached
+// compile left it missing or stale with no build able to notice. It also keeps the absolute path
+// out of the processor's cache key, which the arg form put there — costing a miss on every
+// checkout at a different path. What the exported files are for is in CLAUDE.md.
+room {
+    schemaDirectory("$projectDir/schemas")
 }
 
 dependencies {

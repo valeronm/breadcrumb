@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
     ],
     version = 19,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
