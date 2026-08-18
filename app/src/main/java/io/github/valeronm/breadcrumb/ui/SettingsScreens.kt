@@ -203,7 +203,7 @@ internal fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            // Required by the gazetteer's licence, not a courtesy — CC BY 4.0 asks for the credit
+            // Required by the atlas's licence, not a courtesy — CC BY 4.0 asks for the credit
             // wherever the work is used, and the place names on the timeline are that use.
             Text(
                 stringResource(R.string.credit_geonames),

@@ -188,7 +188,7 @@ private class TimeEdit(
 /**
  * Enter a trip nothing recorded — a flight, a leg with the phone dead — as two pins and two times,
  * inserted as a two-point manual track. Each end's typed time is read in the IANA zone of the city
- * the gazetteer resolves its pin to (shown on the end's card, never silently applied), so a past
+ * the atlas resolves its pin to (shown on the end's card, never silently applied), so a past
  * flight's times can be entered as the boarding pass states them; with no pin placed yet the time
  * row stays disabled rather than guessing a zone. Everything is local until the check mark commits,
  * so backing out discards by construction — the [PlaceEditScreen] pattern, including the
@@ -397,7 +397,7 @@ internal fun AddTripScreen(
             // an online hit does — two spots the user called "Mum's" are told apart by nothing else.
             // Filled in as rows appear and kept for the form's life: typing a name walks the same
             // handful of places on every keystroke, and a stored null is an answer (nothing in the
-            // gazetteer reaches there), not a miss to retry.
+            // atlas reaches there), not a miss to retry.
             val placeCities = remember { mutableStateMapOf<Long, CityAtlas.City?>() }
             LaunchedEffect(placeMatches) {
                 for (place in placeMatches) {
@@ -624,7 +624,7 @@ internal fun AddTripScreen(
     }
 }
 
-/** One row of the pin search's results: a saved place or a gazetteer city, tapped to become the
+/** One row of the pin search's results: a saved place or an atlas city, tapped to become the
  *  active end's pin. */
 @Composable
 private fun PinSearchResult(
@@ -673,7 +673,7 @@ private fun PinSearchResult(
     }
 }
 
-/** Where a spot is, as this form says it throughout: the gazetteer's city and its country spelled
+/** Where a spot is, as this form says it throughout: the atlas's city and its country spelled
  *  out. One spelling, so a place named in the results list and the same place named on an end's
  *  card cannot read as two different answers. */
 @Composable

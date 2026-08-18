@@ -10,7 +10,7 @@ vocabulary. Two consequences that catch every rewrite: what the reader gets is a
 
 **But the reader here has not installed the app**, which is the one place the glossary stops short.
 A term the interface teaches — *capture radius*, *positioning* — arrives on this page unexplained,
-and a term from the implementation — *gazetteer*, *basemap*, *vector tiles* — was never the
+and a term from the implementation — *city atlas*, *basemap*, *vector tiles* — was never the
 reader's in the first place. Say the plain thing, even where a screen in the app says otherwise.
 
 Describe the build that is **live on Play**, not `main`. A feature merged after the last uploaded

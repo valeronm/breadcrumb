@@ -292,7 +292,7 @@ journey Play Services never reported — noticing the leaving from coarse positi
 standstill that ends a track the departure side opened), `PlaceCategorySuggester` (guess a place's category from
 what the user called it — see below), `RoutePlaces` (the named places at a track's two ends),
 `TravelDeriver` + `TravelNaming` (journeys away from home — see below) and `CityAtlas` (the offline
-gazetteer they are named from). New
+atlas they are named from). New
 behavior belongs here first, with a test, before wiring into the service or UI. The shared
 vocabulary lives here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, `PlaceCategory`, and the
 `DistanceFn` seam (the GMS `DetectedActivity` mapping is `location/DetectedActivities`). One deliberate impurity: domain functions take the Room entities
@@ -321,7 +321,7 @@ earlier.
 named. Time spent means stays **plus tracks that begin and end in the same place** — a day walking a
 city is mostly movement, and by stays alone that city scores less than the car park. The floor is
 absolute rather than a share of the journey, because a share halves when one place resolves to two
-names and both then vanish. Names come from the gazetteer, not from the user's own labels — the
+names and both then vanish. Names come from the atlas, not from the user's own labels — the
 exception is a `HOME`/`FRIENDS_FAMILY` place, where visiting the person *is* the destination — since
 a label sits on a parking spot the recorder happened to stop at, and on-foot recording will scatter
 that one label into many small clusters. `PlaceCategory.visited` marks the stops that are the road
@@ -783,7 +783,7 @@ cross-checks it.
   `protomapsApiKey=…` (gitignored), surfaced as `BuildConfig.PROTOMAPS_API_KEY`, and injected into the
   bundled style at load time (`{PROTOMAPS_KEY}` placeholder in `assets/protomaps-{dark,light}.json`).
   A fresh checkout needs that line added or the basemap won't load.
-- **The gazetteer is a bundled asset** (`assets/cities.bin`, ~4 MB): GeoNames `cities1000` — every
+- **The city atlas is a bundled asset** (`assets/cities.bin`, ~4 MB): GeoNames `cities1000` — every
   populated place of 1,000+ **and every administrative seat whatever its size**, which is why that
   file rather than the smaller `cities5000`, a historic village being exactly what a journey gets
   named after. Packed by `tools/pack_cities.py` (its docstring is the format spec) and checked in, so

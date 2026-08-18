@@ -220,7 +220,7 @@ internal fun PlacesTab(
     }
     // Search narrows the *list* only, so it sits with the list's chrome and the map keeps whatever
     // it was showing — the same split the sort row and the rare-stops chip already follow. It
-    // matches whatever the row displays, which for an unnamed cluster is the city the gazetteer put
+    // matches whatever the row displays, which for an unnamed cluster is the city the atlas put
     // it in: a name on screen that a search for it doesn't return reads as a broken search.
     var query by remember { mutableStateOf("") }
     // What the map draws — the list page shows `sorted` whole, since it offers no such filter and
@@ -1263,7 +1263,7 @@ private fun CategoryRow(
 /**
  * Where in the world this place is — the city holding its pin, the country, and how far its clock
  * sits from the reader's. The one thing on this screen the user did not say and the recorder did not
- * measure: it comes from the bundled gazetteer, which is also why it arrives a beat late rather than
+ * measure: it comes from the bundled atlas, which is also why it arrives a beat late rather than
  * with the rest of the page. Absent rather than apologetic when nothing can be resolved (a coordinate
  * at sea, an atlas that failed to read); the screen reads perfectly well without it.
  *
@@ -1433,7 +1433,7 @@ private fun PlaceRowCard(
         icon = category.discIcon,
         disc = disc,
         iconDescription = category?.let { stringResource(it.labelRes) },
-        // The gazetteer's city stands in where the user has said nothing, dimmed by `named` so a
+        // The atlas's city stands in where the user has said nothing, dimmed by `named` so a
         // worked-out name never reads as one they chose — the same rule the timeline's rows follow.
         title = summary.name ?: stringResource(R.string.place_detected_stop),
         titleColor = placeTitleColor(named),

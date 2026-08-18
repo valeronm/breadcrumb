@@ -131,8 +131,8 @@ class PlaceResolverTest {
         assertEquals(at(500.0), passThrough.centroid)
     }
 
-    /** A gazetteer that names every cluster it is built from, so a test can name them all at once. */
-    private fun gazetteerOver(clusters: List<PlaceClusterer.Cluster>, vararg names: String) =
+    /** An atlas that names every cluster it is built from, so a test can name them all at once. */
+    private fun atlasOver(clusters: List<PlaceClusterer.Cluster>, vararg names: String) =
         clusters.mapIndexed { index, cluster ->
             cluster.centroid to CityAtlas.City(names[index], "XX", "Etc/GMT-3", 20_000, 0.0)
         }.toMap()
@@ -141,7 +141,7 @@ class PlaceResolverTest {
         val stays = listOf(stay(at(0.0)), stay(at(500.0)))
         val places = listOf(place(7, "Home", at(0.0)))
         val (stamped, clusters) = withClusters(stays, places)
-        val cities = gazetteerOver(clusters, "Hometown", "Seaside")
+        val cities = atlasOver(clusters, "Hometown", "Seaside")
         val resolved = PlaceResolver.resolveClusters(stamped, clusters, places, cities)
 
         assertEquals("Home", resolved[0].name)
@@ -153,7 +153,7 @@ class PlaceResolverTest {
         assertNull(resolved[1].label)
     }
 
-    @Test fun `an unnamed cluster the gazetteer cannot place stays unnamed`() {
+    @Test fun `an unnamed cluster the atlas cannot place stays unnamed`() {
         val stays = listOf(stay(at(0.0)))
         val (stamped, clusters) = withClusters(stays, emptyList())
         // The open sea, and the caller that asked for no naming at all: both must resolve to null
@@ -167,7 +167,7 @@ class PlaceResolverTest {
         // reverse the names with them, since each is keyed by the centroid it belongs to.
         val stays = listOf(stay(at(0.0)), stay(at(500.0)))
         val (stamped, clusters) = withClusters(stays, emptyList())
-        val cities = gazetteerOver(clusters, "Hometown", "Seaside")
+        val cities = atlasOver(clusters, "Hometown", "Seaside")
         val reversed = PlaceResolver.resolveClusters(stamped, clusters.reversed(), emptyList(), cities)
 
         assertEquals(listOf("Seaside", "Hometown"), reversed.map { it.name })
@@ -216,7 +216,7 @@ class PlaceResolverTest {
         val stays = listOf(stayAt(at(0.0), 1_000, 2_000), stayAt(at(500.0), 3_000, 4_000))
         val places = listOf(place(7, "Home", at(0.0)))
         val (stamped, clusters) = withClusters(stays, places)
-        val cities = gazetteerOver(clusters, "Hometown", "Seaside")
+        val cities = atlasOver(clusters, "Hometown", "Seaside")
         val summaries = PlaceResolver.summarize(stamped, clusters, places, NOW, cities)
 
         assertEquals("Home", summaries.single { it.isNamed }.name)

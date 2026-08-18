@@ -204,9 +204,9 @@ can also import a `.gpx` file to populate trips, places, and the map without mov
 
 - Privacy: your history is local. Nothing is uploaded; there's no analytics or account. The network
   carries map data — Protomaps tiles, glyphs and sprites — plus one thing you can switch off: the
-  add-trip form's online place search, which sends the words you typed to Photon and, where the
-  form has a pin to bias by, that pin. Place names otherwise come from a gazetteer bundled in the
-  APK, so naming a journey needs no network at all.
+  add-trip form's online place search, which sends the words you typed to Photon and, once the
+  trip being entered has an end point, that one coordinate. Place names otherwise come from a
+  city atlas bundled in the APK, so naming a journey needs no network at all.
 - Play Services dependency: activity recognition relies on Google Play Services, so this isn't a
   fully FOSS / F-Droid-friendly build.
 - Single device / single user: no multi-device sync (server upload to e.g. Dawarich/OwnTracks is a

@@ -4,7 +4,7 @@ import android.content.Context
 import io.github.valeronm.breadcrumb.domain.CityAtlas
 
 /**
- * The packed gazetteer (`assets/cities.bin`), read once per process and held for the life of it.
+ * The packed city atlas (`assets/cities.bin`), read once per process and held for the life of it.
  *
  * 4 MB of asset becomes 4 MB of heap, which is why it is read **lazily** rather than at startup:
  * a recorder that runs for weeks without the UI ever opening should not carry a table of place names

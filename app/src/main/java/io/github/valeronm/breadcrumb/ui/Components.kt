@@ -326,7 +326,7 @@ internal fun SectionHeading(text: String) {
 
 /**
  * The flag emoji for an ISO 3166-1 alpha-2 code — two regional-indicator code points, which is the
- * mechanical mapping every flag rests on, so every country the gazetteer knows has one without a
+ * mechanical mapping every flag rests on, so every country the atlas knows has one without a
  * table to keep in step. A device with no glyph for a given pair renders the two letters instead,
  * which is the same information. Empty for anything that is not a two-letter upper-case code.
  */

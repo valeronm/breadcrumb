@@ -805,7 +805,7 @@ private fun awayDaysOf(travels: List<TravelNaming.Summary>, zone: ZoneId): Map<L
 
 /**
  * The zone to read a row in when nothing places it — an import with no usable endpoint, a stop in
- * the middle of an ocean, a gazetteer row this Android's tz database has never heard of. Resolved
+ * the middle of an ocean, an atlas row this Android's tz database has never heard of. Resolved
  * per call rather than captured, so a device that changes zone mid-process moves with it.
  *
  * It is no longer *the* timeline zone: a row is sliced and read in the zone of the place it happened
@@ -816,7 +816,7 @@ private fun awayDaysOf(travels: List<TravelNaming.Summary>, zone: ZoneId): Map<L
 internal fun timelineZone(): ZoneId = ZoneId.systemDefault()
 
 /**
- * A gazetteer zone id as a [ZoneId], falling back to the device's where it can't be one.
+ * An atlas zone id as a [ZoneId], falling back to the device's where it can't be one.
  *
  * The ids ship inside a checked-in asset while the tz database ships with Android, so the two drift
  * apart on their own schedules: a zone renamed upstream (`Europe/Kiev` → `Europe/Kyiv`) or dropped
@@ -1139,8 +1139,8 @@ internal fun StayCard(
         badge = if (mergeable) Icons.Filled.Pause else null,
         badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
         // The place leads; when (with midnight slices phrased humanly) is the metadata line. The
-        // gazetteer's city stands in where the user has said nothing, dimmed by `named` below so a
-        // worked-out name never reads as one they chose. A merge-eligible stop the gazetteer can't
+        // atlas's city stands in where the user has said nothing, dimmed by `named` below so a
+        // worked-out name never reads as one they chose. A merge-eligible stop the atlas can't
         // reach names the situation instead.
         title = place?.name ?: stringResource(
             if (mergeable) R.string.timeline_short_stop else R.string.timeline_stayed,

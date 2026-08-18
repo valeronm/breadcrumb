@@ -8,7 +8,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * The offline gazetteer: every populated place of 1,000 or more and every administrative seat
+ * The offline city atlas: every populated place of 1,000 or more and every administrative seat
  * whatever its size, with its country and IANA time zone, as one 4 MB asset. What lets a coordinate be *named* on a device that never asks anything
  * of the network — the app's one hard constraint, and the reason a hosted geocoder is not an option
  * however much better its answers would be.
@@ -146,7 +146,7 @@ class CityAtlas private constructor(
      * The city that should *name* this coordinate: the most populous one within [NAME_WINDOW_M] of
      * the nearest, which is not the same as the nearest itself.
      *
-     * A gazetteer of settlements is also a gazetteer of their parts — an arrondissement, a borough,
+     * An atlas of settlements is also an atlas of their parts — an arrondissement, a borough,
      * a district — each a real administrative place with its own row and its own small population.
      * Standing in the middle of Paris, the nearest row is the arrondissement, and a journey named
      * after it tells the traveller nothing they meant.
@@ -158,7 +158,7 @@ class CityAtlas private constructor(
      * **Neither can be pushed further, and the pair does not separate every case.** Real districts
      * sit up to ~5.5 km from their city centre while real neighbouring towns sit under 6 km apart,
      * so one window cannot admit every district and exclude every neighbour. This is a heuristic
-     * over a gazetteer that does not mark which of its rows are parts of others — the codes are the
+     * over an atlas that does not mark which of its rows are parts of others — the codes are the
      * same for a capital's arrondissement and for a village — and the way out is better data, not
      * better numbers.
      */
@@ -191,7 +191,7 @@ class CityAtlas private constructor(
      * since both questions read the same band.
      *
      * The country is the commonest among the [COUNTRY_VOTES] nearest places, ties going to the
-     * nearest. A gazetteer knows nothing of borders, so near one the nearest row can easily sit on
+     * nearest. An atlas knows nothing of borders, so near one the nearest row can easily sit on
      * the far side — a village names itself after a town in the next country, and a journey that
      * never left home counts two countries. Its neighbourhood is the evidence the row itself doesn't
      * carry. A real border city outvotes its neighbours by sitting on top of the query, so this never

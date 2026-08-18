@@ -36,7 +36,7 @@ fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(
  * (`web/js/stays.js`, a port of this and [PlaceClusterer], tested case for case against
  * `StayDeriverTest`), so a rule that moves here moves there or the two disagree about the same
  * history. **[slicePerDay] is the deliberate exception**: which clock a row is read on comes from
- * the bundled gazetteer, and a backup file carries no zones, so the viewer reads every row on the
+ * the bundled city atlas, and a backup file carries no zones, so the viewer reads every row on the
  * reader's own clock. That is a difference in *display*, not in which stays exist — everything
  * above this line is still one rule in two implementations.
  *

@@ -117,7 +117,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         /**
          * Which cluster each endpoint fell into. **A track's start is already a member of one** —
          * the derivation clusters every track endpoint — so a track reads its clock off the cluster
-         * that claimed it rather than paying a fresh gazetteer walk per track, which for a
+         * that claimed it rather than paying a fresh atlas walk per track, which for a
          * mostly-imported history is thousands of walks for answers already in hand.
          */
         private val clusterOfEndpoint: Map<Coordinate, Int> by lazy {
@@ -146,12 +146,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
     /**
-     * Last pass's answers, so a reading only pays the gazetteer for the coordinates that moved.
+     * Last pass's answers, so a reading only pays the atlas for the coordinates that moved.
      * Rebuilt each pass rather than added to: a cluster's centroid is the mean of its members, so
      * every finished track nudges one, and a memo that only grew would collect an entry per nudge
      * for as long as the process lives — which is weeks.
      *
-     * A null value is an answer (nothing in the gazetteer reaches there), not a miss, so the lookup
+     * A null value is an answer (nothing in the atlas reaches there), not a miss, so the lookup
      * below asks [Map.containsKey]. Written only from the [derived] flow, which is one coroutine;
      * nothing else may touch it.
      */
@@ -183,13 +183,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         return found
     }
 
-    /** The gazetteer's reading of one coordinate — the single spelling of it in this file. */
+    /** The atlas's reading of one coordinate — the single spelling of it in this file. */
     private fun cityOf(at: Coordinate): CityAtlas.City? =
         Cities.atlas(getApplication()).naming(at.lat, at.lon, AndroidDistance)
 
     /**
      * The derivation every screen maps from: stored rows mapped to shapes, with the trailing stay
-     * and the gazetteer's answers resolved onto it.
+     * and the atlas's answers resolved onto it.
      *
      * **The places come from the same snapshot as the rows**, not from an arm of their own — a
      * second arm turns one transaction into two emissions here, and
@@ -346,7 +346,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             d.now,
             AndroidDistance,
         )
-        // The gazetteer is 4 MB of heap; a history with no travels in it never asks for one.
+        // The atlas is 4 MB of heap; a history with no travels in it never asks for one.
         if (travels.isEmpty()) return@map emptyList()
         // One naming pass for the whole emission: the same hotel names every journey that stayed
         // there, and a fortnight in one city asks about hundreds of track ends that resolve to the
@@ -354,7 +354,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         TravelNaming.summarize(
             travels,
             timeline,
-            TravelNaming.Gazetteer(Cities.atlas(getApplication()), d.places, AndroidDistance),
+            TravelNaming.Atlas(Cities.atlas(getApplication()), d.places, AndroidDistance),
         )
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -690,7 +690,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Which city a coordinate sits in — the containing one, so a place inside a capital says the
-     * capital rather than its arrondissement. The first caller pays for reading the gazetteer, hence
+     * capital rather than its arrondissement. The first caller pays for reading the atlas, hence
      * a suspend function off the main thread rather than a value a composable can simply read.
      */
     suspend fun cityAt(at: Coordinate): CityAtlas.City? = withContext(Dispatchers.Default) {
@@ -701,7 +701,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Gazetteer cities matching a typed name — the add-trip form's pin search. The first call pays
+     * Atlas cities matching a typed name — the add-trip form's pin search. The first call pays
      * for the atlas's folded-name index on top of the atlas itself, hence suspend and off-main.
      */
     suspend fun searchCities(query: String, limit: Int): List<CityAtlas.Hit> =

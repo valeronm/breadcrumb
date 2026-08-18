@@ -7,7 +7,7 @@ import org.junit.Test
 
 /**
  * What a journey is named after, and what it counts towards — the half of naming that needs a
- * gazetteer and a places table, as against [TravelNamingTest]'s ranking of a map someone else built.
+ * atlas and a places table, as against [TravelNamingTest]'s ranking of a map someone else built.
  *
  * Fixtures put three towns east of the neutral origin, far enough apart that each names itself, and
  * drive a journey over them by hand: a [TravelDeriver.Travel] is built directly rather than derived,
@@ -61,7 +61,7 @@ class TravelSummaryTest {
         return TravelNaming.summarize(
             listOf(travel),
             TravelDeriver.Timeline(derivation, tracks),
-            TravelNaming.Gazetteer(atlas, places, flatDistance),
+            TravelNaming.Atlas(atlas, places, flatDistance),
         ).single()
     }
 

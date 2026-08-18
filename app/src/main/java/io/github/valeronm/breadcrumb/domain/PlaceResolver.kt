@@ -116,10 +116,10 @@ object PlaceResolver {
         /** Cluster centroid — where a new place would be pinned when the user names this stay. */
         val centroid: Coordinate,
         /**
-         * Where on earth this cluster sits, as the gazetteer has it — the row itself rather than a
+         * Where on earth this cluster sits, as the atlas has it — the row itself rather than a
          * copy per attribute, following [place]: what a spot is called and which clock it runs on
          * are two questions about one answer, and a third should not need a field here. Null only
-         * when the caller offered no gazetteer, or when nothing in it reaches this coordinate.
+         * when the caller offered no atlas, or when nothing in it reaches this coordinate.
          *
          * **Filled whether or not a place claims the cluster.** A user names a spot; they do not
          * decide which country it is in or what time it is there, and "Mum's" in Tokyo runs on
@@ -195,7 +195,7 @@ object PlaceResolver {
         val endpointCentroid: Coordinate?,
         /** This place's individual visits (unsliced), newest first — the detail screen's history. */
         val stays: List<StayDeriver.Stay> = emptyList(),
-        /** Where on earth this place sits, as the gazetteer has it — see [ResolvedStay.locality]. */
+        /** Where on earth this place sits, as the atlas has it — see [ResolvedStay.locality]. */
         val locality: CityAtlas.City? = null,
         /**
          * The identity this summary keeps whatever else is done to it — set only by [withPlace], and
@@ -294,11 +294,11 @@ object PlaceResolver {
      * [StayDeriver.Stay.clusterId], gaps by their side cluster ids (whose clusters may have no
      * stays at all; those resolve with a zero visit count).
      *
-     * [cities] is the gazetteer's answer for a cluster's centroid, keyed by that centroid — a lookup
+     * [cities] is the atlas's answer for a cluster's centroid, keyed by that centroid — a lookup
      * and deliberately **not** a list parallel to [clusters]. An index-parallel array is the one
      * coupling this file exists to avoid (see the class KDoc): it cannot be checked, it survives a
      * caller that filters or reorders clusters, and what it produces is one cluster's city printed
-     * on another. Empty for the callers that want the resolution and not the gazetteer.
+     * on another. Empty for the callers that want the resolution and not the atlas.
      *
      * Applied to every cluster, claimed or not ([ResolvedStay.locality]) — a label is a name, not a
      * statement about where on earth the spot is. What a label outranks lives in [displayName], and
@@ -331,7 +331,7 @@ object PlaceResolver {
      * that screen's presentation filter, not this layer's. Runs over unsliced stays so counts and
      * durations are exact; order: named (input order) then unnamed (chronological), the UI sorting.
      *
-     * [cities] is the gazetteer, keyed and applied exactly as [resolveClusters] describes — so a
+     * [cities] is the atlas, keyed and applied exactly as [resolveClusters] describes — so a
      * cluster reads the same on the Places list as it does on a timeline row.
      */
     fun summarize(
@@ -392,7 +392,7 @@ object PlaceResolver {
                 endpoints = cluster?.members ?: emptyList(),
                 endpointCentroid = cluster?.endpointMean,
                 stays = agg?.stays?.sortedByDescending { it.start } ?: emptyList(),
-                // From the cluster the pin seeded, not the pin: the gazetteer was asked about
+                // From the cluster the pin seeded, not the pin: the atlas was asked about
                 // centroids, and a seeded cluster with no members has the two in the same spot.
                 locality = cluster?.let { cities[it.centroid] },
             )

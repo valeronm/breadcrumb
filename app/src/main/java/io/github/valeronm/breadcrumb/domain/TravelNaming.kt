@@ -4,7 +4,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
 
 /**
  * Turns the places a journey was spent in into what to call it. Separate from [TravelDeriver]
- * because naming needs the gazetteer and the places table, and the rule about nights must know
+ * because naming needs the atlas and the places table, and the rule about nights must know
  * neither; separate from the screen because which names survive is a decision, not a layout.
  *
  * **A journey through three cities is a journey through three cities.** Picking the one with the
@@ -45,7 +45,7 @@ object TravelNaming {
         /**
          * Time spent per **city** within the journey's window — stays plus tracks that begin and
          * end in the same one, unfloored: a city too brief to make the name still carries the
-         * minutes that put it in [cities]. Keyed by the gazetteer alone, unlike the naming — a stay
+         * minutes that put it in [cities]. Keyed by the atlas alone, unlike the naming — a stay
          * at a person's place credits the city their place sits in, since this map answers where
          * the journey went, not what to call it. Insertion order is chronological, values in
          * milliseconds.
@@ -75,14 +75,14 @@ object TravelNaming {
             .sortedByDescending { section -> section.cities.sumOf { it.second } }
 
     /**
-     * The gazetteer with a places table beside it, answering "what is this coordinate called" once
+     * The atlas with a places table beside it, answering "what is this coordinate called" once
      * per coordinate. Every journey asks about the same hotels and the same track ends, and each
      * answer is several walks of a 160,000-row table; one of these serves a whole pass.
      *
      * Holds the [DistanceFn] because both questions it answers are geometric — this is the seam
      * through which the platform's own distance reaches an otherwise pure rule.
      */
-    class Gazetteer(
+    class Atlas(
         private val atlas: CityAtlas,
         private val places: List<Place>,
         private val distance: DistanceFn,
@@ -109,8 +109,8 @@ object TravelNaming {
     fun summarize(
         travels: List<TravelDeriver.Travel>,
         timeline: TravelDeriver.Timeline,
-        gazetteer: Gazetteer,
-    ): List<Summary> = travels.map { summarize(it, timeline, gazetteer) }
+        atlas: Atlas,
+    ): List<Summary> = travels.map { summarize(it, timeline, atlas) }
 
     /**
      * Everywhere one journey was spent, ranked — every place that earned a share of it, not the one
@@ -120,9 +120,9 @@ object TravelNaming {
     private fun summarize(
         travel: TravelDeriver.Travel,
         timeline: TravelDeriver.Timeline,
-        gazetteer: Gazetteer,
+        atlas: Atlas,
     ): Summary {
-        val spent = spent(travel, timeline, gazetteer)
+        val spent = spent(travel, timeline, atlas)
         return Summary(travel, ranked(spent.timeByName), spent.cities, spent.countries, spent.timeByCity)
     }
 
@@ -141,14 +141,14 @@ object TravelNaming {
     private fun spent(
         travel: TravelDeriver.Travel,
         timeline: TravelDeriver.Timeline,
-        gazetteer: Gazetteer,
+        atlas: Atlas,
     ): Spent {
         val spent = Spent()
         for ((clusterId, ms) in travel.clusterStayMs) {
             val cluster = timeline.derivation.clusters.getOrNull(clusterId) ?: continue
             val at = cluster.endpointMean ?: cluster.anchor
-            val city = gazetteer.cityAt(at)
-            val place = gazetteer.placeOf(cluster)
+            val city = atlas.cityAt(at)
+            val place = atlas.placeOf(cluster)
             // A country crossed is a country visited even when the only stop in it was for fuel, so
             // countries are counted from every cluster; a city is not visited by refuelling in it.
             city?.let { spent.countries += it.country }
@@ -164,7 +164,7 @@ object TravelNaming {
             val name = nameOf(place) { city?.name } ?: continue
             spent.timeByName[name] = (spent.timeByName[name] ?: 0L) + ms
         }
-        addTimeMoving(travel, timeline.tracks, gazetteer, spent)
+        addTimeMoving(travel, timeline.tracks, atlas, spent)
         return spent
     }
 
@@ -183,7 +183,7 @@ object TravelNaming {
     private fun addTimeMoving(
         travel: TravelDeriver.Travel,
         tracks: List<StayDeriver.TrackEnd>,
-        gazetteer: Gazetteer,
+        atlas: Atlas,
         spent: Spent,
     ) {
         // One resolution per endpoint, both readings behind one pin gate: a track between two
@@ -191,9 +191,9 @@ object TravelNaming {
         // do — resolved name against city.
         fun spentAt(at: Coordinate?): Pair<String?, SpentCity?> {
             if (at == null) return null to null
-            val place = gazetteer.pinAt(at)
+            val place = atlas.pinAt(at)
             if (place?.placeCategory?.visited == false) return null to null
-            val city = gazetteer.cityAt(at)
+            val city = atlas.cityAt(at)
             return nameOf(place) { city?.name } to city?.let { SpentCity(it.name, it.country) }
         }
         fun <K : Any> credit(into: MutableMap<K, Long>, start: K?, end: K?, ms: Long) {
@@ -234,7 +234,7 @@ object TravelNaming {
      */
     private inline fun nameOf(place: Place?, city: () -> String?): String? {
         // The city is asked for only when it can win — a person's place answers without one, and
-        // resolving a coordinate is several walks of the gazetteer.
+        // resolving a coordinate is several walks of the atlas.
         if (place?.placeCategory?.group == PlaceCategoryGroup.HOME_PEOPLE) return place.label
         return city() ?: place?.label
     }
@@ -249,7 +249,7 @@ object TravelNaming {
      * **An absolute floor, deliberately, rather than a share of the journey.** A share is hostage to
      * how the places around it happen to resolve: when two nearby stops fall to different names, each
      * piece's share halves and both can drop out while the journey clearly went there. Hours do not
-     * move when the gazetteer does.
+     * move when the atlas does.
      */
     const val MIN_STAY_MS = 2 * 60 * 60 * 1000L
 

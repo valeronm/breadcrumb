@@ -5,7 +5,7 @@ import java.nio.charset.StandardCharsets
 import kotlin.math.roundToInt
 
 /**
- * The gazetteer's binary format, written out by hand from the reader's side — the packer that
+ * The atlas's binary format, written out by hand from the reader's side — the packer that
  * produces the shipped asset is a Python script on a developer's machine, so a fixture here is the
  * only thing that checks the format in CI. Shared by every suite that needs an atlas, so the format
  * is duplicated exactly once.
