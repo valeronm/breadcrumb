@@ -66,6 +66,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -377,7 +378,7 @@ private fun PlacesListPage(
 ) {
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
-    LaunchedEffect(listState.isScrollInProgress) {
+    SideEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress) focusManager.clearFocus()
     }
     // Re-sorting or narrowing makes a different list; a position kept through it is a position
@@ -386,8 +387,8 @@ private fun PlacesListPage(
     // return to this tab, and resetting on entry would throw exactly that away.
     val sortAtEntry = remember { sort }
     val queryAtEntry = remember { query }
-    LaunchedEffect(sort, query) {
-        if (sort == sortAtEntry && query == queryAtEntry) return@LaunchedEffect
+    SideEffect(sort, query) {
+        if (sort == sortAtEntry && query == queryAtEntry) return@SideEffect
         // Requested rather than scrolled: no coroutine and no forced relayout for a jump that has
         // nothing to travel through, this being the list arriving rather than the reader moving.
         listState.requestScrollToItem(0)

@@ -366,7 +366,10 @@ dependencies {
 
     // Compose
     implementation("androidx.activity:activity-compose:1.13.0")
-    val composeBom = platform("androidx.compose:compose-bom:2026.06.00")
+    // Clicks play the platform interaction sound, which the device's touch-sounds setting
+    // governs. Left on rather than opted out of with SoundEffectOnInteraction: that setting
+    // already answers this for every app on the phone, and an opt-out here would overrule it.
+    val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")

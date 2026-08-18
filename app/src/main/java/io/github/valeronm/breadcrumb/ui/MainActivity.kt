@@ -107,7 +107,7 @@ class MainActivity : FragmentActivity() {
                 // FLAG_SECURE covers screenshots and the recents thumbnail together — the window
                 // either holds still-sensitive content or it doesn't, and the system draws no
                 // distinction between who is capturing it.
-                LaunchedEffect(Privacy.blockScreenshots) {
+                SideEffect(Privacy.blockScreenshots) {
                     window.setFlag(
                         WindowManager.LayoutParams.FLAG_SECURE,
                         Privacy.blockScreenshots,
@@ -200,9 +200,9 @@ private fun MainScreen(
     // Waits for the lock rather than relying on the gate: PrivacyGate draws over this composition
     // instead of replacing it, so an import shared in while the app is locked would otherwise run
     // and report itself behind the lock screen. Unlocking re-runs the effect.
-    LaunchedEffect(pendingGpxImport.value, Privacy.unlocked) {
-        val uris = pendingGpxImport.value ?: return@LaunchedEffect
-        if (Privacy.isLocked(context)) return@LaunchedEffect
+    SideEffect(pendingGpxImport.value, Privacy.unlocked) {
+        val uris = pendingGpxImport.value ?: return@SideEffect
+        if (Privacy.isLocked(context)) return@SideEffect
         pendingGpxImport.value = null
         viewModel.importExport.importGpx(uris) { result ->
             Toast.makeText(context, gpxImportMessage(context, result), Toast.LENGTH_LONG).show()
@@ -214,7 +214,7 @@ private fun MainScreen(
     val charging = rememberChargingState()
     var keepScreenOn by remember { mutableStateOf(AppSettings.keepScreenOnCharging(context)) }
     val window = (context as? ComponentActivity)?.window
-    LaunchedEffect(charging, keepScreenOn, window) {
+    SideEffect(charging, keepScreenOn, window) {
         window?.setFlag(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, charging && keepScreenOn)
     }
 
@@ -226,7 +226,7 @@ private fun MainScreen(
     // A tab switch replaces the tab's whole composition, but disposing a focused search field is
     // not a reliable keyboard dismissal — drop the focus with the tab that owned it.
     val tabFocusManager = LocalFocusManager.current
-    LaunchedEffect(selectedTab) { tabFocusManager.clearFocus() }
+    SideEffect(selectedTab) { tabFocusManager.clearFocus() }
     // The run of asks behind one "start recording". Started only by arming, so a run reaching its
     // end is always a run that meant to arm — the card's own buttons ask for a single step and go
     // nowhere near it.
@@ -313,6 +313,8 @@ private fun MainScreen(
         val runEnded = wasRunning && ladder.current == null
         if (runEnded && setup.complete && !autoOn) arm()
     }
+    // A coroutine rather than a SideEffect, though nothing here suspends: settling a run can arm,
+    // and arming commits the armed flag to disk synchronously — not work for the apply path.
     LaunchedEffect(dialogAnswered) { if (dialogAnswered > 0) settleLadder(fromResume = false) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -349,6 +351,8 @@ private fun MainScreen(
     // Reconcile persisted "armed" state with the actual service: if auto-recording is on but
     // the service isn't running (e.g. after a reinstallation or being killed), restart it so the UI
     // doesn't get stuck on "Starting…".
+    // Off the apply path for the same reason the ladder's settling is: starting the service
+    // commits the armed flag to disk synchronously.
     LaunchedEffect(setup.complete) {
         val armedAndPermitted = autoOn && setup.complete
         if (armedAndPermitted && !LocationRecordingService.isRunning) {
@@ -826,7 +830,7 @@ private fun PlaceDetailOverlay(
         // is up — it is idle unless a screen wants it, and the frame is what knows that now.
         val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
         val summary = rememberPlaceSummary(placeSummaries, detailKey, snapshot)
-        LaunchedEffect(summary) {
+        SideEffect(summary) {
             summary?.let(onResolved)
         }
         summary?.let { detail ->
@@ -858,9 +862,7 @@ private fun JourneyDetailOverlay(
         // needs to hold or clear it.
         var snapshot by remember { mutableStateOf<TravelNaming.Summary?>(null) }
         val resolved = travels?.firstOrNull { it.travel.firstNightAt == key }
-        // Unconditional: state writes are structural-equality gated, so an unchanged summary
-        // invalidates nothing.
-        if (resolved != null) SideEffect { snapshot = resolved }
+        if (resolved != null) SideEffect(resolved) { snapshot = resolved }
         (resolved ?: snapshot)?.let { detail ->
             JourneyDetailScreen(
                 summary = detail,
