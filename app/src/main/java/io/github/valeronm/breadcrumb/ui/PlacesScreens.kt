@@ -384,11 +384,15 @@ private fun PlacesListPage(
     // Re-sorting or narrowing makes a different list; a position kept through it is a position
     // measured against rows that are no longer there. The values this page composed with are not a
     // change, though — `rememberLazyListState` restores where the reader was across a rotation or a
-    // return to this tab, and resetting on entry would throw exactly that away.
-    val sortAtEntry = remember { sort }
-    val queryAtEntry = remember { query }
+    // return to this tab, and resetting on entry would throw exactly that away. Compared against
+    // the values last applied, not those at entry: the entry sort is one the chips come back to,
+    // and a return to it is as much a re-sort as leaving it was.
+    var appliedSort by remember { mutableStateOf(sort) }
+    var appliedQuery by remember { mutableStateOf(query) }
     SideEffect(sort, query) {
-        if (sort == sortAtEntry && query == queryAtEntry) return@SideEffect
+        if (sort == appliedSort && query == appliedQuery) return@SideEffect
+        appliedSort = sort
+        appliedQuery = query
         // Requested rather than scrolled: no coroutine and no forced relayout for a jump that has
         // nothing to travel through, this being the list arriving rather than the reader moving.
         listState.requestScrollToItem(0)
