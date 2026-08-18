@@ -54,6 +54,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -79,6 +81,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
@@ -135,6 +138,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -1662,3 +1666,39 @@ internal fun OptionRow(
  * detector releases the gesture the moment the finger moves.
  */
 internal fun Modifier.swallowTaps(): Modifier = pointerInput(Unit) { detectTapGestures {} }
+
+/**
+ * A [DatePickerDialog] speaking [LocalDate]: opens at [initial], and confirm — enabled only once a
+ * date is chosen — hands the choice back without closing anything, the caller owning what follows
+ * (plain dismissal, or the add-trip form's time picker). Also the one home for the picker's
+ * UTC-midnight convention: a date crosses into the picker as millis at UTC midnight and comes
+ * back the same way, whatever zone the reader is in.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun LocalDateDialog(
+    initial: LocalDate,
+    confirmLabel: String,
+    onConfirm: (LocalDate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val dateState = rememberDatePickerState(
+        initialSelectedDateMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    dateState.selectedDateMillis?.let {
+                        onConfirm(Instant.ofEpochMilli(it).atOffset(ZoneOffset.UTC).toLocalDate())
+                    }
+                },
+                enabled = dateState.selectedDateMillis != null,
+            ) { Text(confirmLabel) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+        },
+    ) { DatePicker(dateState) }
+}

@@ -20,6 +20,14 @@
         <item quantity="other">%d dias</item>
     </plurals>
 
+    <string name="timeline_view_list">Lista</string>
+    <string name="timeline_view_map">Mapa</string>
+
+    <string name="timeline_map_prev_day">Dia anterior</string>
+    <string name="timeline_map_next_day">Dia seguinte</string>
+    <string name="timeline_map_empty_day">Nada gravado neste dia</string>
+    <string name="timeline_day_on_map">Mostrar no mapa</string>
+
     <string name="timeline_away_day">Dia %1$d</string>
     <string name="timeline_share_day">Partilhar os trajetos de %1$s</string>
     <string name="timeline_scroll_to_day">Ir para um dia</string>

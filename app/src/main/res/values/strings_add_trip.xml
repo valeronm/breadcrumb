@@ -4,7 +4,6 @@
     <string name="addtrip_title_add">Add missing trip</string>
     <string name="addtrip_title_edit">Edit trip</string>
     <string name="addtrip_next">Next</string>
-    <string name="addtrip_ok">OK</string>
 
     <!-- Why the form will not commit -->
     <string name="addtrip_error_order">Arrival must be after departure</string>

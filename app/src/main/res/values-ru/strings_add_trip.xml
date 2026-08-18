@@ -3,7 +3,6 @@
     <string name="addtrip_title_add">Добавить поездку</string>
     <string name="addtrip_title_edit">Изменить поездку</string>
     <string name="addtrip_next">Далее</string>
-    <string name="addtrip_ok">ОК</string>
 
     <string name="addtrip_error_order">Прибытие должно быть позже отправления</string>
     <string name="addtrip_error_future">Отправление в будущем</string>

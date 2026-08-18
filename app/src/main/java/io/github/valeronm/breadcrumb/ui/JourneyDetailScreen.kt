@@ -108,19 +108,8 @@ internal fun JourneyDetailScreen(
     }
     val shownLines = remember(lines, shownTrackIds) { lines.filter { it.trackId in shownTrackIds } }
 
-    // The journey's own places: every place one of the shown stays resolved to. The two readings
-    // key a cluster alike (PlaceResolver), which is what lets a stay's key find its summary here.
-    // Keyed through the stay-key set, so a day switch showing the same places (the usual case —
-    // one hotel spans every day) returns the same list instance and the map skips the re-upload.
     val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
-    val stayKeys = remember(shownItems) {
-        shownItems.filterIsInstance<TimelineItem.StayItem>().mapNotNullTo(HashSet()) { it.place?.key }
-    }
-    val mapPlaces = remember(placeSummaries, stayKeys) {
-        placeSummaries.orEmpty().filter { it.key in stayKeys }.map { place ->
-            OverviewPlace(marker = PlaceMarker(place.anchor, place.place), key = place.key)
-        }
-    }
+    val mapPlaces = rememberStayPlaces(shownItems, placeSummaries)
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,

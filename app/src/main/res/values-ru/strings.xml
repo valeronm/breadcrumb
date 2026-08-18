@@ -6,6 +6,7 @@
 <resources>
     <string name="common_back">Назад</string>
     <string name="common_cancel">Отмена</string>
+    <string name="common_ok">ОК</string>
     <string name="common_undo">Отменить</string>
     <string name="common_off">Выключено</string>
     <string name="common_stop">Остановить</string>

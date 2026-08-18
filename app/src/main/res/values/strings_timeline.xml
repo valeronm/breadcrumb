@@ -30,6 +30,17 @@
         <item quantity="other">%d days</item>
     </plurals>
 
+    <!-- The tab row over the timeline's two views: the day-by-day list, and one day on a map. -->
+    <string name="timeline_view_list">List</string>
+    <string name="timeline_view_map">Map</string>
+
+    <!-- The map page's day selector and its one empty state. -->
+    <string name="timeline_map_prev_day">Previous day</string>
+    <string name="timeline_map_next_day">Next day</string>
+    <string name="timeline_map_empty_day">Nothing recorded on this day</string>
+    <!-- What tapping a day header's date does, read aloud. -->
+    <string name="timeline_day_on_map">Show on map</string>
+
     <!-- Row actions, read aloud -->
     <!-- Where in a journey the reader has scrolled to; follows the journey's name on its band. -->
     <string name="timeline_away_day">Day %1$d</string>

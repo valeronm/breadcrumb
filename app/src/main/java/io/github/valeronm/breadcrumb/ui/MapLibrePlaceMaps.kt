@@ -14,6 +14,8 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -340,6 +342,28 @@ internal class OverviewPlace(
      */
     val radiusM: Double? = null,
 )
+
+/**
+ * The places a many-track map draws for [items]: every place one of the shown stays resolved to.
+ * The two readings key a cluster alike (PlaceResolver), which is what lets a stay's key find its
+ * summary here. Remembered through the stay-key set, so a selection change showing the same
+ * places (the usual case — one hotel spans every day of a journey) returns the same list
+ * instance and the map skips the re-upload.
+ */
+@Composable
+internal fun rememberStayPlaces(
+    items: List<TimelineItem>,
+    summaries: List<PlaceResolver.PlaceSummary>?,
+): List<OverviewPlace> {
+    val stayKeys = remember(items) {
+        items.filterIsInstance<TimelineItem.StayItem>().mapNotNullTo(HashSet()) { it.place?.key }
+    }
+    return remember(summaries, stayKeys) {
+        summaries.orEmpty().filter { it.key in stayKeys }.map { place ->
+            OverviewPlace(marker = PlaceMarker(place.anchor, place.place), key = place.key)
+        }
+    }
+}
 
 /**
  * Every place on one map: labeled pins for named places, small dots for unnamed clusters, sized

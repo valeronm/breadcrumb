@@ -3,7 +3,6 @@
     <string name="addtrip_title_add">Adicionar viagem em falta</string>
     <string name="addtrip_title_edit">Editar a viagem</string>
     <string name="addtrip_next">Seguinte</string>
-    <string name="addtrip_ok">OK</string>
 
     <string name="addtrip_error_order">A chegada tem de ser depois da partida</string>
     <string name="addtrip_error_future">A partida está no futuro</string>

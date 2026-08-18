@@ -25,8 +25,6 @@ import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -41,7 +39,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDialog
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -82,7 +79,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
-import java.time.ZoneOffset
 import java.time.ZonedDateTime
 
 /** What the add-trip form offers: every movement type, carried transport first — a trip goes
@@ -593,28 +589,12 @@ internal fun AddTripScreen(
         key(end) {
             val chosenDate = editingDate
             if (chosenDate == null) {
-                val dateState = rememberDatePickerState(
-                    initialSelectedDateMillis = (end.date ?: edit.fallback.toLocalDate())
-                        .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+                LocalDateDialog(
+                    initial = end.date ?: edit.fallback.toLocalDate(),
+                    confirmLabel = stringResource(R.string.addtrip_next),
+                    onConfirm = { editingDate = it },
+                    onDismiss = closeDialogs,
                 )
-                DatePickerDialog(
-                    onDismissRequest = closeDialogs,
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                editingDate = dateState.selectedDateMillis?.let {
-                                    Instant.ofEpochMilli(it).atOffset(ZoneOffset.UTC).toLocalDate()
-                                }
-                            },
-                            enabled = dateState.selectedDateMillis != null,
-                        ) { Text(stringResource(R.string.addtrip_next)) }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = closeDialogs) {
-                            Text(stringResource(R.string.common_cancel))
-                        }
-                    },
-                ) { DatePicker(dateState) }
             } else {
                 val initial = end.time ?: edit.fallback.toLocalTime()
                 val timeState = rememberTimePickerState(
@@ -631,7 +611,7 @@ internal fun AddTripScreen(
                                 end.time = LocalTime.of(timeState.hour, timeState.minute)
                                 closeDialogs()
                             },
-                        ) { Text(stringResource(R.string.addtrip_ok)) }
+                        ) { Text(stringResource(R.string.common_ok)) }
                     },
                     dismissButton = {
                         TextButton(onClick = closeDialogs) {

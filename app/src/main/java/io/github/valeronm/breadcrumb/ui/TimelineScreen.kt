@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -28,9 +29,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Luggage
@@ -50,10 +55,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -70,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.SweepStatus
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -84,6 +94,7 @@ import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
 import io.github.valeronm.breadcrumb.util.PerLocale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.time.Duration.Companion.milliseconds
@@ -102,7 +113,12 @@ internal class TimelineViewedDay {
 private val BACKUP_MIME_TYPES =
     arrayOf("application/gzip", "application/x-gzip", "application/octet-stream")
 
-@OptIn(ExperimentalFoundationApi::class)
+private enum class TimelinePage(@StringRes val labelRes: Int) {
+    LIST(R.string.timeline_view_list),
+    MAP(R.string.timeline_view_map),
+}
+
+/** The Timeline tab: the day-by-day list and one day on a map, two pages under a tab row. */
 @Composable
 internal fun TracksTab(
     /** Null while the derivation is still running — see [TrackListViewModel.timeline]. */
@@ -125,9 +141,7 @@ internal fun TracksTab(
     onAddTrip: (TripDraft) -> Unit,
     onReplay: (TrackSummary) -> Unit,
 ) {
-    val context = LocalContext.current
-
-    // No list, no day — the empty and restoring branches below return before the real reader is
+    // No list, no day — the empty and restoring branches below return before a real reader is
     // installed, and a closure left over from a previous composition would read dead state.
     viewedDay.read = { null }
 
@@ -136,7 +150,9 @@ internal fun TracksTab(
     // timeline that keeps re-deriving as tracks pour in. The finished timeline appears at once.
     val restoreProgress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     // In priority order: a restore outranks everything, since that screen reports its progress for
-    // the whole run; then "not derived yet"; then a history that really is empty.
+    // the whole run; then "not derived yet"; then a history that really is empty. Gated above the
+    // tab row rather than per page — both pages would show the same blank, and the empty state's
+    // restore offer wants the whole tab.
     when {
         restoreProgress != null -> {
             EmptyTracksState(viewModel)
@@ -151,6 +167,96 @@ internal fun TracksTab(
             return
         }
     }
+
+    val pages = TimelinePage.entries
+    val pager = rememberPagerState { pages.size }
+    // The map page's day, saveable so it survives process death. Opens on today: the map answers
+    // "where was I", and today is the day that question is usually asked about.
+    var mapDay by rememberSaveable { mutableStateOf(LocalDate.now(timelineZone())) }
+
+    // The list page's own reader; the holder handed in answers for whichever page is settled, so a
+    // trip added while looking at a day's map starts on that day just as it does from the list.
+    val listViewedDay = remember { TimelineViewedDay() }
+    viewedDay.read = {
+        if (pages[pager.settledPage] == TimelinePage.MAP) mapDay else listViewedDay.read()
+    }
+    // The holder outlives this tab (it belongs to the top bar's scope): a closure left behind
+    // would pin the composition it captured after the tab is gone.
+    DisposableEffect(viewedDay) {
+        onDispose { viewedDay.read = { null } }
+    }
+
+    // A jump target is the list's to consume — its effects only run while the list page is
+    // composed, so a target arriving while the map is settled would otherwise wait forever.
+    // Unconditional: scrolling to the page already showing is a no-op.
+    LaunchedEffect(visitTarget, dayTarget) {
+        if (visitTarget != null || dayTarget != null) pager.scrollToPage(TimelinePage.LIST.ordinal)
+    }
+
+    val scope = rememberCoroutineScope()
+    Column(Modifier.fillMaxSize()) {
+        PagerTabRow(pager, pages.map { stringResource(it.labelRes) })
+        // Drags reach the pager only while the list is settled: Compose claims a horizontal drag
+        // before the map's own view sees it, so an always-swipeable pager turns every pan into a
+        // page switch. A settled map owns every gesture and is left by the tab tap.
+        HorizontalPager(
+            state = pager,
+            userScrollEnabled = pages[pager.settledPage] == TimelinePage.LIST,
+            modifier = Modifier.fillMaxSize(),
+        ) { pageIndex ->
+            when (pages[pageIndex]) {
+                TimelinePage.LIST -> TimelineListPage(
+                    items = items,
+                    viewModel = viewModel,
+                    undo = undo,
+                    visitTarget = visitTarget,
+                    onVisitTargetShown = onVisitTargetShown,
+                    dayTarget = dayTarget,
+                    onDayTargetShown = onDayTargetShown,
+                    homeRequest = homeRequest,
+                    viewedDay = listViewedDay,
+                    onOpen = onOpen,
+                    onOpenPlace = onOpenPlace,
+                    onOpenJourney = onOpenJourney,
+                    onAddTrip = onAddTrip,
+                    onReplay = onReplay,
+                    onOpenDayMap = { day ->
+                        mapDay = day
+                        scope.launch { pager.animateScrollToPage(TimelinePage.MAP.ordinal) }
+                    },
+                )
+                TimelinePage.MAP -> TimelineMapPage(
+                    items = items,
+                    viewModel = viewModel,
+                    day = mapDay,
+                    onSelectDay = { mapDay = it },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TimelineListPage(
+    items: List<TimelineItem>,
+    viewModel: TrackListViewModel,
+    undo: UndoSnackbar,
+    visitTarget: StayDeriver.Stay?,
+    onVisitTargetShown: () -> Unit,
+    dayTarget: LocalDate?,
+    onDayTargetShown: () -> Unit,
+    homeRequest: Int,
+    viewedDay: TimelineViewedDay,
+    onOpen: (Long) -> Unit,
+    onOpenPlace: (String) -> Unit,
+    onOpenJourney: (TravelNaming.Summary) -> Unit,
+    onAddTrip: (TripDraft) -> Unit,
+    onReplay: (TrackSummary) -> Unit,
+    /** Open the map page on this day — a day header's date is the way in from here. */
+    onOpenDayMap: (LocalDate) -> Unit,
+) {
+    val context = LocalContext.current
 
     // Rows change under the user while this runs, so the work says so rather than the list
     // simply rearranging itself. Null except during a sweep.
@@ -182,8 +288,9 @@ internal fun TracksTab(
         val first = listState.firstVisibleItemIndex
         dayAnchors.indexOfLast { it.itemIndex <= first }.takeIf { it >= 0 }?.let { groups[it].date }
     }
-    // The holder outlives this tab (it belongs to the top bar's scope): a closure left behind
-    // would pin the whole day-group derivation of a list no longer on screen.
+    // The holder outlives this page (it belongs to the tab, which answers for it while the map is
+    // settled): a closure left behind would pin the whole day-group derivation of a list no longer
+    // on screen.
     DisposableEffect(viewedDay) {
         onDispose { viewedDay.read = { null } }
     }
@@ -286,7 +393,14 @@ internal fun TracksTab(
                     // sharing a key is a hard crash in a lazy list rather than a cosmetic clash.
                     stickyHeader(key = "header:${group.items.first().startedAt}") {
                         val label = dayLabel(group.date, today, todayText, yesterdayText)
-                        DayHeader(label, dayTracks, dayItems, away, onOpenJourney) {
+                        DayHeader(
+                            label = label,
+                            dayTracks = dayTracks,
+                            dayItems = dayItems,
+                            away = away,
+                            onOpenJourney = onOpenJourney,
+                            onOpenMap = { onOpenDayMap(group.date) },
+                        ) {
                             viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
                                 if (intent != null) context.startActivity(intent)
                             }
@@ -338,6 +452,124 @@ internal fun TracksTab(
             stops = dayAnchors,
             contentDescription = stringResource(R.string.timeline_scroll_to_day),
             label = { it },
+        )
+    }
+}
+
+/**
+ * One day of the timeline on a map: its tracks colored by activity and the places its stays
+ * resolved to, in the journey map's vocabulary — same lines, same pins, one day at a time.
+ *
+ * The lines are loaded per selected day rather than history-wide: a day is a handful of tracks,
+ * and the polyline cache makes stepping back to a recent day a cache hit. The load restarts from
+ * empty on a day switch so the frame taken for the new day never covers the old day's lines.
+ */
+@Composable
+private fun TimelineMapPage(
+    items: List<TimelineItem>,
+    viewModel: TrackListViewModel,
+    day: LocalDate,
+    onSelectDay: (LocalDate) -> Unit,
+) {
+    // Indexed once per emission rather than filtered per day step: filing is time-zone arithmetic
+    // per row, and an arrow tap re-asking it of the whole history would pay O(history) for a
+    // handful of rows. groupBy welds a crossing's repeated date into one entry, which is right
+    // here — the map shows the whole date, however many runs the list cut it into.
+    val itemsByDay = remember(items) { items.groupBy { it.filedOn } }
+    val dayItems = itemsByDay[day].orEmpty()
+    val dayTracks = remember(dayItems) {
+        dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
+    }
+    // Keyed on the tracks' (id, endedAt) pairs rather than the list, so a timeline emission that
+    // changed no track on this day doesn't restart the load and reset the map to empty mid-fill.
+    val trackKeys = remember(dayTracks) { dayTracks.map { it.id to it.endedAt } }
+    val lines by produceState(emptyList<JourneyLine>(), trackKeys) {
+        value = emptyList()
+        viewModel.journeyPolylines.linesFor(dayTracks).collect { value = it }
+    }
+
+    val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
+    val mapPlaces = rememberStayPlaces(dayItems, placeSummaries)
+
+    Column(Modifier.fillMaxSize()) {
+        DaySelector(day, onSelectDay)
+        if (dayTracks.isEmpty() && mapPlaces.isEmpty()) {
+            // The day, not the history, is empty — a bare basemap would read as a broken map.
+            EmptyState(
+                stringResource(R.string.timeline_map_empty_day),
+                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+            )
+        } else {
+            // The same card the journey detail draws its map in — a block of content, not the
+            // page's own ground. Card padding keeps the texture-mode map off the back-gesture
+            // edge strips.
+            Card(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+                shape = groupedRowShape(0, 1),
+            ) {
+                Box(Modifier.fillMaxSize().clipToBounds()) {
+                    MapLibreJourneyMap(
+                        lines = lines,
+                        places = mapPlaces,
+                        frameKey = day,
+                        linesComplete = lines.size == dayTracks.size,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The map page's day: the arrows step it, the date itself opens a picker. The label is worded
+ * exactly as the list's day headers are, so the two pages name a day the same way. The forward
+ * arrow stops at today — the days ahead are empty by construction — while the picker is free to
+ * jump anywhere, a hand-entered future trip being reachable that way.
+ */
+@Composable
+private fun DaySelector(day: LocalDate, onSelect: (LocalDate) -> Unit) {
+    val today = LocalDate.now(timelineZone())
+    val todayText = stringResource(R.string.relative_today).standaloneCase()
+    val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
+    var pickerOpen by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { onSelect(day.minusDays(1)) }) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                contentDescription = stringResource(R.string.timeline_map_prev_day),
+            )
+        }
+        TextButton(onClick = { pickerOpen = true }, modifier = Modifier.weight(1f)) {
+            Text(
+                dayLabel(day, today, todayText, yesterdayText),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = { onSelect(day.plusDays(1)) }, enabled = day < today) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = stringResource(R.string.timeline_map_next_day),
+            )
+        }
+    }
+    if (pickerOpen) {
+        // Composed only while open, so each opening starts the picker at the day being shown.
+        LocalDateDialog(
+            initial = day,
+            confirmLabel = stringResource(R.string.common_ok),
+            onConfirm = {
+                pickerOpen = false
+                onSelect(it)
+            },
+            onDismiss = { pickerOpen = false },
         )
     }
 }
@@ -395,6 +627,8 @@ private fun DayHeader(
     dayItems: List<TimelineItem>,
     away: AwayDay?,
     onOpenJourney: (TravelNaming.Summary) -> Unit,
+    /** Open the map page on this header's day — the date itself is the tap target. */
+    onOpenMap: () -> Unit,
     onShare: () -> Unit,
 ) {
     val totals = remember(dayTracks) { activityTotals(dayTracks, System.currentTimeMillis()) }
@@ -424,6 +658,10 @@ private fun DayHeader(
                     label,
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable(
+                        onClickLabel = stringResource(R.string.timeline_day_on_map),
+                        onClick = onOpenMap,
+                    ),
                 )
                 // Which day of the journey this is — the band above carries the journey and its
                 // length, so this says only where in it the reader stands. Same size as the date

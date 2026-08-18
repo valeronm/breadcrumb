@@ -6,6 +6,7 @@
 <resources>
     <string name="common_back">Voltar</string>
     <string name="common_cancel">Cancelar</string>
+    <string name="common_ok">OK</string>
     <string name="common_undo">Anular</string>
     <string name="common_off">Desligado</string>
     <string name="common_stop">Parar</string>
