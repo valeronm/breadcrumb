@@ -387,7 +387,7 @@ internal fun MapLibrePlacesMap(
         modifier = modifier,
         onMapReady = { map ->
             map.addOnMapClickListener { latLng ->
-                val key = featureNear(map, latLng, OVERVIEW_LAYER)?.getStringProperty(PLACE_KEY)
+                val key = overviewPlaceKeyNear(map, latLng)
                 if (key != null) applied.onOpen(key)
                 key != null
             }
@@ -430,6 +430,12 @@ private fun overviewCircles(places: List<OverviewPlace>): FeatureCollection =
             place.radiusM?.let { circleFeature(place.marker.location, it) }
         },
     )
+
+/** The place-detail key of the overview marker within a finger's reach of [latLng], or null —
+ *  the shared tap hit-test for every map that draws the overview place layer ([addOverviewLayers]:
+ *  the all-places map, the journey map, the timeline's day map). */
+internal fun overviewPlaceKeyNear(map: MapLibreMap, latLng: LatLng): String? =
+    featureNear(map, latLng, OVERVIEW_LAYER)?.getStringProperty(PLACE_KEY)
 
 /** The topmost feature of [layer] within a finger's reach of [latLng], or null — the one tap
  *  hit-test every marker layer here shares, 36 px of slop included. */

@@ -73,10 +73,18 @@ internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
     /** Blur for this layer's own page, cast by whatever is stacked on it. */
     val blurDp: Float get() = stackedOn.maxOfOrNull { it.castBlurDp } ?: 0f
 
-    // Blur radius (dp) this layer casts downward: full while covering, sharpening with the
-    // gesture. Read only through a parent's [blurDp] — a layer never applies its own.
+    // Blur radius (dp) this layer casts downward: its own while it has a page up — full while
+    // covering, sharpening with the gesture — and whatever is cast onto it while it does not.
+    // A layer with nothing rendered is not on screen, so a blur cast onto it must fall through
+    // to the first page that is: a place opened from a tab stacks on a journey that isn't there,
+    // and it is the tabs that show beneath it. Read only through a parent's [blurDp] — a layer
+    // never applies its own.
     private val castBlurDp: Float
-        get() = presence.value * (1f - 0.7f * easeOutBack(backProgress.value)) * 12f
+        get() = if (rendered != null) {
+            presence.value * (1f - 0.7f * easeOutBack(backProgress.value)) * 12f
+        } else {
+            blurDp
+        }
 }
 
 // Ease-out on the gesture progress: like the system's cross-activity animation, most of the

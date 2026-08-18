@@ -422,11 +422,19 @@ private fun MainScreen(
         over = settingsPageLayer,
         onDismiss = { discardedTrackId = null },
     )
-    // On the tabs, not on the track detail: place detail is reached from the Timeline or the
-    // Places list, and no page above the tabs offers a route to one.
+    // Journey detail: reached from the Insights tab or a Timeline band, so back previews the tabs.
+    val journeyLayer = rememberOverlayLayer(
+        content = journeyKey,
+        over = tabsLayer,
+        onDismiss = { journeyKey = null },
+    )
+    // Place detail is reached from the Timeline, the Places list, or a journey's map — stacked on
+    // the journey layer so one opened there draws above it and back returns to it. Opened from a
+    // tab, the journey layer holds nothing, which is the tabs showing through anyway (the same
+    // shape as the trip form over a track detail that isn't there).
     val placeLayer = rememberOverlayLayer(
         content = placeDetailKey,
-        over = tabsLayer,
+        over = journeyLayer,
         onDismiss = { placeDetailKey = null },
         onClosed = { placeDetailSnapshot = null },
     )
@@ -447,12 +455,21 @@ private fun MainScreen(
         over = mainPageLayer,
         onDismiss = { tripDraft = null },
     )
-    // Journey detail: reached from the Insights tab, so back previews the tabs — like place detail.
-    val journeyLayer = rememberOverlayLayer(
-        content = journeyKey,
-        over = tabsLayer,
-        onDismiss = { journeyKey = null },
-    )
+
+    // A cross-screen jump to the Timeline tab: the landing is the tabs themselves, so every layer
+    // over them closes. Written once, beside the stack it mirrors — and total over that stack,
+    // including layers no current jump route can have open, so a new route cannot land under a
+    // page someone forgot to name.
+    val landOnTimeline = {
+        mainPage = null
+        settingsPage = null
+        discardedTrackId = null
+        placeDetailKey = null
+        editingArea = false
+        journeyKey = null
+        tripDraft = null
+        selectedTab = HomeTab.TRACKS
+    }
 
     // Undo snackbars for the Timeline's swipe actions and place removal. Owned here, not in the
     // tabs: a tab switch would take the tab's composition (and its coroutine scope) with it, killing
@@ -626,9 +643,7 @@ private fun MainScreen(
             onClose = { placeDetailKey = null },
             onOpenVisit = { stay ->
                 timelineVisitTarget = stay
-                placeDetailKey = null
-                mainPage = null
-                selectedTab = HomeTab.TRACKS
+                landOnTimeline()
             },
             onAdjustArea = { editingArea = true },
         )
@@ -676,10 +691,10 @@ private fun MainScreen(
             viewModel = viewModel,
             onClose = { journeyKey = null },
             onOpenDay = { day ->
-                journeyKey = null
                 timelineDayTarget = day
-                selectedTab = HomeTab.TRACKS
+                landOnTimeline()
             },
+            onOpenPlace = { placeDetailKey = it },
         )
 
         // Dismissing any of these leaves nothing to answer for the step, so a run waiting on one
@@ -852,6 +867,7 @@ private fun JourneyDetailOverlay(
     viewModel: TrackListViewModel,
     onClose: () -> Unit,
     onOpenDay: (LocalDate) -> Unit,
+    onOpenPlace: (String) -> Unit,
 ) {
     OverlayFrame(layer) { key ->
         // Inside the frame, so the derivation is subscribed only while this layer is up.
@@ -869,6 +885,7 @@ private fun JourneyDetailOverlay(
                 viewModel = viewModel,
                 onBack = onClose,
                 onOpenDay = onOpenDay,
+                onOpenPlace = onOpenPlace,
             )
         }
     }

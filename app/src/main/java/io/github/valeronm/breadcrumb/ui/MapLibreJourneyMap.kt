@@ -42,6 +42,8 @@ internal fun MapLibreJourneyMap(
     places: List<OverviewPlace>,
     frameKey: Any,
     linesComplete: Boolean,
+    /** Reports a tapped place's detail key, as the all-places map does. */
+    onOpenPlace: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // The colors follow the theme only through the unknown-type fallback, so that one color is
@@ -54,8 +56,16 @@ internal fun MapLibreJourneyMap(
     }
     val collection = remember(lines, colorByType) { journeyCollection(lines, colorByType) }
     val applied = remember { AppliedJourneyInputs() }
+    applied.onOpenPlace = onOpenPlace
     MapLibreStyledMap(
         modifier = modifier,
+        onMapReady = { map ->
+            map.addOnMapClickListener { latLng ->
+                val key = overviewPlaceKeyNear(map, latLng)
+                if (key != null) applied.onOpenPlace(key)
+                key != null
+            }
+        },
         onStyleLoaded = { ctx, map, style ->
             applied.collection = collection
             applied.places = places
@@ -95,6 +105,9 @@ private class AppliedJourneyInputs {
     var collection: FeatureCollection? = null
     var places: List<OverviewPlace>? = null
     var frameKey: Any? = null
+
+    /** The click listener is registered once, so it reads the handler from here to never go stale. */
+    var onOpenPlace: (String) -> Unit = {}
 
     /** Whether the current frame was taken with every line in hand — see the composable's KDoc. */
     var framedComplete = false

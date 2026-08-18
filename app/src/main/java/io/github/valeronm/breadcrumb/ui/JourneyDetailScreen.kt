@@ -74,6 +74,8 @@ internal fun JourneyDetailScreen(
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
     onOpenDay: (LocalDate) -> Unit,
+    /** Open a place tapped on the map — its detail stacks above this screen. */
+    onOpenPlace: (String) -> Unit,
 ) {
     val travel = summary.travel
     val zone = timelineZone()
@@ -176,6 +178,7 @@ internal fun JourneyDetailScreen(
                                     places = mapPlaces,
                                     frameKey = selectedIndex,
                                     linesComplete = lines.size == journeyTracks.size,
+                                    onOpenPlace = onOpenPlace,
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }

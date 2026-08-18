@@ -230,6 +230,7 @@ internal fun TracksTab(
                     viewModel = viewModel,
                     day = mapDay,
                     onSelectDay = { mapDay = it },
+                    onOpenPlace = onOpenPlace,
                 )
             }
         }
@@ -470,6 +471,7 @@ private fun TimelineMapPage(
     viewModel: TrackListViewModel,
     day: LocalDate,
     onSelectDay: (LocalDate) -> Unit,
+    onOpenPlace: (String) -> Unit,
 ) {
     // Indexed once per emission rather than filtered per day step: filing is time-zone arithmetic
     // per row, and an arrow tap re-asking it of the whole history would pay O(history) for a
@@ -516,6 +518,7 @@ private fun TimelineMapPage(
                         places = mapPlaces,
                         frameKey = day,
                         linesComplete = lines.size == dayTracks.size,
+                        onOpenPlace = onOpenPlace,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
