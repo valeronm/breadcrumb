@@ -205,6 +205,7 @@ private fun YearHeading(section: YearSection) {
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
+            .swallowTaps()
             .padding(top = 14.dp, bottom = 8.dp),
     ) {
         Text(section.label, style = MaterialTheme.typography.titleMedium)

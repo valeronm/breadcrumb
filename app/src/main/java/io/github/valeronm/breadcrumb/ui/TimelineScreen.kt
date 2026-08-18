@@ -407,6 +407,7 @@ private fun DayHeader(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background)
+            .swallowTaps()
             .padding(top = 14.dp, bottom = 6.dp),
     ) {
         away?.let { TravelHeading(it) { onOpenJourney(it.summary) } }

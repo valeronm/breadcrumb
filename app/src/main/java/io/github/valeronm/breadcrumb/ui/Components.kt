@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1653,3 +1654,11 @@ internal fun OptionRow(
         }
     }
 }
+
+/**
+ * Consumes taps without click semantics or ripple — for an opaque sticky header floating over
+ * tappable rows. Hit testing ignores a background, so without this a tap on the header falls
+ * through to whatever row has scrolled beneath it. Scrolls still work from the header: the
+ * detector releases the gesture the moment the finger moves.
+ */
+internal fun Modifier.swallowTaps(): Modifier = pointerInput(Unit) { detectTapGestures {} }
