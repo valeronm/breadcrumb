@@ -58,7 +58,7 @@ class DepartureFence(private val context: Context) {
         if (!context.backgroundGranted()) return
         val fence = Geofence.Builder()
             .setRequestId(FENCE_ID)
-            .setCircularRegion(at.lat, at.lon, RADIUS_M)
+            .setCircularRegion(at.lat, at.lon, RADIUS_M.toFloat())
             .setExpirationDuration(Geofence.NEVER_EXPIRE)
             .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_EXIT)
             // Left unset, Play Services batches exits to save power and a departure from a phone
@@ -126,18 +126,20 @@ class DepartureFence(private val context: Context) {
             .addOnFailureListener { DebugLog.w(TAG, "departure fence disarm failed: ${it.message}") }
     }
 
-    private companion object {
-        const val TAG = "Breadcrumb"
-        const val FENCE_ID = "departure"
-        const val REQUEST_CODE = 4001
+    companion object {
+        private const val TAG = "Breadcrumb"
+        private const val FENCE_ID = "departure"
+        private const val REQUEST_CODE = 4001
 
         /**
          * Android's own documented floor: below roughly this, the error in a Wi-Fi-derived position
-         * dominates the radius and exits either fire spuriously or never arrive at all.
+         * dominates the radius and exits either fire spuriously or never arrive at all. Also what
+         * an anchor's own accuracy is measured against ([io.github.valeronm.breadcrumb.domain
+         * .DepartureWatch]): a position coarser than the fence centres it on the error, not the stop.
          */
-        const val RADIUS_M = 100f
+        const val RADIUS_M = 100.0
 
         /** How long Play Services may sit on an exit before delivering it. */
-        const val RESPONSIVENESS_MS = 30_000
+        private const val RESPONSIVENESS_MS = 30_000
     }
 }

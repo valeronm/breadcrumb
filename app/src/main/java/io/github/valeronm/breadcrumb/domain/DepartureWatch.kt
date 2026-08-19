@@ -18,7 +18,13 @@ package io.github.valeronm.breadcrumb.domain
  * **Nothing here reaches a track.** These positions come from Wi-Fi and cell, land tens to hundreds
  * of meters out, and are a wake and nothing else — the same contract the departure fence has.
  */
-class DepartureWatch(private val distance: DistanceFn) {
+class DepartureWatch(
+    private val distance: DistanceFn,
+    // An anchor at least this coarse is provisional: adopted for judging, whose bars absorb the
+    // error, but nothing a fixed-radius trigger could be centred on. The caller passes its fence's
+    // radius, so the number both rules turn on has one author.
+    private val provisionalAtM: Double,
+) {
 
     /**
      * What a probe position turned out to be worth. Named cases rather than a boolean because the
@@ -26,8 +32,14 @@ class DepartureWatch(private val distance: DistanceFn) {
      * thing anything else watching for a departure can be centred on.
      */
     sealed interface Verdict {
-        /** The first position of a watch that began with nowhere to measure from. */
-        data class Anchored(val at: MeasuredPosition) : Verdict
+        /**
+         * A position adopted as the anchor — the first of a watch that began with nowhere to
+         * measure from, or the one that replaces a [provisional] anchor. A provisional anchor is
+         * coarser than the fence's own radius: judging works from it, the bars absorbing its error,
+         * but a fence centred on it fires on the error rather than on leaving — so the caller
+         * should keep probing and let the first sharp position land here again as the real one.
+         */
+        data class Anchored(val at: MeasuredPosition, val provisional: Boolean) : Verdict
 
         /**
          * Judged, and not far enough. [gapM] against [barM] is **the measurement the whole rule
@@ -102,13 +114,19 @@ class DepartureWatch(private val distance: DistanceFn) {
      * Adopts the position as the anchor when there is none and reports [Verdict.Anchored]: the first
      * one establishes where "here" is and cannot also be a departure from it. A position arriving
      * while nothing is watched for must decide nothing and must not become an anchor either.
+     *
+     * A provisional anchor is replaced by the first sharp position that is *not* a departure from
+     * it — judged first, because a position can be well-measured and far away, and adopting that
+     * one would swallow the very departure being watched for. The upgrade happens at most
+     * effectively once: a sharp anchor is never replaced, which is what keeps the anchor from
+     * creeping along under a slow departure.
      */
     fun judge(position: MeasuredPosition): Verdict {
         if (!watching) return Verdict.Dormant
         val from = anchor
         if (from == null) {
             anchor = position
-            return Verdict.Anchored(position)
+            return Verdict.Anchored(position, provisional = !sharp(position))
         }
         val gap = distance.meters(
             from.coordinate.lat, from.coordinate.lon,
@@ -119,8 +137,17 @@ class DepartureWatch(private val distance: DistanceFn) {
         val marginM = if (corroborating) MARGIN_M else SOLO_MARGIN_M
         val bar = marginM + errorM
         corroborating = gap > corroboratedBar
-        return if (gap > bar) Verdict.Departed(gap, bar, marginM) else Verdict.Near(gap, bar, marginM)
+        if (gap > bar) return Verdict.Departed(gap, bar, marginM)
+        if (!sharp(from) && sharp(position)) {
+            anchor = position
+            corroborating = false
+            return Verdict.Anchored(position, provisional = false)
+        }
+        return Verdict.Near(gap, bar, marginM)
     }
+
+    /** Measured well enough to centre a fixed-radius trigger on — the one rule [provisionalAtM] is. */
+    private fun sharp(position: MeasuredPosition) = position.sharperThan(provisionalAtM)
 
     companion object {
         /**

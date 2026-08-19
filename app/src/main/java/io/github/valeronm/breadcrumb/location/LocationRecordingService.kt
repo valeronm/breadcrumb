@@ -747,7 +747,11 @@ class LocationRecordingService : Service() {
                         )
 
                     is DepartureWatch.Verdict.Anchored ->
-                        DebugLog.i(TAG, "departure watch anchored ($quality)")
+                        DebugLog.i(
+                            TAG,
+                            "departure watch anchored" +
+                                (if (verdict.provisional) " provisionally" else "") + " ($quality)",
+                        )
 
                     DepartureWatch.Verdict.Dormant -> Unit
                 }

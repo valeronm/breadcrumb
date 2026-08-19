@@ -33,8 +33,8 @@ class DepartureTriggerTest : ActivityIngestFixture() {
     )
 
     /** A probe delivery [eastM] of the origin. */
-    private fun probeAt(eastM: Double) =
-        MeasuredPosition(Coordinate(ORIGIN_LAT, lonAt(eastM)), accuracyM = 10.0)
+    private fun probeAt(eastM: Double, accuracyM: Double = 10.0) =
+        MeasuredPosition(Coordinate(ORIGIN_LAT, lonAt(eastM)), accuracyM)
 
     // --- Which triggers go up, and from where -----------------------------------
 
@@ -115,6 +115,27 @@ class DepartureTriggerTest : ActivityIngestFixture() {
                 Effect.StopDepartureProbe,
             ),
             core.onProbeFix(probeAt(0.0), T0 + 5_000, settings),
+        )
+    }
+
+    /**
+     * The false fire this rule ended: a burst's first position can land hundreds of meters coarse,
+     * and a fence re-centred on it sits already outside itself — the exit a minute later measures
+     * the anchor's error, not a departure, and opens a track nothing moved for. So a coarse
+     * position anchors only the watch, whose bars absorb the error; the fence keeps whatever it was
+     * armed from, and the burst runs on until a position sharp enough to centre it arrives.
+     */
+    @Test fun `a coarse first position leaves the fence alone and the burst running`() {
+        core.onArmed(T0, settings)
+
+        assertTrue(core.onProbeFix(probeAt(0.0, accuracyM = 300.0), T0 + 5_000, settings).isEmpty())
+
+        assertEquals(
+            listOf(
+                Effect.ArmDepartureFence(Coordinate(ORIGIN_LAT, lonAt(20.0))),
+                Effect.StopDepartureProbe,
+            ),
+            core.onProbeFix(probeAt(20.0, accuracyM = 15.0), T0 + 20_000, settings),
         )
     }
 

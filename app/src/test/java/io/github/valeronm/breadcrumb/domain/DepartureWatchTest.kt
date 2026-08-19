@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
+import io.github.valeronm.breadcrumb.location.DepartureFence
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -7,11 +8,12 @@ import org.junit.Test
 
 /**
  * The rule both position-based departure triggers are decided by. Distances are meter offsets off a
- * neutral origin, so nothing here names a real place.
+ * neutral origin, so nothing here names a real place. The provisional ceiling is the fence radius
+ * that ships, not a number of this suite's own.
  */
 class DepartureWatchTest {
 
-    private val watch = DepartureWatch(flatDistance)
+    private val watch = DepartureWatch(flatDistance, DepartureFence.RADIUS_M)
 
     /**
      * A position [metersEast] of the origin, known to [accuracyM] — the same value goes to `watch`
@@ -104,11 +106,66 @@ class DepartureWatchTest {
         // Reported rather than swallowed: this position is the freshest thing the fence can be
         // re-centred on, and the caller has no other way to learn it arrived.
         assertEquals(
-            DepartureWatch.Verdict.Anchored(pos(5_000.0, accuracyM = 0.0)),
+            DepartureWatch.Verdict.Anchored(pos(5_000.0, accuracyM = 0.0), provisional = false),
             watch.judge(pos(5_000.0)),
         )
         assertFalse(watch.departedAt(pos(5_000.0 + DepartureWatch.SOLO_MARGIN_M - 10)))
         assertTrue(watch.departedAt(pos(5_000.0 + DepartureWatch.SOLO_MARGIN_M + 10)))
+    }
+
+    /**
+     * The field case that priced this: an anchorless watch's first position landed hundreds of
+     * meters coarse, the fence was re-centred on it, and the exit that fired a minute later
+     * measured the anchor's error, not a departure.
+     */
+    @Test
+    fun `an anchor coarser than the fence radius is provisional`() {
+        watch.begin(from = null)
+        assertEquals(
+            DepartureWatch.Verdict.Anchored(pos(0.0, accuracyM = 300.0), provisional = true),
+            watch.judge(pos(0.0, accuracyM = 300.0)),
+        )
+        // Exactly at the radius is still provisional: the error already spans the whole fence.
+        watch.begin(from = null)
+        assertEquals(
+            DepartureWatch.Verdict.Anchored(pos(0.0, accuracyM = DepartureFence.RADIUS_M), provisional = true),
+            watch.judge(pos(0.0, accuracyM = DepartureFence.RADIUS_M)),
+        )
+    }
+
+    @Test
+    fun `the first sharp position replaces a provisional anchor and is judged from thereafter`() {
+        watch.begin(from = null)
+        watch.judge(pos(0.0, accuracyM = 300.0))
+
+        assertEquals(
+            DepartureWatch.Verdict.Anchored(pos(40.0, accuracyM = 15.0), provisional = false),
+            watch.judge(pos(40.0, accuracyM = 15.0)),
+        )
+
+        // Judged against the new anchor's 40 m, not the coarse one's origin: from the origin this
+        // would be short of even the corroborated bar.
+        assertTrue(watch.departedAt(pos(40.0 + DepartureWatch.SOLO_MARGIN_M + 20, accuracyM = 0.0)))
+    }
+
+    @Test
+    fun `a sharp position past the bar is a departure, not an anchor upgrade`() {
+        // Well-measured and far away — adopting it would swallow the very departure being watched
+        // for. The coarse anchor's error widens the bar, so the distance must clear that too.
+        watch.begin(from = null)
+        watch.judge(pos(0.0, accuracyM = 300.0))
+        assertTrue(watch.departedAt(pos(DepartureWatch.SOLO_MARGIN_M + 300.0 + 50, accuracyM = 0.0)))
+    }
+
+    @Test
+    fun `a sharp anchor is never replaced`() {
+        // The upgrade happens at most effectively once — an anchor that creeps along under a slow
+        // departure would keep the gap forever short of the bar.
+        watch.begin(from = null)
+        watch.judge(pos(0.0, accuracyM = 15.0))
+        val verdict = watch.judge(pos(40.0, accuracyM = 5.0))
+        assertTrue("held, not re-adopted", verdict is DepartureWatch.Verdict.Near)
+        assertTrue(watch.departedAt(pos(DepartureWatch.SOLO_MARGIN_M + 15.0 + 10, accuracyM = 0.0)))
     }
 
     @Test

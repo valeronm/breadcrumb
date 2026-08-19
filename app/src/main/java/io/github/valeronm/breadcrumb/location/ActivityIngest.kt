@@ -186,9 +186,9 @@ data class DepartureTriggers(
 
         /**
          * How long a watch with no anchor probes to get one. Shorter than the motion window because
-         * it wants a single position rather than a verdict, and it gives up rather than hunting: a
-         * phone with neither Wi-Fi nor cell to place it is one the fence keeps its last-known anchor
-         * on, which is what the arming already logged the age of.
+         * it wants a single sharp position rather than a verdict, and it gives up rather than
+         * hunting: a phone whose coarse stream cannot place it under the fence's radius is one the
+         * fence keeps its last-known anchor on, which is what the arming already logged the age of.
          */
         const val ANCHOR_WINDOW_MS = 60_000L
     }
@@ -244,7 +244,7 @@ class ActivityIngest(
     // Owned rather than shared, unlike the fix path's rules: nothing else ever asks whether the
     // phone has left, and the positions it judges never reach a track. The geometry comes from the
     // fix path's seam rather than a second parameter, so the two cannot be wired to disagree.
-    private val watch = DepartureWatch(ingest.distance)
+    private val watch = DepartureWatch(ingest.distance, DepartureFence.RADIUS_M)
 
     // The stop side of what [watch] starts: fed the witness's verdicts on the satellite tick, fires
     // the pause that ends a signal-opened track. See [onArrivalTick] for why only those tracks.
@@ -516,7 +516,7 @@ class ActivityIngest(
         val verdict = watch.judge(position)
         lastProbeVerdict = verdict
         return when (verdict) {
-            is DepartureWatch.Verdict.Anchored -> anchored(verdict.at, settings.triggers)
+            is DepartureWatch.Verdict.Anchored -> anchored(verdict, settings.triggers)
             is DepartureWatch.Verdict.Departed -> onDeparture(nowMs, settings)
             is DepartureWatch.Verdict.Near, DepartureWatch.Verdict.Dormant -> emptyList()
         }
@@ -532,10 +532,16 @@ class ActivityIngest(
      * then travels — silently, while still occupying the single slot. That is the fate of every
      * fence armed from a stale last-known position, and re-arming here on a position seconds old
      * ends the whole class of it.
+     *
+     * A [DepartureWatch.Verdict.Anchored.provisional] anchor moves nothing: a fence centred on a
+     * position coarser than its own radius fires on the error rather than on leaving, so the fence
+     * keeps whatever it was armed from and the burst keeps running — the watch re-reports here with
+     * the first sharp position, and the window bounds what hunting for one may cost.
      */
-    private fun anchored(at: MeasuredPosition, triggers: DepartureTriggers): List<Effect> {
+    private fun anchored(verdict: DepartureWatch.Verdict.Anchored, triggers: DepartureTriggers): List<Effect> {
+        if (verdict.provisional) return emptyList()
         val out = ArrayList<Effect>()
-        if (triggers.fence) out += Effect.ArmDepartureFence(at.coordinate)
+        if (triggers.fence) out += Effect.ArmDepartureFence(verdict.at.coordinate)
         // The burst existed to produce exactly this. A standing request is not the burst's to stop,
         // and stopping it here would take the continuous trigger down on the first position it ever
         // delivered.
