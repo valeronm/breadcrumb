@@ -133,7 +133,8 @@ internal fun TracksTab(
     /** A day to land on, sent by a journey tapped on the Insights tab. */
     dayTarget: LocalDate?,
     onDayTargetShown: () -> Unit,
-    /** Bumped each time the Timeline tab is tapped while already open — send the list to the top. */
+    /** Bumped each time the Timeline tab is tapped while already open — send the shown view
+     *  home: the list to its top, the map to today. */
     homeRequest: Int,
     viewedDay: TimelineViewedDay,
     onOpen: (Long) -> Unit,
@@ -240,6 +241,17 @@ internal fun TracksTab(
     val travels by viewModel.travels.collectAsStateWithLifecycle()
     val awayDays = remember(travels) { awayDaysOf(travels.orEmpty(), timelineZone()) }
 
+    // Re-tapping the open tab is "go home" on either view. The list, composed, runs itself to its
+    // top; the map's home is today, answered here because only the tab knows which view is up.
+    // [mapOpenedOn] deliberately stays put: home means today on both views, so a later return to
+    // the list should land there too. One immutable snapshot, as the list's own consumer keeps
+    // and for its reason.
+    val homeRequestAtEntry = remember { homeRequest }
+    SideEffect(homeRequest) {
+        if (homeRequest != homeRequestAtEntry && page == TimelinePage.MAP) {
+            mapDay = LocalDate.now(timelineZone())
+        }
+    }
 
     // Each view keeps its state across switches — above all the list's scroll position, which is
     // what makes "only if the map moved" above worth deciding.

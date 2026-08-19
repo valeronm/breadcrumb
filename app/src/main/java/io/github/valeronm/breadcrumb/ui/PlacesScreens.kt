@@ -163,6 +163,10 @@ private val placesPageLabels = PlacesPage.entries.map { it.labelRes }
 @Composable
 internal fun PlacesTab(
     viewModel: TrackListViewModel,
+    /** Bumped each time the Places tab is tapped while already open — send the shown view home:
+     *  the list to its top, the map to the frame it opened on. Whichever view is composed is the
+     *  one that consumes it. */
+    homeRequest: Int,
     onOpenPlace: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -288,6 +292,7 @@ internal fun PlacesTab(
                             showRareStops = !showRareStops
                             AppSettings.setPlacesShowRareStops(context, showRareStops)
                         },
+                        homeRequest = homeRequest,
                         onOpenPlace = onOpenPlace,
                     )
                 }
@@ -302,6 +307,7 @@ internal fun PlacesTab(
                             sort = it
                             AppSettings.setPlacesSort(context, it.name)
                         },
+                        homeRequest = homeRequest,
                         onOpenPlace = onOpenPlace,
                     )
                 }
@@ -316,6 +322,7 @@ private fun PlacesMapPage(
     mapPlaces: List<OverviewPlace>,
     showRareStops: Boolean,
     onToggleRareStops: () -> Unit,
+    homeRequest: Int,
     onOpenPlace: (String) -> Unit,
 ) {
     // Card padding keeps the texture-mode map off the back-gesture edge strips.
@@ -339,6 +346,7 @@ private fun PlacesMapPage(
             } else {
                 MapLibrePlacesMap(
                     places = mapPlaces,
+                    frameKey = homeRequest,
                     onOpen = onOpenPlace,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -365,10 +373,19 @@ private fun PlacesListPage(
     onQueryChange: (String) -> Unit,
     sort: PlacesSort,
     onSortChange: (PlacesSort) -> Unit,
+    homeRequest: Int,
     onOpenPlace: (String) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
     val listState = rememberLazyListState()
+    // Re-tapping the open tab sends the list home — the same requested jump a re-sort makes, for
+    // the same reason: the list arriving, not the reader moving. One immutable snapshot, as the
+    // Timeline's consumers keep and for their reason — and a bump consumed by the other view
+    // can't replay here on a later switch back.
+    val homeRequestAtEntry = remember { homeRequest }
+    SideEffect(homeRequest) {
+        if (homeRequest != homeRequestAtEntry) listState.requestScrollToItem(0)
+    }
     SideEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress) focusManager.clearFocus()
     }

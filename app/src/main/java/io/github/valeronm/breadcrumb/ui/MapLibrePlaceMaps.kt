@@ -367,9 +367,9 @@ internal fun rememberStayPlaces(
 
 /**
  * Every place on one map: labeled pins for named places, small dots for unnamed clusters, sized
- * down the zoom range (see [overviewIconSize]) and framed to fit them all once on open. A pin is
- * colored by its category's group and shows the category's glyph at [GLYPH_ZOOM]. Tapping a marker
- * reports its key via [onOpen].
+ * down the zoom range (see [overviewIconSize]) and framed to fit them all on open — and again when
+ * [frameKey] asks. A pin is colored by its category's group and shows the category's glyph at
+ * [GLYPH_ZOOM]. Tapping a marker reports its key via [onOpen].
  *
  * Each place that claims a reach ([OverviewPlace.radiusM]) also gets it drawn, under the markers and
  * in the weight a ring the screen is *not* about wears everywhere ([addContextCircleLayers]) — the
@@ -378,6 +378,10 @@ internal fun rememberStayPlaces(
 @Composable
 internal fun MapLibrePlacesMap(
     places: List<OverviewPlace>,
+    /** Re-fits the camera to every place, as the map opened, when this differs from the value
+     *  last applied — the journey map's contract. Framing otherwise runs once per map instance;
+     *  the Places tab keys it on its home-gesture counter. */
+    frameKey: Any,
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -394,6 +398,7 @@ internal fun MapLibrePlacesMap(
         },
         onStyleLoaded = { ctx, map, style ->
             applied.places = places
+            applied.frameKey = frameKey
             // Before the markers, so the pins keep the top: a ring is the ground a place claims and
             // the marker is the place. Layers draw in the order they are added.
             style.addSource(GeoJsonSource(OVERVIEW_CIRCLE_SOURCE, overviewCircles(places)))
@@ -401,18 +406,27 @@ internal fun MapLibrePlacesMap(
             style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             addOverviewLayers(ctx, style, places)
-            frameTo(map, places.map { it.marker.location.toLatLng() }, singlePointZoom = 13.0)
+            frameAllPlaces(map, places)
         },
-        onUpdate = { _, style ->
+        onUpdate = { map, style ->
             if (applied.places !== places) {
                 applied.places = places
                 updateOverviewSource(style, places)
                 style.getSourceAs<GeoJsonSource>(OVERVIEW_CIRCLE_SOURCE)
                     ?.setGeoJson(overviewCircles(places))
             }
+            if (applied.frameKey != frameKey) {
+                applied.frameKey = frameKey
+                frameAllPlaces(map, places)
+            }
         },
     )
 }
+
+/** The overview map's one fit — on open and on [MapLibrePlacesMap]'s frameKey alike, so the home
+ *  gesture lands exactly the frame the map opened with. */
+private fun frameAllPlaces(map: MapLibreMap, places: List<OverviewPlace>) =
+    frameTo(map, places.map { it.marker.location.toLatLng() }, singlePointZoom = 13.0)
 
 /**
  * The zoom from which the overview map draws what a place reaches. A default capture radius is about
@@ -448,6 +462,7 @@ private fun featureNear(map: MapLibreMap, latLng: LatLng, layer: String): Featur
 /** Last-applied input of the all-places overview map. */
 private class AppliedOverviewInputs {
     var places: List<OverviewPlace>? = null
+    var frameKey: Any? = null
 
     /** The click listener is registered once, so it reads the handler from here to never go stale. */
     var onOpen: (String) -> Unit = {}

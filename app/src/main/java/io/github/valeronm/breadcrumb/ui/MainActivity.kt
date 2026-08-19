@@ -386,10 +386,10 @@ private fun MainScreen(
     // A visit tapped on the place detail: the Timeline scrolls to this stay when it next composes.
     var timelineVisitTarget by remember { mutableStateOf<StayDeriver.Stay?>(null) }
     var timelineDayTarget by remember { mutableStateOf<LocalDate?>(null) }
-    // Tapping the Timeline tab while it is already open sends the list home. A counter, not a
-    // boolean: two taps in a row are two requests, and a flag the receiver has to clear back to
-    // false would swallow the second.
+    // Tapping an already-open tab sends it home. Counters, not booleans: two taps in a row are
+    // two requests, and a flag the receiver has to clear back to false would swallow the second.
     var timelineHomeRequest by remember { mutableIntStateOf(0) }
+    var placesHomeRequest by remember { mutableIntStateOf(0) }
     // The add-trip form's input, which is also the flag that it is open: the top bar opens it on
     // the day the Timeline was showing, a gap row on the ends that row already knows. Everything
     // the form does with it stays local to the form until its check mark.
@@ -545,13 +545,17 @@ private fun MainScreen(
                         NavigationBarItem(
                             selected = selectedTab == tab,
                             onClick = {
-                                // Re-tapping the open tab is the standard "go home" gesture. Only
-                                // the timeline can act on it — it is the one tab that scrolls far
-                                // enough for the trip back to be worth a tap.
+                                // Re-tapping the open tab is the standard "go home" gesture: the
+                                // Timeline returns to today, Places to the top of its list or the
+                                // whole field of places. The tabs that don't wander take nothing.
                                 if (selectedTab != tab) {
                                     selectedTab = tab
-                                } else if (tab == HomeTab.TRACKS) {
-                                    timelineHomeRequest++
+                                } else {
+                                    when (tab) {
+                                        HomeTab.TRACKS -> timelineHomeRequest++
+                                        HomeTab.PLACES -> placesHomeRequest++
+                                        else -> Unit
+                                    }
                                 }
                             },
                             icon = { Icon(tab.icon, contentDescription = null) },
@@ -599,6 +603,7 @@ private fun MainScreen(
 
                     HomeTab.PLACES -> PlacesTab(
                         viewModel = viewModel,
+                        homeRequest = placesHomeRequest,
                         onOpenPlace = { placeDetailKey = it },
                     )
                     HomeTab.INSIGHTS -> InsightsTab(
