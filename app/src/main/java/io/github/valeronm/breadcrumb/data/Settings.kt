@@ -20,6 +20,7 @@ object Settings {
     private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
     private const val KEY_PLACES_SHOW_RARE_STOPS = "places_show_rare_stops"
     private const val KEY_PLACES_VIEW_MAP = "places_view_map"
+    private const val KEY_TIMELINE_VIEW_MAP = "timeline_view_map"
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_UNIT_CHOICE = "unit_choice"
@@ -327,6 +328,15 @@ object Settings {
 
     fun setPlacesViewMap(context: Context, map: Boolean) {
         prefs(context).edit { putBoolean(KEY_PLACES_VIEW_MAP, map) }
+    }
+
+    /** Timeline tab: whether the day-map view (vs the list) was last selected. Defaults to the
+     *  list, the timeline's denser reading. */
+    fun timelineViewMap(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_TIMELINE_VIEW_MAP, false)
+
+    fun setTimelineViewMap(context: Context, map: Boolean) {
+        prefs(context).edit { putBoolean(KEY_TIMELINE_VIEW_MAP, map) }
     }
 
     /** Places list sort, stored by enum name (the UI owns the enum; unknown names fall back). */

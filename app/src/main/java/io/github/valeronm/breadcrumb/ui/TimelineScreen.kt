@@ -96,6 +96,7 @@ import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.time.Duration.Companion.milliseconds
+import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /**
  * The day whose rows top the Timeline's viewport, published for the top bar's add-trip action —
@@ -174,9 +175,16 @@ internal fun TracksTab(
     // moved to. Saveable so the shared day survives process death; today until the list says
     // otherwise, the map answering "where was I" and today being the day that is usually about.
     var mapDay by rememberSaveable { mutableStateOf(LocalDate.now(timelineZone())) }
-    // Which view is showing. Deliberately not persisted: the list is the Timeline's home, and
-    // reopening the tab on a map of some past day would read as history gone missing.
-    var page by rememberSaveable { mutableStateOf(TimelinePage.LIST) }
+    // Which view is showing — a standing preference about how you read your timeline, persisted
+    // as the Places tab's is: the two tabs wear the same switch, and the same choice should
+    // survive the same way. A remembered map is never a map of some past day: the shared day
+    // above resets to today on a fresh open. Only the switch itself writes the preference — a
+    // date tapped into the map and a jump target landing on the list are errands, and a
+    // recreation mid-errand returns to the preferred view.
+    val context = LocalContext.current
+    var page by remember {
+        mutableStateOf(if (AppSettings.timelineViewMap(context)) TimelinePage.MAP else TimelinePage.LIST)
+    }
     // The day the map was entered on. A return to the list scrolls only if the map moved off it —
     // a glance at the day being read and back must not cost the reading position. Every route to
     // the map rewrites it, so the initial value is never compared; it only has to be some day.
@@ -214,6 +222,7 @@ internal fun TracksTab(
                 page = TimelinePage.LIST
             }
         }
+        AppSettings.setTimelineViewMap(context, selected == TimelinePage.MAP)
     }
 
     // A jump target is the list's to consume — its effects only run while the list is composed,

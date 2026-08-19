@@ -148,9 +148,11 @@ private val LINE_BREAK_RUN = Regex("[ \\t]*[\\r\\n]+[ \\t]*")
 private fun PlaceResolver.PlaceSummary.isRareStop() =
     visitCount < PlaceResolver.NOTABLE_VISIT_MIN
 
+// LIST before MAP, matching the Timeline's switch: the two tabs wear the same control, and the
+// same choice should sit under the same thumb on both.
 private enum class PlacesPage(@StringRes val labelRes: Int) {
-    MAP(R.string.places_view_map),
     LIST(R.string.places_view_list),
+    MAP(R.string.places_view_map),
 }
 
 /** One instance for the switch's sake: a list rebuilt per pass would recompose it per pass too. */
