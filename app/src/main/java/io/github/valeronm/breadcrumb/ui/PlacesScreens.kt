@@ -49,9 +49,6 @@ import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
@@ -407,23 +404,28 @@ private fun PlacesListPage(
                 .padding(horizontal = 16.dp)
                 .padding(top = 12.dp, bottom = 8.dp),
         )
-        SingleChoiceSegmentedButtonRow(
+        // Chips, not a second segmented row: the segmented control at the top of the tab means
+        // "switch the view", and a second control wearing the same shape would claim the same kind
+        // of choice. Chips are what this app arranges and narrows lists with — the journey day
+        // chips, the maps' filter chips — and a sort is that kind of act. A plain row over a lazy
+        // one for three fixed chips; the scroll is for a translation that outgrows the width.
+        Row(
             modifier = Modifier
-                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            PlacesSort.entries.forEachIndexed { index, option ->
-                SegmentedButton(
+            PlacesSort.entries.forEach { option ->
+                FilterToggleChip(
                     selected = sort == option,
-                    // Re-sorting means reading the list, not typing on — and the button claims
-                    // the tap, so the header's own tap-to-dismiss never sees it.
-                    onClick = {
-                        focusManager.clearFocus()
-                        onSortChange(option)
-                    },
-                    shape = SegmentedButtonDefaults.itemShape(index, PlacesSort.entries.size),
-                ) { Text(stringResource(option.labelRes)) }
+                    label = stringResource(option.labelRes),
+                ) {
+                    // Re-sorting means reading the list, not typing on — and the chip claims the
+                    // tap, so the header's own tap-to-dismiss never sees it.
+                    focusManager.clearFocus()
+                    onSortChange(option)
+                }
             }
         }
         if (listed.isEmpty()) {
