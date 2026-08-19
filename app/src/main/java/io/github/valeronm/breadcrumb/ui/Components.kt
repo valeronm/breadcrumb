@@ -65,6 +65,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -1701,4 +1704,30 @@ internal fun LocalDateDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
     ) { DatePicker(dateState) }
+}
+
+/**
+ * The switch over a tab whose views are the same content drawn two ways — a segmented control
+ * rather than a tab row, because a tab promises different content over there, and a pager's swipe
+ * fights a map for every horizontal drag. The selection is the caller's state; nothing here
+ * scrolls or settles, so a map view owns every gesture that reaches it. Tabs remain the right
+ * control where the pages genuinely differ, which is [PagerTabRow]'s job.
+ *
+ * Re-selecting the chosen segment never calls back, so callers switch unguarded. Labels arrive as
+ * string resources and resolve here, so a caller can hand over one static list and the row skips
+ * with it.
+ */
+@Composable
+internal fun ViewSwitchRow(labelsRes: List<Int>, selectedIndex: Int, onSelect: (Int) -> Unit) {
+    SingleChoiceSegmentedButtonRow(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        labelsRes.forEachIndexed { index, labelRes ->
+            SegmentedButton(
+                selected = index == selectedIndex,
+                onClick = { if (index != selectedIndex) onSelect(index) },
+                shape = SegmentedButtonDefaults.itemShape(index, labelsRes.size),
+            ) { Text(stringResource(labelRes)) }
+        }
+    }
 }

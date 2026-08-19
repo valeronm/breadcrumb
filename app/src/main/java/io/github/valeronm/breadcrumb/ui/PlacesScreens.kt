@@ -21,8 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -73,6 +71,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -118,9 +117,7 @@ import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.openInMaps
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
@@ -159,7 +156,11 @@ private enum class PlacesPage(@StringRes val labelRes: Int) {
     LIST(R.string.places_view_list),
 }
 
-/** The Places tab: an all-places map and a sortable list (tap for detail), two pages under a tab row. */
+/** One instance for the switch's sake: a list rebuilt per pass would recompose it per pass too. */
+private val placesPageLabels = PlacesPage.entries.map { it.labelRes }
+
+/** The Places tab: an all-places map and a sortable list (tap for detail), two views under a
+ *  segmented switch. */
 @Composable
 internal fun PlacesTab(
     viewModel: TrackListViewModel,
@@ -173,29 +174,12 @@ internal fun PlacesTab(
     // marked rather than re-deciding eligibility here. Named places are exempt at the dot, not
     // here: the merge rule doesn't spare them, but a label still says the place is meant.
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
-    val pages = PlacesPage.entries
-    val pager = rememberPagerState(
-        initialPage = (if (AppSettings.placesViewMap(context)) PlacesPage.MAP else PlacesPage.LIST).ordinal,
-    ) { pages.size }
-    val focusManager = LocalFocusManager.current
-    LaunchedEffect(pager) {
-        // Which page is open is a standing preference about how you read your places (InsightsTab
-        // has the contrast), so it persists — written when a settle changes the page, not per
-        // frame of the drag, and not for the page the pager opened on.
-        launch {
-            snapshotFlow { pager.settledPage }
-                .drop(1)
-                .collect { AppSettings.setPlacesViewMap(context, pages[it] == PlacesPage.MAP) }
-        }
-        // The search keyboard doesn't survive leaving the list: disposing the focused field when
-        // the page unloads is not a reliable dismissal, so the focus is dropped the moment the
-        // pager commits to the map — mid-swipe past halfway, or on the tab tap.
-        launch {
-            snapshotFlow { pager.currentPage }
-                .drop(1)
-                .collect { if (pages[it] != PlacesPage.LIST) focusManager.clearFocus() }
-        }
+    // Which view is open is a standing preference about how you read your places (InsightsTab has
+    // the contrast), so it persists — written on the switch, never for the view the tab opened on.
+    var page by remember {
+        mutableStateOf(if (AppSettings.placesViewMap(context)) PlacesPage.MAP else PlacesPage.LIST)
     }
+    val focusManager = LocalFocusManager.current
     var sort by remember { mutableStateOf(PlacesSort.fromSettings(context)) }
     var showRareStops by remember { mutableStateOf(AppSettings.placesShowRareStops(context)) }
 
@@ -230,10 +214,10 @@ internal fun PlacesTab(
     val mapVisible = remember(sorted, showRareStops) {
         if (showRareStops) sorted else sorted.filterNot { it.isRareStop() }
     }
-    // Derived here rather than in the map page, which the pager composes on the first frame of a
-    // drag and disposes on leaving — there, this history-wide walk would re-run per swipe, in the
-    // jank window. Stay identity (afterTrackId + start) survives the timeline's per-day slicing —
-    // a mergeable stay is short, so its first slice is the whole stay.
+    // Derived here rather than in the map view, which is disposed on switching away — there, this
+    // history-wide walk would re-run on every return to the map. Stay identity (afterTrackId +
+    // start) survives the timeline's per-day slicing — a mergeable stay is short, so its first
+    // slice is the whole stay.
     val mergeableStays = remember(timeline) {
         timeline.orEmpty().filterIsInstance<TimelineItem.StayItem>()
             .filter { it.merge != null }
@@ -270,10 +254,24 @@ internal fun PlacesTab(
         }
     }
 
+    // Each view keeps its state across switches — above all the list's scroll position, which a
+    // bare `when` would discard with the branch.
+    val viewStateHolder = rememberSaveableStateHolder()
     Column(Modifier.fillMaxSize()) {
-        PagerTabRow(pager, pages.map { stringResource(it.labelRes) })
-        // Deriving and an empty history are the tab's states, not a page's — gated here, so the
-        // pager never offers a swipe between two identical blanks.
+        ViewSwitchRow(
+            labelsRes = placesPageLabels,
+            selectedIndex = page.ordinal,
+            onSelect = { index ->
+                val selected = PlacesPage.entries[index]
+                page = selected
+                AppSettings.setPlacesViewMap(context, selected == PlacesPage.MAP)
+                // The search keyboard doesn't survive leaving the list: disposing the focused
+                // field is not a reliable dismissal, so the focus is dropped with the switch.
+                focusManager.clearFocus()
+            },
+        )
+        // Deriving and an empty history are the tab's states, not a view's — gated here, so the
+        // switch never toggles between two identical blanks.
         if (derivedPlaces == null) {
             DerivingState(Modifier.weight(1f).fillMaxWidth())
         } else if (sorted.isEmpty()) {
@@ -282,17 +280,9 @@ internal fun PlacesTab(
                 Modifier.weight(1f).fillMaxWidth().padding(24.dp),
             )
         } else {
-            // The pager takes drags only while the list is settled: Compose claims a horizontal
-            // drag before the map's own view sees it, so an always-swipeable pager turns every
-            // pan into a page switch. Swiping list→map keeps the tab row's promise; a settled
-            // map owns every gesture and is left by the tab tap.
-            HorizontalPager(
-                state = pager,
-                userScrollEnabled = pages[pager.settledPage] == PlacesPage.LIST,
-                modifier = Modifier.fillMaxSize(),
-            ) { pageIndex ->
-                when (pages[pageIndex]) {
-                    PlacesPage.MAP -> PlacesMapPage(
+            when (page) {
+                PlacesPage.MAP -> viewStateHolder.SaveableStateProvider(PlacesPage.MAP) {
+                    PlacesMapPage(
                         mapPlaces = mapPlaces,
                         showRareStops = showRareStops,
                         onToggleRareStops = {
@@ -301,8 +291,10 @@ internal fun PlacesTab(
                         },
                         onOpenPlace = onOpenPlace,
                     )
+                }
 
-                    PlacesPage.LIST -> PlacesListPage(
+                PlacesPage.LIST -> viewStateHolder.SaveableStateProvider(PlacesPage.LIST) {
+                    PlacesListPage(
                         listed = listed,
                         query = query,
                         onQueryChange = { query = it },
@@ -449,9 +441,9 @@ private fun PlacesListPage(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    // No swipe action on these rows: under a pager, a row's horizontal drag detector
-                    // claims the swipe the tab row promises, whatever direction it can act on.
-                    // Removing a place lives on its editor's Remove button instead.
+                    // No swipe action on these rows — removing a place lives on its editor's
+                    // Remove button, behind a screen that shows what the label being removed
+                    // covers, rather than one flick on a list row.
                     itemsIndexed(listed, key = { _, s -> s.key }) { index, summary ->
                         PlaceRowCard(
                             summary = summary,
