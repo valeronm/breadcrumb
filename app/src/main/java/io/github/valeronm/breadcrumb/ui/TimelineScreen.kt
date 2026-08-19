@@ -29,8 +29,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
@@ -53,12 +51,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,7 +93,6 @@ import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
 import io.github.valeronm.breadcrumb.util.PerLocale
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.time.Duration.Companion.milliseconds
@@ -118,7 +116,10 @@ private enum class TimelinePage(@StringRes val labelRes: Int) {
     MAP(R.string.timeline_view_map),
 }
 
-/** The Timeline tab: the day-by-day list and one day on a map, two pages under a tab row. */
+/** One instance for the switch's sake: a list rebuilt per pass would recompose it per pass too. */
+private val timelinePageLabels = TimelinePage.entries.map { it.labelRes }
+
+/** The Timeline tab: the day-by-day list and one day on a map, two views under a segmented switch. */
 @Composable
 internal fun TracksTab(
     /** Null while the derivation is still running — see [TrackListViewModel.timeline]. */
@@ -151,7 +152,7 @@ internal fun TracksTab(
     val restoreProgress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     // In priority order: a restore outranks everything, since that screen reports its progress for
     // the whole run; then "not derived yet"; then a history that really is empty. Gated above the
-    // tab row rather than per page — both pages would show the same blank, and the empty state's
+    // switch rather than per view — both views would show the same blank, and the empty state's
     // restore offer wants the whole tab.
     when {
         restoreProgress != null -> {
@@ -168,17 +169,26 @@ internal fun TracksTab(
         }
     }
 
-    val pages = TimelinePage.entries
-    val pager = rememberPagerState { pages.size }
-    // The map page's day, saveable so it survives process death. Opens on today: the map answers
-    // "where was I", and today is the day that question is usually asked about.
+    // The two views are one timeline looked at two ways, so they share their day: a switch to the
+    // map opens it on the day being read, and a return to the list lands on the day the map was
+    // moved to. Saveable so the shared day survives process death; today until the list says
+    // otherwise, the map answering "where was I" and today being the day that is usually about.
     var mapDay by rememberSaveable { mutableStateOf(LocalDate.now(timelineZone())) }
+    // Which view is showing. Deliberately not persisted: the list is the Timeline's home, and
+    // reopening the tab on a map of some past day would read as history gone missing.
+    var page by rememberSaveable { mutableStateOf(TimelinePage.LIST) }
+    // The day the map was entered on. A return to the list scrolls only if the map moved off it —
+    // a glance at the day being read and back must not cost the reading position. Every route to
+    // the map rewrites it, so the initial value is never compared; it only has to be some day.
+    var mapOpenedOn by rememberSaveable { mutableStateOf(mapDay) }
+    // The map's parting request to the list, consumed by the same jump a journey tap sends.
+    var mapDayTarget by remember { mutableStateOf<LocalDate?>(null) }
 
-    // The list page's own reader; the holder handed in answers for whichever page is settled, so a
+    // The list view's own reader; the holder handed in answers for whichever view is showing, so a
     // trip added while looking at a day's map starts on that day just as it does from the list.
     val listViewedDay = remember { TimelineViewedDay() }
     viewedDay.read = {
-        if (pages[pager.settledPage] == TimelinePage.MAP) mapDay else listViewedDay.read()
+        if (page == TimelinePage.MAP) mapDay else listViewedDay.read()
     }
     // The holder outlives this tab (it belongs to the top bar's scope): a closure left behind
     // would pin the composition it captured after the tab is gone.
@@ -186,33 +196,58 @@ internal fun TracksTab(
         onDispose { viewedDay.read = { null } }
     }
 
-    // A jump target is the list's to consume — its effects only run while the list page is
-    // composed, so a target arriving while the map is settled would otherwise wait forever.
-    // Unconditional: scrolling to the page already showing is a no-op.
-    LaunchedEffect(visitTarget, dayTarget) {
-        if (visitTarget != null || dayTarget != null) pager.scrollToPage(TimelinePage.LIST.ordinal)
+    // Every route onto the map pins the shared day first; [day] is where the map opens, already
+    // known to be what the list was showing wherever the route knew it.
+    val openMap = { day: LocalDate ->
+        mapDay = day
+        mapOpenedOn = day
+        page = TimelinePage.MAP
+    }
+    val switchTo = { selected: TimelinePage ->
+        when (selected) {
+            // Read before the switch composes anything: the reader answers for the list only
+            // while it is on screen. Falls back to the map's last day when the list cannot
+            // say (it is what the map held, which is as synced as the tab can be).
+            TimelinePage.MAP -> openMap(listViewedDay.read() ?: mapDay)
+            TimelinePage.LIST -> {
+                if (mapDay != mapOpenedOn) mapDayTarget = mapDay
+                page = TimelinePage.LIST
+            }
+        }
     }
 
-    val scope = rememberCoroutineScope()
+    // A jump target is the list's to consume — its effects only run while the list is composed,
+    // so a target arriving while the map is showing would otherwise wait forever. Straight to the
+    // list rather than through [switchTo]: the target carries its own destination, and the map's
+    // parting day would race it.
+    SideEffect(visitTarget, dayTarget) {
+        if (visitTarget != null || dayTarget != null) page = TimelinePage.LIST
+    }
+
+    // Each view keeps its state across switches — above all the list's scroll position, which is
+    // what makes "only if the map moved" above worth deciding.
+    val viewStateHolder = rememberSaveableStateHolder()
     Column(Modifier.fillMaxSize()) {
-        PagerTabRow(pager, pages.map { stringResource(it.labelRes) })
-        // Drags reach the pager only while the list is settled: Compose claims a horizontal drag
-        // before the map's own view sees it, so an always-swipeable pager turns every pan into a
-        // page switch. A settled map owns every gesture and is left by the tab tap.
-        HorizontalPager(
-            state = pager,
-            userScrollEnabled = pages[pager.settledPage] == TimelinePage.LIST,
-            modifier = Modifier.fillMaxSize(),
-        ) { pageIndex ->
-            when (pages[pageIndex]) {
-                TimelinePage.LIST -> TimelineListPage(
+        ViewSwitchRow(
+            labelsRes = timelinePageLabels,
+            selectedIndex = page.ordinal,
+            onSelect = { switchTo(TimelinePage.entries[it]) },
+        )
+        when (page) {
+            TimelinePage.LIST -> viewStateHolder.SaveableStateProvider(TimelinePage.LIST) {
+                TimelineListPage(
                     items = items,
                     viewModel = viewModel,
                     undo = undo,
                     visitTarget = visitTarget,
                     onVisitTargetShown = onVisitTargetShown,
-                    dayTarget = dayTarget,
-                    onDayTargetShown = onDayTargetShown,
+                    // One slot, two senders: a journey tap outranks the map's parting request —
+                    // it is the fresher intention, and the map's day can wait for its next visit.
+                    dayTarget = dayTarget ?: mapDayTarget,
+                    onDayTargetShown = {
+                        mapDayTarget = null
+                        onDayTargetShown()
+                    },
                     homeRequest = homeRequest,
                     viewedDay = listViewedDay,
                     onOpen = onOpen,
@@ -220,12 +255,11 @@ internal fun TracksTab(
                     onOpenJourney = onOpenJourney,
                     onAddTrip = onAddTrip,
                     onReplay = onReplay,
-                    onOpenDayMap = { day ->
-                        mapDay = day
-                        scope.launch { pager.animateScrollToPage(TimelinePage.MAP.ordinal) }
-                    },
+                    onOpenDayMap = openMap,
                 )
-                TimelinePage.MAP -> TimelineMapPage(
+            }
+            TimelinePage.MAP -> viewStateHolder.SaveableStateProvider(TimelinePage.MAP) {
+                TimelineMapPage(
                     items = items,
                     viewModel = viewModel,
                     day = mapDay,
@@ -289,8 +323,8 @@ private fun TimelineListPage(
         val first = listState.firstVisibleItemIndex
         dayAnchors.indexOfLast { it.itemIndex <= first }.takeIf { it >= 0 }?.let { groups[it].date }
     }
-    // The holder outlives this page (it belongs to the tab, which answers for it while the map is
-    // settled): a closure left behind would pin the whole day-group derivation of a list no longer
+    // The holder outlives this view (it belongs to the tab, which answers for it while the map is
+    // showing): a closure left behind would pin the whole day-group derivation of a list no longer
     // on screen.
     DisposableEffect(viewedDay) {
         onDispose { viewedDay.read = { null } }
