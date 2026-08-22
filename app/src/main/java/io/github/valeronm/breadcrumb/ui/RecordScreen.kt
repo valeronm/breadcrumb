@@ -155,7 +155,8 @@ internal fun RecordTab(
 
 /**
  * Recorded totals per activity for today / this month / the previous month — fills the Record
- * tab while nothing is recording, in the same grouped-block style as the settings page.
+ * tab while nothing is recording, in the same grouped-block style as the settings page. The
+ * previous month is shown only when it holds something.
  */
 @Composable
 private fun RecordedStats(viewModel: TrackListViewModel) {
@@ -169,16 +170,22 @@ private fun RecordedStats(viewModel: TrackListViewModel) {
     val todayLabel = stringResource(R.string.relative_today).standaloneCase()
     val thisMonthLabel = stringResource(R.string.record_period_this_month)
     val periods = remember(byDate, today, todayLabel, thisMonthLabel) {
-        val prevMonth = YearMonth.from(today).minusMonths(1)
-        listOf(
-            todayLabel to byDate.filter { it.second == today },
-            thisMonthLabel to byDate.filter { it.second.year == today.year && it.second.month == today.month },
-            monthLabel(prevMonth, today) to byDate.filter { YearMonth.from(it.second) == prevMonth },
+        val thisMonth = YearMonth.from(today)
+        val prevMonth = thisMonth.minusMonths(1)
+        fun tracksIn(covers: (LocalDate) -> Boolean) = byDate.filter { covers(it.second) }.map { it.first }
+        val prevMonthTracks = tracksIn { YearMonth.from(it) == prevMonth }
+        listOfNotNull(
+            todayLabel to tracksIn { it == today },
+            thisMonthLabel to tracksIn { YearMonth.from(it) == thisMonth },
+            // This block is the far side of a comparison with the month above it, so an empty one
+            // leaves nothing to compare and is dropped. Why it is empty — the recorder off for the
+            // month, or on and nothing recorded — makes no difference to that.
+            if (prevMonthTracks.isEmpty()) null else monthLabel(prevMonth, today) to prevMonthTracks,
         )
     }
     GroupedRows(
-        *periods.map { (title, entries) ->
-            @Composable { PeriodStats(title, entries.map { it.first }) }
+        *periods.map { (title, periodTracks) ->
+            @Composable { PeriodStats(title, periodTracks) }
         }.toTypedArray(),
     )
 }
