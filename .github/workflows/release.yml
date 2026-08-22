@@ -13,14 +13,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Check the tag matches versionCode
+      # The tag is the version, so git itself refuses a second upload of one — which is what makes
+      # "every upload bumps the version" a rule that cannot be broken by forgetting it. The version
+      # carries to the release step below rather than being parsed back out of the tag.
+      - name: Check the tag matches the build file
         run: |
-          tag_vc="${GITHUB_REF_NAME##*-vc}"
-          build_vc="$(sed -n 's/^ *versionCode = \([0-9]*\)$/\1/p' app/build.gradle.kts)"
-          if [ "$tag_vc" != "$build_vc" ]; then
-            echo "Tag $GITHUB_REF_NAME says versionCode $tag_vc but app/build.gradle.kts has $build_vc" >&2
+          build_version="$(sed -n 's/^ *versionName = "\([0-9.]*\)"$/\1/p' app/build.gradle.kts)"
+          if [ "$GITHUB_REF_NAME" != "v$build_version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match app/build.gradle.kts, which would tag v$build_version" >&2
             exit 1
           fi
+          echo "VERSION_NAME=$build_version" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v5
         with:
@@ -51,10 +54,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version_name="1.0+$(git describe --always --dirty)"
           bundle="breadcrumb-$GITHUB_REF_NAME.aab"
           cp app/build/outputs/bundle/release/app-release.aab "$bundle"
           gh release create "$GITHUB_REF_NAME" \
             "$bundle" \
             --title "$GITHUB_REF_NAME" \
-            --notes "Play upload bundle, versionName $version_name, built from $GITHUB_SHA."
+            --notes "Play upload bundle, versionName $VERSION_NAME, built from $GITHUB_SHA."

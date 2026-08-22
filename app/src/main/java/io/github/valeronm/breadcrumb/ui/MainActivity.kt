@@ -78,6 +78,7 @@ import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
+import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.UnitChoice
 import io.github.valeronm.breadcrumb.util.openAppSettings
 import io.github.valeronm.breadcrumb.util.requestIgnoreBatteryOptimization
@@ -498,15 +499,18 @@ private fun MainScreen(
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(stringResource(selectedTab.titleRes))
-                            // Which build this is — empty on release, so the badge is absent there.
-                            if (BuildConfig.BUILD_LABEL.isNotEmpty()) {
+                            // What it says is the variant, named in one place; whether to draw one
+                            // at all is a decision of its own, off on release and on demo so that
+                            // neither a shipped screen nor a screenshot carries a badge.
+                            val badge = BuildIdentity.variant?.takeIf { BuildConfig.SHOW_BUILD_BADGE }
+                            if (badge != null) {
                                 Spacer(Modifier.width(8.dp))
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = MaterialTheme.colorScheme.tertiaryContainer,
                                 ) {
                                     Text(
-                                        BuildConfig.BUILD_LABEL,
+                                        badge,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onTertiaryContainer,

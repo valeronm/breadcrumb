@@ -62,9 +62,11 @@ run the tests after touching anything they cover. **Room runs in these host test
 **v18 is the schema floor**: an older database fails to open rather than migrating, and the KDoc on
 `AppDatabase.MIGRATIONS` says why, including why no destructive fallback belongs in the builder.
 **Where the floor sits is a fact about the installs, not a preference** — a floor above an install's
-schema version bricks it on the next update, so check before raising it: `adb shell dumpsys package
-<id> | grep versionName` names the commit a build came from, and the `version` declared at that
-commit is the schema its database is on.
+schema version bricks it on the next update, so check before raising it by finding the commit an
+install came from — `adb shell dumpsys package <id> | grep versionCode` for an uploaded build, whose
+number names its release tag, and the recorder's arming line (logcat or Settings → Logs), which
+stamps `BuildConfig.GIT_SHA`, for a build that never shipped. The `version` declared at that commit
+is the schema its database is on.
 
 Room's schema is exported to `app/schemas/` and committed, one JSON per version, so a schema change
 reviews as a diff; a bump **adds** a file rather than replacing the ones before it, so don't prune
@@ -665,22 +667,38 @@ and covers the map saying it, so labelling them is a decision to take, not an ov
 When preparing a Play release (version bump, building the bundle, or writing the "What's new"
 text), follow `docs/release-notes-guide.md` — it defines the audience rules for release notes,
 how to derive them from commits since the last *uploaded* build, and the versioning scheme
-(git-derived `versionName`, manual `versionCode`, never upload a `-dirty` build).
+(a hand-bumped `major.minor.patch` `versionName` — which part to bump falls out of the same
+bucketing of the commit range that writes the notes, so the number and the text are one judgement,
+and major is declared rather than derived — manual `versionCode` as an independent upload counter,
+the git sha kept out of both and stamped into the log instead, never upload a `-dirty` build).
 
-Every build uploaded to Play is marked with a lightweight tag `v1.0-vc<N>` (N = versionCode) on
-the commit it was built from — so "commits since the last uploaded build" is just
-`git log v1.0-vc<N>..`. GitHub Actions automates the pipeline (`.github/workflows/`):
-`tests.yml` runs ktlint, detekt, Android Lint and the unit tests on every push/PR; `release.yml` fires on pushing a `v1.0-vc<N>`
-tag — it fails unless N matches `versionCode` in `app/build.gradle.kts`, builds the signed
+**What a build is, is three facts that move independently, and `util/BuildIdentity` is where they
+are combined** — the version, the variant (`debug`/`perf`/`demo`, absent on the release that ships)
+and the commit. None is folded into another: no variant suffix on the `versionName`, which is why
+the build types set no `versionNameSuffix`, and no sha in anything a reader sees. Settings states
+version and variant, the recorder's arming line logs all three, and the `versionCode` appears in
+neither — it is Play's upload vocabulary, shared by every build between two uploads. The top bar's
+badge *says* the variant and so does not spell it again; what it carries of its own is only whether
+to appear (`BuildConfig.SHOW_BUILD_BADGE`, off on demo so a screenshot carries none).
+
+Every build uploaded to Play is marked with a lightweight tag `v<version>` (e.g. `v1.0.1`) on the
+commit it was built from — so "commits since the last uploaded build" is just `git log <tag>..`.
+**Every upload bumps the version, patch by default**, which is what lets the tag be the version
+alone: a second upload of one is a tag git refuses to create, so the rule cannot be broken by
+forgetting it. GitHub Actions automates the pipeline
+(`.github/workflows/`):
+`tests.yml` runs ktlint, detekt, Android Lint and the unit tests on every push/PR; `release.yml` fires on pushing such a
+tag — it fails unless the tag is exactly `v` plus the committed `versionName`, builds the signed
 bundle (upload keystore + Protomaps key come from repo secrets), and attaches the `.aab` to a
-GitHub Release. Release flow: commit the `versionCode` bump → push it to `main` → tag it
-`v1.0-vc<N>` → push the tag (the tag alone would build, but a commit no branch contains is not a
+GitHub Release. Release flow: commit the version bump → push it to `main` → tag it
+`v<version>` → push the tag (the tag alone would build, but a commit no branch contains is not a
 release; when later commits must stay local, `git push origin <bump-sha>:main` pushes the bump on
 its own) → append the "What's new" text (written per `docs/release-notes-guide.md`) to the GitHub
 Release body via `gh release edit`, under the generated provenance line → download the `.aab`
 from the GitHub Release and upload it to the Play Console manually, reusing the same "What's
-new" text there. `versionCode`'s source of truth is `app/build.gradle.kts`; the tag only
-cross-checks it.
+new" text there. The source of truth is `app/build.gradle.kts`; the tag only cross-checks the
+version. The `versionCode` is bumped in that same edit and is now checked by nothing here — Play
+rejecting a duplicate at upload is where a forgotten one surfaces.
 
 ## Conventions & constraints
 

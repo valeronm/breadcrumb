@@ -152,11 +152,18 @@ android {
         minSdk = 26
         targetSdk = 37
         versionCode = 21
-        // "1.0+16e7a3a", with "-dirty" appended when built from uncommitted changes.
+        // major.minor.patch, bumped by hand alongside versionCode when preparing an upload. Which
+        // part is decided from the release notes' own bucketing of the range, so the number and the
+        // text are one judgement — docs/release-notes-guide.md, "Which part to bump", which also
+        // holds the release flow. The release workflow checks the tag against this line.
+        versionName = "1.0.0"
+        // "16e7a3a", with "-dirty" appended when built from uncommitted changes. It identifies the
+        // commit a build came from, which the version name cannot: that is what the app is called,
+        // and a hash means nothing to the reader it is shown to. So it reaches the log instead —
+        // where the question is which build produced a line — and nothing on screen.
         val gitSha = providers.exec {
             commandLine("git", "describe", "--always", "--dirty")
         }.standardOutput.asText.get().trim()
-        versionName = "1.0+$gitSha"
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
 
         // SPIKE: Protomaps hosted-API key, read from local.properties (gitignored) so it isn't committed.
@@ -170,7 +177,7 @@ android {
         // these rather than on BuildConfig.DEBUG, which AGP derives from `debuggable` — so the
         // perf build, whose whole point is not being debuggable, would otherwise lose them.
         buildConfigField("boolean", "DEV_TOOLS", "false")
-        buildConfigField("String", "BUILD_LABEL", "\"\"")
+        buildConfigField("boolean", "SHOW_BUILD_BADGE", "false")
     }
 
     signingConfigs {
@@ -232,7 +239,7 @@ android {
             // JaCoCo coverage for host unit tests: `./gradlew :app:createDebugUnitTestCoverageReport`.
             enableUnitTestCoverage = true
             buildConfigField("boolean", "DEV_TOOLS", "true")
-            buildConfigField("String", "BUILD_LABEL", "\"debug\"")
+            buildConfigField("boolean", "SHOW_BUILD_BADGE", "true")
         }
         /**
          * The build to measure on. Identical to debug except that it isn't debuggable, which is
@@ -257,11 +264,10 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             // It is indistinguishable from a release build on the device — same speed, and with
             // BuildConfig.DEBUG false it would have dropped the dev tools too. So it says which
-            // build it is in all three places one can be read: the launcher, the bar badge, and
-            // the version row in Settings.
-            versionNameSuffix = "-perf"
+            // build it is wherever one can be read: the launcher label, the bar badge below, and
+            // the version row in Settings, which states the variant beside the version.
             buildConfigField("boolean", "DEV_TOOLS", "true")
-            buildConfigField("String", "BUILD_LABEL", "\"perf\"")
+            buildConfigField("boolean", "SHOW_BUILD_BADGE", "true")
         }
         /**
          * The build to *shoot* from: an install of its own, with an empty database, that the demo
@@ -271,8 +277,8 @@ android {
          *
          * It takes `.demo` rather than debug's suffix, which is the whole point: `perf` reuses
          * `.debug` to *replace* the debug app, while this one has to sit beside both. Everything
-         * else follows from what a screenshot must not contain — [BuildConfig.BUILD_LABEL] is empty
-         * so no badge is drawn in the top bar, and DEV_TOOLS is off so the replay control and the
+         * else follows from what a screenshot must not contain — [BuildConfig.SHOW_BUILD_BADGE] is
+         * off so no badge is drawn in the top bar, and DEV_TOOLS is off so the replay control and the
          * map's zoom readout stay out of frame. Not debuggable, so scrolling is at release speed.
          *
          * It keeps `main`'s launcher icon rather than taking a marked one like debug: the icon is
@@ -286,9 +292,8 @@ android {
             applicationIdSuffix = ".demo"
             enableUnitTestCoverage = false
             signingConfig = signingConfigs.getByName("debug")
-            versionNameSuffix = "-demo"
             buildConfigField("boolean", "DEV_TOOLS", "false")
-            buildConfigField("String", "BUILD_LABEL", "\"\"")
+            buildConfigField("boolean", "SHOW_BUILD_BADGE", "false")
         }
     }
 

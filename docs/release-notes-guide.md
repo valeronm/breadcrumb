@@ -16,12 +16,15 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
 ## Writing the notes
 
 1. Find the range: commits since the last build **uploaded to Play** — that's
-   the latest `v1.0-vc<N>` tag (`git log v1.0-vc<N>..HEAD`). Only uploaded
+   the latest `v<version>` tag (`git log <tag>..HEAD`). Only uploaded
    builds get tagged; version bumps alone don't count (some versionCodes never
    ship).
 2. Bucket the commits: user-visible feature, user-felt fix, internal-only.
    Drop the internal-only bucket entirely; several related internal fixes may
    collapse into one user-felt bullet ("more reliable automatic recording").
+   These buckets decide the version bump as well as the text — see
+   [Which part to bump](#which-part-to-bump), and do both from one reading of
+   the range rather than classifying it twice.
 3. Write short bullets, most interesting first: new features, then fixes.
    Plain language, no commit references, no jargon. One line per bullet —
    state the change and stop; cut qualifiers, parentheticals, and trailing
@@ -65,19 +68,65 @@ What's new:
 
 ## Versioning reminder
 
-- `versionName` is derived from git (`1.0+<sha>`, `-dirty` if uncommitted) —
-  never upload a `-dirty` build; commit first, then build.
-- `versionCode` is bumped manually in `app/build.gradle.kts` and must increase
-  for every upload. Gaps are fine.
-- Building the bundle: push the bump commit to `main`, then push a
-  `v1.0-vc<N>` tag on it — the workflow fires on the tag, but a commit no
+- The marketing version is `major.minor.patch` (the `versionName` in
+  `app/build.gradle.kts`), bumped by hand when preparing an upload — which
+  part is [below](#which-part-to-bump). Every upload bumps it, patch by
+  default, and the tag being the version is what enforces that.
+- `versionName` is the marketing version and nothing else — no sha, no
+  variant, no versionCode. What a build *is* is split three ways in
+  `util/BuildIdentity`, combined only for display: the version, the variant
+  (`debug`/`perf`/`demo`, absent on release) and the commit
+  (`BuildConfig.GIT_SHA`, `-dirty` when built over uncommitted changes, so
+  not a build that may be uploaded). Settings shows version and variant; the
+  recorder's arming line logs all three.
+- `versionCode` is bumped manually in `app/build.gradle.kts` alongside the
+  version and must increase for every upload. Gaps are fine. It appears in
+  **neither the UI nor the logs**, and no longer on the tag either — it is
+  Play's vocabulary and nothing else reads it, so bumping it is the one step
+  nothing here checks. Play refuses a duplicate at upload, which is where a
+  forgotten bump surfaces.
+- Building the bundle: push the bump commit to `main`, then push a `v<version>`
+  tag on it (e.g. `v1.0.1`) — the workflow fires on the tag, but a commit no
   branch contains is not a release. When later commits must stay local,
   `git push origin <bump-sha>:main` pushes the bump on its own. The Release
   workflow builds the signed `.aab` and attaches it to a GitHub Release (it
-  fails if N doesn't match the committed `versionCode`).
+  fails unless the tag is exactly `v` plus the committed `versionName`).
 - **Never build the release locally.** The bundle that ships is the workflow's:
   it alone has the upload keystore and the Protomaps key from repo secrets, so
   a local `assembleRelease` is not the artifact under any circumstances. Running
-  one before the bump is committed is worse than pointless — `git describe`
-  stamps it `-dirty`, so it validates a build that could not have shipped
+  one before the bump is committed is worse than pointless — it is stamped
+  with a `-dirty` sha, so it validates a build that could not have shipped
   anyway. The sequence is bump → commit → push → tag → push tag → wait for CI.
+
+## Which part to bump
+
+SemVer's own rules are a contract with *callers* — major means their code
+breaks. An app has no callers, so there is nothing to derive a bump from
+mechanically and any rule here is a convention. This one keys off the buckets
+step 2 already sorts the range into, so the notes and the number are one
+judgement rather than two that can disagree.
+
+**Every upload bumps the version** — patch is the default, and something larger
+only displaces it. Nothing may ship twice under one version: the tag *is* the
+version, so a repeat is a tag git refuses to create rather than a mistake
+discovered later.
+
+Decided **once per upload**, over the whole `git log <tag>..` range — not per
+commit, so a range holding both a feature and a fix is a single minor bump:
+
+- Anything in the **user-visible feature** bucket → **minor**, patch back to 0.
+- Only **user-felt fix** bullets → **patch**.
+- Everything fell in **internal-only**, so the notes are empty → **patch**.
+
+**Major is declared, never derived.** It is not reached by accumulating minors;
+ten of them still leave the app what it was. Bump it when the reader has to
+relearn the app (navigation or the core model reshaped), when the update
+strands or demands action on their existing data (the schema floor raised past
+the installed base, a backup format that older builds can't read), or when what
+the app is for changes — server sync would be that.
+
+**Watch for patch withering.** Nearly every release carries some visible
+improvement, so nearly every release is a minor and patch may go unused. If
+several releases pass without one, the third component is decoration and the
+honest scheme is a two-part `major.minor` — that is a decision to take
+deliberately, not a drift to allow.

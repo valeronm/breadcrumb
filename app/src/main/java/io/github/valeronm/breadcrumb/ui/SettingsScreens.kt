@@ -40,11 +40,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.LogExporter
+import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.UnitChoice
@@ -197,7 +197,7 @@ internal fun SettingsScreen(
             )
             Spacer(Modifier.height(32.dp))
             Text(
-                "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                BuildIdentity.shown,
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodySmall,

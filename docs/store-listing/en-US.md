@@ -14,7 +14,7 @@ and a term from the implementation — *city atlas*, *basemap*, *vector tiles* �
 reader's in the first place. Say the plain thing, even where a screen in the app says otherwise.
 
 Describe the build that is **live on Play**, not `main`. A feature merged after the last uploaded
-`v1.0-vc<N>` tag is not something a reader can install, and promising it here is the one kind of
+`v<version>` tag is not something a reader can install, and promising it here is the one kind of
 inaccuracy the store punishes.
 
 The screenshot captions are not repeated here — they live in `CAPTIONS` in
