@@ -25,7 +25,23 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
    These buckets decide the version bump as well as the text — see
    [Which part to bump](#which-part-to-bump), and do both from one reading of
    the range rather than classifying it twice.
-3. Write short bullets, most interesting first: new features, then fixes.
+3. **Check each surviving claim against the last release, not against the
+   commit that prompted it.** A subject says what its author changed, which is
+   rarely what a reader gains — "switch the Places map and list with a
+   segmented control" changed a *switcher*, and reads as though the map were
+   new. Name the thing the bullet promises and look for it at the tag:
+
+   ```bash
+   git show <last-tag>:<file> | grep -c '<symbol>'
+   ```
+
+   Present in both, and the bullet either goes or is rewritten down to the part
+   that changed. A zero is the start of the answer rather than the end of it —
+   a symbol that was merely *renamed* since the tag counts zero too, so check
+   what the old name was before believing it. Do this before
+   wording anything: every bullet this has caught was already well-written, and
+   the rules below cannot see a claim that is merely untrue.
+4. Write short bullets, most interesting first: new features, then fixes.
    Plain language, no commit references, no jargon. One line per bullet —
    state the change and stop; cut qualifiers, parentheticals, and trailing
    explanations ("— existing ones are cleaned up on first launch").
@@ -55,7 +71,7 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
    - ✅ "A trip's map breaks the line where recording paused"
    - ❌ "A trip's screen says where its fixes came from and where recording
      stopped watching"
-4. Keep it under Play's **500 characters per language**. 2–4 bullets is the
+5. Keep it under Play's **500 characters per language**. 2–4 bullets is the
    sweet spot; if there are more, the release is probably overdue anyway.
 
 ## Format
