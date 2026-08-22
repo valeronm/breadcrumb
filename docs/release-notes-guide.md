@@ -82,15 +82,18 @@ What's new:
 - `versionCode` is bumped manually in `app/build.gradle.kts` alongside the
   version and must increase for every upload. Gaps are fine. It appears in
   **neither the UI nor the logs**, and no longer on the tag either — it is
-  Play's vocabulary and nothing else reads it, so bumping it is the one step
-  nothing here checks. Play refuses a duplicate at upload, which is where a
-  forgotten bump surfaces.
+  Play's vocabulary and nothing in the app reads it. Nothing else would catch a
+  bump forgotten beside the version, so the release workflow reads the build
+  file at every previous tag and refuses one that does not exceed them all —
+  and refuses just as loudly if it parses no versionCode at any of them, a
+  guard over history being one that can only go blind, never stale.
 - Building the bundle: push the bump commit to `main`, then push a `v<version>`
   tag on it (e.g. `v1.0.1`) — the workflow fires on the tag, but a commit no
   branch contains is not a release. When later commits must stay local,
   `git push origin <bump-sha>:main` pushes the bump on its own. The Release
   workflow builds the signed `.aab` and attaches it to a GitHub Release (it
-  fails unless the tag is exactly `v` plus the committed `versionName`).
+  fails unless the tag is exactly `v` plus the committed `versionName`, and
+  unless the `versionCode` exceeds every previously tagged one).
 - **Never build the release locally.** The bundle that ships is the workflow's:
   it alone has the upload keystore and the Protomaps key from repo secrets, so
   a local `assembleRelease` is not the artifact under any circumstances. Running

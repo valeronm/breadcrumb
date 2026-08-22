@@ -688,7 +688,8 @@ alone: a second upload of one is a tag git refuses to create, so the rule cannot
 forgetting it. GitHub Actions automates the pipeline
 (`.github/workflows/`):
 `tests.yml` runs ktlint, detekt, Android Lint and the unit tests on every push/PR; `release.yml` fires on pushing such a
-tag — it fails unless the tag is exactly `v` plus the committed `versionName`, builds the signed
+tag — it fails unless the tag is exactly `v` plus the committed `versionName` and the `versionCode`
+exceeds every previously tagged one, builds the signed
 bundle (upload keystore + Protomaps key come from repo secrets), and attaches the `.aab` to a
 GitHub Release. Release flow: commit the version bump → push it to `main` → tag it
 `v<version>` → push the tag (the tag alone would build, but a commit no branch contains is not a
@@ -697,8 +698,8 @@ its own) → append the "What's new" text (written per `docs/release-notes-guide
 Release body via `gh release edit`, under the generated provenance line → download the `.aab`
 from the GitHub Release and upload it to the Play Console manually, reusing the same "What's
 new" text there. The source of truth is `app/build.gradle.kts`; the tag only cross-checks the
-version. The `versionCode` is bumped in that same edit and is now checked by nothing here — Play
-rejecting a duplicate at upload is where a forgotten one surfaces.
+version. The `versionCode` is bumped in that same edit, and nothing in the app reads it, which is
+why the workflow is the only thing standing between a forgotten bump and Play.
 
 ## Conventions & constraints
 
