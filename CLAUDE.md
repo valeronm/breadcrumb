@@ -92,9 +92,12 @@ after a delete or a merge, since a cluster's anchor is its first-ever member and
 strands the anchor where a fresh pass would not put it. A rebuild must then restore the exact claim,
 which is what keeps "coherent" from becoming a place to hide a bug. `DerivedConsistencyTest` asks
 this of *sequences* of mutations rather than one at a time, which is where the two writers actually
-diverge: a repair judges a seam against rows an earlier repair left. Robolectric emulates up to SDK 36 while the app targets 37, so its
-tests are pinned in `app/src/test/resources/robolectric.properties`; raise it when Robolectric
-catches up. **Robolectric's native runtime ships no Linux aarch64 build**, so on an arm64 dev box
+diverge: a repair judges a seam against rows an earlier repair left. Robolectric emulates the SDK
+the app targets, pinned in `app/src/test/resources/robolectric.properties` because it refuses to run
+a package whose target is newer than what it can emulate — so raising `targetSdk` waits on a
+Robolectric that has that level, and on JDK 17+ it needs the `--add-opens` list its own docs publish
+(`testOptions`, kept verbatim so it diffs against upstream).
+**Robolectric's native runtime ships no Linux aarch64 build**, so on an arm64 dev box
 every Room-backed test fails with an architecture assertion, whatever the change — that's the
 environment, not a regression. Run them with `-PqemuJdk`, which forks the test worker into an
 x86_64 JVM under qemu (see "Running the Room tests on arm64"); without it, CI is where they run.

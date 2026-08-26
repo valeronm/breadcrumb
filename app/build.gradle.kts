@@ -327,6 +327,23 @@ android {
                     .withPropertyName("stringResources")
                     .withPathSensitivity(PathSensitivity.RELATIVE)
                 qemuJavaLauncher?.let { launcher -> it.executable = launcher.path }
+                // Robolectric reaches into JDK internals the module system seals from 17 on, and
+                // without these every Robolectric test — not some — dies before the first
+                // assertion. Kept verbatim and in its published order so it diffs against the
+                // list upstream states, under "Running with Java 17 and higher" at
+                // https://robolectric.org/getting-started/ — trimming it to whatever today's
+                // suites happen to touch is how the next sealed package becomes a mystery.
+                it.jvmArgs(
+                    "--add-opens=java.base/java.lang=ALL-UNNAMED",
+                    "--add-opens=java.base/java.util=ALL-UNNAMED",
+                    "--add-opens=java.base/java.io=ALL-UNNAMED",
+                    "--add-opens=java.base/java.net=ALL-UNNAMED",
+                    "--add-opens=java.base/java.security=ALL-UNNAMED",
+                    "--add-opens=java.base/java.text=ALL-UNNAMED",
+                    "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
+                    "--add-opens=java.desktop/java.awt.font=ALL-UNNAMED",
+                    "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
+                )
                 // Each fork pays the Robolectric sandbox + Compose-harness warm-up on its own,
                 // so forks trade total CPU for wall clock — and past a point they trade it back:
                 // the Robolectric workers are multi-threaded (doubly so under qemu), and measured
@@ -411,7 +428,7 @@ dependencies {
     // observed query — are covered by the normal `testDebugUnitTest` run rather than needing a
     // device. It also hosts the Compose harness below; above the timeline's rows, nothing is
     // covered automatically.
-    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("org.robolectric:robolectric:4.17-beta-4")
     testImplementation("androidx.test:core:1.7.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 
@@ -419,6 +436,10 @@ dependencies {
     // repeated because `ui-test-junit4` is declared without a version.
     testImplementation(composeBom)
     testImplementation("androidx.compose.ui:ui-test-junit4")
+    // ui-test-junit4 still resolves Espresso 3.5.0, whose input injection calls
+    // InputManager.getInstance() — gone in SDK 37, so the Compose harness fails wholesale against
+    // the emulated 37 that robolectric.properties now asks for. Declared only to raise that.
+    testImplementation("androidx.test.espresso:espresso-core:3.7.0")
     // The empty activity the compose rule launches into, and it has to be `debugImplementation`:
     // on `testImplementation` the entry does reach the unit-test merged manifest, and the rule
     // still fails to resolve the activity — measured, not reasoned. The cost is that it lands in
