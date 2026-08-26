@@ -356,7 +356,7 @@ room {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.19.0")
-    implementation("androidx.appcompat:appcompat:1.7.1")
+    implementation("androidx.appcompat:appcompat:1.8.0")
     implementation("androidx.documentfile:documentfile:1.1.0")
 
     // The app lock's prompt. It hosts itself in a fragment, which is why MainActivity is a
