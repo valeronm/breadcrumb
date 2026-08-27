@@ -48,6 +48,26 @@ class BackupRestoreTest {
         target.close()
     }
 
+    /**
+     * Every kept track's fixes against the ones restored under it, the two histories laid side by
+     * side in export order. [of] is what a fix is compared *by*, whole row by default — a case
+     * narrows it only where the fixture cannot hold up its end: [TestDb.point] walks latitude by
+     * adding 0.001 at a time, which drifts off the export's grid after a hundred-odd steps, so past
+     * that a whole-row comparison fails on the rounding rather than on anything carried wrongly.
+     */
+    private suspend fun assertRestoredFixesMatch(of: (TrackPoint) -> Any? = { it.copy(id = 0, trackId = 0) }) {
+        val sourceTracks = source.repository.exportTracks()
+        val restoredTracks = target.repository.exportTracks()
+        // Before the zip, which would truncate away a dropped track rather than fail on it.
+        assertEquals(sourceTracks.size, restoredTracks.size)
+        for ((src, dst) in sourceTracks.zip(restoredTracks)) {
+            assertEquals(
+                source.dao.allPointsFor(src.id).map(of),
+                target.dao.allPointsFor(dst.id).map(of),
+            )
+        }
+    }
+
     private suspend fun roundTrip(): BackupImporter.Summary {
         val json = java.io.StringWriter()
         BackupExporter.writeJson(
@@ -55,7 +75,7 @@ class BackupRestoreTest {
             5_000L,
             BackupExporter.Content(
                 tracks = source.repository.exportTracks(),
-                pointsFor = { source.repository.allPointsFor(it) },
+                pointsFor = { source.repository.pointsForTracks(it) },
                 places = source.db.placeDao().allPlaces(),
             ),
         )
@@ -110,12 +130,7 @@ class BackupRestoreTest {
             source.repository.exportTracks().map { it.comparable() },
             target.repository.exportTracks().map { it.comparable() },
         )
-        for ((src, dst) in source.repository.exportTracks().zip(target.repository.exportTracks())) {
-            assertEquals(
-                source.repository.allPointsFor(src.id).map { it.copy(id = 0, trackId = 0) },
-                target.repository.allPointsFor(dst.id).map { it.copy(id = 0, trackId = 0) },
-            )
-        }
+        assertRestoredFixesMatch()
         assertEquals(
             source.db.placeDao().allPlaces().map { it.copy(id = 0) },
             targetPlaces.allPlaces().map { it.copy(id = 0) },
@@ -199,7 +214,7 @@ class BackupRestoreTest {
 
         roundTrip()
 
-        val restored = target.repository
+        val restored = target.dao
             .allPointsFor(target.repository.exportTracks().single().id)
             .first()
         assertEquals(1.0023457, restored.latitude, 0.0)
@@ -216,6 +231,27 @@ class BackupRestoreTest {
     }
 
     /**
+     * The export reads several tracks per query, so its fixes arrive keyed by track and in an order
+     * that is not the document's. Nothing smaller than a batch can catch a track handed another's
+     * fixes, or a boundary that drops the track it falls on — so this sizes itself off
+     * [BackupExporter.FIXES_PER_READ] and spans more than one.
+     */
+    @Test fun `tracks keep their own fixes across a read boundary`() = runTest {
+        val perTrack = 500
+        val tracks = BackupExporter.FIXES_PER_READ / perTrack + 2
+        repeat(tracks) { t ->
+            source.walk(TEST_START + t * 10_000_000L, 0, perTrack - 1)
+        }
+
+        roundTrip()
+
+        assertEquals(tracks, target.repository.exportTracks().size)
+        // By timestamp, which no grid moves and which no two of these tracks share — 500 fixes a
+        // track is past where the fixture's latitudes stay on the grid.
+        assertRestoredFixesMatch { it.timestamp }
+    }
+
+    /**
      * A restored row states what the fixes stored under it say, the file's own figures having been
      * measured before the export rounded them. [TrackStats.Stats.matches] is the comparison the
      * stats sweep makes, on an exact `Double` — so a row left disagreeing is one the next rule
@@ -227,7 +263,7 @@ class BackupRestoreTest {
         roundTrip()
 
         val restored = target.repository.exportTracks().single()
-        val points = target.repository.allPointsFor(restored.id)
+        val points = target.dao.allPointsFor(restored.id)
         assertTrue(
             "the next stats sweep would rewrite this row",
             TrackStats.of(points).matches(restored),

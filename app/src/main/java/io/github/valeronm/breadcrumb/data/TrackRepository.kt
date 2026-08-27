@@ -34,8 +34,8 @@ private const val MAX_LEADING_STRAYS_DROPPED = 5
 /** Tracks per transaction in the edge-stay sweep — see [TrackRepository.sweepEdgeStays]. */
 private const val SWEEP_BATCH_TRACKS = 100
 
-/** Point ids per `WHERE id IN (…)` statement: SQLite binds at most 999 variables per statement. */
-private const val POINT_ID_CHUNK = 500
+/** Ids per `WHERE … IN (…)` statement: SQLite binds at most 999 variables per statement. */
+private const val IDS_PER_STATEMENT = 500
 
 /**
  * A track's points split the three ways the track screen draws them — see
@@ -370,7 +370,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     ): List<TrackPoint>? {
         val restores = TrackQuality.jumpRestores(points, activityType, AndroidDistance)
         if (restores.isEmpty()) return null
-        restores.map { points[it].id }.chunked(POINT_ID_CHUNK).forEach { dao.clearIgnored(it) }
+        restores.map { points[it].id }.chunked(IDS_PER_STATEMENT).forEach { dao.clearIgnored(it) }
         DebugLog.i(
             TAG,
             "track $trackId: ${restores.size} jump fixes restored under the " +
@@ -509,9 +509,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val plan = settled.plan
         // The plan names points by position; these ones came out of the database, so each has a
         // row id to write against.
-        plan.ignore.map { points[it].id }.chunked(POINT_ID_CHUNK)
+        plan.ignore.map { points[it].id }.chunked(IDS_PER_STATEMENT)
             .forEach { dao.setIgnored(it, IgnoreReason.EDGE_STAY.code) }
-        plan.restore.map { points[it].id }.chunked(POINT_ID_CHUNK).forEach { dao.clearIgnored(it) }
+        plan.restore.map { points[it].id }.chunked(IDS_PER_STATEMENT).forEach { dao.clearIgnored(it) }
         val movedStart = settled.bounds.startedAt != track.startedAt
         val movedEnd = settled.bounds.endedAt != endedAt
         if (movedStart) dao.setStartedAt(track.id, settled.bounds.startedAt)
@@ -870,8 +870,15 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun pointsFor(trackId: Long): List<TrackPoint> =
         SegmentBreaks.goodWithCarriedBreaks(dao.allPointsFor(trackId))
 
-    /** Every point of a track, ignored ones included — the backup export's per-track load. */
-    suspend fun allPointsFor(trackId: Long): List<TrackPoint> = dao.allPointsFor(trackId)
+    /**
+     * Every fix of several tracks, keyed by track — the backup export's read. Keyed rather than
+     * flat so no caller has to know what the query's `ORDER BY` groups by, which also leaves this
+     * free to answer from more than one statement. A track with no fixes is absent, not empty.
+     */
+    suspend fun pointsForTracks(trackIds: List<Long>): Map<Long, List<TrackPoint>> =
+        trackIds.chunked(IDS_PER_STATEMENT)
+            .flatMap { dao.pointsForTracks(it) }
+            .groupBy { it.trackId }
 
     /** Usable points inserted after [afterId] — the live preview's incremental reload. */
     suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =

@@ -140,6 +140,11 @@ interface TrackDao {
     @Query("SELECT * FROM track_points WHERE trackId = :trackId ORDER BY timestamp ASC, id ASC")
     suspend fun allPointsFor(trackId: Long): List<TrackPoint>
 
+    /** Every point of several tracks at once, in track then time order. Callers must chunk:
+     *  SQLite binds at most 999 variables per statement. */
+    @Query("SELECT * FROM track_points WHERE trackId IN (:trackIds) ORDER BY trackId, timestamp ASC, id ASC")
+    suspend fun pointsForTracks(trackIds: List<Long>): List<TrackPoint>
+
     /** Usable points inserted after [afterId] — the live preview's incremental reload. */
     @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 AND id > :afterId ORDER BY timestamp ASC, id ASC")
     suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint>

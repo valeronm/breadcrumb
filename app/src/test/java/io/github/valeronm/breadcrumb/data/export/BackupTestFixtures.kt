@@ -17,7 +17,9 @@ internal fun exportJson(
         BackupExporter.writeJson(
             out,
             5_000L,
-            BackupExporter.Content(tracks, { points[it].orEmpty() }, places),
+            // filterKeys, not associateWith: the read this stands in for leaves a track with no
+            // fixes out of the map rather than mapping it to an empty list.
+            BackupExporter.Content(tracks, { ids -> points.filterKeys { it in ids } }, places),
         )
     }
     return out.toString()

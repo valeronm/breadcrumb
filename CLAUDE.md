@@ -365,7 +365,13 @@ gzipped JSON file with every kept track's points and the places, streamed both w
 still skips the `liveness` array an older file carries). **A coordinate and every measured figure
 beside it reach that file on a grid, not at the width a `Double` prints** — `BackupExporter` states
 which grid and why — so a restore returns the fixes rounded rather than bit-identical, and the
-aggregates on a restored row are recomputed from them rather than read out of the file.
+aggregates on a restored row are recomputed from them rather than read out of the file. **The
+export reads several tracks per query**, batching consecutive ones by the fix counts already on
+their rows (`BackupExporter.FIXES_PER_READ`) so that nothing is read to decide what to read — a
+query's fixed cost is most of what a short track costs to read, which is what makes reading one at a
+time expensive. **A column added to `track_points` lowers that budget**, the cursor window being its
+ceiling: the number is in the exporter and the row it sizes is in `Entities.kt`, so neither file can
+warn you on its own.
 Restore is offered only on the Timeline's empty state, and that
 screen is where it reports its progress. With tracks present a restore would have to merge with
 them, so the offer disappears as soon as the first track exists. The format also feeds the

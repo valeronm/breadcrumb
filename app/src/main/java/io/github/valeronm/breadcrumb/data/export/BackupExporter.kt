@@ -22,7 +22,8 @@ private const val TAG = "Breadcrumb"
  * fix-quality metadata, and named places with their categories; discarded tracks and a
  * still-open recording are excluded, matching the rest of the app. Points are per-point arrays in [POINT_FIELDS] order (echoed in the document header
  * as `pointFields`), not objects — at millions of points the field names would dominate the file
- * and the parse — and tracks stream one at a time, so memory stays at one track's points.
+ * and the parse — and tracks stream a read at a time, so memory stays at one batch's fixes
+ * ([FIXES_PER_READ]) rather than the history's.
  *
  * **A coordinate is written on a grid, wherever it appears** — a fix, a track's endpoints, a place's
  * pin — and so is every quality figure a fix carries, to the grids [COORD_DECIMALS] and its
@@ -78,10 +79,21 @@ object BackupExporter {
 
     fun fileName(now: Long): String = "breadcrumb-${exportFileStamp(now)}.json.gz"
 
-    /** Everything one backup document contains; points stream per track via [pointsFor]. */
+    /**
+     * How many fixes one read may ask for. A query's fixed cost is what makes reading a track at a
+     * time expensive, while a read big enough to outgrow the cursor's window gives it all back in
+     * paging. Measured, the floor between the two is a few thousand fixes wide and flat, so the
+     * budget sits in the middle of it. The window is the ceiling that moves: at roughly 2 MB and
+     * 16 bytes a cell, a row of this many columns puts it near 7,500 fixes, so a column added to
+     * `track_points` lowers it.
+     */
+    internal const val FIXES_PER_READ = 4_000
+
+    /** Everything one backup document contains. [pointsFor] answers for several tracks at once —
+     *  see [FIXES_PER_READ] — with each track's fixes under its own id. */
     internal class Content(
         val tracks: List<Track>,
-        val pointsFor: suspend (Long) -> List<TrackPoint>,
+        val pointsFor: suspend (List<Long>) -> Map<Long, List<TrackPoint>>,
         val places: List<Place>,
     )
 
@@ -117,11 +129,11 @@ object BackupExporter {
                     exportedAt,
                     Content(
                         tracks = tracks,
-                        pointsFor = { id ->
+                        pointsFor = { ids ->
                             val startedAt = System.nanoTime()
-                            repositories.tracks.allPointsFor(id).also {
+                            repositories.tracks.pointsForTracks(ids).also { read ->
                                 readNanos += System.nanoTime() - startedAt
-                                points += it.size
+                                points += read.values.sumOf { it.size }
                             }
                         },
                         places = repositories.places.allPlaces(),
@@ -150,19 +162,17 @@ object BackupExporter {
         cells.text(""","pointFields":[${POINT_FIELDS.joinToString(",") { str(it) }}]""")
 
         cells.text(""","tracks":[""")
-        for (i in content.tracks.indices) {
-            if (i > 0) cells.char(',')
-            val track = content.tracks[i]
-            writeTrackHeader(cells, track)
-            // Indexed, not withIndex(): the latter allocates an IndexedValue per step, which over a
-            // history's points is the largest allocation left in a writer built to make none.
-            val points = content.pointsFor(track.id)
-            for (j in points.indices) {
-                if (j > 0) cells.char(',')
-                writePoint(cells, points[j])
+        var written = 0
+        // Read a batch, then write the tracks it holds — by id, since an imported track carries a
+        // high one with an early start and the document's order is by start.
+        for (batch in readBatches(content.tracks)) {
+            val fixes = content.pointsFor(batch.map { it.id })
+            for (track in batch) {
+                if (written > 0) cells.char(',')
+                writeTrack(cells, track, fixes[track.id].orEmpty())
+                written++
+                onTrackWritten(written)
             }
-            cells.text("]}")
-            onTrackWritten(i + 1)
         }
         cells.char(']')
 
@@ -173,6 +183,42 @@ object BackupExporter {
         }
         cells.text("]}")
         cells.flush()
+    }
+
+    /** One whole track object: its header, its fixes, and the brackets closing both. */
+    private fun writeTrack(cells: CellWriter, track: Track, points: List<TrackPoint>) {
+        writeTrackHeader(cells, track)
+        // Indexed, not withIndex(): the latter allocates an IndexedValue per step, which over a
+        // history's fixes is the largest allocation left in a writer built to make none.
+        for (i in points.indices) {
+            if (i > 0) cells.char(',')
+            writePoint(cells, points[i])
+        }
+        cells.text("]}")
+    }
+
+    /**
+     * Consecutive runs of [tracks] whose fixes one read may carry. A track over the budget travels
+     * alone rather than being split, a batch that overshoots being the expensive side of the curve.
+     * The count comes off the track rows, which already carry it, so nothing is read to decide what
+     * to read — and a stale count only mis-sizes a batch, it cannot lose a fix.
+     */
+    private fun readBatches(tracks: List<Track>): List<List<Track>> {
+        val batches = mutableListOf<List<Track>>()
+        var batch = mutableListOf<Track>()
+        var fixes = 0
+        for (track in tracks) {
+            val size = track.pointCount + track.ignoredCount
+            if (batch.isNotEmpty() && fixes + size > FIXES_PER_READ) {
+                batches += batch
+                batch = mutableListOf()
+                fixes = 0
+            }
+            batch += track
+            fixes += size
+        }
+        if (batch.isNotEmpty()) batches += batch
+        return batches
     }
 
     /**
