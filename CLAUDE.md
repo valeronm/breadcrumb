@@ -59,6 +59,12 @@ run the tests after touching anything they cover. **Room runs in these host test
 `TrackRepositoryTest`, `TimelineInvalidationTest`, and the stored derivation's own suites
 (`DerivationStoreTest`, `DerivedConsistencyTest`, `DerivedReadModelTest`).
 
+**A backup suite has to choose which side of the export's grid its numbers sit on.** Asserting
+equality across the round trip owes values already on it, or the case fails on digits rather than on
+the field it meant to follow; asking what the rounding *does* owes values off it — and, where a
+distance is what's being asked, a step between fixes that isn't a whole number of grid units, since
+a uniform one rounds every fix alike and leaves the legs unchanged.
+
 **v18 is the schema floor**: an older database fails to open rather than migrating, and the KDoc on
 `AppDatabase.MIGRATIONS` says why, including why no destructive fallback belongs in the builder.
 **Where the floor sits is a fact about the installs, not a preference** — a floor above an install's
@@ -356,7 +362,10 @@ bulk-writes to a user-picked folder (Storage Access Framework); `GpxParser` impo
 shared/opened into the app, and `importTracks` refuses a file whose period an existing track
 already covers. `BackupExporter`/`BackupImporter` (`data/export/`) are the full backup — one
 gzipped JSON file with every kept track's points and the places, streamed both ways (the importer
-still skips the `liveness` array an older file carries).
+still skips the `liveness` array an older file carries). **A coordinate and every measured figure
+beside it reach that file on a grid, not at the width a `Double` prints** — `BackupExporter` states
+which grid and why — so a restore returns the fixes rounded rather than bit-identical, and the
+aggregates on a restored row are recomputed from them rather than read out of the file.
 Restore is offered only on the Timeline's empty state, and that
 screen is where it reports its progress. With tracks present a restore would have to merge with
 them, so the offer disappears as soon as the first track exists. The format also feeds the

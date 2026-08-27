@@ -307,12 +307,11 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                         endedAt = if (track.endedAt == null) null else settled.bounds.endedAt,
                     ),
                 )
-                // The aggregates are recounted only where a fix changed hands, and through the one
-                // writer of those columns rather than a second copy of the list. A file whose flags
-                // already agree carries what a recompute would produce — [refreshStats] wrote them
-                // over these same points before the export — and a restore that recounted anyway
-                // would walk every point of every track to write back what it read.
-                if (settled.plan.movesPoints) refreshStats(id, settled.points)
+                // Recounted from the restored fixes, through the one writer of those columns:
+                // an aggregate on a track row is this code's answer about the points it holds,
+                // never a file's, the same rule the GPX import states. The backup path used to
+                // trust the file where nothing had moved, which the export's rounding made false.
+                refreshStats(id, settled.points)
                 dao.insertPoints(settled.points.map { it.copy(id = 0, trackId = id) })
             }
         }

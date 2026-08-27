@@ -4,6 +4,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import kotlinx.coroutines.test.runTest
+import java.io.StringWriter
 
 /** A [BackupExporter.writeJson] document over in-memory data — the shared test fixture. */
 internal fun exportJson(
@@ -11,7 +12,7 @@ internal fun exportJson(
     points: Map<Long, List<TrackPoint>> = emptyMap(),
     places: List<Place> = emptyList(),
 ): String {
-    val out = StringBuilder()
+    val out = StringWriter()
     runTest {
         BackupExporter.writeJson(
             out,

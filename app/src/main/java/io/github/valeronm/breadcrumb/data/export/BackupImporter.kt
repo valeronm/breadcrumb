@@ -23,9 +23,6 @@ object BackupImporter {
     /** Tracks per insert transaction: one commit (and one observed-query wake) per batch, not per track. */
     private const val INSERT_BATCH = 50
 
-    /** Inflater buffer for the SAF stream — see [importFrom]. */
-    private const val STREAM_BUFFER = 64 * 1024
-
     /**
      * Reads the backup at [uri] and inserts everything through the repositories, fresh ids
      * throughout. Returns the counts, or null if the stream couldn't be opened. Throws on a file
@@ -41,9 +38,7 @@ object BackupImporter {
         // The outer use owns the raw stream: the gzip wrapper's constructor eagerly reads and
         // validates the header, so on a wrong-file pick it throws before the inner use exists.
         return input.use { raw ->
-            // The large inflater buffer keeps reads off the SAF stream from degrading into the
-            // default 512-byte chunks — each one a Binder round-trip to the documents provider.
-            GZIPInputStream(raw, STREAM_BUFFER).bufferedReader().use { reader ->
+            GZIPInputStream(raw, BackupExporter.STREAM_BUFFER).bufferedReader().use { reader ->
                 restore(reader, repositories, onProgress)
             }
         }

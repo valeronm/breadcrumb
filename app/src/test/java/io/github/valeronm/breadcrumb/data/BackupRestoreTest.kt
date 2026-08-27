@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.BackupImporter
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
@@ -48,7 +49,7 @@ class BackupRestoreTest {
     }
 
     private suspend fun roundTrip(): BackupImporter.Summary {
-        val json = StringBuilder()
+        val json = java.io.StringWriter()
         BackupExporter.writeJson(
             json,
             5_000L,
@@ -160,5 +161,76 @@ class BackupRestoreTest {
         assertEquals(5, restored.pointCount)
         assertEquals(0, restored.ignoredCount)
         assertTrue(target.repository.trackPointsFor(restored.id).edgeStay.isEmpty())
+    }
+
+    /**
+     * A track whose fixes all carry digits below the export's grid, so every rounding it states is
+     * a visible one. Two things are deliberate: enough points, far enough apart, to clear the keep
+     * thresholds, and a step that is *not* a whole number of grid units — step by one the grid can
+     * land on and every fix rounds identically, the legs between them come out unchanged, and a
+     * suite meaning to ask what rounding does to a distance asks nothing at all.
+     */
+    private suspend fun insertFullPrecisionTrack() {
+        val id = source.dao.insertTrack(Track(source = RECORDED, activityType = "WALKING", startedAt = TEST_START))
+        source.dao.insertPoints(
+            (0..4).map { index ->
+                TrackPoint(
+                    trackId = id,
+                    latitude = 1.0023456789012345 + index * 0.0010000345,
+                    longitude = -2.0034567891234567,
+                    altitude = 141.06837105389872,
+                    accuracy = 2.8817503f,
+                    speed = 0.0179898f,
+                    bearing = 357.7112f,
+                    timestamp = TEST_START + index * 10_000L,
+                    verticalAccuracy = 3.16f,
+                    speedAccuracy = 0.02069424f,
+                    bearingAccuracy = 179.94999f,
+                    satellitesInFix = 15,
+                    cn0 = 36.32854f,
+                )
+            },
+        )
+        source.repository.finishTrack(id, TEST_START + 40_000L)
+    }
+
+    @Test fun `a point is written to the precision its instrument has`() = runTest {
+        insertFullPrecisionTrack()
+
+        roundTrip()
+
+        val restored = target.repository
+            .allPointsFor(target.repository.exportTracks().single().id)
+            .first()
+        assertEquals(1.0023457, restored.latitude, 0.0)
+        assertEquals(-2.0034568, restored.longitude, 0.0)
+        assertEquals(141.1, restored.altitude!!, 0.0)
+        assertEquals(2.88f, restored.accuracy!!, 0f)
+        assertEquals(0.02f, restored.speed!!, 0f)
+        assertEquals(357.7f, restored.bearing!!, 0f)
+        assertEquals(3.2f, restored.verticalAccuracy!!, 0f)
+        assertEquals(0.02f, restored.speedAccuracy!!, 0f)
+        assertEquals(179.9f, restored.bearingAccuracy!!, 0f)
+        assertEquals(15, restored.satellitesInFix)
+        assertEquals(36.3f, restored.cn0!!, 0f)
+    }
+
+    /**
+     * A restored row states what the fixes stored under it say, the file's own figures having been
+     * measured before the export rounded them. [TrackStats.Stats.matches] is the comparison the
+     * stats sweep makes, on an exact `Double` — so a row left disagreeing is one the next rule
+     * version rewrites, taking a re-derivation of the whole history with it.
+     */
+    @Test fun `a restored track's aggregates already match its own fixes`() = runTest {
+        insertFullPrecisionTrack()
+
+        roundTrip()
+
+        val restored = target.repository.exportTracks().single()
+        val points = target.repository.allPointsFor(restored.id)
+        assertTrue(
+            "the next stats sweep would rewrite this row",
+            TrackStats.of(points).matches(restored),
+        )
     }
 }

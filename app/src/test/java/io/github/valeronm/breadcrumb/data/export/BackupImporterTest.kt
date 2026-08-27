@@ -39,6 +39,11 @@ class BackupImporterTest {
         return out
     }
 
+    /**
+     * Every field, not every digit: the values below all sit on the grid the export writes, so a
+     * mismatch here is a field lost or misplaced rather than one merely rounded. What the grid
+     * itself is belongs to `BackupRestoreTest`, which asks it of values that don't sit on it.
+     */
     @Test fun `round-trips an export exactly, every field of every row`() {
         val track = Track(
             id = 3, activityType = "IN_VEHICLE", startedAt = 1_000L, endedAt = 9_000L,
@@ -49,8 +54,8 @@ class BackupImporterTest {
             TrackPoint(
                 id = 10, trackId = 3, latitude = 1.05, longitude = -2.05, altitude = 55.5,
                 accuracy = 4.5f, speed = 1.25f, bearing = 270.5f, timestamp = 1_000L,
-                verticalAccuracy = 2.5f, speedAccuracy = 0.5f, bearingAccuracy = 10.25f,
-                satellitesInFix = 17, cn0 = 33.75f, segmentStart = true,
+                verticalAccuracy = 2.5f, speedAccuracy = 0.5f, bearingAccuracy = 10.2f,
+                satellitesInFix = 17, cn0 = 33.8f, segmentStart = true,
             ),
             TrackPoint(
                 id = 11, trackId = 3, latitude = 1.06, longitude = -2.06, altitude = null,
@@ -70,6 +75,43 @@ class BackupImporterTest {
         assertEquals(points.map { it.copy(id = 0) }, parsedPoints.map { it.copy(id = 0) })
         assertEquals(listOf<Int?>(1), result.totals) // trackCount rode along
         assertEquals(place, result.places.single().copy(id = place.id))
+    }
+
+    /**
+     * Rounding is a projection, so a value already on the grid does not move again. What could
+     * break that is representation error: a float goes out as text and comes back through a
+     * `Double`, and if that drift could carry a cell across a rounding boundary each pass would
+     * shift the history further. The values here sit awkwardly for the grids they land on.
+     */
+    @Test fun `a second pass through the format moves nothing`() {
+        val track = Track(
+            id = 3, activityType = "WALKING", startedAt = 1_000L, endedAt = 9_000L,
+            source = "recorded", distanceMeters = 42.5, pointCount = 2, ignoredCount = 0,
+            startLat = 1.0023456789012345, startLon = -2.0034567891234567,
+            endLat = 1.0123456789012345, endLon = -2.0134567891234567,
+        )
+        val points = listOf(
+            TrackPoint(
+                id = 10, trackId = 3, latitude = 1.0023456789012345,
+                longitude = -2.0034567891234567, altitude = 141.06837105389872,
+                accuracy = 2.8817503f, speed = 0.0179898f, bearing = 357.7112f, timestamp = 1_000L,
+                verticalAccuracy = 3.0f, speedAccuracy = 0.02069424f, bearingAccuracy = 179.94999f,
+                satellitesInFix = 15, cn0 = 36.32854f,
+            ),
+            TrackPoint(
+                id = 11, trackId = 3, latitude = 1.0123456789012345,
+                longitude = -2.0134567891234567, altitude = null, accuracy = null, speed = null,
+                bearing = null, timestamp = 2_000L,
+            ),
+        )
+        val place = Place(id = 7, label = "Trailhead", lat = 1.0, lon = -2.0, createdAt = 100L, radiusM = 60.0)
+
+        val first = exportJson(listOf(track), mapOf(3L to points), listOf(place))
+        val parsed = parse(first)
+        val (parsedTrack, parsedPoints) = parsed.tracks.single()
+        val second = exportJson(listOf(parsedTrack), mapOf(parsedTrack.id to parsedPoints), parsed.places)
+
+        assertEquals(first, second)
     }
 
     @Test fun `an older file's liveness array is skipped, not a parse error`() {
