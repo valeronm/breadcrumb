@@ -58,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -93,6 +94,8 @@ import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
 import io.github.valeronm.breadcrumb.util.PerLocale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterNotNull
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.time.Duration.Companion.milliseconds
@@ -326,10 +329,6 @@ private fun TimelineListPage(
 ) {
     val context = LocalContext.current
 
-    // Rows change under the user while this runs, so the work says so rather than the list
-    // simply rearranging itself. Null except during a sweep.
-    val sweep by SweepStatus.state.collectAsStateWithLifecycle()
-
     val groups = remember(items) { groupTimelineByDay(items) }
     val listState = rememberLazyListState()
     // Resolved here because [dayLabel] is callable from a plain function and [stringResource] is not;
@@ -372,9 +371,13 @@ private fun TimelineListPage(
         listState.animateScrollToItem(0)
     }
     // The just-landed-on stay's row key: its card tints briefly so the eye finds it, then fades.
+    // Watched through [snapshotFlow] rather than held as an effect's key, which would read it in
+    // this function's own restart scope — the one the lazy list's intervals are built in, so a
+    // highlight arriving and again fading would rebuild every day in the history. [collectLatest]
+    // so a jump landing mid-fade restarts the fade rather than queueing behind it.
     var highlightKey by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(highlightKey) {
-        if (highlightKey != null) {
+    LaunchedEffect(Unit) {
+        snapshotFlow { highlightKey }.filterNotNull().collectLatest {
             delay(1800.milliseconds)
             highlightKey = null
         }
@@ -436,9 +439,7 @@ private fun TimelineListPage(
         // item would put the fast scroller and the visit jump one row out for the sweep's
         // duration — and a progress banner that scrolls away is not much of one.
         Column(Modifier.fillMaxSize()) {
-            sweep?.let {
-                SweepBanner(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-            }
+            SweepBanner(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -1092,9 +1093,15 @@ internal fun TrackRow(
  * A history sweep, while it runs: distances and end times shift behind it as each track is
  * re-derived, so it says so instead of the list quietly rearranging itself. Determinate — a sweep
  * counts its work before starting it — and it removes itself when the sweep ends.
+ *
+ * It reads the sweep itself, and that is the point of it being a composable rather than a banner
+ * the page hands progress to: a sweep emits a few times a second, and the page's own scope holds
+ * the lazy list's content lambda, so a read up there re-runs the day groups over the whole history
+ * once per tick. Here the emission restarts this and nothing else.
  */
 @Composable
-private fun SweepBanner(progress: SweepStatus.Progress, modifier: Modifier = Modifier) {
+private fun SweepBanner(modifier: Modifier = Modifier) {
+    val progress = SweepStatus.state.collectAsStateWithLifecycle().value ?: return
     Card(modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
