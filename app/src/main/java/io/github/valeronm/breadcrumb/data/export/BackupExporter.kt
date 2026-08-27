@@ -6,12 +6,15 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.util.DebugLog
 import java.io.BufferedOutputStream
 import java.io.OutputStream
 import java.io.Writer
 import java.util.zip.Deflater
 import java.util.zip.GZIPOutputStream
 import kotlin.math.abs
+
+private const val TAG = "Breadcrumb"
 
 /**
  * Writes the whole recorded history as one gzipped JSON document — the web companion's data
@@ -95,9 +98,16 @@ object BackupExporter {
     ): Int? {
         val tracks = repositories.tracks.exportTracks()
         val out = context.contentResolver.openOutputStream(uri) ?: return null
+        // An export costs two things that move independently — pulling the fixes out of Room, and
+        // turning them into compressed bytes — and from outside only their sum is visible. The read
+        // is timed on its own so a slow export can say which half was slow. Nanoseconds because a
+        // single track's read rounds to nothing on a millisecond clock, and there are thousands.
+        var points = 0L
+        var readNanos = 0L
+        val counted = CountingOutputStream(out)
         // The outer use owns the raw stream so it closes even if the gzip wrapper's constructor
         // (which writes the header) or the export body throws before the inner use takes over.
-        out.use { raw ->
+        counted.use { raw ->
             // Plain writer, not bufferedWriter(): [CellWriter] batches whole cells of its own, and
             // a buffer in front of it would be a second copy of the same characters behind a second
             // lock, taken once per number.
@@ -107,13 +117,24 @@ object BackupExporter {
                     exportedAt,
                     Content(
                         tracks = tracks,
-                        pointsFor = { repositories.tracks.allPointsFor(it) },
+                        pointsFor = { id ->
+                            val startedAt = System.nanoTime()
+                            repositories.tracks.allPointsFor(id).also {
+                                readNanos += System.nanoTime() - startedAt
+                                points += it.size
+                            }
+                        },
                         places = repositories.places.allPlaces(),
                     ),
                     onTrackWritten = { done -> onProgress(done, tracks.size) },
                 )
             }
         }
+        DebugLog.i(
+            TAG,
+            "backup export: ${tracks.size} tracks, $points points, " +
+                "${counted.bytes / 1024} kB, ${readNanos / 1_000_000} ms reading them",
+        )
         return tracks.size
     }
 
@@ -341,6 +362,27 @@ object BackupExporter {
             const val BUFFER_CHARS = 16 * 1024
             val POWERS_OF_TEN = longArrayOf(1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000)
         }
+    }
+
+    /** Counts what reached the document, so an export can state its own size rather than asking
+     *  the provider to stat a file whose bytes it may still be holding. */
+    private class CountingOutputStream(private val out: OutputStream) : OutputStream() {
+        var bytes = 0L
+            private set
+
+        override fun write(b: Int) {
+            out.write(b)
+            bytes++
+        }
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            out.write(b, off, len)
+            bytes += len
+        }
+
+        override fun flush() = out.flush()
+
+        override fun close() = out.close()
     }
 
     /** Gzip at [Deflater.BEST_SPEED] — the deflate is where an export spends nearly all of its

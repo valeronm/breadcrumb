@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val TAG = "Breadcrumb"
 
 /**
  * The long-running data-transfer operations — GPX import/export/share and full backup/restore — kept
@@ -60,6 +63,12 @@ internal class ImportExportController(
         if (progress.value != null) return
         progress.value = OpProgress(0, null)
         scope.launch {
+            // These run for minutes over a long history, and a report that one was slow arrives
+            // with no way to tell slow from stalled unless the log says when it began and how long
+            // it took. Elapsed realtime, not the wall clock, so a clock correction mid-export
+            // can't produce a negative duration.
+            val startedAt = SystemClock.elapsedRealtime()
+            DebugLog.i(TAG, "$logLabel started")
             val result = withContext(Dispatchers.IO) {
                 try {
                     op { done, total -> progress.value = OpProgress(done, total) }
@@ -69,10 +78,12 @@ internal class ImportExportController(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-                    DebugLog.w("Breadcrumb", "$logLabel failed: ${e.message}")
+                    DebugLog.w(TAG, "$logLabel failed: ${e.message}")
                     null
                 }
             }
+            val elapsed = SystemClock.elapsedRealtime() - startedAt
+            DebugLog.i(TAG, "$logLabel ${if (result == null) "gave up" else "finished"} in $elapsed ms")
             progress.value = null
             onDone(result)
         }
