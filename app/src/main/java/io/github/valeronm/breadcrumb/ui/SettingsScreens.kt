@@ -655,7 +655,7 @@ private fun ImportTracksRow(viewModel: TrackListViewModel) {
         }
     }
     val progress = importProgress
-    NavRow(
+    DataActionRow(
         stringResource(R.string.data_import_tracks),
         subtitle = if (progress == null) {
             stringResource(R.string.data_import_idle)
@@ -667,7 +667,10 @@ private fun ImportTracksRow(viewModel: TrackListViewModel) {
                 progress.imported,
             )
         },
-        enabled = progress == null,
+        // Files, where the others count tracks — an import's unit is the file it opens, which is
+        // also what its subtitle counts.
+        done = progress?.filesDone,
+        total = progress?.filesTotal,
     ) {
         importLauncher.launch(
             arrayOf(
@@ -675,6 +678,34 @@ private fun ImportTracksRow(viewModel: TrackListViewModel) {
                 "text/xml", "application/xml",
             ),
         )
+    }
+}
+
+/**
+ * A data action's row: the row, and under it while the action runs, how far it has got. Disabled
+ * for as long as its own action runs, a second start of one being ignored rather than queued —
+ * the actions are not exclusive of each other, and two of them can run at once.
+ *
+ * [done] is null when nothing is running, which is the only thing that decides whether a bar is
+ * there — [total] is the operation's own business and says which bar (see [OperationProgressBar]).
+ * Counts rather than one of the controller's progress types, because the operations count
+ * different things and a row is not the place to learn which.
+ *
+ * Emitted into the group's own column rather than a column of its own, as [GroupedRows] gives each
+ * row one already.
+ */
+@Composable
+private fun DataActionRow(
+    label: String,
+    subtitle: String,
+    done: Int?,
+    total: Int?,
+    onClick: () -> Unit,
+) {
+    NavRow(label, subtitle, enabled = done == null, onClick = onClick)
+    if (done != null) {
+        Spacer(Modifier.height(8.dp))
+        OperationProgressBar(done, total, Modifier.fillMaxWidth())
     }
 }
 
@@ -717,7 +748,7 @@ private fun ExportTracksRow(viewModel: TrackListViewModel) {
         if (uri == null) return@rememberLauncherForActivityResult
         viewModel.importExport.exportAll(uri) { count -> exportResultToast(appContext, count) }
     }
-    NavRow(
+    DataActionRow(
         stringResource(R.string.data_export_tracks),
         subtitle = exportSubtitle(
             progress,
@@ -725,7 +756,8 @@ private fun ExportTracksRow(viewModel: TrackListViewModel) {
             verb = R.string.data_exporting,
             busy = R.string.data_exporting_progress,
         ),
-        enabled = progress == null,
+        done = progress?.tracksDone,
+        total = progress?.tracksTotal,
     ) { exportLauncher.launch(null) }
 }
 
@@ -744,7 +776,7 @@ private fun ExportBackupRow(viewModel: TrackListViewModel) {
         if (uri == null) return@rememberLauncherForActivityResult
         viewModel.importExport.exportBackup(uri) { count -> exportResultToast(appContext, count) }
     }
-    NavRow(
+    DataActionRow(
         stringResource(R.string.data_backup),
         subtitle = exportSubtitle(
             progress,
@@ -752,7 +784,8 @@ private fun ExportBackupRow(viewModel: TrackListViewModel) {
             verb = R.string.data_backup_verb,
             busy = R.string.data_backup_progress,
         ),
-        enabled = progress == null,
+        done = progress?.tracksDone,
+        total = progress?.tracksTotal,
     ) { exportLauncher.launch(BackupExporter.fileName(System.currentTimeMillis())) }
 }
 

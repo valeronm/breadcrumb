@@ -44,7 +44,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -1023,6 +1022,12 @@ private fun EmptyTracksState(viewModel: TrackListViewModel) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.height(16.dp))
+            OperationProgressBar(
+                restoring.tracksDone,
+                restoring.tracksTotal,
+                Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -1085,8 +1090,8 @@ internal fun TrackRow(
 
 /**
  * A history sweep, while it runs: distances and end times shift behind it as each track is
- * re-derived, so it says so instead of the list quietly rearranging itself. Determinate — the total
- * is known up front — and it removes itself when the sweep ends.
+ * re-derived, so it says so instead of the list quietly rearranging itself. Determinate — a sweep
+ * counts its work before starting it — and it removes itself when the sweep ends.
  */
 @Composable
 private fun SweepBanner(progress: SweepStatus.Progress, modifier: Modifier = Modifier) {
@@ -1117,12 +1122,7 @@ private fun SweepBanner(progress: SweepStatus.Progress, modifier: Modifier = Mod
                 )
             }
             Spacer(Modifier.height(10.dp))
-            LinearProgressIndicator(
-                progress = {
-                    if (progress.total <= 0) 0f else progress.done.toFloat() / progress.total
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
+            OperationProgressBar(progress.done, progress.total, Modifier.fillMaxWidth())
         }
     }
 }

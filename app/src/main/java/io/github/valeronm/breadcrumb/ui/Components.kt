@@ -62,6 +62,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
@@ -389,6 +390,26 @@ internal fun GroupedRows(vararg rows: @Composable () -> Unit) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) { row() }
             }
         }
+    }
+}
+
+/**
+ * The bar for work that has a unit and a count of it: how far along that work is, or that it is
+ * under way while the count is still unknown. A screen waiting on its own contents has neither,
+ * and stays circular.
+ *
+ * Both states are one function because a total is something work arrives at differently — counted
+ * before starting, read off a file's header partway in, or never established. What the reader is
+ * told follows from which of those holds at this moment, and not from which part of the app is
+ * doing the work.
+ */
+@Composable
+internal fun OperationProgressBar(done: Int, total: Int?, modifier: Modifier = Modifier) {
+    // A total of nothing is unknown for this purpose too — there is no fraction of nothing.
+    if (total == null || total <= 0) {
+        LinearWavyProgressIndicator(modifier)
+    } else {
+        LinearWavyProgressIndicator(progress = { done.toFloat() / total }, modifier = modifier)
     }
 }
 
