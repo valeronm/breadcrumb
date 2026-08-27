@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.RestoreFromTrash
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,7 +45,6 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
  * thresholds, or replaced by a merge — with why it's here and how long until the retention
  * purge removes it for good. Rows restore in place; tapping opens the full track detail.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun DiscardedTracksScreen(
     viewModel: TrackListViewModel,

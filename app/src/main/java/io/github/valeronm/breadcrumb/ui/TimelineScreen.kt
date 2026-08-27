@@ -121,7 +121,7 @@ private enum class TimelinePage(@StringRes val labelRes: Int) {
 /** One instance for the switch's sake: a list rebuilt per pass would recompose it per pass too. */
 private val timelinePageLabels = TimelinePage.entries.map { it.labelRes }
 
-/** The Timeline tab: the day-by-day list and one day on a map, two views under a segmented switch. */
+/** The Timeline tab: the day-by-day list and one day on a map, two views under a [ViewSwitchRow]. */
 @Composable
 internal fun TracksTab(
     /** Null while the derivation is still running — see [TrackListViewModel.timeline]. */

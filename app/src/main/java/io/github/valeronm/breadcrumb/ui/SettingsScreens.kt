@@ -23,7 +23,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -68,7 +67,6 @@ internal enum class SettingsPage {
     Logs,
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SettingsScreen(
     viewModel: TrackListViewModel,
@@ -225,7 +223,6 @@ internal fun SettingsScreen(
 }
 
 /** Shared scaffold for one settings group page: title, back, optional top-bar Reset. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsSubPage(
     title: String,
@@ -759,7 +756,6 @@ private fun ExportBackupRow(viewModel: TrackListViewModel) {
     ) { exportLauncher.launch(BackupExporter.fileName(System.currentTimeMillis())) }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LogsScreen(onBack: () -> Unit) {
     val context = LocalContext.current

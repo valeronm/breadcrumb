@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardDefaults
@@ -57,7 +58,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ElevatedFilterChip
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -65,9 +65,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -82,6 +79,8 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberDatePickerState
@@ -1298,7 +1297,6 @@ internal fun SwipeActionRow(
  * carrying both, a place whose name fits would sit on the canvas while a longer-named neighbour sat
  * on the tint. The canvas is what these bars are, in every state.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun canvasTopBarColors() = TopAppBarDefaults.topAppBarColors(
     containerColor = MaterialTheme.colorScheme.background,
@@ -1677,7 +1675,6 @@ internal fun Modifier.swallowTaps(): Modifier = pointerInput(Unit) { detectTapGe
  * UTC-midnight convention: a date crosses into the picker as millis at UTC midnight and comes
  * back the same way, whatever zone the reader is in.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LocalDateDialog(
     initial: LocalDate,
@@ -1707,26 +1704,49 @@ internal fun LocalDateDialog(
 }
 
 /**
- * The switch over a tab whose views are the same content drawn two ways — a segmented control
+ * The switch over a tab whose views are the same content drawn two ways — a connected button group
  * rather than a tab row, because a tab promises different content over there, and a pager's swipe
  * fights a map for every horizontal drag. The selection is the caller's state; nothing here
  * scrolls or settles, so a map view owns every gesture that reaches it. Tabs remain the right
  * control where the pages genuinely differ, which is [PagerTabRow]'s job.
  *
- * Re-selecting the chosen segment never calls back, so callers switch unguarded. Labels arrive as
+ * Connected rather than the segmented row it reads as, that being the control Material retired in
+ * favour of this one, and connected rather than a *standard* button group because the join is the
+ * whole statement: spaced buttons say several things can be pressed, a shared outline says one of
+ * these is chosen. The shapes carry it — each button is told whether it leads, follows or sits
+ * between — so the row must stay in position order, and wants two labels at least: a lone one is
+ * drawn as a leading button, there being no standalone shape in the connected set to give it.
+ *
+ * Re-selecting the chosen button never calls back, so callers switch unguarded. Labels arrive as
  * string resources and resolve here, so a caller can hand over one static list and the row skips
  * with it.
  */
 @Composable
 internal fun ViewSwitchRow(labelsRes: List<Int>, selectedIndex: Int, onSelect: (Int) -> Unit) {
-    SingleChoiceSegmentedButtonRow(
+    // An unchecked button's own default is the role this app's light scheme puts on `background`,
+    // which leaves it the exact colour of the page it sits on — no container, no join, just a word.
+    // Stated as the role the cards take instead, so it reads as raised in both schemes rather than
+    // only in the dark one.
+    val colors = ToggleButtonDefaults.colors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+    )
+    Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
     ) {
         labelsRes.forEachIndexed { index, labelRes ->
-            SegmentedButton(
-                selected = index == selectedIndex,
-                onClick = { if (index != selectedIndex) onSelect(index) },
-                shape = SegmentedButtonDefaults.itemShape(index, labelsRes.size),
+            ToggleButton(
+                checked = index == selectedIndex,
+                // Toggling reports the value asked for, so the chosen button reports false and
+                // drops out: the "never calls back on a re-select" rule, stated once.
+                onCheckedChange = { if (it) onSelect(index) },
+                modifier = Modifier.weight(1f),
+                colors = colors,
+                shapes = when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    labelsRes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
             ) { Text(stringResource(labelRes)) }
         }
     }

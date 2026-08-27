@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -67,7 +66,6 @@ import java.time.LocalDate
  * holds exactly the rows the Timeline files under it; a track crossing midnight sits, as there,
  * wholly under the day it set out.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun JourneyDetailScreen(
     summary: TravelNaming.Summary,

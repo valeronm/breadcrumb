@@ -159,7 +159,7 @@ private enum class PlacesPage(@StringRes val labelRes: Int) {
 private val placesPageLabels = PlacesPage.entries.map { it.labelRes }
 
 /** The Places tab: an all-places map and a sortable list (tap for detail), two views under a
- *  segmented switch. */
+ *  [ViewSwitchRow]. */
 @Composable
 internal fun PlacesTab(
     viewModel: TrackListViewModel,
@@ -365,7 +365,6 @@ private fun PlacesMapPage(
  * of the list — by then the user is reading results rather than typing. Both live here, so the
  * map page's own touch handling is left alone; it has no field to focus anyway.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlacesListPage(
     listed: List<PlaceResolver.PlaceSummary>,
@@ -423,8 +422,8 @@ private fun PlacesListPage(
                 .padding(horizontal = 16.dp)
                 .padding(top = 12.dp, bottom = 8.dp),
         )
-        // Chips, not a second segmented row: the segmented control at the top of the tab means
-        // "switch the view", and a second control wearing the same shape would claim the same kind
+        // Chips, not a second [ViewSwitchRow]: the switch at the top of the tab means "switch the
+        // view", and a second control wearing the same shape would claim the same kind
         // of choice. Chips are what this app arranges and narrows lists with — the journey day
         // chips, the maps' filter chips — and a sort is that kind of act. A plain row over a lazy
         // one for three fixed chips; the scroll is for a translation that outgrows the width.
@@ -605,7 +604,6 @@ private val TOP_BAR_TITLE_INSET = 12.dp
  * too, and a stop's single filled "Create place" button opens it. No edit action there: nothing
  * exists to edit, and the button is the page's one offer.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PlaceDetailScreen(
     summary: PlaceResolver.PlaceSummary,
@@ -824,7 +822,6 @@ internal fun PlaceDetailScreen(
  * predictive-back gesture, discarding by construction — radius and pin are local to a screen that
  * gets thrown away, so nothing needs restoring.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PlaceEditScreen(
     summary: PlaceResolver.PlaceSummary,
@@ -1425,7 +1422,6 @@ private fun visitTimeRange(stay: StayDeriver.Stay, zone: ZoneId): String {
 
 private val visitDayFormat by PerLocale { localizedDateFormat("EEEEd", it) }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlaceRowCard(
     summary: PlaceResolver.PlaceSummary,

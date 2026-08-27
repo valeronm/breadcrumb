@@ -391,7 +391,12 @@ dependencies {
     // Clicks play the platform interaction sound, which the device's touch-sounds setting
     // governs. Left on rather than opted out of with SoundEffectOnInteraction: that setting
     // already answers this for every app on the phone, and an opt-out here would overrule it.
-    val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
+    // The alpha line, deliberately: Material 3 Expressive's shapes and motion scheme ship in
+    // material3 1.5.0, which has no stable release yet, and `AppTheme` is built on them. AndroidX
+    // alphas are functionally stable — what moves is the API surface, so the cost of sitting here
+    // is that a bump can rename or withdraw something, not that the app is less sound. Going back
+    // to `compose-bom` means undressing the theme first.
+    val composeBom = platform("androidx.compose:compose-bom-alpha:2026.08.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")

@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -199,7 +198,6 @@ private class TimeEdit(
  * ([TripDraft.editing]): the same two pins and two times, rewritten onto the row they came from,
  * since what a hand-entered trip *is* and what the form asks for are the same thing.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AddTripScreen(
     viewModel: TrackListViewModel,
