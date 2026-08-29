@@ -151,12 +151,12 @@ android {
         applicationId = "io.github.valeronm.breadcrumb"
         minSdk = 26
         targetSdk = 37
-        versionCode = 22
+        versionCode = 23
         // major.minor.patch, bumped by hand alongside versionCode when preparing an upload. Which
         // part is decided from the release notes' own bucketing of the range, so the number and the
         // text are one judgement — docs/release-notes-guide.md, "Which part to bump", which also
         // holds the release flow. The release workflow checks the tag against this line.
-        versionName = "1.1.0"
+        versionName = "1.2.0"
         // "16e7a3a", with "-dirty" appended when built from uncommitted changes. It identifies the
         // commit a build came from, which the version name cannot: that is what the app is called,
         // and a hash means nothing to the reader it is shown to. So it reaches the log instead —
