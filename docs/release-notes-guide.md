@@ -41,7 +41,16 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
    what the old name was before believing it. Do this before
    wording anything: every bullet this has caught was already well-written, and
    the rules below cannot see a claim that is merely untrue.
-4. Write short bullets, most interesting first: new features, then fixes.
+4. **Then ask whether a reader would feel it.** Step 3 answers whether a change
+   is new, and a change can be new, correctly described, and still invisible on
+   screen — `MaterialTheme` → `MaterialExpressiveTheme` reads as a restyle in
+   the diff, yet with the app's own colours and type passed in it leaves almost
+   nothing to point at. Confirm such a bullet against the running app rather
+   than the diff. Only whoever has the build in their hand can answer, so draft
+   the bullets while there is someone to ask, and ask before the bump is
+   committed: withdrawing one changes the version, since a range whose only
+   feature-bucket item was that bullet is a patch rather than a minor.
+5. Write short bullets, most interesting first: new features, then fixes.
    Plain language, no commit references, no jargon. One line per bullet —
    state the change and stop; cut qualifiers, parentheticals, and trailing
    explanations ("— existing ones are cleaned up on first launch").
@@ -71,7 +80,7 @@ broadcasts, wakelocks, refactorings, build/tooling changes).
    - ✅ "A trip's map breaks the line where recording paused"
    - ❌ "A trip's screen says where its fixes came from and where recording
      stopped watching"
-5. Keep it under Play's **500 characters per language**. 2–4 bullets is the
+6. Keep it under Play's **500 characters per language**. 2–4 bullets is the
    sweet spot; if there are more, the release is probably overdue anyway.
 
 ## Format
