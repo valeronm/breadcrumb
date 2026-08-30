@@ -660,9 +660,9 @@ setup exists: no page, no first-run flow, and so no flag recording that one was 
 
 The Compose code is split one file per screen, all in the `ui` package:
 `MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in
-`RecordScreen`/`TimelineScreen`/`PlacesScreens`/`InsightsScreens`/`TrackDetailScreen`/
-`SettingsScreens`/
-`DiscardedScreens`, with the shared widgets split by kind — generic chrome in `Components.kt`, the
+`RecordScreen`/`TimelineScreen`/`InsightsScreens`/`TrackDetailScreen`/`SettingsScreens`/
+`DiscardedScreens`, with the Places surfaces across `PlacesTab`, `PlaceDetailScreen`,
+`PlaceEditScreen` and `PlaceCategoryPicker`; the shared widgets split by kind — generic chrome in `Components.kt`, the
 settings rows in `SettingsWidgets.kt`, list rows and discs in `ListRows.kt`, dialogs in
 `Dialogs.kt`, the fast scroller in `FastScroller.kt`, the categorical palettes in `Palette.kt`,
 locale-decided words (dates, months, countries) in `LocaleWords.kt` and the zone-shift time marks

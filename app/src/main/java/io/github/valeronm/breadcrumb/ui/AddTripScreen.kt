@@ -422,7 +422,7 @@ internal fun AddTripScreen(
                     viewModel.searchOnline(query, near = origin.pin ?: destination.pin)
                 }
             }
-            PlacesSearchField(
+            SearchField(
                 query = query,
                 onQueryChange = { query = it },
                 placeholder = stringResource(R.string.addtrip_search_placeholder),

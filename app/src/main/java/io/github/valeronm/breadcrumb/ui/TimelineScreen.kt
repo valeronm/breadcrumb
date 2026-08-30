@@ -50,6 +50,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -1499,3 +1500,7 @@ private fun GapPlaceLine(
         }
     }
 }
+
+@Composable
+@ReadOnlyComposable
+private fun visitCountLabel(n: Int): String = pluralStringResource(R.plurals.place_visits, n, n)
