@@ -267,21 +267,15 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private val pendingPlace = MutableStateFlow<PendingPlace?>(null)
 
     /**
-     * Tracks interleaved with derived stays and data gaps, newest first, sliced per local day.
-     *
-     * **Null until the first derivation lands**, which is not the same answer as an empty list and
-     * must not be collapsed into one: the derivation walks the whole history, so on a cold start
-     * there is a window where a full history reads as empty. The Timeline's empty state offers a
-     * backup restore — an offer that is only safe *because* there is nothing to merge with — so a
-     * reader that can't tell the two apart makes that offer over the user's data.
+     * The timeline's rows as derived, before the write in flight ([pendingPlace]) is drawn over
+     * them. All of the work is here — resolving, merge offers, slicing, interleaving — and it is
+     * shared so that a pending row arriving or retiring costs a map over these rows rather than
+     * another walk of the history.
      */
-    val timeline: StateFlow<List<TimelineItem>?> = combine(trackRows, derived, pendingPlace) { summaries, d, pending ->
+    private val resolvedTimeline: Flow<List<TimelineItem>> = combine(trackRows, derived) { summaries, d ->
         // Resolve places over the UNSLICED stays — after slicePerDay a 3-day stay would count
         // as 3 visits. Cluster ids survive the slicing copies, so items look up directly.
-        // Left alone rather than re-mapped when nothing is in flight, which is nearly always.
-        val clusterPlaces =
-            PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
-                .let { if (pending == null) it else it.map(pending::dress) }
+        val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
         // Each track paired with its chronological successor, keyed by the track an interval
         // follows — what merging the two tracks around a short interval needs. observeSummaries
         // returns newest first, so chronological order is a reversed *view*: no re-sort of the
@@ -327,6 +321,36 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }.flowOn(Dispatchers.Default)
+        // No grace of its own: its only subscribers are the stages below, whose five seconds already
+        // carry a tab swipe, and a grace here would only hold the derivation that much longer.
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
+
+    /**
+     * Tracks interleaved with derived stays and data gaps, newest first, sliced per local day.
+     *
+     * **Null until the first derivation lands**, which is not the same answer as an empty list and
+     * must not be collapsed into one: the derivation walks the whole history, so on a cold start
+     * there is a window where a full history reads as empty. The Timeline's empty state offers a
+     * backup restore — an offer that is only safe *because* there is nothing to merge with — so a
+     * reader that can't tell the two apart makes that offer over the user's data.
+     */
+    val timeline: StateFlow<List<TimelineItem>?> = combine(resolvedTimeline, pendingPlace) { items, pending ->
+        // Left alone rather than re-mapped when nothing is in flight, which is nearly always.
+        if (pending == null) {
+            items
+        } else {
+            items.map { item ->
+                when (item) {
+                    is TimelineItem.TrackItem -> item
+                    is TimelineItem.StayItem -> item.copy(place = item.place?.let(pending::dress))
+                    is TimelineItem.GapItem -> item.copy(
+                        fromPlace = item.fromPlace?.let(pending::dress),
+                        toPlace = item.toPlace?.let(pending::dress),
+                    )
+                }
+            }
+        }
+    }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
@@ -364,17 +388,17 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * Every month the history holds something in, oldest first; picking a window out of it is the
      * screen's job ([MonthlyTotals.window]), so stepping the shown month costs no re-derivation.
      *
-     * Mapped off [timeline] rather than off the derivation, which is the whole point: a month's
-     * figures are the sum of exactly the rows the Timeline files under it, so the two surfaces
-     * cannot disagree — and the rows arrive already cut at midnight on the clock they were lived in,
-     * so no stay straddles a month boundary either.
+     * Mapped off the Timeline's rows rather than off the derivation, which is the whole point: a
+     * month's figures are the sum of exactly the rows the Timeline files under it, so the two
+     * surfaces cannot disagree — and the rows arrive already cut at midnight on the clock they were
+     * lived in, so no stay straddles a month boundary either. Off [resolvedTimeline] rather than
+     * [timeline]: a place write in flight changes a name, a pin or a reach, none of which is a figure.
      *
      * **Null until the first derivation lands**, for the reason given on [timeline]: a screen that
      * reads "not yet" as "nothing" reports an empty year over a full one.
      */
-    val monthlyTotals: StateFlow<List<MonthTotals>?> = timeline.map { items ->
-        items?.let(::monthsOf)
-    }.flowOn(Dispatchers.Default)
+    val monthlyTotals: StateFlow<List<MonthTotals>?> = resolvedTimeline.map(::monthsOf)
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
@@ -388,9 +412,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * [MonthlyTotals.derive], skipped when the rows are the ones it last ran on.
      *
      * The flow above is dropped five seconds after the Statistics page leaves composition — which a
-     * swipe to the journeys beside it does — and [timeline] then replays the *same list instance* on
-     * the way back, so without this guard every visit to the tab re-walks the whole history for an
-     * identical answer. [derived] carries the same guard for the same reason.
+     * swipe to the journeys beside it does — and [resolvedTimeline] then replays the *same list
+     * instance* on the way back, so without this guard every visit to the tab re-walks the whole
+     * history for an identical answer. [derived] carries the same guard for the same reason.
      *
      * A consequence worth naming: the wall clock is read per derivation rather than per emission, so
      * an open stay's minutes go as stale as the memo. That is the cheaper half of the trade — the
@@ -405,6 +429,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         return lastMonths
     }
 
+    /** [places] as derived, before the write in flight is drawn over it — shared for the reason
+     *  [resolvedTimeline] is. */
+    private val placeSummaries: Flow<List<PlaceResolver.PlaceSummary>> = derived.map { d ->
+        PlaceResolver.summarize(d.stays, d.derivation.clusters, d.places, d.now, d.cities)
+    }.flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
+
     /**
      * Every cluster's aggregate stats — visited places for the Places screen plus zero-visit
      * pass-through clusters so gap sides always have a detail page to open (the Places tab
@@ -414,9 +445,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * reads "not yet" as "nothing" tells the user their history is empty while it is being read.
      */
     val places: StateFlow<List<PlaceResolver.PlaceSummary>?> =
-        combine(derived, pendingPlace) { d, pending ->
-            PlaceResolver.summarize(d.stays, d.derivation.clusters, d.places, d.now, d.cities)
-                .let { if (pending == null) it else it.map(pending::dress) }
+        combine(placeSummaries, pendingPlace) { summaries, pending ->
+            if (pending == null) summaries else summaries.map(pending::dress)
         }.flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
