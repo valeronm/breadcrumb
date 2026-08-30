@@ -23,7 +23,7 @@ private const val MINUTES_PER_DAY = 24 * 60L
  * Deliberately not a duration formatter: the rungs, the dropped zero and the padded minute below
  * are this app's own decisions, and a formatter would re-decide them.
  */
-interface DurationSymbols {
+internal interface DurationSymbols {
     val year: String
     val month: String
     val day: String
@@ -35,8 +35,8 @@ interface DurationSymbols {
     val recording: String
 }
 
-/** Plain ASCII, for tests and for any surface with no resources to reach. */
-object AsciiDurations : DurationSymbols {
+/** Plain ASCII, for tests, which have no resources to reach. */
+internal object AsciiDurations : DurationSymbols {
     override val year = "y"
     override val month = "mo"
     override val day = "d"

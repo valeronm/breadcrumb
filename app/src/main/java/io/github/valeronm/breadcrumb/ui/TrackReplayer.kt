@@ -22,7 +22,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * the recorder's shape — a [TrackingStatus.State] plus the points so far — via its own flow, leaving
  * the real recorder untouched.
  */
-object TrackReplayer {
+internal object TrackReplayer {
 
     class Replay(
         val trackLabel: String,

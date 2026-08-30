@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.location
 
-import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackStats
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -88,7 +87,7 @@ data class Ingested(
  *
  * Callers hold whatever lock they serialize the recorder with; nothing here is thread-safe on its own.
  */
-class FixIngest(internal val distance: DistanceFn = AndroidDistance) {
+class FixIngest(internal val distance: DistanceFn) {
 
     private val confirmer = MovementConfirmer(distance)
     private val carrierEvidence = CarrierEvidence()

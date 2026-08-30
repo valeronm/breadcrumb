@@ -63,7 +63,7 @@ object DwellDetector {
 
     fun detect(
         points: List<TrackPoint>,
-        params: Params = Params(),
+        params: Params,
         distance: DistanceFn,
     ): List<Dwell> {
         val samples = decimate(points.filter { !it.ignored }, params.decimateMs)

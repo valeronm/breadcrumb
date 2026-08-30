@@ -311,7 +311,7 @@ class CityAtlas private constructor(
     private fun lonBoundOf(row: Int, lat: Double, targetLonE6: Int): Double {
         val delta = abs(lonE6Of(row).toLong() - targetLonE6) / 1e6
         if (delta > HALF_TURN_DEGREES) return 0.0
-        val poleward = max(abs(lat), abs(latE6Of(row) / 1e6))
+        val poleward = max(abs(lat), abs(latOf(row)))
         return delta * MIN_M_PER_DEGREE_LAT * cos(Math.toRadians(poleward))
     }
 
@@ -321,7 +321,7 @@ class CityAtlas private constructor(
             name = nameAt(row),
             country = countryAt(row),
             zoneId = zones[u16(at + 12)],
-            population = u16(at + 8) * 1_000,
+            population = populationAt(row),
             distanceM = distanceM,
         )
     }
@@ -354,7 +354,7 @@ class CityAtlas private constructor(
     private fun latE6Of(row: Int): Int = i32(rowsAt + row * ROW_BYTES)
     private fun lonE6Of(row: Int): Int = i32(rowsAt + row * ROW_BYTES + 4)
     private fun latOf(row: Int): Double = latE6Of(row) / 1e6
-    private fun lonOf(row: Int): Double = i32(rowsAt + row * ROW_BYTES + 4) / 1e6
+    private fun lonOf(row: Int): Double = lonE6Of(row) / 1e6
 
     private fun i32(at: Int): Int =
         (bytes[at].toInt() and 0xFF shl 24) or

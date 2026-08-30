@@ -284,13 +284,13 @@ class LocationRecordingService : Service() {
      * is the event's own (wall-clock) timestamp; [onApplied] runs once the reading has been applied
      * — the receiver holds its broadcast wakelock open until then, so Doze can't freeze the apply.
      */
-    fun onActivityChanged(activity: ActivityType, eventTimeMs: Long? = null, onApplied: (() -> Unit)? = null) {
+    fun onActivityChanged(activity: ActivityType, eventTimeMs: Long?, onApplied: (() -> Unit)?) {
         transitionSinceArm = true
         applyActivityAsync(activity, eventTimeMs, onApplied)
     }
 
     /** The arm-time snapshot reading — applied like a transition but never claims to be one. */
-    fun onSnapshot(activity: ActivityType, eventTimeMs: Long? = null, onApplied: (() -> Unit)? = null) {
+    fun onSnapshot(activity: ActivityType, eventTimeMs: Long?, onApplied: (() -> Unit)?) {
         applyActivityAsync(activity, eventTimeMs, onApplied)
     }
 
@@ -299,7 +299,7 @@ class LocationRecordingService : Service() {
      * once the departure has been applied — the receiver holds its broadcast wakelock until then,
      * for the reason [onActivityChanged] gives.
      */
-    fun onDeparture(onApplied: (() -> Unit)? = null) {
+    fun onDeparture(onApplied: (() -> Unit)?) {
         applyAsync("departure", onApplied) {
             val nowMs = now()
             // How long the fence took to notice is the number this whole trigger is judged on, and

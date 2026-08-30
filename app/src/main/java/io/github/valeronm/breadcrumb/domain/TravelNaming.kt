@@ -254,7 +254,7 @@ object TravelNaming {
     const val MIN_STAY_MS = 2 * 60 * 60 * 1000L
 
     /** Names listed in full up to here; beyond it the name lists two and counts the rest. */
-    const val MAX_NAMES = 3
+    private const val MAX_NAMES = 3
 
     /**
      * The places worth naming a journey after, most time first. [timeByName] is each name's total

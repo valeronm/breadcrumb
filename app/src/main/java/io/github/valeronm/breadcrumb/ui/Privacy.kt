@@ -179,7 +179,7 @@ private var keyguardWatched = false
  * screen's copy is what a user who dismissed the prompt reads, the prompt's is what everyone else
  * does.
  */
-internal fun pendingImportNote(context: Context, files: Int): String? =
+private fun pendingImportNote(context: Context, files: Int): String? =
     if (files <= 0) {
         null
     } else {

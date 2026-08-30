@@ -28,10 +28,8 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 object EdgeStayDetector {
 
     data class Params(
-        /** Stage-1 sweep, with the venue bar lowered to edge scale. Nothing ships these defaults —
-         *  every production path runs [BRIEF_STOP] or [VEHICLE], and so does the detector's own
-         *  test suite; they remain only for callers that don't turn on the rule's numbers. */
-        val dwell: DwellDetector.Params = DwellDetector.Params(minDwellMs = 3 * 60_000L),
+        /** Stage-1 sweep, with the venue bar lowered to edge scale. */
+        val dwell: DwellDetector.Params,
         /** A fix at or above this speed votes its bin "moving". */
         val movingSpeed: Speed = Speed.mps(0.7),
         /** What a *lone* fix must clear to carry its bin by itself. Corroboration is the usual
@@ -144,7 +142,7 @@ object EdgeStayDetector {
     /** 0–2 stays: at most one per track edge. */
     fun detect(
         points: List<TrackPoint>,
-        params: Params = Params(),
+        params: Params,
         distance: DistanceFn,
     ): List<EdgeStay> {
         val good = points.filter { !it.ignored }

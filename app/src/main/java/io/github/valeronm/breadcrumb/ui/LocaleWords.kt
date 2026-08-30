@@ -93,7 +93,7 @@ internal val compactDayYearFormat by PerLocale { localizedDateFormat("dMMMy", it
 
 internal val fullDayFormat by PerLocale { localizedDateFormat("dMMMM", it) }
 
-internal val fullDayYearFormat by PerLocale { localizedDateFormat("dMMMMy", it) }
+private val fullDayYearFormat by PerLocale { localizedDateFormat("dMMMMy", it) }
 
 /**
  * The flag emoji for an ISO 3166-1 alpha-2 code — two regional-indicator code points, which is the

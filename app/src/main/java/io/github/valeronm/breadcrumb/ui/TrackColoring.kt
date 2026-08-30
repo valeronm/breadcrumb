@@ -83,7 +83,7 @@ private fun speedScaleFor(activity: ActivityType, units: UnitSystem): SpeedScale
 // --- Track line coloring by metric ------------------------------------------------------------
 
 /** Which per-point metric the track line is colored by. */
-enum class ColorMode(
+internal enum class ColorMode(
     @StringRes val labelRes: Int,
     /** What the legend says when no fix in the track carries this metric. */
     @StringRes val noDataRes: Int,

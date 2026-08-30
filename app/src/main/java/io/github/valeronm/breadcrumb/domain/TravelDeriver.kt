@@ -57,7 +57,7 @@ object TravelDeriver {
     private const val DAY_MS = 24 * 60 * 60 * 1000L
 
     /** Where one night's sample landed. [UNKNOWN] is a night the data cannot place. */
-    enum class NightPlace { HOME, AWAY, UNKNOWN }
+    private enum class NightPlace { HOME, AWAY, UNKNOWN }
 
     /**
      * Home, in the two forms the rule needs it. [clusterIds] answers almost every night — a stay and

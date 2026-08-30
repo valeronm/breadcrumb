@@ -37,15 +37,8 @@ class DepartureFence(private val context: Context) {
         )
     }
 
-    /**
-     * When the live fence was registered, or null if none is. **Not the latency an exit is reported
-     * against** — a fence re-armed on a fresher position is still watching the same stop, so that
-     * number comes from when watching began (`ActivityIngest.watchStartedAtMs`). This says only
-     * whether there is a registration to tear down.
-     */
     @Volatile
-    var armedAtMs: Long? = null
-        private set
+    private var armed = false
 
     /**
      * Watch [at], replacing whatever was being watched — one fence, keyed on a constant id, so
@@ -74,9 +67,9 @@ class DepartureFence(private val context: Context) {
             .build()
         GmsCalls.chain { client.addGeofences(request, pendingIntent) }
             .addOnSuccessListener {
-                // Stamped where the registration actually lands, so a latency is never reported
-                // against a fence Play Services refused.
-                armedAtMs = System.currentTimeMillis()
+                // Set where the registration actually lands — a fence Play Services refused
+                // leaves nothing to tear down.
+                armed = true
                 DebugLog.i(TAG, "departure fence armed (r=${RADIUS_M.toInt()}m, resp=${RESPONSIVENESS_MS / 1000}s)")
             }
             .addOnFailureListener { DebugLog.w(TAG, "departure fence arm failed: ${it.message}") }
@@ -119,8 +112,8 @@ class DepartureFence(private val context: Context) {
     fun disarm() {
         // Nothing registered, nothing to tear down — and building the PendingIntent to remove a
         // fence that was never added is an IPC for no reason, on every track that opens.
-        if (armedAtMs == null) return
-        armedAtMs = null
+        if (!armed) return
+        armed = false
         GmsCalls.chain { client.removeGeofences(pendingIntent) }
             .addOnSuccessListener { DebugLog.i(TAG, "departure fence disarmed") }
             .addOnFailureListener { DebugLog.w(TAG, "departure fence disarm failed: ${it.message}") }
