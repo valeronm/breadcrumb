@@ -5,9 +5,11 @@ import java.io.Reader
 /**
  * A strict, minimal streaming JSON pull-reader — [android.util.JsonReader]'s shape, but pure
  * Kotlin so its consumers parse (and test) on any JVM: the backup import and the online place
- * search both read through it. Numbers come back as Long when integral, Double otherwise.
- * Buffers its own block of input and reuses one token buffer: at millions of points the per-char
- * `Reader.read()` calls and per-token builders would dominate a restore.
+ * search both read through it. Numbers come back as Long when integral, Double otherwise. Every
+ * malformed input surfaces as [IllegalStateException] (the underlying reader's [java.io.IOException]
+ * aside), which is what a consumer catches to read a bad body as no result. Buffers its own block
+ * of input and reuses one token buffer: at millions of points the per-char `Reader.read()` calls
+ * and per-token builders would dominate a restore.
  */
 internal class JsonPullReader(private val reader: Reader) {
 
@@ -54,7 +56,8 @@ internal class JsonPullReader(private val reader: Reader) {
                     'f' -> token.append('\u000C')
                     'u' -> {
                         val hex = String(CharArray(4) { advance() })
-                        token.append(hex.toInt(16).toChar())
+                        val code = hex.toIntOrNull(16) ?: error("bad unicode escape '\\u$hex'")
+                        token.append(code.toChar())
                     }
                     else -> error("bad escape '\\$e'")
                 }
@@ -127,7 +130,8 @@ internal class JsonPullReader(private val reader: Reader) {
         while (fill() && buf[pos] in "0123456789+-.eE") token.append(buf[pos++])
         val text = token.toString()
         check(text.isNotEmpty()) { "expected value" }
-        return if (text.none { it in ".eE" }) text.toLong() else text.toDouble()
+        val value = if (text.none { it in ".eE" }) text.toLongOrNull() else text.toDoubleOrNull()
+        return value ?: error("bad number '$text'")
     }
 
     private fun <T> literal(text: String, value: T): T {
