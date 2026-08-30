@@ -66,7 +66,7 @@ object StayLedger {
      * not exist yet, and a domain value with a placeholder in the field its own KDoc calls "the only
      * answer it has to where it was" is worse than a row shape that never pretends.
      */
-    class Interval(
+    class IntervalRow(
         val verdict: StayDeriver.Verdict.Recorded,
         val start: Long,
         val end: Long,
@@ -109,7 +109,7 @@ object StayLedger {
     /** What to write: what goes, and what arrives in its place. */
     class Mutations(
         val removed: Removals,
-        val intervals: List<Interval>,
+        val intervals: List<IntervalRow>,
         val memberships: List<Membership>,
         /** Clusters this pass founds, in [ClusterRef.Founded]'s index order — an anchor with a
          *  reach and nothing else, which is all a new cluster is until an endpoint joins it. */
@@ -165,7 +165,7 @@ object StayLedger {
         val pins = stored.clusters.filter { it.named }.map { it.seed }
         val agreement = StayDeriver.Agreement(params, distance, pins)
 
-        val anchors = Anchors(stored.clusters, params.placeRadiusM, distance)
+        val anchors = StoredAnchors(stored.clusters, params.placeRadiusM, distance)
         val deltas = HashMap<ClusterRef, ClusterDelta>()
         fun shift(cluster: ClusterRef, at: Coordinate, by: Int) {
             val current = deltas[cluster]
@@ -234,14 +234,14 @@ object StayLedger {
         after: StayDeriver.TrackEnd,
         clusterOf: Map<StayDeriver.Endpoint, ClusterRef>,
         agreement: StayDeriver.Agreement,
-    ): Interval? {
+    ): IntervalRow? {
         val from = clusterOf[StayDeriver.Endpoint(before.trackId, isStart = false)]
         val to = clusterOf[StayDeriver.Endpoint(after.trackId, isStart = true)]
         val verdict = StayDeriver.verdictBetween(
             before, after, sameCluster = from != null && from == to, agreement,
         ) as? StayDeriver.Verdict.Recorded ?: return null
         val moved = verdict is StayDeriver.Verdict.Moved
-        return Interval(
+        return IntervalRow(
             verdict = verdict,
             start = before.endedAt,
             end = after.startedAt,
@@ -261,7 +261,7 @@ object StayLedger {
      * the *nearest anchor that reaches it* and otherwise founds an anchor there, and a later
      * endpoint sees that new anchor exactly as it would have in a full derivation.
      */
-    private class Anchors(
+    private class StoredAnchors(
         private val stored: List<ClusterRow>,
         radiusM: Double,
         distance: DistanceFn,

@@ -70,7 +70,7 @@ class StayLedgerTest {
         toCluster: Coordinate?,
     ) = listOf(verdict, start, end, afterTrackId, cluster, toCluster)
 
-    private fun StayLedger.Interval.described(stored: Stored, mutations: StayLedger.Mutations) = describe(
+    private fun StayLedger.IntervalRow.described(stored: Stored, mutations: StayLedger.Mutations) = describe(
         verdict, start, end, afterTrackId,
         anchorOf(cluster, stored, mutations), anchorOf(toCluster, stored, mutations),
     )

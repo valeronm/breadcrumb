@@ -417,7 +417,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * to insert. Two of these would be two spellings of the same vocabulary, which is the failure
      * [DerivedReadModel] is the other half of.
      */
-    private fun StayLedger.Interval.toRow(founded: List<Long> = emptyList()): DerivedInterval = when (verdict) {
+    private fun StayLedger.IntervalRow.toRow(founded: List<Long> = emptyList()): DerivedInterval = when (verdict) {
         StayDeriver.Verdict.Stayed -> DerivedInterval(
             type = DerivedInterval.TYPE_STAY,
             start = start,
@@ -448,10 +448,10 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * position translated to the rows they were stored as, which is all the two representations
      * differ by.
      */
-    private fun StayDeriver.Interval.asLedgerInterval(clusterRowIds: List<Long>): StayLedger.Interval {
+    private fun StayDeriver.Interval.asLedgerInterval(clusterRowIds: List<Long>): StayLedger.IntervalRow {
         fun ref(clusterId: Int) = StayLedger.ClusterRef.Stored(clusterRowIds[clusterId])
         return when (this) {
-            is StayDeriver.Stay -> StayLedger.Interval(
+            is StayDeriver.Stay -> StayLedger.IntervalRow(
                 verdict = StayDeriver.Verdict.Stayed,
                 start = start,
                 // Only the open stay has no end, and this derivation does not emit one.
@@ -459,7 +459,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
                 afterTrackId = afterTrackId,
                 ends = StayLedger.Ends(ref(clusterId), null, null, null),
             )
-            is StayDeriver.Gap -> StayLedger.Interval(
+            is StayDeriver.Gap -> StayLedger.IntervalRow(
                 verdict = StayDeriver.Verdict.Moved(reason),
                 start = start,
                 end = end,
