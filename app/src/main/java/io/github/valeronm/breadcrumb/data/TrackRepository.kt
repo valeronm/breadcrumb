@@ -290,7 +290,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 // restore as-is until the next version bump swept it; so both are re-derived off the
                 // in-memory points and applied before they are stored. The plan names points by
                 // position, the only handle a restore has: the backup format stores no point ids,
-                // so every parsed point carries id 0.
+                // so every parsed point carries id 0. Settled here rather than through
+                // [settleAndRefresh] because there is no row yet for that to write against.
                 val settled = EdgeStayIgnore.settle(
                     points = points,
                     startedAt = track.startedAt,
@@ -309,7 +310,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 // an aggregate on a track row is this code's answer about the points it holds,
                 // never a file's, the same rule the GPX import states. The backup path used to
                 // trust the file where nothing had moved, which the export's rounding made false.
-                refreshStats(id, settled.points)
+                refreshStats(id, TrackStats.of(settled.points))
                 dao.insertPoints(settled.points.map { it.copy(id = 0, trackId = id) })
             }
         }
@@ -344,15 +345,14 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             val retyped = track.copy(activityType = activityType.name)
             val stored = dao.allPointsFor(trackId)
             val restored = if (raised) restoreJumps(trackId, stored, activityType) else null
+            val jumpsRestored = restored != null
             // Run unconditionally once either rule is in play: restoring a fix moves the first or
             // last *good* point, which is where the overrun rule takes its bearings from.
-            val applied = settleTrack(retyped, endedAt, restored ?: stored)
-            val pointsMoved = restored != null || applied.pointsMoved
-            if (pointsMoved) refreshStats(trackId, applied.points)
+            val applied = settleAndRefresh(retyped, endedAt, restored ?: stored, totalsStale = jumpsRestored)
             // Not the free column write it looks like: either rule moves the track's bounds and
             // its first and last good coordinates, which are the whole of what a stay is derived
             // from. A retype that moved neither leaves the derivation alone.
-            if (pointsMoved || applied.changed) derivation.reknit(listOf(trackId))
+            if (jumpsRestored || applied.changed) derivation.reknit(listOf(trackId))
         }
     }
 
@@ -380,16 +380,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /**
-     * Recompute a track's aggregates from its points and store them on its row — the only writer of
-     * the denormalized columns, so every path that changes a track's points (finish, merge, import,
-     * retype, re-derived overrun) must end here or the timeline shows stale counts. Returns the
-     * stats it wrote. [points] is *all* of the track's points, ignored ones included, from the
-     * caller: every path that ends here has just walked or rewritten them, and none may re-read.
+     * Store a track's aggregates on its row — the only writer of the denormalized columns, so every
+     * path that changes a track's points must end here or the timeline shows stale counts. [stats]
+     * is walked from *all* of the track's points, ignored ones included, by the caller: every path
+     * that ends here has just walked or rewritten them, and none may re-read.
      */
-    private suspend fun refreshStats(trackId: Long, points: List<TrackPoint>): TrackStats.Stats {
-        val stats = TrackStats.of(points)
+    private suspend fun refreshStats(trackId: Long, stats: TrackStats.Stats) {
         dao.updateStats(stats.toUpdate(trackId))
-        return stats
     }
 
     /**
@@ -450,9 +447,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         // writes none of them while it records — and where the recorder's overrun is taken off the
         // path. The overrun comes off *before* the keep verdict deliberately: a track is judged on
         // the journey it recorded, not on the minutes it spent parked at the end of it.
-        val applied = settleTrack(closing, endedAt, points)
-        val stats = refreshStats(track.id, applied.points)
-        when (keepVerdict(closing, applied.bounds.startedAt, applied.bounds.endedAt, stats)) {
+        val applied = settleAndRefresh(closing, endedAt, points, totalsStale = true)
+        when (keepVerdict(closing, applied.bounds.startedAt, applied.bounds.endedAt, applied.stats)) {
             // The only verdict that puts the track on the timeline, and so the only one the
             // derivation has anything to say about: an open track was never in it, and one
             // discarded or purged at birth never enters.
@@ -478,12 +474,34 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
          *  agree with the stored rows, which is what lets a re-sweep cost no writes. */
         val changed: Boolean,
     ) {
-        val points get() = settled.points
         val bounds get() = settled.bounds
 
         /** Whether a *point* changed hands. The aggregates are a function of the points alone, so
          *  recomputing them when this is false writes back what it read. */
         val pointsMoved get() = settled.plan.movesPoints
+
+        /** The aggregates the settled points add up to — one walk, taken only when asked for, which
+         *  is what keeps a sweep that moved nothing from walking every track's points. */
+        val stats by lazy(LazyThreadSafetyMode.NONE) { TrackStats.of(settled.points) }
+    }
+
+    /**
+     * The whole of what a track whose points changed owes its row: [settleTrack], then the
+     * aggregates the surviving points add up to, stored where they could have moved — always where
+     * the row's totals cannot be trusted ([totalsStale]), otherwise only where the settle itself
+     * moved a point. The derivation is deliberately left to the caller, whose own write may have
+     * moved the timeline as much as the settle did; [Applied.changed] says whether the settle did.
+     * Runs inside the caller's transaction.
+     */
+    private suspend fun settleAndRefresh(
+        track: Track,
+        endedAt: Long,
+        points: List<TrackPoint>,
+        totalsStale: Boolean,
+    ): Applied {
+        val applied = settleTrack(track, endedAt, points)
+        if (totalsStale || applied.pointsMoved) refreshStats(track.id, applied.stats)
+        return applied
     }
 
     /**
@@ -493,8 +511,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * reopening onto them — and it is idempotent, which lets every path that changes a track's
      * points end here. The point flags and both bounds are written, except on a still-open row
      * ([endedAt] is then the proposed end time), where the caller is mid-finish and writes the end
-     * itself. The stats are the caller's to recompute from the returned points; callers wrap the
-     * sequence in one transaction.
+     * itself. Entered through [settleAndRefresh], which owes the row its aggregates too.
      */
     private suspend fun settleTrack(track: Track, endedAt: Long, points: List<TrackPoint>): Applied {
         val settled = EdgeStayIgnore.settle(
@@ -539,10 +556,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     private suspend fun resettleTrack(track: Track): Boolean {
         val endedAt = track.endedAt ?: return false
-        val applied = settleTrack(track, endedAt, dao.allPointsFor(track.id))
-        if (!applied.changed) return false
-        if (applied.pointsMoved) refreshStats(track.id, applied.points)
-        return true
+        return settleAndRefresh(track, endedAt, dao.allPointsFor(track.id), totalsStale = false).changed
     }
 
     /**
@@ -622,7 +636,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             if (stats.matches(track)) {
                 false
             } else {
-                dao.updateStats(stats.toUpdate(track.id))
+                refreshStats(track.id, stats)
                 true
             }
         }
@@ -697,11 +711,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // buried mid-track, where no edge rule reaches it — is handed back to the path, which
             // is the merged track's own way through the stop it drove on from.
             val merged = dao.track(mergedId)!!
-            val applied = settleTrack(merged, merged.endedAt!!, dao.allPointsFor(mergedId))
             // Recomputed, not summed: the merged track is one journey, so the ground between the
             // two halves counts like any other leg — a sum of the originals would leave it out.
-            // It also keeps the one writer of the denormalized columns in charge.
-            refreshStats(mergedId, applied.points)
+            settleAndRefresh(merged, merged.endedAt!!, dao.allPointsFor(mergedId), totalsStale = true)
             val now = System.currentTimeMillis()
             dao.setDiscarded(earlierId, now, Track.REASON_MERGED)
             dao.setDiscarded(laterId, now, Track.REASON_MERGED)
@@ -767,14 +779,12 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.movePointsFrom(secondId, trackId, atTs)
             dao.closeTrack(trackId, plan.firstEndTs)
             // The points are the lists already in hand: the move rewrote one column and left every
-            // row id, timestamp and flag alone, so re-reading them would buy nothing (and
-            // refreshStats requires the caller's walk, not a fresh read).
+            // row id, timestamp and flag alone, so re-reading them would buy nothing.
             val first = track.copy(endedAt = plan.firstEndTs)
             val second = secondRow.copy(id = secondId)
-            // Recomputed per half, not divided: each is its own journey now, and this keeps the one
-            // writer of the denormalized columns in charge.
-            refreshStats(trackId, settleTrack(first, plan.firstEndTs, before).points)
-            refreshStats(secondId, settleTrack(second, endedAt, after).points)
+            // Recomputed per half, not divided: each is its own journey now.
+            settleAndRefresh(first, plan.firstEndTs, before, totalsStale = true)
+            settleAndRefresh(second, endedAt, after, totalsStale = true)
             derivation.reknit(listOf(trackId, secondId))
             DebugLog.i(
                 TAG,
@@ -806,8 +816,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // Written here rather than left to the settle below, which only rewrites an end it
             // disagrees with — and where it agrees, the row would keep the cut's own end.
             dao.closeTrack(originalId, rejoinedEnd)
-            val applied = settleTrack(original, rejoinedEnd, dao.allPointsFor(originalId))
-            refreshStats(originalId, applied.points)
+            settleAndRefresh(original, rejoinedEnd, dao.allPointsFor(originalId), totalsStale = true)
             derivation.reknit(listOf(originalId, split.secondId))
         }
     }
@@ -921,9 +930,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             val points = dao.allPointsFor(trackId)
             if (track?.endedAt == null) {
                 // Still open: its edges aren't settled yet, and finishing it applies the rule.
-                refreshStats(trackId, points)
+                refreshStats(trackId, TrackStats.of(points))
             } else {
-                refreshStats(trackId, settleTrack(track, track.endedAt, points).points)
+                settleAndRefresh(track, track.endedAt, points, totalsStale = true)
             }
         }
         return dropped
