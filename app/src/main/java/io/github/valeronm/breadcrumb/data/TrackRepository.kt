@@ -452,7 +452,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         // the journey it recorded, not on the minutes it spent parked at the end of it.
         val applied = settleTrack(closing, endedAt, points)
         val stats = refreshStats(track.id, applied.points)
-        when (keepVerdict(track, applied.bounds.startedAt, applied.bounds.endedAt, stats)) {
+        when (keepVerdict(closing, applied.bounds.startedAt, applied.bounds.endedAt, stats)) {
             // The only verdict that puts the track on the timeline, and so the only one the
             // derivation has anything to say about: an open track was never in it, and one
             // discarded or purged at birth never enters.
