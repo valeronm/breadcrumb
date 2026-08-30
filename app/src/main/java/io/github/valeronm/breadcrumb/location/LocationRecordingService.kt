@@ -210,10 +210,6 @@ class LocationRecordingService : Service() {
         // immediately discarded, flashing the UI.)
         scope.launch {
             mutex.withLock {
-                // Armed again: the timeline's trailing stay reopens (see Settings.disarmedSinceMs).
-                // Under the lock so that a stop's teardown, whichever side of this it runs, cannot
-                // stamp its disarm instant over the clearing.
-                Settings.setDisarmedSinceMs(this@LocationRecordingService, null)
                 // Close any track left open by a previous crash/kill, but never the one we're
                 // actively recording (a snapshot may have already opened it).
                 repository.finalizeDangling(exceptTrackId = activeTrackId)
@@ -270,9 +266,6 @@ class LocationRecordingService : Service() {
                 // waking a recorder the user has switched off. The core emits the teardown for every
                 // trigger, so which ones were armed stays one question with one answer.
                 dispatch(core.onDisarmed())
-                // The app attests nothing past this instant — the timeline's trailing stay
-                // closes here rather than stretching to the clock.
-                Settings.setDisarmedSinceMs(this@LocationRecordingService, now())
             }
             withContext(Dispatchers.Main) {
                 if (session != ending) return@withContext

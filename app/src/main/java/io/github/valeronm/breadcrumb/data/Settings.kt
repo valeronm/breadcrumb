@@ -85,16 +85,10 @@ object Settings {
     /**
      * When the recorder was last turned off with nothing since (epoch ms), or null while armed —
      * the instant the timeline's trailing stay closes at, the app attesting nothing past a disarm.
-     * Written by the service on arm/disarm, beside the armed flag.
+     * Written only by [setAutoRecord], in the same edit as the flag.
      */
     fun disarmedSinceMs(context: Context): Long? =
         prefs(context).getLong(KEY_DISARMED_SINCE_MS, 0L).takeIf { it > 0 }
-
-    fun setDisarmedSinceMs(context: Context, at: Long?) {
-        prefs(context).edit {
-            if (at == null) remove(KEY_DISARMED_SINCE_MS) else putLong(KEY_DISARMED_SINCE_MS, at)
-        }
-    }
 
     /** Keep the screen on while the app is open and the phone is charging (car-mount use). */
     fun keepScreenOnCharging(context: Context): Boolean =
@@ -135,12 +129,22 @@ object Settings {
     fun isAutoRecord(context: Context): Boolean =
         prefs(context).getBoolean(KEY_AUTO_RECORD, false)
 
+    /**
+     * Arms or disarms, stamping [disarmedSinceMs] in the same write: a disarm that landed without
+     * its instant would leave the trailing stay stretching to the clock while nothing records. A
+     * repeat of the current state writes nothing, so a second disarm keeps the first's instant.
+     */
     fun setAutoRecord(context: Context, enabled: Boolean) {
+        val prefs = prefs(context)
+        if (prefs.getBoolean(KEY_AUTO_RECORD, false) == enabled) return
         // Synchronous commit: this is the flag BootReceiver and the watchdog consult to decide
         // whether a dead service should be resurrected. An async apply() lost to a process kill
         // silently drops the user's arm (recording never resumes) or their disarm (recording
         // comes back from the dead). It changes on a user tap, so the disk write is rare.
-        prefs(context).edit(commit = true) { putBoolean(KEY_AUTO_RECORD, enabled) }
+        prefs.edit(commit = true) {
+            putBoolean(KEY_AUTO_RECORD, enabled)
+            if (enabled) remove(KEY_DISARMED_SINCE_MS) else putLong(KEY_DISARMED_SINCE_MS, System.currentTimeMillis())
+        }
     }
 
     // --- Sampling (between points) ------------------------------------------
