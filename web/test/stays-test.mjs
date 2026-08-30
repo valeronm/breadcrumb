@@ -74,6 +74,20 @@ const gaps = (intervals) => intervals.filter((i) => i.kind === "gap");
 }
 
 {
+  // Anchor A at 0 m holds q at 140 m. The next track founds B at 260 m, out of A's reach, and a
+  // third track starting at q joins B, the nearer anchor that reaches it. The first q is still
+  // A's: two endpoints at one coordinate, two clusters — and 120 m is past the agreement radius.
+  const q = at(140);
+  const first = betweenTracks([
+    track(1, 60 * MIN, 120 * MIN, at(0), q),
+    track(2, 240 * MIN, 300 * MIN, at(260), at(260)),
+    track(3, 420 * MIN, 480 * MIN, q, q),
+  ]).find((i) => i.afterTrackId === 1);
+  assert.equal(first.kind, "gap", "an endpoint's cluster is its own, not a later endpoint's at the same coordinate");
+  assert.notEqual(first.fromClusterId, first.toClusterId);
+}
+
+{
   // 0.001° = exactly 100 m = the agreement radius; the rule is ≤.
   const exact = betweenTracks(homePair(home, { lat: 1.001, lon: 1.0 }));
   assert.equal(stays(exact).length, 1, "endpoints exactly at the agreement radius still agree");

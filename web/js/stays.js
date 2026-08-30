@@ -51,11 +51,6 @@ const DEFAULT_PARAMS = {
   placeRadiusM: PLACE_RADIUS_M,
 };
 
-// Endpoints are plain {lat, lon} objects, so cluster lookup is keyed by value rather than identity.
-// Identical coordinates always land in the same cluster, which is what makes that safe even when
-// endpoints repeat — the app's map is value-keyed for the same reason.
-const key = (e) => `${e.lat},${e.lon}`;
-
 /** Groups endpoints into *places* by anchor-based greedy leader clustering in chronological input
  * order: a cluster's anchor is its first-ever member's location, so appending newer history never
  * re-shuffles the clusters older stays belong to, and every member sits within its anchor's
@@ -133,15 +128,22 @@ export function deriveStays({
   placePins = [],
 }) {
   const p = { ...DEFAULT_PARAMS, ...params };
+  // Keyed by which end of which track, never by coordinate: two endpoints at one spot can land in
+  // different clusters, each joining the nearest anchor that reaches it.
   const endpoints = [];
   for (const track of tracks) {
-    if (track.start) endpoints.push(track.start);
-    if (track.end) endpoints.push(track.end);
+    if (track.start) endpoints.push({ key: endpointKey(track.trackId, true), at: track.start });
+    if (track.end) endpoints.push({ key: endpointKey(track.trackId, false), at: track.end });
   }
-  const clusters = clusterEndpoints(endpoints, p.placeRadiusM, distance, placePins);
+  const clusters = clusterEndpoints(
+    endpoints.map((e) => e.at),
+    p.placeRadiusM,
+    distance,
+    placePins,
+  );
   const clusterOf = new Map();
   clusters.forEach((cluster, ci) => {
-    for (const index of cluster.memberIndices) clusterOf.set(key(endpoints[index]), ci);
+    for (const index of cluster.memberIndices) clusterOf.set(endpoints[index].key, ci);
   });
 
   // Nearest pin whose own radius captures [e]. Pins out of reach cost coordinate arithmetic, not a
@@ -163,8 +165,8 @@ export function deriveStays({
     return best >= 0 ? best : null;
   };
 
-  const samePlace = (a, b) => {
-    if (clusterOf.get(key(a)) === clusterOf.get(key(b))) return true;
+  const samePlace = (a, b, aCluster, bCluster) => {
+    if (aCluster != null && aCluster === bCluster) return true;
     if (distance(a.lat, a.lon, b.lat, b.lon) <= p.agreementRadiusM) return true;
     const pinA = nearestPin(a);
     return pinA != null && pinA === nearestPin(b);
@@ -180,7 +182,9 @@ export function deriveStays({
     if (gapEnd < gapStart) continue;
     const a = prev.end;
     const b = next.start;
-    if (!a || !b || !samePlace(a, b)) {
+    const aCluster = a ? clusterOf.get(endpointKey(prev.trackId, false)) : null;
+    const bCluster = b ? clusterOf.get(endpointKey(next.trackId, true)) : null;
+    if (!a || !b || !samePlace(a, b, aCluster, bCluster)) {
       // A zero-length disagreement ("moved without recording, in zero time") is meaningless —
       // whereas a zero-length *agreeing* gap below is a split seam, an edge-stay trim's cut.
       if (gapEnd === gapStart) continue;
@@ -190,8 +194,8 @@ export function deriveStays({
         end: gapEnd,
         reason: !a || !b ? "UNKNOWN_ENDPOINT" : "MOVED_UNRECORDED",
         afterTrackId: prev.trackId,
-        fromClusterId: a ? clusterOf.get(key(a)) : null,
-        toClusterId: b ? clusterOf.get(key(b)) : null,
+        fromClusterId: aCluster,
+        toClusterId: bCluster,
       });
       continue;
     }
@@ -200,7 +204,7 @@ export function deriveStays({
       start: gapStart,
       end: gapEnd,
       afterTrackId: prev.trackId,
-      clusterId: clusterOf.get(key(a)),
+      clusterId: aCluster,
     });
   }
 
@@ -224,8 +228,13 @@ function tailStay(last, nowMs, clusterOf) {
     start,
     end: null,
     afterTrackId: last.trackId,
-    clusterId: clusterOf.get(key(lastEnd)),
+    clusterId: clusterOf.get(endpointKey(last.trackId, false)),
   };
+}
+
+/** The identity an endpoint's cluster is held under — see the map in [deriveStays]. */
+function endpointKey(trackId, isStart) {
+  return `${trackId}:${isStart ? "start" : "end"}`;
 }
 
 /** This stay's length when its own bounds are worth reporting as one, else null. */

@@ -610,4 +610,20 @@ class StayDeriverTest {
         )
         assertTrue(derive(overlapping).isEmpty())
     }
+
+    @Test fun `an endpoint's cluster is its own, not a later endpoint's at the same coordinate`() {
+        // Anchor A at 0 m holds q at 140 m. The next track founds B at 260 m, out of A's reach, and
+        // a third track starting at q joins B, the nearer anchor that reaches it. The first q is
+        // still A's: two endpoints at one coordinate, two clusters.
+        val q = at(140.0)
+        val tracks = listOf(
+            track(1, start = 60 * MIN, end = 120 * MIN, from = at(0.0), to = q),
+            track(2, start = 240 * MIN, end = 300 * MIN, from = at(260.0), to = at(260.0)),
+            track(3, start = 420 * MIN, end = 480 * MIN, from = q, to = q),
+        )
+        // A and B disagree, and 120 m is past the agreement radius: a gap, from A to B.
+        val first = derive(tracks).first { it.afterTrackId == 1L }
+        assertTrue(first is Gap)
+        assertNotEquals((first as Gap).fromClusterId, first.toClusterId)
+    }
 }

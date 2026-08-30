@@ -186,16 +186,16 @@ object StayLedger {
 
         // What arrives: each endpoint joins the nearest cluster that reaches it, or founds one.
         val memberships = mutableListOf<Membership>()
-        val clusterOf = HashMap<Endpoint, ClusterRef>()
+        val clusterOf = HashMap<StayDeriver.Endpoint, ClusterRef>()
         for (endpoint in StayDeriver.endpointsOf(seam.added)) {
             val ref = anchors.claim(endpoint.at)
             memberships += Membership(endpoint.trackId, endpoint.isStart, endpoint.at, endpoint.atMs, ref)
-            clusterOf[Endpoint(endpoint.trackId, endpoint.isStart)] = ref
+            clusterOf[endpoint.key] = ref
             shift(ref, endpoint.at, +1)
         }
         for (id in listOfNotNull(seam.prev?.trackId, seam.next?.trackId)) {
             for (member in stored.membershipOf[id].orEmpty()) {
-                clusterOf[Endpoint(id, member.isStart)] = member.cluster
+                clusterOf[StayDeriver.Endpoint(id, member.isStart)] = member.cluster
             }
         }
 
@@ -232,11 +232,11 @@ object StayLedger {
     private fun intervalBetween(
         before: StayDeriver.TrackEnd,
         after: StayDeriver.TrackEnd,
-        clusterOf: Map<Endpoint, ClusterRef>,
+        clusterOf: Map<StayDeriver.Endpoint, ClusterRef>,
         agreement: StayDeriver.Agreement,
     ): Interval? {
-        val from = clusterOf[Endpoint(before.trackId, isStart = false)]
-        val to = clusterOf[Endpoint(after.trackId, isStart = true)]
+        val from = clusterOf[StayDeriver.Endpoint(before.trackId, isStart = false)]
+        val to = clusterOf[StayDeriver.Endpoint(after.trackId, isStart = true)]
         val verdict = StayDeriver.verdictBetween(
             before, after, sameCluster = from != null && from == to, agreement,
         ) as? StayDeriver.Verdict.Recorded ?: return null
@@ -254,9 +254,6 @@ object StayLedger {
             ),
         )
     }
-
-    /** Which end of which track — the key an endpoint's cluster is held under. */
-    private data class Endpoint(val trackId: Long, val isStart: Boolean)
 
     /**
      * The clusters an endpoint can join, growing as endpoints found new ones — which is what makes

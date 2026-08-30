@@ -176,16 +176,16 @@ object StayDeriver {
             val next = tracks[i + 1]
             val a = prev.end
             val b = next.start
-            val sameCluster = a != null &&
-                b != null &&
-                clusterOf.getValue(a) == clusterOf.getValue(b)
+            val aCluster = if (a != null) clusterOf.getValue(Endpoint(prev.trackId, isStart = false)) else null
+            val bCluster = if (b != null) clusterOf.getValue(Endpoint(next.trackId, isStart = true)) else null
+            val sameCluster = aCluster != null && aCluster == bCluster
             when (val verdict = verdictBetween(prev, next, sameCluster, agreement)) {
                 Verdict.None -> Unit
                 is Verdict.Moved -> out += Gap(
                     prev.endedAt, next.startedAt, verdict.reason,
                     afterTrackId = prev.trackId,
-                    fromClusterId = a?.let(clusterOf::getValue),
-                    toClusterId = b?.let(clusterOf::getValue),
+                    fromClusterId = aCluster,
+                    toClusterId = bCluster,
                     from = a,
                     to = b,
                 )
@@ -193,7 +193,7 @@ object StayDeriver {
                     start = prev.endedAt,
                     end = next.startedAt,
                     afterTrackId = prev.trackId,
-                    clusterId = clusterOf.getValue(checkNotNull(a) { "an agreeing pair has both ends" }),
+                    clusterId = checkNotNull(aCluster) { "an agreeing pair has both ends" },
                 )
             }
         }
@@ -271,13 +271,23 @@ object StayDeriver {
         return Verdict.Stayed
     }
 
+    /**
+     * Which end of which track — the identity an endpoint's cluster is held under, here and in the
+     * ledger that repairs a stored derivation. Identity rather than position: two endpoints at one
+     * coordinate can land in different clusters, since each joins the nearest anchor *reaching it*
+     * and an anchor founded between them can be the nearer one for the second.
+     */
+    data class Endpoint(val trackId: Long, val isStart: Boolean)
+
     /** One endpoint the clustering reads: which track's, which of its two ends, when and where. */
     data class EndpointRef(
         val trackId: Long,
         val isStart: Boolean,
         val atMs: Long,
         val at: Coordinate,
-    )
+    ) {
+        val key: Endpoint get() = Endpoint(trackId, isStart)
+    }
 
     /**
      * Every endpoint of [tracks], in the order the clustering reads them — each track's start then
@@ -298,20 +308,22 @@ object StayDeriver {
 
     /**
      * Clusters every track endpoint (chronological: each track's start then end) so anchors stay
-     * stable as history grows; pin seeds put endpoints near a named place in its cluster. Identical
-     * coordinates always land in the same cluster, so the value-keyed map is safe under repeats.
+     * stable as history grows; pin seeds put endpoints near a named place in its cluster. The map
+     * answers by [Endpoint], the clustering's own member indices carried back to the endpoints they
+     * were taken from.
      */
     private fun clusterEndpoints(
         tracks: List<TrackEnd>,
         placePins: List<PlaceClusterer.Seed>,
         params: Params,
         distance: DistanceFn,
-    ): Pair<List<PlaceClusterer.Cluster>, Map<Coordinate, Int>> {
-        val endpoints = endpointsOf(tracks).map { it.at }
-        val clusters = PlaceClusterer.cluster(endpoints, params.placeRadiusM, distance, seeds = placePins)
-        val clusterOf = HashMap<Coordinate, Int>(endpoints.size)
+    ): Pair<List<PlaceClusterer.Cluster>, Map<Endpoint, Int>> {
+        val endpoints = endpointsOf(tracks)
+        val clusters =
+            PlaceClusterer.cluster(endpoints.map { it.at }, params.placeRadiusM, distance, seeds = placePins)
+        val clusterOf = HashMap<Endpoint, Int>(endpoints.size)
         clusters.forEachIndexed { ci, cluster ->
-            for (index in cluster.memberIndices) clusterOf[endpoints[index]] = ci
+            for (index in cluster.memberIndices) clusterOf[endpoints[index].key] = ci
         }
         return clusters to clusterOf
     }

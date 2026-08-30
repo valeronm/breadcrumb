@@ -119,7 +119,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
          * Which cluster each endpoint fell into. **A track's start is already a member of one** —
          * the derivation clusters every track endpoint — so a track reads its clock off the cluster
          * that claimed it rather than paying a fresh atlas walk per track, which for a
-         * mostly-imported history is thousands of walks for answers already in hand.
+         * mostly-imported history is thousands of walks for answers already in hand. Keyed by
+         * coordinate, unlike the derivation's own map: a coordinate two clusters share reads the
+         * later one's clock, and clusters that close are on one clock.
          */
         private val clusterOfEndpoint: Map<Coordinate, Int> by lazy {
             buildMap {
