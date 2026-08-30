@@ -36,6 +36,7 @@ import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -102,6 +103,10 @@ class LocationRecordingService : Service() {
     // Set while the service is armed; duplicate ACTION_STARTs while armed are no-ops.
     @Volatile private var armed = false
 
+    // Advanced on every arm, so a stop can tell whether the session it began ending is still the
+    // one running — see [handleStop].
+    @Volatile private var session = 0
+
     // When the current armed session began — the deafness oracle reads it to tell a replay of a
     // transition GMS never delivered from one that simply predates this session.
     @Volatile private var armedAtMs = 0L
@@ -167,6 +172,7 @@ class LocationRecordingService : Service() {
             return
         }
         armed = true
+        session++
         armedAtMs = now()
         transitionSinceArm = false
         // Stamped on arming rather than once per process: an install fires the package-replaced
@@ -197,8 +203,6 @@ class LocationRecordingService : Service() {
             return
         }
         watchdogAlarm.schedule()
-        // Armed again: the timeline's trailing stay reopens (see Settings.disarmedSinceMs).
-        Settings.setDisarmedSinceMs(this, null)
         TrackingStatus.update { it.copy(tracking = true) }
 
         // Start armed but paused — recording begins when a moving activity transition arrives.
@@ -206,6 +210,10 @@ class LocationRecordingService : Service() {
         // immediately discarded, flashing the UI.)
         scope.launch {
             mutex.withLock {
+                // Armed again: the timeline's trailing stay reopens (see Settings.disarmedSinceMs).
+                // Under the lock so that a stop's teardown, whichever side of this it runs, cannot
+                // stamp its disarm instant over the clearing.
+                Settings.setDisarmedSinceMs(this@LocationRecordingService, null)
                 // Close any track left open by a previous crash/kill, but never the one we're
                 // actively recording (a snapshot may have already opened it).
                 repository.finalizeDangling(exceptTrackId = activeTrackId)
@@ -247,8 +255,16 @@ class LocationRecordingService : Service() {
         watchdogAlarm.cancel()
         clearDeafnessWarning()
         activityManager.stop()
+        // The session this stop ends. A re-arm before the coroutine below runs starts another, and
+        // this stop must then do nothing: its teardown would reset a core that arm just set up, and
+        // its tail would stop a service that is foreground again. Nothing is lost by standing down —
+        // the open track, if any, carries on under the new session, which excepts it from the
+        // dangling sweep and closes it on the next stop. The tail asks on the main thread, where
+        // [handleStart] runs, so no arm can land between the answer and the stop.
+        val ending = session
         scope.launch {
             mutex.withLock {
+                if (session != ending) return@withLock
                 dispatch(core.closeOpenTrack(now()))
                 // A fence outlives the process that registered it, so leaving one behind would keep
                 // waking a recorder the user has switched off. The core emits the teardown for every
@@ -259,6 +275,7 @@ class LocationRecordingService : Service() {
                 Settings.setDisarmedSinceMs(this@LocationRecordingService, now())
             }
             withContext(Dispatchers.Main) {
+                if (session != ending) return@withContext
                 TrackingStatus.reset()
                 notifications.stopForeground()
                 stopSelf()
@@ -287,14 +304,7 @@ class LocationRecordingService : Service() {
      * for the reason [onActivityChanged] gives.
      */
     fun onDeparture(onApplied: (() -> Unit)? = null) {
-        // A fence registered before the user switched recording off can still be delivered; opening
-        // a track off it would record someone who has asked not to be.
-        if (!armed) {
-            DebugLog.i(TAG, "departure ignored — not armed")
-            onApplied?.invoke()
-            return
-        }
-        applyAsync(onApplied) {
+        applyAsync("departure", onApplied) {
             val nowMs = now()
             // How long the fence took to notice is the number this whole trigger is judged on, and
             // it is measured from when *watching* began rather than from the registration: a fence
@@ -312,18 +322,31 @@ class LocationRecordingService : Service() {
     }
 
     private fun applyActivityAsync(activity: ActivityType, eventTimeMs: Long?, onApplied: (() -> Unit)?) =
-        applyAsync(onApplied) { applyActivity(activity, eventTimeMs) }
+        applyAsync("reading", onApplied) { applyActivity(activity, eventTimeMs) }
 
     /**
-     * Run [block] under the recorder's lock and report back when it is done, whatever "done" turns
-     * out to mean. `invokeOnCompletion` rather than a `try/finally` in the body: it also fires when
-     * the scope was already canceled and the body never ran — otherwise a dying service would leak
-     * the receiver's `goAsync` and pin the broadcast until the system times it out.
+     * [launchArmed] that reports back when [block] is done, whatever "done" turns out to mean.
+     * `invokeOnCompletion` rather than a `try/finally` in the body: it also fires when the scope
+     * was already canceled and the body never ran — otherwise a dying service would leak the
+     * receiver's `goAsync` and pin the broadcast until the system times it out.
      */
-    private fun applyAsync(onApplied: (() -> Unit)?, block: suspend () -> Unit) {
-        scope.launch { mutex.withLock { block() } }
-            .invokeOnCompletion { onApplied?.invoke() }
+    private fun applyAsync(what: String, onApplied: (() -> Unit)?, block: suspend () -> Unit) {
+        val job = launchArmed(what, block)
+        if (onApplied != null) job.invokeOnCompletion { onApplied() }
     }
+
+    /**
+     * Run [block] under the recorder's lock, or not at all once the recorder is disarmed. Every
+     * pass over the core enters here: [handleStop] clears the flag and tears the core down in a
+     * coroutine of its own, and Play Services can deliver a reading or a fence after being asked to
+     * stop — applied to a core the teardown has reset, it would open a track nothing closes.
+     */
+    private fun launchArmed(what: String, block: suspend () -> Unit): Job =
+        scope.launch {
+            mutex.withLock {
+                if (armed) block() else DebugLog.i(TAG, "$what ignored — not armed")
+            }
+        }
 
     private suspend fun applyActivity(raw: ActivityType, eventTimeMs: Long?) {
         val nowMs = now()
@@ -466,23 +489,21 @@ class LocationRecordingService : Service() {
      */
     private fun checkParkedReading() {
         if (core.parked == null) return
-        scope.launch {
-            mutex.withLock {
-                // A *contradicted* hold has no cap by design — a fresh verdict tells a stale hold
-                // from a crossing still under way and a deadline cannot — so this runs every GNSS
-                // tick for as long as one lasts. Read once and shared with the log below, rather
-                // than walking the witness's window a second time for the same moment.
-                val settings = activitySettings()
-                val nowMs = now()
-                val was = core.confirmed
-                val wasPaused = core.isPaused
-                val ground = core.motionVerdict(nowMs)
-                val effects = core.onMotion(ground, nowMs, settings)
-                if (effects.isEmpty()) return@withLock
-                DebugLog.i(TAG, "motion cross-check: releasing the held ${core.confirmed}")
-                logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L, ground = ground)
-                dispatch(effects)
-            }
+        launchArmed("held reading") {
+            // A *contradicted* hold has no cap by design — a fresh verdict tells a stale hold
+            // from a crossing still under way and a deadline cannot — so this runs every GNSS
+            // tick for as long as one lasts. Read once and shared with the log below, rather
+            // than walking the witness's window a second time for the same moment.
+            val settings = activitySettings()
+            val nowMs = now()
+            val was = core.confirmed
+            val wasPaused = core.isPaused
+            val ground = core.motionVerdict(nowMs)
+            val effects = core.onMotion(ground, nowMs, settings)
+            if (effects.isEmpty()) return@launchArmed
+            DebugLog.i(TAG, "motion cross-check: releasing the held ${core.confirmed}")
+            logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L, ground = ground)
+            dispatch(effects)
         }
     }
 
@@ -493,22 +514,20 @@ class LocationRecordingService : Service() {
      */
     private fun checkArrival() {
         if (!core.watchingArrival) return
-        scope.launch {
-            mutex.withLock {
-                val settings = activitySettings()
-                val nowMs = now()
-                val was = core.confirmed
-                val wasPaused = core.isPaused
-                val ground = core.motionVerdict(nowMs)
-                val effects = core.onArrivalTick(ground, nowMs, settings)
-                if (effects.isEmpty()) return@withLock
-                DebugLog.i(
-                    TAG,
-                    "arrival watch: still for ${(nowMs - core.arrivalStoppedSinceMs) / 1000}s — pausing",
-                )
-                logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L, ground = ground)
-                dispatch(effects)
-            }
+        launchArmed("arrival tick") {
+            val settings = activitySettings()
+            val nowMs = now()
+            val was = core.confirmed
+            val wasPaused = core.isPaused
+            val ground = core.motionVerdict(nowMs)
+            val effects = core.onArrivalTick(ground, nowMs, settings)
+            if (effects.isEmpty()) return@launchArmed
+            DebugLog.i(
+                TAG,
+                "arrival watch: still for ${(nowMs - core.arrivalStoppedSinceMs) / 1000}s — pausing",
+            )
+            logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L, ground = ground)
+            dispatch(effects)
         }
     }
 
@@ -584,15 +603,13 @@ class LocationRecordingService : Service() {
      */
     fun finalizeExpiredPause() {
         if (!core.isPaused) return
-        scope.launch {
-            mutex.withLock {
-                val effects = core.onTick(now(), activitySettings())
-                if (effects.isEmpty()) return@withLock
-                DebugLog.i(TAG, "pause expired — finalizing track $activeTrackId")
-                // The close carries its own publish, so it cannot land while the UI and the
-                // notification keep showing a pause the controller has already left.
-                dispatch(effects)
-            }
+        launchArmed("pause expiry") {
+            val effects = core.onTick(now(), activitySettings())
+            if (effects.isEmpty()) return@launchArmed
+            DebugLog.i(TAG, "pause expired — finalizing track $activeTrackId")
+            // The close carries its own publish, so it cannot land while the UI and the
+            // notification keep showing a pause the controller has already left.
+            dispatch(effects)
         }
     }
 
@@ -670,15 +687,13 @@ class LocationRecordingService : Service() {
         // The un-vetoed check is the cheap racy pre-filter; the veto needs the verdict, and the
         // verdict needs the lock.
         if (gpsListener == null || !noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return
-        scope.launch {
-            mutex.withLock {
-                // GPS is this service's own resource, so its own guard; whether the recording rules
-                // the give-up out is the recorder's, and [ActivityIngest.onGnssTick] keeps it.
-                if (gpsListener == null) return@withLock
-                dispatch(
-                    core.onGnssTick(now(), SystemClock.elapsedRealtime(), giveUpMs, activitySettings()),
-                )
-            }
+        launchArmed("no-fix give-up") {
+            // GPS is this service's own resource, so its own guard; whether the recording rules
+            // the give-up out is the recorder's, and [ActivityIngest.onGnssTick] keeps it.
+            if (gpsListener == null) return@launchArmed
+            dispatch(
+                core.onGnssTick(now(), SystemClock.elapsedRealtime(), giveUpMs, activitySettings()),
+            )
         }
     }
 
@@ -688,15 +703,13 @@ class LocationRecordingService : Service() {
      * [ActivityIngest.onResumeSignal] is where the two are told apart.
      */
     private fun onResumeSignal(signal: ResumeSignals.Signal) {
-        scope.launch {
-            mutex.withLock {
-                val effects =
-                    core.onResumeSignal(signal, SystemClock.elapsedRealtime(), activitySettings())
-                // The departure branch needs no line of its own: ResumeSignals already logs the
-                // firing, and the probe logs the burst it starts with a cadence that names it.
-                if (Effect.EnsureGps in effects) DebugLog.i(TAG, "no-fix guard: probing again ($signal)")
-                dispatch(effects)
-            }
+        launchArmed("resume signal") {
+            val effects =
+                core.onResumeSignal(signal, SystemClock.elapsedRealtime(), activitySettings())
+            // The departure branch needs no line of its own: ResumeSignals already logs the
+            // firing, and the probe logs the burst it starts with a cadence that names it.
+            if (Effect.EnsureGps in effects) DebugLog.i(TAG, "no-fix guard: probing again ($signal)")
+            dispatch(effects)
         }
     }
 
@@ -711,51 +724,48 @@ class LocationRecordingService : Service() {
         accuracyM: Double,
         ageMs: Long,
     ) {
-        if (!armed) return
-        scope.launch {
-            mutex.withLock {
-                val nowMs = now()
-                // Read before the pass, which stops the watch and takes the stamp with it.
-                val latency = watchedForMs(nowMs)
-                val effects = core.onProbeFix(
-                    MeasuredPosition(Coordinate(latitude, longitude), accuracyM),
-                    nowMs,
-                    activitySettings(),
-                )
-                // The age is on every line because it means a different thing on each: as an anchor
-                // a remembered position is the stale one the burst exists to replace, and as a
-                // verdict it dates the leaving to whenever the cache was filled.
-                val quality = "acc=${accuracyM.toInt()}m, ${ageMs / 1000}s old"
-                // Every position, unfiltered. The two numbers this trigger is tuned by — how far
-                // jitter carries a stationary phone, and what accuracy the coarse stream returns —
-                // are distributions, and any selection here would sample them biased.
-                when (val verdict = core.lastProbeVerdict) {
-                    // The same latency the fence reports itself by, measured the same way, so a log
-                    // holding both says which of them is worth its cost.
-                    is DepartureWatch.Verdict.Departed ->
-                        DebugLog.i(
-                            TAG,
-                            "departure: probe saw the phone leave " +
-                                "($latency, ${measured(verdict.gapM, verdict.barM, verdict.marginM)}, $quality)",
-                        )
+        launchArmed("probe position") {
+            val nowMs = now()
+            // Read before the pass, which stops the watch and takes the stamp with it.
+            val latency = watchedForMs(nowMs)
+            val effects = core.onProbeFix(
+                MeasuredPosition(Coordinate(latitude, longitude), accuracyM),
+                nowMs,
+                activitySettings(),
+            )
+            // The age is on every line because it means a different thing on each: as an anchor
+            // a remembered position is the stale one the burst exists to replace, and as a
+            // verdict it dates the leaving to whenever the cache was filled.
+            val quality = "acc=${accuracyM.toInt()}m, ${ageMs / 1000}s old"
+            // Every position, unfiltered. The two numbers this trigger is tuned by — how far
+            // jitter carries a stationary phone, and what accuracy the coarse stream returns —
+            // are distributions, and any selection here would sample them biased.
+            when (val verdict = core.lastProbeVerdict) {
+                // The same latency the fence reports itself by, measured the same way, so a log
+                // holding both says which of them is worth its cost.
+                is DepartureWatch.Verdict.Departed ->
+                    DebugLog.i(
+                        TAG,
+                        "departure: probe saw the phone leave " +
+                            "($latency, ${measured(verdict.gapM, verdict.barM, verdict.marginM)}, $quality)",
+                    )
 
-                    is DepartureWatch.Verdict.Near ->
-                        DebugLog.i(
-                            TAG,
-                            "departure watch: ${measured(verdict.gapM, verdict.barM, verdict.marginM)} ($quality)",
-                        )
+                is DepartureWatch.Verdict.Near ->
+                    DebugLog.i(
+                        TAG,
+                        "departure watch: ${measured(verdict.gapM, verdict.barM, verdict.marginM)} ($quality)",
+                    )
 
-                    is DepartureWatch.Verdict.Anchored ->
-                        DebugLog.i(
-                            TAG,
-                            "departure watch anchored" +
-                                (if (verdict.provisional) " provisionally" else "") + " ($quality)",
-                        )
+                is DepartureWatch.Verdict.Anchored ->
+                    DebugLog.i(
+                        TAG,
+                        "departure watch anchored" +
+                            (if (verdict.provisional) " provisionally" else "") + " ($quality)",
+                    )
 
-                    DepartureWatch.Verdict.Dormant -> Unit
-                }
-                dispatch(effects)
+                DepartureWatch.Verdict.Dormant -> Unit
             }
+            dispatch(effects)
         }
     }
 
@@ -782,7 +792,7 @@ class LocationRecordingService : Service() {
     // current track) instead of racing them.
     private fun handleLocations(locations: List<Location>) {
         if (locations.isEmpty()) return
-        scope.launch { mutex.withLock { ingestLocations(locations) } }
+        launchArmed("fixes") { ingestLocations(locations) }
     }
 
     /** The platform's own absence conventions (`hasX()`), answered once, at the Android boundary. */
