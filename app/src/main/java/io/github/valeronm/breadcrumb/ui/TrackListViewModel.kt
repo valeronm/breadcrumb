@@ -28,6 +28,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.TimelineRows
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
@@ -298,9 +299,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                     zoneOfCluster(interval.fromClusterId) to zoneOfCluster(interval.toClusterId)
             }
         }
-        StayDeriver.interleave(
+        TimelineRows.interleave(
             summaries,
-            StayDeriver.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
+            TimelineRows.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
         ).mapNotNull { item ->
             when (item) {
                 is TimelineItem.TrackItem -> d.zonesOfTrack(item.summary.id).let { (from, to) ->

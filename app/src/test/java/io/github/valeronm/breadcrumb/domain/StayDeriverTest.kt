@@ -310,17 +310,17 @@ class StayDeriverTest {
     private val DAY = 24 * 60 * MIN
 
     /** The pieces alone: most cases below are about where the cuts land, not which clock each end
-     *  of a piece ran on — the cases about stamping ask [StayDeriver.slicePerDay] for that directly. */
+     *  of a piece ran on — the cases about stamping ask [TimelineRows.slicePerDay] for that directly. */
     private fun sliced(
         intervals: List<StayDeriver.Interval>,
         zones: (StayDeriver.Interval) -> Pair<ZoneId, ZoneId>,
         nowMs: Long,
-    ): List<StayDeriver.Interval> = StayDeriver.slicePerDay(intervals, zones, nowMs).map { it.interval }
+    ): List<StayDeriver.Interval> = TimelineRows.slicePerDay(intervals, zones, nowMs).map { it.interval }
 
     /** Intervals as slices holding both their ends on one clock — every stay, and an absence that
      *  ended on the day it began. */
     private fun oneClock(vararg intervals: StayDeriver.Interval) =
-        intervals.map { StayDeriver.Slice(it, utc, utc) }
+        intervals.map { TimelineRows.Slice(it, utc, utc) }
 
     @Test fun `a midnight-spanning stay splits into per-day slices with clamped bounds`() {
         val stay = Stay(
@@ -348,7 +348,7 @@ class StayDeriverTest {
             start = 20 * 60 * MIN, end = 2 * DAY + 9 * 60 * MIN,
             afterTrackId = 1, clusterId = 0,
         )
-        val slices = StayDeriver.slicePerDay(listOf(stay), { utc to utc }, 3 * DAY)
+        val slices = TimelineRows.slicePerDay(listOf(stay), { utc to utc }, 3 * DAY)
 
         assertEquals(3, slices.size)
         assertEquals(listOf(true, false, false), slices.map { it.holdsStart })
@@ -358,7 +358,7 @@ class StayDeriverTest {
     /** A gap's halves answer the same question the same way — one encoding for both kinds. */
     @Test fun `a gap's halves say which of its bounds are its own`() {
         val gap = Gap(20 * 60 * MIN, DAY + 3 * 60 * MIN, GapReason.MOVED_UNRECORDED, afterTrackId = 1)
-        val halves = StayDeriver.slicePerDay(listOf(gap), { utc to utc }, 2 * DAY)
+        val halves = TimelineRows.slicePerDay(listOf(gap), { utc to utc }, 2 * DAY)
 
         assertEquals(listOf(true, false), halves.map { it.holdsStart })
         assertEquals(listOf(false, true), halves.map { it.holdsEnd })
@@ -399,7 +399,7 @@ class StayDeriverTest {
 
         assertEquals(2, sliced(listOf(stay), { utc to utc }, 2 * DAY).size)
 
-        val halves = StayDeriver.slicePerDay(listOf(gap), { utc to utc }, 2 * DAY)
+        val halves = TimelineRows.slicePerDay(listOf(gap), { utc to utc }, 2 * DAY)
         assertEquals(listOf(start to DAY, DAY to end), halves.map { it.interval.start to it.interval.end })
         // Stamped, so each half states the end it speaks for and says nothing about the other.
         assertEquals(listOf(utc, null), halves.map { it.departureZone })
@@ -459,7 +459,7 @@ class StayDeriverTest {
         )
 
         val halves =
-            StayDeriver.slicePerDay(listOf(crossing), { lisbonZone to newYork }, lisbonEvening + 3 * DAY)
+            TimelineRows.slicePerDay(listOf(crossing), { lisbonZone to newYork }, lisbonEvening + 3 * DAY)
 
         assertEquals(2, halves.size)
         assertEquals(crossing.start, halves[0].interval.start)
@@ -495,7 +495,7 @@ class StayDeriverTest {
             reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
         )
 
-        val slices = StayDeriver.slicePerDay(listOf(hop), { newYork to chicago }, noon + DAY)
+        val slices = TimelineRows.slicePerDay(listOf(hop), { newYork to chicago }, noon + DAY)
 
         // One piece, and it speaks for both ends — the row has to state each on its own clock.
         assertEquals(listOf<StayDeriver.Interval>(hop), slices.map { it.interval })
@@ -512,7 +512,7 @@ class StayDeriverTest {
             reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
         )
 
-        val halves = StayDeriver.slicePerDay(listOf(gap), { utc to utc }, 4 * DAY)
+        val halves = TimelineRows.slicePerDay(listOf(gap), { utc to utc }, 4 * DAY)
         assertEquals(
             listOf(20 * 60 * MIN to 3 * DAY, 3 * DAY to 3 * DAY + 3 * 60 * MIN),
             halves.map { it.interval.start to it.interval.end },
@@ -527,7 +527,7 @@ class StayDeriverTest {
             summary(1, startedAt = 60 * MIN),
         )
         val stay = Stay(120 * MIN, 240 * MIN, 1, clusterId = 0)
-        val items = StayDeriver.interleave(summaries, oneClock(stay))
+        val items = TimelineRows.interleave(summaries, oneClock(stay))
         assertEquals(
             listOf(240 * MIN, 120 * MIN, 60 * MIN),
             items.map { it.startedAt },
@@ -538,7 +538,7 @@ class StayDeriverTest {
     @Test fun `on a start-time tie an ongoing interval sorts newer than the track`() {
         val summaries = listOf(summary(1, startedAt = 60 * MIN))
         val stay = Stay(60 * MIN, null, 1, clusterId = 0)
-        val items = StayDeriver.interleave(summaries, oneClock(stay))
+        val items = TimelineRows.interleave(summaries, oneClock(stay))
         assertTrue(items[0] is TimelineItem.StayItem)
         assertTrue(items[1] is TimelineItem.TrackItem)
     }
@@ -548,7 +548,7 @@ class StayDeriverTest {
         // below that track — between the pair — not above it.
         val summaries = listOf(summary(2, startedAt = 120 * MIN), summary(1, startedAt = 60 * MIN))
         val seam = Stay(120 * MIN, 120 * MIN, 1, clusterId = 0)
-        val items = StayDeriver.interleave(summaries, oneClock(seam))
+        val items = TimelineRows.interleave(summaries, oneClock(seam))
         assertTrue(items[0] is TimelineItem.TrackItem)
         assertTrue(items[1] is TimelineItem.StayItem)
         assertTrue(items[2] is TimelineItem.TrackItem)
@@ -577,7 +577,7 @@ class StayDeriverTest {
         val summaries = listOf(summary(2, startedAt = 240 * MIN))
         val gap = Gap(120 * MIN, 180 * MIN, GapReason.MOVED_UNRECORDED, afterTrackId = 1)
 
-        val items = StayDeriver.interleave(summaries, oneClock(gap))
+        val items = TimelineRows.interleave(summaries, oneClock(gap))
 
         assertEquals(2, items.size)
         assertTrue(items[0] is TimelineItem.TrackItem)

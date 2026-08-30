@@ -1,6 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
-import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.TimelineRows
 
 /**
  * Which clock times a stay row states — the decision on its own, carrying none of the wording that
@@ -49,7 +49,7 @@ internal sealed interface StayBounds {
 /**
  * [start] and [end] as the bounds a row states — a null [end] being a stay still in progress, and
  * [holdsStart]/[holdsEnd] saying which of the two are the stay's own rather than boundaries the day
- * slicing put there. Those are read, never worked out here: [StayDeriver.Slice.holdsStart] stamps
+ * slicing put there. Those are read, never worked out here: [TimelineRows.Slice.holdsStart] stamps
  * them at the cut and says why nothing downstream may decide it from a timestamp.
  */
 internal fun stayBounds(start: Long, end: Long?, holdsStart: Boolean, holdsEnd: Boolean): StayBounds = when {
