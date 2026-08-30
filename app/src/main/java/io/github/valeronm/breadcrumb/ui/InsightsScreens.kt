@@ -1,5 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
+import android.icu.text.DateIntervalFormat
+import android.icu.util.DateInterval
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -64,6 +66,8 @@ import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
+import java.util.Locale
 
 /**
  * What the history adds up to, as against what happened on a given day — the Timeline's question is
@@ -251,19 +255,24 @@ internal fun travelSubtitle(days: List<LocalDate>, today: LocalDate, nightCount:
         pluralStringResource(R.plurals.insights_nights, nightCount, nightCount)
 
 /**
- * A journey's dates, dropping what the two ends share: "12–17 May", "28 Apr – 3 May 2019". Never a
- * single date — a journey covers one more day than it has nights, so its ends always differ.
+ * A journey's dates, dropping what the two ends share: "12–17 May", "28 April – 3 May 2019". Which
+ * parts are shared, their order and the joining are the locale's, so the range is formatted as one
+ * interval rather than as two dates joined here. The year is dropped only while both ends fall in
+ * the current one. Never a single date — a journey covers one more day than it has nights, so its
+ * ends always differ. The full month, not `compactDayFormat`'s abbreviation: a journey row is the
+ * screen's headline and has the width for it.
  */
-// The full month, not `compactDayFormat`'s abbreviation: a journey row is the screen's headline
-// and has the width for it.
-private fun dateRange(from: LocalDate, to: LocalDate, today: LocalDate): String {
-    val year = if (from.year == today.year && to.year == today.year) "" else " ${to.year}"
-    return when {
-        from.year != to.year ->
-            "${from.format(fullDayFormat)} ${from.year} – ${to.format(fullDayFormat)} ${to.year}"
-        from.month == to.month -> "${from.dayOfMonth}–${to.format(fullDayFormat)}$year"
-        else -> "${from.format(fullDayFormat)} – ${to.format(fullDayFormat)}$year"
-    }
+internal fun dateRange(from: LocalDate, to: LocalDate, today: LocalDate): String {
+    val thisYear = from.year == today.year && to.year == today.year
+    val skeleton = if (thisYear) "dMMMM" else "dMMMMy"
+    // The interval formatter reads its instants on the system zone, so they are built on it.
+    val zone = ZoneId.systemDefault()
+    return DateIntervalFormat.getInstance(skeleton, Locale.getDefault()).format(
+        DateInterval(
+            from.atStartOfDay(zone).toInstant().toEpochMilli(),
+            to.atStartOfDay(zone).toInstant().toEpochMilli(),
+        ),
+    )
 }
 
 /**
