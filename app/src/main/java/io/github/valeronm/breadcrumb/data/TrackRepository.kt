@@ -554,17 +554,15 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * and App.onCreate runs this whenever the version last swept is behind — don't delete it once it
      * has run; the next rule change needs it. Self-correcting in both directions, since the plan comes from the raw
      * recording: a rule that now finds less hands the points back, one that finds more takes them,
-     * and a crash mid-pass costs only a re-run (the version is stored after). Points are loaded one
-     * track at a time — the whole history is over a million rows and must never be resident at once
-     * — and tracks commit in batches: `tracks` is observed, so a commit per track would re-run the
-     * timeline's queries and everything they feed thousands of times, while one transaction for the
-     * lot would hold every rewritten point row in the journal at once.
-     *
-     * Returns whether it rewrote anything, which is what the stored derivation hangs on: the bounds
-     * and the first/last good coordinates this moves are exactly what a stay is derived from, so a
-     * sweep that wrote is a derivation that is stale.
+     * and a crash mid-pass costs only a re-run (the version is stored after, once the derivation
+     * has consumed what the sweep moved — the bounds and the first/last good coordinates it rewrites
+     * are exactly what a stay is derived from). Points are loaded one track at a time — the whole
+     * history is over a million rows and must never be resident at once — and tracks commit in
+     * batches: `tracks` is observed, so a commit per track would re-run the timeline's queries and
+     * everything they feed thousands of times, while one transaction for the lot would hold every
+     * rewritten point row in the journal at once.
      */
-    suspend fun sweepEdgeStays(): Boolean {
+    suspend fun sweepEdgeStays() {
         val tracks = dao.exportTracks()
         val changed = sweep(tracks) { resettleTrack(it) }
         DebugLog.i(
@@ -572,7 +570,6 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             "edge-stay sweep (rule v${EdgeStayDetector.RULE_VERSION}) over ${tracks.size} " +
                 "tracks: $changed rewritten",
         )
-        return changed > 0
     }
 
     /**
@@ -615,13 +612,12 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * sweep's set (Recently deleted shows a distance, and restoring brings the row back as it
      * stands); open tracks are skipped — the recorder owns those columns until it finishes, where
      * the same walk runs anyway. Idempotent: it recomputes from the points, and the version is
-     * stored after, so an interrupted sweep costs a re-run. Points load one track at a time and
-     * commit in batches, for the reasons on [sweepEdgeStays] — and a track whose stored columns
-     * already agree is left alone: `tracks` is observed, so a needless UPDATE per track re-runs the
-     * timeline. Returns whether it rewrote anything, as [sweepEdgeStays] does and for the same
-     * reason.
+     * stored after, as [sweepEdgeStays]'s is, so an interrupted sweep costs a re-run. Points load
+     * one track at a time and commit in batches, for the reasons on [sweepEdgeStays] — and a track
+     * whose stored columns already agree is left alone: `tracks` is observed, so a needless UPDATE
+     * per track re-runs the timeline.
      */
-    suspend fun sweepStats(): Boolean {
+    suspend fun sweepStats() {
         val tracks = dao.finishedTracks()
         val changed = sweep(tracks) { track ->
             val stats = TrackStats.of(dao.allPointsFor(track.id))
@@ -637,7 +633,6 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             "stats sweep (rule v${TrackStats.RULE_VERSION}) over ${tracks.size} " +
                 "tracks: $changed rewritten",
         )
-        return changed > 0
     }
 
     /**

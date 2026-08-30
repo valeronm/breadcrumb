@@ -5,7 +5,6 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -50,15 +49,14 @@ class TrackClockTest {
         test.assertStatsMatchPoints(id)
     }
 
-    @Test fun `the sweep reports a bound it moved on its own`() = runTest {
+    @Test fun `the sweep moves a bound with no flag to move`() = runTest {
         val id = test.walk(TEST_START, 0, 59)
         val lastFix = TEST_START + 59 * 10_000L
         // A row as a build without this rule left it: closed where the transition landed. The only
-        // case where the sweep moves a bound and no flag — so it is also the only one asking whether
-        // a bound alone counts as "wrote", which is what the derivation's rebuild hangs on.
+        // case where the sweep moves a bound and no flag.
         dao.closeTrack(id, lastFix + 6 * 60_000L)
 
-        assertTrue(repository.sweepEdgeStays())
+        repository.sweepEdgeStays()
 
         assertEquals(lastFix, dao.track(id)!!.endedAt)
     }

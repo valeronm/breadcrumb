@@ -58,35 +58,30 @@ class App : Application() {
             repository.purgeOldDiscarded()
             // Crash-cleanup of dangling tracks happens in the service's arm path. One-time
             // data backfills also go here when needed — see "Backfills" in CLAUDE.md.
+            val edgeStayRuleMoved = Settings.edgeStayRuleVersion(this@App) < EdgeStayDetector.RULE_VERSION
+            val statsRuleMoved = Settings.statsRuleVersion(this@App) < TrackStats.RULE_VERSION
+            val derivedLogicMoved = Settings.derivedLogicVersion(this@App) < DerivationStore.LOGIC_VERSION
             // The ignored edge stays are verdicts of a rule that keeps moving, so they are
             // re-derived whenever the detector's version outruns the one they were computed
             // with — not once.
-            // Whether either sweep below moved a track's bounds or its first/last good coordinates —
-            // the derivation's whole input, and so what the rebuild at the end hangs on as much as
-            // on its own rule version.
-            var derivedInputMoved = false
-            if (Settings.edgeStayRuleVersion(this@App) < EdgeStayDetector.RULE_VERSION) {
-                if (repository.sweepEdgeStays()) derivedInputMoved = true
-                Settings.setEdgeStayRuleVersion(this@App, EdgeStayDetector.RULE_VERSION)
-            }
+            if (edgeStayRuleMoved) repository.sweepEdgeStays()
             // The aggregates on a track row are the output of a walk that keeps moving too, and
             // they are re-derived the same way. It runs second: the edge-stay sweep decides which
             // fixes are on the path, and this one totals whatever that leaves.
-            if (Settings.statsRuleVersion(this@App) < TrackStats.RULE_VERSION) {
-                if (repository.sweepStats()) derivedInputMoved = true
-                Settings.setStatsRuleVersion(this@App, TrackStats.RULE_VERSION)
-            }
+            if (statsRuleMoved) repository.sweepStats()
             // Last, and the order is load-bearing: both sweeps above rewrite a track's bounds and
             // its first and last good coordinates, which are the whole of what the derivation reads.
             // Deriving ahead of them would store a reading of values about to move, with nothing to
-            // say it was stale — which is also why a sweep that *did* move any of them re-derives
-            // here whether or not this build's rules changed. A bound moves without a coordinate
-            // moving whenever a track's clock was out past its fixes, so the flag cannot be read off
-            // the coordinates alone. A seed moved while the app was closed (none can be today, but a
-            // future importer could) is the reconcile's own business.
-            val ruleMoved = Settings.derivedLogicVersion(this@App) < DerivationStore.LOGIC_VERSION
-            DerivationStore(this@App).reconcile(stale = derivedInputMoved || ruleMoved)
-            if (ruleMoved) Settings.setDerivedLogicVersion(this@App, DerivationStore.LOGIC_VERSION)
+            // say it was stale. A sweep whose version is not yet recorded makes the rows stale
+            // whether or not it wrote this time: the writes may be a previous launch's, one that
+            // died before reaching here, and a re-run that finds them in place reports nothing —
+            // which is why the versions are recorded only below, once the derivation has consumed
+            // them. A seed moved while the app was closed (none can be today, but a future importer
+            // could) is the reconcile's own business.
+            DerivationStore(this@App).reconcile(stale = edgeStayRuleMoved || statsRuleMoved || derivedLogicMoved)
+            if (edgeStayRuleMoved) Settings.setEdgeStayRuleVersion(this@App, EdgeStayDetector.RULE_VERSION)
+            if (statsRuleMoved) Settings.setStatsRuleVersion(this@App, TrackStats.RULE_VERSION)
+            if (derivedLogicMoved) Settings.setDerivedLogicVersion(this@App, DerivationStore.LOGIC_VERSION)
         }
     }
 

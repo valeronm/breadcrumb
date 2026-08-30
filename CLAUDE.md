@@ -439,8 +439,10 @@ stretch of the timeline calls `reknit` with the ids it touched, inside its own t
 finished, deleted, restored, merged, unmerged, split, unsplit, entered or rewritten by hand, or
 retyped across a boundary that moved its edges (that last one being why a retype is not the free
 column write it looks like). A change that is historical or out of order calls `rebuild`: a GPX
-import, a backup restore, or either versioned sweep having moved a bound or an endpoint — which is why both
-sweeps now report whether they wrote anything. And a change to the **seeds** goes through
+import, a backup restore, or either versioned sweep having run under a version not yet recorded —
+whether or not it wrote this time, since the writes may be a previous launch's that died before the
+derivation consumed them, which is also why the versions are recorded only after it has. And a
+change to the **seeds** goes through
 `reconcile`, which is the only way a rebuild is reached outside a repair: it brings the seed clusters
 back into agreement with the `places` table and re-derives when one moved — or when the caller says
 the rows are stale for a reason of its own (`stale = true`), so a launch that must rebuild anyway
@@ -543,9 +545,11 @@ Delete the pass, its flag, and any DAO queries only it used once the installed b
 drive-start leading-stray repair, the point-starved-track purge). **No backfill is live right
 now**: `App.onCreate` runs the discarded-track retention purge, the two versioned sweeps (edge
 stays, then track stats) and then the derivation — seeds reconciled, and the history re-derived if
-those seeds moved, if a sweep rewrote an endpoint, or if `DerivationStore.LOGIC_VERSION` outran what
-the rows were derived by. That last order is load-bearing: the sweeps rewrite the very coordinates
-the derivation reads. `sweepEdgeStays` says why a sweep is not a backfill, and `reconcile` is not
+those seeds moved, if a sweep ran, or if `DerivationStore.LOGIC_VERSION` outran what the rows were
+derived by. That last order is load-bearing: the sweeps rewrite the very coordinates the derivation
+reads, and every version is recorded only after the derivation has consumed them, so a launch that
+dies partway re-runs the whole sequence rather than skipping a sweep whose writes it never derived
+from. `sweepEdgeStays` says why a sweep is not a backfill, and `reconcile` is not
 one either — it is a reconciliation with no completion to record.
 
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places / Insights) Scaffold
