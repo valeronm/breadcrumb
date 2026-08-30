@@ -239,12 +239,11 @@ private fun MainScreen(
     // A journey opened from Insights or a Timeline band, keyed by its first night's sample
     // instant — the same key its list row uses, and the only identity a derived journey has.
     var journeyKey by remember { mutableStateOf<Long?>(null) }
-    // A visit tapped on the place detail: the Timeline scrolls to this stay when it next composes.
-    var timelineVisitTarget by remember { mutableStateOf<StayDeriver.Stay?>(null) }
-    var timelineDayTarget by remember { mutableStateOf<LocalDate?>(null) }
-    // Tapping an already-open tab sends it home. Counters, not booleans: two taps in a row are
-    // two requests, and a flag the receiver has to clear back to false would swallow the second.
-    var timelineHomeRequest by remember { mutableIntStateOf(0) }
+    // What another screen has asked the Timeline to land on — see [TimelineJump].
+    var timelineJump by remember { mutableStateOf<TimelineJump?>(null) }
+    // Tapping the open Places tab sends it home. A counter rather than a slot like the Timeline's,
+    // because the map reads it as its frame key — a value that must change, not one that is
+    // consumed.
     var placesHomeRequest by remember { mutableIntStateOf(0) }
     // The add-trip form's input, which is also the flag that it is open: the top bar opens it on
     // the day the Timeline was showing, a gap row on the ends that row already knows. Everything
@@ -404,7 +403,7 @@ private fun MainScreen(
                                     selectedTab = tab
                                 } else {
                                     when (tab) {
-                                        HomeTab.TRACKS -> timelineHomeRequest++
+                                        HomeTab.TRACKS -> timelineJump = TimelineJump.Home
                                         HomeTab.PLACES -> placesHomeRequest++
                                         else -> Unit
                                     }
@@ -437,11 +436,8 @@ private fun MainScreen(
                         items = timeline,
                         viewModel = viewModel,
                         undo = undo,
-                        visitTarget = timelineVisitTarget,
-                        onVisitTargetShown = { timelineVisitTarget = null },
-                        dayTarget = timelineDayTarget,
-                        onDayTargetShown = { timelineDayTarget = null },
-                        homeRequest = timelineHomeRequest,
+                        jump = timelineJump,
+                        onJumpShown = { timelineJump = null },
                         viewedDay = timelineViewedDay,
                         onOpen = { mainPage = MainPage.TrackDetail(it) },
                         onOpenPlace = { placeDetailKey = it },
@@ -497,7 +493,7 @@ private fun MainScreen(
                 }
             },
             onOpenVisit = { stay ->
-                timelineVisitTarget = stay
+                timelineJump = TimelineJump.Visit(stay)
                 landOnTimeline()
             },
             onAdjustArea = { editingArea = true },
@@ -541,7 +537,7 @@ private fun MainScreen(
             layer = journeyLayer,
             viewModel = viewModel,
             onOpenDay = { day ->
-                timelineDayTarget = day
+                timelineJump = TimelineJump.Day(day)
                 landOnTimeline()
             },
             onOpenPlace = { placeDetailKey = it },

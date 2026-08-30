@@ -112,6 +112,24 @@ internal class TimelineViewedDay {
     var read: () -> LocalDate? = { null }
 }
 
+/**
+ * A one-shot request to the Timeline from another screen. One slot for every kind, consumed by
+ * the view that answers it and handed back empty through `onJumpShown`, so the value a view
+ * composed with is never mistaken for one that arrived while it was up. A request identical to
+ * one still pending is the same write and collapses into it — harmless, since every kind lands in
+ * one place whether asked once or twice.
+ */
+internal sealed interface TimelineJump {
+    /** Land on this stay — a visit tapped on a place's detail. */
+    data class Visit(val stay: StayDeriver.Stay) : TimelineJump
+
+    /** Land on this day — a journey's day, or the map's parting day on a return to the list. */
+    data class Day(val date: LocalDate) : TimelineJump
+
+    /** Back to today — the open tab tapped again. */
+    data object Home : TimelineJump
+}
+
 /** What the backup picker filters on. Named rather than spelled at the launch, which is all. */
 private val BACKUP_MIME_TYPES =
     arrayOf("application/gzip", "application/x-gzip", "application/octet-stream")
@@ -131,14 +149,9 @@ internal fun TracksTab(
     items: List<TimelineItem>?,
     viewModel: TrackListViewModel,
     undo: UndoSnackbar,
-    visitTarget: StayDeriver.Stay?,
-    onVisitTargetShown: () -> Unit,
-    /** A day to land on, sent by a journey tapped on the Insights tab. */
-    dayTarget: LocalDate?,
-    onDayTargetShown: () -> Unit,
-    /** Bumped each time the Timeline tab is tapped while already open — send the shown view
-     *  home: the list to its top, the map to today. */
-    homeRequest: Int,
+    /** The request pending from another screen, if any — see [TimelineJump]. */
+    jump: TimelineJump?,
+    onJumpShown: () -> Unit,
     viewedDay: TimelineViewedDay,
     onOpen: (Long) -> Unit,
     onOpenPlace: (String) -> Unit,
@@ -230,12 +243,12 @@ internal fun TracksTab(
         AppSettings.setTimelineViewMap(context, selected == TimelinePage.MAP)
     }
 
-    // A jump target is the list's to consume — its effects only run while the list is composed,
-    // so a target arriving while the map is showing would otherwise wait forever. Straight to the
-    // list rather than through [switchTo]: the target carries its own destination, and the map's
+    // A landing is the list's to consume — its effects only run while the list is composed, so a
+    // request arriving while the map is showing would otherwise wait forever. Straight to the
+    // list rather than through [switchTo]: the request carries its own destination, and the map's
     // parting day would race it.
-    SideEffect(visitTarget, dayTarget) {
-        if (visitTarget != null || dayTarget != null) page = TimelinePage.LIST
+    SideEffect(jump) {
+        if (jump is TimelineJump.Visit || jump is TimelineJump.Day) page = TimelinePage.LIST
     }
 
     // The journey context both views draw — which days sit inside a trip, and where. Derived at
@@ -247,12 +260,11 @@ internal fun TracksTab(
     // Re-tapping the open tab is "go home" on either view. The list, composed, runs itself to its
     // top; the map's home is today, answered here because only the tab knows which view is up.
     // [mapOpenedOn] deliberately stays put: home means today on both views, so a later return to
-    // the list should land there too. One immutable snapshot, as the list's own consumer keeps
-    // and for its reason.
-    val homeRequestAtEntry = remember { homeRequest }
-    SideEffect(homeRequest) {
-        if (homeRequest != homeRequestAtEntry && page == TimelinePage.MAP) {
+    // the list should land there too.
+    SideEffect(jump) {
+        if (jump == TimelineJump.Home && page == TimelinePage.MAP) {
             mapDay = LocalDate.now(timelineZone())
+            onJumpShown()
         }
     }
 
@@ -271,16 +283,14 @@ internal fun TracksTab(
                     items = items,
                     viewModel = viewModel,
                     undo = undo,
-                    visitTarget = visitTarget,
-                    onVisitTargetShown = onVisitTargetShown,
-                    // One slot, two senders: a journey tap outranks the map's parting request —
-                    // it is the fresher intention, and the map's day can wait for its next visit.
-                    dayTarget = dayTarget ?: mapDayTarget,
-                    onDayTargetShown = {
+                    // One slot, two senders: a request from another screen outranks the map's
+                    // parting day — it is the fresher intention, and the map's day is dropped
+                    // with it rather than scrolled to a moment later.
+                    jump = jump ?: mapDayTarget?.let(TimelineJump::Day),
+                    onJumpShown = {
                         mapDayTarget = null
-                        onDayTargetShown()
+                        onJumpShown()
                     },
-                    homeRequest = homeRequest,
                     viewedDay = listViewedDay,
                     onOpen = onOpen,
                     onOpenPlace = onOpenPlace,
@@ -312,11 +322,8 @@ private fun TimelineListPage(
     items: List<TimelineItem>,
     viewModel: TrackListViewModel,
     undo: UndoSnackbar,
-    visitTarget: StayDeriver.Stay?,
-    onVisitTargetShown: () -> Unit,
-    dayTarget: LocalDate?,
-    onDayTargetShown: () -> Unit,
-    homeRequest: Int,
+    jump: TimelineJump?,
+    onJumpShown: () -> Unit,
     viewedDay: TimelineViewedDay,
     onOpen: (Long) -> Unit,
     onOpenPlace: (String) -> Unit,
@@ -360,17 +367,6 @@ private fun TimelineListPage(
     DisposableEffect(viewedDay) {
         onDispose { viewedDay.read = { null } }
     }
-    // Back to today. The value this tab composed with is not a request — only a later bump is, and
-    // the list starts at the top anyway (a tab switch re-composes this from scratch). One immutable
-    // snapshot is enough: the counter only grows, so "differs from the value at entry" and "differs
-    // from the previous value" are the same test.
-    val homeRequestAtEntry = remember { homeRequest }
-    LaunchedEffect(homeRequest) {
-        if (homeRequest == homeRequestAtEntry) return@LaunchedEffect
-        // animateScrollToItem jumps most of the way and animates the last stretch, so this reads as
-        // a fast return from anywhere in a multi-thousand-row history rather than a long fling.
-        listState.animateScrollToItem(0)
-    }
     // The just-landed-on stay's row key: its card tints briefly so the eye finds it, then fades.
     // Watched through [snapshotFlow] rather than held as an effect's key, which would read it in
     // this function's own restart scope — the one the lazy list's intervals are built in, so a
@@ -383,47 +379,64 @@ private fun TimelineListPage(
             highlightKey = null
         }
     }
-    // Land on a visit tapped on a place's detail screen. Multi-day stays are sliced per day here,
-    // but the first slice keeps the stay's original start, so it matches by identity; if the stay
-    // is gone (re-derivation shifted it), its day header still anchors the jump.
-    LaunchedEffect(visitTarget) {
-        val target = visitTarget ?: return@LaunchedEffect
-        val hit = groups.indices.firstNotNullOfOrNull { g ->
-            val i = groups[g].items.indexOfFirst {
-                it is TimelineItem.StayItem &&
-                    it.stay.afterTrackId == target.afterTrackId &&
-                    it.stay.start == target.start
+    // The request pending from elsewhere, answered against the rows as grouped — a landing needs
+    // the anchors, so this re-runs when they change and the request is consumed once it has been
+    // put on screen.
+    LaunchedEffect(jump, groups) {
+        when (jump) {
+            null -> return@LaunchedEffect
+            // Consumed as the scroll starts, not as it ends: the animation suspends, and a tab
+            // switch cancelling it mid-way would otherwise leave the request pending to replay on
+            // the way back, over the reading position it restores. animateScrollToItem jumps most
+            // of the way and animates the last stretch, so this reads as a fast return from
+            // anywhere in a multi-thousand-row history rather than a long fling.
+            TimelineJump.Home -> {
+                onJumpShown()
+                listState.animateScrollToItem(0)
+                return@LaunchedEffect
             }
-            if (i >= 0) (dayAnchors[g].itemIndex + 1 + i) to groups[g].items[i] else null
+            // Multi-day stays are sliced per day here, but the first slice keeps the stay's
+            // original start, so it matches by identity; if the stay is gone (re-derivation
+            // shifted it), its day header still anchors the jump.
+            is TimelineJump.Visit -> {
+                val target = jump.stay
+                val hit = groups.indices.firstNotNullOfOrNull { g ->
+                    val i = groups[g].items.indexOfFirst {
+                        it is TimelineItem.StayItem &&
+                            it.stay.afterTrackId == target.afterTrackId &&
+                            it.stay.start == target.start
+                    }
+                    if (i >= 0) (dayAnchors[g].itemIndex + 1 + i) to groups[g].items[i] else null
+                }
+                if (hit != null) {
+                    // One row above the stay so it sits below the sticky day header, not under it.
+                    listState.scrollToItem(hit.first - 1)
+                    highlightKey = hit.second.rowKey()
+                } else {
+                    // By instant, not by date: the target arrives from a place screen carrying no
+                    // zone, and dating it on the device's clock would miss the day a foreign stay
+                    // was filed under. Groups descend, so the first whose oldest row is at or
+                    // before the target holds it.
+                    groups.indexOfFirst { it.items.last().startedAt <= target.start }
+                        .takeIf { it >= 0 }
+                        ?.let { listState.scrollToItem(dayAnchors[it].itemIndex) }
+                }
+            }
+            // A journey's *latest* day, where the block starts as the eye meets it, the rows
+            // running newest first. The exact day is looked for before the nearest one because the
+            // dates are no longer monotonic: a westward crossing can put an earlier date on a later
+            // row (leave Tokyo on the 18th, land in Honolulu on the 17th), so "the first group at
+            // or before" can walk past the day that is actually there. It stays as the fallback
+            // for a journey whose last day holds no rows at all.
+            is TimelineJump.Day -> {
+                val date = jump.date
+                val group = groups.indexOfFirst { it.date == date }.takeIf { it >= 0 }
+                    ?: groups.indexOfFirst { it.date <= date }.takeIf { it >= 0 }
+                    ?: groups.lastIndex
+                if (group >= 0) listState.scrollToItem(dayAnchors[group].itemIndex)
+            }
         }
-        if (hit != null) {
-            // One row above the stay so it sits below the sticky day header, not under it.
-            listState.scrollToItem(hit.first - 1)
-            highlightKey = hit.second.rowKey()
-        } else {
-            // By instant, not by date: the target arrives from a place screen carrying no zone, and
-            // dating it on the device's clock would miss the day a foreign stay was filed under.
-            // Groups descend, so the first whose oldest row is at or before the target holds it.
-            groups.indexOfFirst { it.items.last().startedAt <= target.start }
-                .takeIf { it >= 0 }
-                ?.let { listState.scrollToItem(dayAnchors[it].itemIndex) }
-        }
-        onVisitTargetShown()
-    }
-    // Land on a journey tapped on the Insights tab. The target is its *latest* day, where the block
-    // starts as the eye meets it, the rows running newest first.
-    //
-    // The exact day is looked for before the nearest one because the dates are no longer monotonic:
-    // a westward crossing can put an earlier date on a later row (leave Tokyo on the 18th, land in
-    // Honolulu on the 17th), so "the first group at or before" can walk past the day that is
-    // actually there. It stays as the fallback for a journey whose last day holds no rows at all.
-    LaunchedEffect(dayTarget, groups) {
-        val date = dayTarget ?: return@LaunchedEffect
-        val group = groups.indexOfFirst { it.date == date }.takeIf { it >= 0 }
-            ?: groups.indexOfFirst { it.date <= date }.takeIf { it >= 0 }
-            ?: groups.lastIndex
-        if (group >= 0) listState.scrollToItem(dayAnchors[group].itemIndex)
-        onDayTargetShown()
+        onJumpShown()
     }
     // Both interval rows offer the same merge, so they share one handler rather than two copies
     // of the undo wiring. Both undo messages are resolved here: the callbacks below run outside
