@@ -27,8 +27,10 @@ import io.github.valeronm.breadcrumb.util.DebugLog
  */
 class RecorderNotifications(private val service: Service) {
 
-    // Last content posted, so repeat publishes with an unchanged state don't re-post.
-    private var lastPosted: Pair<String, String>? = null
+    // Last content posted, so repeat publishes with an unchanged state don't re-post. Written from
+    // the main thread by the foreground start and stop and under the recorder's lock by updates,
+    // unlike [deafPosted], which every writer reaches under the lock.
+    @Volatile private var lastPosted: Pair<String, String>? = null
 
     // Whether the alert is currently up. Tracked here rather than read back off the recorder's
     // deafness bookkeeping: this is the only thing that posts or cancels it, so it cannot disagree.

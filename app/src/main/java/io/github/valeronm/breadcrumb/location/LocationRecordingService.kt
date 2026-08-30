@@ -118,6 +118,9 @@ class LocationRecordingService : Service() {
     @Volatile var transitionSinceArm = false
         private set
 
+    // Id of the track being recorded, or null — the one open track dangling-track cleanup must not close.
+    @Volatile private var activeTrackId: Long? = null
+
     @Volatile private var trackStartedAt = 0L
 
     // The live GPS request's listener; non-null == GPS is on.
@@ -218,9 +221,9 @@ class LocationRecordingService : Service() {
                 // arrive here. Dispatched rather than called directly so the one policy has one
                 // home — and so the core's own suite can see it.
                 dispatch(core.onArmed(now(), activitySettings()))
+                clearDeafnessWarning()
                 publishStatus()
             }
-            clearDeafnessWarning()
             // Arm activity recognition only after the paused state is established. Doing it before
             // lets the one-shot snapshot's applyActivity() race this block on the mutex; if the
             // snapshot won, it would open a track that finalizeDangling then deleted and onArmed()
@@ -249,7 +252,6 @@ class LocationRecordingService : Service() {
         armed = false
         DebugLog.i(TAG, "handleStop: disarming")
         watchdogAlarm.cancel()
-        clearDeafnessWarning()
         activityManager.stop()
         // The session this stop ends. A re-arm before the coroutine below runs starts another, and
         // this stop must then do nothing: its teardown would reset a core that arm just set up, and
@@ -261,6 +263,7 @@ class LocationRecordingService : Service() {
         scope.launch {
             mutex.withLock {
                 if (session != ending) return@withLock
+                clearDeafnessWarning()
                 dispatch(core.closeOpenTrack(now()))
                 // A fence outlives the process that registered it, so leaving one behind would keep
                 // waking a recorder the user has switched off. The core emits the teardown for every
@@ -482,21 +485,14 @@ class LocationRecordingService : Service() {
      */
     private fun checkParkedReading() {
         if (core.parked == null) return
-        launchArmed("held reading") {
-            // A *contradicted* hold has no cap by design — a fresh verdict tells a stale hold
-            // from a crossing still under way and a deadline cannot — so this runs every GNSS
-            // tick for as long as one lasts. Read once and shared with the log below, rather
-            // than walking the witness's window a second time for the same moment.
-            val settings = activitySettings()
-            val nowMs = now()
-            val was = core.confirmed
-            val wasPaused = core.isPaused
-            val ground = core.motionVerdict(nowMs)
-            val effects = core.onMotion(ground, nowMs, settings)
-            if (effects.isEmpty()) return@launchArmed
-            DebugLog.i(TAG, "motion cross-check: releasing the held ${core.confirmed}")
-            logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L, ground = ground)
-            dispatch(effects)
+        // A *contradicted* hold has no cap by design — a fresh verdict tells a stale hold from a
+        // crossing still under way and a deadline cannot — so this runs every GNSS tick for as
+        // long as one lasts.
+        groundPass(
+            "held reading",
+            line = { "motion cross-check: releasing the held ${core.confirmed}" },
+        ) { ground, nowMs, settings ->
+            core.onMotion(ground, nowMs, settings)
         }
     }
 
@@ -507,21 +503,34 @@ class LocationRecordingService : Service() {
      */
     private fun checkArrival() {
         if (!core.watchingArrival) return
-        launchArmed("arrival tick") {
-            val settings = activitySettings()
-            val nowMs = now()
-            val was = core.confirmed
-            val wasPaused = core.isPaused
-            val ground = core.motionVerdict(nowMs)
-            val effects = core.onArrivalTick(ground, nowMs, settings)
-            if (effects.isEmpty()) return@launchArmed
-            DebugLog.i(
-                TAG,
-                "arrival watch: still for ${(nowMs - core.arrivalStoppedSinceMs) / 1000}s — pausing",
-            )
-            logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L, ground = ground)
-            dispatch(effects)
+        groundPass(
+            "arrival tick",
+            line = { nowMs -> "arrival watch: still for ${(nowMs - core.arrivalStoppedSinceMs) / 1000}s — pausing" },
+        ) { ground, nowMs, settings ->
+            core.onArrivalTick(ground, nowMs, settings)
         }
+    }
+
+    /**
+     * A consultation of the ground: [pass] runs under the lock against this moment's verdict, and
+     * a change it makes is logged against that same verdict rather than a fresh one — the window
+     * walk is not worth repeating, and a second walk would report a different moment.
+     */
+    private fun groundPass(
+        what: String,
+        line: (nowMs: Long) -> String,
+        pass: (ground: Motion, nowMs: Long, settings: ActivitySettings) -> List<Effect>,
+    ) = launchArmed(what) {
+        val settings = activitySettings()
+        val nowMs = now()
+        val was = core.confirmed
+        val wasPaused = core.isPaused
+        val ground = core.motionVerdict(nowMs)
+        val effects = pass(ground, nowMs, settings)
+        if (effects.isEmpty()) return@launchArmed
+        DebugLog.i(TAG, line(nowMs))
+        logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L, ground = ground)
+        dispatch(effects)
     }
 
     /**
@@ -886,7 +895,7 @@ class LocationRecordingService : Service() {
         // `tracking` is true by construction: this is the live service, which the flag reports.
         val text = words.recorderText(
             state = recordCardState(
-                armed = Settings.isAutoRecord(this),
+                armed = armed,
                 tracking = true,
                 recording = rec,
                 paused = paused != null,
@@ -934,11 +943,6 @@ class LocationRecordingService : Service() {
 
         /** True while the service is alive in this process. */
         val isRunning: Boolean get() = instance != null
-
-        /** Id of the track currently being recorded, or null — the one open track that dangling-track cleanup must not close. */
-        @Volatile
-        var activeTrackId: Long? = null
-            private set
 
         const val ACTION_START = "io.github.valeronm.breadcrumb.START"
         const val ACTION_STOP = "io.github.valeronm.breadcrumb.STOP"
