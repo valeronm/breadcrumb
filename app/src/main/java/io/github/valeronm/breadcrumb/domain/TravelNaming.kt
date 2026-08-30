@@ -3,16 +3,6 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.db.Place
 
 /**
- * Turns the places a journey was spent in into what to call it. Separate from [TravelDeriver]
- * because naming needs the atlas and the places table, and the rule about nights must know
- * neither; separate from the screen because which names survive is a decision, not a layout.
- *
- * **A journey through three cities is a journey through three cities.** Picking the one with the
- * most hours in it and calling that the destination reads as certainty the data does not have —
- * between near-equal stays the winner turns on an hour, and the other cities disappear from a
- * timeline that is supposed to be a record of where someone was.
- */
-/**
  * What a journey is headed with: the places it was spent in, or — where nothing cleared the naming
  * floor — a count of nights for the host to word. [Destinations] carries proper nouns, which are the
  * same in every language; [NightsAway] carries a number, which is not.
@@ -23,6 +13,16 @@ sealed interface TravelLabel {
     data class NightsAway(val nights: Int) : TravelLabel
 }
 
+/**
+ * Turns the places a journey was spent in into what to call it. Separate from [TravelDeriver]
+ * because naming needs the atlas and the places table, and the rule about nights must know
+ * neither; separate from the screen because which names survive is a decision, not a layout.
+ *
+ * **A journey through three cities is a journey through three cities.** Picking the one with the
+ * most hours in it and calling that the destination reads as certainty the data does not have —
+ * between near-equal stays the winner turns on an hour, and the other cities disappear from a
+ * timeline that is supposed to be a record of where someone was.
+ */
 object TravelNaming {
 
     /** A journey with what to call it, and what it counted towards. */

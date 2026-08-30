@@ -55,8 +55,8 @@ data class GateState(
 /**
  * What the receiver last said about the satellites, as of this batch. An *input*, not state this
  * accumulates: it is written from the `GnssStatus` callback's own thread while fixes arrive on
- * another, so it stays where that write can be published (a `@Volatile` field on the service) and
- * arrives here already read. [lastFixElapsedMs] is monotonic — the domain a fix age may be measured
+ * another, so it stays where that write can be published ([GnssWatch.state]) and arrives here
+ * already read. [lastFixElapsedMs] is monotonic — the domain a fix age may be measured
  * in, since wall time can step.
  */
 data class GnssState(
@@ -77,8 +77,7 @@ data class Ingested(
 
 /**
  * The recorder's fix path, with no Android in it: platform fixes in, point rows and a motion verdict
- * out. Everything here used to sit in [LocationRecordingService.ingestLocations] and its two helpers,
- * where it could only be exercised by walking around with the phone; the service now maps
+ * out, so the loop can be exercised without walking around with the phone. The service maps
  * `Location` to [Fix], calls [onFixes], writes the rows it hands back and publishes what it says.
  *
  * It owns the three things that accumulate across a track — the movement witness, the carrier case

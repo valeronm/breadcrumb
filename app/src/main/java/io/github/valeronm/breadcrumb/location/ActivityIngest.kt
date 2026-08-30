@@ -16,10 +16,9 @@ import io.github.valeronm.breadcrumb.domain.StaleReadingOracle
 import io.github.valeronm.breadcrumb.domain.TrackController
 
 /**
- * The recorder's activity path, with no Android in it: readings in, [Effect]s out. Everything here
- * used to sit in [LocationRecordingService] between `applyActivity` and `closeCurrentTrack`, where
- * it could only be exercised by walking around with the phone — the rules each had a suite, but the
- * loop that sequences them had none, and it is the loop that decides where tracks begin and end.
+ * The recorder's activity path, with no Android in it: readings in, [Effect]s out. The rules each
+ * have a suite of their own; this is the loop that sequences them, which is what decides where
+ * tracks begin and end, and it runs off the device for the same reason they do.
  *
  * It owns the two state machines ([ActivityGate], [TrackController]), the reading clock and the
  * deafness bookkeeping — everything that persists across readings. [FixIngest] and [NoFixGuard] are
@@ -194,8 +193,9 @@ class ActivityIngest(
     }
 
     /**
-     * The phone has left where it last stopped, on evidence that is not Play Services' — today the
-     * departure fence. **Opens a track on the trigger alone**: there is no walking-valid speed to
+     * The phone has left where it last stopped, on evidence that is not Play Services' — the
+     * departure fence, or the coarse probe ([onProbeFix]). **Opens a track on the trigger alone**:
+     * there is no walking-valid speed to
      * gate on (settling GPS drifts at a walking pace), and the shipped witness is a *carrier*
      * detector by construction, so gating here would quietly make this vehicle-only. Over-recording
      * is what `EdgeStayDetector` trims and `KeepRule` discards; under-recording is not repairable at

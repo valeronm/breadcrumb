@@ -170,6 +170,23 @@ internal fun watchKeyguard(context: Context) {
 private var keyguardWatched = false
 
 /**
+ * What the lock says about work the gate is holding back, or null when it holds none — the
+ * load-bearing case, since a plain lock must never grow a line about files that aren't there. A
+ * deferred import is invisible otherwise: the file opens, nothing happens, and the reason only
+ * emerges if the user happens to authenticate.
+ *
+ * Said in two places, because the prompt is a sheet drawn over the lock screen and hides it: the
+ * screen's copy is what a user who dismissed the prompt reads, the prompt's is what everyone else
+ * does.
+ */
+internal fun pendingImportNote(context: Context, files: Int): String? =
+    if (files <= 0) {
+        null
+    } else {
+        context.resources.getQuantityString(R.plurals.lock_pending_imports, files, files)
+    }
+
+/**
  * Draws [content] and, while the app is locked, an opaque screen over it.
  *
  * Over rather than instead: replacing the content would tear down the whole composition on every
@@ -183,26 +200,6 @@ private var keyguardWatched = false
  * the moment the system snapshots the window the app is still unlocked, and hiding that is what
  * the separate screenshot setting is for.
  */
-/**
- * What the lock says about work the gate is holding back, or null when it holds none. A deferred
- * import is invisible otherwise: the file opens, nothing happens, and the reason only emerges if
- * the user happens to authenticate.
- *
- * Said in two places, because the prompt is a sheet drawn over the lock screen and hides it: the
- * screen's copy is what a user who dismissed the prompt reads, the prompt's is what everyone else
- * does.
- */
-/**
- * What the lock screen says about an import it is holding back, or null for the load-bearing case:
- * a plain lock must never grow a line about files that aren't there.
- */
-internal fun pendingImportNote(context: Context, files: Int): String? =
-    if (files <= 0) {
-        null
-    } else {
-        context.resources.getQuantityString(R.plurals.lock_pending_imports, files, files)
-    }
-
 @Composable
 internal fun PrivacyGate(waitingImports: Int = 0, content: @Composable () -> Unit) {
     val context = LocalContext.current

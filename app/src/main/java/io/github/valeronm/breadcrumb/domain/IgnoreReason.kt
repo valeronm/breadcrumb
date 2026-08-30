@@ -2,8 +2,9 @@ package io.github.valeronm.breadcrumb.domain
 
 /**
  * Why a fix was flagged ignored. [code] is the stable DB string (null for points from before
- * reasons were tracked). The first three are the recorder's bad-fix rule (`TrackQuality.badFixReason`);
- * [EDGE_STAY] deliberately shares the mechanism — the fix is fine, just not part of the journey.
+ * reasons were tracked). [ACCURACY], [JUMP] and [NO_GNSS] are the recorder's bad-fix rule
+ * (`TrackQuality.badFixReason`); [EDGE_STAY] deliberately shares the mechanism — the fix is fine,
+ * just not part of the journey.
  */
 enum class IgnoreReason(val code: String) {
     /** Accuracy radius at or beyond the configured gate. */

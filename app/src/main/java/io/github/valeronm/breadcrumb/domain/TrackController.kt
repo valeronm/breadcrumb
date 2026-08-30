@@ -8,8 +8,10 @@ package io.github.valeronm.breadcrumb.domain
  * [Phase.Paused.resumeDeadlineMs] resumes it — timed against the *reading's own* timestamp, so a
  * decision is correct even when the recorder's timers were frozen in Doze and the reading arrives
  * late (or the expiry tick never fired at all). The **motion family**: walking ⇄ running stays one
- * track; walking → driving splits. Pure and Android-free; the service applies the returned
- * [RecordingAction] and reports the resulting phase back via [onRecording] / [onPaused] / [onClosed].
+ * track; walking → driving splits. Pure and Android-free; the ingest performs the returned
+ * [RecordingAction] and moves the phase as it opens, pauses, resumes or closes the track, through
+ * [onRecording] / [onPaused] / [onClosed] — the same calls the paths that never ask [onActivity]
+ * (a departure, an arrival, a disarm) move it by.
  */
 class TrackController {
 

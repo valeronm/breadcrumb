@@ -669,8 +669,9 @@ private fun PlaceDetailOverlay(
     onAdjustArea: () -> Unit,
 ) {
     OverlayFrame(layer) { detailKey ->
-        // Inside the frame, so the derivation behind `places` is subscribed only while this layer
-        // is up — it is idle unless a screen wants it, and the frame is what knows that now.
+        // Inside the frame, so the summaries behind `places` are computed only while this layer is
+        // up — the derivation itself stays hot for the timeline, but this reading of it is idle
+        // unless a screen wants it, and the frame is what knows that.
         val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
         val summary = rememberPlaceSummary(placeSummaries, detailKey, snapshot)
         SideEffect(summary) {
@@ -697,7 +698,7 @@ private fun JourneyDetailOverlay(
     onOpenPlace: (String) -> Unit,
 ) {
     OverlayFrame(layer) { key ->
-        // Inside the frame, so the derivation is subscribed only while this layer is up.
+        // Inside the frame, so the journeys are derived only while this layer is up.
         val travels by viewModel.travels.collectAsStateWithLifecycle()
         // The last summary the key resolved to keeps the screen alive while the derivation
         // re-runs, and through a re-derivation that moved the journey's first night out from
