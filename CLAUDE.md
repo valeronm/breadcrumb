@@ -469,9 +469,9 @@ orders named clusters by their place's index and unnamed ones after them.
 The vocabulary is a closed set of permanent codes stored raw and mapped in the domain
 (`Place.placeCategory`, following the `activityType` / `IgnoreReason.code` precedent), with untagged
 a first-class state rather than an `Other`; three categories stay out of the timeline's per-day
-totals (`dayCategoryTotals`). Every entry owes a glyph (`ui/CategoryIcons`, where an `ImageVector`
+totals (`dayCategoryTotals`). Every entry owes a glyph (`ui/Glyphs`, where an `ImageVector`
 can live and the domain package can't) and a `PlaceCategoryGroup` — the coarse grouping the **colour
-coding** reads. `ui/Components.kt` holds both categorical palettes and the rule separating them by
+coding** reads. `ui/Palette.kt` holds both categorical palettes and the rule separating them by
 surface; the web viewer instead colours per activity throughout, its map drawing overlapping *lines*
 with no glyph to tell them apart.
 
@@ -662,7 +662,11 @@ The Compose code is split one file per screen, all in the `ui` package:
 `MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in
 `RecordScreen`/`TimelineScreen`/`PlacesScreens`/`InsightsScreens`/`TrackDetailScreen`/
 `SettingsScreens`/
-`DiscardedScreens`, with shared widgets and formatters in `Components.kt`, the recorder's setup
+`DiscardedScreens`, with the shared widgets split by kind — generic chrome in `Components.kt`, the
+settings rows in `SettingsWidgets.kt`, list rows and discs in `ListRows.kt`, dialogs in
+`Dialogs.kt`, the fast scroller in `FastScroller.kt`, the categorical palettes in `Palette.kt`,
+locale-decided words (dates, months, countries) in `LocaleWords.kt` and the zone-shift time marks
+in `TimeMarks.kt`; the recorder's setup
 model and its card in `Setup.kt` (no screen of its own — see above), and the color-ramp/
 legend code in `TrackColoring.kt` (cross-file symbols are `internal`, not `private`), and the
 duration ladder in `DurationFormat.kt`. **No top-level `val` in these files may reach the Android
@@ -775,7 +779,7 @@ why the workflow is the only thing standing between a forgotten bump and Play.
   "visits"`, no lowercasing a noun to slot it mid-sentence — word order, agreement and case are the
   language's, not the caller's. One whole phrase per case, and `<plurals>` for anything counted.
   A line built around a value no format string can carry — a clock time drawn with its own zone-shift
-  span — is still one whole phrase: `annotatedStringResource` (`ui/Components.kt`) splices styled
+  span — is still one whole phrase: `annotatedStringResource` (`ui/TimeMarks.kt`) splices styled
   arguments into a resource's placeholders, so the time goes where the *translation* puts it. A word
   that appears both alone and inside a sentence is **authored twice**, not transformed: an
   `ActivityType` carries `labelRes` and `inlineLabelRes` (`ui/RecorderWords.kt`), because lower-casing

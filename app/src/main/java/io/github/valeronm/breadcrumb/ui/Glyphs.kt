@@ -1,26 +1,36 @@
 package io.github.valeronm.breadcrumb.ui
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsBike
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.DepartureBoard
+import androidx.compose.material.icons.filled.DirectionsBoat
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.DirectionsTransit
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Handyman
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalActivity
 import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.LocalMall
 import androidx.compose.material.icons.filled.LocalParking
+import androidx.compose.material.icons.filled.LocalTaxi
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.ShoppingBasket
 import androidx.compose.material.icons.filled.Signpost
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.ui.graphics.vector.ImageVector
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 
 /**
@@ -28,8 +38,8 @@ import io.github.valeronm.breadcrumb.domain.PlaceCategory
  * is Android and the domain package stays platform-free. Chosen as a *set*, at the two sizes they
  * appear in (a stay row's tonal disc and a chip): the failure mode is two categories sharing a
  * silhouette, not one weak glyph. Two rules hold it together, and both matter when a glyph is
- * swapped. **No vehicle silhouette** — a timeline row already spends `DirectionsCar`/`Walk`/`Boat`/
- * `Run`/`LocalTaxi` on the *track's* activity, so a plane for [PlaceCategory.TRAVEL] or a runner for
+ * swapped. **No vehicle silhouette** — a timeline row already spends [activityIcon]'s car, walker,
+ * boat, runner and taxi on the *track's* activity, so a plane for [PlaceCategory.TRAVEL] or a runner for
  * [PlaceCategory.SPORTS] would read as a second activity; a suitcase and a dumbbell say the same
  * thing (a fuel pump is not a vehicle, so [PlaceCategory.GAS_STATION] is literal). **One *plain*
  * building** — [PlaceCategory.HOME] is the house, so [PlaceCategory.WORK] is the briefcase, not the
@@ -69,3 +79,19 @@ internal val PlaceCategory.icon: ImageVector
  * what *untagged* looks like, since every screen showing a place has to answer it the same way.
  */
 internal val PlaceCategory?.discIcon: ImageVector get() = this?.icon ?: Icons.Filled.Place
+
+/** The glyph a track's activity wears wherever movement is drawn — the vehicle silhouettes the
+ *  category set above stays clear of. */
+internal fun activityIcon(activity: ActivityType?): ImageVector = when (activity) {
+    ActivityType.WALKING -> Icons.AutoMirrored.Filled.DirectionsWalk
+    ActivityType.RUNNING -> Icons.AutoMirrored.Filled.DirectionsRun
+    ActivityType.CYCLING -> Icons.AutoMirrored.Filled.DirectionsBike
+    ActivityType.DRIVING -> Icons.Filled.DirectionsCar
+    ActivityType.TAXI -> Icons.Filled.LocalTaxi
+    ActivityType.FERRY -> Icons.Filled.DirectionsBoat
+    ActivityType.TRANSIT -> Icons.Filled.DirectionsTransit
+    ActivityType.FLIGHT -> Icons.Filled.Flight
+    // Route, not Place: the pin means "a stay" in the timeline, and UNKNOWN tracks (e.g. a GPX
+    // import without a <type>) are still movement.
+    else -> Icons.Filled.Route
+}

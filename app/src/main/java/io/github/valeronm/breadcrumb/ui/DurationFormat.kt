@@ -3,9 +3,9 @@ package io.github.valeronm.breadcrumb.ui
 import kotlin.math.roundToLong
 
 /**
- * How long something took, as the screens say it. Kept apart from `Components.kt` — which is
- * widgets, and whose top-level state reaches the Android framework — so these stay reachable from a
- * plain JVM test on any dev box, the way the domain rules are.
+ * How long something took, as the screens say it. Kept apart from the widget files — whose
+ * top-level state can reach the Android framework — so these stay reachable from a plain JVM test
+ * on any dev box, the way the domain rules are.
  */
 
 /**

@@ -7,7 +7,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
 
 /**
  * The name each place category goes by, here rather than on [PlaceCategory] for the same reason its
- * glyph is (see `CategoryIcons`): a name is language, and the domain package holds no resources.
+ * glyph is (see `Glyphs`): a name is language, and the domain package holds no resources.
  *
  * The enum's [PlaceCategory.code] is what persists — into the `places.category` column and into the
  * backup file the web viewer reads — so a code and a name can never be confused for one another
