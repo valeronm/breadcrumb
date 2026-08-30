@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -34,9 +35,10 @@ import kotlinx.coroutines.launch
  * composed with it while non-null, so the page doesn't blank or flip while receding. Where a layer
  * sits is named once, by the child, as [over], and nothing else may restate it: everything stacking
  * implies derives from that mention — which gesture back reaches ([onTop]), which page blurs beneath
- * which ([blurDp]), which draws over which ([depth]). Restated, they could disagree — right for one
- * and wrong for another looks right until a finger is on it, and neither compiler nor test can tell.
- * The child names the relation because the parent exists first.
+ * which ([blurDp]), which draws over which ([depth]), what a landing on a page closes
+ * ([dismissAbove]). Restated, they could disagree — right for one and wrong for another looks right
+ * until a finger is on it, and neither compiler nor test can tell. The child names the relation
+ * because the parent exists first.
  */
 internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
     val presence = Animatable(0f) // 0 = underneath shown, 1 = layer fully shown
@@ -52,6 +54,11 @@ internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
      */
     var requested by mutableStateOf(false)
 
+    // How this layer is dismissed — the state write its host clears its content with, registered by
+    // [rememberOverlayLayer] on every composition so it closes over the host's current state. The
+    // default is what a floor layer built with a plain `remember` runs, having no page to clear.
+    var dismiss: () -> Unit = {}
+
     // Layers stacked directly on this one, registered by themselves. A plain list, not snapshot
     // state: every layer is declared unconditionally for the screen's lifetime, so this is built
     // once and never shrinks — what changes, and what is observed, is each child's `requested`.
@@ -66,6 +73,18 @@ internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
 
     /** Nothing above is open, so this layer's gesture is the one back should reach. */
     val onTop: Boolean get() = stackedOn.none { it.requested }
+
+    /**
+     * Dismiss every layer stacked on this one, however deep — a landing on this layer's own page.
+     * Derived from the stack rather than spelled by the caller, so a layer added later cannot be
+     * left open under the landing. Top-down, the way back would take them.
+     */
+    fun dismissAbove() {
+        stackedOn.forEach {
+            it.dismissAbove()
+            it.dismiss()
+        }
+    }
 
     /** Anything stacks on this at all. A layer nothing covers can never be blurred. */
     val stacked: Boolean get() = stackedOn.isNotEmpty()
@@ -94,17 +113,21 @@ private fun easeOutBack(back: Float): Float = 1f - (1f - back) * (1f - back)
 /**
  * One stacked overlay layer: animates in while [content] is non-null, out when it goes null; holds
  * the predictive back gesture only while nothing stacked on it is open. [over] is the layer this
- * one opens on top of — see [OverlayLayerState]. [onDismiss] fires on gesture commit; [onClosed]
+ * one opens on top of — see [OverlayLayerState]. [dismiss] is how the layer closes — on gesture
+ * commit, and from anything that asks the state ([OverlayLayerState.dismiss]); [onClosed]
  * after the close animation finishes.
  */
 @Composable
 internal fun <T : Any> rememberOverlayLayer(
     content: T?,
     over: OverlayLayerState<*>? = null,
-    onDismiss: () -> Unit,
+    dismiss: () -> Unit,
     onClosed: () -> Unit = {},
 ): OverlayLayerState<T> {
     val state = remember { OverlayLayerState<T>(over) }
+    // Registered once the composition has applied, so a skipped recomposition cannot leave a stale
+    // closure on the state.
+    SideEffect { state.dismiss = dismiss }
     // Snapshot the content while present; held stable through the close animation.
     if (content != null) state.rendered = content
     val focusManager = LocalFocusManager.current
@@ -139,7 +162,7 @@ internal fun <T : Any> rememberOverlayLayer(
                 state.backOffsetY.snapTo(event.touchY - startTouchY)
                 state.backProgress.snapTo(event.progress)
             }
-            onDismiss() // gesture committed -> dismiss
+            state.dismiss() // gesture committed -> dismiss
         } catch (_: CancellationException) {
             // Gesture canceled -> spring back to place.
             coroutineScope {

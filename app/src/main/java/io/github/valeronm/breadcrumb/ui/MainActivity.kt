@@ -399,33 +399,34 @@ private fun MainScreen(
 
     // The stack, declared bottom-up. A layer's `over` is the one it opens on top of; that single
     // mention decides everything stacking implies: which gesture back reaches, which page blurs
-    // beneath which, and which draws over which. The tabs are its floor — a page-less layer
+    // beneath which, which draws over which, and what a landing on a page closes. The tabs are its
+    // floor — a page-less layer
     // standing for the tabbed UI so what opens over it can name it like any parent; without one,
     // the pages over the tabs would restate wherever the tabs blur a relation stated once here.
     val tabsLayer = remember { OverlayLayerState<Unit>() }
     val mainPageLayer = rememberOverlayLayer(
         content = mainPage,
         over = tabsLayer,
-        onDismiss = { mainPage = null },
+        dismiss = { mainPage = null },
     )
     // Settings sub-pages stack above the hub — the predictive-back preview under them shows
     // the hub (where back actually lands), not the tabs.
     val settingsPageLayer = rememberOverlayLayer(
         content = settingsPage,
         over = mainPageLayer,
-        onDismiss = { settingsPage = null },
+        dismiss = { settingsPage = null },
     )
     // Deleted-track detail: back returns to the Recently deleted list, previewing it under the gesture.
     val discardedLayer = rememberOverlayLayer(
         content = discardedTrackId,
         over = settingsPageLayer,
-        onDismiss = { discardedTrackId = null },
+        dismiss = { discardedTrackId = null },
     )
     // Journey detail: reached from the Insights tab or a Timeline band, so back previews the tabs.
     val journeyLayer = rememberOverlayLayer(
         content = journeyKey,
         over = tabsLayer,
-        onDismiss = { journeyKey = null },
+        dismiss = { journeyKey = null },
     )
     // Place detail is reached from the Timeline, the Places list, or a journey's map — stacked on
     // the journey layer so one opened there draws above it and back returns to it. Opened from a
@@ -434,7 +435,7 @@ private fun MainScreen(
     val placeLayer = rememberOverlayLayer(
         content = placeDetailKey,
         over = journeyLayer,
-        onDismiss = { placeDetailKey = null },
+        dismiss = { placeDetailKey = null },
         onClosed = { placeDetailSnapshot = null },
     )
     // Capture-area tuning stacks above the place detail — back returns to it, previewed under the
@@ -443,7 +444,7 @@ private fun MainScreen(
     val placeEditLayer = rememberOverlayLayer(
         content = placeDetailKey?.takeIf { editingArea },
         over = placeLayer,
-        onDismiss = { editingArea = false },
+        dismiss = { editingArea = false },
     )
     // The trip form: back discards the half-entered trip by construction, nothing having been
     // written until its check mark. Stacked on the track detail rather than on the tabs, because a
@@ -452,21 +453,13 @@ private fun MainScreen(
     val addTripLayer = rememberOverlayLayer(
         content = tripDraft,
         over = mainPageLayer,
-        onDismiss = { tripDraft = null },
+        dismiss = { tripDraft = null },
     )
 
     // A cross-screen jump to the Timeline tab: the landing is the tabs themselves, so every layer
-    // over them closes. Written once, beside the stack it mirrors — and total over that stack,
-    // including layers no current jump route can have open, so a new route cannot land under a
-    // page someone forgot to name.
+    // over them closes — asked of the stack, which is what knows what is over the tabs.
     val landOnTimeline = {
-        mainPage = null
-        settingsPage = null
-        discardedTrackId = null
-        placeDetailKey = null
-        editingArea = false
-        journeyKey = null
-        tripDraft = null
+        tabsLayer.dismissAbove()
         selectedTab = HomeTab.TRACKS
     }
 
@@ -625,7 +618,6 @@ private fun MainScreen(
             unitChoice = unitChoice,
             onUnitChoice = onUnitChoice,
             undo = undo,
-            onClose = { mainPage = null },
             onOpenPage = { settingsPage = it },
             onEditTrip = { tripDraft = it },
         )
@@ -647,7 +639,6 @@ private fun MainScreen(
                     if (placeDetailKey != null && placeDetailKey != s.key) placeDetailKey = s.key
                 }
             },
-            onClose = { placeDetailKey = null },
             onOpenVisit = { stay ->
                 timelineVisitTarget = stay
                 landOnTimeline()
@@ -659,7 +650,6 @@ private fun MainScreen(
             layer = placeEditLayer,
             viewModel = viewModel,
             snapshot = placeDetailSnapshot,
-            onClose = { editingArea = false },
             // The row's id is the only thing that identifies a just-created place until a derivation
             // has run — by position it can't be followed, a hand-placed pin being exactly what may
             // have moved. Re-keyed onto the row, the screen under the editor flips from the detected
@@ -668,8 +658,8 @@ private fun MainScreen(
             // Both layers go with it: the editor and the detail underneath are both about a row that
             // no longer exists, and the detail's key (`place:<id>`) would resolve against nothing.
             onRemove = { place ->
-                editingArea = false
-                placeDetailKey = null
+                placeLayer.dismissAbove()
+                placeLayer.dismiss()
                 removePlace(place)
             },
         )
@@ -677,26 +667,22 @@ private fun MainScreen(
         SettingsPagesOverlay(
             layer = settingsPageLayer,
             viewModel = viewModel,
-            onClose = { settingsPage = null },
             onOpenTrack = { discardedTrackId = it },
         )
 
         DiscardedTrackOverlay(
             layer = discardedLayer,
             viewModel = viewModel,
-            onClose = { discardedTrackId = null },
         )
 
         AddTripOverlay(
             layer = addTripLayer,
             viewModel = viewModel,
-            onClose = { tripDraft = null },
         )
 
         JourneyDetailOverlay(
             layer = journeyLayer,
             viewModel = viewModel,
-            onClose = { journeyKey = null },
             onOpenDay = { day ->
                 timelineDayTarget = day
                 landOnTimeline()
@@ -740,10 +726,9 @@ private fun MainScreen(
 private fun AddTripOverlay(
     layer: OverlayLayerState<TripDraft>,
     viewModel: TrackListViewModel,
-    onClose: () -> Unit,
 ) {
     OverlayFrame(layer) { draft ->
-        AddTripScreen(viewModel = viewModel, draft = draft, onClose = onClose)
+        AddTripScreen(viewModel = viewModel, draft = draft, onClose = layer.dismiss)
     }
 }
 
@@ -755,7 +740,6 @@ private fun AddTripOverlay(
 private fun DiscardedTrackOverlay(
     layer: OverlayLayerState<Long>,
     viewModel: TrackListViewModel,
-    onClose: () -> Unit,
 ) {
     OverlayFrame(layer) { trackId ->
         // Collected inside the frame, which composes only while the layer has content: the
@@ -765,7 +749,7 @@ private fun DiscardedTrackOverlay(
             trackId = trackId,
             summary = discardedTracks.firstOrNull { it.track.id == trackId }?.track,
             viewModel = viewModel,
-            onBack = onClose,
+            onBack = layer.dismiss,
             // No splitting or editing here: these tracks are on their way out of the timeline, not
             // being organized on it. A deleted trip is restored first and edited after.
             onSplit = null,
@@ -786,7 +770,6 @@ private fun MainPageOverlay(
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     undo: UndoSnackbar,
-    onClose: () -> Unit,
     onOpenPage: (SettingsPage) -> Unit,
     onEditTrip: (TripDraft) -> Unit,
 ) {
@@ -800,7 +783,7 @@ private fun MainPageOverlay(
                     (it as? TimelineItem.TrackItem)?.summary?.takeIf { s -> s.id == rendered.id }
                 },
                 viewModel = viewModel,
-                onBack = onClose,
+                onBack = layer.dismiss,
                 // The screen closes on the cut. It could stay — this track is the first half now,
                 // id and all — but the undo snackbar lives under the overlay, so keeping the layer
                 // open would hide the one affordance that reverses the split.
@@ -809,7 +792,7 @@ private fun MainPageOverlay(
                     viewModel.splitTrack(trackId, atTs) { split ->
                         undo.show(splitUndoMessage) { viewModel.unsplitTracks(trackId, split) }
                     }
-                    onClose()
+                    layer.dismiss()
                 },
                 // The form stacks *on* this screen, so it stays open underneath and shows the
                 // rewritten track when the form closes over it.
@@ -820,7 +803,7 @@ private fun MainPageOverlay(
                 viewModel = viewModel,
                 unitChoice = unitChoice,
                 onUnitChoice = onUnitChoice,
-                onBack = onClose,
+                onBack = layer.dismiss,
                 onOpenPage = onOpenPage,
             )
         }
@@ -843,7 +826,6 @@ private fun PlaceDetailOverlay(
     viewModel: TrackListViewModel,
     snapshot: PlaceResolver.PlaceSummary?,
     onResolved: (PlaceResolver.PlaceSummary) -> Unit,
-    onClose: () -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
     onAdjustArea: () -> Unit,
 ) {
@@ -859,7 +841,7 @@ private fun PlaceDetailOverlay(
             PlaceDetailScreen(
                 summary = detail,
                 viewModel = viewModel,
-                onBack = onClose,
+                onBack = layer.dismiss,
                 onOpenVisit = onOpenVisit,
                 onAdjustArea = onAdjustArea,
             )
@@ -872,7 +854,6 @@ private fun PlaceDetailOverlay(
 private fun JourneyDetailOverlay(
     layer: OverlayLayerState<Long>,
     viewModel: TrackListViewModel,
-    onClose: () -> Unit,
     onOpenDay: (LocalDate) -> Unit,
     onOpenPlace: (String) -> Unit,
 ) {
@@ -890,7 +871,7 @@ private fun JourneyDetailOverlay(
             JourneyDetailScreen(
                 summary = detail,
                 viewModel = viewModel,
-                onBack = onClose,
+                onBack = layer.dismiss,
                 onOpenDay = onOpenDay,
                 onOpenPlace = onOpenPlace,
             )
@@ -909,7 +890,6 @@ private fun PlaceEditOverlay(
     layer: OverlayLayerState<String>,
     viewModel: TrackListViewModel,
     snapshot: PlaceResolver.PlaceSummary?,
-    onClose: () -> Unit,
     onCreated: (Long) -> Unit,
     onRemove: (Place) -> Unit,
 ) {
@@ -945,7 +925,7 @@ private fun PlaceEditOverlay(
                 candidates = neighborhood.candidates,
                 rivals = neighborhood.rivals,
                 viewModel = viewModel,
-                onClose = onClose,
+                onClose = layer.dismiss,
                 onCreated = onCreated,
                 onRemove = onRemove,
             )
@@ -978,25 +958,24 @@ private fun rememberPlaceSummary(
 private fun SettingsPagesOverlay(
     layer: OverlayLayerState<SettingsPage>,
     viewModel: TrackListViewModel,
-    onClose: () -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
     OverlayFrame(layer) { page ->
         when (page) {
-            SettingsPage.Sampling -> SamplingSettingsScreen(onBack = onClose)
-            SettingsPage.PointQuality -> PointQualitySettingsScreen(onBack = onClose)
-            SettingsPage.AutoPause -> AutoPauseSettingsScreen(onBack = onClose)
-            SettingsPage.GpsSearch -> GpsSearchSettingsScreen(onBack = onClose)
-            SettingsPage.DepartureTriggers -> DepartureTriggersSettingsScreen(onBack = onClose)
-            SettingsPage.TrackFiltering -> TrackFilteringSettingsScreen(onBack = onClose)
-            SettingsPage.AppLock -> AppLockSettingsScreen(onBack = onClose)
-            SettingsPage.OnlineServices -> OnlineServicesSettingsScreen(onBack = onClose)
+            SettingsPage.Sampling -> SamplingSettingsScreen(onBack = layer.dismiss)
+            SettingsPage.PointQuality -> PointQualitySettingsScreen(onBack = layer.dismiss)
+            SettingsPage.AutoPause -> AutoPauseSettingsScreen(onBack = layer.dismiss)
+            SettingsPage.GpsSearch -> GpsSearchSettingsScreen(onBack = layer.dismiss)
+            SettingsPage.DepartureTriggers -> DepartureTriggersSettingsScreen(onBack = layer.dismiss)
+            SettingsPage.TrackFiltering -> TrackFilteringSettingsScreen(onBack = layer.dismiss)
+            SettingsPage.AppLock -> AppLockSettingsScreen(onBack = layer.dismiss)
+            SettingsPage.OnlineServices -> OnlineServicesSettingsScreen(onBack = layer.dismiss)
             SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
                 viewModel = viewModel,
-                onBack = onClose,
+                onBack = layer.dismiss,
                 onOpenTrack = onOpenTrack,
             )
-            SettingsPage.Logs -> LogsScreen(onBack = onClose)
+            SettingsPage.Logs -> LogsScreen(onBack = layer.dismiss)
         }
     }
 }
