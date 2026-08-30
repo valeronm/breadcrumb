@@ -34,7 +34,7 @@ object TrackStats {
      * Bumped whenever this walk would produce different numbers for the same points: the aggregates
      * on a track row are this code's output, so a moved rule leaves every stored track behind it,
      * and nothing re-walks a track whose points haven't changed (the edge-stay sweep skips it; only
-     * finish, merge, import or retype re-walks otherwise). [TrackRepository.sweepStats] re-walks the
+     * finish, merge, import or retype re-walks otherwise). [HistorySweeps.stats] re-walks the
      * history when the version it last swept is behind this one, so bumping is part of changing the
      * rule, not a follow-up chore.
      * 1 — the leg spanning a [TrackPoint.segmentStart] counts as travel; it used to be dropped.

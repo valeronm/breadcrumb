@@ -25,6 +25,9 @@ data class TrackStatsUpdate(
 /** Excludes no row from the overlap checks — no track has this id ([TrackDao.countTracksSpanning]). */
 const val NO_TRACK = 0L
 
+/** Ids per `WHERE … IN (…)` statement: SQLite binds at most 999 variables per statement. */
+const val IDS_PER_STATEMENT = 500
+
 @Dao
 interface TrackDao {
 

@@ -351,7 +351,7 @@ class TrackRepositoryTest {
         tail.forEach { dao.setIgnored(it.id, IgnoreReason.EDGE_STAY.code) }
         dao.closeTrack(id, tail.first().timestamp)
 
-        repository.sweepEdgeStays()
+        repository.sweeps.edgeStays()
 
         val restored = dao.track(id)!!
         assertEquals(90, restored.pointCount)

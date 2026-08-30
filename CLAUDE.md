@@ -485,7 +485,7 @@ derivation.
 bad-fix rule, and `EdgeStayIgnore`'s `IgnoreReason.EDGE_STAY` for good fixes recorded past the stop
 at a track's edges (`IgnoreReason` holds the distinction). The second is applied automatically
 wherever a track's points change — finished, imported, merged, split, restored, or retyped across
-the foot/vehicle line — and `TrackRepository.sweepEdgeStays` re-derives the whole history when
+the foot/vehicle line — and `HistorySweeps.edgeStays` re-derives the whole history when
 `EdgeStayDetector.RULE_VERSION` moves.
 
 **A track's clock is then set from the fixes that survive** (`TrackBounds`, applied in the same pass):
@@ -501,7 +501,7 @@ in, and every writer enters through it.
 
 **The track row carries its points' aggregates, and the recorder must never write it.** Distance,
 point/ignored counts and the first/last good coordinates are columns on `tracks`, written only by
-`TrackRepository.refreshStats` and re-walked history-wide by `TrackRepository.sweepStats` when
+`TrackSettler.refreshStats` and re-walked history-wide by `HistorySweeps.stats` when
 `TrackStats.RULE_VERSION` moves. This is a performance invariant spanning three files, not a
 convenience: the observed queries (`TrackDao`) must read `tracks` only, and the recorder's hot path
 must write nothing but point rows — `TimelineInvalidationTest` fails if either half is broken, and
@@ -549,7 +549,7 @@ those seeds moved, if a sweep ran, or if `DerivationStore.LOGIC_VERSION` outran 
 derived by. That last order is load-bearing: the sweeps rewrite the very coordinates the derivation
 reads, and every version is recorded only after the derivation has consumed them, so a launch that
 dies partway re-runs the whole sequence rather than skipping a sweep whose writes it never derived
-from. `sweepEdgeStays` says why a sweep is not a backfill, and `reconcile` is not
+from. `HistorySweeps` says why a sweep is not a backfill, and `reconcile` is not
 one either — it is a reconciliation with no completion to record.
 
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places / Insights) Scaffold

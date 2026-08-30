@@ -179,8 +179,8 @@ class ManualTrackTest {
         val id = trackIdOf(manualTrip())
         val before = dao.track(id)!!
 
-        repository.sweepEdgeStays()
-        repository.sweepStats()
+        repository.sweeps.edgeStays()
+        repository.sweeps.stats()
 
         val after = dao.track(id)!!
         assertEquals(before.startedAt, after.startedAt)

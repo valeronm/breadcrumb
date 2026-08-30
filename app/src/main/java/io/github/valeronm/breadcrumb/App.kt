@@ -64,11 +64,11 @@ class App : Application() {
             // The ignored edge stays are verdicts of a rule that keeps moving, so they are
             // re-derived whenever the detector's version outruns the one they were computed
             // with — not once.
-            if (edgeStayRuleMoved) repository.sweepEdgeStays()
+            if (edgeStayRuleMoved) repository.sweeps.edgeStays()
             // The aggregates on a track row are the output of a walk that keeps moving too, and
             // they are re-derived the same way. It runs second: the edge-stay sweep decides which
             // fixes are on the path, and this one totals whatever that leaves.
-            if (statsRuleMoved) repository.sweepStats()
+            if (statsRuleMoved) repository.sweeps.stats()
             // Last, and the order is load-bearing: both sweeps above rewrite a track's bounds and
             // its first and last good coordinates, which are the whole of what the derivation reads.
             // Deriving ahead of them would store a reading of values about to move, with nothing to
