@@ -93,8 +93,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * track already holding fixes at both ends of the file's span is skipped as a duplicate
      * (re-importing the same file, or our own export back), one merely intersecting an existing span
      * as overlapping: two paths over one period double-count its stats and leave stay derivation
-     * reconciling parallel journeys. Each track inserts in its own transaction, so later tracks in a
-     * file are checked against the ones before them.
+     * reconciling parallel journeys. Each track inserts and finalizes in one transaction, so later
+     * tracks in a file are checked against the ones before them and a crash mid-file commits no row
+     * without its aggregates.
      */
     suspend fun importTracks(tracks: List<GpxParser.ImportableTrack>): GpxImportCounts {
         var imported = 0
@@ -109,7 +110,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 overlapping++
                 continue
             }
-            val trackId = db.withTransaction {
+            db.withTransaction {
                 val id = dao.insertTrack(
                     Track(
                         activityType = track.activityTypeName,
@@ -135,9 +136,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 )
                 // Aggregates come from the points we just stored, not from the GPX header: the two
                 // agree for our own exports, and for a foreign file the points are the truth.
-                id
+                finalizeImportedTrack(id)
             }
-            finalizeImportedTrack(trackId)
             imported++
         }
         if (tracks.isNotEmpty()) {
@@ -150,7 +150,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         // A whole derivation, not a seam per track: an import lands historical tracks in whatever
         // order the file holds them, and a repair around one of them assumes the stretch it reaches
         // is otherwise settled.
-        if (imported > 0) derivation.rebuild()
+        if (imported > 0) derivation.reconcile(stale = true)
         return GpxImportCounts(imported, duplicates, overlapping)
     }
 
@@ -191,9 +191,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 ),
             )
             dao.insertPoints(manualPoints(id, origin, destination))
+            finalizeManualTrack(id)
             id
         }
-        finalizeManualTrack(trackId)
         DebugLog.i(TAG, "manual track: ${activityType.name} inserted as #$trackId")
         return ManualTrackResult.Saved(trackId)
     }
@@ -225,23 +225,21 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.setManualTrack(
                 trackId, activityType.name, origin.timestampMs, destination.timestampMs,
             )
+            finalizeManualTrack(trackId)
         }
-        finalizeManualTrack(trackId)
         DebugLog.i(TAG, "manual track: #$trackId rewritten as ${activityType.name}")
         return ManualTrackResult.Saved(trackId)
     }
 
     /**
-     * The finalize an entered trip gets: the aggregates, then the derivation repaired around it. One
-     * transaction, so the row and the stays either side of it commit together — and separate from
-     * [finalizeImportedTrack], which a whole file goes through and which answers with one rebuild
-     * at the end rather than a seam per track.
+     * The finalize an entered trip gets: the aggregates, then the derivation repaired around it.
+     * Runs inside the caller's transaction (Room's are re-entrant), so the row, its aggregates and
+     * the stays either side of it commit together. [importTracks] does not use it: a whole file
+     * answers with one reconciliation over the history at the end rather than a seam per track.
      */
     private suspend fun finalizeManualTrack(trackId: Long) {
-        db.withTransaction {
-            finalizeImportedTrack(trackId)
-            derivation.reknit(listOf(trackId))
-        }
+        finalizeImportedTrack(trackId)
+        derivation.reknit(listOf(trackId))
     }
 
     /** [ManualTrackResult.Overlapping] where some other track already covers this span, else null. */
