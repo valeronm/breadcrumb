@@ -591,8 +591,8 @@ whatever it put on screen. Named for the answer rather than for leaving the app 
 differ: from Android 11 the all-the-time request *does* leave and still answers through the launcher.
 The ladder captures that (with the step's progress) *when the ask goes out* rather than re-deriving
 it from the answer. A resume while one of the app's own prompts is up is not an answer either, and
-MainScreen holds it back on `prompt` being non-null — one condition covering every such dialog, so a
-third cannot be added without it.
+`RecorderSetup` holds it back on `prompt` being non-null — one condition covering every such dialog,
+so a third cannot be added without it.
 
 **A step is a reason, not a dialog** — and the reader's reason, not the platform's. Location
 "all the time" is **one** step, because in system settings it is one switch with two positions, and

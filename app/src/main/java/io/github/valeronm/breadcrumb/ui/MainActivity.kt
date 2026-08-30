@@ -11,10 +11,8 @@ import android.view.Window
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -44,7 +42,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -62,9 +59,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
 import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.BuildConfig
@@ -75,13 +69,9 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TravelNaming
-import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.UnitChoice
-import io.github.valeronm.breadcrumb.util.openAppSettings
-import io.github.valeronm.breadcrumb.util.requestIgnoreBatteryOptimization
-import kotlinx.coroutines.launch
 import java.time.LocalDate
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
@@ -217,147 +207,14 @@ private fun MainScreen(
         window?.setFlag(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, charging && keepScreenOn)
     }
 
-    // Permission state, refreshed whenever the activity resumes (e.g. back from Settings).
-    var setup by remember { mutableStateOf(setupState(context)) }
-    var autoOn by remember { mutableStateOf(AppSettings.isAutoRecord(context)) }
+    // Everything recording needs from Android, and the toggle that asks for it — see [RecorderSetup].
+    val setup = rememberRecorderSetup()
     var mainPage by remember { mutableStateOf<MainPage?>(null) }
     var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
     // A tab switch replaces the tab's whole composition, but disposing a focused search field is
     // not a reliable keyboard dismissal — drop the focus with the tab that owned it.
     val tabFocusManager = LocalFocusManager.current
     SideEffect(selectedTab) { tabFocusManager.clearFocus() }
-    // The run of asks behind one "start recording". Started only by arming, so a run reaching its
-    // end is always a run that meant to arm — the card's own buttons ask for a single step and go
-    // nowhere near it.
-    val ladder = remember { SetupLadder() }
-
-    val arm = {
-        autoOn = true
-        LocationRecordingService.start(context)
-    }
-    // A dialog's answer, the ladder's one signal that cannot be delivered where it arrives: the
-    // launcher's callback has to be declared before the step that requests through it, which is
-    // before the code that settles the run. A counter rather than a flag, since a flag the effect
-    // had to clear would swallow a second answer arriving while the first was still settling. The
-    // other signal, a resume, has no such cycle and calls in directly below.
-    var dialogAnswered by remember { mutableIntStateOf(0) }
-
-    // One launcher for every step that asks through a dialog: the result is read back off the
-    // platform rather than out of the callback's map, so a step whose grant arrives some other way
-    // (a second permission in the same dialog) lands in the same place.
-    val requestPermissions = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
-        setup = setupState(context)
-        dialogAnswered++
-    }
-    // Whatever the app has to say before Android takes over, and the fact that it is on screen. One
-    // holder for every such prompt: what each of them means for a resume is the same, so the rule
-    // about that is written once rather than per prompt.
-    var prompt by remember { mutableStateOf<SetupPrompt?>(null) }
-    // What asking for a step *means*, and the only definition of it: the recorder's toggle runs this
-    // through the ladder and the card's buttons call it directly, so the two cannot come to disagree
-    // about what a tap does. That mattered as soon as a step could be blocked — a request Android
-    // has stopped taking puts nothing on screen, and a toggle that silently does nothing is the
-    // failure this holds shut.
-    //
-    // Exhaustive over the enum on purpose. A requirement that is neither a runtime permission nor
-    // the exemption — an OEM autostart page, say — would fall through an `else` into a request for
-    // nothing, which answers instantly and ends the run with no screen shown; here it cannot be
-    // added without someone saying how it is asked for.
-    val grantSetupStep: (SetupStep) -> Unit = { step ->
-        if (step in setup.blocked) {
-            // No dialog will come for this one ever again; the settings page is the ask now.
-            context.openAppSettings()
-        } else {
-            when (step) {
-                SetupStep.BATTERY -> context.requestIgnoreBatteryOptimization()
-                SetupStep.LOCATION, SetupStep.ACTIVITY, SetupStep.NOTIFICATIONS -> {
-                    val permissions = step.permissions(setup)
-                    // Recorded before the dialog rather than after it: what this answers later is
-                    // whether the question was ever put, and a process death between the ask and
-                    // the answer would otherwise leave a refusal looking like a permission nobody
-                    // had got to yet.
-                    AppSettings.markPermissionsAsked(context, permissions)
-                    // Location's second half, which Android will not take until the first is
-                    // answered, goes behind the disclosure — which carries the very list it will
-                    // ask for, so what was recorded and what is requested cannot come apart.
-                    if (step == SetupStep.LOCATION && setup.locationOk) {
-                        prompt = SetupPrompt.AllTimeLocation(permissions)
-                    } else {
-                        requestPermissions.launch(permissions.toTypedArray())
-                    }
-                }
-            }
-        }
-    }
-    // What a *run* does to ask, as against what a tap on the card does. The card shows every step's
-    // reason above its own button, so its blocked button goes straight through; a run has no card on
-    // screen, so the words that would have been there are put up first. Same ask either way — this
-    // only decides whether the reader is told before the app hands them to Android.
-    val askFromLadder: (SetupStep) -> Unit = { step ->
-        if (step in setup.blocked) prompt = SetupPrompt.Blocked(step) else grantSetupStep(step)
-    }
-
-    // One step's answer, settled. A run that ends with nothing left unmet arms the recorder:
-    // starting the run *was* the arming, so there is no separate intention to carry. A run ends on
-    // a refusal too, which is why the state is asked rather than assumed.
-    fun settleLadder(fromResume: Boolean) {
-        val wasRunning = ladder.current != null
-        if (fromResume) {
-            ladder.onResumed(setup, askFromLadder)
-        } else {
-            ladder.onDialogAnswered(setup, askFromLadder)
-        }
-        val runEnded = wasRunning && ladder.current == null
-        if (runEnded && setup.complete && !autoOn) arm()
-    }
-    // A coroutine rather than a SideEffect, though nothing here suspends: settling a run can arm,
-    // and arming commits the armed flag to disk synchronously — not work for the apply path.
-    LaunchedEffect(dialogAnswered) { if (dialogAnswered > 0) settleLadder(fromResume = false) }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                setup = setupState(context)
-                autoOn = AppSettings.isAutoRecord(context)
-                // Not while one of this app's own prompts is up: those are in-app, so the reader has
-                // not left yet and a resume here is a lock screen or a call, not their answer.
-                // Settling on it would end the run under a dialog they are still looking at.
-                if (prompt == null) settleLadder(fromResume = true)
-                // Doze can hold the pause wake for minutes; opening the app closes a track whose
-                // resume window has already passed, so the timeline isn't stale on arrival.
-                LocationRecordingService.instance?.finalizeExpiredPause()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    // Turning the recorder on is the one intention every permission here follows from, so it is
-    // where the asking starts. Turning it off is never anything but that.
-    val toggleAuto = { enabled: Boolean ->
-        when {
-            !enabled -> {
-                autoOn = false
-                LocationRecordingService.stop(context)
-            }
-            setup.complete -> arm()
-            else -> ladder.start(setup, askFromLadder)
-        }
-    }
-    // Reconcile persisted "armed" state with the actual service: if auto-recording is on but
-    // the service isn't running (e.g. after a reinstallation or being killed), restart it so the UI
-    // doesn't get stuck on "Starting…".
-    // Off the apply path for the same reason the ladder's settling is: starting the service
-    // commits the armed flag to disk synchronously.
-    LaunchedEffect(setup.complete) {
-        val armedAndPermitted = autoOn && setup.complete
-        if (armedAndPermitted && !LocationRecordingService.isRunning) {
-            LocationRecordingService.start(context)
-        }
-    }
 
     // Full-screen pages stack above the tabs as overlay layers, each animated in on open and
     // scaled/shifted by the predictive back gesture (Android 14+), previewing what's underneath.
@@ -563,8 +420,8 @@ private fun MainScreen(
             Box(modifier = Modifier.fillMaxSize().padding(inner)) {
                 when (selectedTab) {
                     HomeTab.RECORD -> RecordTab(
-                        setup = setup,
-                        autoOn = autoOn,
+                        setup = setup.state,
+                        autoOn = setup.autoOn,
                         charging = charging,
                         keepScreenOn = keepScreenOn,
                         onToggleKeepScreenOn = { enabled ->
@@ -572,8 +429,8 @@ private fun MainScreen(
                             AppSettings.setKeepScreenOnCharging(context, enabled)
                         },
                         viewModel = viewModel,
-                        onGrantSetupStep = grantSetupStep,
-                        onToggleAuto = toggleAuto,
+                        onGrantSetupStep = setup::grant,
+                        onToggleAuto = setup::toggleAuto,
                     )
 
                     HomeTab.TRACKS -> TracksTab(
@@ -690,32 +547,18 @@ private fun MainScreen(
             onOpenPlace = { placeDetailKey = it },
         )
 
-        // Dismissing any of these leaves nothing to answer for the step, so a run waiting on one
-        // would hang — every branch ends the run rather than each remembering to.
-        val dismissPrompt = {
-            prompt = null
-            ladder.cancel()
-        }
-        when (val open = prompt) {
+        when (val open = setup.prompt) {
             null -> Unit
             is SetupPrompt.AllTimeLocation -> BackgroundLocationDisclosure(
-                onContinue = {
-                    prompt = null
-                    // The list this prompt was raised with, which is the list already recorded as
-                    // asked — spelling the permission again here is how those two come apart.
-                    requestPermissions.launch(open.permissions.toTypedArray())
-                },
-                onDismiss = dismissPrompt,
+                onContinue = setup::answerPrompt,
+                onDismiss = setup::dismissPrompt,
             )
 
             is SetupPrompt.Blocked -> BlockedStepDialog(
                 step = open.step,
-                bodyRes = open.step.bodyRes(setup),
-                onOpenSettings = {
-                    prompt = null
-                    context.openAppSettings()
-                },
-                onDismiss = dismissPrompt,
+                bodyRes = open.step.bodyRes(setup.state),
+                onOpenSettings = setup::answerPrompt,
+                onDismiss = setup::dismissPrompt,
             )
         }
     }
