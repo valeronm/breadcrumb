@@ -328,13 +328,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * activity it detects and settles the edges when it finishes.
      */
     suspend fun setActivityType(trackId: Long, activityType: ActivityType) {
-        val track = dao.track(trackId) ?: return
-        val retuned = settler.tuningChanges(from = track.activityType, to = activityType)
-        // An unreadable stored activity has no ceiling to compare against, so nothing is withdrawn.
-        val wasType = ActivityType.ofName(track.activityType)
-        val raised = wasType != null &&
-            TrackQuality.jumpCeiling(activityType) > TrackQuality.jumpCeiling(wasType)
         db.withTransaction {
+            val track = dao.track(trackId) ?: return@withTransaction
+            val retuned = settler.tuningChanges(from = track.activityType, to = activityType)
+            // An unreadable stored activity has no ceiling to compare against, so nothing is withdrawn.
+            val wasType = ActivityType.ofName(track.activityType)
+            val raised = wasType != null &&
+                TrackQuality.jumpCeiling(activityType) > TrackQuality.jumpCeiling(wasType)
             dao.setActivityType(trackId, activityType.name)
             val endedAt = track.endedAt ?: return@withTransaction
             if (!retuned && !raised) return@withTransaction
@@ -477,12 +477,17 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         return db.withTransaction {
             val earlier = dao.track(earlierId) ?: return@withTransaction null
             val later = dao.track(laterId) ?: return@withTransaction null
+            // The merged row copies these two columns from one side, so [TrackMerge.plan]'s
+            // refusals are re-checked against the rows as they are now, not as the offer saw them.
+            if (earlier.activityType != later.activityType || earlier.source != later.source) {
+                return@withTransaction null
+            }
             val mergedId = dao.insertTrack(
                 Track(
-                    activityType = earlier.activityType, // == later's (the merge condition)
+                    activityType = earlier.activityType,
                     startedAt = earlier.startedAt,
                     endedAt = later.endedAt ?: later.startedAt,
-                    source = earlier.source, // likewise — TrackMerge refuses across writers
+                    source = earlier.source,
                 ),
             )
             dao.copyPointsInto(mergedId, earlierId)

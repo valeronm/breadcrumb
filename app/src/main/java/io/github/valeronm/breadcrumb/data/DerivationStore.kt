@@ -6,6 +6,7 @@ import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.ClusterMember
 import io.github.valeronm.breadcrumb.data.db.DerivedCluster
 import io.github.valeronm.breadcrumb.data.db.DerivedInterval
+import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
@@ -209,7 +210,8 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         var changed = false
         val orphaned = seeded.filterKeys { it !in kept }.map { (_, cluster) -> cluster.id }
         if (orphaned.isNotEmpty()) {
-            derived.deleteClusters(orphaned)
+            // Chunked because nothing bounds it: every named place deleted since the last pass is here.
+            orphaned.chunked(IDS_PER_STATEMENT).forEach { derived.deleteClusters(it) }
             changed = true
         }
         for (place in rows) {
