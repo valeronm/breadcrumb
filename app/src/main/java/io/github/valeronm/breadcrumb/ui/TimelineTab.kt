@@ -243,12 +243,25 @@ internal fun TimelineTab(
         AppSettings.setTimelineViewMap(context, selected == TimelinePage.MAP)
     }
 
-    // A landing is the list's to consume — its effects only run while the list is composed, so a
-    // request arriving while the map is showing would otherwise wait forever. Straight to the
-    // list rather than through [switchTo]: the request carries its own destination, and the map's
-    // parting day would race it.
+    // The tab's half of a landing, taken before either view sees it and total over the kinds, so
+    // which view a request is bound for is settled in one place. A Visit or a Day is the list's to
+    // consume — its effects only run while the list is composed, so a request arriving while the
+    // map is showing would otherwise wait forever; straight to the list rather than through
+    // [switchTo], since the request carries its own destination and the map's parting day would
+    // race it. Home is the open tab tapped again, and the list answers it by running itself to its
+    // top, leaving only the map's home — today — to be answered here, where the showing view is
+    // known. [mapOpenedOn] deliberately stays put: home means today on both views, so a later
+    // return to the list should land there too.
     SideEffect(jump) {
-        if (jump is TimelineJump.Visit || jump is TimelineJump.Day) page = TimelinePage.LIST
+        when (jump) {
+            is TimelineJump.Visit, is TimelineJump.Day -> page = TimelinePage.LIST
+            TimelineJump.Home ->
+                if (page == TimelinePage.MAP) {
+                    mapDay = LocalDate.now(timelineZone())
+                    onJumpShown()
+                }
+            null -> Unit
+        }
     }
 
     // The journey context both views draw — which days sit inside a trip, and where. Derived at
@@ -256,17 +269,6 @@ internal fun TimelineTab(
     // index per switch (the reasoning PlacesTab keeps for its map dots).
     val travels by viewModel.travels.collectAsStateWithLifecycle()
     val awayDays = remember(travels) { awayDaysOf(travels.orEmpty(), timelineZone()) }
-
-    // Re-tapping the open tab is "go home" on either view. The list, composed, runs itself to its
-    // top; the map's home is today, answered here because only the tab knows which view is up.
-    // [mapOpenedOn] deliberately stays put: home means today on both views, so a later return to
-    // the list should land there too.
-    SideEffect(jump) {
-        if (jump == TimelineJump.Home && page == TimelinePage.MAP) {
-            mapDay = LocalDate.now(timelineZone())
-            onJumpShown()
-        }
-    }
 
     // Each view keeps its state across switches — above all the list's scroll position, which is
     // what makes "only if the map moved" above worth deciding.
@@ -1514,4 +1516,4 @@ private fun GapPlaceLine(
 
 @Composable
 @ReadOnlyComposable
-private fun visitCountLabel(n: Int): String = pluralStringResource(R.plurals.place_visits, n, n)
+private fun visitCountLabel(n: Int): String = pluralStringResource(R.plurals.timeline_visits, n, n)

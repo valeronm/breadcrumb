@@ -64,10 +64,10 @@ import io.github.valeronm.breadcrumb.domain.MonthTotals
 import io.github.valeronm.breadcrumb.domain.MonthlyTotals
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.util.PerLocale
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
-import java.util.Locale
 
 /**
  * What the history adds up to, as against what happened on a given day — the Timeline's question is
@@ -264,16 +264,20 @@ internal fun travelSubtitle(days: List<LocalDate>, today: LocalDate, nightCount:
  */
 internal fun dateRange(from: LocalDate, to: LocalDate, today: LocalDate): String {
     val thisYear = from.year == today.year && to.year == today.year
-    val skeleton = if (thisYear) "dMMMM" else "dMMMMy"
+    val format = if (thisYear) journeyRangeFormat else journeyRangeYearFormat
     // The interval formatter reads its instants on the system zone, so they are built on it.
     val zone = ZoneId.systemDefault()
-    return DateIntervalFormat.getInstance(skeleton, Locale.getDefault()).format(
+    return format.format(
         DateInterval(
             from.atStartOfDay(zone).toInstant().toEpochMilli(),
             to.atStartOfDay(zone).toInstant().toEpochMilli(),
         ),
     )
 }
+
+private val journeyRangeFormat by PerLocale { DateIntervalFormat.getInstance("dMMMM", it) }
+
+private val journeyRangeYearFormat by PerLocale { DateIntervalFormat.getInstance("dMMMMy", it) }
 
 /**
  * One month read against the year behind it: how far each activity carried the user, and how long

@@ -106,13 +106,9 @@
     <!-- List rows -->
     <string name="place_detected_stop">Detected stay</string>
     <string name="place_no_visits">No visits yet</string>
-    <!-- The row subtitle's count, apart from `place_visits`: a language may count a row's visits
-         with a different word than the timeline's (Russian says "раз" here). -->
+    <!-- The row subtitle's count, apart from the timeline's `timeline_visits`: a language may
+         count a row's visits with a different word than a stay's (Russian says "раз" here). -->
     <plurals name="place_row_visits">
-        <item quantity="one">%d visit</item>
-        <item quantity="other">%d visits</item>
-    </plurals>
-    <plurals name="place_visits">
         <item quantity="one">%d visit</item>
         <item quantity="other">%d visits</item>
     </plurals>

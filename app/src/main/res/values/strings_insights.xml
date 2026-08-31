@@ -52,7 +52,7 @@
     <!--
       How many separate visits the month's hours at one kind of place were spread over — a count of
       occasions, which is why Russian words it as `place_row_visits` does rather than as
-      `place_visits`. Authored here rather than shared with the Places tab's own count: the prefixes
+      `timeline_visits`. Authored here rather than shared with the Places tab's own count: the prefixes
       are what keep each screen's wording its own, so a rewording there cannot silently reword this.
     -->
     <plurals name="insights_stats_visits">

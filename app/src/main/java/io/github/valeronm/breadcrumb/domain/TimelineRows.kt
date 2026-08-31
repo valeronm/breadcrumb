@@ -4,12 +4,6 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import java.time.Instant
 import java.time.ZoneId
 
-/**
- * The timeline's rows, cut from what [StayDeriver] derived: intervals sliced at local midnights so
- * each piece files under one day, and those pieces merged with the tracks into one list. Nothing
- * here decides where anyone was — that is the derivation's — only how what it decided is laid out
- * by day.
- */
 /** The clock each end of a span ran on — a track or an unrecorded absence can cross a border. */
 data class Clocks(val start: ZoneId, val end: ZoneId) {
     companion object {
@@ -18,6 +12,12 @@ data class Clocks(val start: ZoneId, val end: ZoneId) {
     }
 }
 
+/**
+ * The timeline's rows, cut from what [StayDeriver] derived: intervals sliced at local midnights so
+ * each piece files under one day, and those pieces merged with the tracks into one list. Nothing
+ * here decides where anyone was — that is the derivation's — only how what it decided is laid out
+ * by day.
+ */
 object TimelineRows {
 
     /**

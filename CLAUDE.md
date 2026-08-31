@@ -230,7 +230,7 @@ The pieces below only make sense together — read them as a unit.
 **Recording pipeline** (`location/`):
 - `LocationRecordingService` is the core. It's a started **foreground service** (type `location`)
   that requests raw platform GPS, owns the current `Track`, and is the single source of
-  truth for recording. A `@Volatile companion instance` (plus `activeTrackId`, `isRunning`) lets other
+  truth for recording. A `@Volatile companion instance` (plus `isRunning`) lets other
   components talk to the live service **directly within the process** — this deliberately avoids
   Android 12+ background-FGS-start restrictions. A broadcast hands work to the live instance; it
   never starts one, with a single exception: the watchdog's self-heal below, which is legal only

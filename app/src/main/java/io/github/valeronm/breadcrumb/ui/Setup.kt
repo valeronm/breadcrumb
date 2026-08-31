@@ -200,7 +200,7 @@ internal data class SetupState(
 }
 
 /** Reads every requirement's current state off the platform. */
-internal fun setupState(context: Context): SetupState {
+private fun setupState(context: Context): SetupState {
     val state = SetupState(
         locationOk = context.locationGranted(),
         backgroundOk = context.backgroundGranted(),
@@ -256,7 +256,7 @@ internal sealed interface SetupPrompt {
  * that ask moved something, so the run carries on and puts the second half up. What is left over is
  * shown by [SetupCard], whose own buttons ask for a single step and start no run.
  */
-internal class SetupLadder {
+private class SetupLadder {
     /** The step waiting on the reader, or null when no run is in progress. */
     var current by mutableStateOf<SetupStep?>(null)
         private set

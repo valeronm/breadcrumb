@@ -51,4 +51,11 @@
     <string name="timeline_gap_lasting">нет записи · %1$s</string>
     <string name="timeline_gap_from">нет записи · с %1$s</string>
     <string name="timeline_gap_until">нет записи · до %1$s</string>
+
+    <plurals name="timeline_visits">
+        <item quantity="one">%d посещение</item>
+        <item quantity="few">%d посещения</item>
+        <item quantity="many">%d посещений</item>
+        <item quantity="other">%d посещения</item>
+    </plurals>
 </resources>

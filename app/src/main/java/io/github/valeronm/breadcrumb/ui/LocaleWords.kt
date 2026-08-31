@@ -91,7 +91,7 @@ internal val compactDayFormat by PerLocale { localizedDateFormat("dMMM", it) }
 
 internal val compactDayYearFormat by PerLocale { localizedDateFormat("dMMMy", it) }
 
-internal val fullDayFormat by PerLocale { localizedDateFormat("dMMMM", it) }
+private val fullDayFormat by PerLocale { localizedDateFormat("dMMMM", it) }
 
 private val fullDayYearFormat by PerLocale { localizedDateFormat("dMMMMy", it) }
 

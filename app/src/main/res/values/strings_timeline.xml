@@ -72,4 +72,12 @@
     <string name="timeline_gap_lasting">missing recording · %1$s</string>
     <string name="timeline_gap_from">missing recording · from %1$s</string>
     <string name="timeline_gap_until">missing recording · until %1$s</string>
+
+    <!-- A stay row's visit count. Worded here rather than shared with the Places tab's own count:
+         the prefixes are what keep each screen's wording its own, and a language may count a place
+         row's visits with a different word (Russian says "раз" there). -->
+    <plurals name="timeline_visits">
+        <item quantity="one">%d visit</item>
+        <item quantity="other">%d visits</item>
+    </plurals>
 </resources>

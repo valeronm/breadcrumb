@@ -143,8 +143,8 @@ interface TrackDao {
     @Query("SELECT * FROM track_points WHERE trackId = :trackId ORDER BY timestamp ASC, id ASC")
     suspend fun allPointsFor(trackId: Long): List<TrackPoint>
 
-    /** Every point of several tracks at once, in track then time order. Callers must chunk:
-     *  SQLite binds at most 999 variables per statement. */
+    /** Every point of several tracks at once, in track then time order. Callers must chunk by
+     *  [IDS_PER_STATEMENT]. */
     @Query("SELECT * FROM track_points WHERE trackId IN (:trackIds) ORDER BY trackId, timestamp ASC, id ASC")
     suspend fun pointsForTracks(trackIds: List<Long>): List<TrackPoint>
 
@@ -156,8 +156,7 @@ interface TrackDao {
     @Query("UPDATE track_points SET ignored = 1, ignoreReason = :reason WHERE id = :pointId")
     suspend fun setIgnored(pointId: Long, reason: String)
 
-    /** As above for a whole set at once. Callers must chunk: SQLite binds at most 999 variables
-     *  per statement. */
+    /** As above for a whole set at once. Callers must chunk by [IDS_PER_STATEMENT]. */
     @Query("UPDATE track_points SET ignored = 1, ignoreReason = :reason WHERE id IN (:pointIds)")
     suspend fun setIgnored(pointIds: List<Long>, reason: String)
 

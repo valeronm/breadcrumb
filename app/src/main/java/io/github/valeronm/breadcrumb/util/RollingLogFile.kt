@@ -23,17 +23,15 @@ class RollingLogFile(dir: File, private val maxFileBytes: Long = MAX_FILE_BYTES)
     private val active = File(dir, ACTIVE_NAME)
     private val rolled = File(dir, ROLLED_NAME)
     private var writer: Writer? = null
-    private var activeBytes = 0L
 
     fun append(line: String) {
         val out = writer ?: open()
         out.write(line)
         out.write("\n")
         out.flush()
-        // The file is the authority here as in [open]: a second count of what the writer's
-        // encoding emits would be an agreement nothing checks.
-        activeBytes = active.length()
-        if (activeBytes > maxFileBytes) roll()
+        // The file is the authority: a second count of what the writer's encoding emits would be an
+        // agreement nothing checks, and it would have to survive a process restart to mean anything.
+        if (active.length() > maxFileBytes) roll()
     }
 
     /**
@@ -54,14 +52,10 @@ class RollingLogFile(dir: File, private val maxFileBytes: Long = MAX_FILE_BYTES)
         writer = null
         active.delete()
         rolled.delete()
-        activeBytes = 0L
     }
 
     private fun open(): Writer {
         active.parentFile?.mkdirs()
-        // Sized from the file rather than remembered: the process restarts more often than the
-        // log rolls, and appending resumes wherever the last life stopped.
-        activeBytes = active.length()
         val out = OutputStreamWriter(FileOutputStream(active, true), Charsets.UTF_8)
         writer = out
         return out
@@ -72,7 +66,6 @@ class RollingLogFile(dir: File, private val maxFileBytes: Long = MAX_FILE_BYTES)
         writer = null
         rolled.delete()
         active.renameTo(rolled)
-        activeBytes = 0L
     }
 
     companion object {

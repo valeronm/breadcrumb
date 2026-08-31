@@ -36,10 +36,6 @@
         <item quantity="one">%d visita</item>
         <item quantity="other">%d visitas</item>
     </plurals>
-    <plurals name="place_visits">
-        <item quantity="one">%d visita</item>
-        <item quantity="other">%d visitas</item>
-    </plurals>
 
     <string name="places_view_map">Mapa</string>
     <string name="places_view_list">Lista</string>

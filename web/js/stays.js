@@ -7,7 +7,7 @@
 // The rules are the app's, restated once here because a viewer that
 // reads the same history a second way is worse than one that doesn't read it at all; one
 // presentation rule is ported too, being a rule about the data and not about pixels: which
-// clusters are worth drawing (`mapVisiblePlaces`, from PlacesScreens.kt). Every constant below
+// clusters are worth drawing (`mapVisible`, from PlacesTab.kt). Every constant below
 // names its Kotlin counterpart, so changing a threshold in the app turns up this file in a grep
 // for the symbol — the only thing standing between the two copies and silent drift.
 // Pure ES module — the viewer imports it, node tests drive it directly with a stubbed distance.

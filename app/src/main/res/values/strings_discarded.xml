@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- DiscardedScreens: Settings → Recently deleted. -->
+<!-- DiscardedTracksScreen: Settings → Recently deleted. -->
 <resources>
     <string name="discarded_title">Recently deleted</string>
     <string name="discarded_title_count">Recently deleted (%1$d)</string>

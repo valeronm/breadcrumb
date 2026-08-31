@@ -86,10 +86,4 @@
         <item quantity="many">%d раз</item>
         <item quantity="other">%d раза</item>
     </plurals>
-    <plurals name="place_visits">
-        <item quantity="one">%d посещение</item>
-        <item quantity="few">%d посещения</item>
-        <item quantity="many">%d посещений</item>
-        <item quantity="other">%d посещения</item>
-    </plurals>
 </resources>
