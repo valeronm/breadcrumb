@@ -91,10 +91,11 @@ build. No real history is ever shot.*
   truth. GPS runs only while moving.
 - Each trip is stored as one `Track` of `TrackPoint` rows in Room — the code keeps the name *track*
   for the stored path, which is why a hand-entered trip is a `Track` holding only its two ends.
-  Related activities (walking ⇄ running) share one, and a stop shorter than the resume window
-  stitches back into it instead of splitting. Those failing the configured keep-thresholds (e.g.
-  too few points) are discarded automatically, including any left dangling by a crash. A track's
-  distance and point counts live on its own row, so drawing the timeline never walks the points.
+  Related activities (walking ⇄ running) share one, and a stop shorter than the continuation
+  window stitches back into it instead of splitting. Those failing the configured keep-thresholds
+  (e.g. too few points) are discarded automatically, including any left dangling by a crash. A
+  track's distance and point counts live on its own row, so drawing the timeline never walks the
+  points.
 - Stays and places are derived from where consecutive trips begin and end. Named places persist and
   label the timeline; journeys are then read off the same derivation as runs of nights whose
   cluster is not one of your Home places.

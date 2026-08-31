@@ -10,12 +10,12 @@
     <string name="settings_sampling_sub">Com que densidade os pontos são gravados</string>
     <string name="settings_point_quality">Filtro de pontos</string>
     <string name="settings_point_quality_sub">Que pontos entram no trajeto</string>
-    <string name="settings_auto_pause">Pausa automática</string>
-    <string name="settings_auto_pause_sub">Até que intervalo dois movimentos ainda são uma viagem</string>
     <string name="settings_gps_search">Posicionamento</string>
     <string name="settings_gps_search_sub">Poupar bateria quando não há posição a obter</string>
     <string name="settings_departure_triggers">Início de uma viagem</string>
     <string name="settings_departure_triggers_sub">Como a aplicação percebe que partiu</string>
+    <string name="settings_trip_continuation">Continuação de uma viagem</string>
+    <string name="settings_trip_continuation_sub">Quanto pode durar uma paragem antes de o movimento seguinte ser outra viagem</string>
     <string name="settings_track_filtering">Filtragem de viagens</string>
     <string name="settings_track_filtering_sub">Limites abaixo dos quais as viagens terminadas são descartadas</string>
     <string name="settings_units">Unidades</string>
@@ -44,9 +44,6 @@
     <string name="quality_accuracy_description">Os pontos com precisão pior do que esta são marcados como ruidosos e excluídos</string>
     <string name="quality_max_accuracy">Raio máximo de precisão</string>
 
-    <string name="pause_description">Movimentos separados por menos do que isto são gravados como uma só viagem. Com Desligado, qualquer paragem separa-os.</string>
-    <string name="pause_resume_window">Janela para retomar</string>
-
     <string name="gps_description">Se não chegar nenhuma posição boa durante este tempo, o GPS desliga-se para poupar bateria — e volta a tentar quando se mexer ou quando outra aplicação obtiver uma localização. Com Desligado, o GPS nunca desiste.</string>
     <string name="gps_give_up_after">Desistir ao fim de</string>
 
@@ -57,6 +54,9 @@
     <string name="departure_motion_sub">Não custa nada até o telemóvel se mexer; depois verifica brevemente onde está.</string>
     <string name="departure_continuous">Verificação regular da posição</string>
     <string name="departure_continuous_sub">É a que percebe mais depressa. A única que gasta bateria enquanto não vai a lado nenhum.</string>
+
+    <string name="continuation_description">Movimentos separados por menos do que isto são gravados como uma só viagem. Com Desligado, qualquer paragem separa-os.</string>
+    <string name="continuation_window">Continuar dentro de</string>
 
     <string name="filter_description">As viagens abaixo destes limites passam para as eliminadas recentemente quando terminam</string>
     <string name="filter_min_duration">Duração mínima</string>

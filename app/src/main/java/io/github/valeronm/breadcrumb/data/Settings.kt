@@ -14,7 +14,10 @@ object Settings {
     private const val KEY_TRACK_MIN_DURATION_SEC = "track_min_duration_sec"
     private const val KEY_TRACK_MIN_LENGTH_M = "track_min_length_m"
     private const val KEY_TRACK_MIN_EXTENT_M = "track_min_extent_m"
-    private const val KEY_STITCH_RESUME_WINDOW_SEC = "stitch_resume_window_sec"
+
+    // The stored key keeps a word the app no longer uses; changing it resets every install's window.
+    private const val KEY_STITCH_WINDOW_SEC = "stitch_resume_window_sec"
+
     private const val KEY_ACCURACY_GATE_M = "accuracy_gate_m"
     private const val KEY_REQUIRE_GNSS_FIX = "require_gnss_fix"
     private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
@@ -55,7 +58,7 @@ object Settings {
     // Stitch: a stop closes the track, and movement returning in the same motion family within this
     // window records into that same row rather than opening a second one beside it (the resumed run
     // is a new GPX segment). Measured from the track's last point, not its stored end.
-    const val DEFAULT_STITCH_RESUME_WINDOW_SEC = 180 // 0 = always start a new track
+    const val DEFAULT_STITCH_WINDOW_SEC = 180 // 0 = always start a new track
 
     // Fixes whose reported accuracy radius is at least this (meters) are flagged noisy and excluded.
     const val DEFAULT_ACCURACY_GATE_M = 50
@@ -196,10 +199,10 @@ object Settings {
 
     /** Max stop duration (seconds) that keeps recording into the last track rather than a new one. */
     fun stitchWindowSec(context: Context): Int =
-        prefs(context).getInt(KEY_STITCH_RESUME_WINDOW_SEC, DEFAULT_STITCH_RESUME_WINDOW_SEC)
+        prefs(context).getInt(KEY_STITCH_WINDOW_SEC, DEFAULT_STITCH_WINDOW_SEC)
 
     fun setStitchWindowSec(context: Context, value: Int) {
-        prefs(context).edit { putInt(KEY_STITCH_RESUME_WINDOW_SEC, value) }
+        prefs(context).edit { putInt(KEY_STITCH_WINDOW_SEC, value) }
     }
 
     /** Accuracy radius (meters) at/above which a fix is flagged noisy and excluded from new tracks. */

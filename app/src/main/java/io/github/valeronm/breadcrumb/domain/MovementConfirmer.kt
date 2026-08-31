@@ -194,7 +194,7 @@ class MovementConfirmer(
         /**
          * The window a quick cadence uses. Long enough that anything on wheels or afloat covers far
          * more ground than an accepted fix's error budget, short enough that a genuine stop is
-         * reported well inside the recorder's own resume window.
+         * reported well inside the recorder's own stitch window.
          */
         private const val BASE_SPAN_MS = 20_000L
 

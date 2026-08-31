@@ -12,13 +12,13 @@
     <string name="settings_sampling_sub">How densely points are recorded</string>
     <string name="settings_point_quality">Point filter</string>
     <string name="settings_point_quality_sub">Which points make it into the track</string>
-    <string name="settings_auto_pause">Auto-pause</string>
-    <string name="settings_auto_pause_sub">How close together movements still count as one trip</string>
     <!-- Not "GPS positioning": the P already is. -->
     <string name="settings_gps_search">Positioning</string>
     <string name="settings_gps_search_sub">Save battery when no position can be found</string>
     <string name="settings_departure_triggers">Starting a trip</string>
     <string name="settings_departure_triggers_sub">How the app notices you have set off</string>
+    <string name="settings_trip_continuation">Continuing a trip</string>
+    <string name="settings_trip_continuation_sub">How long a stop can be before the next movement is a new trip</string>
     <string name="settings_track_filtering">Trip filtering</string>
     <string name="settings_track_filtering_sub">Limits below which finished trips are discarded</string>
     <string name="settings_units">Units</string>
@@ -51,10 +51,6 @@
     <string name="quality_accuracy_description">Points less accurate than this are marked noisy and excluded</string>
     <string name="quality_max_accuracy">Max accuracy radius</string>
 
-    <!-- Auto-pause -->
-    <string name="pause_description">Movements separated by less than this are recorded as one trip. When set to Off, every stop separates them.</string>
-    <string name="pause_resume_window">Resume window</string>
-
     <!-- GPS search -->
     <string name="gps_description">If no good position arrives for this long, GPS switches off to save battery — and retries when you move or another app gets a location. When set to Off, GPS never gives up.</string>
     <string name="gps_give_up_after">Give up after</string>
@@ -68,6 +64,10 @@
     <string name="departure_motion_sub">Costs nothing until the phone moves, then briefly checks where you are.</string>
     <string name="departure_continuous">Regular position checks</string>
     <string name="departure_continuous_sub">Notices soonest. The only one that uses battery while you are not going anywhere.</string>
+
+    <!-- Continuing a trip -->
+    <string name="continuation_description">Movements separated by less than this are recorded as one trip. When set to Off, every stop separates them.</string>
+    <string name="continuation_window">Continue within</string>
 
     <!-- Track filtering -->
     <string name="filter_description">Trips under these limits are moved to Recently deleted when they finish</string>

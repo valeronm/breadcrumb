@@ -6,7 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * The slot the arrival pause is decided by. The floor it waits is the resume window clamped up to
+ * The slot the arrival close is decided by. The floor it waits is the stitch window clamped up to
  * [ArrivalWatch.STANDSTILL_FLOOR_MS], and the window case pins the clamp at both ends: above it
  * the window is the wait, below it — zero included — the clamp is.
  *
@@ -25,7 +25,7 @@ class ArrivalWatchTest {
     private fun judge(
         motion: Motion,
         atMs: Long,
-        windowMs: Long = Settings.DEFAULT_STITCH_RESUME_WINDOW_SEC * 1000L,
+        windowMs: Long = Settings.DEFAULT_STITCH_WINDOW_SEC * 1000L,
     ) = watch.onMotion(motion, atMs, windowMs)
 
     @Test fun `a standstill fires once it has stood the floor, backdated to its start`() {
@@ -67,7 +67,7 @@ class ArrivalWatchTest {
         assertNull(judge(Motion.Unknown, T0 + 10 * clamp))
     }
 
-    @Test fun `the resume window stretches the wait upward but can never shrink it`() {
+    @Test fun `the stitch window stretches the wait upward but can never shrink it`() {
         val windowMs = 10 * MINUTE
         assertNull(judge(Motion.Stopped, T0, windowMs))
         assertNull(judge(Motion.Stopped, T0 + clamp, windowMs))

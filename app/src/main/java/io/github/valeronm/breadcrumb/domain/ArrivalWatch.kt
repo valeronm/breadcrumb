@@ -57,7 +57,7 @@ class ArrivalWatch {
     companion object {
         /**
          * The least standstill ground evidence can tell from a long red light — the clamp under
-         * the resume window, not the floor itself. The AR path can honor a short window safely
+         * the stitch window, not the floor itself. The AR path can honor a short window safely
          * because a body in a car at a light is still IN_VEHICLE; the ground has only duration to
          * separate a signal cycle from an arrival, so a window shorter than this (zero included,
          * which on the AR path means "always start a new track") must not be imported raw. Above

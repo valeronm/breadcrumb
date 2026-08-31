@@ -57,9 +57,9 @@ import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 internal enum class SettingsDestination {
     Sampling,
     PointQuality,
-    AutoPause,
     GpsSearch,
     DepartureTriggers,
+    TripContinuation,
     TrackFiltering,
     AppLock,
     OnlineServices,
@@ -108,12 +108,6 @@ internal fun SettingsScreen(
                 },
                 {
                     NavRow(
-                        stringResource(R.string.settings_auto_pause),
-                        subtitle = stringResource(R.string.settings_auto_pause_sub),
-                    ) { onOpenDestination(SettingsDestination.AutoPause) }
-                },
-                {
-                    NavRow(
                         stringResource(R.string.settings_gps_search),
                         subtitle = stringResource(R.string.settings_gps_search_sub),
                     ) { onOpenDestination(SettingsDestination.GpsSearch) }
@@ -123,6 +117,12 @@ internal fun SettingsScreen(
                         stringResource(R.string.settings_departure_triggers),
                         subtitle = stringResource(R.string.settings_departure_triggers_sub),
                     ) { onOpenDestination(SettingsDestination.DepartureTriggers) }
+                },
+                {
+                    NavRow(
+                        stringResource(R.string.settings_trip_continuation),
+                        subtitle = stringResource(R.string.settings_trip_continuation_sub),
+                    ) { onOpenDestination(SettingsDestination.TripContinuation) }
                 },
                 {
                     NavRow(
@@ -346,35 +346,6 @@ internal fun PointQualitySettingsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun AutoPauseSettingsScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    val stitchWindowSec = rememberPref(
-        AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
-        { AppSettings.stitchWindowSec(context) },
-    ) { AppSettings.setStitchWindowSec(context, it) }
-    SettingsSubScreen(
-        stringResource(R.string.settings_auto_pause),
-        onBack,
-        listOf(stitchWindowSec),
-    ) {
-        SettingsSubScreenDescription(stringResource(R.string.pause_description))
-        GroupedRows(
-            {
-                SliderSetting(
-                    stringResource(R.string.pause_resume_window),
-                    stitchWindowSec.value.toFloat(),
-                    0f..600f,
-                    60,
-                    { durationSettingLabel(it.toInt()) },
-                ) {
-                    stitchWindowSec.set(it.toInt())
-                }
-            },
-        )
-    }
-}
-
-@Composable
 internal fun GpsSearchSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val gpsGiveUpSec = rememberPref(
@@ -450,6 +421,35 @@ internal fun DepartureTriggersSettingsScreen(onBack: () -> Unit) {
                     checked = continuous.value,
                     onCheckedChange = { continuous.set(it) },
                 )
+            },
+        )
+    }
+}
+
+@Composable
+internal fun TripContinuationSettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val stitchWindowSec = rememberPref(
+        AppSettings.DEFAULT_STITCH_WINDOW_SEC,
+        { AppSettings.stitchWindowSec(context) },
+    ) { AppSettings.setStitchWindowSec(context, it) }
+    SettingsSubScreen(
+        stringResource(R.string.settings_trip_continuation),
+        onBack,
+        listOf(stitchWindowSec),
+    ) {
+        SettingsSubScreenDescription(stringResource(R.string.continuation_description))
+        GroupedRows(
+            {
+                SliderSetting(
+                    stringResource(R.string.continuation_window),
+                    stitchWindowSec.value.toFloat(),
+                    0f..600f,
+                    60,
+                    { durationSettingLabel(it.toInt()) },
+                ) {
+                    stitchWindowSec.set(it.toInt())
+                }
             },
         )
     }

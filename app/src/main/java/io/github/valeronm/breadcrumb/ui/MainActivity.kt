@@ -804,9 +804,9 @@ private fun SettingsDestinationsOverlay(
         when (rendered) {
             SettingsDestination.Sampling -> SamplingSettingsScreen(onBack = layer.dismiss)
             SettingsDestination.PointQuality -> PointQualitySettingsScreen(onBack = layer.dismiss)
-            SettingsDestination.AutoPause -> AutoPauseSettingsScreen(onBack = layer.dismiss)
             SettingsDestination.GpsSearch -> GpsSearchSettingsScreen(onBack = layer.dismiss)
             SettingsDestination.DepartureTriggers -> DepartureTriggersSettingsScreen(onBack = layer.dismiss)
+            SettingsDestination.TripContinuation -> TripContinuationSettingsScreen(onBack = layer.dismiss)
             SettingsDestination.TrackFiltering -> TrackFilteringSettingsScreen(onBack = layer.dismiss)
             SettingsDestination.AppLock -> AppLockSettingsScreen(onBack = layer.dismiss)
             SettingsDestination.OnlineServices -> OnlineServicesSettingsScreen(onBack = layer.dismiss)

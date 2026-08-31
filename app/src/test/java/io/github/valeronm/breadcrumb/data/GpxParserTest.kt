@@ -24,7 +24,7 @@ class GpxParserTest {
         val points = listOf(
             point(7, 0, 1_000_000),
             point(7, 1, 1_010_000),
-            point(7, 2, 1_050_000, segmentStart = true), // auto-pause resume → new <trkseg>
+            point(7, 2, 1_050_000, segmentStart = true), // a stitched resumption → new <trkseg>
             point(7, 3, 1_060_000),
         )
         val gpx = GpxExporter.buildGpx(track, points)
@@ -188,8 +188,8 @@ class GpxParserTest {
     }
 
     @Test fun `a segment break landing on the previous segment's last instant survives`() {
-        // Dedupe is per segment: the resume fix repeating the pause fix is a real break, not a
-        // repeat, and dropping it would lose the <trkseg> boundary.
+        // Dedupe is per segment: a fix repeating the one the previous segment ended on is a real
+        // break, not a repeat, and dropping it would lose the <trkseg> boundary.
         val gpx = """
             <gpx><trk>
               <trkseg>

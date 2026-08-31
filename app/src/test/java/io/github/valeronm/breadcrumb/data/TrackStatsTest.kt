@@ -92,12 +92,12 @@ class TrackStatsTest {
         assertEquals(2.0, stats.extentMeters, 0.0)
     }
 
-    @Test fun `the gap a segment start spans is counted - the recorder paused, the journey did not`() {
+    @Test fun `the gap a segment start spans is counted - the recorder stopped, the journey did not`() {
         val stats = TrackStats.of(
             listOf(
                 point(lat = 0.0),
                 point(lat = 1.0),
-                // Recording resumed a kilometer away after an auto-pause. Nothing teleports, so
+                // A stitched track: recording resumed a kilometer away. Nothing teleports, so
                 // that kilometer was covered — unwatched, but covered.
                 point(lat = 1000.0, segmentStart = true),
                 point(lat = 1002.0),

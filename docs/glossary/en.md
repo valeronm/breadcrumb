@@ -38,7 +38,7 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 
 | Concept | Term | What it means |
 |---|---|---|
-| stop | short stop (a timeline row) · stop (a halt while recording) | On the timeline, **a stay short enough that merging the trips either side absorbs it** — the row takes the name on exactly that test, `TrackMerge` would take it, so it names what can be undone about the row rather than how long it lasted, and it is always *short stop*. The auto-pause settings use the bare word for its plain sense, a halt while recording, which is what those pages are about. Bare "Stop" alone is the button that ends recording. |
+| stop | short stop (a timeline row) · stop (a halt while recording) | On the timeline, **a stay short enough that merging the trips either side absorbs it** — the row takes the name on exactly that test, `TrackMerge` would take it, so it names what can be undone about the row rather than how long it lasted, and it is always *short stop*. "Continuing a trip" uses the bare word for its plain sense, a halt while recording, which is what that page is about. Bare "Stop" alone is the button that ends recording. |
 | visit | visit | **A stay, seen from the place's side.** Not a second thing: the same afternoon is a *stay* on the timeline and a *visit* to the café, and the code counts visits by grouping stays. Use it only on Places surfaces — a timeline row is never called a visit, and a place's history is never called its stays. |
 
 ### A place
@@ -72,6 +72,7 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 |---|---|---|
 | recording | recording | The act and state of capturing trips — one of the ways a trip arrives, beside importing and typing one in. Never *tracking*. |
 | setting-off | set off | The moment a trip begins, **from the reader's side** — what the app is trying to notice, as opposed to *recording*, which is what it then does. Settings' page is "Starting a trip". Never named after a mechanism: no *geofence*, no *trigger*, no *sensor*, since a reader chooses between these by how soon a trip is noticed and what it costs them, and could act on none of the machinery. |
+| continuing | continue | Movement returning soon after a stop being recorded into the trip that just ended rather than a new one. Settings' page is "Continuing a trip", the pair to *setting-off*'s "Starting a trip". **No trip is ever said to pause or resume** — nothing is held open, the trip finished at the stop and reached the timeline with its figures, and what a later movement does is join that record or start another. The receiver is a different subject and may still pause ("GPS paused — it resumes when you move"). |
 | positioning | positioning | Working out where the phone is — the process, from switching the receiver on to accepting a point. Never *fix*, and never *signal*. |
 | backup | backup | The full-app export: one file with everything. |
 | search | search | The user typing a query (places, cities). The only search there is — what the receiver does is *positioning*. |

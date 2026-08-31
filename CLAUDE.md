@@ -569,10 +569,10 @@ one either — it is a reconciliation with no completion to record.
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places / Insights) Scaffold
 with full-screen **overlay** layers on top: sealed `MainDestination` (`TrackDetail` | `Settings`) plus
 stacked layers for place detail, journey detail (reached from the Insights tab or a Timeline band,
-keyed by the journey's first night), the Settings sub-screens (sampling, point filter, auto-pause, GPS
-search, track filtering, app lock, online services, Recently deleted, Logs), discarded-track detail,
-and the add-trip
-form (`AddTripScreen`, opened from the Timeline tab's top-bar "+" or from a gap row) — each
+keyed by the journey's first night), the Settings sub-screens (sampling, point filter, GPS search,
+starting a trip, continuing a trip, track filtering, app lock, online services, Recently deleted,
+Logs), discarded-track detail, and the add-trip form (`AddTripScreen`, opened from the Timeline
+tab's top-bar "+" or from a gap row) — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
 one layer at a time). **What that form opens holding is a `TripDraft`**, which is also the state
 saying it is open: a gap row hands over the ends *it* speaks for and no others — the same two
