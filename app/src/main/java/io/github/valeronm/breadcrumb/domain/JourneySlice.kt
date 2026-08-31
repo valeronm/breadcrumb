@@ -6,7 +6,7 @@ package io.github.valeronm.breadcrumb.domain
  * out.
  *
  * A bound the clamping moved clears its `holdsStart`/`holdsEnd` flag, exactly as
- * [StayDeriver.slicePerDay] stamps the bounds its own cuts put there — a clamped row states which
+ * [TimelineRows.slicePerDay] stamps the bounds its own cuts put there — a clamped row states which
  * of its bounds are the stay's own, the same way every other sliced row does.
  *
  * A track is kept whole or not at all: its distance is one measurement over the whole path, and a

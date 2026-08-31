@@ -96,7 +96,7 @@ class MonthReach(
  * A month's figures, summed over the **timeline's own rows** — the same rows the Timeline draws,
  * filed under the month each is filed under. That is what keeps the two surfaces from disagreeing
  * about which side of a boundary a night abroad fell on: the rows arrive already cut at midnight on
- * the clock they were lived in ([StayDeriver.slicePerDay]), so no interval straddles a month either.
+ * the clock they were lived in ([TimelineRows.slicePerDay]), so no interval straddles a month either.
  */
 object MonthlyTotals {
 

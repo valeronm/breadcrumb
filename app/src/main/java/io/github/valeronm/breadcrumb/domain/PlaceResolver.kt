@@ -8,7 +8,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
  * [PlaceClusterer.Cluster.seedIndex] identifies its place exactly — no distance matching, labels
  * can't silently detach. The [places] list must be the same list (same order) whose pins seeded
  * the derivation; organic clusters (null seedIndex) are unnamed. [resolveClusters] results are
- * indexed by cluster id, which [StayDeriver.slicePerDay]'s copies preserve on each stay — so
+ * indexed by cluster id, which [TimelineRows.slicePerDay]'s copies preserve on each stay — so
  * resolution runs once over the unsliced stays and consumers look it up per interval. Above that
  * sit two readings of the same resolution: [summarize] (one row per place for the screens that
  * list them) and [neighborhood] (one place with its surroundings prepared for the clusterer's

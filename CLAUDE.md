@@ -291,7 +291,9 @@ and UI stay thin by delegating here. `TrackController` (track lifecycle state ma
 pause/resume window), `ActivityGate` (signal filter) / `ActivityInterpreter` (transition
 interpretation), `ReadingClock` (event-time gating of activity readings), `NoFixGuard` (give up when
 GPS can't get a fix), `KeepRule`, `TrackMerge` (merge short same-activity stays), `StayDeriver` +
-`PlaceClusterer` + `PlaceResolver` (timeline stays and named places), `DwellDetector` (in-track stop
+`PlaceClusterer` + `PlaceResolver` (timeline stays and named places), `TimelineRows` (the derived
+intervals cut at local midnights and interleaved with the tracks into the day list),
+`DwellDetector` (in-track stop
 detection — a read-only track-detail overlay, and stage 1 of the edge-stay rule below, which passes
 its own tuning; splitting tracks at a *detected* stop is designed but not
 built — the user's own cut ships), `EdgeStayDetector` (the recorder's overrun at a track's edges, where Activity
@@ -345,8 +347,8 @@ auto-pause resume window, the GPS give-up timeout, and keep-track
 thresholds (min duration/length/extent). It also holds recorder bookkeeping that isn't a user
 setting at all: when the recorder was last disarmed (the instant the timeline's trailing stay
 closes at), which permissions this install has ever put a dialog up for,
-and the two sweep rule versions (edge stays, track stats)
-that are what make `App.onCreate` re-derive the whole history. Sampling is read by the service when
+and the versions `App.onCreate` records (edge stays, track stats, derived logic)
+that are what make it re-derive the whole history. Sampling is read by the service when
 each track's GPS request starts; keep thresholds by the repository when a track finishes.
 `ActivityType` therefore only carries a label, a `recording` boolean, and a `TrackGroup`; sampling
 cadence is global.
@@ -620,7 +622,7 @@ platform's own asking takes over, it is also where the reader is told which opti
 **A permission refused twice can no longer be asked for**, which `Settings.askedPermissions` is what
 detects — `shouldShowRequestPermissionRationale` answers false both for that and for a permission
 never asked, and only the recorded ask separates them. **Asking for a blocked step *is* opening
-settings** — one definition (`grantSetupStep`) both surfaces reach, since a card that offers "Open
+settings** — one definition (`RecorderSetup.grant`) both surfaces reach, since a card that offers "Open
 settings" while the toggle fires a request Android stopped taking leaves one control silently doing
 nothing. `SetupStep.answersOnResume` follows from the same fact, a blocked step answering on the
 resume from settings rather than through a dialog.
@@ -658,17 +660,18 @@ the requests up. The card yields to a live recording, which can only outlive set
 being revoked mid-track, and a track being drawn outranks the notice about it. Nothing else about
 setup exists: no page, no first-run flow, and so no flag recording that one was seen.
 
-The Compose code is split one file per screen, all in the `ui` package:
-`MainActivity.kt` keeps only the activity, navigation and overlay machinery; the screens live in
-`RecordTab`/`TimelineTab`/`InsightsTab`/`TrackDetailScreen`/`SettingsScreens`/
-`DiscardedScreens`, with the Places surfaces across `PlacesTab`, `PlaceDetailScreen`,
-`PlaceEditScreen` and `PlaceCategoryPicker`; the shared widgets split by kind — generic chrome in `Components.kt`, the
-settings rows in `SettingsWidgets.kt`, list rows and discs in `ListRows.kt`, dialogs in
-`Dialogs.kt`, the fast scroller in `FastScroller.kt`, the categorical palettes in `Palette.kt`,
-locale-decided words (dates, months, countries) in `LocaleWords.kt` and the zone-shift time marks
-in `TimeMarks.kt`; the recorder's setup
-model and its card in `Setup.kt` (no screen of its own — see above), and the color-ramp/
-legend code in `TrackColoring.kt` (cross-file symbols are `internal`, not `private`), and the
+The Compose code lives in the `ui` package, one file per screen named for its composable
+(`RecordTab`, `PlaceEditScreen`, …) and the shared pieces split by kind — so a file is found by
+its name, and only the placements that were decisions are worth stating. `MainActivity.kt` keeps
+the activity, navigation and layer wiring, while the overlay-stack machinery itself is
+`OverlayLayer.kt`; the timeline's state holder is `TrackListViewModel.kt`, with the GPX/backup
+transfer kept beside it in `ImportExportController.kt` rather than inside it; the recorder's setup
+model and its card share `Setup.kt` (no screen of its own — see above); the map stack hangs off
+`MapSurface.kt` (the styled map and `frameTo`); and the color-ramp/legend code is
+`TrackColoring.kt` (cross-file symbols are `internal`, not `private`). The widget kinds: generic
+chrome in `Components.kt`, settings rows in `SettingsWidgets.kt`, list rows and discs in
+`ListRows.kt`, dialogs in `Dialogs.kt`, categorical palettes in `Palette.kt`, locale-decided words
+(dates, months, countries) in `LocaleWords.kt`, zone-shift time marks in `TimeMarks.kt` and the
 duration ladder in `DurationFormat.kt`. **No top-level `val` in these files may reach the Android
 framework eagerly** — Kotlin compiles them into one class initializer per file, so a single eager
 `android.graphics` call makes *every* pure function in that file unloadable from a plain JVM test,
@@ -853,8 +856,8 @@ why the workflow is the only thing standing between a forgotten bump and Play.
   re-run, never the generated file; `SeededSchemeTest` fails if a role goes unstated. The generator
   needs `materialyoucolor`, which is deliberately not a dependency of anything the build runs.
 - **Frame the map with `moveCamera`, not `easeCamera`** — a map opens already fitted, never
-  animating in, and framing runs once per map instance. `fitCamera` in `MapLibreTrackMap` has the
-  live preview's re-frame rule.
+  animating in, and framing runs once per map instance. `frameTo` in `MapSurface.kt` does the
+  fitting; `MapLibreTrackMap` carries the live preview's re-frame rule.
 - **Never resize a `MapView` — give each screen its own.** A resized texture map stretches its last
   frame (a pin becomes an oval) and nothing fixes it from inside a shared map; two screens that want
   the map at different sizes are two layers with a map each, and the fresh camera is the point
