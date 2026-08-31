@@ -57,12 +57,14 @@ object TrackMerge {
      */
     fun plansByAnchor(
         intervals: List<StayDeriver.Interval>,
-        neighbors: Map<Long, Pair<TrackSummary, TrackSummary>>,
+        neighbors: Map<Long, Neighbors>,
     ): Map<Long, Plan> = buildMap {
         for (interval in intervals) {
             val anchor = interval.afterTrackId
-            val (before, after) = neighbors[anchor] ?: continue
-            plan(before, after, interval.start, interval.end)?.let { put(anchor, it) }
+            val n = neighbors[anchor] ?: continue
+            plan(n.before, n.after, interval.start, interval.end)?.let { put(anchor, it) }
         }
     }
+
+    data class Neighbors(val before: TrackSummary, val after: TrackSummary)
 }

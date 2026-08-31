@@ -68,6 +68,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
@@ -118,10 +119,11 @@ internal fun TrackMapScreen(
     // Seeded with the reader's until the derivation answers — a track that never left home is
     // already right, and one that did corrects itself in the time the query takes.
     val reader = timelineZone()
-    val zones by produceState(reader to reader, trackId) {
+    val zones by produceState(Clocks.both(reader), trackId) {
         value = viewModel.zonesOfTrack(trackId)
     }
-    val (startZone, endZone) = zones
+    val startZone = zones.start
+    val endZone = zones.end
     val points = trackPoints?.good
     val noisyPoints = trackPoints?.noisy
     val stayPoints = trackPoints?.edgeStay.orEmpty()

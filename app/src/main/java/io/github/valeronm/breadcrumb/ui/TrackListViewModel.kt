@@ -19,6 +19,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.CityAtlas
+import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.MonthTotals
 import io.github.valeronm.breadcrumb.domain.MonthlyTotals
@@ -132,15 +133,15 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         /** Each track's two ends, on their own clocks — a track can cross a border. */
-        private val zonesByTrack: Map<Long, Pair<ZoneId, ZoneId>> by lazy {
+        private val zonesByTrack: Map<Long, Clocks> by lazy {
             val zoneAt = { at: Coordinate? -> zoneOfCluster(at?.let(clusterOfEndpoint::get)) }
-            tracks.associate { it.trackId to (zoneAt(it.start) to zoneAt(it.end)) }
+            tracks.associate { it.trackId to Clocks(zoneAt(it.start), zoneAt(it.end)) }
         }
 
         fun zoneOfCluster(id: Int?): ZoneId = id?.let(zoneByCluster::getOrNull) ?: timelineZone()
 
-        fun zonesOfTrack(trackId: Long): Pair<ZoneId, ZoneId> =
-            zonesByTrack[trackId] ?: (timelineZone() to timelineZone())
+        fun zonesOfTrack(trackId: Long): Clocks =
+            zonesByTrack[trackId] ?: Clocks.both(timelineZone())
     }
 
     /** The places table, read once for every reader below rather than observed per consumer. */
@@ -284,7 +285,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         // returns newest first, so chronological order is a reversed *view*: no re-sort of the
         // whole history on every emission.
         val neighbors = summaries.asReversed().zipWithNext()
-            .associate { (a, b) -> a.id to (a to b) }
+            .associate { (a, b) -> a.id to TrackMerge.Neighbors(a, b) }
 
         // Stays and short gaps merge on the same rule, decided over the intervals as derived —
         // the rows below are per-day slices, whose bounds are the display's, not the stop's.
@@ -296,9 +297,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val zoneOfCluster = { id: Int? -> d.zoneOfCluster(id) }
         val zonesOfInterval = { interval: StayDeriver.Interval ->
             when (interval) {
-                is StayDeriver.Stay -> zoneOfCluster(interval.clusterId).let { it to it }
+                is StayDeriver.Stay -> Clocks.both(zoneOfCluster(interval.clusterId))
                 is StayDeriver.Gap ->
-                    zoneOfCluster(interval.fromClusterId) to zoneOfCluster(interval.toClusterId)
+                    Clocks(zoneOfCluster(interval.fromClusterId), zoneOfCluster(interval.toClusterId))
             }
         }
         TimelineRows.interleave(
@@ -306,8 +307,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             TimelineRows.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
         ).mapNotNull { item ->
             when (item) {
-                is TimelineItem.TrackItem -> d.zonesOfTrack(item.summary.id).let { (from, to) ->
-                    item.copy(zone = from, endZone = to)
+                is TimelineItem.TrackItem -> d.zonesOfTrack(item.summary.id).let {
+                    item.copy(zone = it.start, endZone = it.end)
                 }
                 // The zones already rode in on the slice; only what the places table says is added.
                 is TimelineItem.GapItem -> item.copy(
@@ -719,7 +720,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * the derivation never saw — a discarded one, which the endpoint query filters out — answers
      * with the device's clock, which is the right answer rather than a missing one.
      */
-    suspend fun zonesOfTrack(trackId: Long): Pair<ZoneId, ZoneId> = derived.first().zonesOfTrack(trackId)
+    suspend fun zonesOfTrack(trackId: Long): Clocks = derived.first().zonesOfTrack(trackId)
 
     /**
      * Which city a coordinate sits in — the containing one, so a place inside a capital says the

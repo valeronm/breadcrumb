@@ -10,6 +10,14 @@ import java.time.ZoneId
  * here decides where anyone was — that is the derivation's — only how what it decided is laid out
  * by day.
  */
+/** The clock each end of a span ran on — a track or an unrecorded absence can cross a border. */
+data class Clocks(val start: ZoneId, val end: ZoneId) {
+    companion object {
+        /** Both ends on one clock — a stay sits in a single place. */
+        fun both(zone: ZoneId) = Clocks(zone, zone)
+    }
+}
+
 object TimelineRows {
 
     /**
@@ -45,16 +53,16 @@ object TimelineRows {
      */
     fun slicePerDay(
         intervals: List<StayDeriver.Interval>,
-        zonesOf: (StayDeriver.Interval) -> Pair<ZoneId, ZoneId>,
+        zonesOf: (StayDeriver.Interval) -> Clocks,
         nowMs: Long,
     ): List<Slice> =
         intervals.flatMap { interval ->
-            val (zone, endZone) = zonesOf(interval)
+            val clocks = zonesOf(interval)
             // One rule per kind, which is the whole of the asymmetry this doc argues for. A stay's
             // two ends always answer with the same clock ([zonesOf]), so it never reaches the halving.
             when (interval) {
-                is StayDeriver.Gap -> halvesAtArrivalDay(interval, zone, endZone)
-                is StayDeriver.Stay -> daySlicesOf(interval, zone, nowMs)
+                is StayDeriver.Gap -> halvesAtArrivalDay(interval, clocks.start, clocks.end)
+                is StayDeriver.Stay -> daySlicesOf(interval, clocks.start, nowMs)
             }
         }
 

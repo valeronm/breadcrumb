@@ -313,7 +313,7 @@ class StayDeriverTest {
      *  of a piece ran on — the cases about stamping ask [TimelineRows.slicePerDay] for that directly. */
     private fun sliced(
         intervals: List<StayDeriver.Interval>,
-        zones: (StayDeriver.Interval) -> Pair<ZoneId, ZoneId>,
+        zones: (StayDeriver.Interval) -> Clocks,
         nowMs: Long,
     ): List<StayDeriver.Interval> = TimelineRows.slicePerDay(intervals, zones, nowMs).map { it.interval }
 
@@ -327,7 +327,7 @@ class StayDeriverTest {
             start = 20 * 60 * MIN, end = DAY + 9 * 60 * MIN,
             afterTrackId = 1, clusterId = 0,
         )
-        val slices = sliced(listOf(stay), { utc to utc }, nowMs = 2 * DAY)
+        val slices = sliced(listOf(stay), { Clocks.both(utc) }, nowMs = 2 * DAY)
         assertEquals(2, slices.size)
         assertEquals(20 * 60 * MIN, slices[0].start)
         assertEquals(DAY, slices[0].end)
@@ -348,7 +348,7 @@ class StayDeriverTest {
             start = 20 * 60 * MIN, end = 2 * DAY + 9 * 60 * MIN,
             afterTrackId = 1, clusterId = 0,
         )
-        val slices = TimelineRows.slicePerDay(listOf(stay), { utc to utc }, 3 * DAY)
+        val slices = TimelineRows.slicePerDay(listOf(stay), { Clocks.both(utc) }, 3 * DAY)
 
         assertEquals(3, slices.size)
         assertEquals(listOf(true, false, false), slices.map { it.holdsStart })
@@ -358,7 +358,7 @@ class StayDeriverTest {
     /** A gap's halves answer the same question the same way — one encoding for both kinds. */
     @Test fun `a gap's halves say which of its bounds are its own`() {
         val gap = Gap(20 * 60 * MIN, DAY + 3 * 60 * MIN, GapReason.MOVED_UNRECORDED, afterTrackId = 1)
-        val halves = TimelineRows.slicePerDay(listOf(gap), { utc to utc }, 2 * DAY)
+        val halves = TimelineRows.slicePerDay(listOf(gap), { Clocks.both(utc) }, 2 * DAY)
 
         assertEquals(listOf(true, false), halves.map { it.holdsStart })
         assertEquals(listOf(false, true), halves.map { it.holdsEnd })
@@ -369,7 +369,7 @@ class StayDeriverTest {
             start = 20 * 60 * MIN, end = null,
             afterTrackId = 1, clusterId = 0,
         )
-        val slices = sliced(listOf(stay), { utc to utc }, nowMs = DAY + 9 * 60 * MIN)
+        val slices = sliced(listOf(stay), { Clocks.both(utc) }, nowMs = DAY + 9 * 60 * MIN)
         assertEquals(2, slices.size)
         assertEquals(DAY, slices[0].end)
         assertNull(slices[1].end)
@@ -382,7 +382,7 @@ class StayDeriverTest {
             start = 10 * 60 * MIN, end = 11 * 60 * MIN,
             afterTrackId = 1, clusterId = 0,
         )
-        assertEquals(listOf<StayDeriver.Interval>(stay), sliced(listOf(stay), { utc to utc }, 2 * DAY))
+        assertEquals(listOf<StayDeriver.Interval>(stay), sliced(listOf(stay), { Clocks.both(utc) }, 2 * DAY))
     }
 
     /**
@@ -397,9 +397,9 @@ class StayDeriverTest {
         val gap = Gap(start, end, GapReason.UNKNOWN_ENDPOINT, afterTrackId = 1)
         val stay = Stay(start, end, afterTrackId = 1, clusterId = 0)
 
-        assertEquals(2, sliced(listOf(stay), { utc to utc }, 2 * DAY).size)
+        assertEquals(2, sliced(listOf(stay), { Clocks.both(utc) }, 2 * DAY).size)
 
-        val halves = TimelineRows.slicePerDay(listOf(gap), { utc to utc }, 2 * DAY)
+        val halves = TimelineRows.slicePerDay(listOf(gap), { Clocks.both(utc) }, 2 * DAY)
         assertEquals(listOf(start to DAY, DAY to end), halves.map { it.interval.start to it.interval.end })
         // Stamped, so each half states the end it speaks for and says nothing about the other.
         assertEquals(listOf(utc, null), halves.map { it.departureZone })
@@ -415,7 +415,7 @@ class StayDeriverTest {
         val end = java.time.LocalDate.of(2026, 3, 29).atStartOfDay(lisbon)
             .plusHours(12).toInstant().toEpochMilli()
         val slices = sliced(
-            listOf(Stay(start, end, 1, clusterId = 0)), { lisbon to lisbon }, end + DAY,
+            listOf(Stay(start, end, 1, clusterId = 0)), { Clocks.both(lisbon) }, end + DAY,
         )
         assertEquals(2, slices.size)
         assertTrue(slices[0].end!! <= slices[1].start)
@@ -435,7 +435,7 @@ class StayDeriverTest {
 
         val slices = sliced(
             listOf(abroad, athome),
-            { zones.getValue((it as Stay).afterTrackId).let { z -> z to z } },
+            { Clocks.both(zones.getValue((it as Stay).afterTrackId)) },
             evening + DAY,
         )
 
@@ -459,7 +459,7 @@ class StayDeriverTest {
         )
 
         val halves =
-            TimelineRows.slicePerDay(listOf(crossing), { lisbonZone to newYork }, lisbonEvening + 3 * DAY)
+            TimelineRows.slicePerDay(listOf(crossing), { Clocks(lisbonZone, newYork) }, lisbonEvening + 3 * DAY)
 
         assertEquals(2, halves.size)
         assertEquals(crossing.start, halves[0].interval.start)
@@ -495,7 +495,7 @@ class StayDeriverTest {
             reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
         )
 
-        val slices = TimelineRows.slicePerDay(listOf(hop), { newYork to chicago }, noon + DAY)
+        val slices = TimelineRows.slicePerDay(listOf(hop), { Clocks(newYork, chicago) }, noon + DAY)
 
         // One piece, and it speaks for both ends — the row has to state each on its own clock.
         assertEquals(listOf<StayDeriver.Interval>(hop), slices.map { it.interval })
@@ -512,7 +512,7 @@ class StayDeriverTest {
             reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
         )
 
-        val halves = TimelineRows.slicePerDay(listOf(gap), { utc to utc }, 4 * DAY)
+        val halves = TimelineRows.slicePerDay(listOf(gap), { Clocks.both(utc) }, 4 * DAY)
         assertEquals(
             listOf(20 * 60 * MIN to 3 * DAY, 3 * DAY to 3 * DAY + 3 * 60 * MIN),
             halves.map { it.interval.start to it.interval.end },

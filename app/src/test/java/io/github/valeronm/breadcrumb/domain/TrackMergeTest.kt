@@ -70,7 +70,7 @@ class TrackMergeTest {
 
     // --- plansByAnchor: what the timeline actually asks -------------------------------
 
-    private val neighbors = mapOf(before.id to (before to after))
+    private val neighbors = mapOf(before.id to TrackMerge.Neighbors(before, after))
 
     private fun stay(start: Long, end: Long) = StayDeriver.Stay(
         start = start, end = end,
@@ -87,7 +87,7 @@ class TrackMergeTest {
         // thirty-minute one. Merging on the short row would fuse the tracks across the whole stop.
         val start = DAY - 2 * MINUTE
         val stay = stay(start, start + 32 * MINUTE)
-        val slices = TimelineRows.slicePerDay(listOf(stay), { ZoneId.of("UTC").let { z -> z to z } }, nowMs = 2 * DAY)
+        val slices = TimelineRows.slicePerDay(listOf(stay), { Clocks.both(ZoneId.of("UTC")) }, nowMs = 2 * DAY)
             .map { it.interval }
         assertEquals(2, slices.size)
         assertTrue(slices.any { it.end!! - it.start <= TrackMerge.MAX_INTERVAL_MS })
