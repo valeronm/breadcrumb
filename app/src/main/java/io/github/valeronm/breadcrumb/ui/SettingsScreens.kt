@@ -348,26 +348,26 @@ internal fun PointQualitySettingsScreen(onBack: () -> Unit) {
 @Composable
 internal fun AutoPauseSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val resumeWindowSec = rememberPref(
+    val stitchWindowSec = rememberPref(
         AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
-        { AppSettings.resumeWindowSec(context) },
-    ) { AppSettings.setResumeWindowSec(context, it) }
+        { AppSettings.stitchWindowSec(context) },
+    ) { AppSettings.setStitchWindowSec(context, it) }
     SettingsSubScreen(
         stringResource(R.string.settings_auto_pause),
         onBack,
-        listOf(resumeWindowSec),
+        listOf(stitchWindowSec),
     ) {
         SettingsSubScreenDescription(stringResource(R.string.pause_description))
         GroupedRows(
             {
                 SliderSetting(
                     stringResource(R.string.pause_resume_window),
-                    resumeWindowSec.value.toFloat(),
+                    stitchWindowSec.value.toFloat(),
                     0f..600f,
                     60,
                     { durationSettingLabel(it.toInt()) },
                 ) {
-                    resumeWindowSec.set(it.toInt())
+                    stitchWindowSec.set(it.toInt())
                 }
             },
         )

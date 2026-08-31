@@ -26,7 +26,7 @@ object GpxParser {
 
     class ParsedTrack(val type: String?, val segments: List<List<ParsedPoint>>)
 
-    /** One point ready for insertion; [segmentStart] mirrors the recorder's auto-pause breaks. */
+    /** One point ready for insertion; [segmentStart] mirrors the recorder's own segment breaks. */
     class ImportPoint(
         val lat: Double,
         val lon: Double,

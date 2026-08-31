@@ -48,7 +48,6 @@
     <string name="recorder_recording">Recording</string>
     <!-- Recording, named after what is being done. The activity arrives already lower-cased. -->
     <string name="recorder_recording_activity">Recording %1$s</string>
-    <string name="recorder_paused">Paused</string>
     <string name="recorder_idle">Idle</string>
     <string name="recorder_detection_stalled">Detection stalled</string>
     <string name="recorder_starting">Starting…</string>
@@ -69,13 +68,9 @@
     <!-- The figure-less form of the state `recorder_positioning` reports with them: positioning is
          under way, so this must not say anything is missing or awaited. -->
     <string name="recorder_waiting_for_fix">finding your position</string>
-    <string name="recorder_resumes_within">%1$s resumes within %2$s</string>
-    <string name="recorder_continues_if_you_move">%1$s continues if you move soon</string>
     <string name="recorder_nothing_to_record">nothing to record</string>
     <string name="recorder_nothing_to_record_for">nothing to record for %1$s</string>
     <string name="recorder_restart_advice">restarting the phone usually fixes it</string>
-    <!-- Fills the activity slot in the pause phrases when nothing has been detected. -->
-    <string name="recorder_generic_activity">activity</string>
 
     <!--
       The notification shade. These translate; the DebugLog lines beside them in the same file do

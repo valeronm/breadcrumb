@@ -13,7 +13,7 @@ object TrackingStatus {
         /** Confirmed activity, null while idle (not armed). The UI derives its label. */
         val activity: ActivityType? = null,
         val recording: Boolean = false,
-        /** Id of the currently open track (recording or paused), or null. */
+        /** Id of the track being recorded into, or null. */
         val activeTrackId: Long? = null,
         val distanceMeters: Double = 0.0,
         val points: Int = 0,
@@ -26,9 +26,6 @@ object TrackingStatus {
         val gpsSuspended: Boolean = false,
         /** When the no-fix guard switched GPS off; null while GPS is on. */
         val gpsSuspendedSinceMillis: Long? = null,
-        /** While a track is auto-paused: its activity and the resume-window deadline. */
-        val pausedActivity: ActivityType? = null,
-        val pausedUntilMillis: Long? = null,
         /** When the latest raw activity reading arrived — proof detection is alive. */
         val lastReadingAtMillis: Long? = null,
         /** Activity detection has stopped responding and isn't recovering — see DeafnessWarning. */

@@ -24,7 +24,7 @@ import io.github.valeronm.breadcrumb.util.isGranted
  *
  * **[Signal.MOTION] serves two unrelated consumers, and this is deliberately blind to which.** GPS
  * off after a failed probe makes it the no-fix guard's resume; GPS off for want of a journey makes
- * it the departure trigger's. Those states are disjoint — a pause or a close clears the guard's
+ * it the departure trigger's. Those states are disjoint — a close clears the guard's
  * suspension — so one sensor, one registration and one arm/disarm protocol cover both, and
  * [ActivityIngest.onResumeSignal] is where they are told apart.
  *

@@ -157,7 +157,7 @@ class DepartureWatch(
          * environment, retreats on the next delivery and never corroborates itself, while measured
          * standstill wander stays under ~20 m against accuracies in the tens. A lie that *repeats*
          * still fires, and what that now costs is bounded: a false departure opens a track
-         * [ArrivalWatch] pauses minutes later and `KeepRule` discards.
+         * [ArrivalWatch] closes minutes later and `KeepRule` discards.
          */
         const val MARGIN_M = 50.0
 

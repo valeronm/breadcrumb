@@ -5,7 +5,6 @@ import androidx.annotation.StringRes
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.RecorderVocabulary
-import io.github.valeronm.breadcrumb.domain.formatCountdown
 
 /**
  * What each track type reads as, here rather than on [ActivityType] for the same reason a place
@@ -29,8 +28,7 @@ internal val ActivityType.labelRes: Int
 
 /**
  * The same ten as the word form a sentence drops into a slot — see the resources, which say why this
- * is authored per language rather than derived from [labelRes]. No entry for a null activity: a
- * sentence with nothing to name uses `recorder_generic_activity` instead.
+ * is authored per language rather than derived from [labelRes].
  */
 internal val ActivityType.inlineLabelRes: Int
     @StringRes get() = when (this) {
@@ -79,15 +77,10 @@ internal fun recorderWords(context: Context): RecorderVocabulary =
         private fun named(activity: ActivityType?): String? =
             activity?.let { context.getString(it.inlineLabelRes) }
 
-        private fun namedOrGeneric(activity: ActivityType?): String =
-            named(activity) ?: context.getString(R.string.recorder_generic_activity)
-
         override fun recording(activity: ActivityType?): String {
             val what = named(activity) ?: return context.getString(R.string.recorder_recording)
             return context.getString(R.string.recorder_recording_activity, what)
         }
-
-        override fun paused() = context.getString(R.string.recorder_paused)
 
         override fun idle() = context.getString(R.string.recorder_idle)
 
@@ -116,18 +109,6 @@ internal fun recorderWords(context: Context): RecorderVocabulary =
             ?: context.getString(R.string.recorder_positioning)
 
         override fun waitingForFix() = context.getString(R.string.recorder_waiting_for_fix)
-
-        override fun resumesWithin(activity: ActivityType?, leftMs: Long): String =
-            context.getString(
-                R.string.recorder_resumes_within,
-                namedOrGeneric(activity),
-                formatCountdown(leftMs, durations.minute, durations.second),
-            )
-
-        override fun pausedActivity(activity: ActivityType?) = namedOrGeneric(activity)
-
-        override fun continuesIfYouMove(activity: ActivityType?): String =
-            context.getString(R.string.recorder_continues_if_you_move, namedOrGeneric(activity))
 
         override fun nothingToRecord(quietMs: Long?): String = quietMs
             ?.let { context.getString(R.string.recorder_nothing_to_record_for, duration(it)) }

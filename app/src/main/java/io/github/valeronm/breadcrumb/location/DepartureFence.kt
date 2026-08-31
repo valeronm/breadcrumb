@@ -76,7 +76,7 @@ class DepartureFence(private val context: Context) {
     }
 
     /**
-     * Watch wherever the platform last saw this phone, for the case a pause cannot cover: the
+     * Watch wherever the platform last saw this phone, for the case a stop cannot cover: the
      * recorder is armed and idle, so GPS is off and there is no fix of our own to anchor on, and
      * "wait for the first good fix" resolves to never. Arming, a reboot and an app update all land
      * here, and the last two matter because Play Services drops every geofence across them.

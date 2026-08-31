@@ -30,7 +30,6 @@
 
     <string name="recorder_recording">Идёт запись</string>
     <string name="recorder_recording_activity">Идёт запись: %1$s</string>
-    <string name="recorder_paused">Пауза</string>
     <string name="recorder_idle">Ожидание</string>
     <string name="recorder_detection_stalled">Распознавание не отвечает</string>
     <string name="recorder_starting">Запуск…</string>
@@ -42,12 +41,9 @@
     <string name="recorder_positioning">определение местоположения</string>
     <string name="recorder_positioning_radius">определение местоположения ±%1$s</string>
     <string name="recorder_waiting_for_fix">определяем ваше местоположение</string>
-    <string name="recorder_resumes_within">%1$s возобновится в течение %2$s</string>
-    <string name="recorder_continues_if_you_move">%1$s продолжится, если вы скоро начнёте двигаться</string>
     <string name="recorder_nothing_to_record">нечего записывать</string>
     <string name="recorder_nothing_to_record_for">нечего записывать: %1$s</string>
     <string name="recorder_restart_advice">обычно помогает перезагрузка телефона</string>
-    <string name="recorder_generic_activity">активность</string>
 
     <string name="channel_tracking">Запись GPS</string>
     <string name="channel_tracking_description">Постоянное уведомление во время записи поездок</string>

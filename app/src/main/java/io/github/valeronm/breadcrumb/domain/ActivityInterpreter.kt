@@ -34,7 +34,7 @@ object ActivityInterpreter {
      * arming ([transitionApplied]) the transition stream is authoritative and the snapshot is
      * dropped — it samples the *raw* classifier with none of the transition API's smoothing, so a
      * momentary state the transition machinery would ride out (STILL at a red light, moments after
-     * a replayed ENTER IN_VEHICLE) would pause, and eventually discard, a genuine drive.
+     * a replayed ENTER IN_VEHICLE) would close, and eventually discard, a genuine drive.
      */
     fun interpretSnapshot(
         mostProbable: ActivityType,

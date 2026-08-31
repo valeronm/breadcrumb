@@ -253,20 +253,31 @@ The pieces below only make sense together — read them as a unit.
 - `ActivityRecognitionManager` registers Activity Transition updates (and a one-shot activity
   *snapshot* on arming). Results arrive at `ActivityTransitionReceiver`, which forwards the detected
   `ActivityType` to `LocationRecordingService.instance` (it does not start the service).
-- `WatchdogReceiver` fires on an alarm every 15 min while armed, and does four things the coroutine
+- `WatchdogReceiver` fires on an alarm every 15 min while armed, and does what the coroutine
   timers can't be trusted with in Doze: re-*requests* the transition registration (a request, never
-  a restart), closes a pause whose resume window lapsed while the wake was
-  frozen, revisits a held reading, and restarts the service if the armed flag is set but the
+  a restart), revisits a held reading, and restarts the service if the armed flag is set but the
   service is dead.
 - **Both receivers hold their broadcast open (`goAsync`) until the service has applied the
   reading** — each receiver's KDoc says what breaks otherwise. Don't "simplify" it away.
-- Lifecycle: arming (`ACTION_START`) puts the service in a **paused** state (no track, GPS off) and
+- Lifecycle: arming (`ACTION_START`) puts the service in an **idle** state (no track, GPS off) and
   fires the snapshot; recording only begins on a *moving* activity. Each continuous stretch of
-  movement is one `Track`; how a reading continues, splits, pauses or finalizes it is
-  `TrackController`'s state machine. `START_STICKY` + the persisted armed flag resume after process
-  death; `BootReceiver` resumes after reboot and app update.
+  movement is one `Track`; how a reading continues, splits or closes it is `TrackController`'s state
+  machine. `START_STICKY` + the persisted armed flag resume after process death; `BootReceiver`
+  resumes after reboot and app update.
+- **A stop closes the track — there is no paused state anywhere.** It is settled, kept-or-discarded
+  and derived onto the timeline at once, because a trip nothing shows reads as a trip the app
+  missed. Whether movement returning soon after belongs to that track is asked of the *stored
+  history* when it arrives, never of anything the recorder held: `StitchRule` takes the last row by
+  id and continues it when its **last point** (not its `endedAt`, which the overrun rule pulls back)
+  is inside the user's window, it is closed, the recorder wrote it, its label shares a motion family,
+  and it is either live or discarded by the keep thresholds. `TrackRepository.openOrStitch` is the
+  one caller, resolving every `Effect.OpenTrack` into either that row or a fresh insert and reporting
+  back through `ActivityIngest.onTrackResolved` — which is how the recorder learns the **row's**
+  label, a carrier rename having possibly rewritten it. Because none of this lives in memory, a
+  stretch resuming after a process death continues the same track as one resuming without, and the
+  recorder can never hold one track's state while writing into another's.
 
-**Activity Recognition describes the user's body, not the journey**, and pause, split and the jump
+**Activity Recognition describes the user's body, not the journey**, and close, split and the jump
 ceiling all read it as the journey. `MovementConfirmer` is the recorder's second witness, and it is
 **always on** — the recorder's one job is recording movements, and a mislabelled STILL aboard a
 moving carrier costs the trip, which is the verdict that retired the setting that used to gate it.
@@ -277,9 +288,9 @@ Each consulting rule's suite keeps its pre-witness half unedited above a divider
 that fallback. **Exactly five consultations exist**, and that there are five and only five is the
 thing no one file says: the gate parks a contradicted STILL, the jump ceiling rises to fit measured
 ground speed, a `Moving` verdict vetoes the no-fix give-up, every path that turns GPS off
-re-evaluates the parked slot on the way down, and a standstill the witness proved pauses a
+re-evaluates the parked slot on the way down, and a standstill the witness proved closes a
 **signal-opened** track (`ArrivalWatch` — a track opened by a departure trigger has no reporter
-whose stop will ever end it, while a reading-opened track is never paused this way: its reporter
+whose stop will ever end it, while a reading-opened track is never closed this way: its reporter
 lags, but delivers). Promotion rides the `GnssStatus` callback, with the
 15-minute watchdog alarm as the guaranteed revisit.
 
@@ -287,8 +298,9 @@ lags, but delivers). Promotion rides the `GnssStatus` callback, with the
 and the UI collects — this is how live recording state reaches Compose without binding to the service.
 
 **Domain logic** (`domain/`): pure, unit-tested Kotlin with no Android dependencies — the service
-and UI stay thin by delegating here. `TrackController` (track lifecycle state machine — owns the
-pause/resume window), `ActivityGate` (signal filter) / `ActivityInterpreter` (transition
+and UI stay thin by delegating here. `TrackController` (track lifecycle state machine — `Idle` and
+`Recording`, and no clock in it), `StitchRule` (whether movement returning after a stop keeps the
+last track — see the recorder's lifecycle above), `ActivityGate` (signal filter) / `ActivityInterpreter` (transition
 interpretation), `ReadingClock` (event-time gating of activity readings), `NoFixGuard` (give up when
 GPS can't get a fix), `KeepRule`, `TrackMerge` (merge short same-activity stays), `StayDeriver` +
 `PlaceClusterer` + `PlaceResolver` (timeline stays and named places), `TimelineRows` (the derived
@@ -343,7 +355,7 @@ evidence a car-borne history has of being in a city.
 
 **Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
 time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
-auto-pause resume window, the GPS give-up timeout, and keep-track
+stitch window, the GPS give-up timeout, and keep-track
 thresholds (min duration/length/extent). It also holds recorder bookkeeping that isn't a user
 setting at all: when the recorder was last disarmed (the instant the timeline's trailing stay
 closes at), which permissions this install has ever put a dialog up for,

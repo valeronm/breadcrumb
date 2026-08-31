@@ -14,10 +14,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Where tracks begin, pause, stitch and end — the loop that sequences the rules, which used to be
- * answerable only by walking around with the phone for an afternoon. The gate, the controller and
- * the deafness oracle each had a suite; the loop deciding which reading opens a track, what a stop
- * schedules, and whether a return stitches or splits had none.
+ * Where tracks begin and end — the loop that sequences the rules, which used to be answerable only
+ * by walking around with the phone for an afternoon. The gate, the controller and the deafness
+ * oracle each had a suite; the loop deciding which reading opens a track and what a stop closes had
+ * none.
  *
  * How a start is *noticed* in the first place is [DepartureTriggerTest]'s question; the recorder
  * both drive is [ActivityIngestFixture].
@@ -35,7 +35,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
                 // The close runs ahead of every open; with nothing open it still stops GPS and
                 // emits no CloseTrack.
                 Effect.StopGps,
-                Effect.OpenTrack(ActivityType.WALKING, T0),
+                Effect.OpenTrack(ActivityType.WALKING, T0, STITCH_WINDOW_MS),
                 Effect.EnsureGps,
                 Effect.DisarmDepartureFence,
                 Effect.StopDepartureProbe,
@@ -45,7 +45,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         )
     }
 
-    @Test fun `a stop pauses the track and schedules the wake, rather than closing it`() {
+    @Test fun `a stop closes the track and starts watching for the next departure`() {
         startWalking()
 
         val out = stop(T0 + MINUTE)
@@ -54,53 +54,43 @@ class ActivityIngestTest : ActivityIngestFixture() {
             listOf(
                 Effect.StampReading(T0 + MINUTE),
                 Effect.StopGps,
-                Effect.SchedulePauseWake(T0 + MINUTE + RESUME_WINDOW_MS),
+                // Ended at its last good fix, not at the reading: Activity Recognition reports a
+                // stop minutes after the phone made it.
+                Effect.CloseTrack(endedAt = T0, renameTo = null),
                 // The stop is also where the next departure will be from — by every means switched
-                // on, and after the stop that would otherwise have disarmed the sensor.
+                // on, and after the close that would otherwise have disarmed the sensor.
                 Effect.ArmDepartureFence(Coordinate(ORIGIN_LAT, lonAt(0.0))),
                 Effect.ArmSignificantMotion,
                 Effect.Publish,
             ),
             out,
         )
-        assertTrue("the track stays open across the stop", core.isPaused)
+        assertFalse("nothing is held open across the stop", core.recording)
     }
 
-    @Test fun `a same-family return inside the window stitches back into the open track`() {
+    /**
+     * Whether the returning stretch keeps the closed track or lands on a new row is
+     * `StitchRule`'s, decided against the stored history when [Effect.OpenTrack] is dispatched — so
+     * the core asks the same thing however long the stop lasted, and this suite pins that it asks
+     * rather than which answer it gets.
+     */
+    @Test fun `a return asks for a track like any other`() {
         startWalking()
         stop(T0 + MINUTE)
+        val returnedAt = T0 + 30 * MINUTE
 
-        val out = reading(ActivityType.RUNNING, T0 + MINUTE + RESUME_WINDOW_MS - 1)
+        val out = reading(ActivityType.RUNNING, returnedAt)
 
         assertEquals(
             listOf(
-                Effect.EnsureGps,
-                // The departure the pause was watching for has happened, and the ground is back
-                // under GPS — leaving either armed would run them alongside a live request.
-                Effect.DisarmDepartureFence,
-                Effect.StopDepartureProbe,
-                Effect.Publish,
-            ),
-            out.drop(1),
-        )
-        assertTrue("nothing opened or closed", out.none { it is Effect.OpenTrack || it is Effect.CloseTrack })
-    }
-
-    @Test fun `a return after the window lapsed closes the stitch and starts a new track`() {
-        startWalking()
-        stop(T0 + MINUTE)
-        val returnedAt = T0 + MINUTE + RESUME_WINDOW_MS
-
-        val out = reading(ActivityType.WALKING, returnedAt)
-
-        assertEquals(
-            listOf(
+                // GPS goes off ahead of every open whether or not anything was recording — which is
+                // what makes one close path safe to run before all of them. No CloseTrack, though:
+                // the stop already closed, and there is nothing left open to end.
                 Effect.StopGps,
-                // The paused track ended when its last fix arrived, not at the return — the idle
-                // gap belongs to neither track.
-                Effect.CloseTrack(endedAt = T0, renameTo = null),
-                Effect.OpenTrack(ActivityType.WALKING, returnedAt),
+                Effect.OpenTrack(ActivityType.RUNNING, returnedAt, STITCH_WINDOW_MS),
                 Effect.EnsureGps,
+                // The departure being watched for has happened, and the ground is back under GPS —
+                // leaving either armed would run them alongside a live request.
                 Effect.DisarmDepartureFence,
                 Effect.StopDepartureProbe,
                 Effect.Publish,
@@ -117,9 +107,10 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertEquals(
             listOf(
                 Effect.StopGps,
-                // Recording, not paused: the walk ended now rather than at its last fix.
+                // Ended now rather than at its last fix: the phone is demonstrably still moving,
+                // so unlike a stop there is no overrun to trim back.
                 Effect.CloseTrack(endedAt = T0 + MINUTE, renameTo = null),
-                Effect.OpenTrack(ActivityType.DRIVING, T0 + MINUTE),
+                Effect.OpenTrack(ActivityType.DRIVING, T0 + MINUTE, STITCH_WINDOW_MS),
                 Effect.EnsureGps,
                 Effect.DisarmDepartureFence,
                 Effect.StopDepartureProbe,
@@ -148,18 +139,6 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
     // --- The reading's own clock ------------------------------------------------
 
-    @Test fun `a reading drained late out of Doze is timed by its own event, not its arrival`() {
-        startWalking()
-        // The stop happened a minute in; the phone was frozen and only applied it an hour later.
-        stop(atMs = T0 + HOUR, eventTimeMs = T0 + MINUTE)
-
-        // The return arrives well inside the window measured from *now*, and well outside the one
-        // measured from the stop's own time. It must split, not stitch through the real stop.
-        val out = reading(ActivityType.WALKING, T0 + HOUR + 1)
-
-        assertTrue("the genuine stop splits the track", out.any { it is Effect.OpenTrack })
-    }
-
     @Test fun `a late-drained change still stamps its tracks at the wall clock`() {
         startWalking()
         stop(atMs = T0 + HOUR, eventTimeMs = T0 + MINUTE)
@@ -168,51 +147,17 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
         assertEquals(
             "the new track begins when it is opened, not when the stale reading claims",
-            Effect.OpenTrack(ActivityType.WALKING, T0 + HOUR + 1),
+            Effect.OpenTrack(ActivityType.WALKING, T0 + HOUR + 1, STITCH_WINDOW_MS),
             out.first { it is Effect.OpenTrack },
-        )
-    }
-
-    // --- The pause wake ---------------------------------------------------------
-
-    @Test fun `the wake closes a track whose window lapsed, and publishes with it`() {
-        startWalking()
-        stop(T0 + MINUTE)
-
-        val out = core.onTick(T0 + MINUTE + RESUME_WINDOW_MS, settings)
-
-        assertEquals(
-            listOf(
-                Effect.StopGps,
-                Effect.CloseTrack(endedAt = T0, renameTo = null),
-                // The recorder settles into the idle state the motion trigger exists to watch, and
-                // the stop above just took it down with the rest of the resume signals.
-                Effect.ArmSignificantMotion,
-                Effect.Publish,
-            ),
-            out,
-        )
-    }
-
-    @Test fun `an early wake does nothing, and a stale one after a resume does nothing`() {
-        startWalking()
-        reading(ActivityType.STILL, T0 + MINUTE)
-
-        assertTrue("before the deadline", core.onTick(T0 + MINUTE + RESUME_WINDOW_MS - 1, settings).isEmpty())
-
-        reading(ActivityType.WALKING, T0 + MINUTE + 1)
-        assertTrue(
-            "the wake fires anyway, on a track that resumed",
-            core.onTick(T0 + MINUTE + RESUME_WINDOW_MS, settings).isEmpty(),
         )
     }
 
     // --- GPS is asked for, never commanded --------------------------------------
 
-    @Test fun `a resume that also clears a no-fix suspension asks for GPS once`() {
+    @Test fun `a return that also clears a no-fix suspension asks for GPS once`() {
         startWalking()
         stop(T0 + MINUTE)
-        // The guard gave up while the track was paused, so both the resume and the re-probe want GPS.
+        // The guard gave up before the stop, so both the new stretch and the re-probe want GPS.
         noFixGuard.onProbeStarted(0L)
         noFixGuard.onGaveUp(0L)
 
@@ -246,7 +191,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
         assertEquals(listOf(Effect.StampReading(T0 + 30_000)), out)
         assertEquals("held for later", ActivityType.STILL, core.parked)
-        assertFalse("the track keeps recording", core.isPaused)
+        assertTrue("the track keeps recording", core.recording)
     }
 
     @Test fun `the held stop applies once the ground stops contradicting it`() {
@@ -257,31 +202,27 @@ class ActivityIngestTest : ActivityIngestFixture() {
         val out = core.onMotion(Motion.Stopped, T0 + 60_000, settings)
 
         assertNull("the slot is emptied", core.parked)
-        assertTrue("and the stop lands", core.isPaused)
-        assertEquals(
-            "the window is measured from the release, not from the held reading",
-            Effect.SchedulePauseWake(T0 + 60_000 + RESUME_WINDOW_MS),
-            out.first { it is Effect.SchedulePauseWake },
-        )
+        assertFalse("and the stop lands, closing the track", core.recording)
+        assertTrue(out.any { it is Effect.CloseTrack })
     }
 
     // --- The crossing the cross-check exists for --------------------------------
 
-    @Test fun `a drive Activity Recognition calls stationary is held, not paused`() {
+    @Test fun `a drive Activity Recognition calls stationary is held, not acted on`() {
         reading(ActivityType.DRIVING, T0)
         driveFrom(T0, until = T0 + MINUTE)
 
         // Aboard a carrier the body genuinely is still while the journey is not. Acting on the
-        // label would pause the recorder mid-drive and turn GPS off for the rest of it.
+        // label would end the recording mid-drive and turn GPS off for the rest of it.
         val out = reading(ActivityType.STILL, T0 + MINUTE)
 
         assertEquals("nothing acted on", listOf(Effect.StampReading(T0 + MINUTE)), out)
         assertEquals("the stop is held rather than dropped", ActivityType.STILL, core.parked)
-        assertFalse("the drive is still recording", core.isPaused)
+        assertTrue("the drive is still recording", core.recording)
         assertEquals("under its own label", ActivityType.DRIVING, core.confirmed)
     }
 
-    @Test fun `a crossing costs the drive neither a split nor a pause`() {
+    @Test fun `a crossing costs the drive neither a split nor a close`() {
         reading(ActivityType.DRIVING, T0)
         val out = ArrayList<Effect>()
         // Nine minutes of moving ground, with a stationary announcement every third minute — the
@@ -292,8 +233,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         }
 
         assertTrue("one track throughout", out.none { it is Effect.OpenTrack || it is Effect.CloseTrack })
-        assertTrue("and never paused", out.none { it is Effect.SchedulePauseWake })
-        assertFalse(core.isPaused)
+        assertTrue(core.recording)
         assertEquals(ActivityType.DRIVING, core.confirmed)
     }
 
@@ -308,13 +248,12 @@ class ActivityIngestTest : ActivityIngestFixture() {
         val out = core.onMotion(core.motionVerdict(arrivedAt), arrivedAt, settings)
 
         assertNull("the slot is emptied", core.parked)
-        assertTrue("and the stop finally lands", core.isPaused)
-        // Timed from the held reading instead, the deadline would be T0 + 2m30s — already past, so
-        // the promotion would close the track outright rather than open a window on it. The hold is
-        // evidence the stop had not begun yet; the window after it is the first measuring a real one.
+        assertFalse("and the stop finally lands", core.recording)
+        // At the drive's last good fix, which is where the carrier came to rest — not at the
+        // release, minutes later, which the phone spent parked.
         assertEquals(
-            Effect.SchedulePauseWake(arrivedAt + RESUME_WINDOW_MS),
-            out.first { it is Effect.SchedulePauseWake },
+            Effect.CloseTrack(endedAt = T0 + MINUTE, renameTo = null),
+            out.first { it is Effect.CloseTrack },
         )
     }
 
@@ -358,20 +297,20 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertFalse(noFixGuard.suspended)
     }
 
-    @Test fun `a paused track's silence is not a failed probe`() {
+    @Test fun `a closed track's silence is not a failed probe`() {
         startWalking()
         noFixGuard.onProbeStarted(E0)
         stop(T0 + MINUTE)
 
         val out = core.onGnssTick(T0 + MINUTE + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
 
-        assertTrue("the pause owns the silence, and its own wake", out.isEmpty())
+        assertTrue("nothing is recording, so there is no probe to fail", out.isEmpty())
         assertFalse(noFixGuard.suspended)
     }
 
-    @Test fun `a promotion that pauses the track leaves the resume signals unarmed`() {
-        // The hazard: a pause stops GPS and arms its own resume-deadline wake, so arming the no-fix
-        // signals on top would leave one track with two mechanisms waiting to revive it.
+    @Test fun `a promotion that closes the track leaves the resume signals unarmed`() {
+        // The hazard: a close stops GPS and arms the departure triggers, so arming the no-fix
+        // signals on top would leave one recorder with two sets of signals waiting to revive it.
         reading(ActivityType.DRIVING, T0)
         driveFrom(T0, until = T0 + MINUTE)
         reading(ActivityType.STILL, T0 + MINUTE)
@@ -382,12 +321,12 @@ class ActivityIngestTest : ActivityIngestFixture() {
         val arrivedAt = T0 + 3 * MINUTE
         val out = core.onGnssTick(arrivedAt, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
 
-        assertTrue("the held stop lands", core.isPaused)
-        assertTrue("and only the pause waits on it", out.none { it is Effect.ArmResumeSignals })
+        assertFalse("the held stop lands, closing the track", core.recording)
+        assertTrue("and the close alone winds GPS down", out.none { it is Effect.ArmResumeSignals })
         assertEquals(
             listOf(
                 Effect.StopGps,
-                Effect.SchedulePauseWake(arrivedAt + RESUME_WINDOW_MS),
+                Effect.CloseTrack(endedAt = T0 + MINUTE, renameTo = null),
                 // A minute at [VEHICLE] from the origin — where the carrier came to rest.
                 Effect.ArmDepartureFence(Coordinate(ORIGIN_LAT, lonAt(VEHICLE.mps * 60))),
                 Effect.ArmSignificantMotion,
@@ -490,20 +429,20 @@ class ActivityIngestTest : ActivityIngestFixture() {
         val out = reading(ActivityType.STILL, T0 + MINUTE)
 
         assertEquals("nothing but the delivery stamp", listOf(Effect.StampReading(T0 + MINUTE)), out)
-        assertFalse("the track keeps recording", core.isPaused)
+        assertTrue("the track keeps recording", core.recording)
         assertEquals(ActivityType.STILL, core.parked)
     }
 
-    @Test fun `the cap lands it, timed from the reading rather than the release`() {
+    @Test fun `the cap lands it, closing the track at its last good fix`() {
         startWalking()
         reading(ActivityType.STILL, T0 + MINUTE)
 
         val out = core.onMotion(Motion.Unknown, T0 + MINUTE + HOLD_CAP_MS, settings)
 
-        // Timed from the reading: the hold is the recorder waiting, not evidence the stop had yet
-        // to begin, so it must not push the track's boundary later than it happened.
-        assertTrue(out.contains(Effect.SchedulePauseWake(T0 + MINUTE + RESUME_WINDOW_MS)))
-        assertTrue(core.isPaused)
+        // The hold is the recorder waiting, not evidence the stop had yet to begin, so it must not
+        // push the track's boundary later than the last thing actually measured.
+        assertTrue(out.contains(Effect.CloseTrack(endedAt = T0, renameTo = null)))
+        assertFalse(core.recording)
     }
 
     /**
@@ -522,7 +461,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
         assertEquals("the delivery stamp and nothing else", listOf(Effect.StampReading(returnedAt)), out)
         assertNull("the held stop is dropped, not left to land later", core.parked)
-        assertFalse(core.isPaused)
+        assertTrue(core.recording)
     }
 
     /**
@@ -547,7 +486,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         reading(ActivityType.STILL, T0 + MINUTE)
 
         assertTrue(core.onMotion(Motion.Unknown, T0 + MINUTE + HOLD_CAP_MS - 1, settings).isEmpty())
-        assertFalse(core.isPaused)
+        assertTrue(core.recording)
     }
 
     /** The verdict the cap exists to wait for — and the one job [Motion.Stopped] has. */
@@ -558,7 +497,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         val out = core.onMotion(Motion.Stopped, T0 + MINUTE + 1, settings)
 
         assertTrue(out.contains(Effect.StopGps))
-        assertTrue(core.isPaused)
+        assertFalse(core.recording)
     }
 
     /**

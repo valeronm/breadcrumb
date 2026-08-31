@@ -6,7 +6,7 @@ import kotlin.math.abs
 /**
  * Finds a stay at the *edge* of a track — recording that ran on after the user had already arrived
  * (or before they truly departed) because Activity Recognition lagged the real stop. A stop longer
- * than the auto-pause resume window would have split the track, so anything left at an edge is
+ * than the stitch window would have left the track behind, so anything at an edge is
  * bounded by observer lag and the venue-scale 10-minute bar of mid-track dwells doesn't apply;
  * what ships is [BRIEF_STOP], a half-minute floor small enough to cover the stops that never split
  * a track at all. Two stages with distinct roles, both required:

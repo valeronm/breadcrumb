@@ -74,7 +74,8 @@ internal object TrackReplayer {
                     points = points.subList(0, i + 1),
                 )
                 if (i < points.lastIndex) {
-                    // Cap huge recorded gaps (pauses) so a replay never stalls.
+                    // Cap huge recorded gaps (a stop the track was continued through) so a replay
+                    // never stalls.
                     val gapMs = (points[i + 1].timestamp - point.timestamp).coerceIn(0, 60_000)
                     delay((gapMs / speedX).milliseconds)
                 }

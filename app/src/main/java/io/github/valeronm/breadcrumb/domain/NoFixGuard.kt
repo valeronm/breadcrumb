@@ -25,7 +25,7 @@ class NoFixGuard(
     private var failedProbes = 0
     private var nextProbeAllowedMs = 0L
 
-    /** A GPS request just started — a fresh track, a stitch resume, or a retry probe. */
+    /** A GPS request just started — a new stretch of movement, or a retry probe. */
     fun onProbeStarted(nowMs: Long) {
         probeStartedMs = nowMs
         lastAcceptedMs = 0L
@@ -71,7 +71,7 @@ class NoFixGuard(
     fun shouldProbe(nowMs: Long, respectBackoff: Boolean): Boolean =
         suspended && (!respectBackoff || nowMs >= nextProbeAllowedMs)
 
-    /** The track paused or closed — GPS is off for its own reasons; nothing to resume into. */
+    /** The track closed — GPS is off for its own reasons; nothing to resume into. */
     fun onStopped() {
         suspended = false
     }

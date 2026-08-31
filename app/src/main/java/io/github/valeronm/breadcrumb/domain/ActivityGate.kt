@@ -8,10 +8,9 @@ package io.github.valeronm.breadcrumb.domain
  * later, either because the ground came round ([onMotion]) or because the recorder stopped waiting
  * ([releaseHeld]). Which of those two may end a hold is decided by why it was raised; see [Hold].
  *
- * A pure signal filter — no timing, windows, or track vocabulary: whether a change resumes a paused
- * track or starts a new one is a track-lifecycle question [TrackController] owns (with the resume
- * window and the clock it needs); *when* a parked reading is reconsidered is the recorder's,
- * stamped with its own clock.
+ * A pure signal filter — no timing, windows, or track vocabulary: whether a change opens a track or
+ * closes one is a track-lifecycle question [TrackController] owns; *when* a parked reading is
+ * reconsidered is the recorder's, stamped with its own clock.
  *
  * [footCeiling] is the fastest any label in the foot family claims to go — supplied rather than
  * looked up, so the rule stays pure and its suite needs no ceiling table.
@@ -131,7 +130,7 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
      * edge-triggered, so leaving [confirmed] at STILL while a track runs would make the STILL that
      * ends the journey no change at all ([onReading] returns null on `raw == confirmed`), and the
      * stop edge was already spent before the journey began. Adopting the activity restores the edge
-     * the ordinary pause path needs. Any held reading goes with it — it describes a moment this
+     * the ordinary stop path needs. Any held reading goes with it — it describes a moment this
      * supersedes.
      */
     fun adopt(activity: ActivityType) {
@@ -150,7 +149,7 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
      * contradictions, asked of the reading's own family:
      *
      *  - **STILL cannot explain any movement.** Aboard something that carries the phone the body
-     *    really is still while the journey is not, and acting on the label would pause the recorder
+     *    really is still while the journey is not, and acting on the label would end the recording
      *    mid-journey and turn GPS off for the rest of it.
      *  - **A foot label cannot explain ground its own fix rule would disbelieve.** Play Services
      *    jitters mid-journey, and because the groups differ a stray walking reading does not merely

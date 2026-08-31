@@ -30,7 +30,6 @@
 
     <string name="recorder_recording">A gravar</string>
     <string name="recorder_recording_activity">A gravar %1$s</string>
-    <string name="recorder_paused">Em pausa</string>
     <string name="recorder_idle">Inativo</string>
     <string name="recorder_detection_stalled">Deteção parada</string>
     <string name="recorder_starting">A iniciar…</string>
@@ -42,12 +41,9 @@
     <string name="recorder_positioning">a localizar</string>
     <string name="recorder_positioning_radius">a localizar ±%1$s</string>
     <string name="recorder_waiting_for_fix">a localizar a sua posição</string>
-    <string name="recorder_resumes_within">%1$s retoma dentro de %2$s</string>
-    <string name="recorder_continues_if_you_move">%1$s continua se se mexer em breve</string>
     <string name="recorder_nothing_to_record">nada para gravar</string>
     <string name="recorder_nothing_to_record_for">nada para gravar há %1$s</string>
     <string name="recorder_restart_advice">reiniciar o telemóvel costuma resolver</string>
-    <string name="recorder_generic_activity">atividade</string>
 
     <string name="channel_tracking">Gravação de GPS</string>
     <string name="channel_tracking_description">Notificação permanente mostrada enquanto grava viagens</string>

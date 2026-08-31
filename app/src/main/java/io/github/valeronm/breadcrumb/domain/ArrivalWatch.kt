@@ -18,34 +18,33 @@ package io.github.valeronm.breadcrumb.domain
  *
  * The price of held evidence is a fire on stale evidence: a journey that stops once and then
  * creeps on without ever earning a Moving verdict (sparse fixes, a queue oozing under the
- * witness's moving bar) pauses a floor's wait after that stop. The pause is recoverable where a
+ * witness's moving bar) closes a floor's wait after that stop. The close is recoverable where a
  * missed one is not: it arms the departure triggers at the last good fix, and the same machinery
- * that opened the track resumes or re-opens it when the ground provably leaves.
+ * that opened the track opens the next stretch when the ground provably leaves — onto this same row
+ * where the stitch window still reaches it.
  *
- * **The floor is the resume window, and never less than [STANDSTILL_FLOOR_MS].** The window and
- * this floor answer the same question — how long a stop stops being part of the trip — so the one
- * setting rules both witnesses; it is honored only upward because downward is not the setting's to
- * give (see the clamp). Floor ≥ window also means the backdated pause is always already expired
- * when it lands: an arrival pause is an arrival *close*, ending the track at its last good fix.
+ * **The floor is the stitch window, and never less than [STANDSTILL_FLOOR_MS].** The window and this
+ * floor answer the same question — how long a stop stops being part of the trip — so the one setting
+ * rules both witnesses; it is honored only upward because downward is not the setting's to give (see
+ * the clamp).
  */
 class ArrivalWatch {
 
     private var stoppedSinceMs = 0L
 
     /**
-     * Judge the witness's verdict at [nowMs], against the caller's [resumeWindowMs]. Returns when
-     * the standstill began, once it has stood the floor — the pause is backdated to the stop, as
-     * it would be to a reading's own timestamp — and null while the journey is (or may still be)
-     * under way. A fire spends the standstill: the next pause takes a full fresh floor.
+     * Judge the witness's verdict at [nowMs], against the caller's [stitchWindowMs]. Returns when
+     * the standstill began, once it has stood the floor, and null while the journey is (or may still
+     * be) under way. A fire spends the standstill: the next one takes a full fresh floor.
      */
-    fun onMotion(motion: Motion, nowMs: Long, resumeWindowMs: Long): Long? {
+    fun onMotion(motion: Motion, nowMs: Long, stitchWindowMs: Long): Long? {
         when (motion) {
             is Motion.Moving -> stoppedSinceMs = 0L
             Motion.Stopped -> if (stoppedSinceMs == 0L) stoppedSinceMs = nowMs
             Motion.Unknown -> Unit
         }
         val sinceMs = stoppedSinceMs
-        if (sinceMs == 0L || nowMs - sinceMs < maxOf(resumeWindowMs, STANDSTILL_FLOOR_MS)) return null
+        if (sinceMs == 0L || nowMs - sinceMs < maxOf(stitchWindowMs, STANDSTILL_FLOOR_MS)) return null
         stoppedSinceMs = 0L
         return sinceMs
     }

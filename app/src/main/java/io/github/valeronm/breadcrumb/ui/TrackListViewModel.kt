@@ -680,8 +680,16 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun delete(trackId: Long) {
-        viewModelScope.launch { repository.deleteTrack(trackId) }
+    /**
+     * Delete a track, offering [onDeleted] the undo — but only if it went: the recorder may be
+     * filling the row again by the time the tap lands (a stop closes its track, and a return inside
+     * the stitch window reopens it), and an undo offered for a delete that was refused would restore
+     * a row nobody discarded.
+     */
+    fun delete(trackId: Long, onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            if (repository.deleteTrack(trackId)) onDeleted()
+        }
     }
 
     /** Restore a discarded track (deleted, keep-threshold-filtered, or merge original). */

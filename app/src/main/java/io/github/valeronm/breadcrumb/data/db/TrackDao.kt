@@ -79,6 +79,27 @@ interface TrackDao {
     @Query("UPDATE tracks SET discardedAt = NULL, discardReason = NULL WHERE id = :trackId")
     suspend fun restoreTrack(trackId: Long)
 
+    /**
+     * The newest row, whatever wrote it and whatever state it is in —
+     * [io.github.valeronm.breadcrumb.domain.StitchRule] judges every one of those and this asks
+     * nothing, so a `WHERE` here would be half that rule in SQL. **By id, which is the rowid**:
+     * ordering by `startedAt` returns the wrong row after a merge, whose merged row carries the
+     * *earlier* half's start and so sorts behind the discarded later original.
+     */
+    @Query("SELECT * FROM tracks ORDER BY id DESC LIMIT 1")
+    suspend fun lastTrack(): Track?
+
+    /**
+     * Hand a closed track back to the recorder: it leaves the timeline and takes fixes again. The
+     * discard columns clear with the end, since a track filed by the keep thresholds is exactly the
+     * one a returning stretch may yet make long enough.
+     */
+    @Query(
+        "UPDATE tracks SET endedAt = NULL, discardedAt = NULL, discardReason = NULL " +
+            "WHERE id = :trackId",
+    )
+    suspend fun reopenTrack(trackId: Long)
+
     /** Hard-delete soft-deleted tracks discarded before [cutoff] (points cascade). Returns the count. */
     @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL AND discardedAt < :cutoff")
     suspend fun purgeDiscardedBefore(cutoff: Long): Int

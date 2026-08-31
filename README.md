@@ -3,7 +3,7 @@
 An Android app that keeps a day-by-day timeline of where you have been — trips, the stays between
 them, and the places you name — and fills it in by itself, recording in the background from your
 detected activity: walking, running, cycling or driving. Arm it once and forget it: it records
-while you move and pauses while you're still. Everything stays on your device — no account, no
+while you move and stops while you're still. Everything stays on your device — no account, no
 server — with journeys away from home in Insights, trips you can enter by hand for what nothing
 recorded, GPX import/export and a full backup.
 
@@ -38,8 +38,9 @@ build. No real history is ever shot.*
 ## Features
 
 - Activity-aware recording — on-device activity recognition starts a trip when you start moving,
-  switches trips when your activity changes (e.g. walking → driving), and pauses when you're
-  stationary; a brief stop stitches back into the same trip rather than splitting it. Recognized:
+  switches trips when your activity changes (e.g. walking → driving), and finishes the trip when
+  you're stationary; if you set off again soon after, it carries on with that same trip rather than
+  starting a second one. Recognized:
   walking, running, cycling, driving and stationary, plus motion it can't name, which records as
   *Moving* — and a trip can be reclassified afterwards, including as modes recognition never
   reports on its own: taxi, boat, public transit and flight. Flip *Auto recording* on once and it

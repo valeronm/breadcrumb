@@ -58,7 +58,7 @@ class DepartureTriggerTest : ActivityIngestFixture() {
         assertTrue(ActivityIngest(ingest, noFixGuard).onArmed(T0, triggers()).isEmpty())
     }
 
-    @Test fun `a pause arms the fence at the last good fix`() {
+    @Test fun `a stop arms the fence at the last good fix`() {
         reading(ActivityType.WALKING, atMs = T0)
         fix(atMs = T0 + 1_000, eastM = 0.0)
         // A walking pace: ten metres in ten seconds. Covering it in one would be a jump the
@@ -72,7 +72,7 @@ class DepartureTriggerTest : ActivityIngestFixture() {
         assertEquals(lonAt(10.0), anchor?.lon ?: 0.0, 1e-9)
     }
 
-    @Test fun `a pause with a fix of its own needs no burst`() {
+    @Test fun `a stop with a fix of its own needs no burst`() {
         startWalking()
 
         val out = stop(T0 + MINUTE)
@@ -84,10 +84,10 @@ class DepartureTriggerTest : ActivityIngestFixture() {
     }
 
     /**
-     * The GNSS-starved case, and the one a fence is the only thing that can notice: a pause with no
+     * The GNSS-starved case, and the one a fence is the only thing that can notice: a stop with no
      * fix behind it still asks to be watched, handing the anchor to the platform's last known.
      */
-    @Test fun `a pause with no fix behind it still asks to be watched, from nowhere of its own`() {
+    @Test fun `a stop with no fix behind it still asks to be watched, from nowhere of its own`() {
         reading(ActivityType.WALKING, atMs = T0)
 
         val effects = stop(atMs = T0 + 3_000)
@@ -114,7 +114,7 @@ class DepartureTriggerTest : ActivityIngestFixture() {
                 // The burst asked one question and has its answer.
                 Effect.StopDepartureProbe,
             ),
-            core.onProbeFix(probeAt(0.0), T0 + 5_000, settings),
+            probeFix(probeAt(0.0), T0 + 5_000, settings),
         )
     }
 
@@ -128,14 +128,14 @@ class DepartureTriggerTest : ActivityIngestFixture() {
     @Test fun `a coarse first position leaves the fence alone and the burst running`() {
         core.onArmed(T0, settings)
 
-        assertTrue(core.onProbeFix(probeAt(0.0, accuracyM = 300.0), T0 + 5_000, settings).isEmpty())
+        assertTrue(probeFix(probeAt(0.0, accuracyM = 300.0), T0 + 5_000, settings).isEmpty())
 
         assertEquals(
             listOf(
                 Effect.ArmDepartureFence(Coordinate(ORIGIN_LAT, lonAt(20.0))),
                 Effect.StopDepartureProbe,
             ),
-            core.onProbeFix(probeAt(20.0, accuracyM = 15.0), T0 + 20_000, settings),
+            probeFix(probeAt(20.0, accuracyM = 15.0), T0 + 20_000, settings),
         )
     }
 
@@ -143,7 +143,7 @@ class DepartureTriggerTest : ActivityIngestFixture() {
         val continuous = triggers(fence = true, continuous = true)
         core.onArmed(T0, continuous)
 
-        val out = core.onProbeFix(probeAt(0.0), T0 + 5_000, continuous)
+        val out = probeFix(probeAt(0.0), T0 + 5_000, continuous)
 
         assertTrue("the fence is re-centred", out.any { it is Effect.ArmDepartureFence })
         assertFalse(
@@ -185,7 +185,7 @@ class DepartureTriggerTest : ActivityIngestFixture() {
     /**
      * With both position triggers on there is one request and one window between them, so a burst
      * would have to rebuild the standing request at its own cadence — and then stop it outright when
-     * its window lapsed, leaving the continuous trigger silently dead until the next pause. The
+     * its window lapsed, leaving the continuous trigger silently dead until the next stop. The
      * cadence a burst would buy is not worth that, and positions are already arriving.
      */
     @Test fun `motion buys nothing while the standing request is already running`() {
@@ -196,15 +196,13 @@ class DepartureTriggerTest : ActivityIngestFixture() {
     }
 
     /**
-     * The gap the pause does not cover. A finalize stops GPS, which disarms the resume signals
-     * wholesale — so without this the motion trigger dies exactly when the recorder settles into the
-     * idle state it is meant to watch.
+     * A close stops GPS, which disarms the resume signals wholesale — so without this the motion
+     * trigger dies exactly when the recorder settles into the idle state it is meant to watch.
      */
-    @Test fun `a finalized track leaves the motion trigger armed`() {
+    @Test fun `a closed track leaves the motion trigger armed`() {
         startWalking()
-        stop(T0 + MINUTE)
 
-        val out = core.onTick(T0 + MINUTE + RESUME_WINDOW_MS, settings)
+        val out = stop(T0 + MINUTE)
 
         assertTrue(out.contains(Effect.StopGps))
         assertTrue(
@@ -218,30 +216,30 @@ class DepartureTriggerTest : ActivityIngestFixture() {
     @Test fun `a probe position past the margin opens a track, one inside it does not`() {
         core.onArmed(T0, settings)
         // The anchorless case: the first position establishes where the phone is.
-        core.onProbeFix(probeAt(0.0), T0, settings)
+        probeFix(probeAt(0.0), T0, settings)
 
-        val near = core.onProbeFix(probeAt(100.0), T0 + 30_000, settings)
+        val near = probeFix(probeAt(100.0), T0 + 30_000, settings)
         assertTrue("still inside the margin", near.isEmpty())
 
-        val far = core.onProbeFix(probeAt(1_000.0), T0 + 60_000, settings)
+        val far = probeFix(probeAt(1_000.0), T0 + 60_000, settings)
         assertEquals(ActivityType.UNKNOWN, far.filterIsInstance<Effect.OpenTrack>().single().activity)
     }
 
     @Test fun `a probe position decides nothing once the watch has been torn down`() {
         core.onArmed(T0, settings)
-        core.onProbeFix(probeAt(0.0), T0, settings)
+        probeFix(probeAt(0.0), T0, settings)
         // Each of these stops the watch; a delivery can outlive the request that asked for it.
         reading(ActivityType.WALKING, T0 + 10_000)
         stop(T0 + 20_000)
         reading(ActivityType.WALKING, T0 + 30_000)
 
-        assertTrue(core.onProbeFix(probeAt(50_000.0), T0 + 40_000, settings).isEmpty())
+        assertTrue(probeFix(probeAt(50_000.0), T0 + 40_000, settings).isEmpty())
     }
 
     // --- Opening on the trigger alone -------------------------------------------
 
     @Test fun `a departure opens a Moving track and stops watching`() {
-        val effects = core.onDeparture(nowMs = T0, settings = settings)
+        val effects = departure(nowMs = T0, settings = settings)
 
         val opened = effects.filterIsInstance<Effect.OpenTrack>().single()
         assertEquals(ActivityType.UNKNOWN, opened.activity)
@@ -252,7 +250,7 @@ class DepartureTriggerTest : ActivityIngestFixture() {
     @Test fun `a departure while recording is not news`() {
         reading(ActivityType.WALKING, atMs = T0)
 
-        assertTrue(core.onDeparture(nowMs = T0 + 1_000, settings = settings).isEmpty())
+        assertTrue(departure(nowMs = T0 + 1_000, settings = settings).isEmpty())
     }
 
     /**
@@ -260,23 +258,23 @@ class DepartureTriggerTest : ActivityIngestFixture() {
      * *became* still and never says so again, so a track opened while the gate still believes STILL
      * has no stop edge left to spend — the STILL that ends the journey would be no change at all.
      */
-    @Test fun `a STILL after a departure pauses the track it opened`() {
-        core.onDeparture(nowMs = T0, settings = settings)
+    @Test fun `a STILL after a departure closes the track it opened`() {
+        departure(nowMs = T0, settings = settings)
 
         val effects = stop(atMs = T0 + 60_000)
 
         assertTrue(effects.contains(Effect.StopGps))
-        assertTrue(effects.any { it is Effect.SchedulePauseWake })
-        assertTrue(core.isPaused)
+        assertTrue(effects.any { it is Effect.CloseTrack })
+        assertFalse(core.recording)
     }
 
     /**
-     * A resume is a departure that has already happened, and the ground is back under continuous
-     * observation — so the triggers come down for the same reason they do when a track opens.
-     * Without this the fence sat on the pause's anchor for the rest of the track, and a standing
-     * probe kept asking for positions alongside a live GPS request.
+     * Movement returning is a departure that has already happened, and the ground is back under
+     * continuous observation — so the triggers come down for the same reason they do when a track
+     * opens. Left armed, the fence would sit on the last stop's anchor for the whole of the next
+     * stretch, and a standing probe would keep asking for positions alongside a live GPS request.
      */
-    @Test fun `a stitch-resume tears the triggers down too`() {
+    @Test fun `movement returning after a stop tears the triggers down too`() {
         startWalking()
         stop(T0 + MINUTE)
 
@@ -284,7 +282,8 @@ class DepartureTriggerTest : ActivityIngestFixture() {
 
         assertTrue(out.contains(Effect.DisarmDepartureFence))
         assertTrue(out.contains(Effect.StopDepartureProbe))
-        assertTrue("and it is a resume, not a new track", out.none { it is Effect.OpenTrack })
+        // The departure they were watching for has happened, whichever row the ask lands on.
+        assertTrue(out.any { it is Effect.OpenTrack })
     }
 
     /**
@@ -294,9 +293,9 @@ class DepartureTriggerTest : ActivityIngestFixture() {
      */
     @Test fun `a departure's verdict survives the pass that acts on it`() {
         core.onArmed(T0, settings)
-        core.onProbeFix(probeAt(0.0), T0 + 5_000, settings)
+        probeFix(probeAt(0.0), T0 + 5_000, settings)
 
-        val out = core.onProbeFix(probeAt(500.0), T0 + 20_000, settings)
+        val out = probeFix(probeAt(500.0), T0 + 20_000, settings)
 
         assertTrue(out.any { it is Effect.OpenTrack })
         assertTrue(core.lastProbeVerdict is DepartureWatch.Verdict.Departed)

@@ -4,11 +4,11 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
 /**
  * A [TrackPoint.segmentStart] means *the recorder was not watching between the previous fix and this
- * one* — an auto-pause resumed, or a merge joined two journeys. It governs drawing and export (the
+ * one* — a stop's track continued into, or a merge joining two journeys. It governs drawing and export (the
  * leg across it is not a path anyone observed, so it opens a fresh GPX `<trkseg>` and lifts the pen
  * on the metric graph) but not distance, which counts the leg like any other (see
  * [io.github.valeronm.breadcrumb.data.TrackStats] — nothing teleports). The flag is written onto the
- * fix that resumed the recording, which is not guaranteed to survive: the first fix after a pause is
+ * fix that resumed the recording, which is not guaranteed to survive: the first fix after a stop is
  * exactly the cold-start stray the jump rule rejects, and a merge marks the later track's first
  * point whatever its state. A break on an ignored fix is invisible to every reader that walks the
  * path (they all skip ignored fixes), so two halves the recorder never connected are drawn and

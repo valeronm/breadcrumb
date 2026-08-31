@@ -117,8 +117,8 @@ object GpxExporter {
             appendLine("    <type>${track.activityType}</type>")
             appendLine("    <trkseg>")
             for ((i, p) in points.withIndex()) {
-                // A segment start (the fix after an auto-pause resumed) opens a fresh <trkseg> so the
-                // paused gap isn't drawn as a connecting line by GPX consumers.
+                // A segment start (the fix after recording resumed across a stop) opens a fresh
+                // <trkseg> so the gap isn't drawn as a connecting line by GPX consumers.
                 if (i > 0 && p.segmentStart) {
                     appendLine("    </trkseg>")
                     appendLine("    <trkseg>")

@@ -90,7 +90,6 @@ internal fun RecordTab(
                 armed = autoOn,
                 tracking = status.tracking,
                 recording = status.recording,
-                paused = status.pausedActivity != null,
                 gpsSuspended = status.gpsSuspended,
                 points = status.points,
                 hasOpenTrack = status.activeTrackId != null,
@@ -361,29 +360,30 @@ private fun CurrentTrackPreview(
     }
 }
 
-/** Recorder state while there's no track to draw: starting, idle, paused or waiting for GPS. */
+/** Recorder state while there's no track to draw: starting, idle or waiting for GPS. */
 @Composable
 private fun RecorderStateCard(state: RecordCardState, status: TrackingStatus.State) {
-    // A 1 Hz tick drives the pause countdown and the "last signal" age.
+    // Only the idle card carries a moving figure — the quiet time since the last reading — and it is
+    // stated in whole minutes, so a tick per second would recompose sixty times for a string that
+    // can change once. The others quote a fixed clock time or an accuracy radius.
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state) {
+        if (state != RecordCardState.WAITING_FOR_MOVEMENT) return@LaunchedEffect
         while (true) {
-            delay(1_000.milliseconds)
+            delay(10_000.milliseconds)
             nowMs = System.currentTimeMillis()
         }
     }
     // Remembered: this composable re-runs on every 1 Hz tick.
     val context = LocalContext.current
     val words = remember(context) { recorderWords(context) }
-    // The live surface: the detail counts down and quotes figures, joined onto the title as one line.
+    // The live surface: the detail quotes moving figures, joined onto the title as one line.
     val text = words.recorderText(
         state = state,
         activity = status.activity,
-        pausedActivity = status.pausedActivity,
         deaf = status.deaf,
         live = LiveFigures(
             nowMs = nowMs,
-            pausedUntilMs = status.pausedUntilMillis,
             lastReadingAtMs = status.lastReadingAtMillis,
             rejectedAccuracyM = status.lastFixAccuracyM?.takeIf { status.lastFixRejectedByAccuracy },
             gpsSuspendedSinceMs = status.gpsSuspendedSinceMillis,

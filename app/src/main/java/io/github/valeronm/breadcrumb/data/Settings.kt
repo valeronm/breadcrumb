@@ -52,8 +52,9 @@ object Settings {
     // so a "walk" that never left a small blob (AR mislabeled standing still) is discarded. 0 = off.
     const val DEFAULT_TRACK_MIN_EXTENT_M = 50
 
-    // Auto-pause/stitch: a brief stop keeps the track open and resumes into it when the same
-    // activity returns within this time gap (the resumed run is a new GPX segment).
+    // Stitch: a stop closes the track, and movement returning in the same motion family within this
+    // window records into that same row rather than opening a second one beside it (the resumed run
+    // is a new GPX segment). Measured from the track's last point, not its stored end.
     const val DEFAULT_STITCH_RESUME_WINDOW_SEC = 180 // 0 = always start a new track
 
     // Fixes whose reported accuracy radius is at least this (meters) are flagged noisy and excluded.
@@ -191,13 +192,13 @@ object Settings {
         prefs(context).edit { putInt(KEY_TRACK_MIN_EXTENT_M, value) }
     }
 
-    // --- Auto-pause / stitch -------------------------------------------------
+    // --- Stitch --------------------------------------------------------------
 
-    /** Max stop duration (seconds) that resumes the same track instead of starting a new one. */
-    fun resumeWindowSec(context: Context): Int =
+    /** Max stop duration (seconds) that keeps recording into the last track rather than a new one. */
+    fun stitchWindowSec(context: Context): Int =
         prefs(context).getInt(KEY_STITCH_RESUME_WINDOW_SEC, DEFAULT_STITCH_RESUME_WINDOW_SEC)
 
-    fun setResumeWindowSec(context: Context, value: Int) {
+    fun setStitchWindowSec(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_STITCH_RESUME_WINDOW_SEC, value) }
     }
 

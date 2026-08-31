@@ -156,8 +156,9 @@ class FixIngest(internal val distance: DistanceFn) {
                 satellitesInFix = gnss.satellitesInFix,
                 cn0 = gnss.cn0Top4,
             )
-            // The first good fix after a resume begins a new segment: disconnect it from the previous
-            // segment so the paused gap isn't jump-checked or counted in distance.
+            // The first good fix of a resumed stretch begins a new segment: nobody watched the
+            // ground across the gap, so it has no baseline to be jump-checked against. It is still
+            // counted in distance — see [TrackStats], which is deliberate and versioned.
             val segStart = pendingSegmentStart
             val baseline = if (segStart) null else accumulator.lastGood
             // Bad fixes are still stored (with the reason), just excluded from distance and the
@@ -190,7 +191,7 @@ class FixIngest(internal val distance: DistanceFn) {
                 segmentStart = segStart && !bad,
             )
             // Every fix goes through the accumulator, ignored ones included — it applies the same
-            // rule (skip ignored, detach at a segment start) the finished track is recomputed with.
+            // rule (skip ignored) the finished track is recomputed with.
             accumulator.add(point)
             if (!bad) {
                 if (segStart) pendingSegmentStart = false

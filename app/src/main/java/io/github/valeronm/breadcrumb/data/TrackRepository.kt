@@ -18,6 +18,7 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
+import io.github.valeronm.breadcrumb.domain.StitchRule
 import io.github.valeronm.breadcrumb.domain.TrackBounds
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
@@ -87,6 +88,44 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 source = TrackOrigin.RECORDED.code,
             ),
         )
+
+    /** The track a stretch of movement will record into — see [openOrStitch]. */
+    class Resolved(
+        val trackId: Long,
+        /** What to record under: the *row's* label, which a carrier rename may have rewritten. */
+        val label: ActivityType,
+        /** Whether an existing track was continued, which is what owes the points a segment break. */
+        val stitched: Boolean,
+    )
+
+    /**
+     * Give the recorder a track to record into: the one it closed a moment ago, or a new one.
+     *
+     * A stop closes for real, so nothing in the recorder remembers a track it might continue — this
+     * asks the stored history instead ([StitchRule]). The read and the write are one transaction
+     * because the timeline's own mutations run off a different dispatcher.
+     *
+     * [startedAt] is when the stretch opened, and doubles as the clock the stitch window is measured
+     * against — they are the same instant, and taking one of them keeps the two from disagreeing.
+     */
+    suspend fun openOrStitch(
+        activityType: ActivityType,
+        startedAt: Long,
+        stitchWindowMs: Long,
+    ): Resolved = db.withTransaction {
+        val last = dao.lastTrack()
+        val label = last?.let {
+            StitchRule.continuedLabel(it, dao.lastPointTime(it.id), activityType, startedAt, stitchWindowMs)
+        }
+        if (last == null || label == null) {
+            return@withTransaction Resolved(startTrack(activityType, startedAt), activityType, stitched = false)
+        }
+        dao.reopenTrack(last.id)
+        // Read off the snapshot taken before the write: a kept track leaves the timeline and owes
+        // the repair, a discarded one was never on it.
+        if (last.discardedAt == null) derivation.reknit(listOf(last.id))
+        Resolved(last.id, label, stitched = true)
+    }
 
     suspend fun addPoints(points: List<TrackPoint>) = dao.insertPoints(points)
 
@@ -335,8 +374,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             val wasType = ActivityType.ofName(track.activityType)
             val raised = wasType != null &&
                 TrackQuality.jumpCeiling(activityType) > TrackQuality.jumpCeiling(wasType)
-            dao.setActivityType(trackId, activityType.name)
+            // The label decides the ceiling every arriving fix is gated on, so a row the recorder
+            // has reopened must be refused before the write, not after it.
             val endedAt = track.endedAt ?: return@withTransaction
+            dao.setActivityType(trackId, activityType.name)
             if (!retuned && !raised) return@withTransaction
             val retyped = track.copy(activityType = activityType.name)
             val stored = dao.allPointsFor(trackId)
@@ -396,16 +437,19 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         // label detection guessed. Which labels rename, and to what, is the domain's decision
         // (CarrierEvidence.renameFor); this only applies it. A later manual retype is the last word, as
         // everywhere, and this runs before the track is ever user-visible as finished, so the two cannot fight.
-        val rename = renameTo?.takeIf { it.name != track.activityType }
-        if (rename != null) {
-            dao.setActivityType(track.id, rename.name)
-            DebugLog.i(TAG, "track ${track.id}: carrier evidence proven — finishing as ${rename.name}")
+        val relabel = renameTo?.takeIf { it.name != track.activityType }
+        if (relabel != null) {
+            dao.setActivityType(track.id, relabel.name)
+            DebugLog.i(TAG, "track ${track.id}: carrier evidence proven — finishing as ${relabel.name}")
         }
-        val closing = if (rename != null) track.copy(activityType = rename.name) else track
+        val closing = if (relabel != null) track.copy(activityType = relabel.name) else track
         val stored = dao.allPointsFor(track.id)
         // The rename target's ceiling outranks the foot label's by construction, so the warm-up
-        // fixes rejected before the confirmer had evidence come back here.
-        val points = if (rename != null) settler.restoreJumps(track.id, stored, rename) ?: stored else stored
+        // fixes rejected before the confirmer had evidence come back here. Asked of the verdict and
+        // not of [relabel]: a track closes once per stretch of movement, so by the second close the
+        // column already reads the renamed label, and the fixes recorded since would keep the foot
+        // ceiling's rejections with nothing left to hand them back.
+        val points = renameTo?.let { settler.restoreJumps(track.id, stored, it) } ?: stored
         // Finishing is where the track's aggregates are computed for the first time — the recorder
         // writes none of them while it records — and where the recorder's overrun is taken off the
         // path. The overrun comes off *before* the keep verdict deliberately: a track is judged on
@@ -445,16 +489,29 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * User-initiated delete is a soft delete: the track moves to Recently deleted (restorable)
      * and is only hard-deleted by [purgeOldDiscarded] after the retention window.
      */
-    suspend fun deleteTrack(trackId: Long) {
+    suspend fun deleteTrack(trackId: Long): Boolean =
         db.withTransaction {
+            closedTrack(trackId) ?: return@withTransaction false
             dao.setDiscarded(trackId, System.currentTimeMillis(), Track.REASON_DELETED)
             derivation.reknit(listOf(trackId))
+            true
         }
-    }
+
+    /**
+     * A settled track, or null — which absent and being-recorded-into both are. A stop closes its
+     * track, so a row the timeline is showing can go live again under the reader's finger, and a
+     * mutation landing then would write over fixes still arriving. The surfaces don't offer those
+     * actions on the recording track; this is the backstop for the moment between.
+     */
+    private suspend fun closedTrack(trackId: Long): Track? =
+        dao.track(trackId)?.takeIf { it.endedAt != null }
 
     /** Bring a discarded track back to the timeline (undoes a delete/discard within retention). */
     suspend fun restoreTrack(trackId: Long) {
         db.withTransaction {
+            // Nothing to restore is the whole precondition, and it is the stronger one: reopening
+            // clears the discard columns, so a row the recorder holds is never discarded.
+            dao.track(trackId)?.takeIf { it.discardedAt != null } ?: return@withTransaction
             dao.restoreTrack(trackId)
             derivation.reknit(listOf(trackId))
         }
@@ -475,8 +532,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun mergeTracks(earlierId: Long, laterId: Long): Long? {
         return db.withTransaction {
-            val earlier = dao.track(earlierId) ?: return@withTransaction null
-            val later = dao.track(laterId) ?: return@withTransaction null
+            val earlier = closedTrack(earlierId) ?: return@withTransaction null
+            val later = closedTrack(laterId) ?: return@withTransaction null
             // The merged row copies these two columns from one side, so [TrackMerge.plan]'s
             // refusals are re-checked against the rows as they are now, not as the offer saw them.
             if (earlier.activityType != later.activityType || earlier.source != later.source) {
@@ -486,7 +543,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 Track(
                     activityType = earlier.activityType,
                     startedAt = earlier.startedAt,
-                    endedAt = later.endedAt ?: later.startedAt,
+                    endedAt = later.endedAt,
                     source = earlier.source,
                 ),
             )
@@ -543,8 +600,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun splitTrack(trackId: Long, atTs: Long): Split? {
         return db.withTransaction {
-            val track = dao.track(trackId) ?: return@withTransaction null
-            // An open track is still growing the edge the rule would cut; finish it first.
+            // An open track is still growing the edge the rule would cut.
+            val track = closedTrack(trackId) ?: return@withTransaction null
             val endedAt = track.endedAt ?: return@withTransaction null
             val points = dao.allPointsFor(trackId)
             val plan = TrackSplit.plan(points, atTs) ?: return@withTransaction null
@@ -593,10 +650,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun unsplitTracks(originalId: Long, split: Split) {
         db.withTransaction {
             val original = dao.track(originalId) ?: return@withTransaction
-            // Absence is the only state this covers — a second tap of the same undo, with nothing
-            // left to take back. The row is closed by construction, [splitTrack] having inserted it
-            // with the original's own end.
-            val rejoinedEnd = dao.track(split.secondId)?.endedAt ?: return@withTransaction
+            // A second tap of the same undo has nothing left to take back; see [closedTrack] for the
+            // other refusal, which a split's later half meets often — it is the newest row by id, so
+            // a stop and a return is exactly what reopens it.
+            val rejoinedEnd = closedTrack(split.secondId)?.endedAt ?: return@withTransaction
             // Points first: purging the row while they still hang off it would cascade them away.
             dao.movePointsFrom(originalId, split.secondId, Long.MIN_VALUE)
             dao.purgeTrack(split.secondId)
@@ -614,6 +671,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun unmergeTracks(mergedId: Long, earlierId: Long, laterId: Long) {
         db.withTransaction {
+            closedTrack(mergedId) ?: return@withTransaction
             dao.purgeTrack(mergedId)
             dao.restoreTrack(earlierId)
             dao.restoreTrack(laterId)

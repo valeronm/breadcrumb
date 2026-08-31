@@ -14,9 +14,6 @@ enum class RecordCardState {
     /** Armed and idle — waiting for a moving activity. */
     WAITING_FOR_MOVEMENT,
 
-    /** A track is auto-paused: it resumes if the same activity returns within the window. */
-    PAUSED,
-
     /** Recording but the track has no drawable geometry yet (fewer than [MIN_MAP_POINTS] fixes). */
     WAITING_FOR_GPS,
 
@@ -44,7 +41,6 @@ fun recordCardState(
     armed: Boolean,
     tracking: Boolean,
     recording: Boolean,
-    paused: Boolean,
     gpsSuspended: Boolean,
     points: Int,
     hasOpenTrack: Boolean,
@@ -53,7 +49,6 @@ fun recordCardState(
     recording && hasOpenTrack && points >= MIN_MAP_POINTS -> RecordCardState.LIVE_MAP
     recording && gpsSuspended -> RecordCardState.NO_GPS_SIGNAL
     recording -> RecordCardState.WAITING_FOR_GPS
-    tracking && paused -> RecordCardState.PAUSED
     tracking -> RecordCardState.WAITING_FOR_MOVEMENT
     else -> RecordCardState.STARTING
 }
@@ -87,8 +82,6 @@ interface RecorderVocabulary {
     /** Recording, named after what is being done where the detector has an opinion. */
     fun recording(activity: ActivityType?): String
 
-    fun paused(): String
-
     fun idle(): String
 
     fun detectionStalled(): String
@@ -109,14 +102,6 @@ interface RecorderVocabulary {
     /** The same state phrased for a surface that shows no figures. */
     fun waitingForFix(): String
 
-    fun resumesWithin(activity: ActivityType?, leftMs: Long): String
-
-    /** The paused activity alone — a live surface with no countdown to hang it on. */
-    fun pausedActivity(activity: ActivityType?): String
-
-    /** The same, for a surface with no figures at all. */
-    fun continuesIfYouMove(activity: ActivityType?): String
-
     /** Nothing to record, for [quietMs] where that is worth saying. */
     fun nothingToRecord(quietMs: Long?): String
 
@@ -125,15 +110,14 @@ interface RecorderVocabulary {
 
 /**
  * The volatile inputs a *live* surface renders the recorder with — the 1 Hz-ticking clock and the
- * figures that move with it. Deliberately a bundle, not six parameters plus a flag: a surface that
- * must not carry moving figures passes `null` and cannot accidentally read one. The ongoing
- * notification is that surface — it re-posts whenever its text changes, so a countdown or an
- * accuracy radius in it would cost a wakelock and an IPC every second for a whole drive; bundled,
- * the constraint is structural instead of a comment someone has to remember.
+ * figures that move with it. Deliberately a bundle, not several parameters plus a flag: a surface
+ * that must not carry moving figures passes `null` and cannot accidentally read one. The ongoing
+ * notification is that surface — it re-posts whenever its text changes, so a shrinking accuracy
+ * radius in it would cost a wakelock and an IPC every second for a whole drive; bundled, the
+ * constraint is structural instead of a comment someone has to remember.
  */
 class LiveFigures(
     val nowMs: Long,
-    val pausedUntilMs: Long? = null,
     val lastReadingAtMs: Long? = null,
     /** The last fix's accuracy radius *only where the gate rejected it for that radius* — the one
      *  case it is worth showing, so the caller resolves the condition instead of passing a flag
@@ -162,17 +146,15 @@ data class RecorderText(val title: String, val detail: String?) {
  * and the foreground notification. Classifying it twice, in two vocabularies, drifts: one surface
  * ends up reporting a track still waiting for its first fix as one already underway, or a stalled
  * detector as ordinary idleness. [live] decides how much the text moves, not what it says: with it
- * the detail counts down and quotes figures ([RecorderVocabulary.resumesWithin],
- * [RecorderVocabulary.positioning]), without it the same state gets a settled phrase
- * ([RecorderVocabulary.continuesIfYouMove], [RecorderVocabulary.waitingForFix]). Adding a
- * state to [RecordCardState] fails to compile here, which is what keeps the two surfaces in step.
- * [deaf] colors only the idle states: an open track is real recording to report, and a stall is
- * about what happens *next*, not about the track in hand.
+ * the detail quotes figures ([RecorderVocabulary.positioning], [RecorderVocabulary.noGps]), without
+ * it the same state gets a settled phrase ([RecorderVocabulary.waitingForFix],
+ * [RecorderVocabulary.noGpsSettled]). Adding a state to [RecordCardState] fails to compile here,
+ * which is what keeps the two surfaces in step. [deaf] colors only the idle states: an open track is
+ * real recording to report, and a stall is about what happens *next*, not about the track in hand.
  */
 fun RecorderVocabulary.recorderText(
     state: RecordCardState,
     activity: ActivityType?,
-    pausedActivity: ActivityType?,
     deaf: Boolean,
     live: LiveFigures?,
 ): RecorderText {
@@ -190,28 +172,6 @@ fun RecorderVocabulary.recorderText(
             // While the accuracy gate rejects fixes, the shrinking radius is the progress indicator.
             if (live != null) words.positioning(live.rejectedAccuracyM) else words.waitingForFix(),
         )
-
-        RecordCardState.PAUSED -> {
-            val left = live?.pausedUntilMs?.let { it - live.nowMs }
-            // Past the deadline nothing resumes into the track — the next activity starts a new one —
-            // so it's idle in every way that matters to the user; only the close is pending.
-            if (left != null && left <= 0) {
-                idleText(live, deaf, words)
-            } else {
-                val paused = pausedActivity ?: activity
-                RecorderText(
-                    words.paused(),
-                    when {
-                        left != null -> words.resumesWithin(paused, left)
-                        live != null -> words.pausedActivity(paused)
-                        // No countdown to hang the activity on, so it leads the detail instead — the
-                        // notification's title is just "Paused", and which activity would resume is
-                        // the useful half of that.
-                        else -> words.continuesIfYouMove(paused)
-                    },
-                )
-            }
-        }
 
         RecordCardState.WAITING_FOR_MOVEMENT -> idleText(live, deaf, words)
 
@@ -243,16 +203,4 @@ private fun idleText(live: LiveFigures?, deaf: Boolean, words: RecorderVocabular
     // Non-null only with live figures, so it also stands in for "this surface shows figures".
     val quiet = live?.lastReadingAtMs?.let { live.nowMs - it }?.takeIf { it >= 60_000 }
     return RecorderText(words.idle(), words.nothingToRecord(quiet))
-}
-
-/**
- * "1m 40s" / "25s" — the pause card's live countdown, rounded up to whole seconds. The minute and
- * second are spelled by the caller, which is where language lives; the shape of the countdown is
- * this file's.
- */
-fun formatCountdown(ms: Long, minute: String, second: String): String {
-    val totalSec = (ms + 999) / 1000
-    val m = totalSec / 60
-    val s = totalSec % 60
-    return if (m > 0) "$m$minute $s$second" else "$s$second"
 }

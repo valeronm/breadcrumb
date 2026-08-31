@@ -16,9 +16,10 @@ import io.github.valeronm.breadcrumb.domain.DistanceFn
  * number the recorder never produced — so [of] is a fold over [Accumulator], not a second walk.
  *
  * The rule: ignored fixes contribute nothing but their count, and every leg between consecutive
- * good fixes is travel, including the one spanning a [TrackPoint.segmentStart] (an auto-pause, or a
- * merge's join). Counting that leg is deliberate: dropping it — a paused stretch wasn't traveled —
- * holds for the standstill that fires the pause but fails whenever the pause outlasted the stop, as
+ * good fixes is travel, including the one spanning a [TrackPoint.segmentStart] (a stop the track was
+ * continued through, or a merge's join). Counting that leg is deliberate: dropping it — nothing was
+ * recorded across it — holds for the standstill that ends the stretch but fails whenever the gap
+ * outlasted the stop, as
  * Activity Recognition is late to call movement and a reacquiring GPS lands its first fix down the
  * road. Measured over the recorded history, such gaps span everything from a parked phone's drift
  * to vehicle pace over a couple of minutes, so dropping them all discards real travel to avoid

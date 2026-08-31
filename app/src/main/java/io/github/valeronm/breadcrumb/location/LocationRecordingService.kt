@@ -25,7 +25,6 @@ import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.MovementConfirmer
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.RecordCardState
-import io.github.valeronm.breadcrumb.domain.TrackController
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.ui.recorderWords
@@ -39,7 +38,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -47,9 +45,10 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /**
- * Foreground service that records GPS while the app is in the background, opening, continuing or
- * pausing tracks as the detected activity (via [ActivityTransitionReceiver]) moves between motion
- * families. GPS runs at one cadence — the user's, read from [Settings] when each track's request starts.
+ * Foreground service that records GPS while the app is in the background, opening and closing tracks
+ * as the detected activity (via [ActivityTransitionReceiver]) moves between motion families and
+ * standstills. GPS runs at one cadence — the user's, read from [Settings] when each track's request
+ * starts.
  */
 class LocationRecordingService : Service() {
 
@@ -191,7 +190,6 @@ class LocationRecordingService : Service() {
         val idle = words.recorderText(
             state = RecordCardState.WAITING_FOR_MOVEMENT,
             activity = null,
-            pausedActivity = null,
             deaf = false,
             live = null,
         )
@@ -208,7 +206,7 @@ class LocationRecordingService : Service() {
         watchdogAlarm.schedule()
         TrackingStatus.update { it.copy(tracking = true) }
 
-        // Start armed but paused — recording begins when a moving activity transition arrives.
+        // Start armed but idle — recording begins when a moving activity transition arrives.
         // (Don't optimistically open a track: while stationary it would just be created and
         // immediately discarded, flashing the UI.)
         scope.launch {
@@ -224,7 +222,7 @@ class LocationRecordingService : Service() {
                 clearDeafnessWarning()
                 publishStatus()
             }
-            // Arm activity recognition only after the paused state is established. Doing it before
+            // Arm activity recognition only after the idle state is established. Doing it before
             // lets the one-shot snapshot's applyActivity() race this block on the mutex; if the
             // snapshot won, it would open a track that finalizeDangling then deleted and onArmed()
             // then reset to STILL — wedging the recorder while GPS kept running.
@@ -346,7 +344,6 @@ class LocationRecordingService : Service() {
     private suspend fun applyActivity(raw: ActivityType, eventTimeMs: Long?) {
         val nowMs = now()
         val was = core.confirmed
-        val wasPaused = core.isPaused
         val effects = core.onReading(
             raw = raw,
             eventTimeMs = eventTimeMs,
@@ -355,7 +352,7 @@ class LocationRecordingService : Service() {
             settings = activitySettings(),
         )
         if (core.confirmed != was) {
-            logTransition(was, core.confirmed, wasPaused, nowMs - core.lastReadingMs, ground = null)
+            logTransition(was, core.confirmed, nowMs - core.lastReadingMs, ground = null)
         } else {
             // Which hold, not a sentence about one of them: a reading can now be waiting because the
             // ground disagrees *or* because it said nothing at all, and those want telling apart.
@@ -366,7 +363,7 @@ class LocationRecordingService : Service() {
 
     /** The settings a pass is decided under, read here because this is where they live. */
     private fun activitySettings() = ActivitySettings(
-        resumeWindowMs = Settings.resumeWindowSec(this) * 1000L,
+        stitchWindowMs = Settings.stitchWindowSec(this) * 1000L,
         // Long enough that the witness has had a fair chance to answer: its own window span, plus
         // room for GPS to reacquire after the resume that so often precedes the question. Derived
         // rather than configured — a cap shorter than the window it waits on would hold nothing.
@@ -434,22 +431,23 @@ class LocationRecordingService : Service() {
                     if (departureProbe.running) withContext(Dispatchers.Main) { departureProbe.stop() }
 
                 is Effect.OpenTrack -> {
+                    // Not always an insert: a stop closes its track, so a stretch of movement
+                    // starting again soon enough carries on with the one that just finished rather
+                    // than laying a second beside it. The rule is the repository's, and the label
+                    // it answers with is the row's — see [ActivityIngest.onTrackResolved].
+                    val resolved =
+                        repository.openOrStitch(effect.activity, effect.startedAt, effect.stitchWindowMs)
                     trackStartedAt = effect.startedAt
-                    activeTrackId = repository.startTrack(effect.activity, effect.startedAt)
-                    DebugLog.i(TAG, "  -> opened ${effect.activity} track $activeTrackId")
+                    activeTrackId = resolved.trackId
+                    core.onTrackResolved(resolved.label, resolved.stitched)
+                    val what = if (resolved.stitched) "continued" else "opened"
+                    DebugLog.i(TAG, "  -> $what ${resolved.label} track $activeTrackId")
                 }
 
                 is Effect.CloseTrack -> {
                     DebugLog.i(TAG, "  -> closing track $activeTrackId")
                     activeTrackId?.let { repository.finishTrack(it, effect.endedAt, effect.renameTo) }
                     activeTrackId = null
-                }
-
-                is Effect.SchedulePauseWake -> scope.launch {
-                    delay(effect.deadlineMs - now())
-                    // Logic-free wake: a stale deadline (after a resume, fresh start, or newer
-                    // pause) returns no effects from [ActivityIngest.onTick].
-                    finalizeExpiredPause()
                 }
 
                 is Effect.RestartRegistration -> {
@@ -504,7 +502,7 @@ class LocationRecordingService : Service() {
         if (!core.watchingArrival) return
         groundPass(
             "arrival tick",
-            line = { nowMs -> "arrival watch: still for ${(nowMs - core.arrivalStoppedSinceMs) / 1000}s — pausing" },
+            line = { nowMs -> "arrival watch: still for ${(nowMs - core.arrivalStoppedSinceMs) / 1000}s — closing" },
         ) { ground, nowMs, settings ->
             core.onArrivalTick(ground, nowMs, settings)
         }
@@ -523,24 +521,23 @@ class LocationRecordingService : Service() {
         val settings = activitySettings()
         val nowMs = now()
         val was = core.confirmed
-        val wasPaused = core.isPaused
         val ground = core.motionVerdict(nowMs)
         val effects = pass(ground, nowMs, settings)
         if (effects.isEmpty()) return@launchArmed
         DebugLog.i(TAG, line(nowMs))
-        logTransition(was, core.confirmed, wasPaused, readingLagMs = 0L, ground = ground)
+        logTransition(was, core.confirmed, readingLagMs = 0L, ground = ground)
         dispatch(effects)
     }
 
     /**
-     * [wasPaused] and the activity either side are sampled before the pass: [ActivityIngest] commits
-     * as it decides, so by the time this runs its state already describes the outcome. The line
-     * reports the change, not the result of it.
+     * The activity either side is sampled before the pass: [ActivityIngest] commits as it decides,
+     * so by the time this runs its state already describes the outcome. The line reports the change,
+     * not the result of it — and `track` likewise, the dispatch that opens or closes one running
+     * after this.
      */
     private fun logTransition(
         previous: ActivityType,
         activity: ActivityType,
-        wasPaused: Boolean,
         readingLagMs: Long,
         /** The verdict the change was decided under, where the caller already has it — the window
          *  walk is not worth repeating, and a fresh one would report a different moment anyway. */
@@ -554,7 +551,7 @@ class LocationRecordingService : Service() {
         val verdict = ground?.let { " ground=${groundOf(it)}" }.orEmpty()
         DebugLog.i(
             TAG,
-            "applyActivity: $previous -> $activity (track=$activeTrackId paused=$wasPaused$lag$verdict)",
+            "applyActivity: $previous -> $activity (track=$activeTrackId$lag$verdict)",
         )
     }
 
@@ -576,10 +573,7 @@ class LocationRecordingService : Service() {
         }
         DebugLog.i(TAG, "watchdog: re-registering transition updates")
         watchdogAlarm.schedule()
-        // The alarm fires in Doze, where the pause wake's coroutine delay does not — so this is
-        // also where a pause whose window quietly expired gets closed.
-        finalizeExpiredPause()
-        // …and where a held reading is guaranteed a revisit. The GNSS tick that normally releases
+        // Where a held reading is guaranteed a revisit. The GNSS tick that normally releases
         // one exists only while GPS is on, so this alarm is what makes "a held reading never
         // depends on GPS staying on" true of every path rather than of the ones thought of: with
         // GPS off the window is stale, the verdict abstains, and the reading goes through.
@@ -593,24 +587,6 @@ class LocationRecordingService : Service() {
             activityManager.start().addOnCompleteListener { onDone?.invoke() }
         } else {
             onDone?.invoke()
-        }
-    }
-
-    /**
-     * Close a paused track whose resume window has passed — the single entry point for expiring a
-     * pause: the scheduled pause wake, the watchdog alarm (Doze defers the wake's timer) and UI
-     * foregrounding all funnel here, so the close never lands without the status publish that
-     * keeps the UI and notification in sync.
-     */
-    fun finalizeExpiredPause() {
-        if (!core.isPaused) return
-        launchArmed("pause expiry") {
-            val effects = core.onTick(now(), activitySettings())
-            if (effects.isEmpty()) return@launchArmed
-            DebugLog.i(TAG, "pause expired — finalizing track $activeTrackId")
-            // The close carries its own publish, so it cannot land while the UI and the
-            // notification keep showing a pause the controller has already left.
-            dispatch(effects)
         }
     }
 
@@ -855,9 +831,6 @@ class LocationRecordingService : Service() {
     private fun publishStatus(motion: Motion? = null) {
         val activity = ingest.displayActivity(core.confirmed, motion ?: core.motionVerdict(now()))
         val rec = activity.recording
-        // The controller's phase is the one record of a pause, deadline included — read both off it
-        // rather than mirroring the deadline in a field the pause/resume paths must keep in step.
-        val paused = core.phase as? TrackController.Phase.Paused
         val suspended = rec && noFixGuard.suspended
         // Held in locals because the notification below is classified from the very same values the
         // UI receives — two surfaces reading one set of inputs, not each sampling its own.
@@ -881,8 +854,6 @@ class LocationRecordingService : Service() {
                     it.gpsSuspendedSinceMillis != null -> it.gpsSuspendedSinceMillis
                     else -> now()
                 },
-                pausedActivity = paused?.activity,
-                pausedUntilMillis = paused?.resumeDeadlineMs,
                 lastFixAccuracyM = if (rec) ingest.lastFixAccuracyM else null,
                 lastFixRejectedByAccuracy = rec && ingest.lastFixRejectedByAccuracy,
             )
@@ -897,13 +868,11 @@ class LocationRecordingService : Service() {
                 armed = armed,
                 tracking = true,
                 recording = rec,
-                paused = paused != null,
                 gpsSuspended = suspended,
                 points = points,
                 hasOpenTrack = activeTrackId != null,
             ),
             activity = activity,
-            pausedActivity = paused?.activity,
             deaf = deaf,
             // No live figures: see [LiveFigures] — a moving detail would re-post this notification
             // every second, since [lastNotified] dedupes on the text itself.

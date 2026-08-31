@@ -37,7 +37,7 @@ sealed interface Motion {
  * short a span, or neither clear progress nor clear standstill give [Motion.Unknown] —
  * contradicting the label demands positive evidence, never its absence. **[Motion.Stopped]
  * measures the window's whole spread, not just the endpoints**: net displacement alone reads a
- * departure-and-return as a standstill, and a wrong standstill pauses a journey still under way.
+ * departure-and-return as a standstill, and a wrong standstill ends a journey still under way.
  *
  * **The feed contract.** [onFix] must get every fix that cleared the *label-independent* quality
  * gates, and only those: [IgnoreReason.ACCURACY] and [IgnoreReason.NO_GNSS] reject a fix on its own
@@ -114,11 +114,11 @@ class MovementConfirmer(
      * Adopt a new window shape, keeping the evidence already in it. Called wherever the GPS request
      * is built, which is where the sampling these [Params] describe is read.
      *
-     * **Deliberately does not clear.** It used to, on the reasoning that a resume, a new track or a
+     * **Deliberately does not clear.** It used to, on the reasoning that a new stretch or a
      * no-fix retry each open a gap, and evidence from before a gap describes a different stretch of
-     * the journey. But the recorder pauses at every stop and resumes at every start, so the clear
+     * the journey. But the recorder closes at every stop and opens at every start, so the clear
      * landed a few seconds before exactly the questions this exists to answer — a carrier pulling
-     * away is preceded by a resume, and the emptied window then abstains through the departure it
+     * away is preceded by an open, and the emptied window then abstains through the departure it
      * was built to catch. Nothing is lost by keeping it: [Params.maxFixAgeMs] expires evidence by
      * age on every [onFix] and [verdict], so a window that really does describe an older stretch of
      * the journey has already drained itself, and one that survives a short pause describes ground

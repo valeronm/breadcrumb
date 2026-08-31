@@ -13,9 +13,9 @@ import org.junit.Test
  * How an end is noticed when Play Services reports none — the counterpart of [DepartureTriggerTest]
  * on the other edge of the same journey, wiring-level cases for the rule whose argument lives in
  * [ArrivalWatch]'s KDoc. The asymmetry pinned here is the rule's whole shape: **a reading-opened
- * track is never paused this way**, however loudly the ground stops.
+ * track is never closed this way**, however loudly the ground stops.
  */
-class ArrivalPauseTest : ActivityIngestFixture() {
+class ArrivalCloseTest : ActivityIngestFixture() {
 
     private fun arrivalTick(atMs: Long) =
         core.onArrivalTick(core.motionVerdict(atMs), atMs, settings)
@@ -29,8 +29,8 @@ class ArrivalPauseTest : ActivityIngestFixture() {
         return fromMs + 20_000
     }
 
-    @Test fun `a proven standstill pauses a signal-opened track, backdated to the stop`() {
-        core.onDeparture(T0, settings)
+    @Test fun `a proven standstill closes a signal-opened track, at the stop it proved`() {
+        departure(T0, settings)
         val provenAt = standstill(T0 + 10 * MINUTE, eastM = 500.0)
         assertEquals(Motion.Stopped, core.motionVerdict(provenAt))
 
@@ -43,21 +43,18 @@ class ArrivalPauseTest : ActivityIngestFixture() {
         assertEquals(
             listOf(
                 Effect.StopGps,
-                // Backdated: the pause deadline runs from the standstill's start, not the fire.
-                Effect.SchedulePauseWake(provenAt + RESUME_WINDOW_MS),
+                // At the last good fix, which is the standstill the watch proved — not at the fire,
+                // a floor's worth of parked minutes later.
+                Effect.CloseTrack(endedAt = provenAt, renameTo = null),
                 Effect.ArmDepartureFence(at(500.0)),
                 Effect.ArmSignificantMotion,
                 Effect.Publish,
             ),
             arrivalTick(firedAt),
         )
-
-        // The backdated window has already lapsed, so the next tick ends the track at the arrival.
-        val closed = core.onTick(firedAt + 1_000, settings).filterIsInstance<Effect.CloseTrack>().single()
-        assertEquals(provenAt, closed.endedAt)
     }
 
-    @Test fun `a reading-opened track is never paused by the ground`() {
+    @Test fun `a reading-opened track is never closed by the ground`() {
         startWalking()
         val provenAt = standstill(T0 + 10 * MINUTE, eastM = 500.0)
         assertEquals("the evidence is there; the gate is what refuses", Motion.Stopped, core.motionVerdict(provenAt))
@@ -67,23 +64,24 @@ class ArrivalPauseTest : ActivityIngestFixture() {
         assertTrue(arrivalTick(provenAt + ArrivalWatch.STANDSTILL_FLOOR_MS).isEmpty())
     }
 
-    @Test fun `a departure after the fired pause starts a fresh signal track, watched again`() {
-        core.onDeparture(T0, settings)
+    @Test fun `a departure after the arrival asks for a track, watched again`() {
+        departure(T0, settings)
         val provenAt = standstill(T0 + 10 * MINUTE, eastM = 500.0)
         arrivalTick(provenAt)
         val firedAt = provenAt + ArrivalWatch.STANDSTILL_FLOOR_MS
-        arrivalTick(firedAt)
 
-        // The stop outlasted the resume window before the pause even landed, so leaving again is a
-        // new journey, not a stitch.
-        val out = core.onDeparture(firedAt + MINUTE, settings)
-        assertEquals(provenAt, out.filterIsInstance<Effect.CloseTrack>().single().endedAt)
+        // The arrival closed it here, at the standstill — the departure below has nothing left to
+        // end, which is the whole difference from a track merely held open.
+        assertEquals(provenAt, arrivalTick(firedAt).filterIsInstance<Effect.CloseTrack>().single().endedAt)
+
+        val out = departure(firedAt + MINUTE, settings)
+        assertTrue("nothing left to close", out.none { it is Effect.CloseTrack })
         assertEquals(
             ActivityType.UNKNOWN,
             out.filterIsInstance<Effect.OpenTrack>().single().activity,
         )
-        // The opener's provenance follows the new track, and the fire spent the old standstill:
-        // pausing again takes a full fresh floor.
+        // The opener's provenance follows the new stretch, and the fire spent the old standstill:
+        // arriving again takes a full fresh floor.
         assertTrue(core.watchingArrival)
         assertTrue(arrivalTick(firedAt + 2 * MINUTE).isEmpty())
     }

@@ -484,12 +484,7 @@ internal fun rememberRecorderSetup(): RecorderSetup {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                setup.onResumed()
-                // Doze can hold the pause wake for minutes; opening the app closes a track whose
-                // resume window has already passed, so the timeline isn't stale on arrival.
-                LocationRecordingService.instance?.finalizeExpiredPause()
-            }
+            if (event == Lifecycle.Event.ON_RESUME) setup.onResumed()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }

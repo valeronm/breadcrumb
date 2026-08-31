@@ -5,14 +5,14 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 /**
  * Finds *embedded stays* inside a recorded track — the user lingered within a small area while
  * Activity Recognition kept reporting movement (an open-air museum, a GNSS-transparent building),
- * so neither the STILL auto-pause nor the no-fix guard ever fired. A running-centroid stay-point
+ * so neither a STILL reading nor the no-fix guard ever fired. A running-centroid stay-point
  * detector: a dwell is a maximal run of fixes within [Params.corralRadiusM] of their own running
  * mean for at least [Params.minDwellMs]. Two asymmetric exits keep venue-edge wandering from
  * splitting one visit: a fix beyond [Params.exitHardRadiusM] ends the dwell immediately, one
- * merely outside the corral only after [Params.exitConfirmMs] without re-entry. Auto-pause gaps
- * need no special handling — dwell time is wall-clock between samples, so a pause resuming in the
- * corral credits the whole gap and one resuming elsewhere ends the dwell at the last in-corral fix
- * (the user left during the pause). Adjacent dwells closer than [Params.mergeGapMs] and
+ * merely outside the corral only after [Params.exitConfirmMs] without re-entry. A stitched track's
+ * gaps need no special handling — dwell time is wall-clock between samples, so a stretch resuming in
+ * the corral credits the whole gap and one resuming elsewhere ends the dwell at the last in-corral
+ * fix (the user left during the gap). Adjacent dwells closer than [Params.mergeGapMs] and
  * [Params.mergeDistM] coalesce — a large venue often reads as two or three neighboring corrals
  * with short strolls between. Pure and Android-free; nothing is persisted — detection re-runs from
  * stored points on demand.

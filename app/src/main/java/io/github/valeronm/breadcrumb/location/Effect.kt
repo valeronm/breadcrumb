@@ -16,11 +16,14 @@ import io.github.valeronm.breadcrumb.domain.NoFixGuard
  * of describing effects rather than performing them, and it is why [EnsureGps] asks for a state
  * rather than commanding a transition.
  *
- * **[NoFixGuard] is the one exception, deliberately.** Its probe clock starts where GPS actually
- * starts, which is inside the dispatch of [EnsureGps] — so a pass reads a guard that still describes
- * the world before the pass. That is the right way round (a probe that never started must not be
- * timed as though it had), but it means the guard is the one piece of state a pass cannot assume it
- * has already moved.
+ * **Two pieces of state move at dispatch instead, both deliberately.** [NoFixGuard]'s probe clock
+ * starts where GPS actually starts, inside the dispatch of [EnsureGps], so a pass reads a guard that
+ * still describes the world before it — the right way round, since a probe that never started must
+ * not be timed as though it had. And the track [OpenTrack] resolves to is not knowable until the
+ * write returns, so everything keyed to the row's identity is committed by
+ * [ActivityIngest.onTrackResolved]. The cost of the second is that a dispatch failing there leaves
+ * the core torn: the controller says recording while the fix path and the guard say nothing is open.
+ * The next pass's [StopGps] settles it, and the row itself is whatever the transaction committed.
  */
 sealed interface Effect {
 
@@ -38,9 +41,9 @@ sealed interface Effect {
 
     /**
      * GPS is off for want of a fix rather than for want of a journey — arm the cheap signals that
-     * say conditions may have changed. Deliberately not folded into [StopGps]: a pause stops GPS
-     * too, and arms its own resume-deadline wake, so arming these on top would leave one track with
-     * two mechanisms waiting to revive it. [retryGatedMs] is how long a motion-triggered retry is
+     * say conditions may have changed. Deliberately not folded into [StopGps]: a stop turns GPS off
+     * too, and arms the departure triggers instead, so arming these on top would leave one recorder
+     * with two sets of signals waiting to revive it. [retryGatedMs] is how long a motion-triggered retry is
      * held off, which is what the backoff bought and the only thing that explains a signal being
      * heard and ignored.
      */
@@ -54,13 +57,13 @@ sealed interface Effect {
 
     /**
      * Watch for the phone leaving where it last stopped. [from] is the recorder's own last good fix
-     * — the *pause* is the only moment one is known to be the right anchor, taken while the
-     * position stream was still healthy, whereas by the time a resume window lapses anything that
-     * carries the phone has already taken it elsewhere, and a fence centred where the phone no
-     * longer is is never entered and so never reports leaving.
+     * — the *stop* is the only moment one is known to be the right anchor, taken while the
+     * position stream was still healthy, whereas any later one describes a phone whatever carries it
+     * may already have taken elsewhere, and a fence centred where the phone no longer is is never
+     * entered and so never reports leaving.
      *
      * **Null is a decision, not an omission**: the recorder has no fix of its own to anchor on —
-     * on arming, before any track, or after a pause whose track never got one — and the dispatcher
+     * on arming, before any track, or after a stop whose track never got one — and the dispatcher
      * should fall back to whatever position the platform last saw. Carried as a value so the
      * absent anchor arrives as something to act on rather than something to infer from which
      * effects the pass happened to emit.
@@ -90,7 +93,7 @@ sealed interface Effect {
      * dispatcher that tore the request down and rebuilt it would restart the engine's acquisition
      * once per firing. A *different* interval is a different request and does rebuild.
      *
-     * **Not folded into [ArmDepartureFence]**, though a pause emits both: they are independently
+     * **Not folded into [ArmDepartureFence]**, though a stop emits both: they are independently
      * switchable, they fail in different ways, and the fence is a registration the system holds
      * across process death while this is a live request that dies with the service.
      */
@@ -100,20 +103,30 @@ sealed interface Effect {
     data object StopDepartureProbe : Effect
 
     /**
-     * Insert the track row. The id it returns is the dispatcher's to hold — nothing here needs it,
-     * which is what lets this core stay synchronous while the insert it asks for is awaited.
+     * Give the recorder a track to record [activity] into, from [startedAt]. **Which** track is the
+     * dispatcher's to resolve — the last one where the stored history says this stretch continues it
+     * (`StitchRule`), a fresh row otherwise — and it reports the answer back through
+     * [ActivityIngest.onTrackResolved], since the label to record under is the row's and may not be
+     * the one asked for. Nothing here needs the id, which is what lets this core stay synchronous
+     * while the write it asks for is awaited.
+     *
+     * [stitchWindowMs] rides along for the reason [CloseTrack]'s values do — decided when this is
+     * built rather than read back at dispatch, so the pass and the write it asks for cannot judge
+     * the same stop under two settings. It is the same number the arrival floor is clamped to.
      */
-    data class OpenTrack(val activity: ActivityType, val startedAt: Long) : Effect
+    data class OpenTrack(
+        val activity: ActivityType,
+        val startedAt: Long,
+        val stitchWindowMs: Long,
+    ) : Effect
 
     /**
      * Finish whatever track is open. [endedAt] and [renameTo] are decided when this is built rather
-     * than read back at dispatch: a paused track ended at its last good fix rather than at the close,
-     * and the carrier case that renames a label is reset by the very state move that emits this.
+     * than read back at dispatch: a stop ends the track at its last good fix rather than at the
+     * reading that reported it, and the carrier case that renames a label is reset by the very state
+     * move that emits this.
      */
     data class CloseTrack(val endedAt: Long, val renameTo: ActivityType?) : Effect
-
-    /** Wake at [deadlineMs] and tick. An early or stale wake is a no-op in [ActivityIngest.onTick]. */
-    data class SchedulePauseWake(val deadlineMs: Long) : Effect
 
     /**
      * The registration is proven deaf — rebuild it on a fresh token. [readingLateMs] and [advancedMs]
@@ -186,7 +199,7 @@ data class DepartureTriggers(
 
 /** The settings a pass is decided under, read once per pass by the caller that owns them. */
 data class ActivitySettings(
-    val resumeWindowMs: Long,
+    val stitchWindowMs: Long,
     /**
      * How long a stop the ground could not vouch for is held before it lands anyway. Derived from
      * the witness's own window rather than chosen: the hold exists to give that window time to

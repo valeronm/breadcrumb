@@ -23,7 +23,7 @@ import io.github.valeronm.breadcrumb.domain.TrackController
  * It owns the two state machines ([ActivityGate], [TrackController]), the reading clock and the
  * deafness bookkeeping — everything that persists across readings. [FixIngest] and [NoFixGuard] are
  * shared with the fix path rather than owned, because both paths move them: a fix feeds the guard
- * and the witness, while an activity change opens, pauses and closes the track they accumulate over.
+ * and the witness, while an activity change opens and closes the track they accumulate over.
  *
  * Callers hold whatever lock they serialize the recorder with; nothing here is thread-safe on its own.
  */
@@ -43,7 +43,7 @@ class ActivityIngest(
     private val watch = DepartureWatch(ingest.distance, DepartureFence.RADIUS_M)
 
     // The stop side of what [watch] starts: fed the witness's verdicts on the satellite tick, fires
-    // the pause that ends a signal-opened track. See [onArrivalTick] for why only those tracks.
+    // the close that ends a signal-opened track. See [onArrivalTick] for why only those tracks.
     private val arrival = ArrivalWatch()
 
     // Whether the open track was opened by a departure trigger rather than a reading — the arrival
@@ -94,19 +94,19 @@ class ActivityIngest(
      */
     var lastProbeVerdict: DepartureWatch.Verdict = DepartureWatch.Verdict.Dormant
         private set
-    val phase: TrackController.Phase get() = controller.phase
-    val isPaused: Boolean get() = controller.isPaused
+
+    /** Whether a track is open. The phase itself is nobody's business outside this file. */
+    val recording: Boolean get() = controller.phase is TrackController.Phase.Recording
     val deaf: Boolean get() = deafnessWarning.warned
 
     /**
-     * Whether the arrival watch has anything to judge: a signal-opened track recording live
-     * ([TrackController.Phase.Recording] excludes a pause, which is its own phase). Read off-mutex
-     * by the service as a cheap racy pre-filter, like [parked]; [onArrivalTick] re-checks.
+     * Whether the arrival watch has anything to judge: a signal-opened track recording live. Read
+     * off-mutex by the service as a cheap racy pre-filter, like [parked]; [onArrivalTick] re-checks.
      */
     val watchingArrival: Boolean
-        get() = openedBySignal && controller.phase is TrackController.Phase.Recording
+        get() = openedBySignal && recording
 
-    /** When the standstill behind the last arrival pause began — for the dispatcher's log. */
+    /** When the standstill behind the last arrival close began — for the dispatcher's log. */
     var arrivalStoppedSinceMs: Long = 0L
         private set
 
@@ -114,13 +114,11 @@ class ActivityIngest(
     fun motionVerdict(atMs: Long): Motion = ingest.verdict(atMs)
 
     /**
-     * When a held reading stops waiting, and the time it should be taken to have happened at. The
-     * gate is deliberately clock-free — *when* a held reading is reconsidered is the recorder's
-     * business — so the stamps live here, beside the passes that carry a clock.
+     * When a held reading stops waiting. The gate is deliberately clock-free — *when* a held reading
+     * is reconsidered is the recorder's business — so the stamp lives here, beside the passes that
+     * carry a clock.
      */
-    private data class Waiting(val expiresAtMs: Long, val readingMs: Long)
-
-    private var waiting: Waiting? = null
+    private var holdExpiresAtMs: Long? = null
 
     /**
      * Land a reading the ground never vouched for, once it has waited long enough that a fair
@@ -129,7 +127,7 @@ class ActivityIngest(
      * A [ActivityGate.Hold.CONTRADICTED] hold is refused by the gate, which is where that rule lives.
      */
     private fun releaseExpiredHold(nowMs: Long): ActivityType? {
-        val deadline = waiting?.expiresAtMs ?: return null
+        val deadline = holdExpiresAtMs ?: return null
         if (nowMs < deadline) return null
         return gate.releaseHeld()
     }
@@ -148,18 +146,14 @@ class ActivityIngest(
         settings: ActivitySettings,
     ): List<Effect> {
         val out = ArrayList<Effect>()
-        val readingMs = intake(eventTimeMs, nowMs, registration, out)
+        intake(eventTimeMs, nowMs, registration, out)
         // Nothing to apply if the trusted activity didn't move — or if the ground cannot vouch for
         // it, in which case the gate holds it until [onMotion] or the cap in [releaseExpiredHold]
         // lands it.
         val changed = gate.onReading(raw, motionVerdict(nowMs), requireCorroboration = true)
-        waiting = if (gate.held == null) {
-            null
-        } else {
-            Waiting(nowMs + settings.uncorroboratedHoldMs, readingMs)
-        }
+        holdExpiresAtMs = if (gate.held == null) null else nowMs + settings.uncorroboratedHoldMs
         if (changed == null) return out
-        applyConfirmed(changed, readingMs, nowMs, settings, out)
+        applyConfirmed(changed, nowMs, settings, out)
         return out
     }
 
@@ -168,27 +162,10 @@ class ActivityIngest(
      * — or once an uncorroborated hold has run its cap. Empty when nothing is held or it still stands.
      */
     fun onMotion(motion: Motion, nowMs: Long, settings: ActivitySettings): List<Effect> {
-        // Read before the release, which clears the slot: what kind of hold this was decides when
-        // the stop is taken to have happened.
-        val wasUncorroborated = gate.held?.kind == ActivityGate.Hold.UNCORROBORATED
-        val readingMs = waiting?.readingMs ?: nowMs
         val promoted = gate.onMotion(motion) ?: releaseExpiredHold(nowMs) ?: return emptyList()
-        waiting = null
+        holdExpiresAtMs = null
         val out = ArrayList<Effect>()
-        // **Which time a released stop happened at depends on why it was held.**
-        //
-        // A *contradicted* hold is released at the promotion's own time: the ground was positively
-        // moving throughout, so the hold is evidence the stop had not begun yet, and the window
-        // that follows it is the first one measuring an actual stop. Timing it from the reading
-        // would let a hold longer than the resume window promote into a pause that had already
-        // lapsed — the holding silently replacing the window instead of preceding it.
-        //
-        // An *uncorroborated* hold carries no such evidence. Nothing was heard; the recorder simply
-        // waited to see whether anything would be. The stop happened when the reading said it did,
-        // so timing it from the release would move every unwitnessed track boundary later by the
-        // cap — a change to the recorded history, not merely to what GPS costs.
-        val atMs = if (wasUncorroborated) readingMs else nowMs
-        applyConfirmed(promoted, atMs, nowMs, settings, out)
+        applyConfirmed(promoted, nowMs, settings, out)
         return out
     }
 
@@ -206,60 +183,39 @@ class ActivityIngest(
      * ground moved and nothing about what carried it.
      */
     fun onDeparture(nowMs: Long, settings: ActivitySettings): List<Effect> {
-        if (controller.phase is TrackController.Phase.Recording) return emptyList()
+        if (recording) return emptyList()
         val out = ArrayList<Effect>()
         // Adopted, not read: see [ActivityGate.adopt]. Without this the STILL that ends the journey
         // is no change at all and nothing can ever close what this opens.
         gate.adopt(ActivityType.UNKNOWN)
-        waiting = null
-        applyConfirmed(ActivityType.UNKNOWN, nowMs, nowMs, settings, out)
+        holdExpiresAtMs = null
+        applyConfirmed(ActivityType.UNKNOWN, nowMs, settings, out)
         // The opener's provenance, read off the pass's own effects: [open] is the only emitter of
-        // [Effect.OpenTrack], and [close] has already cleared the flag ahead of every open — so a
-        // departure that opened a track (rather than resumed a paused one) is exactly this test.
+        // [Effect.OpenTrack], and [close] has already cleared the flag ahead of every open. The flag
+        // describes *this* stretch, not the row — a stretch the dispatcher then resolves onto the
+        // previous track was still the one a signal opened.
         if (out.any { it is Effect.OpenTrack }) openedBySignal = true
         return out
     }
 
     /**
      * The arrival consultation, on the same ~1 Hz satellite tick that revisits a parked reading:
-     * pause a signal-opened track once the ground has provably stood [ArrivalWatch]'s floor. Empty
+     * close a signal-opened track once the ground has provably stood [ArrivalWatch]'s floor. Empty
      * for every reading-opened track — why only trigger-opened tracks end this way is the watch's
-     * own argument. The pause is backdated to the standstill's start, so it closes at once, at the
-     * last good fix.
+     * own argument. The close lands at the last good fix like any other stop, which is where the
+     * standstill began.
      */
     fun onArrivalTick(motion: Motion, nowMs: Long, settings: ActivitySettings): List<Effect> {
         if (!watchingArrival) return emptyList()
         val stoppedSinceMs =
-            arrival.onMotion(motion, nowMs, settings.resumeWindowMs) ?: return emptyList()
+            arrival.onMotion(motion, nowMs, settings.stitchWindowMs) ?: return emptyList()
         arrivalStoppedSinceMs = stoppedSinceMs
         val out = ArrayList<Effect>()
         // Adopted for the same reason [onDeparture] adopts: the ground is reporting an edge Play
-        // Services never will, and the pause path downstream needs the trusted activity to carry it.
+        // Services never will, and the stop path downstream needs the trusted activity to carry it.
         gate.adopt(ActivityType.STILL)
-        waiting = null
-        applyConfirmed(ActivityType.STILL, stoppedSinceMs, nowMs, settings, out)
-        return out
-    }
-
-    /**
-     * A wake at (or after) a pause deadline: the effects that close a track whose resume window
-     * lapsed, empty otherwise. Callers' timers stay logic-free — an early or stale tick (after a
-     * resume, a fresh start, or a newer pause) returns nothing; fire anywhere, however often. The
-     * close always carries its own [Effect.Publish], so it cannot land without the UI and the
-     * notification being brought along.
-     */
-    fun onTick(nowMs: Long, settings: ActivitySettings): List<Effect> {
-        if (controller.onTick(nowMs) != RecordingAction.Finalize) return emptyList()
-        val out = ArrayList<Effect>()
-        close(nowMs, out)
-        // **The one path that ends at idle without opening anything**, and the only one that has to
-        // put the motion trigger back: [close] emits [Effect.StopGps], which disarms the resume
-        // signals wholesale and takes this one down with them. The anchor is deliberately left where
-        // the pause put it — the phone has not moved since, and a track that ended at its last fix
-        // has nothing newer to offer. Not folded into [close], which is followed by an open on every
-        // other path, and there the arm would be undone by the next effect in the same list.
-        if (settings.triggers.motion && watch.watching) out += Effect.ArmSignificantMotion
-        out += Effect.Publish
+        holdExpiresAtMs = null
+        applyConfirmed(ActivityType.STILL, nowMs, settings, out)
         return out
     }
 
@@ -279,9 +235,8 @@ class ActivityIngest(
     ): List<Effect> {
         // The phase is what says a track exists, as it is in [close] — not the id the dispatcher
         // holds, which after a failed insert says the opposite and would hold the give-up off for
-        // the rest of the outing. A paused track, meanwhile, turned GPS off for its own reasons and
-        // is waiting on its own deadline.
-        if (controller.phase == TrackController.Phase.Idle || controller.isPaused) return emptyList()
+        // the rest of the outing.
+        if (!recording) return emptyList()
         val motion = motionVerdict(nowMs)
         if (!noFixGuard.shouldGiveUp(elapsedMs, giveUpMs, motion)) return emptyList()
         // GPS is about to go, and with it the tick that would ever revisit a held reading — so it is
@@ -289,8 +244,10 @@ class ActivityIngest(
         // that honest: reaching this line means fixes have genuinely ceased, so there is no longer
         // any moving ground to contradict a stop.
         val out = ArrayList(onMotion(motion, nowMs, settings))
-        // The promotion may have paused the track, which stops GPS and arms the pause's own wake.
-        if (controller.isPaused) return out
+        // The promotion may have closed the track, which stops GPS and re-arms the cheap signals on
+        // its own way down. Asked of the phase rather than of the effects, since it is the same
+        // question [close] answers: nothing is recording, so there is nothing left to wind down.
+        if (!recording) return out
         out += Effect.StopGps
         out += Effect.ArmResumeSignals(noFixGuard.onGaveUp(elapsedMs))
         out += Effect.Publish
@@ -381,7 +338,7 @@ class ActivityIngest(
         // add is a faster cadence, at the price of the two requests being one object with one window
         // between them.
         val watchedAlready =
-            triggers.continuous || (controller.phase is TrackController.Phase.Recording && !controller.isPaused)
+            triggers.continuous || recording
         if (watchedAlready) return emptyList()
         // Re-armed straight away rather than after the window: the sensor is one-shot, and a phone
         // still moving when it next fires is exactly the case worth hearing about. Extending a live
@@ -421,7 +378,7 @@ class ActivityIngest(
 
     private fun reset() {
         gate.onArmed()
-        waiting = null
+        holdExpiresAtMs = null
     }
 
     /** Forget the deafness episode. The alert itself is the caller's to withdraw. */
@@ -431,19 +388,18 @@ class ActivityIngest(
 
     /**
      * The preamble every *reading* runs: sanitize the event's own time, let the deafness oracle judge
-     * it, and report that one arrived; returns the reading time the gate and controller work in.
-     * Separate from [applyConfirmed]: an activity applied with no reading behind it must not touch
-     * the oracle, whose job is noticing when readings stop arriving.
+     * it, and report that one arrived. Separate from [applyConfirmed]: an activity applied with no
+     * reading behind it must not touch the oracle, whose job is noticing when readings stop arriving.
      */
     private fun intake(
         eventTimeMs: Long?,
         nowMs: Long,
         registration: Registration,
         out: MutableList<Effect>,
-    ): Long {
-        // The gate gets the event's own (sanitized) time, not the apply time: readings drained late
-        // from a frozen queue must keep their real spacing, or a stop and a return ten minutes apart
-        // would land inside the resume window and stitch through a genuine stop.
+    ) {
+        // The oracle gets the event's own (sanitized) time, not the apply time: readings drained late
+        // from a frozen queue must keep their real spacing, or the oracle below would read a whole
+        // frozen queue as one delivery and never see the gap that proves the registration deaf.
         val lastReadingMs = readingClock.lastReadingMs
         val readingMs = readingClock.sanitize(eventTimeMs, nowMs, READING_MAX_AGE_MS)
         // Deafness oracle: a stale-yet-clock-advancing reading applied while armed can only have
@@ -474,39 +430,32 @@ class ActivityIngest(
         // Every delivery — even one that changes nothing — proves activity detection is alive; the
         // Record tab's standing-by card surfaces this.
         out += Effect.StampReading(readingMs)
-        return readingMs
     }
 
     /**
-     * The apply tail: a confirmed activity change becomes a track action and its effects. [atMs] is
-     * when the change is taken to have happened, which the controller measures the pause deadline
-     * from; [nowMs] is when it is being applied, and stamps the track rows — a reading drained late
-     * out of Doze decides against its own time but opens and closes tracks at the wall clock, as it
-     * did when both were read separately.
+     * The apply tail: a confirmed activity change becomes a track action and its effects. [nowMs] is
+     * when it is being applied, and stamps the track rows — a reading drained late out of Doze opens
+     * and closes tracks at the wall clock.
+     *
+     * The change's *own* time is deliberately not passed: whether a returning stretch continues the
+     * last track is measured against that track's last recorded point, so a stop applied an hour
+     * late cannot stitch through the real one, and a hold cannot widen the window past what the
+     * reader configured.
      */
     private fun applyConfirmed(
         changed: ActivityType,
-        atMs: Long,
         nowMs: Long,
         settings: ActivitySettings,
         out: MutableList<Effect>,
     ) {
-        // The controller compares the change's own time against the pause deadline, so a
-        // late-drained reading can't stitch through a genuine stop even if the pause wake never
-        // fired.
-        when (val action = controller.onActivity(changed, atMs, settings.resumeWindowMs)) {
+        when (val action = controller.onActivity(changed)) {
             RecordingAction.Noop -> Unit
-            // Watching starts at [nowMs], not at the stop's own time: the latency this reports
-            // against is the mechanism's, and it is measured the same way the fence measures its
-            // own registration, so the two triggers can be compared in one log.
-            is RecordingAction.Pause ->
-                pause(action.pausedActivity, action.resumeDeadlineMs, nowMs, settings, out)
-            // Unreachable from a reading (expiry only comes from a tick); for totality.
-            RecordingAction.Finalize -> close(nowMs, out)
-            RecordingAction.Resume -> resume(changed, out)
+            RecordingAction.Close -> stop(nowMs, settings, out)
             is RecordingAction.StartNew -> {
+                // A cross-family switch ends the track where the recorder stands, not at its last
+                // fix: the phone is demonstrably still moving, so there is no overrun to trim back.
                 close(nowMs, out)
-                open(action.activity, nowMs, out)
+                open(action.activity, nowMs, settings, out)
             }
             is RecordingAction.ContinueSameTrack -> {
                 // Same motion family (e.g. walking ⇄ running): keep the track and its label, just
@@ -526,23 +475,30 @@ class ActivityIngest(
         out += Effect.Publish
     }
 
-    /** Stop GPS but keep the track open; a wake at [resumeDeadlineMs] finalizes it if unresumed. */
-    private fun pause(
-        trackActivity: ActivityType,
-        resumeDeadlineMs: Long,
-        nowMs: Long,
-        settings: ActivitySettings,
-        out: MutableList<Effect>,
-    ) {
-        noFixGuard.onStopped()
-        controller.onPaused(trackActivity, resumeDeadlineMs)
-        out += Effect.StopGps
-        out += Effect.SchedulePauseWake(resumeDeadlineMs)
+    /**
+     * A trusted stop. The track **closes** — for the reader it is finished, and it reaches the
+     * timeline with its stats and its stays — and the recorder starts watching for the next
+     * departure from where the phone is standing.
+     *
+     * Nothing is kept against the chance that the stop was premature. Whether the next stretch of
+     * movement belongs to this track is asked of the stored history when it arrives
+     * ([io.github.valeronm.breadcrumb.domain.StitchRule]), which is what makes a stretch resuming
+     * after a process death continue the same track as one resuming without.
+     */
+    private fun stop(nowMs: Long, settings: ActivitySettings, out: MutableList<Effect>) {
+        // Ended at its last good fix, not at the reading: Activity Recognition reports a stop
+        // minutes after the phone made it, and those minutes claim a whereabouts nothing measured.
+        // One read, so the end the close is stamped with and the anchor watched from are the same fix.
+        val lastGood = ingest.lastGood
+        close(lastGood?.timestamp ?: nowMs, out)
         // The stop is where the next departure will be from, and the last good fix is where the
         // phone is standing as it is declared. A track that never got one still wants watching —
         // that is the GNSS-starved case, where the fence is the only thing that can notice at all.
+        // Watching starts at the apply time rather than at that fix: the latency it reports is the
+        // mechanism's, measured the way the fence measures its own registration, so the two triggers
+        // can be compared in one log.
         watchForDeparture(
-            ingest.lastGood?.let {
+            lastGood?.let {
                 MeasuredPosition(
                     Coordinate(it.latitude, it.longitude),
                     it.accuracy?.toDouble() ?: 0.0,
@@ -605,8 +561,9 @@ class ActivityIngest(
      * say it exists — and both dispatch to a no-op when nothing was armed.
      *
      * **The motion trigger is not among them**, and cannot be: it comes down with the resume signals
-     * inside whatever [Effect.StopGps] or [Effect.EnsureGps] the same pass emits. [onTick] is the one
-     * path that ends idle with no such effect after it, and re-arms there for that reason.
+     * inside whatever [Effect.StopGps] or [Effect.EnsureGps] the same pass emits. [stop] is the one
+     * path that ends idle with no such effect after it, and puts the trigger back by calling
+     * [watchForDeparture] after its close, for that reason.
      */
     private fun stopWatchingForDeparture(out: MutableList<Effect>) {
         watch.stop()
@@ -615,33 +572,45 @@ class ActivityIngest(
     }
 
     /**
-     * Continue the paused track: GPS back on, accumulators kept; the first fix begins a new segment.
+     * Ask for a track to record [activity] into. Which one that turns out to be is the dispatcher's
+     * to resolve — the last track if the stored history says this stretch continues it, a fresh row
+     * otherwise — so everything that depends on the answer waits for [onTrackResolved].
      *
-     * Stops watching for exactly the reason [open] does — the departure has happened, and the ground
-     * is now under continuous observation at a resolution no probe could improve on. This is not
-     * merely tidy: the fence would otherwise stay armed on the pause's anchor for the whole rest of
-     * the track, and a standing probe would keep asking for positions alongside a live GPS request.
+     * Stops watching for departures: one has happened, or something else got there first, and the
+     * ground is now under continuous observation at a resolution no probe could improve on. Not
+     * merely tidy — the fence would otherwise stay armed on the last stop's anchor for the whole
+     * track, and a standing probe would keep asking for positions alongside a live GPS request.
      */
-    private fun resume(activity: ActivityType, out: MutableList<Effect>) {
+    private fun open(
+        activity: ActivityType,
+        startedAt: Long,
+        settings: ActivitySettings,
+        out: MutableList<Effect>,
+    ) {
         controller.onRecording(activity)
-        ingest.markSegmentStart()
-        // The standstill the pause was (or would have been) built on ended with the resume; a new
-        // arrival needs the full floor of fresh evidence.
-        arrival.reset()
+        out += Effect.OpenTrack(activity, startedAt, settings.stitchWindowMs)
         out += Effect.EnsureGps
         stopWatchingForDeparture(out)
     }
 
-    private fun open(activity: ActivityType, startedAt: Long, out: MutableList<Effect>) {
-        ingest.onTrackOpened(activity)
+    /**
+     * Which track the dispatcher resolved an [Effect.OpenTrack] to, and under which label — the
+     * **row's**, which a carrier rename may have rewritten since the recorder last saw it, and which
+     * both the fix ceilings and the finish's own rename verdict have to read.
+     *
+     * The core cannot answer this itself: whether a stretch continues the last track is decided
+     * against the stored history at dispatch. [stitched] says it did, which is what owes the next fix
+     * a segment break — marked here rather than where the track was asked for, since
+     * [FixIngest.onTrackOpened] clears the pending mark.
+     */
+    fun onTrackResolved(label: ActivityType, stitched: Boolean) {
+        ingest.onTrackOpened(label)
         noFixGuard.onTrackOpened()
-        openTrackActivity = activity
+        openTrackActivity = label
+        // Any standstill the arrival watch had accumulated ended when this stretch began; a new
+        // arrival needs the full floor of fresh evidence.
         arrival.reset()
-        controller.onRecording(activity)
-        out += Effect.OpenTrack(activity, startedAt)
-        out += Effect.EnsureGps
-        // Whatever they were watching for has happened, or something else got there first.
-        stopWatchingForDeparture(out)
+        if (stitched) ingest.markSegmentStart()
     }
 
     /**
@@ -651,12 +620,9 @@ class ActivityIngest(
      * after a failed insert, and there the phase is the one that recovers, since closing on it
      * resets a core that would otherwise spend the rest of the outing believing it was recording.
      */
-    private fun close(nowMs: Long, out: MutableList<Effect>) {
+    private fun close(endedAt: Long, out: MutableList<Effect>) {
         out += Effect.StopGps
-        if (controller.phase == TrackController.Phase.Idle) return
-        // A paused track ended when its last fix arrived, not now — don't count the idle gap. Read
-        // before [TrackController.onClosed] clears the phase the question is asked of.
-        val endedAt = if (controller.isPaused) ingest.lastGood?.timestamp ?: nowMs else nowMs
+        if (!recording) return
         // The evidence verdict travels into the finish transaction: which labels rename, and to what,
         // is the domain's decision (CarrierEvidence.renameFor) — a proven carried journey on a foot
         // label finishes as "Moving" with its warm-up jump flags restored. The evidence is restarted
