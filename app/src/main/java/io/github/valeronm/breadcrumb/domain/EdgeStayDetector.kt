@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import kotlin.math.abs
 
 /**
  * Finds a stay at the *edge* of a track — recording that ran on after the user had already arrived
@@ -199,7 +200,7 @@ object EdgeStayDetector {
                 boundary = boundaryAt(side, dwellBound) ?: return
                 if (spreadOf(side, boundary) > params.dwell.exitHardRadiusM) return
             }
-            val stayMs = Math.abs(edgeTs - boundary.timestamp)
+            val stayMs = abs(edgeTs - boundary.timestamp)
             if (stayMs >= params.dwell.minDwellMs) add(EdgeStay(side, boundary.timestamp, stayMs))
         }
 

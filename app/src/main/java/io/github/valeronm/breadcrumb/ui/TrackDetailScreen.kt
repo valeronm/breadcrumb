@@ -501,7 +501,9 @@ internal class MetricGraphData(
 ) {
     val values: List<Float?> get() = coloring.values
     val colors: IntArray get() = coloring.colors
-    val unit: String get() = coloring.unit
+
+    /** The value at plot precision with this series' own unit, so a label can't borrow another's. */
+    fun label(value: Float): String = plotLabel(value, coloring.unit)
 }
 
 /** Null when no point carries the metric. */
@@ -633,6 +635,8 @@ private fun MetricGraph(
         val present = graph.values.filterNotNull()
         present.min() to present.max()
     }
+    val maxLabel = remember(graph) { graph.label(maxV) }
+    val minLabel = remember(graph) { graph.label(minV) }
     val span = (maxV - minV).let { if (it < 1e-3f) 1f else it }
     val t0 = graph.points.first().timestamp
     val tSpan = (graph.points.last().timestamp - t0).coerceAtLeast(1L).toFloat()
@@ -744,20 +748,21 @@ private fun MetricGraph(
                     }
                 }
                 Text(
-                    "%.0f %s".format(maxV, graph.unit),
+                    maxLabel,
                     modifier = Modifier.align(Alignment.TopStart).padding(horizontal = 8.dp, vertical = 2.dp),
                     style = MaterialTheme.typography.labelSmall,
                     color = labelColor,
                 )
                 Text(
-                    "%.0f %s".format(minV, graph.unit),
+                    minLabel,
                     modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 8.dp, vertical = 2.dp),
                     style = MaterialTheme.typography.labelSmall,
                     color = labelColor,
                 )
                 if (sel != null && selValue != null) {
                     val reading = buildAnnotatedString {
-                        append("%.0f %s · ".format(selValue, graph.unit))
+                        append(graph.label(selValue))
+                        append(" · ")
                         appendTime(
                             graph.points[sel].timestamp, zone, reader, shiftColor, readerClock,
                         )

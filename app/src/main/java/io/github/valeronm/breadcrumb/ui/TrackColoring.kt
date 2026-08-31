@@ -163,6 +163,10 @@ internal class TrackColoring(
     val unit: String,
 )
 
+/** The plot's own label precision — ungrouped digits, unlike [Measures]' stat rows, and the unit only where given. */
+internal fun plotLabel(value: Float, unit: String = ""): String =
+    if (unit.isEmpty()) "%.0f".format(value) else "%.0f %s".format(value, unit)
+
 /**
  * The ramp is a stepped scale of this many bands, not a continuum: a band is a pace worth telling
  * apart, where a shade per fix is a shimmer along a line held at one speed. Banded in the palette,
@@ -206,10 +210,9 @@ private fun rampColoring(
     }
     val palette = rampPalette(rampLuminance(dark))
     val colors = IntArray(values.size) { rampColor(values[it], redAt, blueAt, palette, noData) }
-    fun num(v: Float) = "%.0f".format(v)
     // Unit only on the rightmost label, else three "… unit" labels overflow the fixed-width legend.
-    val right = num(blueAt).let { if (unit.isEmpty()) it else "$it $unit" }
-    return TrackColoring(colors, Legend.Ramp(num(redAt), num((redAt + blueAt) / 2f), right), values, unit)
+    val legend = Legend.Ramp(plotLabel(redAt), plotLabel((redAt + blueAt) / 2f), plotLabel(blueAt, unit))
+    return TrackColoring(colors, legend, values, unit)
 }
 
 /**
