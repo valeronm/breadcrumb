@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- TimelineScreen: the Timeline tab's day headings and rows. -->
+<!-- TimelineTab: the Timeline tab's day headings and rows. -->
 <resources>
     <!-- Empty state and backup restore -->
     <string name="timeline_empty">No trips yet. They appear here once recording captures some movement.</string>

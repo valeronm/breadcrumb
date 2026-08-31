@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- PlacesScreens: the Places tab, place detail, and the category vocabulary. -->
+<!-- PlacesTab: the Places tab, place detail, and the category vocabulary. -->
 <resources>
     <!--
       Place categories. The codes behind these are permanent and stored; these names are display

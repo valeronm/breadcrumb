@@ -383,7 +383,7 @@ private fun PlacesListPage(
                     // Remove button, behind a screen that shows what the label being removed
                     // covers, rather than one flick on a list row.
                     itemsIndexed(listed, key = { _, s -> s.key }) { index, summary ->
-                        PlaceRowCard(
+                        PlaceRow(
                             summary = summary,
                             sort = sort,
                             shape = groupedRowShape(index, listed.size),
@@ -406,7 +406,7 @@ private fun PlacesListPage(
 }
 
 @Composable
-private fun PlaceRowCard(
+private fun PlaceRow(
     summary: PlaceResolver.PlaceSummary,
     sort: PlacesSort,
     shape: RoundedCornerShape,

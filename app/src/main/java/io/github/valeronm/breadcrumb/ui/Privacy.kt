@@ -54,7 +54,7 @@ import io.github.valeronm.breadcrumb.data.Settings as AppSettings
  * activity recreation — held in a `remember`, every rotation would re-prompt — while dying with
  * the process, which rules out `rememberSaveable`, since that is restored from the task snapshot
  * after a kill and would hand back an unlocked app. The two settings are mirrored here because the
- * screen that writes them is a sub-page reached through the overlay stack, while the code that
+ * screen that writes them is a sub-screen reached through the overlay stack, while the code that
  * acts on them — the gate and the window flag — sits above `MainScreen`; threading a boolean
  * between the two would touch every signature in between. Settings no higher layer reads, the
  * grace period among them, stay in [AppSettings] and are read where they are used.

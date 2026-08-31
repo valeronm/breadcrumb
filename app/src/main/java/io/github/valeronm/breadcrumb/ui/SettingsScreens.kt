@@ -53,8 +53,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
-/** A Settings sub-page stacked above the Settings hub (shares one overlay slot in MainScreen). */
-internal enum class SettingsPage {
+/** A Settings sub-screen stacked above the Settings hub (shares one overlay slot in MainScreen). */
+internal enum class SettingsDestination {
     Sampling,
     PointQuality,
     AutoPause,
@@ -73,7 +73,7 @@ internal fun SettingsScreen(
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onBack: () -> Unit,
-    onOpenPage: (SettingsPage) -> Unit,
+    onOpenDestination: (SettingsDestination) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -98,37 +98,37 @@ internal fun SettingsScreen(
                     NavRow(
                         stringResource(R.string.settings_sampling),
                         subtitle = stringResource(R.string.settings_sampling_sub),
-                    ) { onOpenPage(SettingsPage.Sampling) }
+                    ) { onOpenDestination(SettingsDestination.Sampling) }
                 },
                 {
                     NavRow(
                         stringResource(R.string.settings_point_quality),
                         subtitle = stringResource(R.string.settings_point_quality_sub),
-                    ) { onOpenPage(SettingsPage.PointQuality) }
+                    ) { onOpenDestination(SettingsDestination.PointQuality) }
                 },
                 {
                     NavRow(
                         stringResource(R.string.settings_auto_pause),
                         subtitle = stringResource(R.string.settings_auto_pause_sub),
-                    ) { onOpenPage(SettingsPage.AutoPause) }
+                    ) { onOpenDestination(SettingsDestination.AutoPause) }
                 },
                 {
                     NavRow(
                         stringResource(R.string.settings_gps_search),
                         subtitle = stringResource(R.string.settings_gps_search_sub),
-                    ) { onOpenPage(SettingsPage.GpsSearch) }
+                    ) { onOpenDestination(SettingsDestination.GpsSearch) }
                 },
                 {
                     NavRow(
                         stringResource(R.string.settings_departure_triggers),
                         subtitle = stringResource(R.string.settings_departure_triggers_sub),
-                    ) { onOpenPage(SettingsPage.DepartureTriggers) }
+                    ) { onOpenDestination(SettingsDestination.DepartureTriggers) }
                 },
                 {
                     NavRow(
                         stringResource(R.string.settings_track_filtering),
                         subtitle = stringResource(R.string.settings_track_filtering_sub),
-                    ) { onOpenPage(SettingsPage.TrackFiltering) }
+                    ) { onOpenDestination(SettingsDestination.TrackFiltering) }
                 },
             )
             Spacer(Modifier.height(24.dp))
@@ -161,13 +161,13 @@ internal fun SettingsScreen(
                     NavRow(
                         stringResource(R.string.settings_app_lock),
                         subtitle = stringResource(R.string.settings_app_lock_sub),
-                    ) { onOpenPage(SettingsPage.AppLock) }
+                    ) { onOpenDestination(SettingsDestination.AppLock) }
                 },
                 {
                     NavRow(
                         stringResource(R.string.settings_online_services),
                         subtitle = stringResource(R.string.settings_online_services_sub),
-                    ) { onOpenPage(SettingsPage.OnlineServices) }
+                    ) { onOpenDestination(SettingsDestination.OnlineServices) }
                 },
             )
             Spacer(Modifier.height(24.dp))
@@ -184,14 +184,14 @@ internal fun SettingsScreen(
                             R.string.settings_recently_deleted_sub,
                             DISCARDED_RETENTION_DAYS,
                         ),
-                    ) { onOpenPage(SettingsPage.RecentlyDeleted) }
+                    ) { onOpenDestination(SettingsDestination.RecentlyDeleted) }
                 },
             )
             Spacer(Modifier.height(24.dp))
             Text(stringResource(R.string.settings_group_diagnostics), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             GroupedRows(
-                { NavRow(stringResource(R.string.settings_logs)) { onOpenPage(SettingsPage.Logs) } },
+                { NavRow(stringResource(R.string.settings_logs)) { onOpenDestination(SettingsDestination.Logs) } },
             )
             Spacer(Modifier.height(32.dp))
             Text(
@@ -222,9 +222,9 @@ internal fun SettingsScreen(
     }
 }
 
-/** Shared scaffold for one settings group page: title, back, optional top-bar Reset. */
+/** Shared scaffold for one settings sub-screen: title, back, optional top-bar Reset. */
 @Composable
-private fun SettingsSubPage(
+private fun SettingsSubScreen(
     title: String,
     onBack: () -> Unit,
     resetPrefs: List<Pref<*>> = emptyList(),
@@ -257,9 +257,9 @@ private fun SettingsSubPage(
     }
 }
 
-/** The explanatory line under a settings page's top bar. */
+/** The explanatory line under a settings sub-screen's top bar. */
 @Composable
-private fun SettingsPageDescription(text: String) {
+private fun SettingsSubScreenDescription(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.bodySmall,
@@ -279,8 +279,8 @@ internal fun SamplingSettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
         { AppSettings.minDistanceM(context) },
     ) { AppSettings.setMinDistanceM(context, it) }
-    SettingsSubPage(stringResource(R.string.settings_sampling), onBack, listOf(intervalSec, distanceM)) {
-        SettingsPageDescription(stringResource(R.string.sampling_description))
+    SettingsSubScreen(stringResource(R.string.settings_sampling), onBack, listOf(intervalSec, distanceM)) {
+        SettingsSubScreenDescription(stringResource(R.string.sampling_description))
         GroupedRows(
             {
                 SliderSetting(
@@ -314,12 +314,12 @@ internal fun PointQualitySettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
         { AppSettings.requireGnssFix(context) },
     ) { AppSettings.setRequireGnssFix(context, it) }
-    SettingsSubPage(
+    SettingsSubScreen(
         stringResource(R.string.settings_point_quality),
         onBack,
         listOf(accuracyGateM, requireGnssFix),
     ) {
-        SettingsPageDescription(stringResource(R.string.quality_description))
+        SettingsSubScreenDescription(stringResource(R.string.quality_description))
         GroupedRows(
             {
                 SwitchSettingRow(
@@ -352,12 +352,12 @@ internal fun AutoPauseSettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_STITCH_RESUME_WINDOW_SEC,
         { AppSettings.resumeWindowSec(context) },
     ) { AppSettings.setResumeWindowSec(context, it) }
-    SettingsSubPage(
+    SettingsSubScreen(
         stringResource(R.string.settings_auto_pause),
         onBack,
         listOf(resumeWindowSec),
     ) {
-        SettingsPageDescription(stringResource(R.string.pause_description))
+        SettingsSubScreenDescription(stringResource(R.string.pause_description))
         GroupedRows(
             {
                 SliderSetting(
@@ -381,8 +381,8 @@ internal fun GpsSearchSettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
         { AppSettings.gpsGiveUpSec(context) },
     ) { AppSettings.setGpsGiveUpSec(context, it) }
-    SettingsSubPage(stringResource(R.string.settings_gps_search), onBack, listOf(gpsGiveUpSec)) {
-        SettingsPageDescription(stringResource(R.string.gps_description))
+    SettingsSubScreen(stringResource(R.string.settings_gps_search), onBack, listOf(gpsGiveUpSec)) {
+        SettingsSubScreenDescription(stringResource(R.string.gps_description))
         GroupedRows(
             {
                 SliderSetting(
@@ -420,12 +420,12 @@ internal fun DepartureTriggersSettingsScreen(onBack: () -> Unit) {
         false,
         { AppSettings.departureContinuous(context) },
     ) { AppSettings.setDepartureContinuous(context, it) }
-    SettingsSubPage(
+    SettingsSubScreen(
         stringResource(R.string.settings_departure_triggers),
         onBack,
         listOf(fence, motion, continuous),
     ) {
-        SettingsPageDescription(stringResource(R.string.departure_description))
+        SettingsSubScreenDescription(stringResource(R.string.departure_description))
         GroupedRows(
             {
                 SwitchSettingRow(
@@ -473,12 +473,12 @@ internal fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
     // Min length and min extent share one scale: both are "how far did the track get" thresholds.
     val lengthScale =
         rememberDistanceScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), zeroIsOff = true)
-    SettingsSubPage(
+    SettingsSubScreen(
         stringResource(R.string.settings_track_filtering),
         onBack,
         listOf(minDurationSec, minLengthM, minExtentM),
     ) {
-        SettingsPageDescription(stringResource(R.string.filter_description))
+        SettingsSubScreenDescription(stringResource(R.string.filter_description))
         GroupedRows(
             {
                 SliderSetting(
@@ -528,12 +528,12 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
         false,
         { AppSettings.appLockTrustsKeyguard(context) },
     ) { AppSettings.setAppLockTrustsKeyguard(context, it) }
-    SettingsSubPage(
+    SettingsSubScreen(
         stringResource(R.string.settings_app_lock),
         onBack,
         listOf(graceSec, trustsKeyguard),
     ) {
-        SettingsPageDescription(stringResource(R.string.privacy_description))
+        SettingsSubScreenDescription(stringResource(R.string.privacy_description))
         GroupedRows(
             { RequireUnlockRow(context, lockable, graceSec, trustsKeyguard) },
             {
@@ -555,12 +555,12 @@ internal fun OnlineServicesSettingsScreen(onBack: () -> Unit) {
         true,
         { AppSettings.isOnlinePlaceSearch(context) },
     ) { AppSettings.setOnlinePlaceSearch(context, it) }
-    SettingsSubPage(
+    SettingsSubScreen(
         stringResource(R.string.settings_online_services),
         onBack,
         listOf(onlineSearch),
     ) {
-        SettingsPageDescription(stringResource(R.string.online_services_description))
+        SettingsSubScreenDescription(stringResource(R.string.online_services_description))
         GroupedRows(
             {
                 SwitchSettingRow(

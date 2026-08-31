@@ -32,10 +32,10 @@ import kotlinx.coroutines.launch
 /**
  * Animation state for one stacked overlay layer: open/close presence plus the predictive-back
  * gesture. [rendered] holds the content from open until the close animation ends — keep the layer
- * composed with it while non-null, so the page doesn't blank or flip while receding. Where a layer
+ * composed with it while non-null, so the content doesn't blank or flip while receding. Where a layer
  * sits is named once, by the child, as [over], and nothing else may restate it: everything stacking
- * implies derives from that mention — which gesture back reaches ([onTop]), which page blurs beneath
- * which ([blurDp]), which draws over which ([depth]), what a landing on a page closes
+ * implies derives from that mention — which gesture back reaches ([onTop]), which content blurs beneath
+ * which ([blurDp]), which draws over which ([depth]), what a landing on a layer closes
  * ([dismissAbove]). Restated, they could disagree — right for one and wrong for another looks right
  * until a finger is on it, and neither compiler nor test can tell. The child names the relation
  * because the parent exists first.
@@ -56,7 +56,7 @@ internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
 
     // How this layer is dismissed — the state write its host clears its content with, registered by
     // [rememberOverlayLayer] on every composition so it closes over the host's current state. The
-    // default is what a floor layer built with a plain `remember` runs, having no page to clear.
+    // default is what a floor layer built with a plain `remember` runs, having no content to clear.
     var dismiss: () -> Unit = {}
 
     // Layers stacked directly on this one, registered by themselves. A plain list, not snapshot
@@ -64,7 +64,7 @@ internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
     // once and never shrinks — what changes, and what is observed, is each child's `requested`.
     private val stackedOn = mutableListOf<OverlayLayerState<*>>()
 
-    /** Layers deep, the root being 0 — the order the pages draw in. */
+    /** Layers deep, the root being 0 — the order the layers draw in. */
     val depth: Int = (over?.depth ?: -1) + 1
 
     init {
@@ -75,7 +75,7 @@ internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
     val onTop: Boolean get() = stackedOn.none { it.requested }
 
     /**
-     * Dismiss every layer stacked on this one, however deep — a landing on this layer's own page.
+     * Dismiss every layer stacked on this one, however deep — a landing on this layer's own content.
      * Derived from the stack rather than spelled by the caller, so a layer added later cannot be
      * left open under the landing. Top-down, the way back would take them.
      */
@@ -89,13 +89,13 @@ internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
     /** Anything stacks on this at all. A layer nothing covers can never be blurred. */
     val stacked: Boolean get() = stackedOn.isNotEmpty()
 
-    /** Blur for this layer's own page, cast by whatever is stacked on it. */
+    /** Blur for this layer's own content, cast by whatever is stacked on it. */
     val blurDp: Float get() = stackedOn.maxOfOrNull { it.castBlurDp } ?: 0f
 
-    // Blur radius (dp) this layer casts downward: its own while it has a page up — full while
+    // Blur radius (dp) this layer casts downward: its own while it has content up — full while
     // covering, sharpening with the gesture — and whatever is cast onto it while it does not.
     // A layer with nothing rendered is not on screen, so a blur cast onto it must fall through
-    // to the first page that is: a place opened from a tab stacks on a journey that isn't there,
+    // to the first layer that is: a place opened from a tab stacks on a journey that isn't there,
     // and it is the tabs that show beneath it. Read only through a parent's [blurDp] — a layer
     // never applies its own.
     private val castBlurDp: Float
@@ -137,8 +137,8 @@ internal fun <T : Any> rememberOverlayLayer(
         // already read this pass.
         state.requested = content != null
         if (content != null) {
-            // The page beneath stays composed under this layer, so a focused search field there
-            // would keep its keyboard up over the new page — the focus goes with the covering.
+            // The layer beneath stays composed under this one, so a focused search field there
+            // would keep its keyboard up over the new content — the focus goes with the covering.
             // A field of this layer's own can still take focus: its request composes later, so
             // it runs after this.
             focusManager.clearFocus()
@@ -220,8 +220,8 @@ internal fun Modifier.blurredBy(radiusDp: () -> Float): Modifier {
  * One stacked layer's full-screen frame: composed only while the layer has content, carrying its
  * open/close + predictive-back transform, its draw order, and the blur cast by whatever stacks on
  * it — all off the layer, so a frame's emission order among siblings cannot contradict the stack.
- * [content] receives [OverlayLayerState.rendered], deliberately: a page must keep drawing through
- * the close animation, and the state that opened it goes null the moment back commits — a page
+ * [content] receives [OverlayLayerState.rendered], deliberately: the content must keep drawing through
+ * the close animation, and the state that opened it goes null the moment back commits — content
  * reading it blanks mid-slide instead of fading out; handing the held value down puts the right
  * one in scope and the wrong one out of reach. A layer's data subscriptions go *inside* this
  * block, so they live exactly as long as the layer is up. Every overlay goes through here rather
@@ -240,7 +240,7 @@ internal fun <T : Any> OverlayFrame(
             .zIndex(layer.depth.toFloat())
             .overlayTransform(layer)
             // Skipped where nothing can cover this layer: the blur is a graphics layer of its own,
-            // and a leaf would carry one around a full-screen page to apply an effect of zero.
+            // and a leaf would carry one around a full-screen layer to apply an effect of zero.
             .then(if (layer.stacked) Modifier.blurredBy { layer.blurDp } else Modifier),
     ) {
         content(rendered)

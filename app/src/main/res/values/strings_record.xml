@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- RecordScreen: the Record tab. -->
+<!-- RecordTab: the Record tab. -->
 <resources>
     <!-- Recorded totals -->
     <!-- Today's heading comes from the shared `relative_today`, capitalized on render. -->

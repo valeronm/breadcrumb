@@ -85,7 +85,7 @@ import java.time.ZoneId
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 
 @Composable
-internal fun TrackMapScreen(
+internal fun TrackDetailScreen(
     trackId: Long,
     summary: TrackSummary?,
     viewModel: TrackListViewModel,

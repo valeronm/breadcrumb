@@ -164,15 +164,15 @@ private enum class HomeTab(
 ) {
     // The Record tab heads the app rather than itself, so its title is the product's name.
     RECORD(R.string.nav_record, Icons.Filled.MyLocation, titleRes = R.string.title_record),
-    TRACKS(R.string.nav_timeline, Icons.Filled.Route),
+    TIMELINE(R.string.nav_timeline, Icons.Filled.Route),
     PLACES(R.string.nav_places, Icons.Filled.Place),
     INSIGHTS(R.string.nav_insights, Icons.Filled.Insights),
 }
 
-/** Track detail or the Settings hub: the full-screen pages a tab opens directly onto. */
-private sealed interface MainPage {
-    data class TrackDetail(val id: Long) : MainPage
-    data object Settings : MainPage
+/** Track detail or the Settings hub: the full-screen destinations a tab opens directly onto. */
+private sealed interface MainDestination {
+    data class TrackDetail(val id: Long) : MainDestination
+    data object Settings : MainDestination
 }
 
 @Composable
@@ -208,19 +208,19 @@ private fun MainScreen(
 
     // Everything recording needs from Android, and the toggle that asks for it — see [RecorderSetup].
     val setup = rememberRecorderSetup()
-    var mainPage by remember { mutableStateOf<MainPage?>(null) }
+    var mainDestination by remember { mutableStateOf<MainDestination?>(null) }
     var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
     // A tab switch replaces the tab's whole composition, but disposing a focused search field is
     // not a reliable keyboard dismissal — drop the focus with the tab that owned it.
     val tabFocusManager = LocalFocusManager.current
     SideEffect(selectedTab) { tabFocusManager.clearFocus() }
 
-    // Full-screen pages stack above the tabs as overlay layers, each animated in on open and
+    // Full-screen destinations stack above the tabs as overlay layers, each animated in on open and
     // scaled/shifted by the predictive back gesture (Android 14+), previewing what's underneath.
 
     // The detail (map) screen or Settings — previews the tabs underneath. Its back handler yields
     // while a layer is stacked above it.
-    var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
+    var settingsDestination by remember { mutableStateOf<SettingsDestination?>(null) }
     // A deleted track's full detail, stacked above the Recently deleted list.
     var discardedTrackId by remember { mutableStateOf<Long?>(null) }
     // Place detail is opened from the Places list or a timeline stay — back lands wherever it was
@@ -253,28 +253,28 @@ private fun MainScreen(
     val timelineViewedDay = remember { TimelineViewedDay() }
 
     // The stack, declared bottom-up. A layer's `over` is the one it opens on top of; that single
-    // mention decides everything stacking implies: which gesture back reaches, which page blurs
-    // beneath which, which draws over which, and what a landing on a page closes. The tabs are its
-    // floor — a page-less layer
-    // standing for the tabbed UI so what opens over it can name it like any parent; without one,
-    // the pages over the tabs would restate wherever the tabs blur a relation stated once here.
+    // mention decides everything stacking implies: which gesture back reaches, which content blurs
+    // beneath which, which draws over which, and what a landing on a layer closes. The tabs are its
+    // floor — a content-less layer standing for the tabbed UI so what opens over it can name it
+    // like any parent; without one, the layers over the tabs would restate wherever the tabs blur
+    // a relation stated once here.
     val tabsLayer = remember { OverlayLayerState<Unit>() }
-    val mainPageLayer = rememberOverlayLayer(
-        content = mainPage,
+    val mainLayer = rememberOverlayLayer(
+        content = mainDestination,
         over = tabsLayer,
-        dismiss = { mainPage = null },
+        dismiss = { mainDestination = null },
     )
-    // Settings sub-pages stack above the hub — the predictive-back preview under them shows
+    // Settings sub-screens stack above the hub — the predictive-back preview under them shows
     // the hub (where back actually lands), not the tabs.
-    val settingsPageLayer = rememberOverlayLayer(
-        content = settingsPage,
-        over = mainPageLayer,
-        dismiss = { settingsPage = null },
+    val settingsLayer = rememberOverlayLayer(
+        content = settingsDestination,
+        over = mainLayer,
+        dismiss = { settingsDestination = null },
     )
     // Deleted-track detail: back returns to the Recently deleted list, previewing it under the gesture.
     val discardedLayer = rememberOverlayLayer(
         content = discardedTrackId,
-        over = settingsPageLayer,
+        over = settingsLayer,
         dismiss = { discardedTrackId = null },
     )
     // Journey detail: reached from the Insights tab or a Timeline band, so back previews the tabs.
@@ -307,7 +307,7 @@ private fun MainScreen(
     // the Timeline sits above a page that isn't there, which is the tabs showing through anyway.
     val addTripLayer = rememberOverlayLayer(
         content = tripDraft,
-        over = mainPageLayer,
+        over = mainLayer,
         dismiss = { tripDraft = null },
     )
 
@@ -315,7 +315,7 @@ private fun MainScreen(
     // over them closes — asked of the stack, which is what knows what is over the tabs.
     val landOnTimeline = {
         tabsLayer.dismissAbove()
-        selectedTab = HomeTab.TRACKS
+        selectedTab = HomeTab.TIMELINE
     }
 
     // Undo snackbars for the Timeline's swipe actions and place removal. Owned here, not in the
@@ -368,7 +368,7 @@ private fun MainScreen(
                     actions = {
                         // Only where the trip would land: the Timeline is the one tab that shows
                         // what a manual entry changes.
-                        if (selectedTab == HomeTab.TRACKS) {
+                        if (selectedTab == HomeTab.TIMELINE) {
                             IconButton(onClick = {
                                 tripDraft = TripDraft(day = timelineViewedDay.read())
                             }) {
@@ -378,7 +378,7 @@ private fun MainScreen(
                                 )
                             }
                         }
-                        IconButton(onClick = { mainPage = MainPage.Settings }) {
+                        IconButton(onClick = { mainDestination = MainDestination.Settings }) {
                             Icon(
                                 Icons.Filled.Settings,
                                 contentDescription = stringResource(R.string.action_settings),
@@ -402,7 +402,7 @@ private fun MainScreen(
                                     selectedTab = tab
                                 } else {
                                     when (tab) {
-                                        HomeTab.TRACKS -> timelineJump = TimelineJump.Home
+                                        HomeTab.TIMELINE -> timelineJump = TimelineJump.Home
                                         HomeTab.PLACES -> placesHomeRequest++
                                         else -> Unit
                                     }
@@ -431,14 +431,14 @@ private fun MainScreen(
                         onToggleAuto = setup::toggleAuto,
                     )
 
-                    HomeTab.TRACKS -> TracksTab(
+                    HomeTab.TIMELINE -> TimelineTab(
                         items = timeline,
                         viewModel = viewModel,
                         undo = undo,
                         jump = timelineJump,
                         onJumpShown = { timelineJump = null },
                         viewedDay = timelineViewedDay,
-                        onOpen = { mainPage = MainPage.TrackDetail(it) },
+                        onOpen = { mainDestination = MainDestination.TrackDetail(it) },
                         onOpenPlace = { placeDetailKey = it },
                         onOpenJourney = { journeyKey = it.travel.firstNightAt },
                         onAddTrip = { tripDraft = it },
@@ -463,13 +463,13 @@ private fun MainScreen(
 
         // The stacked full-screen layers, bottom to top; each animates in on open and scales/
         // shifts with the predictive-back gesture, previewing the layer underneath.
-        MainPageOverlay(
-            layer = mainPageLayer,
+        MainDestinationOverlay(
+            layer = mainLayer,
             viewModel = viewModel,
             unitChoice = unitChoice,
             onUnitChoice = onUnitChoice,
             undo = undo,
-            onOpenPage = { settingsPage = it },
+            onOpenDestination = { settingsDestination = it },
             onEditTrip = { tripDraft = it },
         )
 
@@ -515,8 +515,8 @@ private fun MainScreen(
             },
         )
 
-        SettingsPagesOverlay(
-            layer = settingsPageLayer,
+        SettingsDestinationsOverlay(
+            layer = settingsLayer,
             viewModel = viewModel,
             onOpenTrack = { discardedTrackId = it },
         )
@@ -582,7 +582,7 @@ private fun DiscardedTrackOverlay(
         // Collected inside the frame, which composes only while the layer has content: the
         // aggregate query stays live no longer than this rarely-open layer.
         val discardedTracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
-        TrackMapScreen(
+        TrackDetailScreen(
             trackId = trackId,
             summary = discardedTracks.firstOrNull { it.track.id == trackId }?.track,
             viewModel = viewModel,
@@ -600,24 +600,24 @@ private fun DiscardedTrackOverlay(
  * where back lands from here.
  */
 @Composable
-private fun MainPageOverlay(
-    layer: OverlayLayerState<MainPage>,
+private fun MainDestinationOverlay(
+    layer: OverlayLayerState<MainDestination>,
     viewModel: TrackListViewModel,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     undo: UndoSnackbar,
-    onOpenPage: (SettingsPage) -> Unit,
+    onOpenDestination: (SettingsDestination) -> Unit,
     onEditTrip: (TripDraft) -> Unit,
 ) {
     // Resolved here rather than in the callback below, which is not a composable scope.
     val splitUndoMessage = stringResource(R.string.undo_track_split)
     OverlayFrame(layer) { rendered ->
         when (rendered) {
-            is MainPage.TrackDetail -> {
+            is MainDestination.TrackDetail -> {
                 // Off the summaries, not the resolved timeline: the row is all this lookup needs,
                 // and the timeline also re-emits for derivation changes no track row moved.
                 val tracks by viewModel.tracks.collectAsStateWithLifecycle()
-                TrackMapScreen(
+                TrackDetailScreen(
                     trackId = rendered.id,
                     summary = tracks.firstOrNull { it.id == rendered.id },
                     viewModel = viewModel,
@@ -638,12 +638,12 @@ private fun MainPageOverlay(
                 )
             }
 
-            MainPage.Settings -> SettingsScreen(
+            MainDestination.Settings -> SettingsScreen(
                 viewModel = viewModel,
                 unitChoice = unitChoice,
                 onUnitChoice = onUnitChoice,
                 onBack = layer.dismiss,
-                onOpenPage = onOpenPage,
+                onOpenDestination = onOpenDestination,
             )
         }
     }
@@ -791,31 +791,31 @@ private fun rememberPlaceSummary(
     remember(summaries, key, snapshot) { PlaceResolver.reacquire(summaries.orEmpty(), key, snapshot) }
 
 /**
- * Settings sub-pages: a second overlay layer above the hub — the gesture previews the hub
+ * Settings sub-screens: a second overlay layer above the hub — the gesture previews the hub
  * underneath, where back lands.
  */
 @Composable
-private fun SettingsPagesOverlay(
-    layer: OverlayLayerState<SettingsPage>,
+private fun SettingsDestinationsOverlay(
+    layer: OverlayLayerState<SettingsDestination>,
     viewModel: TrackListViewModel,
     onOpenTrack: (Long) -> Unit,
 ) {
-    OverlayFrame(layer) { page ->
-        when (page) {
-            SettingsPage.Sampling -> SamplingSettingsScreen(onBack = layer.dismiss)
-            SettingsPage.PointQuality -> PointQualitySettingsScreen(onBack = layer.dismiss)
-            SettingsPage.AutoPause -> AutoPauseSettingsScreen(onBack = layer.dismiss)
-            SettingsPage.GpsSearch -> GpsSearchSettingsScreen(onBack = layer.dismiss)
-            SettingsPage.DepartureTriggers -> DepartureTriggersSettingsScreen(onBack = layer.dismiss)
-            SettingsPage.TrackFiltering -> TrackFilteringSettingsScreen(onBack = layer.dismiss)
-            SettingsPage.AppLock -> AppLockSettingsScreen(onBack = layer.dismiss)
-            SettingsPage.OnlineServices -> OnlineServicesSettingsScreen(onBack = layer.dismiss)
-            SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
+    OverlayFrame(layer) { rendered ->
+        when (rendered) {
+            SettingsDestination.Sampling -> SamplingSettingsScreen(onBack = layer.dismiss)
+            SettingsDestination.PointQuality -> PointQualitySettingsScreen(onBack = layer.dismiss)
+            SettingsDestination.AutoPause -> AutoPauseSettingsScreen(onBack = layer.dismiss)
+            SettingsDestination.GpsSearch -> GpsSearchSettingsScreen(onBack = layer.dismiss)
+            SettingsDestination.DepartureTriggers -> DepartureTriggersSettingsScreen(onBack = layer.dismiss)
+            SettingsDestination.TrackFiltering -> TrackFilteringSettingsScreen(onBack = layer.dismiss)
+            SettingsDestination.AppLock -> AppLockSettingsScreen(onBack = layer.dismiss)
+            SettingsDestination.OnlineServices -> OnlineServicesSettingsScreen(onBack = layer.dismiss)
+            SettingsDestination.RecentlyDeleted -> DiscardedTracksScreen(
                 viewModel = viewModel,
                 onBack = layer.dismiss,
                 onOpenTrack = onOpenTrack,
             )
-            SettingsPage.Logs -> LogsScreen(onBack = layer.dismiss)
+            SettingsDestination.Logs -> LogsScreen(onBack = layer.dismiss)
         }
     }
 }

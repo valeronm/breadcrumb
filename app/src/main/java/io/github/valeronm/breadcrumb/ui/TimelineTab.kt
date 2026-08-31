@@ -144,7 +144,7 @@ private val timelinePageLabels = TimelinePage.entries.map { it.labelRes }
 
 /** The Timeline tab: the day-by-day list and one day on a map, two views under a [ViewSwitchRow]. */
 @Composable
-internal fun TracksTab(
+internal fun TimelineTab(
     /** Null while the derivation is still running — see [TrackListViewModel.timeline]. */
     items: List<TimelineItem>?,
     viewModel: TrackListViewModel,
