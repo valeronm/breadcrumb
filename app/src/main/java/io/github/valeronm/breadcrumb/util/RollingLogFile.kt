@@ -27,11 +27,12 @@ class RollingLogFile(dir: File, private val maxFileBytes: Long = MAX_FILE_BYTES)
 
     fun append(line: String) {
         val out = writer ?: open()
-        val bytes = line.toByteArray()
         out.write(line)
         out.write("\n")
         out.flush()
-        activeBytes += bytes.size + 1
+        // The file is the authority here as in [open]: a second count of what the writer's
+        // encoding emits would be an agreement nothing checks.
+        activeBytes = active.length()
         if (activeBytes > maxFileBytes) roll()
     }
 

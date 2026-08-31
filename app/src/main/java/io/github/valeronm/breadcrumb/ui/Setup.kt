@@ -29,7 +29,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -394,6 +393,7 @@ internal class RecorderSetup(private val context: Context) {
     fun onDialogAnswered() {
         state = setupState(context)
         settle(fromResume = false)
+        reconcileService()
     }
 
     fun onResumed() {
@@ -403,6 +403,7 @@ internal class RecorderSetup(private val context: Context) {
         // left yet and a resume here is a lock screen or a call, not their answer. Settling on it
         // would end the run under a dialog they are still looking at.
         if (prompt == null) settle(fromResume = true)
+        reconcileService()
     }
 
     /** The prompt on screen taken up: the disclosure asks for the very list it was raised with —
@@ -426,9 +427,11 @@ internal class RecorderSetup(private val context: Context) {
 
     /**
      * Reconcile the persisted "armed" state with the actual service: armed but not running (after a
-     * reinstall, or a kill) restarts it, so the UI doesn't sit on "Starting…".
+     * reinstall, or a kill) restarts it, so the UI doesn't sit on "Starting…". Runs wherever the
+     * platform state was just re-read — a resume, a dialog answered — which is the only moment the
+     * answer can have changed.
      */
-    fun reconcileService() {
+    private fun reconcileService() {
         if (autoOn && state.complete && !LocationRecordingService.isRunning) {
             LocationRecordingService.start(context)
         }
@@ -491,9 +494,6 @@ internal fun rememberRecorderSetup(): RecorderSetup {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    // A coroutine rather than a SideEffect: starting the service commits the armed flag to disk
-    // synchronously, which is not work for the apply path.
-    LaunchedEffect(setup.state.complete) { setup.reconcileService() }
     return setup
 }
 

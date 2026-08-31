@@ -67,7 +67,6 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.BuildIdentity
@@ -466,7 +465,6 @@ private fun MainScreen(
         // shifts with the predictive-back gesture, previewing the layer underneath.
         MainPageOverlay(
             layer = mainPageLayer,
-            timeline = timeline.orEmpty(),
             viewModel = viewModel,
             unitChoice = unitChoice,
             onUnitChoice = onUnitChoice,
@@ -604,7 +602,6 @@ private fun DiscardedTrackOverlay(
 @Composable
 private fun MainPageOverlay(
     layer: OverlayLayerState<MainPage>,
-    timeline: List<TimelineItem>,
     viewModel: TrackListViewModel,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
@@ -616,27 +613,30 @@ private fun MainPageOverlay(
     val splitUndoMessage = stringResource(R.string.undo_track_split)
     OverlayFrame(layer) { rendered ->
         when (rendered) {
-            is MainPage.TrackDetail -> TrackMapScreen(
-                trackId = rendered.id,
-                summary = timeline.firstNotNullOfOrNull {
-                    (it as? TimelineItem.TrackItem)?.summary?.takeIf { s -> s.id == rendered.id }
-                },
-                viewModel = viewModel,
-                onBack = layer.dismiss,
-                // The screen closes on the cut. It could stay — this track is the first half now,
-                // id and all — but the undo snackbar lives under the overlay, so keeping the layer
-                // open would hide the one affordance that reverses the split.
-                onSplit = { atTs ->
-                    val trackId = rendered.id
-                    viewModel.splitTrack(trackId, atTs) { split ->
-                        undo.show(splitUndoMessage) { viewModel.unsplitTracks(trackId, split) }
-                    }
-                    layer.dismiss()
-                },
-                // The form stacks *on* this screen, so it stays open underneath and shows the
-                // rewritten track when the form closes over it.
-                onEditTrip = onEditTrip,
-            )
+            is MainPage.TrackDetail -> {
+                // Off the summaries, not the resolved timeline: the row is all this lookup needs,
+                // and the timeline also re-emits for derivation changes no track row moved.
+                val tracks by viewModel.tracks.collectAsStateWithLifecycle()
+                TrackMapScreen(
+                    trackId = rendered.id,
+                    summary = tracks.firstOrNull { it.id == rendered.id },
+                    viewModel = viewModel,
+                    onBack = layer.dismiss,
+                    // The screen closes on the cut. It could stay — this track is the first half now,
+                    // id and all — but the undo snackbar lives under the overlay, so keeping the layer
+                    // open would hide the one affordance that reverses the split.
+                    onSplit = { atTs ->
+                        val trackId = rendered.id
+                        viewModel.splitTrack(trackId, atTs) { split ->
+                            undo.show(splitUndoMessage) { viewModel.unsplitTracks(trackId, split) }
+                        }
+                        layer.dismiss()
+                    },
+                    // The form stacks *on* this screen, so it stays open underneath and shows the
+                    // rewritten track when the form closes over it.
+                    onEditTrip = onEditTrip,
+                )
+            }
 
             MainPage.Settings -> SettingsScreen(
                 viewModel = viewModel,

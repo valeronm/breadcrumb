@@ -175,7 +175,7 @@ internal fun TracksTab(
     // restore offer wants the whole tab.
     when {
         restoreProgress != null -> {
-            EmptyTracksState(viewModel)
+            EmptyTracksState(viewModel.importExport, restoreProgress)
             return
         }
         items == null -> {
@@ -183,7 +183,7 @@ internal fun TracksTab(
             return
         }
         items.none { it is TimelineItem.TrackItem } -> {
-            EmptyTracksState(viewModel)
+            EmptyTracksState(viewModel.importExport, progress = null)
             return
         }
     }
@@ -1001,14 +1001,13 @@ private fun dayLabel(
  * for an extension it does not recognize; the importer rejects a file that isn't a backup anyway.
  */
 @Composable
-private fun EmptyTracksState(viewModel: TrackListViewModel) {
+private fun EmptyTracksState(importExport: ImportExportController, progress: ImportExportController.OpProgress?) {
     val appContext = LocalContext.current.applicationContext
-    val progress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     val restoreLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.importExport.restoreBackup(uri) { summary ->
+        importExport.restoreBackup(uri) { summary ->
             val message = if (summary == null) {
                 appContext.getString(R.string.timeline_restore_failed)
             } else {
@@ -1024,23 +1023,22 @@ private fun EmptyTracksState(viewModel: TrackListViewModel) {
         Modifier.fillMaxSize().padding(24.dp),
     ) {
         Spacer(Modifier.height(16.dp))
-        val restoring = progress
-        if (restoring == null) {
+        if (progress == null) {
             TextButton(onClick = {
                 restoreLauncher.launch(BACKUP_MIME_TYPES)
             }) { Text(stringResource(R.string.timeline_restore_button)) }
         } else {
             Text(
-                restoring.tracksTotal?.let {
-                    stringResource(R.string.timeline_restoring_count_of, restoring.tracksDone, it)
-                } ?: stringResource(R.string.timeline_restoring_count, restoring.tracksDone),
+                progress.tracksTotal?.let {
+                    stringResource(R.string.timeline_restoring_count_of, progress.tracksDone, it)
+                } ?: stringResource(R.string.timeline_restoring_count, progress.tracksDone),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
             OperationProgressBar(
-                restoring.tracksDone,
-                restoring.tracksTotal,
+                progress.tracksDone,
+                progress.tracksTotal,
                 Modifier.fillMaxWidth(),
             )
         }
