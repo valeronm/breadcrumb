@@ -64,7 +64,10 @@ import java.time.LocalDate
  * The day chips ride the map page and scope only what it draws — the figures and the cities
  * describe the journey. A day here is the Timeline's own filing ([filedOn]), so a chip's date
  * holds exactly the rows the Timeline files under it; a track crossing midnight sits, as there,
- * wholly under the day it set out.
+ * wholly under the day it set out. The chips themselves are enumerated on the device zone
+ * ([TravelDeriver.daysCovered]) while the rows are filed on their own, so on a day a border was
+ * crossed a chip can hold nothing, or a row fall under no chip — accepted rather than reconciled,
+ * the app holding no single notion of a day.
  */
 @Composable
 internal fun JourneyDetailScreen(

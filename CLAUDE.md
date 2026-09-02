@@ -47,7 +47,12 @@ config says which rules it turns off and why — `.editorconfig` and `config/det
 neither can say: **the disables are choices, not oversights**, so re-enabling one is a style
 decision to raise with the user, not a cleanup. After fixing a finding held by
 `app/detekt-baseline.xml`, regenerate with `:app:detektBaseline`; a refactor that moves baselined
-code can resurface its entry as new, which is intended.
+code can resurface its entry as new, which is intended. **The build's "ReportingExtension.file(String)
+has been deprecated" warning stands deliberately**: it fires inside detekt's own plugin `apply()`,
+before any config of ours runs (upstream detekt#8452), no 1.23.x fix is coming, and the fix lives
+only on the 2.x line, which renames the packages to `dev.detekt` and reorganises the rule sets.
+Migrating to a pre-release for warning-silence is not worth the churn; it is revisited when detekt
+2.0 is stable or when Gradle 10, which removes the API, is on the table.
 
 ## Unit tests
 
@@ -130,6 +135,14 @@ would pin English and rot exactly as a hand-written fake does), and **a `values-
 only obtainable through `translated()`, which asserts the two languages differ for that key** — a
 missing translation otherwise falls back to English, the row renders English, and the case passes.
 That guard is a function rather than a convention precisely so the next case cannot skip it.
+
+**Robolectric's CLDR is not the device's ICU**, so a locale *rendering* read out of a test run can be
+green in CI and wrong on every phone — the same skeleton through the same formatter has given one
+day-period spelling under Robolectric and another on the device. The harness answers whether the
+pattern reaches the formatter, not what a language writes. For day periods, month names, separators
+and decimal marks, take the answer from a device screenshot and say which source a stated format
+came from; in a suite, assert the shape (has a letter, has two digits) rather than the literal
+string, since a literal lifted from a Robolectric run is a hand-written fake with a passing test.
 
 **Know what it does not cover.** It samples — a few rows, some of their cases, a scattering of
 Portuguese keys. Totality
@@ -293,6 +306,15 @@ re-evaluates the parked slot on the way down, and a standstill the witness prove
 whose stop will ever end it, while a reading-opened track is never closed this way: its reporter
 lags, but delivers). Promotion rides the `GnssStatus` callback, with the
 15-minute watchdog alarm as the guaranteed revisit.
+
+**The witness names movement, never what is doing the moving.** A track it proves is carried gets
+`UNKNOWN`, which displays as "Moving" and carries the most permissive quality ceiling — exactly what
+the evidence supports and nothing more. There is no carrier classifier and none is planned: telling
+a ferry from a train from a bus needs map geometry the app does not carry, and speed alone makes a
+bus and a car indistinguishable, so a specific guess is worse than an honest vague label, nothing
+downstream being able to tell it was a guess. `FERRY` is a label the user applies by hand, and a
+later activity reading arriving onto a "Moving" track relabelling it in place is the supported way
+a track gets a specific name.
 
 **State bridge:** `location/TrackingStatus` is a process-wide `MutableStateFlow` the service writes
 and the UI collects — this is how live recording state reaches Compose without binding to the service.
@@ -468,7 +490,12 @@ was removed because observed/inferred describes the app, not where anyone was, a
 it — the customer cannot act on it either way. What survives of it is one timestamp in `Settings`
 (when the recorder was last disarmed, which closes the trailing stay) and the importer's tolerance
 for the `liveness` array older backup files carry. Reintroducing an app-facts surface is a design
-decision to raise, not a gap to fill.
+decision to raise, not a gap to fill. The rule behind the removal is wider than that log: **no
+surface renders epistemic state the user cannot act on.** A stay whose middle went unattested looks
+identical to one observed throughout — no "partly unrecorded", no "estimated", no confidence tint —
+because knowing a night was reconstructed rather than observed changes nothing the reader can do.
+When a new surface exposes a derived fact, check whether its wording leaks the evidence behind it:
+state what is known and stay silent on how well it is known.
 
 **A place row holds what the user said about a spot, and only that** — its name, its capture radius,
 and its `category` (`PlaceCategory.code`, null = untagged). Everything else about a place is derived
@@ -482,8 +509,8 @@ orders named clusters by their place's index and unnamed ones after them.
 
 The vocabulary is a closed set of permanent codes stored raw and mapped in the domain
 (`Place.placeCategory`, following the `activityType` / `IgnoreReason.code` precedent), with untagged
-a first-class state rather than an `Other`; three categories stay out of the timeline's per-day
-totals (`dayCategoryTotals`). Every entry owes a glyph (`ui/Glyphs`, where an `ImageVector`
+a first-class state rather than an `Other`; the categories `inTimeTotals` marks stay out of the
+timeline's per-day totals (`dayCategoryTotals`). Every entry owes a glyph (`ui/Glyphs`, where an `ImageVector`
 can live and the domain package can't) and a `PlaceCategoryGroup` — the coarse grouping the **colour
 coding** reads. `ui/Palette.kt` holds both categorical palettes and the rule separating them by
 surface; the web viewer instead colours per activity throughout, its map drawing overlapping *lines*
@@ -712,6 +739,15 @@ how to derive them from commits since the last *uploaded* build, and the version
 bucketing of the commit range that writes the notes, so the number and the text are one judgement,
 and major is declared rather than derived — manual `versionCode` as an independent upload counter,
 the git sha kept out of both and stamped into the log instead, never upload a `-dirty` build).
+
+**The recorded history is the product's first purpose and GPS tracking its second**, so any copy —
+store listing, release notes, a post — leads with the timeline, the stays and the places: when and
+where you have been, which places you stop at, how often you return. The tracks are a valuable part
+of it in their own right, and they are also the mechanism by which the history is collected —
+automatic recording is how that happens without a start button, which is not the proposition. The
+code leads with the recording pipeline, so copy written from the source drifts into pitching a
+tracker whose selling point is starting by itself; the README has the order right, so take it from
+there and not from the files.
 
 **What a build is, is three facts that move independently, and `util/BuildIdentity` is where they
 are combined** — the version, the variant (`debug`/`perf`/`demo`, absent on the release that ships)

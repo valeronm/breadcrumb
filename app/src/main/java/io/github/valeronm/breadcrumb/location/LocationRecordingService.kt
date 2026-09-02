@@ -161,7 +161,9 @@ class LocationRecordingService : Service() {
         // revoked or downgraded to while-in-use — or unused-app auto-revoked — with the armed flag
         // still set. Bail cleanly instead of crash-looping; the UI's permission prompt takes over.
         // (The startForegroundService caller path is guarded in [start], so this fires only for
-        // system-initiated restarts, which carry no startForeground deadline.)
+        // system-initiated restarts, which carry no startForeground deadline.) The armed flag is
+        // left set: the watchdog's restart goes through [start], which clears it while the grant
+        // stays insufficient, so a sticky restart bails at most a few times before that.
         if (!canStartLocationService()) {
             DebugLog.i(TAG, "handleStart: location grant insufficient — staying disarmed")
             disarmAndStop()
