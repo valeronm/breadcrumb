@@ -418,9 +418,9 @@ dependencies {
     //
     // The artifact picks the rendering backend, and the backend decides which devices Play will
     // offer the app to: this one merges in a required `android.hardware.vulkan.version` feature,
-    // while the `android-sdk-opengl` sibling requires OpenGL ES 3.0 instead. Both are hard
-    // filters, so swapping the artifact silently widens or narrows the supported device set —
-    // it is a distribution decision, not just a rendering one.
+    // a hard filter, while the `android-sdk-opengl` sibling declares no graphics feature at all.
+    // Swapping the artifact silently widens or narrows the supported device set — it is a
+    // distribution decision, not just a rendering one.
     implementation("org.maplibre.gl:android-sdk:13.5.1")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
