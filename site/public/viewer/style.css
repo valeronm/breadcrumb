@@ -1,10 +1,14 @@
 :root {
-  --bg: #0b0e14;
-  --panel: #131722;
-  --border: #232936;
-  --text: #e5e9f0;
-  --muted: #8b93a5;
-  --accent: #60a5fa;
+  /* The app's dark scheme where the phone offers no wallpaper colours (ui/theme/SeededScheme.kt):
+     background, surface containers, outline variant, on-surface text and primary. */
+  --bg: #0f1512;
+  --panel: #171d1a;
+  --panel-raised: #252b28;
+  --panel-selected: #303632;
+  --border: #404943;
+  --text: #dee4de;
+  --muted: #bfc9c2;
+  --accent: #8cd5b3;
   /* The map's place color, so a named place reads the same in the timeline and on the map. */
   --place: #facc15;
 }
@@ -121,8 +125,8 @@ body {
   content-visibility: auto;
   contain-intrinsic-size: auto 34px;
 }
-#timeline .row:hover { background: #1a2030; }
-#timeline .row.selected { background: #223; outline: 1px solid var(--accent); }
+#timeline .row:hover { background: var(--panel-raised); }
+#timeline .row.selected { background: var(--panel-selected); outline: 1px solid var(--accent); }
 
 #timeline .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #timeline .stats { color: var(--muted); font-size: 12px; white-space: nowrap; }
