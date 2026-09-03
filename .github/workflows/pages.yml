@@ -1,0 +1,66 @@
+name: Site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/screenshots/**'
+      - 'docs/store-listing/play-icon.png'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - run: npm ci
+
+      # The viewer fetches tiles from the browser, so this key is readable by anyone who opens the
+      # page; it is a key of its own, locked to the site's origin at Protomaps, and never the one
+      # the app is built with.
+      - name: Write the viewer's config
+        env:
+          PROTOMAPS_WEB_KEY: ${{ secrets.PROTOMAPS_WEB_KEY }}
+        run: |
+          [ -n "$PROTOMAPS_WEB_KEY" ] || { echo "PROTOMAPS_WEB_KEY secret is not set" >&2; exit 1; }
+          sed "s/YOUR_KEY_HERE/$PROTOMAPS_WEB_KEY/" public/viewer/config.example.js > public/viewer/config.js
+
+      - name: Leave the viewer's tests and docs out of the site
+        run: rm -r public/viewer/test public/viewer/README.md public/viewer/config.example.js
+
+      - run: npm run build
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

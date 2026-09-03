@@ -23,3 +23,8 @@ __pycache__/
 
 # Web viewer: local API key config
 /site/public/viewer/config.js
+
+# Site build
+/site/node_modules/
+/site/dist/
+/site/.astro/

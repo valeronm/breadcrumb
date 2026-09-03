@@ -1,0 +1,54 @@
+---
+import "@fontsource-variable/bricolage-grotesque/opsz.css";
+import "@fontsource/ibm-plex-sans/400.css";
+import "@fontsource/ibm-plex-sans/500.css";
+import "@fontsource/ibm-plex-mono/400.css";
+import "../styles/global.css";
+import { Image, getImage } from "astro:assets";
+import icon from "../../../docs/store-listing/play-icon.png";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const favicon = await getImage({ src: icon, width: 64, format: "png" });
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href={favicon.src} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/"><Image src={icon} width={28} densities={[1, 2]} loading="eager" alt="" /> Breadcrumb</a>
+      <nav>
+        <a href="/viewer/">Viewer</a>
+        <a href="https://github.com/valeronm/breadcrumb">Source</a>
+        <a href="/#install">Install</a>
+      </nav>
+    </header>
+
+    <main>
+      <slot />
+    </main>
+
+    <footer>
+      <p>Screenshots show a generated demo history; no real history is ever shot.</p>
+      <p>
+        Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>,
+        served by <a href="https://protomaps.com/">Protomaps</a>. Place names from
+        <a href="https://www.geonames.org/">GeoNames</a>, CC BY 4.0.
+      </p>
+      <p><a href="https://github.com/valeronm/breadcrumb">Source on GitHub</a></p>
+    </footer>
+  </body>
+</html>

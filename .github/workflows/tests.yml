@@ -10,7 +10,9 @@ on:
       - 'LICENSE'
       - '.gitignore'
       - '.worktreeinclude'
+      - 'site/**'
       - '.github/workflows/release.yml'
+      - '.github/workflows/pages.yml'
       - '.github/workflows/dependency-graph.yml'
   pull_request:
     paths-ignore:
@@ -20,7 +22,9 @@ on:
       - 'LICENSE'
       - '.gitignore'
       - '.worktreeinclude'
+      - 'site/**'
       - '.github/workflows/release.yml'
+      - '.github/workflows/pages.yml'
       - '.github/workflows/dependency-graph.yml'
 
 jobs:

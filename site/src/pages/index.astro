@@ -1,0 +1,163 @@
+---
+import { Image } from "astro:assets";
+import Base from "../layouts/Base.astro";
+import timeline from "../../../docs/screenshots/timeline.png";
+import record from "../../../docs/screenshots/record.png";
+import places from "../../../docs/screenshots/places.png";
+import journeys from "../../../docs/screenshots/journeys.png";
+import trackDetail from "../../../docs/screenshots/track-detail.png";
+---
+
+<Base
+  title="Breadcrumb"
+  description="Breadcrumb is an Android app that keeps a timeline of where you have been: trips, the stays between them and the places they happened at, recorded on the phone and kept there."
+>
+  <section class="hero">
+    <div>
+      <h1>A timeline of where you have been.</h1>
+      <p class="hero-lead">
+        Breadcrumb is an Android app that keeps one. Each day holds the trips made, the stays
+        between them and the places they happened at. Trips are recorded on their own, from the
+        phone's detected activity, and everything recorded stays on the phone: there is no account
+        and no server.
+      </p>
+      <p class="hero-meta">Open source · Android 8 and up</p>
+      <p class="hero-meta"><a href="#install">In closed testing on Google Play</a></p>
+    </div>
+
+    <Image
+      class="hero-shot"
+      src={timeline}
+      width={340}
+      densities={[1, 2]}
+      priority
+      alt="Timeline of trips and stays, grouped by day"
+    />
+  </section>
+
+  <section class="feature">
+    <Image src={record} width={280} densities={[1, 2]} alt="Record tab with this month's totals" />
+    <div>
+      <h2>How trips are recorded</h2>
+      <p>
+        With Auto recording on, Android's activity recognition tells the app when you start walking,
+        running, cycling or driving. A trip is recorded from then until you are still again, and
+        labelled with how you moved. Motion the phone cannot name is recorded as <em>Moving</em>; the
+        label on any trip can be changed afterwards, including to taxi, boat, public transit or
+        flight, which recognition never reports on its own.
+      </p>
+      <p>
+        GPS runs only while a trip is being recorded. A recognised departure that never produces a
+        position switches it off again. A journey sat still through, a train or a taxi, can escape
+        recognition, so the app also notices you have left where you stopped by other means, each
+        of them a setting.
+      </p>
+    </div>
+  </section>
+
+  <section class="feature flip">
+    <Image src={places} width={280} densities={[1, 2]} alt="Places tab, named places sorted by visits" />
+    <div>
+      <h2>Stays and places</h2>
+      <p>
+        A stay is the time between one trip's end and the next one's start. Stays that keep landing
+        in the same spot form a place, which you can name, give a category and a capture radius. Once
+        named, the place labels every stay at it, past and future. The Places tab lists them with
+        their visit history and shows them on a map.
+      </p>
+      <p>
+        Categories are a fixed set: home, work, shopping and so on. The ones the app suggests for an
+        untagged place are learned from the places already tagged.
+      </p>
+    </div>
+  </section>
+
+  <section class="feature">
+    <Image src={journeys} width={280} densities={[1, 2]} alt="Insights: journeys away from home" />
+    <div>
+      <h2>Journeys and statistics</h2>
+      <p>
+        A run of nights spent away from a place tagged Home is a journey. It is named after the
+        places where most of its time went, and Insights counts journeys, nights, cities and
+        countries per year. City and country names come from a list bundled in the app. While away,
+        times are shown on the clock of the place they happened in rather than the phone's.
+      </p>
+      <p>Statistics show one month's movement and places against the year behind it.</p>
+    </div>
+  </section>
+
+  <section class="feature flip">
+    <Image src={trackDetail} width={280} densities={[1, 2]} alt="Trip detail with its track colored by elevation" />
+    <div>
+      <h2>A trip's track</h2>
+      <p>
+        Each trip's path is drawn on a map, coloured per point by speed, elevation, accuracy,
+        satellite count or signal strength. The points the filter rejected, the stops detected along
+        the way and the named places at each end are drawn alongside.
+      </p>
+      <p>
+        A trip nothing recorded can be entered by hand from two pins and two times, from the gap in
+        the timeline that shows it. Trips a short stop split can be merged; one that should have been
+        two can be split. Both can be undone.
+      </p>
+    </div>
+  </section>
+
+  <section class="yours">
+    <h2>Where the data goes</h2>
+    <ul>
+      <li>Everything is stored on the phone. There is no account, no sync, no analytics and no ads.</li>
+      <li>
+        The network carries map tiles, and one optional thing: a place search used when entering a
+        trip by hand, which sends the words typed. It can be switched off in settings.
+      </li>
+      <li>The whole history can be backed up to a single file and restored from it.</li>
+      <li>Trips can be imported from and exported to GPX, one at a time, by day, or all at once.</li>
+      <li>A deleted trip waits in Recently deleted for two weeks before it is gone.</li>
+      <li>
+        An optional app lock asks for a fingerprint or the phone's PIN on opening, and can hide the
+        app from screenshots and the recents switcher. Recording is not affected by the lock.
+      </li>
+    </ul>
+  </section>
+
+  <section id="viewer">
+    <h2>The viewer</h2>
+    <p>
+      The <a href="/viewer/">viewer</a> is a page on this site that opens a Breadcrumb backup file
+      in the browser: every trip on one map, with the same timeline of stays and places the app
+      derives. The file is read and kept in the browser only; nothing is uploaded, and the only
+      network use is the map.
+    </p>
+    <p>A backup is exported from the app under Settings → Back up everything.</p>
+  </section>
+
+  <section class="get" id="install">
+    <h2>Installing</h2>
+    <p>
+      Breadcrumb is on Google Play in closed testing. Testers are admitted through a Google Group,
+      so all three steps are needed, with the same Google account the phone uses.
+    </p>
+    <ol>
+      <li><a href="https://groups.google.com/g/breadcrumbtesting" target="_blank" rel="noopener">Join the testers group</a></li>
+      <li><a href="https://play.google.com/apps/testing/io.github.valeronm.breadcrumb" target="_blank" rel="noopener">Opt in to the test</a></li>
+      <li><a href="https://play.google.com/store/apps/details?id=io.github.valeronm.breadcrumb" target="_blank" rel="noopener">Install from Google Play</a></li>
+    </ol>
+    <p class="note">
+      Opting in can take a while to take effect after joining the group. If the store page does not
+      offer the install yet, try again later.
+    </p>
+    <h3>What it needs</h3>
+    <ul class="plain">
+      <li>
+        Location set to “Allow all the time”: recording happens with the app closed, and Android
+        shows a persistent notification while it does.
+      </li>
+      <li>
+        Physical activity, notifications and an exemption from battery optimisation, each asked for
+        when Auto recording is turned on and not before.
+      </li>
+      <li>Google Play Services, for activity recognition. This is why there is no F-Droid build.</li>
+    </ul>
+  </section>
+</Base>

@@ -1,0 +1,182 @@
+/* The app's own scheme where the phone offers no wallpaper colours (ui/theme/SeededScheme.kt):
+   background, surface containers, outline variant, on-surface text and primary, dark and light. */
+:root {
+  --ground: #0f1512;
+  --ground-deep: #0a0f0c;
+  --panel: #1b211e;
+  --line: #404943;
+  --crumb: #8cd5b3;
+  --text: #dee4de;
+  --muted: #bfc9c2;
+  --shadow: rgba(0, 0, 0, 0.7);
+  --display: "Bricolage Grotesque Variable", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --measure: 34rem;
+}
+
+* { box-sizing: border-box; }
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --ground: #f5fbf5;
+    --ground-deep: #eff5ef;
+    --panel: #eaefea;
+    --line: #bfc9c2;
+    --crumb: #1f6a4f;
+    --text: #171d1a;
+    --muted: #404943;
+    --shadow: rgba(23, 29, 26, 0.3);
+  }
+}
+
+html { color-scheme: dark light; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+/* Prose is muted throughout; headings, the brand and emphasis are the full text colour. */
+body {
+  margin: 0;
+  background: radial-gradient(120% 80% at 50% -10%, var(--panel) 0%, var(--ground) 45%, var(--ground-deep) 100%) fixed;
+  color: var(--muted);
+  font: 17px/1.55 var(--body);
+}
+
+a { color: var(--crumb); text-underline-offset: 3px; }
+a:focus-visible { outline: 2px solid var(--crumb); outline-offset: 3px; }
+
+h1, h2, h3, em { color: var(--text); }
+h1, h2 {
+  font-family: var(--display);
+  font-variation-settings: "opsz" 96;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin: 0 0 0.6em;
+}
+h1 { font-size: clamp(2rem, 4.5vw, 3.2rem); font-weight: 700; }
+h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 500; }
+h3 { font-size: 1.05rem; font-weight: 500; margin: 1.6em 0 0.5em; }
+em { font-style: normal; }
+p { margin: 0 0 1em; max-width: var(--measure); }
+
+/* ---- header ---- */
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem clamp(1rem, 5vw, 4rem);
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6em;
+  color: var(--text);
+  text-decoration: none;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+.brand img { border-radius: 7px; }
+.top nav { display: flex; align-items: center; gap: 1.4em; }
+.top nav a { color: var(--text); text-decoration: none; }
+.top nav a:hover { color: var(--crumb); }
+
+/* ---- sections ---- */
+main { padding: 0 clamp(1rem, 5vw, 4rem); }
+main > section + section {
+  padding: clamp(2rem, 6vh, 4rem) 0;
+  border-top: 1px solid var(--line);
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: clamp(2rem, 6vw, 6rem);
+  align-items: center;
+  padding: clamp(2rem, 8vh, 6rem) 0 clamp(3rem, 10vh, 7rem);
+}
+.hero-lead { font-size: 1.15rem; }
+.hero-meta { font-family: var(--mono); font-size: 0.85rem; margin: 0 0 0.4em; }
+.hero-shot {
+  width: 100%;
+  height: auto;
+  max-width: 340px;
+  justify-self: center;
+  border-radius: 26px;
+  border: 1px solid var(--line);
+  box-shadow: 0 40px 80px -30px var(--shadow);
+}
+
+.feature {
+  display: grid;
+  grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
+  gap: clamp(1.5rem, 5vw, 5rem);
+  align-items: center;
+}
+.feature.flip { grid-template-columns: minmax(0, 1fr) minmax(0, 280px); }
+.feature.flip img { order: 2; }
+.feature img {
+  width: 100%;
+  height: auto;
+  max-width: 280px;
+  justify-self: center;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  box-shadow: 0 30px 60px -30px var(--shadow);
+}
+
+.yours ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 0.8rem 2.5rem;
+}
+.yours li { padding-left: 1.3em; position: relative; }
+.yours li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--crumb);
+}
+
+.get ol {
+  counter-reset: step;
+  list-style: none;
+  padding: 0;
+  margin: 1.5rem 0;
+  max-width: var(--measure);
+}
+.get ol li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2.2rem 1fr;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 1.1rem;
+}
+.get ol li::before { content: counter(step); font-family: var(--mono); }
+.note { font-size: 0.95rem; }
+.plain { margin: 0 0 1em; padding-left: 1.2em; max-width: var(--measure); }
+.plain li { margin-bottom: 0.4em; }
+
+footer {
+  margin-top: 3rem;
+  padding: 2rem clamp(1rem, 5vw, 4rem) 3rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+footer p { margin: 0 0 0.4em; max-width: none; }
+
+@media (max-width: 760px) {
+  .hero, .feature, .feature.flip { grid-template-columns: 1fr; }
+  .feature.flip img { order: 0; }
+  .top nav { gap: 1em; font-size: 0.95rem; }
+}
