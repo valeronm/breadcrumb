@@ -730,6 +730,22 @@ area that claimed that end. The first two are **deliberately unlabelled** — th
 where they sit and how they're drawn. A panel of times over the route says less than the shapes do
 and covers the map saying it, so labelling them is a decision to take, not an oversight to fix.
 
+## Site
+
+`site/` is the app's website, an Astro project deployed to GitHub Pages at `breadcrumb.place` by
+`pages.yml` on every push to `main` that touches it; `npm run dev` there previews it. It is a
+build rather than plain files because the page is mostly screenshots: they and the icon are
+imported from `docs/`, so the README, the store assets and the site share one set, and are
+re-encoded per width at build. The companion viewer is `site/public/viewer/`, served as written
+with no bundling — its own README says what it is. `viewer-tests.yml` runs its self-contained node
+suites; the parse and convert ones check the streaming parser against a real export and so run by
+hand. **The viewer's Protomaps key is readable by anyone who opens the page**, so
+it is a key of its own, locked to the site's origin and held in the `PROTOMAPS_WEB_KEY` secret,
+never the app's. Every package in `site/package.json` is a development dependency because nothing
+in `node_modules` reaches a visitor, and that scope is what advisory alerts against the tree are
+filtered by. The custom domain is a Pages setting, not a `CNAME` file, since the Actions deploy
+carries none.
+
 ## Releases
 
 When preparing a Play release (version bump, building the bundle, or writing the "What's new"

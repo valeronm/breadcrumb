@@ -189,6 +189,10 @@ Robolectric — the Room database, and the timeline's rows read back off the sem
 Robolectric's native runtime ships no Linux arm64 build, so on an arm64 machine the Robolectric
 tests need `-PqemuJdk` (see `CLAUDE.md`); everywhere else they just run.
 
+The app's website, <https://breadcrumb.place>, is the Astro project in `site/`, deployed by GitHub
+Actions on every push that touches it. `npm install` then `npm run dev` there previews it, with the
+viewer under `/viewer/`; the viewer's own README says how to run it on its own.
+
 ## Tech stack
 
 Kotlin · Jetpack Compose (Material 3) · Room · Play Services Location (Activity Recognition;

@@ -1,13 +1,15 @@
 # Breadcrumb Viewer
 
-A static, fully client-side companion viewer for [Breadcrumb](../README.md) backups: drop the
-`breadcrumb-*.json.gz` file the app exports (Settings → Back up everything) and browse your
+A static, fully client-side companion viewer for [Breadcrumb](../../../README.md) backups: drop
+the `breadcrumb-*.json.gz` file the app exports (Settings → Back up everything) and browse your
 whole track history on a big map. Nothing is uploaded anywhere — parsing, storage (IndexedDB)
-and rendering all happen in the browser; the only network use is the basemap.
+and rendering all happen in the browser; the only network use is the basemap. It is live at
+<https://breadcrumb.place/viewer/>, served as written from the site's `public/` folder.
 
 ## Running
 
-No build step. Any static file server works:
+No build step of its own. Any static file server works, and so does the site's dev server
+(`npm run dev` in `site/`, which serves it at `/viewer/`):
 
 ```bash
 cp site/public/viewer/config.example.js site/public/viewer/config.js   # add your Protomaps API key

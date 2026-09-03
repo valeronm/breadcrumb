@@ -1,0 +1,31 @@
+name: Viewer tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/public/viewer/**'
+      - '.github/workflows/viewer-tests.yml'
+  pull_request:
+    paths:
+      - 'site/public/viewer/**'
+      - '.github/workflows/viewer-tests.yml'
+
+jobs:
+  node-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # The parse and convert suites check the streaming parser against a real export, which no
+      # checkout carries; they run by hand, as the viewer's README says.
+      - name: Run the self-contained suites
+        run: |
+          node site/public/viewer/test/draw-test.mjs
+          node site/public/viewer/test/stays-test.mjs
+          node site/public/viewer/test/segments-test.mjs
+          node site/public/viewer/test/arc-test.mjs
