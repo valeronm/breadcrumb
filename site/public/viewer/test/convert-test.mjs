@@ -1,7 +1,7 @@
 // Parses a real export and converts every track, checking the typed-array shapes against the
 // source data. Streamed rather than loaded, so it runs on a full history — the decompressed text of
 // one is past the longest string V8 will make.
-// Run: node web/test/convert-test.mjs <export.json.gz>
+// Run: node site/public/viewer/test/convert-test.mjs <export.json.gz>
 import assert from "node:assert/strict";
 import { BackupParser } from "../js/backup-parse.js";
 import {

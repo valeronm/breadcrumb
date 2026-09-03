@@ -10,9 +10,9 @@ and rendering all happen in the browser; the only network use is the basemap.
 No build step. Any static file server works:
 
 ```bash
-cp config.example.js config.js   # add your Protomaps API key
-python3 -m http.server -d web 8000
-# open http://localhost:8000
+cp site/public/viewer/config.example.js site/public/viewer/config.js   # add your Protomaps API key
+python3 -m http.server -d site/public 8000
+# open http://localhost:8000/viewer/
 ```
 
 (A server is required — module workers don't run from `file://`.)
@@ -82,11 +82,11 @@ python3 -m http.server -d web 8000
 ## Testing
 
 ```bash
-node web/test/draw-test.mjs                                  # hand-built cases, no file needed
-node web/test/stays-test.mjs                                 # ditto — the derivation's decision table
-node web/test/segments-test.mjs                              # ditto — what import does with a break
-node web/test/parse-test.mjs <breadcrumb-export.json.gz>     # holds the export whole, as its oracle
-node web/test/convert-test.mjs <breadcrumb-export.json.gz>   # streamed, so any size runs
+node site/public/viewer/test/draw-test.mjs                                  # hand-built cases, no file needed
+node site/public/viewer/test/stays-test.mjs                                 # ditto — the derivation's decision table
+node site/public/viewer/test/segments-test.mjs                              # ditto — what import does with a break
+node site/public/viewer/test/parse-test.mjs <breadcrumb-export.json.gz>     # holds the export whole, as its oracle
+node site/public/viewer/test/convert-test.mjs <breadcrumb-export.json.gz>   # streamed, so any size runs
 ```
 
 `stays-test.mjs` mirrors the app's own `StayDeriverTest` case for case, on the same flat-earth

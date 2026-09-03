@@ -1,7 +1,7 @@
 // How a selected track's points become drawable geometry: the path as one polyline per stretch the
 // recorder watched, the recorder's overrun as grayed legs anchored to the path, rejected fixes as
 // markers. Needs no export file — the cases are hand-built, at a neutral origin.
-// Run: node web/test/draw-test.mjs
+// Run: node site/public/viewer/test/draw-test.mjs
 import assert from "node:assert/strict";
 import { splitForDrawing } from "../js/map.js";
 import {

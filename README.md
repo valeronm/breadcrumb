@@ -105,7 +105,7 @@ build. No real history is ever shot.*
   caps are one mechanism — and switching the metric rebuilds the source without moving the camera.
 - `GpxExporter` / `GpxParser` write and read GPX; exports share via `FileProvider` or bulk-write to
   a folder you pick via the Storage Access Framework. `BackupExporter` / `BackupImporter` stream
-  the whole history as one gzipped JSON file, which is also what the companion viewer in `web/`
+  the whole history as one gzipped JSON file, which is also what the companion viewer in `site/public/viewer/`
   reads.
 
 ### Starting a trip
@@ -212,7 +212,7 @@ can also import a `.gpx` file to populate trips, places, and the map without mov
 - Play Services dependency: activity recognition relies on Google Play Services, so this isn't a
   fully FOSS / F-Droid-friendly build.
 - Single device / single user: no multi-device sync (server upload to e.g. Dawarich/OwnTracks is a
-  possible future addition). `web/` renders a backup file in the browser instead — the same data,
+  possible future addition). `site/public/viewer/` renders a backup file in the browser instead — the same data,
   deriving the same timeline.
 
 ## Third-party data

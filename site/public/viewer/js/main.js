@@ -49,7 +49,7 @@ async function boot() {
   try {
     ({ PROTOMAPS_KEY: key } = await import("../config.js"));
   } catch {
-    configError = "Missing web/config.js — copy config.example.js and add your Protomaps API key.";
+    configError = "Missing config.js — copy config.example.js and add your Protomaps API key.";
   }
   db = await openDb();
   if (key) map = createMap("map", key, selectTrackById, selectPlace);

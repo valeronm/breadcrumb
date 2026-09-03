@@ -1,6 +1,6 @@
 // The stay derivation, case for case against the app's own suite — the two must agree about what
 // counts as the same place and what a gap is. Needs no export
-// file. Run: node web/test/stays-test.mjs
+// file. Run: node site/public/viewer/test/stays-test.mjs
 //
 // Distance is stubbed flat-earth, scaled so 0.001° ≈ 100 m, exactly as the app's domain tests do:
 // fixtures place endpoints by *meters east of an origin* and every assertion reasons in meters and

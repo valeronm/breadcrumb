@@ -12,7 +12,7 @@ two ways:
   the language file records why that string is an exception.
 
 **Scope is the app's own screens**: `res/values*/`, plus the `README.md` and `docs/` that describe
-them to a reader. The `web/` companion viewer is **out** — it ships no translations and is read by
+them to a reader. The `site/public/viewer/` companion viewer is **out** — it ships no translations and is read by
 whoever runs it, so holding its handful of English strings to this costs more than it buys. Code is
 out too, identifiers and prose alike: a comment saying "detected stop" beside a row now labelled
 "Detected stay" is describing the mechanism, not addressing anyone.

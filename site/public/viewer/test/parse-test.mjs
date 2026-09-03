@@ -1,5 +1,5 @@
 // Drives BackupParser over a real export at several chunk sizes and checks the stream against
-// a whole-file JSON.parse of the same data. Run: node web/test/parse-test.mjs <export.json.gz>
+// a whole-file JSON.parse of the same data. Run: node site/public/viewer/test/parse-test.mjs <export.json.gz>
 import assert from "node:assert/strict";
 import { BackupParser } from "../js/backup-parse.js";
 import { loadExportText, feed } from "./helpers.mjs";

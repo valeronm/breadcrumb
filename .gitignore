@@ -22,4 +22,4 @@ __pycache__/
 /tools/demo-data/
 
 # Web viewer: local API key config
-/web/config.js
+/site/public/viewer/config.js

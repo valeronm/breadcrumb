@@ -411,9 +411,9 @@ warn you on its own.
 Restore is offered only on the Timeline's empty state, and that
 screen is where it reports its progress. With tracks present a restore would have to merge with
 them, so the offer disappears as soon as the first track exists. The format also feeds the
-web companion viewer in `web/` (see its own README) — a change to it is a change to that viewer's
+web companion viewer in `site/public/viewer/` (see its own README) — a change to it is a change to that viewer's
 input, and the viewer draws off-path fixes by the same conventions this app does *and derives the
-same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `web/js/stays.js`, tested case for case
+same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `site/public/viewer/js/stays.js`, tested case for case
 against `StayDeriverTest`), so a rule that moves here moves there. `PlaceRepository` backs the
 Places tab.
 

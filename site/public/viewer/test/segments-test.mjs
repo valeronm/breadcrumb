@@ -1,7 +1,7 @@
 // What convert() does with segment breaks on the way into storage: normalizes the flag onto the good
 // fix that resumed recording, and cuts the overview geometry there so the all-tracks map spans a gap
 // no more than the full-resolution one does. Needs no export file — the cases are hand-built, at a
-// neutral origin. Run: node web/test/segments-test.mjs
+// neutral origin. Run: node site/public/viewer/test/segments-test.mjs
 import assert from "node:assert/strict";
 import { convertTrack, indexFields, FLAG_SEGMENT_START } from "../js/convert.js";
 
