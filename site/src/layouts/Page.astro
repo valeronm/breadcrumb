@@ -1,0 +1,13 @@
+---
+// A Markdown page under the site's chrome: Astro hands a Markdown layout its frontmatter rather
+// than props, so this reads the title and description from there and passes them on.
+import Base from "./Base.astro";
+
+const { title, description } = Astro.props.frontmatter;
+---
+
+<Base title={title} description={description}>
+  <article class="prose">
+    <slot />
+  </article>
+</Base>

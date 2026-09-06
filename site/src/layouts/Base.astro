@@ -6,6 +6,7 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "../styles/global.css";
 import { Image, getImage } from "astro:assets";
 import icon from "../../../docs/store-listing/play-icon.png";
+import GitHubMark from "../assets/github-mark.svg";
 
 interface Props {
   title: string;
@@ -29,12 +30,17 @@ const favicon = await getImage({ src: icon, width: 64, format: "png" });
   </head>
   <body>
     <header class="top">
-      <a class="brand" href="/"><Image src={icon} width={28} densities={[1, 2]} loading="eager" alt="" /> Breadcrumb</a>
-      <nav>
-        <a href="/viewer/">Viewer</a>
-        <a href="https://github.com/valeronm/breadcrumb">Source</a>
-        <a href="/#install">Install</a>
-      </nav>
+      <div class="top-inner">
+        <a class="brand" href="/"><Image src={icon} width={28} densities={[1, 2]} loading="eager" alt="" /> Breadcrumb</a>
+        <nav>
+          <a href="/viewer/">Viewer</a>
+          <a href="/privacy/">Privacy</a>
+          <a href="/#install">Install</a>
+          <a class="github" href="https://github.com/valeronm/breadcrumb" aria-label="Source on GitHub" title="Source on GitHub">
+            <GitHubMark width="20" height="20" aria-hidden="true" />
+          </a>
+        </nav>
+      </div>
     </header>
 
     <main>
@@ -42,13 +48,11 @@ const favicon = await getImage({ src: icon, width: 64, format: "png" });
     </main>
 
     <footer>
-      <p>Screenshots show a generated demo history; no real history is ever shot.</p>
       <p>
         Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>,
-        served by <a href="https://protomaps.com/">Protomaps</a>. Place names from
-        <a href="https://www.geonames.org/">GeoNames</a>, CC BY 4.0.
+        served by <a href="https://protomaps.com/">Protomaps</a>
       </p>
-      <p><a href="https://github.com/valeronm/breadcrumb">Source on GitHub</a></p>
+      <p>City names from <a href="https://www.geonames.org/">GeoNames</a>, CC BY 4.0</p>
     </footer>
   </body>
 </html>

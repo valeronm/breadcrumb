@@ -7,6 +7,8 @@ while you move and stops while you're still. Everything stays on your device —
 server — with journeys away from home in Insights, trips you can enter by hand for what nothing
 recorded, GPX import/export and a full backup.
 
+Website: <https://breadcrumb.place>, with the [privacy policy](https://breadcrumb.place/privacy/).
+
 ## Try it (closed testing)
 
 Breadcrumb is on Google Play in closed testing. Testers are admitted through a Google Group, so
@@ -31,9 +33,6 @@ offer the install yet, try again later.
   <img src="docs/screenshots/journeys.png" alt="Insights: journeys away from home" width="30%">
   <img src="docs/screenshots/statistics.png" alt="Insights: a month read against the year behind it" width="30%">
 </p>
-
-*Demo data — a synthetic history from `tools/generate_demo_history.py`, restored into the `demo`
-build. No real history is ever shot.*
 
 ## Features
 

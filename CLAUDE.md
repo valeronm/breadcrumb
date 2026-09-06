@@ -734,7 +734,7 @@ and covers the map saying it, so labelling them is a decision to take, not an ov
 
 `site/` is the app's website, an Astro project deployed to GitHub Pages at `breadcrumb.place` by
 `pages.yml` on every push to `main` that touches it; `npm run dev` there previews it. It is a
-build rather than plain files because the page is mostly screenshots: they and the icon are
+build rather than plain files because the landing page is mostly screenshots: they and the icon are
 imported from `docs/`, so the README, the store assets and the site share one set, and are
 re-encoded per width at build. The companion viewer is `site/public/viewer/`, served as written
 with no bundling — its own README says what it is. `viewer-tests.yml` runs its self-contained node
@@ -745,6 +745,35 @@ never the app's. Every package in `site/package.json` is a development dependenc
 in `node_modules` reaches a visitor, and that scope is what advisory alerts against the tree are
 filtered by. The custom domain is a Pages setting, not a `CNAME` file, since the Actions deploy
 carries none.
+
+**The site is written for a person deciding whether to put the app on their phone** — an Android
+user, not a developer, who asks where location data goes before installing, because the app's
+proposition selects for exactly that reader. They come for four things: what the app is, what it
+looks like, what happens to their data, and how to get it; every sentence answers one of those or
+goes. An existing user returning for the viewer or the privacy page, and Google's review checking
+the privacy-policy URL, read the same pages and need nothing more. Developers go to the repository,
+which the site links and then stops; nothing on it names a build type, a script, a tool or a
+mechanism, and nothing on it explains how the site or its screenshots were made. It is informational,
+not a pitch: this reader is served by being told, not sold. The privacy page is the policy Play's
+listing points at, so its URL is fixed.
+
+**The copy is plain help-page prose, because that reader scans for answers rather than reads.**
+The reader is *you* and the actor is *the app* or *your phone*; a sentence opens on its subject,
+carries one fact, and stops — two facts joined by a semicolon are two sentences, and a merged pair
+is what the copy has read as machine-written on. No inverted clauses ("Trips a short stop split can
+be merged"), no appositions or balanced pairs, and no derivation's point of view: "when your stays
+keep landing in the same spot, the app makes it a place", not "stays that keep landing in the same
+spot form a place". The code's words stay in the code — *capture radius*, *fix*, *filter* — and the
+reader's stand in for them. Copy written from the source or the README carries their habits, so
+rewrite it rather than trim it.
+
+**The two pages weigh correctness differently.** The privacy page is a contract: every claim on it
+must hold against the code, and a qualifier that keeps a sentence true ("unless your Android backup
+holds a copy") stays however it reads. The landing page must be correct too, but a fact is stated
+only as exactly as the reader needs it, and never as mechanics: "the year behind it" over "the
+twelve months before it", a watch for leaving where you stopped over a geofence and a probe. When
+accuracy and simplicity pull apart on the landing page, simplicity wins as long as the sentence is
+not false.
 
 ## Releases
 
