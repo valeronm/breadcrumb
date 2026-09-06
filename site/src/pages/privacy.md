@@ -82,8 +82,8 @@ screen, under Settings → App lock. Recording carries on whether the app is loc
 ## The viewer
 
 The [viewer](/viewer/) on this site opens a backup file in your browser. The viewer reads the file
-and keeps a copy in your browser's own storage. It stays there until you clear the site's data in
-your browser. It is not uploaded. The only network use is the map, from Protomaps,
+and keeps a copy in your browser's own storage. It stays there until you press Clear in the viewer
+or clear the site's data in your browser. It is not uploaded. The only network use is the map, from Protomaps,
 as in the app.
 
 ## This site
