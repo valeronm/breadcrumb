@@ -36,6 +36,7 @@ import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -248,6 +249,20 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
         fun dress(stay: PlaceResolver.ResolvedStay) =
             if (stay.key == editing) stay.withPlace(row) else stay
+
+        /** An item the row changes nothing on comes back as the same instance. */
+        fun dress(item: TimelineItem): TimelineItem = when (item) {
+            is TimelineItem.TrackItem -> item
+            is TimelineItem.StayItem -> {
+                val place = item.place?.let(::dress)
+                if (place === item.place) item else item.copy(place = place)
+            }
+            is TimelineItem.GapItem -> {
+                val from = item.fromPlace?.let(::dress)
+                val to = item.toPlace?.let(::dress)
+                if (from === item.fromPlace && to === item.toPlace) item else item.copy(fromPlace = from, toPlace = to)
+            }
+        }
     }
 
     /**
@@ -325,8 +340,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }.flowOn(Dispatchers.Default)
-        // No grace of its own: its only subscribers are the stages below, whose five seconds already
-        // carry a tab swipe, and a grace here would only hold the derivation that much longer.
+        // No grace of its own: the stages below already carry five seconds, and a grace here would
+        // hold the derivation that much longer.
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
     /**
@@ -340,20 +355,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      */
     val timeline: StateFlow<List<TimelineItem>?> = combine(resolvedTimeline, pendingPlace) { items, pending ->
         // Left alone rather than re-mapped when nothing is in flight, which is nearly always.
-        if (pending == null) {
-            items
-        } else {
-            items.map { item ->
-                when (item) {
-                    is TimelineItem.TrackItem -> item
-                    is TimelineItem.StayItem -> item.copy(place = item.place?.let(pending::dress))
-                    is TimelineItem.GapItem -> item.copy(
-                        fromPlace = item.fromPlace?.let(pending::dress),
-                        toPlace = item.toPlace?.let(pending::dress),
-                    )
-                }
-            }
-        }
+        if (pending == null) items else items.map(pending::dress)
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -543,11 +545,15 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 // is asynchronous, so the derivation this write carried has not been read back yet;
                 // dropping the pending row here would put the pre-write list on screen once more —
                 // the very flash this exists to prevent, moved to the end. So the stop condition is
-                // evidence: a derivation that already says what was written, which is the same test
-                // [PlaceResolver.PlaceSummary.withPlace] retires itself on. Bounded, because a
+                // evidence: a reading that already says what was written, which is the same test
+                // [PlaceResolver.PlaceSummary.withPlace] retires itself on. Asked of the lists the
+                // screens draw from, which are computed after [derived] lands. Bounded, because a
                 // pending row is worth showing for about as long as a rebuild and no longer.
                 withTimeoutOrNull(PENDING_PLACE_TIMEOUT_MS) {
-                    derived.first { d -> d.places.any { PlaceResolver.saysSameAs(it, row) } }
+                    coroutineScope {
+                        launch { placeSummaries.first { summaries -> summaries.all { pending.dress(it) === it } } }
+                        launch { resolvedTimeline.first { items -> items.all { pending.dress(it) === it } } }
+                    }
                 }
             } finally {
                 // Only what this write put there. An edit made while it was in flight replaced it,

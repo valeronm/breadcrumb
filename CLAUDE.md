@@ -465,9 +465,11 @@ pin, reach) from what the derivation does (the visits, and where they landed), a
 identity the screen opened so it does not lose the spot while the name is being drawn. That the two
 readings key a cluster alike is what lets one write dress both, and is pinned rather than assumed.
 The row takes its id as soon as the insert answers with one, since the chips and a second edit beside
-it address a row by id. It is dropped on a
-derivation that already says the same thing, never merely on the write returning: Room's
-invalidation is asynchronous, so the commit and the screens seeing it are different moments.
+it address a row by id. It is dropped once the summaries and the timeline rows the screens read
+already say the same thing — those, not the derivation they are computed from, since a row dropped
+on the derivation alone is gone while the lists still describe the spot as it was — and never
+merely on the write returning: Room's invalidation is asynchronous, so the commit and the screens
+seeing it are different moments.
 
 **Which paths repair and which re-derive** is what a new mutation path has to decide, and all three
 answers live in `TrackRepository` beside the writes they belong to. A change that moves a known

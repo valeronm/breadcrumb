@@ -154,9 +154,10 @@ object PlaceResolver {
 
         /**
          * This cluster's stable identity — the same string [PlaceSummary.key] gives for it, so a
-         * stay row and a Places row open the same place.
+         * stay row and a Places row open the same place. Held rather than computed per read for
+         * the reason [PlaceSummary.key] is.
          */
-        val key: String get() = keptKey ?: placeKey(placeId, centroid)
+        val key: String = keptKey ?: placeKey(placeId, centroid)
 
         /**
          * This stop as a place just written describes it — [PlaceSummary.withPlace] for the reading
