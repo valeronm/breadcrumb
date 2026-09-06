@@ -47,6 +47,9 @@ python3 -m http.server -d site/public 8000
 - `js/geo.js` — the distance seam that runs on, and its coordinate-box prefilter. WGS84 ellipsoidal
   (the same Vincenty inverse `Location.distanceBetween` runs on the phone) rather than a sphere
   approximation, so a borderline pair of endpoints can't cluster one way here and another there.
+- `vendor/` — MapLibre GL JS and its stylesheet, copied in rather than loaded from a CDN so the
+  page talks to no host but Protomaps, which is what the privacy page says of it. Bumping the
+  version is replacing the two files.
 - `js/map.js` — MapLibre GL JS on the Protomaps basemap (same provider as the app): all tracks
   as simplified lines colored by activity, click or pick from the timeline for the full-resolution
   track. Selecting a track mutes the rest of the history to gray, along with every place the trip
