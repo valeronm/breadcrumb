@@ -123,23 +123,29 @@ object GpxExporter {
                     appendLine("    </trkseg>")
                     appendLine("    <trkseg>")
                 }
-                appendLine("""      <trkpt lat="${p.latitude}" lon="${p.longitude}">""")
-                p.altitude?.let { appendLine("        <ele>$it</ele>") }
-                appendLine("        <time>${iso.format(Date(p.timestamp))}</time>")
-                // GPS-reported speed (m/s) rides along as a Garmin TrackPointExtension so a
-                // re-import shows the recorded speeds rather than position-derived ones.
-                p.speed?.let {
-                    appendLine(
-                        "        <extensions><gpxtpx:TrackPointExtension>" +
-                            "<gpxtpx:speed>$it</gpxtpx:speed>" +
-                            "</gpxtpx:TrackPointExtension></extensions>",
-                    )
-                }
-                appendLine("      </trkpt>")
+                writePoint(iso, p)
             }
             appendLine("    </trkseg>")
             appendLine("  </trk>")
             appendLine("</gpx>")
         }
+    }
+
+    private fun Appendable.writePoint(iso: SimpleDateFormat, p: TrackPoint) {
+        appendLine("""      <trkpt lat="${p.latitude}" lon="${p.longitude}">""")
+        p.altitude?.let { appendLine("        <ele>$it</ele>") }
+        appendLine("        <time>${iso.format(Date(p.timestamp))}</time>")
+        // <sat> is the one quality field GPX has a slot for: accuracy is metres, not the unitless
+        // <hdop>, and C/N0 has no element, so both leave the device only in the backup.
+        p.satellitesInFix?.let { appendLine("        <sat>$it</sat>") }
+        // GPS-reported speed (m/s) and course (degrees) ride along as a Garmin TrackPointExtension
+        // so a re-import shows the recorded values rather than position-derived ones.
+        if (p.speed != null || p.bearing != null) {
+            append("        <extensions><gpxtpx:TrackPointExtension>")
+            p.speed?.let { append("<gpxtpx:speed>$it</gpxtpx:speed>") }
+            p.bearing?.let { append("<gpxtpx:course>$it</gpxtpx:course>") }
+            appendLine("</gpxtpx:TrackPointExtension></extensions>")
+        }
+        appendLine("      </trkpt>")
     }
 }

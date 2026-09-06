@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import io.github.valeronm.breadcrumb.data.db.NO_TRACK
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.export.GpxParser
@@ -524,14 +525,15 @@ class TrackRepositoryTest {
         // The linger jitters ±9 m so its 30 s net displacement stays under the moving threshold.
         val walkEnd = 1.0 + 60 * 0.000126
         val points = (0 until 60).map { i ->
-            GpxParser.ImportPoint(
-                lat = 1.0 + i * 0.000126, lon = -2.0, ele = null,
-                timeMs = TEST_START + i * 10_000L, speed = null, segmentStart = false,
+            TrackPoint(
+                trackId = NO_TRACK, latitude = 1.0 + i * 0.000126, longitude = -2.0, altitude = null, accuracy = null,
+                speed = null, bearing = null, timestamp = TEST_START + i * 10_000L,
             )
         } + (0 until 36).map { i ->
-            GpxParser.ImportPoint(
-                lat = walkEnd + if (i % 2 == 0) 0.00008 else -0.00008, lon = -2.0, ele = null,
-                timeMs = TEST_START + (60 + i) * 10_000L, speed = null, segmentStart = false,
+            TrackPoint(
+                trackId = NO_TRACK, latitude = walkEnd + if (i % 2 == 0) 0.00008 else -0.00008, longitude = -2.0,
+                altitude = null, accuracy = null, speed = null, bearing = null,
+                timestamp = TEST_START + (60 + i) * 10_000L,
             )
         }
         val file = listOf(
@@ -562,13 +564,7 @@ class TrackRepositoryTest {
         activityTypeName = "WALKING",
         startedAt = TEST_START + fromIndex * 10_000L,
         endedAt = TEST_START + (fromIndex + count - 1) * 10_000L,
-        // A file has no track to belong to yet, hence the placeholder id.
-        points = walkPoints(0, fromIndex, count, fromLat = 1.0 + fromIndex * 0.000126).map {
-            GpxParser.ImportPoint(
-                lat = it.latitude, lon = it.longitude, ele = it.altitude,
-                timeMs = it.timestamp, speed = it.speed, segmentStart = it.segmentStart,
-            )
-        },
+        points = walkPoints(NO_TRACK, fromIndex, count, fromLat = 1.0 + fromIndex * 0.000126),
     )
 
     @Test fun `a file overlapping an existing track is skipped, not laid over it`() = runTest {

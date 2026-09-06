@@ -1,5 +1,7 @@
 package io.github.valeronm.breadcrumb.data
 
+import io.github.valeronm.breadcrumb.data.db.NO_TRACK
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
@@ -39,9 +41,9 @@ class TrackSourceTest {
         points = (fromIndex until fromIndex + count).map { i ->
             // A parsed file carries no accuracy radius — that absence is what the pre-column rows
             // are reconstructed from, and it must stay true of what the importer stores.
-            GpxParser.ImportPoint(
-                lat = 1.0 + i * 0.001, lon = -2.0, ele = null,
-                timeMs = TEST_START + i * 10_000L, speed = null, segmentStart = false,
+            TrackPoint(
+                trackId = NO_TRACK, latitude = 1.0 + i * 0.001, longitude = -2.0, altitude = null, accuracy = null,
+                speed = null, bearing = null, timestamp = TEST_START + i * 10_000L,
             )
         },
     )

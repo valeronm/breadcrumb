@@ -22,6 +22,8 @@ class GpxExporterTest {
         lon: Double = 2.0,
         altitude: Double? = null,
         speed: Float? = null,
+        bearing: Float? = null,
+        satellitesInFix: Int? = null,
         segmentStart: Boolean = false,
     ) = TrackPoint(
         trackId = 1,
@@ -30,8 +32,9 @@ class GpxExporterTest {
         altitude = altitude,
         accuracy = null,
         speed = speed,
-        bearing = null,
+        bearing = bearing,
         timestamp = timestamp,
+        satellitesInFix = satellitesInFix,
         segmentStart = segmentStart,
     )
 
@@ -77,6 +80,22 @@ class GpxExporterTest {
         )
         assertEquals(1, countOf(gpx, "<extensions>"))
         assertTrue(gpx.contains("<gpxtpx:TrackPointExtension><gpxtpx:speed>1.25</gpxtpx:speed>"))
+    }
+
+    @Test fun `sat sits between time and extensions, course after speed, each only when present`() {
+        val gpx = GpxExporter.buildGpx(
+            track(),
+            listOf(point(0, speed = 1.25f, bearing = 90.5f, satellitesInFix = 11), point(1_000, bearing = 180f), point(2_000)),
+        )
+        assertTrue(
+            gpx.contains(
+                "</time>\n        <sat>11</sat>\n        <extensions><gpxtpx:TrackPointExtension>" +
+                    "<gpxtpx:speed>1.25</gpxtpx:speed><gpxtpx:course>90.5</gpxtpx:course>",
+            ),
+        )
+        assertEquals(1, countOf(gpx, "<sat>"))
+        assertEquals(2, countOf(gpx, "<extensions>"))
+        assertTrue(gpx.contains("<gpxtpx:TrackPointExtension><gpxtpx:course>180.0</gpxtpx:course>"))
     }
 
     @Test fun `timestamps are ISO-8601 UTC`() {

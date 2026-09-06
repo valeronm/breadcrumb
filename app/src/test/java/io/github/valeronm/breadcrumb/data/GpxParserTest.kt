@@ -16,7 +16,8 @@ class GpxParserTest {
 
     private fun point(trackId: Long, i: Int, ts: Long, segmentStart: Boolean = false) = TrackPoint(
         trackId = trackId, latitude = 1.0 + i * 0.001, longitude = 2.0, altitude = 30.0 + i,
-        accuracy = 5f, speed = 1f, bearing = null, timestamp = ts, segmentStart = segmentStart,
+        accuracy = 5f, speed = 1f, bearing = 45f, timestamp = ts, satellitesInFix = 9,
+        segmentStart = segmentStart,
     )
 
     @Test fun `round-trips our own export including segments and type`() {
@@ -41,9 +42,11 @@ class GpxParserTest {
         assertEquals(4, importable.points.size)
         // The second segment's first point carries the segment break; nothing else does.
         assertEquals(listOf(false, false, true, false), importable.points.map { it.segmentStart })
-        assertEquals(30.0, importable.points.first().ele!!, 1e-6)
-        // Recorded speeds ride along via the gpxtpx extension.
+        assertEquals(30.0, importable.points.first().altitude!!, 1e-6)
+        // Recorded speeds and courses ride along via the gpxtpx extension, satellites via <sat>.
         assertEquals(listOf(1f, 1f, 1f, 1f), importable.points.map { it.speed })
+        assertEquals(listOf(45f, 45f, 45f, 45f), importable.points.map { it.bearing })
+        assertEquals(listOf(9, 9, 9, 9), importable.points.map { it.satellitesInFix })
     }
 
     @Test fun `parses a minimal foreign gpx with offsets and fractions`() {
@@ -70,22 +73,36 @@ class GpxParserTest {
         assertEquals(2, importable.points.size)
         // 12:00+01:00 == 11:00Z, one hour after the 10:00:00.500Z start (less the half second).
         assertEquals(3_600_000 - 500, importable.endedAt - importable.startedAt)
-        assertEquals(25.5, importable.points[1].ele!!, 1e-6)
+        assertEquals(25.5, importable.points[1].altitude!!, 1e-6)
         // A plain <speed> inside <extensions> is read too; the first point has none.
         assertNull(importable.points[0].speed)
         assertEquals(1.5f, importable.points[1].speed!!, 1e-6f)
     }
 
-    @Test fun `gpx 1_0 speed directly on the trkpt is read`() {
+    @Test fun `readings come from gpx 1_0 elements or a 1_1 extension alike, unknown extensions skipped`() {
         val gpx = """
-            <gpx version="1.0"><trk><trkseg>
-              <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time><speed>2.5</speed></trkpt>
-              <trkpt lat="1.001" lon="1"><time>2026-01-01T00:01:00Z</time></trkpt>
+            <gpx><trk><trkseg>
+              <trkpt lat="1" lon="1"><time>2026-01-01T00:00:00Z</time><course>270</course><speed>2.5</speed></trkpt>
+              <trkpt lat="1.001" lon="1">
+                <time>2026-01-01T00:01:00Z</time>
+                <sat>7</sat>
+                <extensions>
+                  <other:TrackPointExtension><other:hr>120</other:hr></other:TrackPointExtension>
+                  <gpxtpx:TrackPointExtension><gpxtpx:course>12.5</gpxtpx:course></gpxtpx:TrackPointExtension>
+                </extensions>
+              </trkpt>
+              <trkpt lat="1.002" lon="1"><time>2026-01-01T00:02:00Z</time><sat>x</sat></trkpt>
             </trkseg></trk></gpx>
         """.trimIndent()
-        val importable = GpxParser.toImportable(parse(gpx).single())!!
-        assertEquals(2.5f, importable.points[0].speed!!, 1e-6f)
-        assertNull(importable.points[1].speed)
+        val points = GpxParser.toImportable(parse(gpx).single())!!.points
+        assertEquals(2.5f, points[0].speed!!, 1e-6f)
+        assertEquals(270f, points[0].bearing!!, 1e-6f)
+        assertNull(points[0].satellitesInFix)
+        assertNull(points[1].speed)
+        assertEquals(12.5f, points[1].bearing!!, 1e-6f)
+        assertEquals(7, points[1].satellitesInFix)
+        assertNull(points[2].bearing)
+        assertNull(points[2].satellitesInFix)
     }
 
     @Test fun `a boat type maps to the hand-assigned ferry activity`() {
@@ -127,7 +144,7 @@ class GpxParserTest {
             </trkseg></trk></gpx>
         """.trimIndent()
         val importable = GpxParser.toImportable(parse(gpx).single())!!
-        assertEquals(1.0, importable.points.first().lat, 1e-9)
+        assertEquals(1.0, importable.points.first().latitude, 1e-9)
         assertTrue(importable.startedAt < importable.endedAt)
     }
 
@@ -160,7 +177,7 @@ class GpxParserTest {
         """.trimIndent()
         val importable = GpxParser.toImportable(parse(gpx).single())!!
         assertEquals(3, importable.points.size)
-        assertEquals(listOf(1.0, 1.001, 1.002), importable.points.map { it.lat })
+        assertEquals(listOf(1.0, 1.001, 1.002), importable.points.map { it.latitude })
     }
 
     @Test fun `two fixes at one instant in different places are both kept`() {

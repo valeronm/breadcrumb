@@ -1,5 +1,7 @@
 package io.github.valeronm.breadcrumb.data.export
 
+import io.github.valeronm.breadcrumb.data.db.NO_TRACK
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
@@ -10,42 +12,27 @@ import java.time.ZoneOffset
 
 /**
  * Parses GPX 1.0/1.1 for import — [GpxExporter]'s inverse, foreign-file tolerant: unknown elements
- * (waypoints, routes, unrecognized extensions) skip, per-point speed reads from a `<speed>` element
- * or extension, `<type>` maps to an [ActivityType] via aliases, and points without a `<time>` drop
- * (the timeline can't place them). Pure and stream-based; Room insertion lives in TrackRepository.
+ * (waypoints, routes, unrecognized extensions) skip, a point's readings come from GPX 1.0's own
+ * elements or a 1.1 extension alike, `<type>` maps to an [ActivityType] via aliases, and points
+ * without a `<time>` drop (the timeline can't place them). Pure and stream-based; Room insertion
+ * lives in TrackRepository.
  */
 object GpxParser {
 
-    class ParsedPoint(
-        val lat: Double,
-        val lon: Double,
-        val ele: Double?,
-        val timeMs: Long?,
-        val speed: Float?,
-    )
-
-    class ParsedTrack(val type: String?, val segments: List<List<ParsedPoint>>)
-
-    /** One point ready for insertion; [segmentStart] mirrors the recorder's own segment breaks. */
-    class ImportPoint(
-        val lat: Double,
-        val lon: Double,
-        val ele: Double?,
-        val timeMs: Long,
-        val speed: Float?,
-        val segmentStart: Boolean,
-    )
+    /** The points as rows with no track to belong to yet ([NO_TRACK]), one list per `<trkseg>`. */
+    class ParsedTrack(val type: String?, val segments: List<List<TrackPoint>>)
 
     /**
-     * A parsed track reduced to what insertion needs. No distance: an imported track's aggregates
-     * are computed from the points once they're stored, by the same walk every other track uses
+     * A parsed track reduced to what insertion needs: the rows as they will be stored, bar the
+     * `trackId` the insert assigns. No distance: an imported track's aggregates are computed from
+     * the points once they're stored, by the same walk every other track uses
      * (`TrackRepository.refreshStats`), rather than trusting — or duplicating — the file's own sum.
      */
     class ImportableTrack(
         val activityTypeName: String,
         val startedAt: Long,
         val endedAt: Long,
-        val points: List<ImportPoint>,
+        val points: List<TrackPoint>,
     )
 
     fun parse(input: InputStream): List<ParsedTrack> {
@@ -64,33 +51,24 @@ object GpxParser {
     }
 
     /**
-     * A parsed track made insertable, or null when fewer than two timed points survive. Untimed
-     * points and repeats of the previous fix ([withoutRepeats]) drop; points sort by time within
-     * each segment (and segments by first time), so a malformed file can't yield a backwards track.
+     * A parsed track made insertable, or null when fewer than two points survive. Repeats of the
+     * previous fix ([withoutRepeats]) drop; points sort by time within each segment (and segments
+     * by first time), so a malformed file can't yield a backwards track. The first point of every
+     * segment after the first carries the segment break, as the recorder's own do.
      */
     fun toImportable(parsed: ParsedTrack): ImportableTrack? {
         val segments = parsed.segments
-            .map { seg -> seg.filter { it.timeMs != null }.sortedBy { it.timeMs }.withoutRepeats() }
+            .map { seg -> seg.sortedBy { it.timestamp }.withoutRepeats() }
             .filter { it.isNotEmpty() }
-            .sortedBy { it.first().timeMs }
-        val total = segments.sumOf { it.size }
-        if (total < 2) return null
-
-        val points = ArrayList<ImportPoint>(total)
-        for ((si, seg) in segments.withIndex()) {
-            for ((pi, p) in seg.withIndex()) {
-                points.add(
-                    ImportPoint(
-                        lat = p.lat, lon = p.lon, ele = p.ele, timeMs = p.timeMs!!,
-                        speed = p.speed, segmentStart = si > 0 && pi == 0,
-                    ),
-                )
-            }
+            .sortedBy { it.first().timestamp }
+        val points = segments.flatMapIndexed { si, seg ->
+            if (si == 0) seg else seg.mapIndexed { pi, p -> if (pi == 0) p.copy(segmentStart = true) else p }
         }
+        if (points.size < 2) return null
         return ImportableTrack(
             activityTypeName = activityTypeFor(parsed.type).name,
-            startedAt = points.first().timeMs,
-            endedAt = points.last().timeMs,
+            startedAt = points.first().timestamp,
+            endedAt = points.last().timestamp,
             points = points,
         )
     }
@@ -107,8 +85,11 @@ object GpxParser {
      * a segment break landing on the same instant survives; imports only — the recorder's sampling
      * gate needs the clock to advance, and history-wide it never has produced one.
      */
-    private fun List<ParsedPoint>.withoutRepeats(): List<ParsedPoint> = filterIndexed { i, p ->
-        i == 0 || this[i - 1].let { it.timeMs != p.timeMs || it.lat != p.lat || it.lon != p.lon }
+    private fun List<TrackPoint>.withoutRepeats(): List<TrackPoint> = filterIndexed { i, p ->
+        i == 0 ||
+            this[i - 1].let {
+                it.timestamp != p.timestamp || it.latitude != p.latitude || it.longitude != p.longitude
+            }
     }
 
     /**
@@ -130,7 +111,7 @@ object GpxParser {
 
     private fun readTrack(parser: XmlPullParser): ParsedTrack {
         var type: String? = null
-        val segments = mutableListOf<List<ParsedPoint>>()
+        val segments = mutableListOf<List<TrackPoint>>()
         while (parser.next() != XmlPullParser.END_TAG) {
             if (parser.eventType != XmlPullParser.START_TAG) continue
             when (parser.name) {
@@ -142,8 +123,8 @@ object GpxParser {
         return ParsedTrack(type, segments)
     }
 
-    private fun readSegment(parser: XmlPullParser): List<ParsedPoint> {
-        val points = mutableListOf<ParsedPoint>()
+    private fun readSegment(parser: XmlPullParser): List<TrackPoint> {
+        val points = mutableListOf<TrackPoint>()
         while (parser.next() != XmlPullParser.END_TAG) {
             if (parser.eventType != XmlPullParser.START_TAG) continue
             when (parser.name) {
@@ -154,48 +135,46 @@ object GpxParser {
         return points
     }
 
-    private fun readPoint(parser: XmlPullParser): ParsedPoint? {
+    /**
+     * Walks the whole `<trkpt>` subtree at any depth and under any namespace prefix, since GPX 1.0
+     * puts `<speed>` (m/s) and `<course>` (degrees) directly on the point and 1.1 tucks them into
+     * `<extensions>`, typically as gpxtpx:speed / gpxtpx:course (our own exports included). The
+     * last occurrence wins. Null for a point missing its position or its time.
+     */
+    private fun readPoint(parser: XmlPullParser): TrackPoint? {
         val lat = parser.getAttributeValue(null, "lat")?.toDoubleOrNull()
         val lon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull()
         var ele: Double? = null
         var timeMs: Long? = null
         var speed: Float? = null
-        while (parser.next() != XmlPullParser.END_TAG) {
-            if (parser.eventType != XmlPullParser.START_TAG) continue
-            when {
-                parser.name == "ele" -> ele = parser.nextText().toDoubleOrNull()
-                parser.name == "time" -> timeMs = parseTime(parser.nextText())
-                // GPX 1.0 puts <speed> (m/s) directly on the trkpt; 1.1 tucks it into
-                // <extensions>, typically as gpxtpx:speed (our own exports included).
-                isSpeedTag(parser.name) -> speed = parser.nextText().toFloatOrNull()
-                parser.name == "extensions" -> speed = readExtensionsSpeed(parser) ?: speed
-                else -> skip(parser)
-            }
-        }
-        if (lat == null || lon == null) return null
-        return ParsedPoint(lat, lon, ele, timeMs, speed)
-    }
-
-    /** `<speed>` with any (or no) namespace prefix — the parser runs without namespace processing. */
-    private fun isSpeedTag(name: String): Boolean =
-        name == "speed" || name.endsWith(":speed")
-
-    /** Scans an `<extensions>` subtree for a speed element (m/s), consuming the whole subtree. */
-    private fun readExtensionsSpeed(parser: XmlPullParser): Float? {
-        var speed: Float? = null
+        var bearing: Float? = null
+        var satellitesInFix: Int? = null
         var depth = 1
         while (depth != 0) {
             when (parser.next()) {
-                XmlPullParser.START_TAG ->
-                    if (speed == null && isSpeedTag(parser.name)) {
-                        speed = parser.nextText().toFloatOrNull()
-                    } else {
-                        depth++
-                    }
+                XmlPullParser.START_TAG -> when (parser.name.substringAfterLast(':')) {
+                    "ele" -> ele = parser.nextText().toDoubleOrNull()
+                    "time" -> timeMs = parseTime(parser.nextText())
+                    "sat" -> satellitesInFix = parser.nextText().toIntOrNull()
+                    "speed" -> speed = parser.nextText().toFloatOrNull()
+                    "course" -> bearing = parser.nextText().toFloatOrNull()
+                    else -> depth++
+                }
                 XmlPullParser.END_TAG -> depth--
             }
         }
-        return speed
+        if (lat == null || lon == null || timeMs == null) return null
+        return TrackPoint(
+            trackId = NO_TRACK,
+            latitude = lat,
+            longitude = lon,
+            altitude = ele,
+            accuracy = null,
+            speed = speed,
+            bearing = bearing,
+            timestamp = timeMs,
+            satellitesInFix = satellitesInFix,
+        )
     }
 
     /** ISO-8601 with offset/Z (the GPX norm); a bare local datetime is read as UTC. */

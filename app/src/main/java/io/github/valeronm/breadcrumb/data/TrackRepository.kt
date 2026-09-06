@@ -162,21 +162,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                         source = TrackOrigin.IMPORTED.code,
                     ),
                 )
-                dao.insertPoints(
-                    track.points.map { p ->
-                        TrackPoint(
-                            trackId = id,
-                            latitude = p.lat,
-                            longitude = p.lon,
-                            altitude = p.ele,
-                            accuracy = null,
-                            speed = p.speed,
-                            bearing = null,
-                            timestamp = p.timeMs,
-                            segmentStart = p.segmentStart,
-                        )
-                    },
-                )
+                dao.insertPoints(track.points.map { it.copy(trackId = id) })
                 // Aggregates come from the points we just stored, not from the GPX header: the two
                 // agree for our own exports, and for a foreign file the points are the truth.
                 finalizeImportedTrack(id)
