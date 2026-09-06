@@ -65,35 +65,6 @@ function visitLabel(n) {
   return n === 1 ? "1 visit" : `${n} visits`;
 }
 
-/** What a place is for, keyed by the code stored on the place row. PlaceCategory — the codes are
- * the stored vocabulary and must match it exactly; the labels are display text the app is free to
- * reword. No category, or a code from a newer app than this viewer, reads as untagged: the same
- * tolerance the app applies, so neither side invents a name for it. */
-const CATEGORY_LABELS = {
-  home: "Home",
-  groceries: "Groceries",
-  shopping: "Shopping",
-  kids_school: "Kids & school",
-  sports: "Sports & fitness",
-  outdoors: "Outdoors",
-  friends_family: "Friends & family",
-  services: "Services",
-  health: "Health",
-  travel: "Travel",
-  food: "Food & drink",
-  entertainment: "Entertainment",
-  sightseeing: "Sightseeing",
-  gas_station: "Gas station",
-  parking: "Parking",
-  transit: "Transit",
-  work: "Work",
-};
-
-/** Display label for a stored category code, or null when untagged or unrecognized. */
-export function categoryLabel(code) {
-  return CATEGORY_LABELS[code] ?? null;
-}
-
 /** A stay row's metadata line: when it was, how long, and — for an unnamed cluster the user
  * visits often enough to want to name — how many visits. A duration appears only where the bounds
  * can carry one: a bound the slicing cut makes it redundant (restates the clock time) and
@@ -128,12 +99,9 @@ export function stayMeta(stay, place, nowMs) {
   }
   const duration = cutAtStart || cutAtEnd ? null : reportableDurationMs(stay, nowMs);
   const visits = !place?.label && isNotable(place) ? place.visitCount : null;
-  // Category after duration, as the app's stay row orders them. Never alongside the visit count:
-  // that belongs to unnamed clusters, which have no place row to carry a category.
   return [
     phrase,
     duration && formatDurationMs(duration),
-    categoryLabel(place?.category),
     visits && visitLabel(visits),
   ].filter(Boolean).join(" · ");
 }

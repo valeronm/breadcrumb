@@ -39,11 +39,17 @@ cd site && npm run dev
   recorder missed and make a **gap**. Derivation is "as of" the export's own timestamp, so the last
   stay is open as of the backup rather than growing every time the page is reloaded.
 
-  A stay row also names **what the place is for** where the user tagged it (`PlaceCategory` in the
-  app; `CATEGORY_LABELS` here), after the duration — the app's own order. The codes are the stored
-  vocabulary and the labels are this file's copy of the app's, so a code from a newer app than this
-  viewer reads as untagged rather than being guessed at. Categories are text here: the app draws a
-  glyph per category, and a viewer that has no icon set gains nothing by porting one.
+  **What the place is for** (`PlaceCategory` in the app) is said by the stay row's disc alone, its
+  glyph and colour, never in words. The codes are the stored vocabulary, so a code from a newer app
+  than this viewer reads as untagged rather than being guessed at.
+- `js/discs.js` — the app's disc vocabulary (`ui/Palette.kt`, `ui/Glyphs.kt`) ported, one table
+  per kind so a category cannot have a colour and no glyph or the reverse. The glyphs are the
+  app's own Material Icons, from the `@material-design-icons/svg` package (Apache 2.0); the page
+  inlines the ones the table names as a sprite at build, and nothing else reaches the visitor.
+- `js/pins.js` — the app's map pin (`ui/MarkerImages.kt`), drawn on a canvas at style load with
+  its glyph read off that same sprite, so a pin and a row can never draw two shapes for one
+  category. The named places' layer gains the glyph first and the name second as it zooms in,
+  shrinking with the view as the app's overview does.
 - `js/geo.js` — the distance seam that runs on, and its coordinate-box prefilter. WGS84 ellipsoidal
   (the same Vincenty inverse `Location.distanceBetween` runs on the phone) rather than a sphere
   approximation, so a borderline pair of endpoints can't cluster one way here and another there.
@@ -52,7 +58,8 @@ cd site && npm run dev
   it. They stay files served as they are rather than a package the build bundles: `map.js` reads
   the library as a global, so the draw suite can import it under node, where MapLibre has no
   window to load into. Bumping the version is replacing the two files.
-- `js/map.js` — MapLibre GL JS on the Protomaps basemap (same provider as the app): all tracks
+- `js/map.js` — MapLibre GL JS on the Protomaps basemap (same provider as the app, and the same
+  dark or light flavour as the reader's theme, switched live with the overlay carried across): all tracks
   as simplified lines colored by activity, click or pick from the timeline for the full-resolution
   track. Selecting a track mutes the rest of the history to gray, along with every place the trip
   didn't start or end at. Selecting a stay instead frames its place — the capture circle and the
@@ -63,7 +70,7 @@ cd site && npm run dev
   **The places drawn are the derived clusters**, the app's places map rather than the export's list
   of named pins: labeled markers for named places, small dots for the unnamed clusters the history
   keeps returning to. Two sidebar toggles, both remembered across visits and both the app's own
-  rules: "Show places" drops the layer entirely, and "Rare stops" — off by default — adds the
+  rules: "Places" drops the layer entirely, and "Rare stops" — off by default — adds the
   clusters below the notable-visit floor (fewer than 3 visits). A name doesn't exempt a place from
   being rare: one named on the strength of a single visit is exactly the clutter the toggle clears.
   A cluster nothing ever stayed at is never drawn either way — it exists only so a gap's side has
@@ -92,6 +99,7 @@ cd site && npm run dev
 node site/src/viewer/test/draw-test.mjs                                  # hand-built cases, no file needed
 node site/src/viewer/test/stays-test.mjs                                 # ditto — the derivation's decision table
 node site/src/viewer/test/segments-test.mjs                              # ditto — what import does with a break
+node site/src/viewer/test/discs-test.mjs                                 # ditto — the disc vocabulary's contract
 node site/src/viewer/test/parse-test.mjs <breadcrumb-export.json.gz>     # holds the export whole, as its oracle
 node site/src/viewer/test/convert-test.mjs <breadcrumb-export.json.gz>   # streamed, so any size runs
 ```

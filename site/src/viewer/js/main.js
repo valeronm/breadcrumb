@@ -4,11 +4,12 @@
 // endpoints (js/stays.js), newest first, a stay sliced per day and a gap cut once — derived
 // "as of" the export time (a backup is a snapshot), so the last stay is open then, not growing per reload.
 
-import { openDb, getMeta, getAllTracks, getGeometry } from "./db.js";
+import { openDb, clearAll, getMeta, getAllTracks, getGeometry } from "./db.js";
 import {
   createMap, setOverview, setPlaces, setPlacesVisible, showTrack, focusPlaces, clearSelection,
-  activityColor, REASON_LABELS, REASON_COLORS, OVERRUN_COLOR,
+  REASON_LABELS, REASON_COLORS, OVERRUN_COLOR,
 } from "./map.js";
+import { activityColor, activityIcon, categoryPinColor, categoryIcon } from "./discs.js";
 import {
   deriveStays, slicePerDay, interleave, resolveClusters, mapVisiblePlaces, derivationInstant,
   hasNoDuration, PLACE_RADIUS_M,
@@ -40,14 +41,17 @@ let selected = null;
 // The rows by timeline index, and the one wearing the highlight.
 let rowElements = [];
 let selectedRow = null;
-// A build without the key still imports and lists; the message goes in the always-visible summary
-// slot, since the empty-state hint is hidden as soon as an import exists.
+// A build without the key still imports and lists.
 const MAP_KEY = import.meta.env.PUBLIC_PROTOMAPS_KEY;
-const configError = MAP_KEY ? null : "No map: PUBLIC_PROTOMAPS_KEY was not set when the site was built.";
 
 async function boot() {
   db = await openDb();
-  if (MAP_KEY) map = createMap("map", MAP_KEY, selectTrackById, selectPlace);
+  if (MAP_KEY) {
+    map = createMap("map", MAP_KEY, selectTrackById, selectPlace);
+  } else {
+    $("notice").textContent = "No map: PUBLIC_PROTOMAPS_KEY was not set when the site was built.";
+    $("notice").hidden = false;
+  }
 
   $("file-input").addEventListener("change", (e) => {
     if (e.target.files[0]) startImport(e.target.files[0]);
@@ -59,7 +63,13 @@ async function boot() {
     const file = e.dataTransfer.files[0];
     if (file) startImport(file);
   });
-  $("import-button").addEventListener("click", () => $("file-input").click());
+  for (const id of ["import-button", "import-empty"]) {
+    $(id).addEventListener("click", () => $("file-input").click());
+  }
+  $("clear-button").addEventListener("click", async () => {
+    await clearAll(db);
+    await refresh();
+  });
   const showPlacePins = $("show-places");
   const showRare = $("show-rare");
   showPlacePins.checked = localStorage.getItem(SHOW_PLACES_KEY) !== "0";
@@ -86,21 +96,19 @@ async function boot() {
 }
 
 async function refresh() {
+  // The rows are about to be replaced, and a selection indexes into them.
+  deselect();
   const meta = await getMeta(db);
-  if (!meta) {
-    $("empty").hidden = false;
-    $("timeline").hidden = true;
-    $("summary").textContent = configError ?? "";
-    return;
-  }
-  $("empty").hidden = true;
-  $("timeline").hidden = false;
+  $("empty").hidden = Boolean(meta);
+  $("head").hidden = !meta;
+  $("timeline").hidden = !meta;
   tracks = (await getAllTracks(db)).sort((a, b) => b.startedAt - a.startedAt);
-  nowMs = derivationInstant(meta.exportedAt, tracks);
-  const stays = buildTimeline(meta.places ?? []);
-  $("summary").textContent = configError ??
-    `${meta.trackCount} tracks · ${stays} stays · ${(meta.pointCount / 1000).toFixed(0)}k points · ` +
-    `exported ${formatDate(meta.exportedAt)}`;
+  nowMs = derivationInstant(meta?.exportedAt, tracks);
+  const stays = buildTimeline(meta?.places ?? []);
+  if (meta) {
+    $("summary").textContent = `${meta.trackCount.toLocaleString()} trips · ${stays.toLocaleString()} stays`;
+    $("exported").textContent = `Exported ${formatDate(meta.exportedAt)}`;
+  }
   renderList();
   if (map) {
     setOverview(map, tracks);
@@ -120,6 +128,7 @@ function paintPlaceLayer() {
     lat: p.anchor.lat,
     lon: p.anchor.lon,
     label: p.label,
+    category: p.category,
   })));
 }
 
@@ -174,14 +183,13 @@ function startImport(file) {
   worker.onmessage = async (e) => {
     const msg = e.data;
     if (msg.type === "progress") {
-      const total = msg.tracksTotal ? ` of ${msg.tracksTotal}` : "";
-      $("progress").textContent = `Importing… track ${msg.tracksDone}${total}`;
+      const done = msg.tracksDone.toLocaleString();
+      $("progress").textContent = msg.tracksTotal
+        ? `Importing ${done} of ${msg.tracksTotal.toLocaleString()} trips…`
+        : `Importing… ${done} trips so far`;
     } else if (msg.type === "done") {
       $("progress").hidden = true;
       worker.terminate();
-      // The imported ids are a fresh set, so a leftover selection would keep its full-resolution
-      // line drawn and every other track muted against an id that no longer exists.
-      deselect();
       await refresh();
     } else if (msg.type === "error") {
       $("progress").textContent = `Import failed: ${msg.message}`;
@@ -198,15 +206,14 @@ function renderList() {
   list.textContent = "";
   rowElements = [];
   let currentDay = "";
+  let card = null;
   const fragment = document.createDocumentFragment();
   timeline.forEach((item, index) => {
     const day = formatDay(itemStart(item));
     if (day !== currentDay) {
       currentDay = day;
-      const h = document.createElement("div");
-      h.className = "day-header";
-      h.textContent = day;
-      fragment.appendChild(h);
+      card = el("div", "day-card");
+      fragment.append(el("div", "day-header", day), card);
     }
     const row = item.kind === "track" ? trackRow(item.track)
       : item.kind === "stay" ? stayRow(item)
@@ -215,7 +222,7 @@ function renderList() {
     // Kept by index: highlighting is a lookup rather than a querySelector over a tree that runs to
     // tens of thousands of nodes on a full history.
     rowElements[index] = row;
-    fragment.appendChild(row);
+    card.appendChild(row);
   });
   list.appendChild(fragment);
 }
@@ -224,19 +231,42 @@ function itemStart(item) {
   return item.kind === "track" ? item.track.startedAt : item.start;
 }
 
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  node.className = className;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+/** A row's text column: its title line(s) and the meta line, in the order given. */
+function body(...children) {
+  const node = el("span", "body");
+  node.append(...children.filter(Boolean));
+  return node;
+}
+
+const SVG = "http://www.w3.org/2000/svg";
+
+function disc(iconName) {
+  const node = el("span", "disc");
+  const svg = document.createElementNS(SVG, "svg");
+  const use = document.createElementNS(SVG, "use");
+  use.setAttribute("href", `#icon-${iconName}`);
+  svg.appendChild(use);
+  node.appendChild(svg);
+  return node;
+}
+
 function trackRow(t) {
-  const row = document.createElement("button");
-  row.className = "row track-row";
-  const dot = document.createElement("span");
-  dot.className = "dot";
-  dot.style.background = activityColor(t.activityType);
-  const label = document.createElement("span");
-  label.className = "label";
-  label.textContent = `${activityLabel(t.activityType)} · ${formatTime(t.startedAt)}`;
-  const stats = document.createElement("span");
-  stats.className = "stats";
-  stats.textContent = `${formatDistance(t.distanceMeters)} · ${formatDurationMs(t.endedAt - t.startedAt)}`;
-  row.append(dot, label, stats);
+  const row = el("button", "row track-row");
+  const mark = disc(activityIcon(t.activityType));
+  const tint = activityColor(t.activityType);
+  if (tint) mark.style.setProperty("--tint", tint);
+  const span = `${formatTime(t.startedAt)} – ${formatTime(t.endedAt)}`;
+  row.append(mark, body(
+    el("span", "title", `${activityLabel(t.activityType)} · ${formatDistance(t.distanceMeters)}`),
+    el("span", "meta", `${span} · ${formatDurationMs(t.endedAt - t.startedAt)}`),
+  ));
   return row;
 }
 
@@ -246,26 +276,25 @@ function trackRow(t) {
  */
 function stayRow(stay) {
   const place = clusterPlaces[stay.clusterId];
-  const row = document.createElement("button");
-  // The row carries the named flag, not just the label span: the pin's color follows from it, and
-  // a class on the row is a plain match where `:has()` would put an invalidation dependency on
-  // every row in the list.
-  row.className = place?.label ? "row stay-row named" : "row stay-row";
-  const pin = document.createElement("span");
-  pin.className = "pin";
-  const stats = document.createElement("span");
-  stats.className = "stats";
-  stats.textContent = stayMeta(stay, place, nowMs);
-  row.append(pin, placeSpan(place, "Stayed", "label"), stats);
+  const row = el("button", "row stay-row");
+  // The disc answers a second question beside the title: not whether the place was named, but
+  // whether it was said what it is for.
+  const mark = disc(categoryIcon(place?.category));
+  const fill = categoryPinColor(place?.category);
+  if (fill) {
+    mark.classList.add("pin");
+    mark.style.setProperty("--tint", fill);
+  }
+  row.append(mark, body(
+    placeSpan(place, "Stayed"),
+    el("span", "meta", stayMeta(stay, place, nowMs)),
+  ));
   return row;
 }
 
 /** A place's name where it has one, the fallback where it hasn't — named ones read differently. */
-function placeSpan(place, fallback, className) {
-  const span = document.createElement("span");
-  span.className = place?.label ? `${className} named` : className;
-  span.textContent = place?.label ?? fallback;
-  return span;
+function placeSpan(place, fallback) {
+  return el("span", place?.label ? "title named" : "title", place?.label ?? fallback);
 }
 
 /** The cluster ids a gap row names, newest-first (destination, then origin) — the ends the slicer
@@ -280,20 +309,12 @@ function namedSidesOf(gap) {
  * dashed leg and origin below it, the way the trip ran. A side with no known endpoint renders
  * nothing; its absence is the story. */
 function gapRow(gap) {
-  const row = document.createElement("button");
-  row.className = "row gap-row";
-  const body = document.createElement("span");
-  body.className = "gap-body";
+  const row = el("button", "row gap-row");
   const side = (clusterId) => (clusterId == null
     ? null
-    : placeSpan(clusterPlaces[clusterId], "unnamed place", "label"));
-  const gapText = gapMeta(gap);
-  const meta = document.createElement("span");
-  meta.className = "stats";
-  meta.textContent = gapText.text;
+    : placeSpan(clusterPlaces[clusterId], "unnamed place"));
   const [to, from] = namedSidesOf(gap);
-  body.append(...[side(to), meta, side(from)].filter(Boolean));
-  row.append(body);
+  row.append(body(side(to), el("span", "meta", gapMeta(gap).text), side(from)));
   return row;
 }
 
@@ -382,17 +403,10 @@ function renderLegend(drawn) {
   }
   legend.hidden = rows.length === 0;
   for (const [color, label, count, isLine] of rows) {
-    const row = document.createElement("div");
-    row.className = "row";
-    const swatch = document.createElement("span");
-    swatch.className = isLine ? "swatch line" : "swatch";
+    const row = el("div", "legend-row");
+    const swatch = el("span", isLine ? "swatch line" : "swatch");
     swatch.style.background = color;
-    const text = document.createElement("span");
-    text.textContent = label;
-    const n = document.createElement("span");
-    n.className = "count";
-    n.textContent = count;
-    row.append(swatch, text, n);
+    row.append(swatch, el("span", "", label), el("span", "count", count));
     legend.appendChild(row);
   }
 }

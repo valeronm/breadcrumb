@@ -29,3 +29,4 @@ jobs:
           node site/src/viewer/test/stays-test.mjs
           node site/src/viewer/test/segments-test.mjs
           node site/src/viewer/test/arc-test.mjs
+          node site/src/viewer/test/discs-test.mjs

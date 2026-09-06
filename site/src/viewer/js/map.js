@@ -10,22 +10,8 @@ import {
   REASON_NONE, REASON_ACCURACY, REASON_JUMP, REASON_NO_GNSS, REASON_EDGE_STAY,
 } from "./convert.js";
 import { greatCircleArc, metersBetween } from "./geo.js";
-
-export const ACTIVITY_COLORS = {
-  WALKING: "#4ade80",
-  RUNNING: "#fbbf24",
-  CYCLING: "#a78bfa",
-  DRIVING: "#60a5fa",
-  TAXI: "#38bdf8",
-  FERRY: "#f472b6",
-  TRANSIT: "#818cf8",
-  FLIGHT: "#22d3ee",
-  UNKNOWN: "#9ca3af",
-};
-
-export function activityColor(activityType) {
-  return ACTIVITY_COLORS[activityType] ?? ACTIVITY_COLORS.UNKNOWN;
-}
+import { activityColor } from "./discs.js";
+import { addPinImages, pinImageId, pinImages } from "./pins.js";
 
 // Overview paint, unselected state: every track in its activity color.
 const OVERVIEW_COLOR = ["get", "color"];
@@ -36,6 +22,7 @@ const OVERVIEW_OPACITY = 0.4;
 // wandering off the corners the simplification cut.
 const MUTED_COLOR = "#6b7280";
 const MUTED_OPACITY = 0.25;
+const lineColor = (activityType) => activityColor(activityType) ?? MUTED_COLOR;
 
 // Rejected-fix marker colors, matching the app's legend chips (ic_marker_noisy / _jump / _gnss) so
 // the same fix reads the same in both. EDGE_STAY never reaches this layer.
@@ -56,7 +43,9 @@ export const OVERRUN_COLOR = "#424242";
 const OVERRUN_OPACITY = 0.85;
 const OVERRUN_WIDTH = 4;
 
-const PLACE_COLOR = "#facc15";
+// The capture area as the app draws it (ui/MapLayers.kt): one soft blue for every place, the pin
+// alone saying what the place is for.
+const CAPTURE_COLOR = "#5b9bf0";
 // Places are history-wide, not per-track, so relatedness is geometric: a place is this trip's stop
 // when the trip started or ended at it. Somewhere merely passed en route is not a stop of it. The
 // radius covers a named place's own capture size plus the gap left where the recorder's overrun
@@ -64,96 +53,148 @@ const PLACE_COLOR = "#facc15";
 const RELATED_PLACE_RADIUS_M = 150;
 const RELATED = ["get", "related"];
 const NAMED = ["get", "named"];
-// Both ranks of place marker are clickable, and a label is as much a target as its dot.
-const PLACE_LAYERS = ["place-dots", "place-labels"];
+// Both ranks of place marker are clickable, and a label is as much a target as its pin.
+const PLACE_LAYERS = ["place-dots", "place-pins"];
+// Whole numbers only: a layout property's camera expression is sampled at integer zooms, so a
+// fractional threshold silently takes effect at the integer above it.
+const PIN_GLYPH_ZOOM = 9;
+const PIN_LABEL_ZOOM = 11;
 // A filled dot and its label read fainter than a line at the same alpha, so the unrelated places
 // sit above the tracks' muted level — still context, still legible as a name.
 const MUTED_PLACE_OPACITY = 0.4;
 
+// The overlay colours that only read against one ground: the ground itself, which halos a label
+// and cases the selected line, the ink a label is written in, and the dot an unnamed cluster is.
+// Read off the page's tokens, so the map's ground is the pane's in either theme.
+function readTheme() {
+  const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return { ground: token("--ground"), ink: token("--text"), dot: token("--muted") };
+}
+
+// The overlay is the previous style's geojson sources, data and all, and their layers, carried
+// into the next style whole: what a switch changes is the basemap under them.
+function carryOverlay(previous, next) {
+  const sources = Object.fromEntries(
+    Object.entries(previous.sources).filter(([, source]) => source.type === "geojson"),
+  );
+  const layers = previous.layers.filter((layer) => layer.source in sources);
+  return { ...next, sources: { ...next.sources, ...sources }, layers: [...next.layers, ...layers] };
+}
+
 export function createMap(container, protomapsKey, onTrackClick, onPlaceClick) {
+  const lightScheme = window.matchMedia("(prefers-color-scheme: light)");
+  const styleUrl = () =>
+    `https://api.protomaps.com/styles/v5/${lightScheme.matches ? "light" : "dark"}/en.json?key=${protomapsKey}`;
   const map = new maplibregl.Map({
     container,
-    style: `https://api.protomaps.com/styles/v5/dark/en.json?key=${protomapsKey}`,
+    style: styleUrl(),
     center: [0, 20],
     zoom: 1.5,
     attributionControl: { compact: true },
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+  // Drawn while the style is still being fetched, rather than in front of its first frame.
+  pinImages();
 
-  map.on("load", () => {
-    map.addSource("overview", { type: "geojson", data: emptyFc() });
-    map.addLayer({
+  // Per style load, not once: a theme change loads a new style. The overlay layers come with the
+  // first load only, a switch carrying them across.
+  map.on("style.load", () => {
+    addPinImages(map);
+    const theme = readTheme();
+    if (map.getSource("overview")) paintTheme(map, theme);
+    else installLayers(map, theme);
+  });
+  // A diffed switch would drop the overlay with no load to reinstall it on.
+  lightScheme.addEventListener("change", () => {
+    map.setStyle(styleUrl(), { diff: false, transformStyle: carryOverlay });
+  });
+
+  map.on("click", "overview-lines", (e) => {
+    // A place marker sitting on a track line is the deliberate target of the two: it is small,
+    // and a track can be picked anywhere else along its length.
+    if (map.queryRenderedFeatures(e.point, { layers: PLACE_LAYERS }).length) return;
+    const f = e.features?.[0];
+    if (f) onTrackClick(f.properties.id);
+  });
+  for (const layer of PLACE_LAYERS) {
+    map.on("click", layer, (e) => {
+      const f = e.features?.[0];
+      if (f) onPlaceClick(f.properties.id);
+    });
+  }
+  for (const layer of ["overview-lines", ...PLACE_LAYERS]) {
+    map.on("mouseenter", layer, () => { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; });
+  }
+
+  return map;
+}
+
+/** The overlay's layers in drawing order, for one theme. The one statement of what a layer looks
+ * like: the first load adds these, and a theme switch re-applies their paint. */
+function overlayLayers(theme) {
+  const round = { "line-cap": "round", "line-join": "round" };
+  return [
+    {
       id: "overview-lines",
       type: "line",
       source: "overview",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: {
-        "line-color": OVERVIEW_COLOR,
-        "line-width": 1.6,
-        "line-opacity": OVERVIEW_OPACITY,
-      },
-    });
-    // A selected stay's place: its capture circle and the endpoints it captured. Added before the
-    // track layers so the circle sits under any line crossing it, as the app draws it.
-    map.addSource("focus", { type: "geojson", data: emptyFc() });
-    map.addLayer({
+      layout: round,
+      paint: { "line-color": OVERVIEW_COLOR, "line-width": 1.6, "line-opacity": OVERVIEW_OPACITY },
+    },
+    // A selected stay's place: its capture circle and the endpoints it captured. Before the track
+    // layers so the circle sits under any line crossing it, as the app draws it.
+    {
       id: "focus-fill",
       type: "fill",
       source: "focus",
       filter: ["==", ["geometry-type"], "Polygon"],
-      paint: { "fill-color": PLACE_COLOR, "fill-opacity": 0.1 },
-    });
-    map.addLayer({
+      paint: { "fill-color": CAPTURE_COLOR, "fill-opacity": 0.18 },
+    },
+    {
       id: "focus-outline",
       type: "line",
       source: "focus",
       filter: ["==", ["geometry-type"], "Polygon"],
-      paint: { "line-color": PLACE_COLOR, "line-width": 1.2, "line-opacity": 0.6 },
-    });
-    map.addLayer({
+      paint: { "line-color": CAPTURE_COLOR, "line-width": 1.2, "line-opacity": 0.6 },
+    },
+    {
       id: "focus-endpoints",
       type: "circle",
       source: "focus",
       filter: ["==", ["geometry-type"], "Point"],
       paint: {
         "circle-radius": 3,
-        "circle-color": PLACE_COLOR,
+        "circle-color": CAPTURE_COLOR,
         "circle-opacity": 0.75,
         "circle-stroke-width": 1,
-        "circle-stroke-color": "#0b0e14",
+        "circle-stroke-color": theme.ground,
       },
-    });
-    map.addSource("selected", { type: "geojson", data: emptyFc() });
-    map.addLayer({
+    },
+    {
       id: "selected-casing",
       type: "line",
       source: "selected",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "#0b0e14", "line-width": 6, "line-opacity": 0.8 },
-    });
-    map.addLayer({
+      layout: round,
+      paint: { "line-color": theme.ground, "line-width": 6, "line-opacity": 0.8 },
+    },
+    {
       id: "selected-line",
       type: "line",
       source: "selected",
-      layout: { "line-cap": "round", "line-join": "round" },
+      layout: round,
       paint: { "line-color": ["get", "color"], "line-width": 3 },
-    });
-    // Over the path line and off its ends: those fixes are not part of the line at all, so
-    // there is nothing underneath to dim instead.
-    map.addSource("overrun", { type: "geojson", data: emptyFc() });
-    map.addLayer({
+    },
+    // Over the path line and off its ends: those fixes are not part of the line at all, so there
+    // is nothing underneath to dim instead.
+    {
       id: "overrun-lines",
       type: "line",
       source: "overrun",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: {
-        "line-color": OVERRUN_COLOR,
-        "line-width": OVERRUN_WIDTH,
-        "line-opacity": OVERRUN_OPACITY,
-      },
-    });
-    map.addSource("ignored", { type: "geojson", data: emptyFc() });
-    map.addLayer({
+      layout: round,
+      paint: { "line-color": OVERRUN_COLOR, "line-width": OVERRUN_WIDTH, "line-opacity": OVERRUN_OPACITY },
+    },
+    {
       id: "ignored-points",
       type: "circle",
       source: "ignored",
@@ -169,65 +210,66 @@ export function createMap(container, protomapsKey, onTrackClick, onPlaceClick) {
         ],
         "circle-opacity": 0.8,
         "circle-stroke-width": 1,
-        "circle-stroke-color": "#0b0e14",
+        "circle-stroke-color": theme.ground,
       },
-    });
-
-    map.addSource("places", { type: "geojson", data: emptyFc() });
-    map.addLayer({
+    },
+    // The app's places map draws two ranks: a named place is a pin, an unnamed cluster a dot.
+    {
       id: "place-dots",
       type: "circle",
       source: "places",
+      filter: ["!", NAMED],
       paint: {
-        // Named places are the pins; an unnamed cluster is a smaller, fainter dot with no label —
-        // the app's places map draws the same two ranks, by marker icon rather than by size.
-        "circle-radius": ["case", NAMED, 4, 2.5],
-        "circle-color": ["case", RELATED, PLACE_COLOR, MUTED_COLOR],
-        "circle-opacity": ["case", RELATED, ["case", NAMED, 1, 0.7], MUTED_PLACE_OPACITY],
-        "circle-stroke-width": ["case", NAMED, 1.5, 0.8],
-        "circle-stroke-color": "#0b0e14",
+        "circle-radius": 2.5,
+        "circle-color": ["case", RELATED, theme.dot, MUTED_COLOR],
+        "circle-opacity": ["case", RELATED, 0.7, MUTED_PLACE_OPACITY],
+        "circle-stroke-width": 0.8,
+        "circle-stroke-color": theme.ground,
       },
-    });
-    map.addLayer({
-      id: "place-labels",
+    },
+    {
+      id: "place-pins",
       type: "symbol",
       source: "places",
+      filter: NAMED,
       layout: {
-        "text-field": ["get", "label"],
+        // A pin gains its glyph first and its name second — shape, then word — and shrinks the
+        // wider the view, since a wide view asks where the places are, not which one is which.
+        "icon-image": ["step", ["zoom"], ["get", "disc"], PIN_GLYPH_ZOOM, ["get", "pin"]],
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 8, 0.4, PIN_GLYPH_ZOOM, 0.76, 12, 1],
+        "icon-allow-overlap": true,
+        "text-field": ["step", ["zoom"], "", PIN_LABEL_ZOOM, ["get", "label"]],
         "text-font": ["Noto Sans Medium"],
         "text-size": 12,
-        "text-offset": [0, 1.1],
+        "text-offset": [0, 1.3],
         "text-anchor": "top",
         "text-optional": true,
       },
       paint: {
-        "text-color": ["case", RELATED, PLACE_COLOR, MUTED_COLOR],
+        "icon-opacity": ["case", RELATED, 1, MUTED_PLACE_OPACITY],
+        "text-color": ["case", RELATED, theme.ink, MUTED_COLOR],
         "text-opacity": ["case", RELATED, 1, MUTED_PLACE_OPACITY],
-        "text-halo-color": "#0b0e14",
+        "text-halo-color": theme.ground,
         "text-halo-width": 1.4,
       },
-    });
+    },
+  ];
+}
 
-    map.on("click", "overview-lines", (e) => {
-      // A place marker sitting on a track line is the deliberate target of the two: it is small,
-      // and a track can be picked anywhere else along its length.
-      if (map.queryRenderedFeatures(e.point, { layers: PLACE_LAYERS }).length) return;
-      const f = e.features?.[0];
-      if (f) onTrackClick(f.properties.id);
-    });
-    for (const layer of PLACE_LAYERS) {
-      map.on("click", layer, (e) => {
-        const f = e.features?.[0];
-        if (f) onPlaceClick(f.properties.id);
-      });
-    }
-    for (const layer of ["overview-lines", ...PLACE_LAYERS]) {
-      map.on("mouseenter", layer, () => { map.getCanvas().style.cursor = "pointer"; });
-      map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; });
-    }
-  });
+function installLayers(map, theme) {
+  const layers = overlayLayers(theme);
+  for (const source of new Set(layers.map((l) => l.source))) {
+    map.addSource(source, { type: "geojson", data: emptyFc() });
+  }
+  for (const layer of layers) map.addLayer(layer);
+}
 
-  return map;
+// The overview's paint is the selection (paintOverview), so a switch leaves it as carried.
+function paintTheme(map, theme) {
+  for (const layer of overlayLayers(theme)) {
+    if (layer.id === "overview-lines") continue;
+    for (const [prop, value] of Object.entries(layer.paint)) map.setPaintProperty(layer.id, prop, value);
+  }
 }
 
 /** Repaints the overview for the current selection: a track id lights that track and mutes the
@@ -265,6 +307,8 @@ function paintPlaces(map, endpoints) {
     id: p.id,
     label: p.label ?? "",
     named: p.label != null,
+    pin: pinImageId(p.category, true),
+    disc: pinImageId(p.category, false),
     related: endpoints == null || endpoints.some(
       ([lon, lat]) => metersBetween(p.lat, p.lon, lat, lon) <= RELATED_PLACE_RADIUS_M,
     ),
@@ -309,9 +353,10 @@ function polygonFeature(coordinates, properties = {}) {
 // Readiness means "the load handler ran, so the sources exist" — which is monotonic, unlike
 // map.loaded() (false again whenever tiles stream or the camera moves, long after "load" has
 // fired — gating on it would silently drop calls queued on a once-only event).
+// Per style load rather than the map's one load, since the overlay is absent until a style is in.
 function whenLoaded(map, fn) {
   if (map.getSource("overview")) fn();
-  else map.once("load", fn);
+  else map.once("style.load", fn);
 }
 
 /** Rebuilds the overview from track rows ({id, activityType, overview: ArrayBuffer[]}) — one feature
@@ -323,7 +368,7 @@ export function setOverview(map, tracks) {
     const features = [];
     const bounds = new maplibregl.LngLatBounds();
     for (const t of tracks) {
-      const color = activityColor(t.activityType);
+      const color = lineColor(t.activityType);
       for (const segment of t.overview) {
         const coords = new Float64Array(segment);
         let line = [];
@@ -361,7 +406,7 @@ export function setPlaces(map, places) {
  */
 export function setPlacesVisible(map, visible) {
   whenLoaded(map, () => {
-    for (const layer of ["place-dots", "place-labels"]) {
+    for (const layer of PLACE_LAYERS) {
       map.setLayoutProperty(layer, "visibility", visible ? "visible" : "none");
     }
   });
@@ -469,7 +514,7 @@ export function showTrack(map, track, geometry) {
   const { paths, rejected, overruns } = splitForDrawing(lonlat, reasons, flags, geometry.count);
 
   whenLoaded(map, () => {
-    const color = activityColor(track.activityType);
+    const color = lineColor(track.activityType);
     const drawn = track.source === "manual" ? paths.map(arcLine) : paths;
     clearSelectionSources(map);
     map.getSource("selected").setData(

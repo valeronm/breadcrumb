@@ -1,6 +1,18 @@
 ---
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import Base from "../layouts/Base.astro";
+import { ICON_NAMES } from "../viewer/js/discs.js";
 import "../viewer/viewer.css";
+
+// The discs' glyphs, the app's own Material Icons, inlined once as a sprite the rows reference by
+// name; the package's files are read here at build so nothing is fetched by the page.
+const require = createRequire(import.meta.url);
+const symbols = ICON_NAMES.map((name) => {
+  const svg = readFileSync(require.resolve(`@material-design-icons/svg/filled/${name}.svg`), "utf8");
+  const inner = svg.replace(/^<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
+  return `<symbol id="icon-${name}" viewBox="0 0 24 24">${inner}</symbol>`;
+}).join("");
 ---
 
 <Base
@@ -15,21 +27,39 @@ import "../viewer/viewer.css";
     <script is:inline defer src="/viewer/vendor/maplibre-gl.js"></script>
   </Fragment>
 
+  <svg class="sprite" aria-hidden="true" set:html={symbols} />
   <aside id="sidebar">
-    <header>
-      <div id="summary"></div>
-      <button id="import-button">Import backup…</button>
-      <div id="progress" hidden></div>
-      <input id="file-input" type="file" accept=".gz,application/gzip" hidden />
-      <label class="toggle"><input id="show-places" type="checkbox" checked /> Show places</label>
-      <!-- Clusters under the notable-visit floor: off by default, as in the app, because a
-           history's one-off stops outnumber the places worth seeing. -->
-      <label class="toggle"><input id="show-rare" type="checkbox" /> Rare stops</label>
+    <input id="file-input" type="file" accept=".gz,application/gzip" hidden />
+    <div id="notice" hidden></div>
+    <header id="head" hidden>
+      <div class="head-row">
+        <div>
+          <div id="summary" class="summary"></div>
+          <div id="exported" class="exported"></div>
+        </div>
+        <div class="actions">
+          <button id="import-button" class="button">Import</button>
+          <button id="clear-button" class="button" title="Remove the imported backup from this browser">Clear</button>
+        </div>
+      </div>
+      <div class="chips">
+        <label class="chip"><input id="show-places" type="checkbox" checked /> Places</label>
+        <!-- Off by default, as in the app: a history's one-off stops outnumber the places worth
+             seeing. -->
+        <label class="chip"><input id="show-rare" type="checkbox" /> Rare stops</label>
+      </div>
     </header>
+    <div id="progress" hidden></div>
     <div id="empty" hidden>
       <p>
-        Drop a Breadcrumb backup (<code>breadcrumb-*.json.gz</code>) anywhere, or use the button
-        above. Export one from the app: Settings → Back up everything.
+        The viewer opens a Breadcrumb backup on a big screen: every trip on one map, with your
+        timeline of stays and places beside it.
+      </p>
+      <p>Your history stays in this browser. Nothing is uploaded.</p>
+      <button id="import-empty" class="button primary">Import backup…</button>
+      <p>
+        Or drop the file anywhere on this page. The app makes one under Settings → Back up
+        everything, named <code>breadcrumb-*.json.gz</code>.
       </p>
     </div>
     <!-- Tracks interleaved with the stays and gaps derived from their endpoints, newest first. -->

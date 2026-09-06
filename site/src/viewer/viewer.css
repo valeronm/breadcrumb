@@ -1,142 +1,186 @@
-/* The viewer's own shades, on the site's tokens: a place reads in its map pin's colour wherever it
-   is written, and a row's hover and selected states are the panel with a little text mixed in. */
+/* The viewer's own shades, on the site's tokens: a card is the panel with a little text mixed in,
+   and a row's hover and selected states a little more. No selector below carries an id, so a
+   species rule wins over the row rule by source order. */
 :root {
-  --place: #facc15;
-  --row-hover: color-mix(in srgb, var(--text) 8%, var(--panel));
-  --row-selected: color-mix(in srgb, var(--text) 14%, var(--panel));
+  --card: color-mix(in srgb, var(--text) 5%, var(--panel));
+  --row-hover: color-mix(in srgb, var(--text) 10%, var(--panel));
+  --row-selected: color-mix(in srgb, var(--crumb) 18%, var(--panel));
 }
 
+/* The glyph sprite: symbols only, referenced by the rows, never laid out. */
+.sprite { display: none; }
+
 #sidebar {
-  width: 320px;
+  width: 360px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background: var(--panel);
   border-right: 1px solid var(--line);
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
-#sidebar header {
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--line);
-}
-
-#summary {
-  font-size: 12px;
-  min-height: 16px;
-  margin-bottom: 10px;
-}
-
-#import-button {
-  width: 100%;
-  padding: 7px 10px;
+.button {
+  padding: 6px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 999px;
   background: transparent;
   color: var(--text);
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
 }
-#import-button:hover { border-color: var(--crumb); }
+.button:hover { border-color: var(--crumb); color: var(--crumb); }
+.button.primary {
+  padding: 9px 18px;
+  border-color: var(--crumb);
+  background: var(--crumb);
+  color: var(--ground);
+}
+.button.primary:hover { filter: brightness(1.08); }
 
-.toggle {
+#notice, #progress {
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--crumb);
+  border-bottom: 1px solid var(--line);
+}
+
+/* ---- head ---- */
+#head {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.head-row {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-top: 9px;
+  justify-content: space-between;
+  gap: 12px;
+}
+.actions { display: flex; gap: 6px; flex-shrink: 0; }
+.summary { color: var(--text); font-weight: 500; }
+.exported { font-size: 12px; }
+
+.chips { display: flex; gap: 8px; margin-top: 12px; }
+/* Filter chips as the app draws them: outlined when off, tinted with a leading check when on. The
+   checkbox is what the script and the keyboard use, so it stays in the flow, unseen. */
+.chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   user-select: none;
 }
-.toggle:hover { color: var(--text); }
-.toggle input { accent-color: var(--crumb); cursor: pointer; margin: 0; }
-
-#progress {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--crumb);
+.chip:hover { color: var(--text); }
+.chip:has(input:checked) {
+  color: var(--text);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--crumb) 28%, var(--panel));
 }
+.chip:has(input:checked)::before { content: "✓"; color: var(--crumb); }
+.chip:has(input:focus-visible) { outline: 2px solid var(--crumb); outline-offset: 3px; }
+.chip:has(input:disabled) { opacity: 0.45; cursor: default; }
+.chip input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
 
-#empty { padding: 24px 16px; }
+/* ---- empty ---- */
+#empty { padding: 32px 24px; }
+#empty p { margin: 0 0 1.2em; font-size: 15px; line-height: 1.5; }
+#empty p:first-child { color: var(--text); }
+#empty .button { margin-bottom: 1.2em; }
 #empty code { font-family: var(--mono); font-size: 0.9em; }
 
+/* ---- timeline: a heading and a card per day ---- */
 #timeline {
   overflow-y: auto;
   flex: 1;
-  padding: 6px 8px 16px;
+  padding: 0 12px 24px;
 }
 
 .day-header {
   position: sticky;
   top: 0;
-  padding: 8px 8px 4px;
-  font-size: 11px;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  z-index: 1;
+  padding: 14px 4px 8px;
+  font-weight: 500;
+  color: var(--text);
   background: var(--panel);
 }
 
+/* Rounded on its end rows rather than clipped: in Firefox a clipping box over the rows paints
+   above the sticky heading. Longhands, so a one-row day gets both ends. */
+.day-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.day-card > :first-child { border-top-left-radius: 14px; border-top-right-radius: 14px; }
+.day-card > :last-child { border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; }
+
 /* Every timeline row — a recorded track, a derived stay, a gap — shares the button reset, the
-   glyph column and the selected/hover states; the species differ below. A full history runs to
+   disc column and the selected/hover states; the species differ below. A full history runs to
    thousands of rows in one scroll container, so off-screen ones skip layout and paint until they
    are scrolled to; the placeholder height keeps the scrollbar honest meanwhile. */
-#timeline .row {
+.row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   width: 100%;
-  padding: 7px 8px;
+  padding: 10px 12px;
   border: 0;
-  border-radius: 8px;
-  background: transparent;
+  background: var(--card);
   color: var(--text);
   font: inherit;
   text-align: left;
   cursor: pointer;
   content-visibility: auto;
-  contain-intrinsic-size: auto 34px;
+  contain-intrinsic-size: auto 58px;
 }
-#timeline .row:hover { background: var(--row-hover); }
-#timeline .row.selected { background: var(--row-selected); outline: 1px solid var(--crumb); }
+.row:hover { background: var(--row-hover); }
+.row.selected { background: var(--row-selected); }
 
-#timeline .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#timeline .stats { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.body { display: flex; flex-direction: column; min-width: 0; }
+.title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta { color: var(--muted); font-size: 12.5px; }
 
-/* The glyph column: a filled dot for a track, a hollow ring for a stay — a stay is where nothing
-   was recorded, and the tracks own the solid marks. */
-.track-row .dot,
-.stay-row .pin {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
+/* The disc column, painted as the app's list discs are: a track wears a tonal wash of its activity
+   hue under a glyph in the same hue, a categorized place its map pin's solid fill under a white
+   glyph, and anything else a faint neutral. The weight difference is what keeps a kind of travel
+   from being mistaken for a kind of stop. */
+.disc {
+  --tint: var(--muted);
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--tint) 22%, transparent);
+  color: var(--tint);
 }
-.stay-row .pin { border: 1.5px solid var(--muted); }
+.disc svg { width: 20px; height: 20px; fill: currentColor; }
+.stay-row .disc { background: color-mix(in srgb, var(--tint) 12%, transparent); }
+.stay-row .disc.pin { background: var(--tint); color: white; }
+.stay-row .title, .gap-row .title { color: var(--muted); }
+.title.named { color: var(--text); }
 
-/* A place with a name wears the color its map pin does, wherever it is written. */
-#timeline .label.named { color: var(--place); }
-.stay-row .label { color: var(--muted); }
-.stay-row.named .pin { border-color: var(--place); }
-
-/* The unrecorded leg, drawn as the map would: two places joined by a dashed connector. */
+/* The unrecorded leg, drawn as the map would: a dashed connector in the disc column, the two
+   places it joins either side of the note. */
 .gap-row { align-items: stretch; }
 .gap-row::before {
   content: "";
-  width: 9px;
+  width: 18px;
+  margin-left: 16px;
   flex-shrink: 0;
-  border-left: 2px dashed var(--line);
-  margin-left: 3px;
+  border-left: 2px dashed var(--muted);
 }
-.gap-body {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-.gap-row .label { color: var(--muted); }
-.gap-row .stats { opacity: 0.75; }
+.gap-row .body { gap: 2px; }
 
 #map-wrap { flex: 1; position: relative; }
 #map { position: absolute; inset: 0; }
@@ -156,18 +200,18 @@
   pointer-events: none;
 }
 
-#legend .row { display: flex; align-items: center; gap: 8px; }
-#legend .count { color: var(--muted); }
+.legend-row { display: flex; align-items: center; gap: 8px; }
+.legend-row .count { color: var(--muted); }
 
 /* A dot for a rejected fix, a short bar for the overrun — the shapes they're drawn as. */
-#legend .swatch {
+.swatch {
   width: 9px;
   height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-#legend .swatch.line {
+.swatch.line {
   width: 14px;
   height: 4px;
   border-radius: 2px;

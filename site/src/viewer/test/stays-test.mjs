@@ -11,7 +11,7 @@ import {
   mapVisiblePlaces, derivationInstant,
 } from "../js/stays.js";
 import { metersBetween } from "../js/geo.js";
-import { stayMeta, gapMeta, formatTime, formatDurationMs, categoryLabel } from "../js/format.js";
+import { stayMeta, gapMeta, formatTime, formatDurationMs } from "../js/format.js";
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -305,13 +305,6 @@ assert.equal(
 
 // --- what a place is for -------------------------------------------------------------------------
 {
-  // PlaceCategory: the codes are the stored vocabulary, so the viewer reads a code it knows and
-  // stays quiet about one it doesn't — the app's own tolerance, rather than inventing a label.
-  assert.equal(categoryLabel("groceries"), "Groceries");
-  assert.equal(categoryLabel("laundromat"), null, "a code from a newer app reads as untagged");
-  assert.equal(categoryLabel(null), null);
-  assert.equal(categoryLabel(undefined), null);
-
   const places = [{ id: 7, label: "Corner shop", lat: at(0).lat, lon: at(0).lon, radiusM: 350, category: "groceries" }];
   const seeds = places.map((p) => ({ anchor: { lat: p.lat, lon: p.lon }, radiusM: p.radiusM }));
   const { intervals, clusters } = derive(homePair(), { placePins: seeds });
@@ -392,13 +385,9 @@ assert.equal(
   assert.equal(stayMeta(stay(hm(9), hm(10)), { label: null, visitCount: 2 }, exportedAt),
     hourRow, "…but not one visited twice");
 
-  // What the stop was for comes after how long it took, as the app's stay row orders them.
+  // What the stop was for is the disc's glyph, never words in the row.
   assert.equal(stayMeta(stay(hm(9), hm(10)), { label: "Home", category: "home" }, exportedAt),
-    `${hourRow} · Home`);
-  assert.equal(stayMeta(stay(hm(9), hm(10)), { label: "Home", category: "laundromat" }, exportedAt),
-    hourRow, "a category this viewer doesn't know reads as untagged");
-  assert.equal(stayMeta(stay(hm(9), hm(10)), { label: "Home", category: null }, exportedAt),
-    hourRow, "an untagged place says nothing extra");
+    hourRow);
 
   assert.equal(formatDurationMs(45 * MIN), "45 min");
   assert.equal(formatDurationMs(3 * DAY), "3 d");
