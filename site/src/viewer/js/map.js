@@ -81,7 +81,25 @@ function carryOverlay(previous, next) {
   return { ...next, sources: { ...next.sources, ...sources }, layers: [...next.layers, ...layers] };
 }
 
-export function createMap(container, protomapsKey, onTrackClick, onPlaceClick) {
+/** A control wrapping an element the page already holds. */
+function elementControl(element, className) {
+  const wrapper = document.createElement("div");
+  wrapper.className = className;
+  wrapper.appendChild(element);
+  return { onAdd: () => wrapper, onRemove: () => wrapper.remove() };
+}
+
+function paneToggle(onToggle) {
+  const button = document.createElement("button");
+  button.id = "pane-toggle";
+  button.type = "button";
+  button.title = "Show or hide the timeline";
+  button.innerHTML = '<svg><use href="#icon-chevron_left"/></svg>';
+  button.addEventListener("click", onToggle);
+  return button;
+}
+
+export function createMap(container, protomapsKey, onTrackClick, onPlaceClick, onPaneToggle) {
   const lightScheme = window.matchMedia("(prefers-color-scheme: light)");
   const styleUrl = () =>
     `https://api.protomaps.com/styles/v5/${lightScheme.matches ? "light" : "dark"}/en.json?key=${protomapsKey}`;
@@ -97,6 +115,9 @@ export function createMap(container, protomapsKey, onTrackClick, onPlaceClick) {
     },
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+  // The pane's toggle and the legend are top-left controls, so the library draws and stacks them.
+  map.addControl(elementControl(paneToggle(onPaneToggle), "maplibregl-ctrl maplibregl-ctrl-group"), "top-left");
+  map.addControl(elementControl(document.getElementById("legend"), "maplibregl-ctrl"), "top-left");
   // Drawn while the style is still being fetched, rather than in front of its first frame.
   pinImages();
 

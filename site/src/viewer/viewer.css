@@ -185,11 +185,13 @@
 #map-wrap { flex: 1; position: relative; }
 #map { position: absolute; inset: 0; }
 
-/* Top-left: MapLibre's own controls own the top-right corner. */
+/* The pane's toggle is a map control, drawn by the library; only its glyph is the page's. */
+#pane-toggle svg { width: 22px; height: 22px; margin: auto; display: block; fill: #333; }
+body.pane-hidden #sidebar { display: none; }
+body.pane-hidden #pane-toggle svg { transform: scaleX(-1); }
+
+/* A map control too, under the toggle; the library places it. */
 #legend {
-  position: absolute;
-  top: 12px;
-  left: 12px;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -215,4 +217,12 @@
   width: 14px;
   height: 4px;
   border-radius: 2px;
+}
+
+/* A phone held upright has no room for the pane's width beside a usable map, which is what the
+   breakpoint adds up to; the orientation clause is what makes the copy's "turn your phone" true. */
+.narrow { display: none; }
+@media (max-width: 720px) and (orientation: portrait) {
+  .narrow { display: block; margin: auto; padding: 2rem; text-align: center; }
+  #sidebar, #map-wrap { display: none; }
 }

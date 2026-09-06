@@ -6,9 +6,10 @@ import { ICON_NAMES } from "../viewer/js/discs.js";
 import "../viewer/viewer.css";
 
 // The discs' glyphs, the app's own Material Icons, inlined once as a sprite the rows reference by
-// name; the package's files are read here at build so nothing is fetched by the page.
+// name, plus the pane toggle's chevron; the package's files are read here at build so nothing is
+// fetched by the page.
 const require = createRequire(import.meta.url);
-const symbols = ICON_NAMES.map((name) => {
+const symbols = [...ICON_NAMES, "chevron_left"].map((name) => {
   const svg = readFileSync(require.resolve(`@material-design-icons/svg/filled/${name}.svg`), "utf8");
   const inner = svg.replace(/^<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
   return `<symbol id="icon-${name}" viewBox="0 0 24 24">${inner}</symbol>`;
@@ -28,6 +29,9 @@ const symbols = ICON_NAMES.map((name) => {
   </Fragment>
 
   <svg class="sprite" aria-hidden="true" set:html={symbols} />
+  <p class="narrow">
+    The viewer needs a wide screen. Turn your phone to landscape, or open this page on a computer.
+  </p>
   <aside id="sidebar">
     <input id="file-input" type="file" accept=".gz,application/gzip" hidden />
     <div id="notice" hidden></div>

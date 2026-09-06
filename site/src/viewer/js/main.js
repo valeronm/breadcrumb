@@ -25,6 +25,8 @@ const $ = (id) => document.getElementById(id);
 // means hidden, the app's own default.
 const SHOW_PLACES_KEY = "breadcrumb.showPlaces";
 const SHOW_RARE_KEY = "breadcrumb.showRareStops";
+// The pane hidden is a standing preference too: absent means shown.
+const HIDE_PANE_KEY = "breadcrumb.hidePane";
 
 let db;
 let map;
@@ -46,8 +48,13 @@ const MAP_KEY = import.meta.env.PUBLIC_PROTOMAPS_KEY;
 
 async function boot() {
   db = await openDb();
+  // The map resizes itself to its container, so hiding the pane is a class and nothing more.
+  document.body.classList.toggle("pane-hidden", localStorage.getItem(HIDE_PANE_KEY) === "1");
   if (MAP_KEY) {
-    map = createMap("map", MAP_KEY, selectTrackById, selectPlace);
+    map = createMap("map", MAP_KEY, selectTrackById, selectPlace, () => {
+      const hidden = document.body.classList.toggle("pane-hidden");
+      localStorage.setItem(HIDE_PANE_KEY, hidden ? "1" : "0");
+    });
   } else {
     $("notice").textContent = "No map: PUBLIC_PROTOMAPS_KEY was not set when the site was built.";
     $("notice").hidden = false;
