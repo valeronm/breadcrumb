@@ -44,8 +44,9 @@ cd site && npm run dev
   than this viewer reads as untagged rather than being guessed at.
 - `js/discs.js` — the app's disc vocabulary (`ui/Palette.kt`, `ui/Glyphs.kt`) ported, one table
   per kind so a category cannot have a colour and no glyph or the reverse. The glyphs are the
-  app's own Material Icons, from the `@material-design-icons/svg` package (Apache 2.0); the page
-  inlines the ones the table names as a sprite at build, and nothing else reaches the visitor.
+  app's own Material Icons, from the `@material-design-icons/svg` package (Apache 2.0, credited in
+  the map's attribution strip); the page inlines the ones the table names as a sprite at build,
+  and nothing else reaches the visitor.
 - `js/pins.js` — the app's map pin (`ui/MarkerImages.kt`), drawn on a canvas at style load with
   its glyph read off that same sprite, so a pin and a row can never draw two shapes for one
   category. The named places' layer gains the glyph first and the name second as it zooms in,

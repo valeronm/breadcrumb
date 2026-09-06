@@ -90,7 +90,11 @@ export function createMap(container, protomapsKey, onTrackClick, onPlaceClick) {
     style: styleUrl(),
     center: [0, 20],
     zoom: 1.5,
-    attributionControl: { compact: true },
+    // The pins' glyphs are Material Icons, whose licence wants the notice to travel with them.
+    attributionControl: {
+      compact: true,
+      customAttribution: 'Icons © <a href="https://fonts.google.com/icons">Google</a>, Apache 2.0',
+    },
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   // Drawn while the style is still being fetched, rather than in front of its first frame.
