@@ -62,7 +62,7 @@ ul { margin: 0 0 1em; padding-left: 1.2em; }
 ul li { margin-bottom: 0.5em; }
 
 /* The header, the content and the footer share one set of edges. */
-.top-inner, main, footer {
+.top-inner, .page, footer {
   max-width: var(--page);
   margin-inline: auto;
   padding-inline: clamp(1rem, 5vw, 4rem);
@@ -98,7 +98,12 @@ ul li { margin-bottom: 0.5em; }
 .brand img { border-radius: 7px; }
 .top nav { display: flex; align-items: center; gap: 1.4em; }
 .top nav a { display: inline-flex; align-items: center; color: var(--text); text-decoration: none; }
-.top nav a:hover { color: var(--crumb); }
+.top nav a:hover, .top nav a[aria-current] { color: var(--crumb); }
+
+/* An app page: the header stays, and what is under it fills the rest of the viewport, so its own
+   panels do the scrolling. */
+body.app { height: 100vh; display: flex; flex-direction: column; }
+body.app main { flex: 1; min-height: 0; display: flex; }
 
 /* ---- sections ---- */
 main > section + section {

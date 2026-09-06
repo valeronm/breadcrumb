@@ -40,19 +40,14 @@ let selected = null;
 // The rows by timeline index, and the one wearing the highlight.
 let rowElements = [];
 let selectedRow = null;
-// Missing-config message, shown in the always-visible summary slot: the empty-state hint is
-// hidden as soon as an import exists, which is exactly when a returning user would hit this.
-let configError = null;
+// A build without the key still imports and lists; the message goes in the always-visible summary
+// slot, since the empty-state hint is hidden as soon as an import exists.
+const MAP_KEY = import.meta.env.PUBLIC_PROTOMAPS_KEY;
+const configError = MAP_KEY ? null : "No map: PUBLIC_PROTOMAPS_KEY was not set when the site was built.";
 
 async function boot() {
-  let key;
-  try {
-    ({ PROTOMAPS_KEY: key } = await import("../config.js"));
-  } catch {
-    configError = "Missing config.js — copy config.example.js and add your Protomaps API key.";
-  }
   db = await openDb();
-  if (key) map = createMap("map", key, selectTrackById, selectPlace);
+  if (MAP_KEY) map = createMap("map", MAP_KEY, selectTrackById, selectPlace);
 
   $("file-input").addEventListener("change", (e) => {
     if (e.target.files[0]) startImport(e.target.files[0]);
@@ -168,7 +163,7 @@ function toTrackEnd(t) {
 // --- import ------------------------------------------------------------------------------------
 
 function startImport(file) {
-  const worker = new Worker("./js/import-worker.js", { type: "module" });
+  const worker = new Worker(new URL("./import-worker.js", import.meta.url), { type: "module" });
   $("progress").hidden = false;
   $("progress").textContent = "Reading…";
   // A worker that fails to even load never gets to post its in-band error message.

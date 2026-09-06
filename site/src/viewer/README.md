@@ -4,20 +4,20 @@ A static, fully client-side companion viewer for [Breadcrumb](../../../README.md
 the `breadcrumb-*.json.gz` file the app exports (Settings → Back up everything) and browse your
 whole track history on a big map. Nothing is uploaded anywhere — parsing, storage (IndexedDB)
 and rendering all happen in the browser; the only network use is the basemap. It is live at
-<https://breadcrumb.place/viewer/>, served as written from the site's `public/` folder.
+<https://breadcrumb.place/viewer/>, a page of the site: `src/pages/viewer.astro` is the shell,
+under the site's own header, and the site's build bundles the modules here into it.
 
 ## Running
 
-No build step of its own. Any static file server works, and so does the site's dev server
-(`npm run dev` in `site/`, which serves it at `/viewer/`):
+The site's dev server serves it at `/viewer/`. The map wants a Protomaps API key, read at build
+from `PUBLIC_PROTOMAPS_KEY` — put it in `site/.env` (gitignored), the same key as
+`protomapsApiKey` in the Android project's `local.properties`:
 
 ```bash
-cp site/public/viewer/config.example.js site/public/viewer/config.js   # add your Protomaps API key
-python3 -m http.server -d site/public 8000
-# open http://localhost:8000/viewer/
+echo 'PUBLIC_PROTOMAPS_KEY=…' > site/.env
+cd site && npm run dev
+# open http://localhost:4321/viewer/
 ```
-
-(A server is required — module workers don't run from `file://`.)
 
 ## How it works
 
@@ -47,9 +47,11 @@ python3 -m http.server -d site/public 8000
 - `js/geo.js` — the distance seam that runs on, and its coordinate-box prefilter. WGS84 ellipsoidal
   (the same Vincenty inverse `Location.distanceBetween` runs on the phone) rather than a sphere
   approximation, so a borderline pair of endpoints can't cluster one way here and another there.
-- `vendor/` — MapLibre GL JS and its stylesheet, copied in rather than loaded from a CDN so the
-  page talks to no host but Protomaps, which is what the privacy page says of it. Bumping the
-  version is replacing the two files.
+- `site/public/viewer/vendor/` — MapLibre GL JS and its stylesheet, copied in rather than loaded
+  from a CDN so the page talks to no host but Protomaps, which is what the privacy page says of
+  it. They stay files served as they are rather than a package the build bundles: `map.js` reads
+  the library as a global, so the draw suite can import it under node, where MapLibre has no
+  window to load into. Bumping the version is replacing the two files.
 - `js/map.js` — MapLibre GL JS on the Protomaps basemap (same provider as the app): all tracks
   as simplified lines colored by activity, click or pick from the timeline for the full-resolution
   track. Selecting a track mutes the rest of the history to gray, along with every place the trip
@@ -87,11 +89,11 @@ python3 -m http.server -d site/public 8000
 ## Testing
 
 ```bash
-node site/public/viewer/test/draw-test.mjs                                  # hand-built cases, no file needed
-node site/public/viewer/test/stays-test.mjs                                 # ditto — the derivation's decision table
-node site/public/viewer/test/segments-test.mjs                              # ditto — what import does with a break
-node site/public/viewer/test/parse-test.mjs <breadcrumb-export.json.gz>     # holds the export whole, as its oracle
-node site/public/viewer/test/convert-test.mjs <breadcrumb-export.json.gz>   # streamed, so any size runs
+node site/src/viewer/test/draw-test.mjs                                  # hand-built cases, no file needed
+node site/src/viewer/test/stays-test.mjs                                 # ditto — the derivation's decision table
+node site/src/viewer/test/segments-test.mjs                              # ditto — what import does with a break
+node site/src/viewer/test/parse-test.mjs <breadcrumb-export.json.gz>     # holds the export whole, as its oracle
+node site/src/viewer/test/convert-test.mjs <breadcrumb-export.json.gz>   # streamed, so any size runs
 ```
 
 `stays-test.mjs` mirrors the app's own `StayDeriverTest` case for case, on the same flat-earth

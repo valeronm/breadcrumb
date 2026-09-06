@@ -4,11 +4,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'site/public/viewer/**'
+      - 'site/src/viewer/**'
       - '.github/workflows/viewer-tests.yml'
   pull_request:
     paths:
-      - 'site/public/viewer/**'
+      - 'site/src/viewer/**'
       - '.github/workflows/viewer-tests.yml'
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
       # checkout carries; they run by hand, as the viewer's README says.
       - name: Run the self-contained suites
         run: |
-          node site/public/viewer/test/draw-test.mjs
-          node site/public/viewer/test/stays-test.mjs
-          node site/public/viewer/test/segments-test.mjs
-          node site/public/viewer/test/arc-test.mjs
+          node site/src/viewer/test/draw-test.mjs
+          node site/src/viewer/test/stays-test.mjs
+          node site/src/viewer/test/segments-test.mjs
+          node site/src/viewer/test/arc-test.mjs

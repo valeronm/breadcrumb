@@ -38,18 +38,13 @@ jobs:
 
       # The viewer fetches tiles from the browser, so this key is readable by anyone who opens the
       # page; it is a key of its own, locked to the site's origin at Protomaps, and never the one
-      # the app is built with.
-      - name: Write the viewer's config
+      # the app is built with. The build bakes it into the viewer's script.
+      - name: Build the site
         env:
-          PROTOMAPS_WEB_KEY: ${{ secrets.PROTOMAPS_WEB_KEY }}
+          PUBLIC_PROTOMAPS_KEY: ${{ secrets.PROTOMAPS_WEB_KEY }}
         run: |
-          [ -n "$PROTOMAPS_WEB_KEY" ] || { echo "PROTOMAPS_WEB_KEY secret is not set" >&2; exit 1; }
-          sed "s/YOUR_KEY_HERE/$PROTOMAPS_WEB_KEY/" public/viewer/config.example.js > public/viewer/config.js
-
-      - name: Leave the viewer's tests and docs out of the site
-        run: rm -r public/viewer/test public/viewer/README.md public/viewer/config.example.js
-
-      - run: npm run build
+          [ -n "$PUBLIC_PROTOMAPS_KEY" ] || { echo "PROTOMAPS_WEB_KEY secret is not set" >&2; exit 1; }
+          npm run build
 
       - uses: actions/upload-pages-artifact@v5
         with:

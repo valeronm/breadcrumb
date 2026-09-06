@@ -1,0 +1,48 @@
+---
+import Base from "../layouts/Base.astro";
+import "../viewer/viewer.css";
+---
+
+<Base
+  title="Breadcrumb Viewer"
+  description="Open a Breadcrumb backup in your browser and see every trip on one map, with the timeline of stays and places."
+  app
+>
+  <Fragment slot="head">
+    <link rel="stylesheet" href="/viewer/vendor/maplibre-gl.css" />
+    <!-- Deferred scripts and module scripts run in one queue after parsing, in document order, so
+         the global is set before the bundled entry runs without the parser waiting on 800 KB. -->
+    <script is:inline defer src="/viewer/vendor/maplibre-gl.js"></script>
+  </Fragment>
+
+  <aside id="sidebar">
+    <header>
+      <div id="summary"></div>
+      <button id="import-button">Import backup…</button>
+      <div id="progress" hidden></div>
+      <input id="file-input" type="file" accept=".gz,application/gzip" hidden />
+      <label class="toggle"><input id="show-places" type="checkbox" checked /> Show places</label>
+      <!-- Clusters under the notable-visit floor: off by default, as in the app, because a
+           history's one-off stops outnumber the places worth seeing. -->
+      <label class="toggle"><input id="show-rare" type="checkbox" /> Rare stops</label>
+    </header>
+    <div id="empty" hidden>
+      <p>
+        Drop a Breadcrumb backup (<code>breadcrumb-*.json.gz</code>) anywhere, or use the button
+        above. Export one from the app: Settings → Back up everything.
+      </p>
+    </div>
+    <!-- Tracks interleaved with the stays and gaps derived from their endpoints, newest first. -->
+    <nav id="timeline" hidden></nav>
+  </aside>
+  <div id="map-wrap">
+    <div id="map"></div>
+    <!-- What the selected track's off-path fixes are, named where they're drawn. Empty and hidden
+         for a track that has none, which is most of them. -->
+    <div id="legend" hidden></div>
+  </div>
+
+  <script>
+    import "../viewer/js/main.js";
+  </script>
+</Base>

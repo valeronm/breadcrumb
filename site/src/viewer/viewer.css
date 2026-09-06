@@ -1,27 +1,9 @@
+/* The viewer's own shades, on the site's tokens: a place reads in its map pin's colour wherever it
+   is written, and a row's hover and selected states are the panel with a little text mixed in. */
 :root {
-  /* The app's dark scheme where the phone offers no wallpaper colours (ui/theme/SeededScheme.kt):
-     background, surface containers, outline variant, on-surface text and primary. */
-  --bg: #0f1512;
-  --panel: #171d1a;
-  --panel-raised: #252b28;
-  --panel-selected: #303632;
-  --border: #404943;
-  --text: #dee4de;
-  --muted: #bfc9c2;
-  --accent: #8cd5b3;
-  /* The map's place color, so a named place reads the same in the timeline and on the map. */
   --place: #facc15;
-}
-
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  display: flex;
-  height: 100vh;
-  background: var(--bg);
-  color: var(--text);
-  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  --row-hover: color-mix(in srgb, var(--text) 8%, var(--panel));
+  --row-selected: color-mix(in srgb, var(--text) 14%, var(--panel));
 }
 
 #sidebar {
@@ -30,22 +12,17 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--panel);
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--line);
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 #sidebar header {
   padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-#sidebar h1 {
-  margin: 0 0 2px;
-  font-size: 17px;
-  font-weight: 650;
+  border-bottom: 1px solid var(--line);
 }
 
 #summary {
-  color: var(--muted);
   font-size: 12px;
   min-height: 16px;
   margin-bottom: 10px;
@@ -54,38 +31,35 @@ body {
 #import-button {
   width: 100%;
   padding: 7px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
   background: transparent;
   color: var(--text);
   font: inherit;
   cursor: pointer;
 }
-#import-button:hover { border-color: var(--accent); }
+#import-button:hover { border-color: var(--crumb); }
 
 .toggle {
   display: flex;
   align-items: center;
   gap: 7px;
   margin-top: 9px;
-  color: var(--muted);
   font-size: 12px;
   cursor: pointer;
   user-select: none;
 }
 .toggle:hover { color: var(--text); }
-.toggle input { accent-color: var(--accent); cursor: pointer; margin: 0; }
+.toggle input { accent-color: var(--crumb); cursor: pointer; margin: 0; }
 
 #progress {
   margin-top: 8px;
   font-size: 12px;
-  color: var(--accent);
+  color: var(--crumb);
 }
 
-#empty {
-  padding: 24px 16px;
-  color: var(--muted);
-}
+#empty { padding: 24px 16px; }
+#empty code { font-family: var(--mono); font-size: 0.9em; }
 
 #timeline {
   overflow-y: auto;
@@ -101,7 +75,6 @@ body {
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--muted);
   background: var(--panel);
 }
 
@@ -125,8 +98,8 @@ body {
   content-visibility: auto;
   contain-intrinsic-size: auto 34px;
 }
-#timeline .row:hover { background: var(--panel-raised); }
-#timeline .row.selected { background: var(--panel-selected); outline: 1px solid var(--accent); }
+#timeline .row:hover { background: var(--row-hover); }
+#timeline .row.selected { background: var(--row-selected); outline: 1px solid var(--crumb); }
 
 #timeline .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #timeline .stats { color: var(--muted); font-size: 12px; white-space: nowrap; }
@@ -153,7 +126,7 @@ body {
   content: "";
   width: 9px;
   flex-shrink: 0;
-  border-left: 2px dashed var(--border);
+  border-left: 2px dashed var(--line);
   margin-left: 3px;
 }
 .gap-body {
@@ -174,9 +147,10 @@ body {
   top: 12px;
   left: 12px;
   padding: 8px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(19, 23, 34, 0.88);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--text);
   font-size: 12px;
   line-height: 1.5;
   pointer-events: none;

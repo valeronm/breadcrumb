@@ -2,7 +2,8 @@
 // full-resolution layer for the selected track. Mirrors the app's map conventions where they matter:
 // Protomaps basemap, the path cut where the recorder stopped watching, rejected fixes as markers
 // colored by why they were rejected, and the recorder's overrun as a grayed leg hanging off the
-// path rather than as noise.
+// path rather than as noise. `maplibregl` is the page's vendored script, read as a global rather
+// than imported so that the draw suite can load this module under node, where MapLibre cannot load.
 
 import {
   FLAG_SEGMENT_START,

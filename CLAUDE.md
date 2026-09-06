@@ -411,9 +411,9 @@ warn you on its own.
 Restore is offered only on the Timeline's empty state, and that
 screen is where it reports its progress. With tracks present a restore would have to merge with
 them, so the offer disappears as soon as the first track exists. The format also feeds the
-web companion viewer in `site/public/viewer/` (see its own README) — a change to it is a change to that viewer's
+web companion viewer in `site/src/viewer/` (see its own README) — a change to it is a change to that viewer's
 input, and the viewer draws off-path fixes by the same conventions this app does *and derives the
-same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `site/public/viewer/js/stays.js`, tested case for case
+same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `site/src/viewer/js/stays.js`, tested case for case
 against `StayDeriverTest`), so a rule that moves here moves there. `PlaceRepository` backs the
 Places tab.
 
@@ -736,12 +736,13 @@ and covers the map saying it, so labelling them is a decision to take, not an ov
 `pages.yml` on every push to `main` that touches it; `npm run dev` there previews it. It is a
 build rather than plain files because the landing page is mostly screenshots: they and the icon are
 imported from `docs/`, so the README, the store assets and the site share one set, and are
-re-encoded per width at build. The companion viewer is `site/public/viewer/`, served as written
-with no bundling — its own README says what it is. `viewer-tests.yml` runs its self-contained node
-suites; the parse and convert ones check the streaming parser against a real export and so run by
-hand. **The viewer's Protomaps key is readable by anyone who opens the page**, so
-it is a key of its own, locked to the site's origin and held in the `PROTOMAPS_WEB_KEY` secret,
-never the app's. Every package in `site/package.json` is a development dependency because nothing
+re-encoded per width at build. The companion viewer is a page of the site, `viewer.astro` under
+the site's own header, with its modules in `site/src/viewer/` bundled into it by the build — its
+own README says what it is, and why MapLibre alone stays a file served as it is. `viewer-tests.yml`
+runs its self-contained node suites; the parse and convert ones check the streaming parser against
+a real export and so run by hand. **The viewer's Protomaps key is readable by anyone who opens the
+page**, so it is a key of its own, locked to the site's origin and held in the `PROTOMAPS_WEB_KEY`
+secret, never the app's, and baked into the viewer's script at build. Every package in `site/package.json` is a development dependency because nothing
 in `node_modules` reaches a visitor, and that scope is what advisory alerts against the tree are
 filtered by. The custom domain is a Pages setting, not a `CNAME` file, since the Actions deploy
 carries none.

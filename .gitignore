@@ -21,8 +21,8 @@ __pycache__/
 # source, and a fresh run is what any use wants anyway, since the dates have to be current.
 /tools/demo-data/
 
-# Web viewer: local API key config
-/site/public/viewer/config.js
+# Site: the viewer's Protomaps key for a local build
+/site/.env
 
 # Site build
 /site/node_modules/
