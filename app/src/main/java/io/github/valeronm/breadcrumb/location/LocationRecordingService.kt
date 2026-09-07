@@ -435,7 +435,8 @@ class LocationRecordingService : Service() {
                     // it answers with is the row's — see [ActivityIngest.onTrackResolved].
                     val resolved =
                         repository.openOrStitch(effect.activity, effect.startedAt, effect.stitchWindowMs)
-                    trackStartedAt = effect.startedAt
+                    // A continued track's row began before the stretch that resumed it.
+                    trackStartedAt = resolved.startedAt
                     activeTrackId = resolved.trackId
                     core.onTrackResolved(resolved.label, resolved.stitched)
                     val what = if (resolved.stitched) "continued" else "opened"

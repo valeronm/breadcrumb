@@ -41,6 +41,7 @@ class TrackStitchTest {
 
         assertTrue("the stop was inside the window", second.stitched)
         assertEquals(first.trackId, second.trackId)
+        assertEquals("a continued track keeps the row's start", TEST_START, second.startedAt)
         assertNull("and it is open again", dao.track(second.trackId)!!.endedAt)
 
         repository.addPoints((6..11).map { test.point(second.trackId, it) })

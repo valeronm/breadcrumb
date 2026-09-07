@@ -92,6 +92,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     /** The track a stretch of movement will record into — see [openOrStitch]. */
     class Resolved(
         val trackId: Long,
+        /** When the *row* began, which for a continued track is before the stretch that resumed it. */
+        val startedAt: Long,
         /** What to record under: the *row's* label, which a carrier rename may have rewritten. */
         val label: ActivityType,
         /** Whether an existing track was continued, which is what owes the points a segment break. */
@@ -118,13 +120,18 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             StitchRule.continuedLabel(it, dao.lastPointTime(it.id), activityType, startedAt, stitchWindowMs)
         }
         if (last == null || label == null) {
-            return@withTransaction Resolved(startTrack(activityType, startedAt), activityType, stitched = false)
+            return@withTransaction Resolved(
+                startTrack(activityType, startedAt),
+                startedAt,
+                activityType,
+                stitched = false,
+            )
         }
         dao.reopenTrack(last.id)
         // Read off the snapshot taken before the write: a kept track leaves the timeline and owes
         // the repair, a discarded one was never on it.
         if (last.discardedAt == null) derivation.reknit(listOf(last.id))
-        Resolved(last.id, label, stitched = true)
+        Resolved(last.id, last.startedAt, label, stitched = true)
     }
 
     suspend fun addPoints(points: List<TrackPoint>) = dao.insertPoints(points)
