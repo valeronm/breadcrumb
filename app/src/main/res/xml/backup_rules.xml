@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Below Android 12 a cloud backup and a device transfer are one mechanism, so closing the
+     upload to Google closes the transfer with it; the split only exists in
+     data_extraction_rules.xml. A section carrying no rule backs up everything, which is why every
+     domain is excluded by name rather than the rules being deleted. -->
 <full-backup-content>
-    <include domain="database" path="tracks.db" />
+    <exclude domain="root" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="external" path="." />
+    <exclude domain="device_root" path="." />
+    <exclude domain="device_file" path="." />
+    <exclude domain="device_database" path="." />
+    <exclude domain="device_sharedpref" path="." />
 </full-backup-content>

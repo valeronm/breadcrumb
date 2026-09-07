@@ -1,9 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- A device transfer copies the history phone to phone over a cable or direct Wi-Fi and never
+     reaches Google's servers, which is why it keeps the database the cloud section gives up. A
+     section carrying no rule backs up everything, so the cloud one excludes every domain by name
+     rather than being emptied.
+
+     The settings file travels whole, the rules matching paths rather than keys. The sweep versions
+     inside it describe the database arriving in the same operation, and the armed flag describes a
+     recorder the reader left running, so both are right to carry. -->
 <data-extraction-rules>
     <cloud-backup>
-        <include domain="database" path="tracks.db" />
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
     </cloud-backup>
     <device-transfer>
         <include domain="database" path="tracks.db" />
+        <include domain="sharedpref" path="settings.xml" />
     </device-transfer>
 </data-extraction-rules>

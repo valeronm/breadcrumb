@@ -25,16 +25,16 @@ trips, the places you return to, and journeys away from home.
 
 ## Where it is kept
 
-The app keeps the history in its private storage on your phone. Uninstalling the app deletes it,
-unless your Android backup holds a copy. The history is kept until you delete it. A trip you delete, or one the app judged too
+The app keeps the history in its private storage on your phone. Uninstalling the app deletes it.
+The history is kept until you delete it. A trip you delete, or one the app judged too
 short to keep, goes to Recently deleted. You can restore it there or clear the list. After two
 weeks the app deletes it for good the next time it starts. The app has no server. It sends your history
 nowhere on its own.
 
-If Android's own backup is turned on for your phone, the app's database is included in it. That
-backup goes to your Google account under Google's terms. Setting up a new phone from this one with
-Android's transfer copies the database too. You turn both off in your phone's settings, not in the
-app.
+The app keeps the history out of Android's backup to your Google account. Android's transfer to a
+new phone still carries it. Your settings come across too. That copy goes straight from your old
+phone to your new one. No server sees it. You turn the transfer off in your phone's settings, not
+in the app.
 
 You can lock the app behind your phone's unlock and hide it from screenshots and the recent-apps
 screen, under Settings → App lock. Recording carries on whether the app is locked or not.
