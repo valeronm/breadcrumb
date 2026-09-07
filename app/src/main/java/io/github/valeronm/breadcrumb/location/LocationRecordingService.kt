@@ -117,10 +117,8 @@ class LocationRecordingService : Service() {
     @Volatile var transitionSinceArm = false
         private set
 
-    // Id of the track being recorded, or null — the one open track dangling-track cleanup must not close.
-    @Volatile private var activeTrackId: Long? = null
-
-    @Volatile private var trackStartedAt = 0L
+    // The one open track that dangling-track cleanup must not close.
+    @Volatile private var openTrack: TrackingStatus.OpenTrack? = null
 
     // The live GPS request's listener; non-null == GPS is on.
     @Volatile private var gpsListener: LocationListenerCompat? = null
@@ -215,7 +213,7 @@ class LocationRecordingService : Service() {
             mutex.withLock {
                 // Close any track left open by a previous crash/kill, but never the one we're
                 // actively recording (a snapshot may have already opened it).
-                repository.finalizeDangling(exceptTrackId = activeTrackId)
+                repository.finalizeDangling(exceptTrackId = openTrack?.id)
                 // Arming is the one moment a departure must be watched for with no track behind it:
                 // Play Services drops every geofence across a reboot and an app update, and both
                 // arrive here. Dispatched rather than called directly so the one policy has one
@@ -435,24 +433,25 @@ class LocationRecordingService : Service() {
                     // it answers with is the row's — see [ActivityIngest.onTrackResolved].
                     val resolved =
                         repository.openOrStitch(effect.activity, effect.startedAt, effect.stitchWindowMs)
-                    // A continued track's row began before the stretch that resumed it.
-                    trackStartedAt = resolved.startedAt
-                    activeTrackId = resolved.trackId
+                    openTrack = TrackingStatus.OpenTrack(resolved.trackId, resolved.label, resolved.startedAt)
                     core.onTrackResolved(resolved.label, resolved.stitched)
                     val what = if (resolved.stitched) "continued" else "opened"
-                    DebugLog.i(TAG, "  -> $what ${resolved.label} track $activeTrackId")
+                    DebugLog.i(TAG, "  -> $what ${resolved.label} track ${resolved.trackId}")
                 }
 
                 is Effect.RelabelTrack ->
-                    activeTrackId?.let {
-                        repository.relabelOpenTrack(it, effect.activity)
-                        DebugLog.i(TAG, "  -> relabelled track $it as ${effect.activity}")
+                    openTrack?.let {
+                        repository.relabelOpenTrack(it.id, effect.activity)
+                        openTrack = it.copy(label = effect.activity)
+                        DebugLog.i(TAG, "  -> relabelled track ${it.id} as ${effect.activity}")
                     }
 
                 is Effect.CloseTrack -> {
-                    DebugLog.i(TAG, "  -> closing track $activeTrackId")
-                    activeTrackId?.let { repository.finishTrack(it, effect.endedAt, effect.renameTo) }
-                    activeTrackId = null
+                    openTrack?.let {
+                        DebugLog.i(TAG, "  -> closing track ${it.id}")
+                        repository.finishTrack(it.id, effect.endedAt, effect.renameTo)
+                    }
+                    openTrack = null
                 }
 
                 is Effect.RestartRegistration -> {
@@ -556,7 +555,7 @@ class LocationRecordingService : Service() {
         val verdict = ground?.let { " ground=${groundOf(it)}" }.orEmpty()
         DebugLog.i(
             TAG,
-            "applyActivity: $previous -> $activity (track=$activeTrackId$lag$verdict)",
+            "applyActivity: $previous -> $activity (track=${openTrack?.id}$lag$verdict)",
         )
     }
 
@@ -794,7 +793,7 @@ class LocationRecordingService : Service() {
     )
 
     private suspend fun ingestLocations(locations: List<Location>) {
-        val trackId = activeTrackId ?: return
+        val trackId = openTrack?.id ?: return
         val ingested = ingest.onFixes(
             trackId = trackId,
             fixes = locations.map { it.toFix() },
@@ -846,11 +845,9 @@ class LocationRecordingService : Service() {
                 tracking = true,
                 activity = activity,
                 recording = rec,
-                activeTrackId = activeTrackId,
-                trackActivity = core.openTrackActivity,
+                openTrack = openTrack,
                 distanceMeters = if (rec) ingest.distanceMeters else 0.0,
                 points = points,
-                startedAtMillis = if (rec && trackStartedAt > 0) trackStartedAt else null,
                 speedMps = if (rec) ingest.lastGood?.speed else null,
                 altitudeM = if (rec) ingest.lastGood?.altitude else null,
                 deaf = deaf,
@@ -876,7 +873,7 @@ class LocationRecordingService : Service() {
                 recording = rec,
                 gpsSuspended = suspended,
                 points = points,
-                hasOpenTrack = activeTrackId != null,
+                hasOpenTrack = openTrack != null,
             ),
             activity = activity,
             deaf = deaf,
@@ -902,8 +899,8 @@ class LocationRecordingService : Service() {
         // is gone.
         departureProbe.stop()
         instance = null
-        activeTrackId = null
-        TrackingStatus.update { it.copy(activeTrackId = null) }
+        openTrack = null
+        TrackingStatus.update { it.copy(openTrack = null) }
         scope.cancel()
         super.onDestroy()
     }

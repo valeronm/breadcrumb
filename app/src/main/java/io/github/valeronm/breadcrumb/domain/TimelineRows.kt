@@ -241,13 +241,15 @@ sealed interface TimelineItem {
         override val startedAt get() = summary.startedAt
     }
 
-    /** The track being recorded into, whose distance and end are unknown until it closes. */
+    /** The track being recorded into, whose distance and end are unknown until it closes. It is on
+     *  the device's clock: the phone is where the recording is. */
     data class RecordingItem(
         val trackId: Long,
-        val activity: ActivityType,
+        val label: ActivityType,
         override val startedAt: Long,
-        override val zone: ZoneId? = null,
-    ) : TimelineItem
+    ) : TimelineItem {
+        override val zone: ZoneId? get() = null
+    }
 
     data class StayItem(
         val stay: StayDeriver.Stay,

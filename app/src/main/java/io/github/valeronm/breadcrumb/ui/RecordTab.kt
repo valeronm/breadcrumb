@@ -92,7 +92,7 @@ internal fun RecordTab(
                 recording = status.recording,
                 gpsSuspended = status.gpsSuspended,
                 points = status.points,
-                hasOpenTrack = status.activeTrackId != null,
+                hasOpenTrack = status.openTrack != null,
             ),
             setupComplete = setup.complete,
         )
@@ -257,7 +257,7 @@ private fun LiveTrackPreview(
     status: TrackingStatus.State,
     modifier: Modifier = Modifier,
 ) {
-    val activeId = status.activeTrackId ?: return
+    val activeId = status.openTrack?.id ?: return
     // Refresh whenever a new point is recorded (points count changes), loading incrementally:
     // the full list once, then only rows newer than the last seen — re-reading the whole track
     // costs O(track length) per fix and grows for the whole recording.
@@ -319,7 +319,7 @@ private fun CurrentTrackPreview(
                 )
                 Spacer(Modifier.height(8.dp))
                 // Live trip stats; the status flow updates per fix, which keeps these ticking.
-                val startedAt = status.startedAtMillis
+                val startedAt = status.openTrack?.startedAt
                 // Equal-width columns, not SpaceBetween: these values change every fix, and with
                 // content-sized cells the free space between them is redistributed on each change
                 // — every separator shifts as a digit is gained or lost. Weights pin the rules and

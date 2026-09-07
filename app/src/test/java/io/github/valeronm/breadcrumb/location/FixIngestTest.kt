@@ -145,7 +145,7 @@ class FixIngestTest {
         // of a crossing: the body parked on a deck, the deck moving.
         walkTenMinutes(paceMps = 14.0, parked = true)
 
-        assertEquals(ActivityType.UNKNOWN, ingest.renameFor(ActivityType.WALKING))
+        assertEquals(ActivityType.UNKNOWN, ingest.renameForOpenTrack())
     }
 
     @Test fun `a Moving track named a walk and then proven carried finishes as Moving again`() {
@@ -153,14 +153,14 @@ class FixIngestTest {
         ingest.onTrackRelabelled(ActivityType.WALKING)
         walkTenMinutes(paceMps = 14.0, parked = true)
 
-        assertEquals(ActivityType.UNKNOWN, ingest.renameFor(ActivityType.WALKING))
+        assertEquals(ActivityType.UNKNOWN, ingest.renameForOpenTrack())
     }
 
     @Test fun `an ordinary walk finishes under its own label`() {
         ingest.onTrackOpened(ActivityType.WALKING)
         walkTenMinutes(paceMps = 1.2)
 
-        assertNull(ingest.renameFor(ActivityType.WALKING))
+        assertNull(ingest.renameForOpenTrack())
     }
 
     @Test fun `a fix with no recent satellite backing is refused when the cross-check asks for one`() {

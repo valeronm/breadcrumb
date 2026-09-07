@@ -91,6 +91,10 @@ class FixIngest(internal val distance: DistanceFn) {
 
     private val confirmer = MovementConfirmer(distance)
     private val carrierEvidence = CarrierEvidence()
+
+    // A same-group activity switch keeps the track's original label, so neither the carrier case
+    // nor its rename verdict may follow the confirmed activity.
+    private var openTrackLabel: ActivityType? = null
     private var accumulator = TrackStats.Accumulator(distance)
 
     /** Mark the first good fix after a resume as a new segment. */
@@ -210,6 +214,7 @@ class FixIngest(internal val distance: DistanceFn) {
     /** A track opened under [activity]: fresh aggregates, and a fresh case against its label. */
     fun onTrackOpened(activity: ActivityType) {
         accumulator = TrackStats.Accumulator(distance)
+        openTrackLabel = activity
         carrierEvidence.restart(TrackQuality.groupCeiling(activity))
         pendingSegmentStart = false
         lastFixAccuracyM = null
@@ -222,6 +227,7 @@ class FixIngest(internal val distance: DistanceFn) {
      * is now called.
      */
     fun onTrackRelabelled(activity: ActivityType) {
+        openTrackLabel = activity
         carrierEvidence.restart(TrackQuality.groupCeiling(activity))
     }
 
@@ -233,8 +239,8 @@ class FixIngest(internal val distance: DistanceFn) {
         pendingSegmentStart = false
     }
 
-    /** What the carrier case renames a track labelled [label] to, or null — see [CarrierEvidence]. */
-    fun renameFor(label: ActivityType): ActivityType? = carrierEvidence.renameFor(label)
+    /** What the carrier case renames the open track to, or null — see [CarrierEvidence]. */
+    fun renameForOpenTrack(): ActivityType? = openTrackLabel?.let(carrierEvidence::renameFor)
 
     /** Re-window the witness for a new sampling cadence; see [MovementConfirmer.reshape]. */
     fun reshapeConfirmer(params: MovementConfirmer.Params) = confirmer.reshape(params)

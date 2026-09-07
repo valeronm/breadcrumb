@@ -66,8 +66,12 @@ internal object TrackReplayer {
                         recording = true,
                         distanceMeters = accumulator.distanceMeters,
                         points = accumulator.pointCount,
-                        // Back-dated so the UI's wall-clock duration shows the track's own elapsed time.
-                        startedAtMillis = System.currentTimeMillis() - elapsedMs,
+                        openTrack = TrackingStatus.OpenTrack(
+                            id = trackId,
+                            label = activity,
+                            // Back-dated so the UI's wall-clock duration shows the track's own elapsed time.
+                            startedAt = System.currentTimeMillis() - elapsedMs,
+                        ),
                         speedMps = point.speed,
                         altitudeM = point.altitude,
                     ),

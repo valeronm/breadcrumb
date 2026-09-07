@@ -61,11 +61,6 @@ class ActivityIngest(
     // When the stale-reading oracle last forced a re-registration.
     private var lastStaleRestartMs = 0L
 
-    // The *track's* label as opened — a same-group activity switch keeps the track's original label,
-    // so neither the carrier-evidence bar nor its rename verdict may follow the confirmed activity.
-    var openTrackActivity: ActivityType? = null
-        private set
-
     val confirmed: ActivityType get() = gate.confirmed
     val parked: ActivityType? get() = gate.parked
 
@@ -472,7 +467,6 @@ class ActivityIngest(
                 controller.onRecording(action.activity)
             }
             is RecordingAction.Relabel -> {
-                openTrackActivity = action.activity
                 ingest.onTrackRelabelled(action.activity)
                 controller.onRecording(action.activity)
                 out += Effect.RelabelTrack(action.activity)
@@ -620,7 +614,6 @@ class ActivityIngest(
     fun onTrackResolved(label: ActivityType, stitched: Boolean) {
         ingest.onTrackOpened(label)
         noFixGuard.onTrackOpened()
-        openTrackActivity = label
         // Any standstill the arrival watch had accumulated ended when this stretch began; a new
         // arrival needs the full floor of fresh evidence.
         arrival.reset()
@@ -641,8 +634,7 @@ class ActivityIngest(
         // is the domain's decision (CarrierEvidence.renameFor) — a proven carried journey on a foot
         // label finishes as "Moving" with its warm-up jump flags restored. The evidence is restarted
         // when a track opens, so nothing carries over.
-        val renameTo = openTrackActivity?.let { ingest.renameFor(it) }
-        openTrackActivity = null
+        val renameTo = ingest.renameForOpenTrack()
         controller.onClosed()
         ingest.onTrackClosed()
         noFixGuard.onStopped()

@@ -212,7 +212,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private val derived: Flow<Derived> = combine(
         derivationStore.observeStored(),
         TrackingStatus.state
-            .map { it.tracking to (if (it.recording) it.startedAtMillis else null) }
+            .map { it.tracking to it.openTrack?.startedAt }
             .distinctUntilChanged(),
         // Mapped in the arm rather than in the block below, so a reading of the derivation or an
         // arm/disarm does not re-map every track in the history for a list that did not move.
@@ -345,20 +345,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         // hold the derivation that much longer.
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
-    /** A carrier rename rewrites the open track's label mid-track. */
-    private val recordingRow: Flow<TimelineItem.RecordingItem?> = TrackingStatus.state
-        .map {
-            // The start is published only while recording.
-            val startedAt = it.startedAtMillis
-            val id = it.activeTrackId
-            val label = it.trackActivity
-            if (startedAt != null && id != null && label != null) {
-                TimelineItem.RecordingItem(id, label, startedAt)
-            } else {
-                null
-            }
-        }
+    /** Kept apart from [timeline], which stays the history alone for every screen that reads it. */
+    val recordingRow: StateFlow<TimelineItem.RecordingItem?> = TrackingStatus.state
+        .map { it.openTrack }
         .distinctUntilChanged()
+        .map { open -> open?.let { TimelineItem.RecordingItem(it.id, it.label, it.startedAt) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * Tracks interleaved with derived stays and data gaps, newest first, sliced per local day.
@@ -369,15 +361,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * backup restore — an offer that is only safe *because* there is nothing to merge with — so a
      * reader that can't tell the two apart makes that offer over the user's data.
      */
-    val timeline: StateFlow<List<TimelineItem>?> = combine(
-        resolvedTimeline,
-        pendingPlace,
-        recordingRow,
-    ) { items, pending, recording ->
+    val timeline: StateFlow<List<TimelineItem>?> = combine(resolvedTimeline, pendingPlace) { items, pending ->
         // Left alone rather than re-mapped when nothing is in flight, which is nearly always.
-        val dressed = if (pending == null) items else items.map(pending::dress)
-        // The trailing stay closes at the recording's start.
-        if (recording == null) dressed else listOf(recording) + dressed
+        if (pending == null) items else items.map(pending::dress)
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 

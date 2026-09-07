@@ -171,6 +171,7 @@ internal fun TimelineTab(
     // the first inserted batch would otherwise replace this screen (and its progress text) with a
     // timeline that keeps re-deriving as tracks pour in. The finished timeline appears at once.
     val restoreProgress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
+    val recording by viewModel.recordingRow.collectAsStateWithLifecycle()
     // In priority order: a restore outranks everything, since that screen reports its progress for
     // the whole run; then "not derived yet"; then a history that really is empty. Gated above the
     // switch rather than per view — both views would show the same blank, and the empty state's
@@ -185,7 +186,7 @@ internal fun TimelineTab(
             return
         }
         // A recording alone is not an empty history: the restore offered here wants an empty database.
-        items.isEmpty() -> {
+        items.isEmpty() && recording == null -> {
             EmptyTracksState(viewModel.importExport, progress = null)
             return
         }
@@ -286,6 +287,7 @@ internal fun TimelineTab(
             TimelinePage.LIST -> viewStateHolder.SaveableStateProvider(TimelinePage.LIST) {
                 TimelineListPage(
                     items = items,
+                    recording = recording,
                     viewModel = viewModel,
                     undo = undo,
                     // One slot, two senders: a request from another screen outranks the map's
@@ -326,6 +328,7 @@ internal fun TimelineTab(
 @Composable
 private fun TimelineListPage(
     items: List<TimelineItem>,
+    recording: TimelineItem.RecordingItem?,
     viewModel: TrackListViewModel,
     undo: UndoSnackbar,
     jump: TimelineJump?,
@@ -344,7 +347,10 @@ private fun TimelineListPage(
 ) {
     val context = LocalContext.current
 
-    val groups = remember(items) { groupTimelineByDay(items) }
+    // The trailing stay closes at the recording's start.
+    val groups = remember(items, recording) {
+        groupTimelineByDay(recording?.let { listOf(it) + items } ?: items)
+    }
     val listState = rememberLazyListState()
     // Resolved here because [dayLabel] is callable from a plain function and [stringResource] is not;
     // each header then words itself, rather than reading its text out of a list it must stay aligned
@@ -1067,24 +1073,17 @@ internal fun RecordingRow(
     shape: RoundedCornerShape,
     onClick: () -> Unit,
 ) {
-    val activityName = stringResource(item.activity.labelRes)
-    val zone = item.clock
-    val reader = timelineZone()
-    val shiftColor = zoneShiftColor
-    val readerClock = LocalReaderClock.current
+    val activityName = stringResource(item.label.labelRes)
+    val startedAt = timeText(item.startedAt, item.clock)
+    val recording = durationText(item.startedAt, endedAt = null)
     ListRowCard(
         shape = shape,
-        icon = activityIcon(item.activity),
-        disc = activityDiscStyle(item.activity),
+        icon = activityIcon(item.label),
+        disc = activityDiscStyle(item.label),
         iconDescription = activityName,
         title = activityName,
         titleColor = MaterialTheme.colorScheme.onSurface,
-        subtitle = durationText(item.startedAt, endedAt = null).let { recording ->
-            buildAnnotatedString {
-                appendTime(item.startedAt, zone, reader, shiftColor, readerClock)
-                append(" · $recording")
-            }
-        },
+        subtitle = AnnotatedString("$startedAt · $recording"),
         onClick = onClick,
     )
 }

@@ -245,7 +245,7 @@ class TimelineRowTest {
     fun `the recording row names its activity and says it is recording`() {
         row {
             RecordingRow(
-                item = TimelineItem.RecordingItem(trackId = 1, activity = ActivityType.WALKING, startedAt = noon),
+                item = TimelineItem.RecordingItem(trackId = 1, label = ActivityType.WALKING, startedAt = noon),
                 shape = SHAPE,
                 onClick = {},
             )

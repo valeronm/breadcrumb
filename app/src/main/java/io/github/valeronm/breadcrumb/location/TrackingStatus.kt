@@ -13,15 +13,11 @@ object TrackingStatus {
         /** Confirmed activity, null while idle (not armed). The UI derives its label. */
         val activity: ActivityType? = null,
         val recording: Boolean = false,
-        /** Id of the track being recorded into, or null. */
-        val activeTrackId: Long? = null,
-        /** The label that track's row is recorded under, which the ground never overrules the way
-         *  it overrules [activity] to "Moving". Null while no track is open. */
-        val trackActivity: ActivityType? = null,
+        /** The track being recorded into, null while none is open. Can briefly disagree with
+         *  [recording] around a track's finalization. */
+        val openTrack: OpenTrack? = null,
         val distanceMeters: Double = 0.0,
         val points: Int = 0,
-        /** Wall-clock start of the current track, null when not recording. */
-        val startedAtMillis: Long? = null,
         /** Latest good fix's speed (m/s) and altitude (m), null when unknown or not recording. */
         val speedMps: Float? = null,
         val altitudeM: Double? = null,
@@ -37,6 +33,17 @@ object TrackingStatus {
          *  for the "waiting for GPS" card when fixes arrive but aren't good enough. */
         val lastFixAccuracyM: Float? = null,
         val lastFixRejectedByAccuracy: Boolean = false,
+    )
+
+    /**
+     * [startedAt] is the row's, which for a continued track precedes the stretch that resumed it.
+     * [label] is the row's too, and the ground never overrules it the way it overrules
+     * [State.activity] to "Moving".
+     */
+    data class OpenTrack(
+        val id: Long,
+        val label: ActivityType,
+        val startedAt: Long,
     )
 
     private val _state = MutableStateFlow(State())
