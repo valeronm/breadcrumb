@@ -51,6 +51,9 @@ interface TrackDao {
     @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId")
     suspend fun setActivityType(trackId: Long, activityType: String)
 
+    @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId AND endedAt IS NULL")
+    suspend fun setOpenTrackActivityType(trackId: Long, activityType: String)
+
     /**
      * Restate a typed-in track: what it was and when it ran, in one write. Its points are replaced
      * in the same transaction ([deletePointsFor]) — the bounds and the two fixes are one statement

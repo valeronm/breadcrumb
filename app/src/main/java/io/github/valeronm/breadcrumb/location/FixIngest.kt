@@ -217,6 +217,15 @@ class FixIngest(internal val distance: DistanceFn) {
     }
 
     /**
+     * The open track was relabelled to [activity]: the carrier case is against the label. Unlike
+     * [onTrackOpened] the aggregates keep counting — the fixes are still that track's, whatever it
+     * is now called.
+     */
+    fun onTrackRelabelled(activity: ActivityType) {
+        carrierEvidence.restart(TrackQuality.groupCeiling(activity))
+    }
+
+    /**
      * The track closed. Only the pending segment break is dropped: the aggregates and the carrier
      * case are read *after* this by the finish, and [onTrackOpened] is what clears them.
      */

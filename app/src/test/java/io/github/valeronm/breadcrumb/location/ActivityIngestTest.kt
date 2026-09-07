@@ -131,6 +131,41 @@ class ActivityIngestTest : ActivityIngestFixture() {
         )
     }
 
+    @Test fun `the first reading onto a trigger-opened track names it rather than splitting it`() {
+        departure(T0)
+
+        assertEquals(
+            listOf(Effect.StampReading(T0 + MINUTE), Effect.RelabelTrack(ActivityType.WALKING), Effect.Publish),
+            reading(ActivityType.WALKING, T0 + MINUTE),
+        )
+    }
+
+    @Test fun `a snapshot opens a track from idle like a transition does`() {
+        assertEquals(
+            ActivityType.WALKING,
+            snapshot(ActivityType.WALKING, T0).filterIsInstance<Effect.OpenTrack>().single().activity,
+        )
+    }
+
+    @Test fun `a snapshot onto a recording track is dropped`() {
+        departure(T0)
+
+        assertEquals(listOf(Effect.StampReading(T0 + MINUTE)), snapshot(ActivityType.WALKING, T0 + MINUTE))
+        assertEquals(listOf(Effect.StampReading(T0 + MINUTE)), snapshot(ActivityType.STILL, T0 + MINUTE))
+        assertTrue(core.watchingArrival)
+        assertNull(core.held)
+    }
+
+    @Test fun `a relabelled track is the reporter's, so its family rule applies from there`() {
+        departure(T0)
+        reading(ActivityType.WALKING, T0 + MINUTE)
+
+        assertEquals(
+            listOf(Effect.StampReading(T0 + 2 * MINUTE), Effect.Publish),
+            reading(ActivityType.RUNNING, T0 + 2 * MINUTE),
+        )
+    }
+
     @Test fun `a reading the gate already believes asks for nothing but the delivery stamp`() {
         startWalking()
 

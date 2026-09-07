@@ -54,14 +54,24 @@ class ArrivalCloseTest : ActivityIngestFixture() {
         )
     }
 
-    @Test fun `a reading-opened track is never closed by the ground`() {
-        startWalking()
+    private fun assertGroundNeverCloses() {
+        assertFalse(core.watchingArrival)
         val provenAt = standstill(T0 + 10 * MINUTE, eastM = 500.0)
         assertEquals("the evidence is there; the gate is what refuses", Motion.Stopped, core.motionVerdict(provenAt))
-        assertFalse(core.watchingArrival)
 
         assertTrue(arrivalTick(provenAt).isEmpty())
         assertTrue(arrivalTick(provenAt + ArrivalWatch.STANDSTILL_FLOOR_MS).isEmpty())
+    }
+
+    @Test fun `a reading-opened track is never closed by the ground`() {
+        startWalking()
+        assertGroundNeverCloses()
+    }
+
+    @Test fun `a track a reading has named is no longer closed by the ground`() {
+        departure(T0, settings)
+        reading(ActivityType.WALKING, T0 + MINUTE)
+        assertGroundNeverCloses()
     }
 
     @Test fun `a departure after the arrival asks for a track, watched again`() {

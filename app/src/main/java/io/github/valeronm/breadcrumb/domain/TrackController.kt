@@ -8,8 +8,9 @@ package io.github.valeronm.breadcrumb.domain
  * that track is asked of the stored history when it arrives ([StitchRule]), which is why this has no
  * window, no deadline and no clock in it at all.
  *
- * The one rule left is the **motion family**: walking ⇄ running stays one track, walking → driving
- * splits. Pure and Android-free; the ingest performs the returned [RecordingAction] and moves the
+ * What is left is the **motion family** — walking ⇄ running stays one track, walking → driving
+ * splits — and the naming of a track with no label yet ([RecordingAction.Relabel]).
+ * Pure and Android-free; the ingest performs the returned [RecordingAction] and moves the
  * phase as it opens and closes the track, through [onRecording] / [onClosed] — the same calls the
  * paths that never ask [onActivity] (a departure, an arrival, a disarm) move it by.
  */
@@ -35,17 +36,15 @@ class TrackController {
     private fun onMoving(activity: ActivityType): RecordingAction = when (val p = phase) {
         // A switch within the same motion family keeps the live track, with a segment break at
         // the boundary; a cross-family change splits.
-        is Phase.Recording ->
-            if (p.activity.sharesTrackWith(activity)) {
-                RecordingAction.ContinueSameTrack(activity)
-            } else {
-                RecordingAction.StartNew(activity)
-            }
+        is Phase.Recording -> when {
+            p.activity.sharesTrackWith(activity) -> RecordingAction.ContinueSameTrack(activity)
+            p.activity == ActivityType.UNKNOWN -> RecordingAction.Relabel(activity)
+            else -> RecordingAction.StartNew(activity)
+        }
 
         Phase.Idle -> RecordingAction.StartNew(activity)
     }
 
-    /** Recording is live for [activity] — a fresh start or a same-family switch. */
     fun onRecording(activity: ActivityType) {
         phase = Phase.Recording(activity)
     }
@@ -70,4 +69,11 @@ sealed interface RecordingAction {
      * starting a new segment at the boundary. The track keeps its original label.
      */
     data class ContinueSameTrack(val activity: ActivityType) : RecordingAction
+
+    /**
+     * Keep the live track open and give it [activity] as its label: a departure trigger opened it as
+     * [ActivityType.UNKNOWN], knowing the ground moved and nothing of what carried it, and the first
+     * reading names it.
+     */
+    data class Relabel(val activity: ActivityType) : RecordingAction
 }

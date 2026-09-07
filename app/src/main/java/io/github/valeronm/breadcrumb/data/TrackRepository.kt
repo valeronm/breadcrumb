@@ -472,6 +472,15 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /**
+     * The recorder naming the track it is still writing into — the column alone, since the finish
+     * settles edges, ceilings and aggregates off whatever label it finds; [setActivityType] is the
+     * other half, for a row that has finished.
+     */
+    suspend fun relabelOpenTrack(trackId: Long, activityType: ActivityType) {
+        dao.setOpenTrackActivityType(trackId, activityType.name)
+    }
+
+    /**
      * User-initiated delete is a soft delete: the track moves to Recently deleted (restorable)
      * and is only hard-deleted by [purgeOldDiscarded] after the retention window.
      */

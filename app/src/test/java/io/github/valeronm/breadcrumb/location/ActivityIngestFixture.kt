@@ -44,23 +44,16 @@ abstract class ActivityIngestFixture {
         }
     }
 
-    /**
-     * A reading whose event time is its apply time — the ordinary live delivery. The registration is
-     * long-established, so neither the replay window nor the armed bound swallows one.
-     */
+    /** A reading whose event time is its apply time — the ordinary live delivery. */
     protected fun reading(
         raw: ActivityType,
         atMs: Long,
         eventTimeMs: Long? = atMs,
-    ) = resolved(
-        core.onReading(
-            raw = raw,
-            eventTimeMs = eventTimeMs,
-            nowMs = atMs,
-            registration = Registration(armedAtMs = T0 - MINUTE, lastRegisteredAtMs = T0 - HOUR),
-            settings = settings,
-        ),
-    )
+    ) = resolved(core.onReading(raw, eventTimeMs, atMs, REGISTRATION, settings))
+
+    /** The arm-time snapshot, answered like [reading] is. */
+    protected fun snapshot(raw: ActivityType, atMs: Long) =
+        resolved(core.onSnapshot(raw, atMs, atMs, REGISTRATION, settings))
 
     /**
      * A stop that lands. On foot the witness's window rarely fills, so the ordinary stop is one the
@@ -71,7 +64,7 @@ abstract class ActivityIngestFixture {
         reading(ActivityType.STILL, atMs, eventTimeMs) +
             resolved(core.onMotion(Motion.Unknown, atMs + HOLD_CAP_MS, settings))
 
-    /** The two other passes that can open a track, answered like [reading] is. */
+    /** The other passes that can open a track, answered like [reading] is. */
     protected fun departure(nowMs: Long, settings: ActivitySettings = this.settings) =
         resolved(core.onDeparture(nowMs, settings))
 
@@ -123,6 +116,9 @@ abstract class ActivityIngestFixture {
 
         /** The guard's clock is monotonic and unrelated to [T0]; only differences are ever read. */
         const val E0 = 500_000L
+
+        /** Long-established, so neither the replay window nor the armed bound swallows a reading. */
+        val REGISTRATION = Registration(armedAtMs = T0 - MINUTE, lastRegisteredAtMs = T0 - HOUR)
 
         /**
          * **What ships**: the two free triggers on, the battery-costing one off. Every case that does

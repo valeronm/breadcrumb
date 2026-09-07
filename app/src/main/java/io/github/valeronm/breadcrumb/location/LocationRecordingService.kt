@@ -286,12 +286,16 @@ class LocationRecordingService : Service() {
      */
     fun onActivityChanged(activity: ActivityType, eventTimeMs: Long?, onApplied: () -> Unit) {
         transitionSinceArm = true
-        applyActivityAsync(activity, eventTimeMs, onApplied)
+        applyAsync("reading", onApplied) { applyActivity(activity, eventTimeMs, core::onReading) }
     }
 
-    /** The arm-time snapshot reading — applied like a transition but never claims to be one. */
+    /** The arm-time snapshot reading — never a transition for [transitionSinceArm]'s purposes. */
     fun onSnapshot(activity: ActivityType, eventTimeMs: Long?, onApplied: () -> Unit) {
-        applyActivityAsync(activity, eventTimeMs, onApplied)
+        applyAsync("snapshot", onApplied) {
+            // The receiver has already logged this snapshot as acting.
+            if (core.recording) DebugLog.i(TAG, "snapshot dropped — already recording")
+            applyActivity(activity, eventTimeMs, core::onSnapshot)
+        }
     }
 
     /**
@@ -317,9 +321,6 @@ class LocationRecordingService : Service() {
         }
     }
 
-    private fun applyActivityAsync(activity: ActivityType, eventTimeMs: Long?, onApplied: () -> Unit) =
-        applyAsync("reading", onApplied) { applyActivity(activity, eventTimeMs) }
-
     /**
      * [launchArmed] that reports back when [block] is done, whatever "done" turns out to mean.
      * `invokeOnCompletion` rather than a `try/finally` in the body: it also fires when the scope
@@ -343,16 +344,11 @@ class LocationRecordingService : Service() {
             }
         }
 
-    private suspend fun applyActivity(raw: ActivityType, eventTimeMs: Long?) {
+    private suspend fun applyActivity(raw: ActivityType, eventTimeMs: Long?, entry: ReadingEntry) {
         val nowMs = now()
         val was = core.confirmed
-        val effects = core.onReading(
-            raw = raw,
-            eventTimeMs = eventTimeMs,
-            nowMs = nowMs,
-            registration = Registration(armedAtMs, ActivityRecognitionManager.lastRegisteredAtMs),
-            settings = activitySettings(),
-        )
+        val registration = Registration(armedAtMs, ActivityRecognitionManager.lastRegisteredAtMs)
+        val effects = entry(raw, eventTimeMs, nowMs, registration, activitySettings())
         if (core.confirmed != was) {
             logTransition(was, core.confirmed, nowMs - core.lastReadingMs, ground = null)
         } else {
@@ -445,6 +441,12 @@ class LocationRecordingService : Service() {
                     val what = if (resolved.stitched) "continued" else "opened"
                     DebugLog.i(TAG, "  -> $what ${resolved.label} track $activeTrackId")
                 }
+
+                is Effect.RelabelTrack ->
+                    activeTrackId?.let {
+                        repository.relabelOpenTrack(it, effect.activity)
+                        DebugLog.i(TAG, "  -> relabelled track $it as ${effect.activity}")
+                    }
 
                 is Effect.CloseTrack -> {
                     DebugLog.i(TAG, "  -> closing track $activeTrackId")
@@ -958,3 +960,6 @@ class LocationRecordingService : Service() {
         }
     }
 }
+
+/** A core entry a Play-Services reading is applied through — [ActivityIngest.onReading] or [ActivityIngest.onSnapshot]. */
+private typealias ReadingEntry = (ActivityType, Long?, Long, Registration, ActivitySettings) -> List<Effect>

@@ -302,9 +302,9 @@ that fallback. **Exactly five consultations exist**, and that there are five and
 thing no one file says: the gate parks a contradicted STILL, the jump ceiling rises to fit measured
 ground speed, a `Moving` verdict vetoes the no-fix give-up, every path that turns GPS off
 re-evaluates the parked slot on the way down, and a standstill the witness proved closes a
-**signal-opened** track (`ArrivalWatch` — a track opened by a departure trigger has no reporter
-whose stop will ever end it, while a reading-opened track is never closed this way: its reporter
-lags, but delivers). Promotion rides the `GnssStatus` callback, with the
+**signal-opened** track until a reading names it (`ArrivalWatch` — a track opened by a departure
+trigger has no reporter whose stop will ever end it, while a track a reading has named is never
+closed this way: its reporter lags, but delivers). Promotion rides the `GnssStatus` callback, with the
 15-minute watchdog alarm as the guaranteed revisit.
 
 **The witness names movement, never what is doing the moving.** A track it proves is carried gets
@@ -312,9 +312,9 @@ lags, but delivers). Promotion rides the `GnssStatus` callback, with the
 the evidence supports and nothing more. There is no carrier classifier and none is planned: telling
 a ferry from a train from a bus needs map geometry the app does not carry, and speed alone makes a
 bus and a car indistinguishable, so a specific guess is worse than an honest vague label, nothing
-downstream being able to tell it was a guess. `FERRY` is a label the user applies by hand, and a
-later activity reading arriving onto a "Moving" track relabelling it in place is the supported way
-a track gets a specific name.
+downstream being able to tell it was a guess. `FERRY` is a label the user applies by hand, and the
+first activity reading arriving onto a recording "Moving" track names it rather than splitting it
+— the supported way a track gets a specific name.
 
 **State bridge:** `location/TrackingStatus` is a process-wide `MutableStateFlow` the service writes
 and the UI collects — this is how live recording state reaches Compose without binding to the service.

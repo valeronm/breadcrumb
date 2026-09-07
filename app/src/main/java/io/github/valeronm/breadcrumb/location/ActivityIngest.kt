@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.location
 
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.domain.ActivityGate
+import io.github.valeronm.breadcrumb.domain.ActivityInterpreter
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.ArrivalWatch
 import io.github.valeronm.breadcrumb.domain.Coordinate
@@ -43,14 +44,8 @@ class ActivityIngest(
     private val watch = DepartureWatch(ingest.distance, DepartureFence.RADIUS_M)
 
     // The stop side of what [watch] starts: fed the witness's verdicts on the satellite tick, fires
-    // the close that ends a signal-opened track. See [onArrivalTick] for why only those tracks.
+    // the close that ends a track no reading has named. See [onArrivalTick] for why only those.
     private val arrival = ArrivalWatch()
-
-    // Whether the open track was opened by a departure trigger rather than a reading — the arrival
-    // watch's gate. Explicit state rather than inferred from the UNKNOWN label, which a reading
-    // could one day confirm and a carrier rename already rewrites; set only by [onDeparture],
-    // cleared by [close] ahead of every open.
-    private var openedBySignal = false
 
     // Sanitizes AR event timestamps into gate reading times; see [ReadingClock].
     private val readingClock = ReadingClock()
@@ -100,11 +95,12 @@ class ActivityIngest(
     val deaf: Boolean get() = deafnessWarning.warned
 
     /**
-     * Whether the arrival watch has anything to judge: a signal-opened track recording live. Read
-     * off-mutex by the service as a cheap racy pre-filter, like [parked]; [onArrivalTick] re-checks.
+     * Whether the arrival watch has anything to judge: a track recording live that no reading has
+     * named ([ActivityType.UNKNOWN], which [ActivityInterpreter] never forwards). Read off-mutex by
+     * the service as a cheap racy pre-filter, like [parked]; [onArrivalTick] re-checks.
      */
     val watchingArrival: Boolean
-        get() = openedBySignal && recording
+        get() = (controller.phase as? TrackController.Phase.Recording)?.activity == ActivityType.UNKNOWN
 
     /** When the standstill behind the last arrival close began — for the dispatcher's log. */
     var arrivalStoppedSinceMs: Long = 0L
@@ -133,10 +129,10 @@ class ActivityIngest(
     }
 
     /**
-     * A Play-Services reading — a transition or the arm-time snapshot. Runs the deafness preamble,
-     * debounces [raw] into a trusted activity, and turns a confirmed change into track lifecycle
-     * effects. [nowMs] is when it is being applied; the reading's own time is derived from
-     * [eventTimeMs] and is what the gate and controller work in.
+     * A Play-Services reading. Runs the deafness preamble, debounces [raw] into a trusted activity,
+     * and turns a confirmed change into track lifecycle effects. [nowMs] is when it is being
+     * applied; the reading's own time is derived from [eventTimeMs] and is what the gate and
+     * controller work in.
      */
     fun onReading(
         raw: ActivityType,
@@ -155,6 +151,22 @@ class ActivityIngest(
         if (changed == null) return out
         applyConfirmed(changed, nowMs, settings, out)
         return out
+    }
+
+    /**
+     * The arm-time snapshot, applied like [onReading] while nothing is recording and dropped after
+     * the preamble otherwise: a departure trigger can open a track before it lands, and a raw
+     * classifier sample ([ActivityInterpreter.interpretSnapshot]) is no ground to name or close one on.
+     */
+    fun onSnapshot(
+        raw: ActivityType,
+        eventTimeMs: Long?,
+        nowMs: Long,
+        registration: Registration,
+        settings: ActivitySettings,
+    ): List<Effect> {
+        if (!recording) return onReading(raw, eventTimeMs, nowMs, registration, settings)
+        return ArrayList<Effect>().also { intake(eventTimeMs, nowMs, registration, it) }
     }
 
     /**
@@ -190,19 +202,14 @@ class ActivityIngest(
         gate.adopt(ActivityType.UNKNOWN)
         holdExpiresAtMs = null
         applyConfirmed(ActivityType.UNKNOWN, nowMs, settings, out)
-        // The opener's provenance, read off the pass's own effects: [open] is the only emitter of
-        // [Effect.OpenTrack], and [close] has already cleared the flag ahead of every open. The flag
-        // describes *this* stretch, not the row — a stretch the dispatcher then resolves onto the
-        // previous track was still the one a signal opened.
-        if (out.any { it is Effect.OpenTrack }) openedBySignal = true
         return out
     }
 
     /**
      * The arrival consultation, on the same ~1 Hz satellite tick that revisits a parked reading:
-     * close a signal-opened track once the ground has provably stood [ArrivalWatch]'s floor. Empty
-     * for every reading-opened track — why only trigger-opened tracks end this way is the watch's
-     * own argument. The close lands at the last good fix like any other stop, which is where the
+     * close the track once the ground has provably stood [ArrivalWatch]'s floor. Empty unless
+     * [watchingArrival] — why only a track no reading has named ends this way is the watch's own
+     * argument. The close lands at the last good fix like any other stop, which is where the
      * standstill began.
      */
     fun onArrivalTick(motion: Motion, nowMs: Long, settings: ActivitySettings): List<Effect> {
@@ -463,6 +470,12 @@ class ActivityIngest(
                 ingest.markSegmentStart()
                 controller.onRecording(action.activity)
             }
+            is RecordingAction.Relabel -> {
+                openTrackActivity = action.activity
+                ingest.onTrackRelabelled(action.activity)
+                controller.onRecording(action.activity)
+                out += Effect.RelabelTrack(action.activity)
+            }
         }
         // A confirmed moving reading while the no-fix guard has GPS off is a resume signal too. The
         // two checks guard different things and neither subsumes the other: the dispatcher's asks
@@ -629,7 +642,6 @@ class ActivityIngest(
         // when a track opens, so nothing carries over.
         val renameTo = openTrackActivity?.let { ingest.renameFor(it) }
         openTrackActivity = null
-        openedBySignal = false
         controller.onClosed()
         ingest.onTrackClosed()
         noFixGuard.onStopped()

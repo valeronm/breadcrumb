@@ -4,6 +4,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.MeasuredPosition
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
+import io.github.valeronm.breadcrumb.domain.RecordingAction
 
 /**
  * Something the recorder wants done that it cannot do itself: every touch of Android on the activity
@@ -127,6 +128,9 @@ sealed interface Effect {
      * move that emits this.
      */
     data class CloseTrack(val endedAt: Long, val renameTo: ActivityType?) : Effect
+
+    /** Give the open track [activity] as its label — see [RecordingAction.Relabel]. */
+    data class RelabelTrack(val activity: ActivityType) : Effect
 
     /**
      * The registration is proven deaf — rebuild it on a fresh token. [readingLateMs] and [advancedMs]

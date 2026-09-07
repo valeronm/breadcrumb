@@ -132,23 +132,33 @@ class FixIngestTest {
         assertEquals(ActivityType.WALKING, ingest.displayActivity(ActivityType.WALKING, out.motion))
     }
 
+    private fun walkTenMinutes(paceMps: Double, parked: Boolean = false) {
+        for (t in 0..600 step 10) {
+            ingest.onFixes(TRACK, listOf(fix(t, t * paceMps)), walking(stillParked = parked), OPEN, SEEN)
+        }
+    }
+
     @Test fun `a proven carried walk finishes as Moving`() {
         ingest.onTrackOpened(ActivityType.WALKING)
 
         // Sustained carrier pace with the gate holding a STILL the ground contradicts — the shape
         // of a crossing: the body parked on a deck, the deck moving.
-        for (t in 0..600 step 10) {
-            ingest.onFixes(TRACK, listOf(fix(t, t * 14.0)), walking(stillParked = true), OPEN, SEEN)
-        }
+        walkTenMinutes(paceMps = 14.0, parked = true)
+
+        assertEquals(ActivityType.UNKNOWN, ingest.renameFor(ActivityType.WALKING))
+    }
+
+    @Test fun `a Moving track named a walk and then proven carried finishes as Moving again`() {
+        ingest.onTrackOpened(ActivityType.UNKNOWN)
+        ingest.onTrackRelabelled(ActivityType.WALKING)
+        walkTenMinutes(paceMps = 14.0, parked = true)
 
         assertEquals(ActivityType.UNKNOWN, ingest.renameFor(ActivityType.WALKING))
     }
 
     @Test fun `an ordinary walk finishes under its own label`() {
         ingest.onTrackOpened(ActivityType.WALKING)
-        for (t in 0..600 step 10) {
-            ingest.onFixes(TRACK, listOf(fix(t, t * 1.2)), walking(), OPEN, SEEN)
-        }
+        walkTenMinutes(paceMps = 1.2)
 
         assertNull(ingest.renameFor(ActivityType.WALKING))
     }

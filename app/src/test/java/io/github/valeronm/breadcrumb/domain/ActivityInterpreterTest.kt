@@ -33,6 +33,17 @@ class ActivityInterpreterTest {
         )
     }
 
+    @Test fun `an UNKNOWN transition is ignored either way`() {
+        assertEquals(
+            ActivityInterpreter.TransitionDecision.Ignore,
+            ActivityInterpreter.interpretTransition(ActivityType.UNKNOWN, isExit = false),
+        )
+        assertEquals(
+            ActivityInterpreter.TransitionDecision.Ignore,
+            ActivityInterpreter.interpretTransition(ActivityType.UNKNOWN, isExit = true),
+        )
+    }
+
     // --- Snapshots --------------------------------------------------------
 
     @Test fun `a confident moving snapshot is forwarded`() {

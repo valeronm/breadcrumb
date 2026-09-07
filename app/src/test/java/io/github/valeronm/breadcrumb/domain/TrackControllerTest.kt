@@ -15,6 +15,7 @@ class TrackControllerTest {
     private val WALKING = ActivityType.WALKING
     private val RUNNING = ActivityType.RUNNING
     private val DRIVING = ActivityType.DRIVING
+    private val UNKNOWN = ActivityType.UNKNOWN
 
     private fun recording(activity: ActivityType): TrackController =
         TrackController().apply { onRecording(activity) }
@@ -32,6 +33,11 @@ class TrackControllerTest {
     @Test fun `a same-family activity while recording continues the track`() {
         // Walking ⇄ running (a common Activity-Recognition flip) stays one track, new segment.
         assertEquals(RecordingAction.ContinueSameTrack(RUNNING), recording(WALKING).onActivity(RUNNING))
+    }
+
+    @Test fun `a reading onto a Moving track relabels it`() {
+        assertEquals(RecordingAction.Relabel(WALKING), recording(UNKNOWN).onActivity(WALKING))
+        assertEquals(RecordingAction.Relabel(DRIVING), recording(UNKNOWN).onActivity(DRIVING))
     }
 
     // --- Stopping ---------------------------------------------------------

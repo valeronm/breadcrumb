@@ -4,6 +4,9 @@ package io.github.valeronm.breadcrumb.domain
  * The decision logic behind [ActivityTransitionReceiver]: given an already-unpacked Activity-
  * Recognition reading, decide what (if anything) to forward to the recorder. Pure and Android-free —
  * the receiver keeps the Intent unpacking, Play Services calls, and logging; this just decides.
+ *
+ * Neither route forwards [ActivityType.UNKNOWN]: on a recording track that label means no reading
+ * has named it yet.
  */
 object ActivityInterpreter {
 
@@ -21,6 +24,7 @@ object ActivityInterpreter {
      * Honored at any age — transitions are the only signal, so even a laggy one is worth acting on.
      */
     fun interpretTransition(detected: ActivityType, isExit: Boolean): TransitionDecision = when {
+        detected == ActivityType.UNKNOWN -> TransitionDecision.Ignore
         !isExit -> TransitionDecision.Forward(detected)
         detected.recording -> TransitionDecision.Forward(ActivityType.STILL, exitMapped = true)
         else -> TransitionDecision.Ignore
@@ -28,8 +32,8 @@ object ActivityInterpreter {
 
     /**
      * A snapshot's most-probable activity, if confident enough to act on — else null to ignore.
-     * Bidirectional (a confident reading drives the state either way); UNKNOWN and low-confidence
-     * readings (e.g. a cold engine's flat distribution) are dropped. The snapshot exists only to
+     * Bidirectional (a confident reading drives the state either way); low-confidence readings
+     * (e.g. a cold engine's flat distribution) are dropped. The snapshot exists only to
      * cover the gap between arming and the first transition: once any transition has applied since
      * arming ([transitionApplied]) the transition stream is authoritative and the snapshot is
      * dropped — it samples the *raw* classifier with none of the transition API's smoothing, so a
@@ -42,8 +46,9 @@ object ActivityInterpreter {
         confidenceThreshold: Int,
         transitionApplied: Boolean,
     ): ActivityType? = when {
+        mostProbable == ActivityType.UNKNOWN -> null
         transitionApplied -> null
-        confidence >= confidenceThreshold && mostProbable != ActivityType.UNKNOWN -> mostProbable
+        confidence >= confidenceThreshold -> mostProbable
         else -> null
     }
 }
