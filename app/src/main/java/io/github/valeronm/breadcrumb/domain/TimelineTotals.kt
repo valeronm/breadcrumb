@@ -86,13 +86,14 @@ class TimelineTotalsBuilder {
     /**
      * What one row contributes — **the single place that says**, so a row type added later cannot be
      * handled one way here and another way by a caller doing its own dispatch. A gap contributes
-     * nothing: it is time in which nothing was recorded.
+     * nothing: it is time in which nothing was recorded. Neither does the track being recorded,
+     * whose figures are the recorder's until it closes.
      */
     fun add(item: TimelineItem, nowMs: Long) {
         when (item) {
             is TimelineItem.TrackItem -> add(item.summary, nowMs)
             is TimelineItem.StayItem -> addStay(item, nowMs)
-            is TimelineItem.GapItem -> Unit
+            is TimelineItem.GapItem, is TimelineItem.RecordingItem -> Unit
         }
     }
 

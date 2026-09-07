@@ -446,6 +446,7 @@ private fun MainScreen(
                             TrackReplayer.start(context, track.id)
                             selectedTab = HomeTab.RECORD
                         },
+                        onOpenRecording = { selectedTab = HomeTab.RECORD },
                     )
 
                     HomeTab.PLACES -> PlacesTab(

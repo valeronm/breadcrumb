@@ -252,7 +252,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
         /** An item the row changes nothing on comes back as the same instance. */
         fun dress(item: TimelineItem): TimelineItem = when (item) {
-            is TimelineItem.TrackItem -> item
+            is TimelineItem.TrackItem, is TimelineItem.RecordingItem -> item
             is TimelineItem.StayItem -> {
                 val place = item.place?.let(::dress)
                 if (place === item.place) item else item.copy(place = place)
@@ -325,6 +325,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 is TimelineItem.TrackItem -> d.zonesOfTrack(item.summary.id).let {
                     item.copy(zone = it.start, endZone = it.end)
                 }
+                is TimelineItem.RecordingItem -> item
                 // The zones already rode in on the slice; only what the places table says is added.
                 is TimelineItem.GapItem -> item.copy(
                     fromPlace = item.gap.fromClusterId?.let(clusterPlaces::getOrNull),
@@ -344,6 +345,21 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         // hold the derivation that much longer.
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
+    /** A carrier rename rewrites the open track's label mid-track. */
+    private val recordingRow: Flow<TimelineItem.RecordingItem?> = TrackingStatus.state
+        .map {
+            // The start is published only while recording.
+            val startedAt = it.startedAtMillis
+            val id = it.activeTrackId
+            val label = it.trackActivity
+            if (startedAt != null && id != null && label != null) {
+                TimelineItem.RecordingItem(id, label, startedAt)
+            } else {
+                null
+            }
+        }
+        .distinctUntilChanged()
+
     /**
      * Tracks interleaved with derived stays and data gaps, newest first, sliced per local day.
      *
@@ -353,9 +369,15 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * backup restore — an offer that is only safe *because* there is nothing to merge with — so a
      * reader that can't tell the two apart makes that offer over the user's data.
      */
-    val timeline: StateFlow<List<TimelineItem>?> = combine(resolvedTimeline, pendingPlace) { items, pending ->
+    val timeline: StateFlow<List<TimelineItem>?> = combine(
+        resolvedTimeline,
+        pendingPlace,
+        recordingRow,
+    ) { items, pending, recording ->
         // Left alone rather than re-mapped when nothing is in flight, which is nearly always.
-        if (pending == null) items else items.map(pending::dress)
+        val dressed = if (pending == null) items else items.map(pending::dress)
+        // The trailing stay closes at the recording's start.
+        if (recording == null) dressed else listOf(recording) + dressed
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 

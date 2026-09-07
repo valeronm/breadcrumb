@@ -847,6 +847,7 @@ class LocationRecordingService : Service() {
                 activity = activity,
                 recording = rec,
                 activeTrackId = activeTrackId,
+                trackActivity = core.openTrackActivity,
                 distanceMeters = if (rec) ingest.distanceMeters else 0.0,
                 points = points,
                 startedAtMillis = if (rec && trackStartedAt > 0) trackStartedAt else null,

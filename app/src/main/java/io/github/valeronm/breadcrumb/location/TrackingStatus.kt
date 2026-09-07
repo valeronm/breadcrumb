@@ -15,6 +15,9 @@ object TrackingStatus {
         val recording: Boolean = false,
         /** Id of the track being recorded into, or null. */
         val activeTrackId: Long? = null,
+        /** The label that track's row is recorded under, which the ground never overrules the way
+         *  it overrules [activity] to "Moving". Null while no track is open. */
+        val trackActivity: ActivityType? = null,
         val distanceMeters: Double = 0.0,
         val points: Int = 0,
         /** Wall-clock start of the current track, null when not recording. */

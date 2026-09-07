@@ -241,6 +241,21 @@ class TimelineRowTest {
         compose.onNodeWithText(distance, substring = true).assertIsDisplayed()
     }
 
+    @Test
+    fun `the recording row names its activity and says it is recording`() {
+        row {
+            RecordingRow(
+                item = TimelineItem.RecordingItem(trackId = 1, activity = ActivityType.WALKING, startedAt = noon),
+                shape = SHAPE,
+                onClick = {},
+            )
+        }
+
+        val walking = context.getString(R.string.activity_walking)
+        compose.onNodeWithText(walking).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.duration_recording), substring = true).assertIsDisplayed()
+    }
+
     // --- Gap rows ------------------------------------------------------------
 
     private fun gapItem(

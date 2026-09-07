@@ -160,6 +160,8 @@ internal fun TimelineTab(
     /** Open the add-trip form on an absence, holding whatever the gap row it came from knows. */
     onAddTrip: (TripDraft) -> Unit,
     onReplay: (TrackSummary) -> Unit,
+    /** Open the Record tab — the recording row's tap, that being where the recording draws live. */
+    onOpenRecording: () -> Unit,
 ) {
     // No list, no day — the empty and restoring branches below return before a real reader is
     // installed, and a closure left over from a previous composition would read dead state.
@@ -182,7 +184,8 @@ internal fun TimelineTab(
             DerivingState(Modifier.fillMaxSize())
             return
         }
-        items.none { it is TimelineItem.TrackItem } -> {
+        // A recording alone is not an empty history: the restore offered here wants an empty database.
+        items.isEmpty() -> {
             EmptyTracksState(viewModel.importExport, progress = null)
             return
         }
@@ -299,6 +302,7 @@ internal fun TimelineTab(
                     onOpenJourney = onOpenJourney,
                     onAddTrip = onAddTrip,
                     onReplay = onReplay,
+                    onOpenRecording = onOpenRecording,
                     onOpenDayMap = openMap,
                     awayDays = awayDays,
                 )
@@ -332,6 +336,7 @@ private fun TimelineListPage(
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     onAddTrip: (TripDraft) -> Unit,
     onReplay: (TrackSummary) -> Unit,
+    onOpenRecording: () -> Unit,
     /** Open the map page on this day — a day header's date is the way in from here. */
     onOpenDayMap: (LocalDate) -> Unit,
     /** Which days sit inside a journey — the tab derives it once for both views. */
@@ -510,6 +515,11 @@ private fun TimelineListPage(
                                 } else {
                                     null
                                 },
+                            )
+                            is TimelineItem.RecordingItem -> RecordingRow(
+                                item = item,
+                                shape = shape,
+                                onClick = onOpenRecording,
                             )
                             is TimelineItem.StayItem -> StayRow(
                                 item = item,
@@ -969,6 +979,7 @@ internal val TimelineItem.filedOn: LocalDate get() = filedAt.toLocalDate(clock)
 
 internal fun TimelineItem.rowKey(): String = when (this) {
     is TimelineItem.TrackItem -> "track:${summary.id}"
+    is TimelineItem.RecordingItem -> "recording:$trackId"
     is TimelineItem.StayItem -> "stay:${stay.afterTrackId}:${stay.start}"
     is TimelineItem.GapItem -> "gap:${gap.start}"
 }
@@ -1046,6 +1057,36 @@ private fun EmptyTracksState(importExport: ImportExportController, progress: Imp
             )
         }
     }
+}
+
+/** No distance or duration on the track being recorded: the Record tab is where those tick, and
+ *  the tap goes there. */
+@Composable
+internal fun RecordingRow(
+    item: TimelineItem.RecordingItem,
+    shape: RoundedCornerShape,
+    onClick: () -> Unit,
+) {
+    val activityName = stringResource(item.activity.labelRes)
+    val zone = item.clock
+    val reader = timelineZone()
+    val shiftColor = zoneShiftColor
+    val readerClock = LocalReaderClock.current
+    ListRowCard(
+        shape = shape,
+        icon = activityIcon(item.activity),
+        disc = activityDiscStyle(item.activity),
+        iconDescription = activityName,
+        title = activityName,
+        titleColor = MaterialTheme.colorScheme.onSurface,
+        subtitle = durationText(item.startedAt, endedAt = null).let { recording ->
+            buildAnnotatedString {
+                appendTime(item.startedAt, zone, reader, shiftColor, readerClock)
+                append(" · $recording")
+            }
+        },
+        onClick = onClick,
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)

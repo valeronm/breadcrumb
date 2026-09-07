@@ -197,7 +197,8 @@ object TimelineRows {
     )
 }
 
-/** One row of the day-grouped timeline: a recorded track, a derived stay, or a data gap. */
+/** One row of the day-grouped timeline: a recorded track, the track being recorded, a derived
+ *  stay, or a data gap. */
 sealed interface TimelineItem {
     val startedAt: Long
 
@@ -239,6 +240,14 @@ sealed interface TimelineItem {
     ) : TimelineItem {
         override val startedAt get() = summary.startedAt
     }
+
+    /** The track being recorded into, whose distance and end are unknown until it closes. */
+    data class RecordingItem(
+        val trackId: Long,
+        val activity: ActivityType,
+        override val startedAt: Long,
+        override val zone: ZoneId? = null,
+    ) : TimelineItem
 
     data class StayItem(
         val stay: StayDeriver.Stay,

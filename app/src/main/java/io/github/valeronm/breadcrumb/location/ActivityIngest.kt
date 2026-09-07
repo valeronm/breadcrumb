@@ -63,7 +63,8 @@ class ActivityIngest(
 
     // The *track's* label as opened — a same-group activity switch keeps the track's original label,
     // so neither the carrier-evidence bar nor its rename verdict may follow the confirmed activity.
-    private var openTrackActivity: ActivityType? = null
+    var openTrackActivity: ActivityType? = null
+        private set
 
     val confirmed: ActivityType get() = gate.confirmed
     val parked: ActivityType? get() = gate.parked
