@@ -63,7 +63,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -722,9 +721,7 @@ private fun JourneyDetailOverlay(
 
 /**
  * Tuning a place's capture area: stacked above its detail, which the predictive-back gesture
- * previews underneath. The neighborhood the radius is judged against is resolved here rather than
- * on the detail below — nothing over there draws a map at all, so opening a place shouldn't pay for
- * one.
+ * previews underneath.
  */
 @Composable
 private fun PlaceEditOverlay(
@@ -742,14 +739,7 @@ private fun PlaceEditOverlay(
         // mid-edit.
         val summary = rememberPlaceSummary(placeSummaries, editKey, snapshot)
         summary?.let { detail ->
-            // Keyed on the place, not on the summaries: those take a new identity on every
-            // derivation, and redoing this would hand the map fresh neighbor, dot and rival lists
-            // — the GeoJSON re-upload the whole design avoids per drag step, fired by a track
-            // finishing somewhere instead. Gathered once for as long as the editor is open, which
-            // is what its own doc says it is for.
-            val neighborhood = remember(editKey) {
-                PlaceResolver.neighborhood(detail, placeSummaries.orEmpty(), AndroidDistance)
-            }
+            val neighborhood = rememberNeighborhood(editKey, detail, placeSummaries)
             // Their endpoints as gray dots, named neighbors as labeled pins — the only part of a
             // neighborhood that is about drawing rather than about what a radius would take.
             val neighbors = remember(neighborhood) {

@@ -181,6 +181,7 @@ internal fun PlacesTab(
         ViewSwitchRow(
             labelsRes = placesPageLabels,
             selectedIndex = page.ordinal,
+            modifier = Modifier.padding(horizontal = 16.dp),
             onSelect = { index ->
                 val selected = PlacesPage.entries[index]
                 page = selected

@@ -280,6 +280,7 @@ internal fun TimelineTab(
         ViewSwitchRow(
             labelsRes = timelinePageLabels,
             selectedIndex = page.ordinal,
+            modifier = Modifier.padding(horizontal = 16.dp),
             onSelect = { switchTo(TimelinePage.entries[it]) },
         )
         when (page) {

@@ -416,9 +416,17 @@ internal fun Modifier.swallowTaps(): Modifier = pointerInput(Unit) { detectTapGe
  * Re-selecting the chosen button never calls back, so callers switch unguarded. Labels arrive as
  * string resources and resolve here, so a caller can hand over one static list and the row skips
  * with it.
+ *
+ * The page's own margin arrives in [modifier], since a margin stated here would add to the one a
+ * page already has.
  */
 @Composable
-internal fun ViewSwitchRow(labelsRes: List<Int>, selectedIndex: Int, onSelect: (Int) -> Unit) {
+internal fun ViewSwitchRow(
+    labelsRes: List<Int>,
+    selectedIndex: Int,
+    modifier: Modifier = Modifier,
+    onSelect: (Int) -> Unit,
+) {
     // An unchecked button's own default is the role this app's light scheme puts on `background`,
     // which leaves it the exact colour of the page it sits on — no container, no join, just a word.
     // Stated as the role the cards take instead, so it reads as raised in both schemes rather than
@@ -427,7 +435,7 @@ internal fun ViewSwitchRow(labelsRes: List<Int>, selectedIndex: Int, onSelect: (
         containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
     )
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
     ) {
         labelsRes.forEachIndexed { index, labelRes ->

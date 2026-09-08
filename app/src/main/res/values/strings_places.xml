@@ -41,6 +41,8 @@
     <!-- Header: view switch, sort chips, the map's filter -->
     <string name="places_view_map">Map</string>
     <string name="places_view_list">List</string>
+    <!-- A place's own switch names what its list holds, where the tab's names how it is drawn. -->
+    <string name="places_view_visits">Visits</string>
     <string name="places_sort_recent">Recent</string>
     <string name="places_sort_most_visits">Most visits</string>
     <string name="places_sort_time_spent">Time spent</string>

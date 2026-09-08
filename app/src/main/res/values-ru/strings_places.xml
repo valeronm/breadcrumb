@@ -32,6 +32,7 @@
 
     <string name="places_view_map">Карта</string>
     <string name="places_view_list">Список</string>
+    <string name="places_view_visits">Посещения</string>
     <string name="places_sort_recent">Недавние</string>
     <string name="places_sort_most_visits">Посещения</string>
     <string name="places_sort_time_spent">Время</string>

@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
@@ -73,6 +74,25 @@ private fun markerIcon(
     unnamed: String,
     muted: Boolean = false,
 ): String = if (marker.label != null) placePinImage(marker.category, withGlyph, muted) else unnamed
+
+/**
+ * What surrounds [summary], for as long as [key] names the same place. Never kept against
+ * [summaries]: those take a new identity on every derivation, and redoing it would hand the map
+ * fresh neighbor and rival lists — a GeoJSON re-upload fired by a track finishing somewhere else.
+ * [key] is the caller's own identity for the place, since naming a cluster moves the key the
+ * *summary* carries.
+ *
+ * Re-walked once when [summaries] arrive, a walk taken before the derivation lands finding nothing
+ * to surround the place with.
+ */
+@Composable
+internal fun rememberNeighborhood(
+    key: String,
+    summary: PlaceResolver.PlaceSummary,
+    summaries: List<PlaceResolver.PlaceSummary>?,
+): PlaceResolver.Neighborhood = remember(key, summaries != null) {
+    PlaceResolver.neighborhood(summary, summaries.orEmpty(), AndroidDistance)
+}
 
 /**
  * Renders one place on the basemap: the cluster's capture circle (a meter-true polygon around

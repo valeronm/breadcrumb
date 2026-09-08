@@ -268,13 +268,17 @@ object PlaceResolver {
         /** The summaries within [NEIGHBOR_CONTEXT_M] of [subject]'s anchor. */
         val nearby: List<PlaceSummary>,
     ) {
-        /** Every endpoint a radius here could take: [subject]'s own plus the loose ones around it. */
-        val candidates: List<Coordinate> =
+        /**
+         * Every endpoint a radius here could take: [subject]'s own plus the loose ones around it.
+         * Lazy, building it being a copy of every endpoint in reach.
+         */
+        val candidates: List<Coordinate> by lazy {
             ArrayList<Coordinate>(subject.endpoints.size + nearby.sumOf { it.endpoints.size })
                 .apply {
                     addAll(subject.endpoints)
                     for (other in nearby) addAll(other.endpoints)
                 }
+        }
 
         /**
          * The pins that can out-compete [subject] for a candidate — **only *named* neighbors.**

@@ -39,6 +39,7 @@
 
     <string name="places_view_map">Mapa</string>
     <string name="places_view_list">Lista</string>
+    <string name="places_view_visits">Visitas</string>
     <!--
       Shorter than the English, deliberately: the three sit in one FlowRow and each grows by a
       check when selected, so the fuller "Mais visitas" / "Tempo passado" wrap to a second line.

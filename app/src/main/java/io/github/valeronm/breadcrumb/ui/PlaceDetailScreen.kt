@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,11 +33,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -99,6 +104,13 @@ private fun titleNeedsMoreThanOneLine(title: String, actionSlots: Int): Boolean 
 /** The bar's own start padding plus the gap it keeps between the title and the first action. */
 private val TOP_BAR_TITLE_INSET = 12.dp
 
+private enum class PlaceView(@StringRes val labelRes: Int) {
+    VISITS(R.string.places_view_visits),
+    MAP(R.string.places_view_map),
+}
+
+private val placeViewLabels = PlaceView.entries.map { it.labelRes }
+
 /**
  * Full-screen detail for one place: its name and category, its stats, and its visits. **It reads and
  * does not edit** — bar the category, whose one-tap chips are read off the name and belong beside the
@@ -106,19 +118,17 @@ private val TOP_BAR_TITLE_INSET = 12.dp
  * [onAdjustArea]: one screen changes what the user said about a place, and the title is a heading
  * rather than a second way in. Removing a place is that screen's own button, with an Undo.
  *
- * **No map.** One framed on the capture circle answers neither question worth asking here — at this
- * size it is a texture swatch rather than a locator, it cannot say where a place *is* without
- * zooming out past the circle it was drawn for, and its pin repeats the category glyph sitting a
- * finger's width above it. Both questions have better answers already: [PlaceEditScreen], which
- * [onAdjustArea] opens as a layer above this one, is a full-height map of the area and what
- * competes for it, and the maps-app action hands the pin to something built to say where. The
- * visits take the space instead, which is what this screen is actually for.
+ * **The map is a view of its own**, under a [ViewSwitchRow] below the stats — see [PlaceMapView] for
+ * what it draws. It is a whole page rather than a pane above the visits because at pane height the
+ * capture circle fills the frame, leaving no room to zoom out to where the place sits or in to what
+ * its circle takes.
  *
- * That holds only while [PlaceEditScreen] is reachable, and for a **detected stop** it once wasn't:
- * with no row to edit, the action was hidden and the maps app was the only way to see anything at all
- * — on the one screen whose whole job is working out what the place is. So the editor takes a name
- * too, and a stop's single filled "Create place" button opens it. No edit action there: nothing
- * exists to edit, and the button is the page's one offer.
+ * The switch is deliberately **not** persisted, unlike the Places tab's: a place is arrived at by
+ * tapping a row, and how the last one was read says nothing about this one.
+ *
+ * A **detected stop** keeps both views, on the screen whose whole job is working out what the place
+ * is. It carries no edit action, nothing existing yet to edit; its one filled "Create place" button
+ * opens the editor.
  */
 @Composable
 internal fun PlaceDetailScreen(
@@ -145,6 +155,7 @@ internal fun PlaceDetailScreen(
         summary.stays.groupBy { YearMonth.from(it.start.toLocalDate(zone)) }
     }
     val visitsState = rememberLazyListState()
+    var view by rememberSaveable { mutableStateOf(PlaceView.VISITS) }
     // One value for the headings and for the scrubber's labels alike: a month names itself against
     // the current year, and two readings of "now" could disagree across a midnight.
     val today = remember(zone) { LocalDate.now(zone) }
@@ -273,29 +284,42 @@ internal fun PlaceDetailScreen(
                 ) { Text(stringResource(R.string.places_create)) }
             }
             Card(Modifier.fillMaxWidth()) { PlaceStatsHeader(summary) }
-            if (summary.stays.isEmpty()) {
-                EmptyState(
-                    stringResource(R.string.places_no_visits_detail),
-                    Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp),
-                )
-            } else {
-                Box(Modifier.weight(1f)) {
-                    // The scroller the collapsing title reads. Lazy because a long-lived place
-                    // accumulates visits by the hundred.
-                    LazyColumn(
-                        Modifier.fillMaxSize(),
-                        state = visitsState,
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                        contentPadding = PaddingValues(bottom = 16.dp),
-                    ) {
-                        placeVisits(visitGroups, zone, today, nowMs, onOpenVisit)
-                    }
-                    FastScroller(
-                        state = visitsState,
-                        stops = visitStops,
-                        contentDescription = stringResource(R.string.places_scroll_visits),
-                        label = { monthLabel(it, today) },
+            ViewSwitchRow(
+                labelsRes = placeViewLabels,
+                selectedIndex = view.ordinal,
+                onSelect = { view = PlaceView.entries[it] },
+            )
+            when (view) {
+                PlaceView.VISITS -> if (summary.stays.isEmpty()) {
+                    EmptyState(
+                        stringResource(R.string.places_no_visits_detail),
+                        Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp),
                     )
+                } else {
+                    Box(Modifier.weight(1f)) {
+                        // The scroller the collapsing title reads. Lazy because a long-lived place
+                        // accumulates visits by the hundred.
+                        LazyColumn(
+                            Modifier.fillMaxSize(),
+                            state = visitsState,
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            contentPadding = PaddingValues(bottom = 16.dp),
+                        ) {
+                            placeVisits(visitGroups, zone, today, nowMs, onOpenVisit)
+                        }
+                        FastScroller(
+                            state = visitsState,
+                            stops = visitStops,
+                            contentDescription = stringResource(R.string.places_scroll_visits),
+                            label = { monthLabel(it, today) },
+                        )
+                    }
+                }
+
+                PlaceView.MAP -> Card(Modifier.weight(1f).fillMaxWidth().padding(bottom = 16.dp)) {
+                    Box(Modifier.fillMaxSize().clipToBounds()) {
+                        PlaceMapView(summary, viewModel, Modifier.fillMaxSize())
+                    }
                 }
             }
         }
@@ -347,6 +371,37 @@ private fun PlaceLocality(at: Coordinate, nowMs: Long, viewModel: TrackListViewM
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(start = 4.dp),
+    )
+}
+
+/**
+ * The place on the basemap, read-only: its pin and capture circle, the named places around it, and
+ * their capture areas muted underneath. Moving any of it is [PlaceEditScreen]'s.
+ *
+ * **No endpoint dots on either side.** A dot is the evidence a radius is set against, which is a
+ * question for the screen the radius can be moved on.
+ *
+ * The neighborhood is resolved under the switch, so opening a place pays for no map.
+ */
+@Composable
+private fun PlaceMapView(
+    summary: PlaceResolver.PlaceSummary,
+    viewModel: TrackListViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val summaries by viewModel.places.collectAsStateWithLifecycle()
+    val neighborhood = rememberNeighborhood(summary.key, summary, summaries)
+    val neighbors = remember(neighborhood) {
+        neighborhood.nearby.mapNotNull { other -> other.place?.let { PlaceMarker(other.anchor, it) } }
+    }
+    MapLibrePlaceMap(
+        center = PlaceMarker(summary.anchor, summary.place),
+        radiusM = summary.radiusM,
+        endpoints = emptyList(),
+        modifier = modifier,
+        neighbors = neighbors,
+        rivalAreas = neighborhood.rivals,
+        onLongPress = {},
     )
 }
 
