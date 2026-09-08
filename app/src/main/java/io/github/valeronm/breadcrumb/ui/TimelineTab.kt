@@ -93,7 +93,6 @@ import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
-import io.github.valeronm.breadcrumb.util.PerLocale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterNotNull
@@ -924,10 +923,10 @@ internal fun groupTimelineByDay(items: List<TimelineItem>): List<DayGroup> {
 }
 
 /**
- * One day's rows, carrying the date and not a heading for it. Naming the day is [dayLabel]'s job on
- * the screen: a date is what answers whether the day falls inside a travel, while a heading is
- * language, and phrasing it here would put a locale-resolved formatter — which reaches the Android
- * framework — inside a function whose whole point is being testable on a plain JVM.
+ * One day's rows, carrying the date and not a heading for it. Naming the day is [dayLabel]'s: a date
+ * is what answers whether the day falls inside a travel, while a heading is language, and phrasing
+ * it here would put a locale-resolved formatter — which reaches the Android framework — inside a
+ * function whose whole point is being testable on a plain JVM.
  */
 internal class DayGroup(val date: LocalDate, val items: List<TimelineItem>)
 
@@ -988,28 +987,6 @@ internal fun TimelineItem.rowKey(): String = when (this) {
     is TimelineItem.RecordingItem -> "recording:$trackId"
     is TimelineItem.StayItem -> "stay:${stay.afterTrackId}:${stay.start}"
     is TimelineItem.GapItem -> "gap:${gap.start}"
-}
-
-private val dayHeaderFormat by PerLocale { localizedDateFormat("EEEEdMMMMy", it) }
-
-private val dayHeaderFormatThisYear by PerLocale { localizedDateFormat("EEEEdMMMM", it) }
-
-/**
- * A day header stands on its own, so it takes the capital its language would give it there. The two
- * relative names are passed in already resolved, which keeps this callable from inside a `remember`
- * — [stringResource] is not.
- */
-private fun dayLabel(
-    date: LocalDate,
-    today: LocalDate,
-    todayText: String,
-    yesterdayText: String,
-): String = when {
-    date == today -> todayText
-    date == today.minusDays(1) -> yesterdayText
-    // The current year goes without saying.
-    date.year == today.year -> date.format(dayHeaderFormatThisYear).standaloneCase()
-    else -> date.format(dayHeaderFormat).standaloneCase()
 }
 
 /**

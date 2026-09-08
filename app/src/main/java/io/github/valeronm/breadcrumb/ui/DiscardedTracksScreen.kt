@@ -1,6 +1,8 @@
 package io.github.valeronm.breadcrumb.ui
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,10 +10,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.RestoreFromTrash
@@ -37,14 +38,20 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
+import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * "Recently deleted": every soft-deleted track — deleted by the user, filtered by the keep
  * thresholds, or replaced by a merge — with why it's here and how long until the retention
  * purge removes it for good. Rows restore in place; tapping opens the full track detail.
+ *
+ * Rows are headed by the day the trip was *recorded*, which is what the reader recognises a trip by.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun DiscardedTracksScreen(
     viewModel: TrackListViewModel,
@@ -55,6 +62,13 @@ internal fun DiscardedTracksScreen(
     val tracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
     val nowMs = remember { System.currentTimeMillis() }
     var showClearDialog by remember { mutableStateOf(false) }
+    val zone = timelineZone()
+    // Dates partition here where the timeline's can repeat, every row being read on one clock.
+    // Rows arrive newest first, and groupBy keeps that order.
+    val days = remember(tracks, zone) { tracks.groupBy { it.track.startedAt.toLocalDate(zone) } }
+    val today = remember(zone) { LocalDate.now(zone) }
+    val todayText = stringResource(R.string.relative_today).standaloneCase()
+    val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -97,72 +111,31 @@ internal fun DiscardedTracksScreen(
                         modifier = Modifier.padding(vertical = 12.dp),
                     )
                 }
-                items(tracks, key = { it.track.id }) { row ->
-                    val t = row.track
-                    val activity = ActivityType.ofName(t.activityType) ?: ActivityType.UNKNOWN
-                    Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .clickable { onOpenTrack(t.id) }
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            activityIcon(activity),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp),
+                days.forEach { (date, dayRows) ->
+                    stickyHeader(key = "header:$date") {
+                        Text(
+                            dayLabel(date, today, todayText, yesterdayText),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.background)
+                                .swallowTaps()
+                                .padding(top = 14.dp, bottom = 6.dp),
                         )
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            val started = dateTimeText(t.startedAt, timelineZone())
-                            Text(
-                                "${activityLabel(LocalContext.current, t.activityType)} · $started",
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                            // The separators stay in code, out of the wording: they are layout
-                            // between facts, not part of any of them. Each fact is a whole phrase —
-                            // the count included, which is why it comes from the same plural the
-                            // track detail counts fixes with rather than from a word written here.
-                            Text(
-                                listOfNotNull(
-                                    pluralStringResource(
-                                        R.plurals.track_points,
-                                        t.pointCount,
-                                        t.pointCount,
-                                    ),
-                                    distanceText(t.distanceMeters),
-                                    durationText(t.startedAt, t.endedAt),
-                                    if (t.ignoredCount > 0) {
-                                        pluralStringResource(
-                                            R.plurals.discarded_excluded,
-                                            t.ignoredCount,
-                                            t.ignoredCount,
-                                        )
-                                    } else {
-                                        null
-                                    },
-                                ).joinToString(" · "),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                listOfNotNull(
-                                    discardReasonRes(row.discardReason)?.let { stringResource(it) },
-                                    purgeCountdown(row.discardedAt, nowMs),
-                                ).joinToString(" · "),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        IconButton(onClick = { viewModel.restoreTrack(t.id) }) {
-                            Icon(
-                                Icons.Filled.RestoreFromTrash,
-                                contentDescription = stringResource(R.string.discarded_restore),
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
+                    }
+                    itemsIndexed(dayRows, key = { _, row -> row.track.id }) { index, row ->
+                        DiscardedRow(
+                            row = row,
+                            zone = zone,
+                            nowMs = nowMs,
+                            onOpen = { onOpenTrack(row.track.id) },
+                            onRestore = { viewModel.restoreTrack(row.track.id) },
+                        )
+                        // The next header divides the last row of a day from what follows it.
+                        if (index < dayRows.lastIndex) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 }
             }
         }
@@ -184,6 +157,80 @@ internal fun DiscardedTracksScreen(
             },
             onDismiss = { showClearDialog = false },
         )
+    }
+}
+
+@Composable
+private fun DiscardedRow(
+    row: DiscardedSummary,
+    zone: ZoneId,
+    nowMs: Long,
+    onOpen: () -> Unit,
+    onRestore: () -> Unit,
+) {
+    val t = row.track
+    val activity = ActivityType.ofName(t.activityType)
+    val activityName = activityLabel(LocalContext.current, t.activityType)
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .clickable(onClick = onOpen)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconDisc(
+            activityIcon(activity),
+            activityDiscStyle(activity),
+            contentDescription = activityName,
+        )
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            val started = timeText(t.startedAt, zone)
+            Text(
+                "$activityName · $started",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            // The separators stay in code, out of the wording: they are layout
+            // between facts, not part of any of them. Each fact is a whole phrase —
+            // the count included, which is why it comes from the same plural the
+            // track detail counts fixes with rather than from a word written here.
+            Text(
+                listOfNotNull(
+                    pluralStringResource(
+                        R.plurals.track_points,
+                        t.pointCount,
+                        t.pointCount,
+                    ),
+                    distanceText(t.distanceMeters),
+                    durationText(t.startedAt, t.endedAt),
+                    if (t.ignoredCount > 0) {
+                        pluralStringResource(
+                            R.plurals.discarded_excluded,
+                            t.ignoredCount,
+                            t.ignoredCount,
+                        )
+                    } else {
+                        null
+                    },
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                listOfNotNull(
+                    discardReasonRes(row.discardReason)?.let { stringResource(it) },
+                    purgeCountdown(row.discardedAt, nowMs),
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onRestore) {
+            Icon(
+                Icons.Filled.RestoreFromTrash,
+                contentDescription = stringResource(R.string.discarded_restore),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
     }
 }
 

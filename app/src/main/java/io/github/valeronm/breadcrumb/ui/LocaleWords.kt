@@ -145,3 +145,25 @@ internal fun monthLabel(month: YearMonth, today: LocalDate): String =
     } else {
         monthYearLabel(month)
     }
+
+private val dayHeaderFormat by PerLocale { localizedDateFormat("EEEEdMMMMy", it) }
+
+private val dayHeaderFormatThisYear by PerLocale { localizedDateFormat("EEEEdMMMM", it) }
+
+/**
+ * A day heading stands on its own, so it takes the capital its language would give it there. The two
+ * relative names are passed in already resolved, which keeps this callable from inside a `remember`
+ * — [stringResource] is not.
+ */
+internal fun dayLabel(
+    date: LocalDate,
+    today: LocalDate,
+    todayText: String,
+    yesterdayText: String,
+): String = when {
+    date == today -> todayText
+    date == today.minusDays(1) -> yesterdayText
+    // The current year goes without saying.
+    date.year == today.year -> date.format(dayHeaderFormatThisYear).standaloneCase()
+    else -> date.format(dayHeaderFormat).standaloneCase()
+}
