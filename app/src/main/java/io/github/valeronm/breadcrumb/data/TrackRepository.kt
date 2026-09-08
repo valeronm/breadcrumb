@@ -13,6 +13,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.DiscardReason
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
@@ -460,7 +461,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 track.id,
                 endedAt = applied.bounds.endedAt,
                 discardedAt = endedAt,
-                reason = Track.REASON_FILTERED,
+                reason = DiscardReason.FILTERED.code,
             )
             KeepRule.Verdict.PURGE -> dao.purgeTrack(track.id)
         }
@@ -494,7 +495,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun deleteTrack(trackId: Long): Boolean =
         db.withTransaction {
             closedTrack(trackId) ?: return@withTransaction false
-            dao.setDiscarded(trackId, System.currentTimeMillis(), Track.REASON_DELETED)
+            dao.setDiscarded(trackId, System.currentTimeMillis(), DiscardReason.DELETED.code)
             derivation.reknit(listOf(trackId))
             true
         }
@@ -519,9 +520,12 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         }
     }
 
-    /** Hard-delete everything in Recently deleted right now (the user's "clear all"). */
-    suspend fun purgeAllDiscarded() {
-        val purged = dao.purgeAllDiscarded()
+    /** Hard-delete these tracks out of Recently deleted. A track the caller names that is no longer
+     *  discarded stays, the restore having outrun the tap. */
+    suspend fun purgeDiscarded(ids: List<Long>) {
+        val purged = db.withTransaction {
+            ids.chunked(IDS_PER_STATEMENT).sumOf { dao.purgeDiscarded(it) }
+        }
         if (purged > 0) DebugLog.i(TAG, "cleared $purged track(s) from Recently deleted")
     }
 
@@ -561,8 +565,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // two halves counts like any other leg — a sum of the originals would leave it out.
             settler.settleAndRefresh(merged, merged.endedAt!!, dao.allPointsFor(mergedId), totalsStale = true)
             val now = System.currentTimeMillis()
-            dao.setDiscarded(earlierId, now, Track.REASON_MERGED)
-            dao.setDiscarded(laterId, now, Track.REASON_MERGED)
+            dao.setDiscarded(earlierId, now, DiscardReason.MERGED.code)
+            dao.setDiscarded(laterId, now, DiscardReason.MERGED.code)
             derivation.reknit(listOf(mergedId, earlierId, laterId))
             mergedId
         }

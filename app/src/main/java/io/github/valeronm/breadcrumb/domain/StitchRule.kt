@@ -43,7 +43,9 @@ object StitchRule {
         // A track filed by the keep thresholds is exactly what a return may yet make long enough; a
         // discard the *user* made is not, and neither is one whose reason no longer reads (see
         // Track.discardReason), since nothing then says whose decision it was.
-        if (last.discardedAt != null && last.discardReason != Track.REASON_FILTERED) return null
+        if (last.discardedAt != null && DiscardReason.fromCode(last.discardReason) != DiscardReason.FILTERED) {
+            return null
+        }
         val label = ActivityType.ofName(last.activityType) ?: return null
         if (!label.sharesTrackWith(opening)) return null
         // A track with no points at all has nothing to date the window from.

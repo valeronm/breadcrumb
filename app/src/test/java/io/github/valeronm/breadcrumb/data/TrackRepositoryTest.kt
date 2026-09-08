@@ -7,6 +7,7 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.DiscardReason
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -177,7 +178,7 @@ class TrackRepositoryTest {
         repository.finishTrack(id, TEST_START + 20_000)
 
         val track = dao.track(id)!!
-        assertEquals(Track.REASON_FILTERED, track.discardReason)
+        assertEquals(DiscardReason.FILTERED.code, track.discardReason)
         test.assertStatsMatchPoints(id)
     }
 
@@ -200,7 +201,7 @@ class TrackRepositoryTest {
         repository.finishTrack(id, TEST_START + 50_000)
 
         val track = dao.track(id)!!
-        assertEquals(Track.REASON_FILTERED, track.discardReason)
+        assertEquals(DiscardReason.FILTERED.code, track.discardReason)
         assertEquals(5, track.ignoredCount)
         test.assertStatsMatchPoints(id)
     }
@@ -220,8 +221,8 @@ class TrackRepositoryTest {
         // Recomputed over the whole merged path, the leg across the join included — a sum of the
         // two originals' distances would leave that out.
         test.assertStatsMatchPoints(mergedId)
-        assertEquals(Track.REASON_MERGED, dao.track(first)!!.discardReason)
-        assertEquals(Track.REASON_MERGED, dao.track(second)!!.discardReason)
+        assertEquals(DiscardReason.MERGED.code, dao.track(first)!!.discardReason)
+        assertEquals(DiscardReason.MERGED.code, dao.track(second)!!.discardReason)
     }
 
     @Test fun `dropping a leading stray updates the counts and the distance together`() = runTest {
@@ -724,7 +725,7 @@ class TrackRepositoryTest {
         val id = finishedWalk(0)
 
         repository.deleteTrack(id)
-        assertEquals(Track.REASON_DELETED, dao.track(id)!!.discardReason)
+        assertEquals(DiscardReason.DELETED.code, dao.track(id)!!.discardReason)
 
         repository.restoreTrack(id)
         val restored = dao.track(id)!!
@@ -737,8 +738,8 @@ class TrackRepositoryTest {
         val old = finishedWalk(0)
         val recent = finishedWalk(12)
         val now = System.currentTimeMillis()
-        dao.setDiscarded(old, now - 15 * 86_400_000L, Track.REASON_DELETED)
-        dao.setDiscarded(recent, now - 86_400_000L, Track.REASON_DELETED)
+        dao.setDiscarded(old, now - 15 * 86_400_000L, DiscardReason.DELETED.code)
+        dao.setDiscarded(recent, now - 86_400_000L, DiscardReason.DELETED.code)
 
         repository.purgeOldDiscarded()
 
@@ -752,7 +753,7 @@ class TrackRepositoryTest {
         val deleted = finishedWalk(12)
         repository.deleteTrack(deleted)
 
-        repository.purgeAllDiscarded()
+        repository.purgeDiscarded(listOf(kept, deleted))
 
         assertNull(dao.track(deleted))
         assertNull("the kept track is untouched", dao.track(kept)!!.discardedAt)
@@ -822,6 +823,6 @@ class TrackRepositoryTest {
 
         repository.finishTrack(id, TEST_START + 60_000)
 
-        assertEquals(Track.REASON_FILTERED, dao.track(id)!!.discardReason)
+        assertEquals(DiscardReason.FILTERED.code, dao.track(id)!!.discardReason)
     }
 }

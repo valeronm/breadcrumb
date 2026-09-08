@@ -6,6 +6,11 @@
     <string name="discarded_empty">Удалённых поездок нет. Они появляются здесь, когда вы удаляете поездку или её отсеивает фильтр, и их можно восстановить в течение %1$d дней.</string>
     <string name="discarded_retention">Поездки хранятся здесь %1$d дней, затем удаляются навсегда</string>
     <string name="discarded_restore">Восстановить поездку</string>
+
+    <string name="discarded_filter_all">Все</string>
+    <string name="discarded_filter_you">Вами</string>
+    <string name="discarded_filter_automatic">Автоматически</string>
+    <string name="discarded_none_of_source">Здесь нет поездок, подходящих под этот фильтр.</string>
     <plurals name="discarded_excluded">
         <item quantity="one">%d исключена</item>
         <item quantity="few">%d исключены</item>

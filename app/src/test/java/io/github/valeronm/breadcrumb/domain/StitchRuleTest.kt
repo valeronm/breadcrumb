@@ -90,13 +90,13 @@ class StitchRuleTest {
     }
 
     @Test fun `a track filed by the keep thresholds is continued, and comes back with it`() {
-        val filed = track(discardedAt = ENDED, discardReason = Track.REASON_FILTERED)
+        val filed = track(discardedAt = ENDED, discardReason = DiscardReason.FILTERED.code)
         assertTrue(continues(last = filed))
     }
 
     @Test fun `a discard the user made is not resurrected`() {
-        assertFalse(continues(last = track(discardedAt = ENDED, discardReason = Track.REASON_DELETED)))
-        assertFalse(continues(last = track(discardedAt = ENDED, discardReason = Track.REASON_MERGED)))
+        assertFalse(continues(last = track(discardedAt = ENDED, discardReason = DiscardReason.DELETED.code)))
+        assertFalse(continues(last = track(discardedAt = ENDED, discardReason = DiscardReason.MERGED.code)))
     }
 
     @Test fun `a discarded row whose reason no longer reads is refused`() {

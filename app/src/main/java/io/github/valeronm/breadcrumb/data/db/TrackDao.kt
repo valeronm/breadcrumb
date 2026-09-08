@@ -107,9 +107,10 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL AND discardedAt < :cutoff")
     suspend fun purgeDiscardedBefore(cutoff: Long): Int
 
-    /** Hard-delete every soft-deleted track now — the Recently deleted screen's "clear all". */
-    @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL")
-    suspend fun purgeAllDiscarded(): Int
+    /** Hard-delete the named soft-deleted tracks (points cascade). Returns the count.
+     *  Callers must chunk by [IDS_PER_STATEMENT]. */
+    @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL AND id IN (:ids)")
+    suspend fun purgeDiscarded(ids: List<Long>): Int
 
     // --- Track merge and split (one copies points onto a new track, the other rehomes them) -----
 

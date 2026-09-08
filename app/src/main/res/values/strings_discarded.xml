@@ -7,6 +7,13 @@
     <string name="discarded_empty">No deleted trips. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d days.</string>
     <string name="discarded_retention">Trips stay here for %1$d days, then are deleted forever</string>
     <string name="discarded_restore">Restore trip</string>
+
+    <!-- The app's side is named by what it did, a reader knowing a keep rule only as something
+         that happened without them. -->
+    <string name="discarded_filter_all">All</string>
+    <string name="discarded_filter_you">By you</string>
+    <string name="discarded_filter_automatic">Automatic</string>
+    <string name="discarded_none_of_source">No trips here match this filter.</string>
     <!--
       "excluded", not "noisy": the count covers both species — bad fixes and the recorder's overrun
       at the edges — and what they have in common is being left out of the path.

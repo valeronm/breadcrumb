@@ -1,7 +1,7 @@
 package io.github.valeronm.breadcrumb.data
 
-import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.DiscardReason
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -92,7 +92,7 @@ class TrackStitchTest {
         repository.addPoints((0..2).map { test.point(first.trackId, it) })
         val lastFix = TEST_START + 2 * 10_000L
         repository.finishTrack(first.trackId, lastFix)
-        assertEquals(Track.REASON_FILTERED, dao.track(first.trackId)!!.discardReason)
+        assertEquals(DiscardReason.FILTERED.code, dao.track(first.trackId)!!.discardReason)
 
         val second = repository.openOrStitch(ActivityType.WALKING, lastFix + 60_000L, window)
 
@@ -131,7 +131,7 @@ class TrackStitchTest {
         val resumed = repository.openOrStitch(ActivityType.WALKING, lastFix + 60_000L, window)
 
         assertFalse(resumed.stitched)
-        assertEquals(Track.REASON_DELETED, dao.track(id)!!.discardReason)
+        assertEquals(DiscardReason.DELETED.code, dao.track(id)!!.discardReason)
     }
 
     @Test fun `the label recorded under is the row's, not the one asked for`() = runTest {

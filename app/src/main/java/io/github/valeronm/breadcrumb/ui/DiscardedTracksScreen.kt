@@ -4,6 +4,8 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.RestoreFromTrash
@@ -28,6 +31,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,10 +43,27 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
-import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.DiscardReason
 import java.time.LocalDate
 import java.time.ZoneId
+
+/** A row whose reason no longer reads is [AUTOMATIC]'s: nothing says the user made that decision. */
+private enum class DiscardFilter(@StringRes val labelRes: Int) {
+    ALL(R.string.discarded_filter_all),
+    YOU(R.string.discarded_filter_you),
+    AUTOMATIC(R.string.discarded_filter_automatic),
+    ;
+
+    fun holds(row: DiscardedSummary): Boolean {
+        val byUser = DiscardReason.fromCode(row.discardReason)?.byUser == true
+        return when (this) {
+            ALL -> true
+            YOU -> byUser
+            AUTOMATIC -> !byUser
+        }
+    }
+}
 
 /**
  * "Recently deleted": every soft-deleted track — deleted by the user, filtered by the keep
@@ -50,6 +71,9 @@ import java.time.ZoneId
  * purge removes it for good. Rows restore in place; tapping opens the full track detail.
  *
  * Rows are headed by the day the trip was *recorded*, which is what the reader recognises a trip by.
+ *
+ * A button that deletes for good may not offer to take rows that are off screen, so **the count and
+ * "clear all" speak for what the chips show**.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -62,29 +86,26 @@ internal fun DiscardedTracksScreen(
     val tracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
     val nowMs = remember { System.currentTimeMillis() }
     var showClearDialog by remember { mutableStateOf(false) }
-    val zone = timelineZone()
-    // Dates partition here where the timeline's can repeat, every row being read on one clock.
-    // Rows arrive newest first, and groupBy keeps that order.
-    val days = remember(tracks, zone) { tracks.groupBy { it.track.startedAt.toLocalDate(zone) } }
-    val today = remember(zone) { LocalDate.now(zone) }
-    val todayText = stringResource(R.string.relative_today).standaloneCase()
-    val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
+    var filter by rememberSaveable { mutableStateOf(DiscardFilter.ALL) }
+    val shown = remember(tracks, filter) {
+        if (filter == DiscardFilter.ALL) tracks else tracks.filter(filter::holds)
+    }
     Scaffold(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
                 title = {
                     Text(
-                        if (tracks.isEmpty()) {
+                        if (shown.isEmpty()) {
                             stringResource(R.string.discarded_title)
                         } else {
-                            stringResource(R.string.discarded_title_count, tracks.size)
+                            stringResource(R.string.discarded_title_count, shown.size)
                         },
                     )
                 },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
-                    if (tracks.isNotEmpty()) {
+                    if (shown.isNotEmpty()) {
                         IconButton(onClick = { showClearDialog = true }) {
                             Icon(
                                 Icons.Filled.DeleteForever,
@@ -102,40 +123,34 @@ internal fun DiscardedTracksScreen(
                 Modifier.padding(inner).fillMaxSize().padding(horizontal = 24.dp),
             )
         } else {
-            LazyColumn(modifier = Modifier.padding(inner).fillMaxSize().padding(horizontal = 16.dp)) {
-                item {
-                    Text(
-                        stringResource(R.string.discarded_retention, DISCARDED_RETENTION_DAYS),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 12.dp),
-                    )
+            Column(Modifier.padding(inner).fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DiscardFilter.entries.forEach { option ->
+                        FilterToggleChip(
+                            selected = filter == option,
+                            label = stringResource(option.labelRes),
+                        ) { filter = option }
+                    }
                 }
-                days.forEach { (date, dayRows) ->
-                    stickyHeader(key = "header:$date") {
-                        Text(
-                            dayLabel(date, today, todayText, yesterdayText),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.background)
-                                .swallowTaps()
-                                .padding(top = 14.dp, bottom = 6.dp),
-                        )
-                    }
-                    itemsIndexed(dayRows, key = { _, row -> row.track.id }) { index, row ->
-                        DiscardedRow(
-                            row = row,
-                            zone = zone,
-                            nowMs = nowMs,
-                            onOpen = { onOpenTrack(row.track.id) },
-                            onRestore = { viewModel.restoreTrack(row.track.id) },
-                        )
-                        // The next header divides the last row of a day from what follows it.
-                        if (index < dayRows.lastIndex) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-                        }
-                    }
+                if (shown.isEmpty()) {
+                    // The chip emptied the list, not the retention purge.
+                    EmptyState(
+                        stringResource(R.string.discarded_none_of_source),
+                        Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp),
+                    )
+                } else {
+                    DiscardedList(
+                        rows = shown,
+                        nowMs = nowMs,
+                        onOpenTrack = onOpenTrack,
+                        onRestore = viewModel::restoreTrack,
+                    )
                 }
             }
         }
@@ -147,16 +162,69 @@ internal fun DiscardedTracksScreen(
             title = stringResource(R.string.discarded_clear_confirm_title),
             text = pluralStringResource(
                 R.plurals.discarded_clear_confirm_body,
-                tracks.size,
-                tracks.size,
+                shown.size,
+                shown.size,
             ),
             confirmLabel = stringResource(R.string.discarded_delete_all),
             onConfirm = {
-                viewModel.purgeAllDiscarded()
+                viewModel.purgeDiscarded(shown.map { it.track.id })
                 showClearDialog = false
             },
             onDismiss = { showClearDialog = false },
         )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DiscardedList(
+    rows: List<DiscardedSummary>,
+    nowMs: Long,
+    onOpenTrack: (Long) -> Unit,
+    onRestore: (Long) -> Unit,
+) {
+    val zone = timelineZone()
+    // Dates partition here where the timeline's can repeat, every row being read on one clock.
+    // Rows arrive newest first, and groupBy keeps that order.
+    val days = remember(rows, zone) { rows.groupBy { it.track.startedAt.toLocalDate(zone) } }
+    val today = remember(zone) { LocalDate.now(zone) }
+    val todayText = stringResource(R.string.relative_today).standaloneCase()
+    val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        item {
+            Text(
+                stringResource(R.string.discarded_retention, DISCARDED_RETENTION_DAYS),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 12.dp),
+            )
+        }
+        days.forEach { (date, dayRows) ->
+            stickyHeader(key = "header:$date") {
+                Text(
+                    dayLabel(date, today, todayText, yesterdayText),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background)
+                        .swallowTaps()
+                        .padding(top = 14.dp, bottom = 6.dp),
+                )
+            }
+            itemsIndexed(dayRows, key = { _, row -> row.track.id }) { index, row ->
+                DiscardedRow(
+                    row = row,
+                    zone = zone,
+                    nowMs = nowMs,
+                    onOpen = { onOpenTrack(row.track.id) },
+                    onRestore = { onRestore(row.track.id) },
+                )
+                // The next header divides the last row of a day from what follows it.
+                if (index < dayRows.lastIndex) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                }
+            }
+        }
     }
 }
 
@@ -235,11 +303,11 @@ private fun DiscardedRow(
 }
 
 @StringRes
-private fun discardReasonRes(reason: String?): Int? = when (reason) {
-    Track.REASON_DELETED -> R.string.discarded_reason_deleted
-    Track.REASON_FILTERED -> R.string.discarded_reason_filtered
-    Track.REASON_MERGED -> R.string.discarded_reason_merged
-    else -> null
+private fun discardReasonRes(reason: String?): Int? = when (DiscardReason.fromCode(reason)) {
+    DiscardReason.DELETED -> R.string.discarded_reason_deleted
+    DiscardReason.FILTERED -> R.string.discarded_reason_filtered
+    DiscardReason.MERGED -> R.string.discarded_reason_merged
+    null -> null
 }
 
 /** "9 days left" until the retention purge; clamps at "removal due". */

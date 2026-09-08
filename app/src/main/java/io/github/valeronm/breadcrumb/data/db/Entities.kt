@@ -46,9 +46,11 @@ data class Track(
      * retention purge hard-deletes it.
      */
     val discardedAt: Long? = null,
-    /** Why it was discarded — [REASON_DELETED] | [REASON_FILTERED] | [REASON_MERGED]; null on
-     *  rows discarded before reasons were tracked, and on rows whose reason's code has since
-     *  been retired. */
+    /**
+     * Why it was discarded — an [io.github.valeronm.breadcrumb.domain.DiscardReason.code] string,
+     * null on rows discarded before reasons were tracked and on rows whose code has since been
+     * retired.
+     */
     val discardReason: String? = null,
     /**
      * Dormant, kept on purpose. It marked a track whose edge stay awaited the user's accept/reject;
@@ -61,13 +63,7 @@ data class Track(
      * devices that no pass ever cleared.
      */
     val needsReview: Boolean = false,
-) {
-    companion object {
-        const val REASON_DELETED = "deleted"
-        const val REASON_FILTERED = "filtered"
-        const val REASON_MERGED = "merged"
-    }
-}
+)
 
 @Entity(
     tableName = "track_points",

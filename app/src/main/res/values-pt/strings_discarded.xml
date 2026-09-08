@@ -6,6 +6,11 @@
     <string name="discarded_empty">Sem viagens eliminadas. Aparecem aqui quando elimina uma ou quando uma regra a descarta, e ficam recuperáveis durante %1$d dias.</string>
     <string name="discarded_retention">As viagens ficam aqui %1$d dias e depois são eliminadas definitivamente</string>
     <string name="discarded_restore">Recuperar a viagem</string>
+
+    <string name="discarded_filter_all">Todas</string>
+    <string name="discarded_filter_you">Por si</string>
+    <string name="discarded_filter_automatic">Automáticas</string>
+    <string name="discarded_none_of_source">Nenhuma viagem aqui corresponde a este filtro.</string>
     <plurals name="discarded_excluded">
         <item quantity="one">%d excluído</item>
         <item quantity="other">%d excluídos</item>
