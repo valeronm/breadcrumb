@@ -48,7 +48,6 @@ import io.github.valeronm.breadcrumb.domain.DiscardReason
 import java.time.LocalDate
 import java.time.ZoneId
 
-/** A row whose reason no longer reads is [AUTOMATIC]'s: nothing says the user made that decision. */
 private enum class DiscardFilter(@StringRes val labelRes: Int) {
     ALL(R.string.discarded_filter_all),
     YOU(R.string.discarded_filter_you),
@@ -56,11 +55,11 @@ private enum class DiscardFilter(@StringRes val labelRes: Int) {
     ;
 
     fun holds(row: DiscardedSummary): Boolean {
-        val byUser = DiscardReason.fromCode(row.discardReason)?.byUser == true
+        val byUser = DiscardReason.fromCode(row.discardReason)?.byUser
         return when (this) {
             ALL -> true
-            YOU -> byUser
-            AUTOMATIC -> !byUser
+            YOU -> byUser == true
+            AUTOMATIC -> byUser == false
         }
     }
 }
@@ -72,8 +71,8 @@ private enum class DiscardFilter(@StringRes val labelRes: Int) {
  *
  * Rows are headed by the day the trip was *recorded*, which is what the reader recognises a trip by.
  *
- * A button that deletes for good may not offer to take rows that are off screen, so **the count and
- * "clear all" speak for what the chips show**.
+ * The chips narrow what is listed and nothing else — **"clear all" empties Recently deleted
+ * whatever chip is showing**.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -87,9 +86,7 @@ internal fun DiscardedTracksScreen(
     val nowMs = remember { System.currentTimeMillis() }
     var showClearDialog by remember { mutableStateOf(false) }
     var filter by rememberSaveable { mutableStateOf(DiscardFilter.ALL) }
-    val shown = remember(tracks, filter) {
-        if (filter == DiscardFilter.ALL) tracks else tracks.filter(filter::holds)
-    }
+    val shown = remember(tracks, filter) { tracks.filter(filter::holds) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -105,7 +102,7 @@ internal fun DiscardedTracksScreen(
                 },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
-                    if (shown.isNotEmpty()) {
+                    if (tracks.isNotEmpty()) {
                         IconButton(onClick = { showClearDialog = true }) {
                             Icon(
                                 Icons.Filled.DeleteForever,
@@ -162,12 +159,12 @@ internal fun DiscardedTracksScreen(
             title = stringResource(R.string.discarded_clear_confirm_title),
             text = pluralStringResource(
                 R.plurals.discarded_clear_confirm_body,
-                shown.size,
-                shown.size,
+                tracks.size,
+                tracks.size,
             ),
             confirmLabel = stringResource(R.string.discarded_delete_all),
             onConfirm = {
-                viewModel.purgeDiscarded(shown.map { it.track.id })
+                tracks.maxOfOrNull { it.discardedAt }?.let(viewModel::purgeDiscarded)
                 showClearDialog = false
             },
             onDismiss = { showClearDialog = false },

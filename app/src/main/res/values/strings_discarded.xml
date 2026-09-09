@@ -24,8 +24,8 @@
     </plurals>
     <string name="discarded_clear_confirm_title">Clear Recently deleted?</string>
     <plurals name="discarded_clear_confirm_body">
-        <item quantity="one">The one trip here will be permanently deleted. This can\'t be undone.</item>
-        <item quantity="other">All %d trips here will be permanently deleted. This can\'t be undone.</item>
+        <item quantity="one">The one trip will be permanently deleted. This can\'t be undone.</item>
+        <item quantity="other">All %d trips will be permanently deleted. This can\'t be undone.</item>
     </plurals>
     <string name="discarded_delete_all">Delete all</string>
 

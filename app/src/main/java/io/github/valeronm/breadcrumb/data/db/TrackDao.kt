@@ -103,14 +103,10 @@ interface TrackDao {
     )
     suspend fun reopenTrack(trackId: Long)
 
-    /** Hard-delete soft-deleted tracks discarded before [cutoff] (points cascade). Returns the count. */
-    @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL AND discardedAt < :cutoff")
-    suspend fun purgeDiscardedBefore(cutoff: Long): Int
-
-    /** Hard-delete the named soft-deleted tracks (points cascade). Returns the count.
-     *  Callers must chunk by [IDS_PER_STATEMENT]. */
-    @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL AND id IN (:ids)")
-    suspend fun purgeDiscarded(ids: List<Long>): Int
+    /** Hard-delete soft-deleted tracks discarded at or before [through] (points cascade). Returns
+     *  the count. */
+    @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL AND discardedAt <= :through")
+    suspend fun purgeDiscardedThrough(through: Long): Int
 
     // --- Track merge and split (one copies points onto a new track, the other rehomes them) -----
 

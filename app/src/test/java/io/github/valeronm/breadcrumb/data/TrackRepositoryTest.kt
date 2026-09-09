@@ -753,10 +753,23 @@ class TrackRepositoryTest {
         val deleted = finishedWalk(12)
         repository.deleteTrack(deleted)
 
-        repository.purgeDiscarded(listOf(kept, deleted))
+        repository.purgeDiscarded(System.currentTimeMillis())
 
         assertNull(dao.track(deleted))
         assertNull("the kept track is untouched", dao.track(kept)!!.discardedAt)
+    }
+
+    @Test fun `clear all leaves a track discarded past the bound it was given`() = runTest {
+        val bounded = finishedWalk(0)
+        val late = finishedWalk(12)
+        repository.deleteTrack(bounded)
+        val through = dao.track(bounded)!!.discardedAt!!
+        dao.setDiscarded(late, through + 1, DiscardReason.FILTERED.code)
+
+        repository.purgeDiscarded(through)
+
+        assertNull(dao.track(bounded))
+        assertNotNull("discarded past the bound", dao.track(late))
     }
 
     @Test fun `a retype with no overrun to find writes the name and leaves the row alone`() = runTest {

@@ -520,12 +520,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         }
     }
 
-    /** Hard-delete these tracks out of Recently deleted. A track the caller names that is no longer
-     *  discarded stays, the restore having outrun the tap. */
-    suspend fun purgeDiscarded(ids: List<Long>) {
-        val purged = db.withTransaction {
-            ids.chunked(IDS_PER_STATEMENT).sumOf { dao.purgeDiscarded(it) }
-        }
+    /** Hard-delete what sits in Recently deleted, up to and including the row discarded at
+     *  [through] — the bound the caller measured, rows being discarded while it decides. */
+    suspend fun purgeDiscarded(through: Long) {
+        val purged = dao.purgeDiscardedThrough(through)
         if (purged > 0) DebugLog.i(TAG, "cleared $purged track(s) from Recently deleted")
     }
 
@@ -691,7 +689,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun purgeOldDiscarded(retentionDays: Int = DISCARDED_RETENTION_DAYS) {
         val cutoff = System.currentTimeMillis() - retentionDays * 86_400_000L
-        val purged = dao.purgeDiscardedBefore(cutoff)
+        val purged = dao.purgeDiscardedThrough(cutoff)
         if (purged > 0) DebugLog.i(TAG, "purged $purged discarded track(s) older than $retentionDays days")
     }
 

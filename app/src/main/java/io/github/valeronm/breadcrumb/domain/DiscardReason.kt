@@ -1,8 +1,8 @@
 package io.github.valeronm.breadcrumb.domain
 
 /**
- * Why a track sits in Recently deleted. [code] is the stable DB string, null for a row discarded
- * before reasons were tracked or under a code this build has retired.
+ * Why a track sits in Recently deleted. [code] is the stable DB string, and every path that
+ * discards a track writes one.
  *
  * [byUser] separates a decision the user made from one the app made for them — stated per entry, so
  * a code added later cannot fall to either side unnoticed.

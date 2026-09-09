@@ -19,10 +19,10 @@
     </plurals>
     <string name="discarded_clear_confirm_title">Очистить «Недавно удалённые»?</string>
     <plurals name="discarded_clear_confirm_body">
-        <item quantity="one">%d поездка здесь будет удалена навсегда. Это нельзя отменить.</item>
-        <item quantity="few">Все %d поездки здесь будут удалены навсегда. Это нельзя отменить.</item>
-        <item quantity="many">Все %d поездок здесь будут удалены навсегда. Это нельзя отменить.</item>
-        <item quantity="other">Все %d поездки здесь будут удалены навсегда. Это нельзя отменить.</item>
+        <item quantity="one">%d поездка будет удалена навсегда. Это нельзя отменить.</item>
+        <item quantity="few">Все %d поездки будут удалены навсегда. Это нельзя отменить.</item>
+        <item quantity="many">Все %d поездок будут удалены навсегда. Это нельзя отменить.</item>
+        <item quantity="other">Все %d поездки будут удалены навсегда. Это нельзя отменить.</item>
     </plurals>
     <string name="discarded_delete_all">Удалить все</string>
 

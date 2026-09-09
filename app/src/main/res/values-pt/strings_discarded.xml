@@ -21,8 +21,8 @@
       singular, so this form has to answer for both and cannot spell the quantity out in words.
     -->
     <plurals name="discarded_clear_confirm_body">
-        <item quantity="one">%d viagem aqui será eliminada definitivamente. Não é possível anular.</item>
-        <item quantity="other">Todas as %d viagens aqui serão eliminadas definitivamente. Não é possível anular.</item>
+        <item quantity="one">%d viagem será eliminada definitivamente. Não é possível anular.</item>
+        <item quantity="other">Todas as %d viagens serão eliminadas definitivamente. Não é possível anular.</item>
     </plurals>
     <string name="discarded_delete_all">Eliminar tudo</string>
 

@@ -711,8 +711,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repository.restoreTrack(trackId) }
     }
 
-    fun purgeDiscarded(ids: List<Long>) {
-        viewModelScope.launch { repository.purgeDiscarded(ids) }
+    fun purgeDiscarded(through: Long) {
+        viewModelScope.launch { repository.purgeDiscarded(through) }
     }
 
     fun setTrackActivity(trackId: Long, activityType: ActivityType) {
