@@ -8,12 +8,12 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -324,7 +324,6 @@ internal fun TimelineTab(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TimelineListPage(
     items: List<TimelineItem>,
@@ -482,10 +481,9 @@ private fun TimelineListPage(
                     val dayItems = group.items
                     val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
                     val away = awayDays[group.date]
-                    // Keyed by the run's own newest instant, not by its label: a date can appear
-                    // twice now (a westward crossing lives the same date twice), and two headers
-                    // sharing a key is a hard crash in a lazy list rather than a cosmetic clash.
-                    stickyHeader(key = "header:${group.items.first().startedAt}") {
+                    // Keyed by the run's newest instant, not its date: a westward crossing puts one
+                    // date on two runs. A lazy list crashes on a duplicate key.
+                    stickyHeading(key = "header:${group.items.first().startedAt}") {
                         val label = dayLabel(group.date, today, todayText, yesterdayText)
                         DayHeader(
                             label = label,
@@ -762,7 +760,7 @@ private fun AwayDayMarker(away: AwayDay, style: TextStyle) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun DayHeader(
+private fun ColumnScope.DayHeader(
     label: String,
     dayTracks: List<TrackSummary>,
     dayItems: List<TimelineItem>,
@@ -772,53 +770,43 @@ private fun DayHeader(
     onOpenMap: () -> Unit,
     onShare: () -> Unit,
 ) {
-    Column(
-        // Opaque background: the header is sticky, rows scroll underneath it. The gap to the first
-        // row is the header's own, so neither totals line has to know whether it is the last one.
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background)
-            .swallowTaps()
-            .padding(top = 14.dp, bottom = 6.dp),
+    away?.let { TravelHeading(it) { onOpenJourney(it.summary) } }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        away?.let { TravelHeading(it) { onOpenJourney(it.summary) } }
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable(
-                        onClickLabel = stringResource(R.string.timeline_day_on_map),
-                        onClick = onOpenMap,
-                    ),
+            Text(
+                label,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable(
+                    onClickLabel = stringResource(R.string.timeline_day_on_map),
+                    onClick = onOpenMap,
+                ),
+            )
+            // Same size as the date it continues, the tint alone telling the two apart.
+            away?.let { AwayDayMarker(it, MaterialTheme.typography.titleSmall) }
+        }
+        // Share exports the day's tracks as GPX — nothing to offer on a day with only stays.
+        if (dayTracks.isNotEmpty()) {
+            // Compact: a full 48dp/24dp action on every header outweighs the content rows.
+            IconButton(onClick = onShare, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.Filled.Share,
+                    contentDescription = stringResource(R.string.timeline_share_day, label),
+                    // Match the top bar's action-icon tint — plain onSurface reads too bright here.
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
                 )
-                // Same size as the date it continues, the tint alone telling the two apart.
-                away?.let { AwayDayMarker(it, MaterialTheme.typography.titleSmall) }
-            }
-            // Share exports the day's tracks as GPX — nothing to offer on a day with only stays.
-            if (dayTracks.isNotEmpty()) {
-                // Compact: a full 48dp/24dp action on every header outweighs the content rows.
-                IconButton(onClick = onShare, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Filled.Share,
-                        contentDescription = stringResource(R.string.timeline_share_day, label),
-                        // Match the top bar's action-icon tint — plain onSurface reads too bright here.
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
             }
         }
-        DayTotals(dayTracks = dayTracks, dayItems = dayItems)
     }
+    DayTotals(dayTracks = dayTracks, dayItems = dayItems)
 }
 
 /**

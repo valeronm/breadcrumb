@@ -4,12 +4,11 @@ import android.icu.text.DateIntervalFormat
 import android.icu.util.DateInterval
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -124,7 +123,6 @@ private fun JourneysPage(viewModel: TrackListViewModel, onOpenJourney: (TravelNa
 }
 
 /** Journeys newest first, in year sections — the deriver hands them over oldest first. */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TravelsList(travels: List<TravelNaming.Summary>, onOpenJourney: (TravelNaming.Summary) -> Unit) {
     val zone = timelineZone()
@@ -158,7 +156,7 @@ private fun TravelsList(travels: List<TravelNaming.Summary>, onOpenJourney: (Tra
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             for (section in byYear) {
-                stickyHeader(key = "year:${section.label}") { YearHeading(section) }
+                stickyHeading(key = "year:${section.label}") { YearHeading(section) }
                 itemsIndexed(section.rows, key = { _, (row, _) -> row.travel.firstNightAt }) { index, entry ->
                     val (summary, days) = entry
                     TravelRow(summary, days, today, groupedRowShape(index, section.rows.size)) {
@@ -204,26 +202,18 @@ private fun yearSectionOf(
 
 /** A year and what it came to. Sticky, so the figures stay with the journeys being read. */
 @Composable
-private fun YearHeading(section: YearSection) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background)
-            .swallowTaps()
-            .padding(top = 14.dp, bottom = 8.dp),
-    ) {
-        Text(section.label, style = MaterialTheme.typography.titleMedium)
-        Text(
-            listOf(
-                pluralStringResource(R.plurals.insights_journeys, section.journeys, section.journeys),
-                pluralStringResource(R.plurals.insights_nights, section.nights, section.nights),
-                pluralStringResource(R.plurals.insights_cities, section.cities, section.cities),
-                pluralStringResource(R.plurals.insights_countries, section.countries, section.countries),
-            ).joinToString(" · "),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+private fun ColumnScope.YearHeading(section: YearSection) {
+    Text(section.label, style = MaterialTheme.typography.titleMedium)
+    Text(
+        listOf(
+            pluralStringResource(R.plurals.insights_journeys, section.journeys, section.journeys),
+            pluralStringResource(R.plurals.insights_nights, section.nights, section.nights),
+            pluralStringResource(R.plurals.insights_cities, section.cities, section.cities),
+            pluralStringResource(R.plurals.insights_countries, section.countries, section.countries),
+        ).joinToString(" · "),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable

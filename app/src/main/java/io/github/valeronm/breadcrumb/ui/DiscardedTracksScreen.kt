@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.ui
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -172,7 +171,6 @@ internal fun DiscardedTracksScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DiscardedList(
     rows: List<DiscardedSummary>,
@@ -197,15 +195,11 @@ private fun DiscardedList(
             )
         }
         days.forEach { (date, dayRows) ->
-            stickyHeader(key = "header:$date") {
+            stickyHeading(key = "header:$date") {
                 Text(
                     dayLabel(date, today, todayText, yesterdayText),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.background)
-                        .swallowTaps()
-                        .padding(top = 14.dp, bottom = 6.dp),
                 )
             }
             itemsIndexed(dayRows, key = { _, row -> row.track.id }) { index, row ->

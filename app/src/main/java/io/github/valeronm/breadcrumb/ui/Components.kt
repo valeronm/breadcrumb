@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.View
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
@@ -392,12 +394,24 @@ internal class ThrottledTick(private val view: View, private val tickOnFirst: Bo
 }
 
 /**
- * Consumes taps without click semantics or ripple — for an opaque sticky header floating over
- * tappable rows. Hit testing ignores a background, so without this a tap on the header falls
- * through to whatever row has scrolled beneath it. Scrolls still work from the header: the
- * detector releases the gesture the moment the finger moves.
+ * Consumes taps without click semantics or ripple. Hit testing ignores a background, so a tap on
+ * one falls through to whatever lies beneath it. Scrolls still work: the detector releases the
+ * gesture the moment the finger moves.
  */
-internal fun Modifier.swallowTaps(): Modifier = pointerInput(Unit) { detectTapGestures {} }
+private fun Modifier.swallowTaps(): Modifier = pointerInput(Unit) { detectTapGestures {} }
+
+/** Rows scroll beneath a pinned heading, so its body is opaque and swallows taps. */
+internal fun LazyListScope.stickyHeading(key: Any, content: @Composable ColumnScope.() -> Unit) =
+    stickyHeader(key = key) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.background)
+                .swallowTaps()
+                .padding(top = 14.dp, bottom = 6.dp),
+            content = content,
+        )
+    }
 
 /**
  * The switch over a tab whose views are the same content drawn two ways — a connected button group
