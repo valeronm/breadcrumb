@@ -51,7 +51,7 @@ Breadcrumb: Location History
 Play's limit is 80 characters.
 
 ```
-A timeline of everywhere you go, recorded by itself. All data stays on-device.
+A timeline of everywhere you go, recorded by itself. Data stays on your phone.
 ```
 
 ## Full description
@@ -59,43 +59,43 @@ A timeline of everywhere you go, recorded by itself. All data stays on-device.
 Play's limit is 4000 characters.
 
 ```
-Breadcrumb quietly records where you go, so you don't have to remember to press "start".
+Breadcrumb quietly records where you go. You never have to remember to press "start".
 
 RECORDS BY ITSELF
-Turn Auto recording on once and forget it. Breadcrumb detects when you start walking, running, cycling or driving, records until you stop, and labels the trip with how you moved. Motion it cannot name is recorded as Moving, and you can change how any trip was labelled afterwards — including to taxi, boat, public transit or flight. No buttons, no forgotten recordings.
+Turn on Auto recording once and forget it. Breadcrumb notices when you start walking, running, cycling or driving. It records until you stop and labels the trip with how you moved. You can change the label later, even to taxi, boat, public transit or flight. No buttons, no forgotten recordings.
 
 YOUR DAYS AS A TIMELINE
-The timeline reads like a diary: trips and the stays between them, day by day, under each day's totals. While you are away, times are read on the clock of the place they happened in, not your phone's.
+The timeline reads like a diary. It shows your trips and the stays between them, day by day, with totals for each day. Times abroad show in local time.
 
 THE PLACES YOU RETURN TO
-Recurring stays cluster into places you name — home, work, the gym — and the timeline fills with familiar names instead of coordinates. Each place takes a category and an area you can size to fit, and the categories the app offers you are learned from the ones you have already tagged. The Places tab holds them all, on a map and as a sortable list, each with its own visit history.
+Name the spots you keep returning to, like home, work or the gym. The timeline then shows those names. The Places tab shows all your places on a map and in a list. Each place has its own visit history.
 
 INSIGHTS
-Journeys: consecutive nights away from home become one journey, named after where the time actually went, with per-year totals of journeys, nights, cities and countries.
-Statistics: one month's movement and places, read against the year behind it.
+Journeys: nights away from home in a row become one journey. It is named after the places where you spent most of it. Each year adds up your journeys, nights, cities and countries.
+Statistics: one month of trips and places, compared with the year behind it.
 
 FILL IN WHAT WASN'T RECORDED
-Enter a trip by hand from two pins and two times — a flight, or anything the recorder missed — straight from the gap that shows it, and edit it afterwards. Merge trips that a short stop split, or split one that should have been two.
+Add a trip by hand, like a flight or anything the app missed. You can edit it later. Merge two trips that a short stop split, or split one trip into two.
 
 EVERY TRIP ON A MAP
-The route is drawn on a detailed map, dark or light to match your theme, coloured point by point by speed, elevation, accuracy, satellite count or signal strength — alongside the stops you made along the way and the named places at each end.
+Each trip is drawn on a detailed map. The line is coloured by speed or elevation. The map also shows the named places at each end.
 
 YOUR HISTORY STAYS YOURS
 • No account. No cloud. No ads. No analytics.
-• Everything is stored only on your device.
-• Back up the whole history to a single file, and restore it.
-• Import and export GPX — one trip, a whole day, or everything at once.
+• Everything stays on your phone.
+• Back up your whole history to one file and restore it.
+• Import and export GPX files: one trip, a whole day, or everything.
 • A deleted trip waits in Recently deleted before it goes for good.
-• Optional app lock, opened by your fingerprint or the phone's own PIN.
-• The network carries map imagery, plus one thing you can switch off: an optional online place search, which sends the words you type. City and town names come from a list built into the app, so naming a journey needs no network at all.
+• Lock the app with your fingerprint or PIN, if you want.
+• The app goes online only for maps and for a place search you can turn off.
 
 BUILT FOR BATTERY
-Recording starts only when you actually move, and GPS switches off the moment you stop — including when movement is detected but no position ever arrives.
+Recording starts only when you move. GPS turns off the moment you stop.
 
 GOOD TO KNOW
-• Requires "Allow all the time" location permission — that is what background recording is, and Android requires a visible notification while it runs.
-• Uses Google Play Services for movement detection.
-• Reads in English, Portuguese and Russian.
+• Needs location access set to "Allow all the time" to record in the background. Android shows a notification while it records.
+• Uses Google Play Services to detect movement.
+• Available in English, Portuguese and Russian.
 • Open source: github.com/valeronm/breadcrumb
 ```
 
