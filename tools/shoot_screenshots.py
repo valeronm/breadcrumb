@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive the demo build over adb and shoot the six screenshots the README and the store use.
+"""Drive the demo build over adb and shoot the screenshots the README and the store use.
 
 Writes two artifacts from one pass:
 
@@ -8,14 +8,14 @@ Writes two artifacts from one pass:
   docs/screenshots/<name>.png              the committed README set (see the compression
                                            constants below)
 
-The captures are found by reading the UI's own accessibility tree (uiautomator dump) and
-tapping controls by their labels, with each label read out of the app's default string table
-rather than spelled here — so a reworded control moves the shoot with it, and a renamed key
-fails loudly naming the key. Coordinates appear nowhere.
+Controls are found in the UI's accessibility tree (uiautomator dump) by label, each label read
+from the app's default string table by resource name, so rewording a string needs no change
+here. A renamed key fails naming the key.
 
-Before running, the phone must be prepared once per shoot; none of it is automated because
-each step is either interactive (the file picker) or a mutation this script should not
-decide on its own:
+The shoot runs on a Pixel 8 Pro emulator, prepared once per shoot; none of it is automated
+because each step is either interactive (the file picker) or a mutation this script should not
+decide on its own. With a phone also connected, export `ANDROID_SERIAL` naming the emulator:
+adb refuses to pick between two devices, and `installDemo` installs on every one it sees.
 
   python3 tools/generate_demo_history.py
   ./gradlew :app:installDemo
@@ -26,12 +26,32 @@ decide on its own:
     adb shell pm grant io.github.valeronm.breadcrumb.demo android.permission.$p
   done
   adb shell cmd deviceidle whitelist +io.github.valeronm.breadcrumb.demo
+
+  # The tree is matched against the default `values/` table, which English renders; the PT
+  # region gives km, a 24-hour clock and a decimal comma.
+  adb shell cmd locale set-app-locales io.github.valeronm.breadcrumb.demo --locales en-PT
+  adb shell cmd uimode night yes
+
+  # Dynamic colour follows the wallpaper; with the system palette set to the seed named atop
+  # ui/theme/SeededScheme.kt, it resolves to the scheme that file holds.
+  adb shell "settings put secure theme_customization_overlay_packages \
+    '{\"android.theme.customization.system_palette\":\"26805F\",
+      \"android.theme.customization.accent_color\":\"26805F\",
+      \"android.theme.customization.theme_style\":\"TONAL_SPOT\",
+      \"android.theme.customization.color_source\":\"preset\"}'"
+
+  adb shell settings put global sysui_demo_allowed 1
+  demo() { adb shell am broadcast -a com.android.systemui.demo -e command "$@"; }
+  demo enter
+  # The timeline's trailing stay closes at the real clock.
+  demo clock -e hhmm "$(adb shell date +%H%M | tr -d '\r')"
+  demo battery -e level 100 -e plugged false
+  demo network -e wifi show -e level 4 -e fully true
+  demo network -e mobile hide
+  demo notifications -e visible false
+
   # then in the app: flip Auto recording on, and restore the backup from the
   # Timeline's empty state (the picker is a system UI this script stays out of)
-
-The device stays English for the shoot — the tree is matched against the default `values/`
-table, which is what an English device renders. Screen awake and unlocked; the status bar
-shows whatever it shows (shoot in the morning on a full battery for a clean one).
 
 Usage:
   python3 tools/shoot_screenshots.py                 # shoot + compress
@@ -51,17 +71,14 @@ from PIL import Image
 
 from demo_routes import OUT_DIR, REPO
 
-# The one name generate_store_assets.py imports: the seam between the shoot (producer) and the
-# store frames (consumer), stated once so the two cannot glob different folders.
 RAW = OUT_DIR / "screenshots"
 DOCS = REPO / "docs/screenshots"
 APP = "io.github.valeronm.breadcrumb.demo"
 
 WAIT_TIMEOUT = 10.0
 
-# The committed set is palette PNG at half size: the README shows ~30% width, so half
-# resolution still overshoots what is displayed, and 256 colours with dithering survive
-# the map's ramps. The store pipeline never sees these — it reads RAW.
+# The committed set is for the README alone, which shows it at ~30% width.
+# Octree keeps the track's colour ramp saturated among the basemap's greys.
 DOCS_SCALE = 2
 DOCS_COLORS = 256
 
@@ -92,8 +109,7 @@ def wait(pattern):
     """Poll until a node whose text or description matches [pattern] is on screen; its centre."""
     deadline = time.monotonic() + WAIT_TIMEOUT
     while True:
-        # Dumped straight to the stream — no /sdcard file, one adb call; the XML is followed
-        # by uiautomator's own "dumped to" line, so it is cut at the document's last '>'.
+        # uiautomator prints its own "dumped to" line after the XML on the same stream.
         raw = adb("exec-out", "uiautomator", "dump", "/dev/tty")
         tree = ElementTree.fromstring(raw[raw.index("<?xml"):raw.rindex(">") + 1])
         for node in tree.iter("node"):
@@ -112,12 +128,10 @@ def tap(pattern):
 
 
 def shoot(name, timeout=10.0):
-    """Capture once the screen holds still — two matching frames a second apart.
+    """Capture once two frames a second apart match, or as-is when [timeout] runs out.
 
-    Stability, not a fixed sleep, because the slowest screen is waiting on network: basemap
-    tiles trickle in for however long a cold cache takes, and a sleep long enough for that
-    wastes its whole length everywhere else. [timeout] bounds a screen that never settles
-    (a blinking cursor, a stuck spinner) — the shot is then taken as-is.
+    Basemap tiles keep arriving for as long as a cold cache takes; a blinking cursor or a
+    stuck spinner never settles.
     """
     deadline = time.monotonic() + timeout
     last = None
@@ -133,25 +147,21 @@ def shoot(name, timeout=10.0):
 
 def drive(map_wait):
     RAW.mkdir(parents=True, exist_ok=True)
-    # A phone on the charger drifts into its screensaver between runs. Waking is safe to
-    # repeat; the keyguard dismiss only clears an insecure lock, and a secured one surfaces
-    # as the first wait() failing — with the phone in hand being the fix.
+    # An idle device sleeps between runs. Waking is safe to repeat; the keyguard dismiss
+    # only clears an insecure lock, and a secured one surfaces as the first wait() failing.
     adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
     adb("shell", "wm", "dismiss-keyguard")
     adb("shell", "am", "start", "-n", f"{APP}/io.github.valeronm.breadcrumb.ui.MainActivity")
 
     print("shooting:")
-    # Stated, not assumed: a resumed app sits on whichever tab the last run (or the person
-    # preparing the phone) left it.
+    # A resumed app sits on whichever tab the last run or the preparation left it.
     tap(res("nav_record"))
-    # Waited for, never tapped: that row is the arming toggle, and the shoot must not
-    # flip what the person preparing the phone set.
+    # That row is the arming toggle, which the preparation sets and the shoot must not flip.
     wait(res("record_auto_recording"))
     shoot("record.png")
 
     tap(res("nav_timeline"))
-    # A formatted row, not a resource value: the first trip row on screen — yesterday's day
-    # is fully derived, today's may be empty.
+    # A formatted row, not a resource value: the first drive on screen, today's or yesterday's.
     tap(r"^Driving · ")
     tap(res("color_mode_elevation"))
     shoot("track-detail.png", timeout=map_wait)
@@ -175,7 +185,7 @@ def compress():
     for raw in sorted(RAW.glob("*.png")):
         im = Image.open(raw)
         im = im.resize((im.width // DOCS_SCALE, im.height // DOCS_SCALE), Image.LANCZOS)
-        im = im.convert("RGB").quantize(DOCS_COLORS, method=Image.Quantize.MEDIANCUT)
+        im = im.convert("RGB").quantize(DOCS_COLORS, method=Image.Quantize.FASTOCTREE)
         out = DOCS / raw.name
         im.save(out, optimize=True)
         print(f"  {raw.name}: {raw.stat().st_size // 1024}K -> {out.stat().st_size // 1024}K")
