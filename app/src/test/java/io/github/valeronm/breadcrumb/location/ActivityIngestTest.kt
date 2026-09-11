@@ -524,6 +524,17 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertTrue(core.recording)
     }
 
+    @Test fun `a stop arriving after the no-fix give-up is applied at once`() {
+        givenGpsSuspended()
+
+        val out = reading(ActivityType.STILL, T0 + GIVE_UP_MS + MINUTE)
+
+        assertTrue(out.contains(Effect.CloseTrack(endedAt = T0, renameTo = null)))
+        assertNull(core.parked)
+        assertFalse(core.recording)
+        assertFalse(noFixGuard.suspended)
+    }
+
     /** The verdict the cap exists to wait for — and the one job [Motion.Stopped] has. */
     @Test fun `ground that confirms the standstill lands it at once`() {
         startWalking()

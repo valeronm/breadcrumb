@@ -141,8 +141,9 @@ class ActivityIngest(
         intake(eventTimeMs, nowMs, registration, out)
         // Nothing to apply if the trusted activity didn't move — or if the ground cannot vouch for
         // it, in which case the gate holds it until [onMotion] or the cap in [releaseExpiredHold]
-        // lands it.
-        val changed = gate.onReading(raw, motionVerdict(nowMs), requireCorroboration = true)
+        // lands it. While the no-fix guard has GPS off there is no ground left to vouch and no
+        // satellite tick to run the cap, so a stop is taken on the reading alone.
+        val changed = gate.onReading(raw, motionVerdict(nowMs), requireCorroboration = !noFixGuard.suspended)
         holdExpiresAtMs = if (gate.held == null) null else nowMs + settings.uncorroboratedHoldMs
         if (changed == null) return out
         applyConfirmed(changed, nowMs, settings, out)
