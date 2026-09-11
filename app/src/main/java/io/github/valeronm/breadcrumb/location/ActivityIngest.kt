@@ -167,11 +167,14 @@ class ActivityIngest(
      * Reconsider a held reading against a fresh verdict, and apply it once the ground vouches for it
      * — or once an uncorroborated hold has run its cap. Empty when nothing is held or it still stands.
      */
-    fun onMotion(motion: Motion, nowMs: Long, settings: ActivitySettings): List<Effect> {
-        val promoted = gate.onMotion(motion) ?: releaseExpiredHold(nowMs) ?: return emptyList()
+    fun onMotion(motion: Motion, nowMs: Long, settings: ActivitySettings): List<Effect> =
+        applyReleased(gate.onMotion(motion) ?: releaseExpiredHold(nowMs), nowMs, settings)
+
+    private fun applyReleased(released: ActivityType?, nowMs: Long, settings: ActivitySettings): List<Effect> {
+        released ?: return emptyList()
         holdExpiresAtMs = null
         val out = ArrayList<Effect>()
-        applyConfirmed(promoted, nowMs, settings, out)
+        applyConfirmed(released, nowMs, settings, out)
         return out
     }
 
@@ -240,11 +243,9 @@ class ActivityIngest(
         if (!recording) return emptyList()
         val motion = motionVerdict(nowMs)
         if (!noFixGuard.shouldGiveUp(elapsedMs, giveUpMs, motion)) return emptyList()
-        // GPS is about to go, and with it the tick that would ever revisit a held reading — so it is
-        // reconsidered here, on the way down. The veto inside [NoFixGuard.shouldGiveUp] is what makes
-        // that honest: reaching this line means fixes have genuinely ceased, so there is no longer
-        // any moving ground to contradict a stop.
-        val out = ArrayList(onMotion(motion, nowMs, settings))
+        // GPS is about to go, and with it the satellite tick that revisits a held reading. Past
+        // [NoFixGuard.shouldGiveUp] the ground cannot be reading as moving.
+        val out = ArrayList(applyReleased(gate.onMotion(motion) ?: gate.releaseHeld(), nowMs, settings))
         // The promotion may have closed the track, which stops GPS and re-arms the cheap signals on
         // its own way down. Asked of the phase rather than of the effects, since it is the same
         // question [close] answers: nothing is recording, so there is nothing left to wind down.

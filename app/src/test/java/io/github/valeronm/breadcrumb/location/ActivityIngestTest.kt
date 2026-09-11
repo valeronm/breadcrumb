@@ -534,6 +534,20 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertFalse(noFixGuard.suspended)
     }
 
+    @Test fun `a stop still held when the no-fix guard gives up lands on the way down`() {
+        startWalking()
+        noFixGuard.onProbeStarted(E0)
+        reading(ActivityType.STILL, T0 + GIVE_UP_MS - 1000)
+        assertEquals("fixture precondition", ActivityType.STILL, core.parked)
+
+        val out = core.onGnssTick(T0 + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
+
+        assertTrue(out.contains(Effect.CloseTrack(endedAt = T0, renameTo = null)))
+        assertTrue(out.none { it is Effect.ArmResumeSignals })
+        assertNull(core.parked)
+        assertFalse(core.recording)
+    }
+
     /** The verdict the cap exists to wait for — and the one job [Motion.Stopped] has. */
     @Test fun `ground that confirms the standstill lands it at once`() {
         startWalking()

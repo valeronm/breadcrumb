@@ -92,7 +92,8 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
      *    probe. It is also what bounds the hold on a foot reading — the walk that follows a drive
      *    waits only for the trailing window to slow to a human pace, not for it to fall silent.
      *  - A [Hold.UNCORROBORATED] reading was held *because* the ground said nothing, so hearing
-     *    nothing again cannot land it — only [Motion.Stopped] can, or the cap in [releaseHeld].
+     *    nothing again cannot land it — only [Motion.Stopped] can, or the recorder through
+     *    [releaseHeld].
      */
     fun onMotion(motion: Motion): ActivityType? {
         val waiting = held ?: return null
@@ -104,8 +105,8 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
     }
 
     /**
-     * Land the held reading although the ground never vouched for it — the cap on an
-     * [Hold.UNCORROBORATED] hold, whose timing belongs to the recorder. Null when nothing is held.
+     * Land an [Hold.UNCORROBORATED] hold although the ground never vouched for it. Null when nothing
+     * is held.
      *
      * **Refuses a [Hold.CONTRADICTED] hold outright**, and that refusal is the whole reason the two
      * are told apart: the ground positively disagreeing is evidence a journey is under way, and a
