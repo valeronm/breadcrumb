@@ -307,7 +307,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
     @Test fun `a probe that runs its window with nothing accepted hands GPS to the cheap signals`() {
         startWalking()
-        noFixGuard.onProbeStarted(E0)
+        core.onProbeStarted(E0)
 
         val out = core.onGnssTick(T0 + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
 
@@ -320,7 +320,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
     @Test fun `moving ground vetoes the give-up, however long the probe has run`() {
         reading(ActivityType.DRIVING, T0)
-        noFixGuard.onProbeStarted(E0)
+        core.onProbeStarted(E0)
         // Fixes are arriving and the ground is provably moving: the guard's premise — GPS cannot get
         // a fix here — is simply false, whatever its own window says.
         driveFrom(T0, until = T0 + MINUTE)
@@ -333,7 +333,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
     @Test fun `a closed track's silence is not a failed probe`() {
         startWalking()
-        noFixGuard.onProbeStarted(E0)
+        core.onProbeStarted(E0)
         stop(T0 + MINUTE)
 
         val out = core.onGnssTick(T0 + MINUTE + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
@@ -348,7 +348,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         reading(ActivityType.DRIVING, T0)
         driveFrom(T0, until = T0 + MINUTE)
         reading(ActivityType.STILL, T0 + MINUTE)
-        noFixGuard.onProbeStarted(E0)
+        core.onProbeStarted(E0)
 
         // The carrier has stopped: the window has aged out, so the hold is released here, on the way
         // down — this tick is the last one there will be until GPS comes back.
@@ -399,9 +399,26 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertEquals(listOf(Effect.EnsureGps, Effect.Publish), out)
     }
 
+    @Test fun `a probe resuming a suspended track opens a new segment`() {
+        givenGpsSuspended()
+
+        core.onProbeStarted(E0 + GIVE_UP_MS + NoFixGuard.RETRY_BASE_MS)
+
+        assertTrue(fix(T0 + 5 * MINUTE, 50.0).points.single().segmentStart)
+        assertFalse(noFixGuard.suspended)
+    }
+
+    @Test fun `a probe starting on a watched track keeps its segment`() {
+        startWalking()
+
+        core.onProbeStarted(E0)
+
+        assertFalse(fix(T0 + 1000, 1.0).points.single().segmentStart)
+    }
+
     @Test fun `a signal arriving while GPS was never suspended asks for nothing`() {
         startWalking()
-        noFixGuard.onProbeStarted(E0)
+        core.onProbeStarted(E0)
 
         assertTrue(core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS, settings).isEmpty())
     }
@@ -409,7 +426,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
     /** A walk whose probe ran its window with nothing accepted, so GPS is off and waiting. */
     private fun givenGpsSuspended() {
         startWalking()
-        noFixGuard.onProbeStarted(E0)
+        core.onProbeStarted(E0)
         core.onGnssTick(T0 + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
         assertTrue("fixture precondition", noFixGuard.suspended)
     }
@@ -505,7 +522,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
      */
     @Test fun `jitter no longer defers the no-fix give-up`() {
         startWalking()
-        noFixGuard.onProbeStarted(E0)
+        core.onProbeStarted(E0)
         reading(ActivityType.STILL, T0 + MINUTE)
         reading(ActivityType.WALKING, T0 + MINUTE + HOLD_CAP_MS - 1)
 
@@ -536,7 +553,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
     @Test fun `a stop still held when the no-fix guard gives up lands on the way down`() {
         startWalking()
-        noFixGuard.onProbeStarted(E0)
+        core.onProbeStarted(E0)
         reading(ActivityType.STILL, T0 + GIVE_UP_MS - 1000)
         assertEquals("fixture precondition", ActivityType.STILL, core.parked)
 

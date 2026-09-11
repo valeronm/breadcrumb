@@ -611,7 +611,7 @@ class LocationRecordingService : Service() {
         val intervalSec = Settings.minIntervalSec(this)
         val intervalMs = intervalSec * 1000L
         val minDistanceM = Settings.minDistanceM(this).toFloat()
-        noFixGuard.onProbeStarted(SystemClock.elapsedRealtime())
+        core.onProbeStarted(SystemClock.elapsedRealtime())
         // The confirmer's window is shaped by the cadence, so it is re-derived where the cadence is
         // read. It is not emptied here — see [MovementConfirmer.reshape]: this path runs on every
         // resume, and clearing seconds before a carrier pulls away is what blinded the witness at

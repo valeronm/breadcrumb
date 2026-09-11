@@ -256,6 +256,12 @@ class ActivityIngest(
         return out
     }
 
+    /** A GPS request is starting; after a no-fix suspension nothing watched the ground since the last fix. */
+    fun onProbeStarted(elapsedMs: Long) {
+        if (noFixGuard.suspended) ingest.markSegmentStart()
+        noFixGuard.onProbeStarted(elapsedMs)
+    }
+
     /**
      * A coarse position from the departure probe. The only question asked of it is whether the phone
      * has left where it stopped — it is a wake, and deliberately never reaches [FixIngest], a track
