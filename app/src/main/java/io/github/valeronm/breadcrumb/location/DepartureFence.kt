@@ -81,11 +81,10 @@ class DepartureFence(private val context: Context) {
      * "wait for the first good fix" resolves to never. Arming, a reboot and an app update all land
      * here, and the last two matter because Play Services drops every geofence across them.
      *
-     * **The age is logged because it is the whole question.** A fence dropped where the phone used
-     * to be is never entered and so never reports leaving, while still occupying the one slot — worse
-     * than no fence, and indistinguishable from one in the log unless the staleness is written down.
-     * Whether that age needs a ceiling (and a one-shot fix when it is exceeded) is a field question,
-     * and this is what answers it.
+     * A fence dropped where the phone used to be is never entered and so never reports leaving. A
+     * fence centred on a position coarser than its radius fires on the error rather than on leaving.
+     * The age and accuracy logged here are the only record of either. Whether either needs a ceiling
+     * is a field question.
      */
     @SuppressLint("MissingPermission")
     fun armFromLastKnown() {
@@ -105,7 +104,8 @@ class DepartureFence(private val context: Context) {
         // than the request that asked for it, so it has no such case and takes the clock no step can
         // corrupt.
         val ageS = (System.currentTimeMillis() - known.time) / 1000
-        DebugLog.i(TAG, "departure fence: arming from last known (${known.provider}, ${ageS}s old)")
+        val acc = if (known.hasAccuracy()) "${known.accuracy.toInt()}m" else "unknown"
+        DebugLog.i(TAG, "departure fence: arming from last known (${known.provider}, acc=$acc, ${ageS}s old)")
         arm(Coordinate(known.latitude, known.longitude))
     }
 
