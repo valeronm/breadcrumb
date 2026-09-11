@@ -120,15 +120,14 @@ class ActivityIngestTest : ActivityIngestFixture() {
         )
     }
 
-    @Test fun `a same-family switch keeps the track and only breaks a segment`() {
+    @Test fun `a same-family switch keeps the track and its segment`() {
         startWalking()
 
-        // No EnsureGps in the list: GPS is already running, and a same-family switch only breaks a
-        // segment — so nothing here asks anything of it.
         assertEquals(
             listOf(Effect.StampReading(T0 + MINUTE), Effect.Publish),
             reading(ActivityType.RUNNING, T0 + MINUTE),
         )
+        assertFalse(fix(T0 + MINUTE + 1000, 3.0).points.single().segmentStart)
     }
 
     @Test fun `the first reading onto a trigger-opened track names it rather than splitting it`() {

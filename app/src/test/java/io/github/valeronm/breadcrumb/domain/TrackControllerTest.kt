@@ -31,7 +31,6 @@ class TrackControllerTest {
     }
 
     @Test fun `a same-family activity while recording continues the track`() {
-        // Walking ⇄ running (a common Activity-Recognition flip) stays one track, new segment.
         assertEquals(RecordingAction.ContinueSameTrack(RUNNING), recording(WALKING).onActivity(RUNNING))
     }
 

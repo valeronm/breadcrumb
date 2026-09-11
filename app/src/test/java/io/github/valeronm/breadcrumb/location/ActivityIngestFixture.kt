@@ -75,7 +75,7 @@ abstract class ActivityIngestFixture {
     ) = resolved(core.onProbeFix(position, nowMs, settings))
 
     /** Feeds one accepted fix into the fix path, so the track has a last-good point to end at. */
-    protected fun fix(atMs: Long, eastM: Double) {
+    protected fun fix(atMs: Long, eastM: Double): Ingested =
         ingest.onFixes(
             trackId = 1L,
             fixes = listOf(
@@ -97,7 +97,6 @@ abstract class ActivityIngestFixture {
             settings = IngestSettings(maxAccuracyM = 50f, requireGnss = false),
             gnss = GnssState(satellitesInFix = null, cn0Top4 = null, lastFixElapsedMs = atMs),
         )
-    }
 
     /** Puts a walk on the road: the track is open, GPS is on, and one fix has landed. */
     protected fun startWalking() {

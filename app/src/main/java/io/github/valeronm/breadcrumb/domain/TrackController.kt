@@ -34,8 +34,6 @@ class TrackController {
     }
 
     private fun onMoving(activity: ActivityType): RecordingAction = when (val p = phase) {
-        // A switch within the same motion family keeps the live track, with a segment break at
-        // the boundary; a cross-family change splits.
         is Phase.Recording -> when {
             p.activity.sharesTrackWith(activity) -> RecordingAction.ContinueSameTrack(activity)
             p.activity == ActivityType.UNKNOWN -> RecordingAction.Relabel(activity)
@@ -65,8 +63,8 @@ sealed interface RecordingAction {
     data class StartNew(val activity: ActivityType) : RecordingAction
 
     /**
-     * Keep the live track open across a same-family activity switch (e.g. walking → running),
-     * starting a new segment at the boundary. The track keeps its original label.
+     * Keep the live track open across a same-family activity switch. The track keeps its original
+     * label.
      */
     data class ContinueSameTrack(val activity: ActivityType) : RecordingAction
 

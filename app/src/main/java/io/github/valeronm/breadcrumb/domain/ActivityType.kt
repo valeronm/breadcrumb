@@ -14,8 +14,7 @@ enum class ActivityType(
     val recording: Boolean,
     /**
      * Activities in the same [TrackGroup] stay in one track when detection switches between them
-     * mid-recording — a brief run during a walk (a common Activity-Recognition flip-flop) stays a
-     * single track with a new segment, rather than fragmenting into walk/run/walk.
+     * mid-recording. Activity Recognition flips between walking and running within a single outing.
      */
     val trackGroup: TrackGroup,
 ) {
