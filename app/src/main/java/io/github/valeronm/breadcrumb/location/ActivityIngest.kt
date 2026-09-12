@@ -103,11 +103,11 @@ class ActivityIngest(
         private set
 
     /**
-     * Whether the last [onGnssTick] ended a track the triggers opened on a departure no fix ever
-     * backed. Its effects are those of any other close, including the one a landed reading makes in
-     * the same pass.
+     * Whether the last [onGnssTick] ended a track the triggers opened, the give-up having found no
+     * ground left to measure. Its effects are those of any other close, including the one a landed
+     * reading makes in the same pass.
      */
-    var closedWithoutAFix: Boolean = false
+    var closedAtGiveUp: Boolean = false
         private set
 
     /** The witness's verdict at [atMs] — see [FixIngest.verdict]. */
@@ -251,7 +251,7 @@ class ActivityIngest(
         giveUpMs: Long,
         settings: ActivitySettings,
     ): List<Effect> {
-        closedWithoutAFix = false
+        closedAtGiveUp = false
         // The phase is what says a track exists, as it is in [close] — not the id the dispatcher
         // holds, which after a failed insert says the opposite and would hold the give-up off for
         // the rest of the outing.
@@ -265,11 +265,10 @@ class ActivityIngest(
         // its own way down. Asked of the phase rather than of the effects, since it is the same
         // question [close] answers: nothing is recording, so there is nothing left to wind down.
         if (!recording) return out
-        // A trigger-opened track with no good fix of its own has nothing left that can end it: the
-        // arrival watch judges fixes, and the reporter that stayed silent through the departure
-        // owes no stop.
-        if (watchingArrival && ingest.lastGood == null) {
-            closedWithoutAFix = true
+        // The give-up says the ground cannot be measured, and the reporter that stayed silent
+        // through the departure owes this track no stop, so nothing is left for it to wait for.
+        if (watchingArrival) {
+            closedAtGiveUp = true
             adoptAndApply(ActivityType.STILL, nowMs, settings, out)
             return out
         }

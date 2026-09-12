@@ -3,7 +3,6 @@ package io.github.valeronm.breadcrumb.location
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.ArrivalWatch
 import io.github.valeronm.breadcrumb.domain.Motion
-import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.at
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -100,7 +99,7 @@ class ArrivalCloseTest : ActivityIngestFixture() {
         assertFalse("the close winds GPS down, so no resume signals on top", noFixGuard.suspended)
     }
 
-    @Test fun `a give-up on a track with a fix behind it hands GPS to the cheap signals`() {
+    @Test fun `a give-up closes a trigger-opened track at the last fix it did get`() {
         departure(T0, settings)
         core.onProbeStarted(E0)
         fix(T0 + MINUTE, eastM = 100.0)
@@ -109,11 +108,18 @@ class ArrivalCloseTest : ActivityIngestFixture() {
         val out =
             core.onGnssTick(T0 + MINUTE + GIVE_UP_MS, E0 + MINUTE + GIVE_UP_MS, GIVE_UP_MS, settings)
 
-        assertTrue("ground of its own backs the departure", core.recording)
+        assertFalse(core.recording)
         assertEquals(
-            listOf(Effect.StopGps, Effect.ArmResumeSignals(NoFixGuard.RETRY_BASE_MS), Effect.Publish),
+            listOf(
+                Effect.StopGps,
+                Effect.CloseTrack(endedAt = T0 + MINUTE, renameTo = null),
+                Effect.ArmDepartureFence(at(100.0)),
+                Effect.ArmSignificantMotion,
+                Effect.Publish,
+            ),
             out,
         )
+        assertFalse("the close winds GPS down, so no resume signals on top", noFixGuard.suspended)
     }
 
     @Test fun `a departure after the arrival asks for a track, watched again`() {

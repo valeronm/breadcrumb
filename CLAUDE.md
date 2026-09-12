@@ -307,11 +307,12 @@ trigger has no reporter whose stop will ever end it, while a track a reading has
 closed this way: its reporter lags, but delivers). Promotion rides the `GnssStatus` callback, with the
 15-minute watchdog alarm as the guaranteed revisit.
 
-**A signal-opened track whose first probe finds nothing closes at the give-up**, which is the other
-end the arrival watch cannot reach: the watch judges fixes, and a track that never got one has
-neither those nor a reporter that owes it a stop, so it would stand open until the next reading,
-which can be many hours. The close hands the ground back to the triggers that opened it, and a
-departure with fixes behind it keeps the ordinary give-up.
+**A signal-opened track closes at the no-fix give-up**, which is the other end the arrival watch
+cannot reach: the watch waits on a standstill proven from fixes, and the give-up is the recorder
+declaring there are none to prove it with, while no reporter owes this track a stop — so it would
+stand open until the next reading, which can be many hours. It ends at its last good fix where it
+has one, and the close hands the ground back to the triggers that opened it. A reading-opened track
+keeps the ordinary give-up.
 
 **The witness names movement, never what is doing the moving.** A track it proves is carried gets
 `UNKNOWN`, which displays as "Moving" and carries the most permissive quality ceiling — exactly what

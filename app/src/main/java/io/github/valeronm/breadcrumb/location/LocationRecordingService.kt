@@ -677,8 +677,8 @@ class LocationRecordingService : Service() {
             if (gpsListener == null) return@launchArmed
             val effects =
                 core.onGnssTick(now(), SystemClock.elapsedRealtime(), giveUpMs, activitySettings())
-            if (core.closedWithoutAFix) {
-                DebugLog.i(TAG, "no-fix guard: the departure never got a fix — closing the track")
+            if (core.closedAtGiveUp) {
+                DebugLog.i(TAG, "no-fix guard: nothing left to measure — closing the track the triggers opened")
             }
             dispatch(effects)
         }
