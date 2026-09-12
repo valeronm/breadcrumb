@@ -90,6 +90,14 @@ class Track:
         self.gps_s = 0.0
         self.drops = 0
         self.first_reading = None
+        self.still_held_with_gps_off = False
+
+    def unmeasured(self):
+        # A track's logged duration is the span of its good points, or its whole open span when it has none.
+        if self.closed is None or self.opened is None:
+            return 0.0
+        held = (self.closed - self.opened).total_seconds()
+        return held if self.pts == 0 else max(0.0, held - self.dur)
 
 
 def shape(msg):
@@ -303,6 +311,8 @@ class Report:
                     self.tracks[cur].drops += 1
             elif k == "hold":
                 hold_at = e.dt
+                if gps_on is None and cur in self.tracks:
+                    self.tracks[cur].still_held_with_gps_off = g["act"] == "STILL"
             elif k == "release" and hold_at:
                 self.holds.append((e.dt - hold_at).total_seconds())
                 hold_at = None
@@ -430,6 +440,29 @@ def report(r, daily):
           f"{r.gps_gave_up_n}, {hours(r.gps_gave_up_s)}; restarts after a give-up: " +
           (", ".join(f"{s} {n}" for s, n in r.retries.most_common()) or "none"))
 
+    section("Tracks standing open with nothing measured")
+    standing_open = sorted((t for t in closed if t.unmeasured() > 300), key=lambda t: -t.unmeasured())
+    total_unmeasured = sum(t.unmeasured() for t in standing_open)
+    print(f"  {len(standing_open)} tracks over 5 min, {hours(total_unmeasured)} in total "
+          f"({hours(r.per_day(total_unmeasured))}/day) — a span with no fixes behind it, and the departure "
+          f"fence stays disarmed while one is open")
+    if standing_open:
+        shapes = (("no fix at all", lambda t: t.pts == 0),
+                  ("a STILL held while GPS was off", lambda t: t.pts > 0 and t.still_held_with_gps_off),
+                  ("fixes, then a tail nothing measured", lambda t: t.pts > 0 and not t.still_held_with_gps_off))
+        rows = [(name, len(ts), hours(sum(t.unmeasured() for t in ts)), minutes(max(t.unmeasured() for t in ts)),
+                 hours(sum(t.gps_s for t in ts)))
+                for name, pred in shapes for ts in [[t for t in standing_open if pred(t)]] if ts]
+        table(("", "tracks", "total", "longest", "GPS in them"), rows)
+        trigger_opened = [t for t in standing_open if t.cause in TRIGGERS]
+        never_fixed = [t for t in trigger_opened if t.pts == 0]
+        print(f"  of them, opened by a trigger and so owed no stop by any reporter: {len(trigger_opened)}, "
+              f"{hours(sum(t.unmeasured() for t in trigger_opened))} — of which never got a fix: "
+              f"{len(never_fixed)}, {hours(sum(t.unmeasured() for t in never_fixed))}")
+        for t in trigger_opened[:6]:
+            print(f"    {t.opened:%m-%d %H:%M} track {t.id} {t.act} ({t.cause}) {t.pts} pts, "
+                  f"{minutes(t.unmeasured())} unmeasured, {minutes(t.gps_s)} of GPS")
+
     section("Dropped fixes (no recent GNSS backing)")
     bands = collections.Counter(
         "unknown" if a is None else "<10 m" if a < 10 else "10-50 m" if a < 50 else "50-200 m" if a < 200
@@ -446,11 +479,6 @@ def report(r, daily):
               f"{sum(w > 300 for w in waits)}, longest {minutes(max(waits))}")
     print(f"  deaf re-registrations {r.deaf}, arrival closes {r.arrivals}, carrier renames {r.carrier}, "
           f"relabels {r.relabels}")
-    stuck = sorted((t for t in closed if t.pts == 0 and t.dur > 1800), key=lambda t: -t.dur)
-    print(f"  tracks open over 30 min with 0 points: {len(stuck)}")
-    for t in stuck[:8]:
-        opened = f"{t.opened:%m-%d %H:%M}" if t.opened else "?"
-        print(f"    {opened} track {t.id} {t.act} ({t.cause}) {minutes(t.dur)}")
 
     section("Activity changes that split a moving track")
     pairs = collections.defaultdict(list)
@@ -490,6 +518,7 @@ def headline(r):
         ("recorder GPS h/day", f"{gps / 3600 / r.days:.1f}"),
         ("GPS on 0-point tracks", f"{zero_gps / max(1, gps):.0%}"),
         ("give-ups /day", f"{r.per_day(r.gave_up):.1f}"),
+        ("h/day open, nothing measured", f"{sum(t.unmeasured() for t in closed) / 3600 / r.days:.1f}"),
         ("departures /day", f"{r.per_day(len(trig)):.1f}"),
         ("departures kept", sum(t.verdict == "keep" for t in trig)),
         ("motion fires /day", f"{r.per_day(r.fires):.0f}"),
