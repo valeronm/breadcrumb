@@ -650,7 +650,10 @@ class LocationRecordingService : Service() {
     private fun stopLocationUpdates() {
         val lm = locationManager
         val listener = gpsListener
-        if (lm != null && listener != null) LocationManagerCompat.removeUpdates(lm, listener)
+        if (lm != null && listener != null) {
+            LocationManagerCompat.removeUpdates(lm, listener)
+            DebugLog.i(TAG, "location updates stopped")
+        }
         gpsListener = null
         gnss.unregister()
         resumeSignals.disarm()
