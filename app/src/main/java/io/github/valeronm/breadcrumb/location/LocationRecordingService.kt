@@ -675,9 +675,12 @@ class LocationRecordingService : Service() {
             // GPS is this service's own resource, so its own guard; whether the recording rules
             // the give-up out is the recorder's, and [ActivityIngest.onGnssTick] keeps it.
             if (gpsListener == null) return@launchArmed
-            dispatch(
-                core.onGnssTick(now(), SystemClock.elapsedRealtime(), giveUpMs, activitySettings()),
-            )
+            val effects =
+                core.onGnssTick(now(), SystemClock.elapsedRealtime(), giveUpMs, activitySettings())
+            if (core.closedWithoutAFix) {
+                DebugLog.i(TAG, "no-fix guard: the departure never got a fix — closing the track")
+            }
+            dispatch(effects)
         }
     }
 

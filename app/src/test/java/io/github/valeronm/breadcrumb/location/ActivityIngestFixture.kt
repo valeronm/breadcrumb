@@ -109,6 +109,7 @@ abstract class ActivityIngestFixture {
         const val MINUTE = 60_000L
         const val HOUR = 60 * MINUTE
         const val STITCH_WINDOW_MS = 90_000L
+        const val GIVE_UP_MS = 120_000L
 
         /** How long a stop the ground could not vouch for is held before it lands anyway. */
         const val HOLD_CAP_MS = 35_000L

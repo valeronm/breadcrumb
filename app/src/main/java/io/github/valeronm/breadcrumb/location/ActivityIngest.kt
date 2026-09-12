@@ -102,6 +102,14 @@ class ActivityIngest(
     var arrivalStoppedSinceMs: Long = 0L
         private set
 
+    /**
+     * Whether the last [onGnssTick] ended a track the triggers opened on a departure no fix ever
+     * backed. Its effects are those of any other close, including the one a landed reading makes in
+     * the same pass.
+     */
+    var closedWithoutAFix: Boolean = false
+        private set
+
     /** The witness's verdict at [atMs] — see [FixIngest.verdict]. */
     fun motionVerdict(atMs: Long): Motion = ingest.verdict(atMs)
 
@@ -194,12 +202,22 @@ class ActivityIngest(
     fun onDeparture(nowMs: Long, settings: ActivitySettings): List<Effect> {
         if (recording) return emptyList()
         val out = ArrayList<Effect>()
-        // Adopted, not read: see [ActivityGate.adopt]. Without this the STILL that ends the journey
-        // is no change at all and nothing can ever close what this opens.
-        gate.adopt(ActivityType.UNKNOWN)
-        holdExpiresAtMs = null
-        applyConfirmed(ActivityType.UNKNOWN, nowMs, settings, out)
+        // Without the adopt, the STILL that ends this journey is no change at all.
+        adoptAndApply(ActivityType.UNKNOWN, nowMs, settings, out)
         return out
+    }
+
+    // Adopted rather than read ([ActivityGate.adopt]): an edge only the ground noticed is no change
+    // to the gate, and the stop path downstream carries the trusted activity rather than the reading.
+    private fun adoptAndApply(
+        activity: ActivityType,
+        nowMs: Long,
+        settings: ActivitySettings,
+        out: MutableList<Effect>,
+    ) {
+        gate.adopt(activity)
+        holdExpiresAtMs = null
+        applyConfirmed(activity, nowMs, settings, out)
     }
 
     /**
@@ -215,11 +233,7 @@ class ActivityIngest(
             arrival.onMotion(motion, nowMs, settings.stitchWindowMs) ?: return emptyList()
         arrivalStoppedSinceMs = stoppedSinceMs
         val out = ArrayList<Effect>()
-        // Adopted for the same reason [onDeparture] adopts: the ground is reporting an edge Play
-        // Services never will, and the stop path downstream needs the trusted activity to carry it.
-        gate.adopt(ActivityType.STILL)
-        holdExpiresAtMs = null
-        applyConfirmed(ActivityType.STILL, nowMs, settings, out)
+        adoptAndApply(ActivityType.STILL, nowMs, settings, out)
         return out
     }
 
@@ -237,6 +251,7 @@ class ActivityIngest(
         giveUpMs: Long,
         settings: ActivitySettings,
     ): List<Effect> {
+        closedWithoutAFix = false
         // The phase is what says a track exists, as it is in [close] — not the id the dispatcher
         // holds, which after a failed insert says the opposite and would hold the give-up off for
         // the rest of the outing.
@@ -250,6 +265,14 @@ class ActivityIngest(
         // its own way down. Asked of the phase rather than of the effects, since it is the same
         // question [close] answers: nothing is recording, so there is nothing left to wind down.
         if (!recording) return out
+        // A trigger-opened track with no good fix of its own has nothing left that can end it: the
+        // arrival watch judges fixes, and the reporter that stayed silent through the departure
+        // owes no stop.
+        if (watchingArrival && ingest.lastGood == null) {
+            closedWithoutAFix = true
+            adoptAndApply(ActivityType.STILL, nowMs, settings, out)
+            return out
+        }
         out += Effect.StopGps
         out += Effect.ArmResumeSignals(noFixGuard.onGaveUp(elapsedMs))
         out += Effect.Publish

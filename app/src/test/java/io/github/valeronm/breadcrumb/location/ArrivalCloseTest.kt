@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.location
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.ArrivalWatch
 import io.github.valeronm.breadcrumb.domain.Motion
+import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.at
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -72,6 +73,47 @@ class ArrivalCloseTest : ActivityIngestFixture() {
         departure(T0, settings)
         reading(ActivityType.WALKING, T0 + MINUTE)
         assertGroundNeverCloses()
+    }
+
+    @Test fun `a probe that never got a fix closes the track its departure opened`() {
+        departure(T0, settings)
+        core.onProbeStarted(E0)
+
+        val out = core.onGnssTick(T0 + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
+
+        assertFalse(core.recording)
+        assertEquals(
+            listOf(
+                Effect.StopGps,
+                Effect.CloseTrack(endedAt = T0 + GIVE_UP_MS, renameTo = null),
+                // The burst below is what anchors the next watch, there being no fix to arm on.
+                Effect.ArmDepartureFence(null),
+                Effect.StartDepartureProbe(
+                    DepartureTriggers.MOTION_INTERVAL_MS,
+                    DepartureTriggers.ANCHOR_WINDOW_MS,
+                ),
+                Effect.ArmSignificantMotion,
+                Effect.Publish,
+            ),
+            out,
+        )
+        assertFalse("the close winds GPS down, so no resume signals on top", noFixGuard.suspended)
+    }
+
+    @Test fun `a give-up on a track with a fix behind it hands GPS to the cheap signals`() {
+        departure(T0, settings)
+        core.onProbeStarted(E0)
+        fix(T0 + MINUTE, eastM = 100.0)
+        noFixGuard.onFixAccepted(E0 + MINUTE)
+
+        val out =
+            core.onGnssTick(T0 + MINUTE + GIVE_UP_MS, E0 + MINUTE + GIVE_UP_MS, GIVE_UP_MS, settings)
+
+        assertTrue("ground of its own backs the departure", core.recording)
+        assertEquals(
+            listOf(Effect.StopGps, Effect.ArmResumeSignals(NoFixGuard.RETRY_BASE_MS), Effect.Publish),
+            out,
+        )
     }
 
     @Test fun `a departure after the arrival asks for a track, watched again`() {

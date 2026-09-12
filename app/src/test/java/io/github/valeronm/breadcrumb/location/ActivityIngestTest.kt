@@ -691,7 +691,5 @@ class ActivityIngestTest : ActivityIngestFixture() {
         /** A car in city traffic — under the foot rule's bar, and the speed a real drive-to-walk
          *  arrives at, which is why nothing may be held there. */
         val CRAWL = Speed.kmh(22.0)
-
-        const val GIVE_UP_MS = 120_000L
     }
 }
