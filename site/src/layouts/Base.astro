@@ -6,6 +6,7 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "../styles/global.css";
 import { Image, getImage } from "astro:assets";
 import icon from "../../../docs/store-listing/play-icon.png";
+import featureGraphic from "../../../docs/store-listing/feature-graphic.png";
 import GitHubMark from "../assets/github-mark.svg";
 
 interface Props {
@@ -16,7 +17,10 @@ interface Props {
 }
 
 const { title, description, app = false } = Astro.props;
-const favicon = await getImage({ src: icon, width: 64, format: "png" });
+const favicon = await getImage({ src: icon, width: 64, format: "png", layout: "none" });
+const shareImage = await getImage({ src: featureGraphic, format: "jpeg", quality: 80, layout: "none" });
+const pageTitle = Astro.url.pathname === "/" ? title : `${title} – Breadcrumb`;
+const canonical = new URL(Astro.url.pathname, Astro.site);
 const current = (href: string) => (Astro.url.pathname === href ? "page" : undefined);
 ---
 
@@ -25,11 +29,18 @@ const current = (href: string) => (Astro.url.pathname === href ? "page" : undefi
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
+    <title>{pageTitle}</title>
     <meta name="description" content={description} />
     <link rel="icon" href={favicon.src} />
-    <meta property="og:title" content={title} />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={pageTitle} />
     <meta property="og:description" content={description} />
+    <meta property="og:image" content={new URL(shareImage.src, Astro.site)} />
+    <meta property="og:image:width" content={shareImage.attributes.width} />
+    <meta property="og:image:height" content={shareImage.attributes.height} />
+    <meta name="twitter:card" content="summary_large_image" />
     <slot name="head" />
   </head>
   <body class:list={{ app }}>

@@ -1,7 +1,9 @@
 import { defineConfig } from "astro/config";
+import sitemap from "@astrojs/sitemap";
 
 export default defineConfig({
   site: "https://breadcrumb.place",
+  integrations: [sitemap()],
   image: {
     // Screenshots are imported from docs/ and re-encoded per width at build; the PNGs the README
     // embeds stay the one set.
