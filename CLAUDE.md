@@ -605,10 +605,9 @@ one either — it is a reconciliation with no completion to record.
 **UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places / Insights) Scaffold
 with full-screen **overlay** layers on top: sealed `MainDestination` (`TrackDetail` | `Settings`) plus
 stacked layers for place detail, journey detail (reached from the Insights tab or a Timeline band,
-keyed by the journey's first night), the Settings sub-screens (sampling, point filter, GPS search,
-starting a trip, continuing a trip, track filtering, app lock, online services, Recently deleted,
-Logs), discarded-track detail, and the add-trip form (`AddTripScreen`, opened from the Timeline
-tab's top-bar "+" or from a gap row) — each
+keyed by the journey's first night), the Settings pages (`SettingsPage`), discarded-track detail,
+and the add-trip form (`AddTripScreen`, opened from the Timeline tab's top-bar "+" or from a gap
+row) — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
 one layer at a time). **What that form opens holding is a `TripDraft`**, which is also the state
 saying it is open: a gap row hands over the ends *it* speaks for and no others — the same two
@@ -924,12 +923,12 @@ why the workflow is the only thing standing between a forgotten bump and Play.
   glyphs/sprite from `protomaps.github.io` — and one deliberate exception: the add-trip form's
   **online place search** (`data/OnlinePlaceSearch`, photon.komoot.io, OpenStreetMap data), which
   sends the typed query and — where the form has a pin to bias by — that pin's coordinate, treats
-  every failure as "no results", and is switchable off on the Online services settings page. **The
+  every failure as "no results", and is switchable off in Settings → Privacy. **The
   coordinate is a pin the user placed, never wherever the map happens to be looking**: the form's
   own place list sorts by the map centre because re-ordering rows the device already holds discloses
   nothing, and that is the whole reason the two use different anchors. The ODbL credit in Settings
   and at the results is a licence requirement, like the GeoNames one. There is no server sync (a possible future feature — the
-  Online services settings page is where server URL/key fields would go).
+  Online services section of Settings → Privacy is where server URL/key fields would go).
 - **The Protomaps hosted-API key is not committed.** It lives in `local.properties` as
   `protomapsApiKey=…` (gitignored), surfaced as `BuildConfig.PROTOMAPS_API_KEY`, and injected into the
   bundled style at load time (`{PROTOMAPS_KEY}` placeholder in `assets/protomaps-{dark,light}.json`).

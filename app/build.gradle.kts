@@ -148,7 +148,10 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "io.github.valeronm.breadcrumb"
+        val basePackage = "io.github.valeronm.breadcrumb"
+        applicationId = basePackage
+        // The build types suffix applicationId, and Play only lists the one without a suffix.
+        buildConfigField("String", "PLAY_PACKAGE", "\"$basePackage\"")
         minSdk = 26
         targetSdk = 37
         versionCode = 24

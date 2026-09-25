@@ -70,14 +70,19 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | recording | запись | Progressive titles use «Идёт запись». Never *отслеживание* — that is *tracking*, the concept the app refuses. |
-| setting-off | отправиться в путь | The page is «Начало поездки», the subtitle «что вы отправились в путь». The full phrase, not bare *выехать*, which commits to a vehicle — the same page has to cover a train and a taxi, and one of these triggers exists precisely because the app cannot tell what is carrying you. The fence row takes *уход* for leaving the spot, keeping the two motions distinct on one screen. |
-| continuing | продолжить (verb), продолжение (noun) | The page is «Продолжение поездки», taking «Начало поездки»'s shape so the two edges of a trip read as a pair. The slider takes the verb, «Продолжать в течение», rather than a second «продолжение», the noun already being overhead on that screen. |
+| setting-off | отправиться в путь | The section is «Начало поездки», and its description says «что вы отправились в путь». The full phrase, not bare *выехать*, which commits to a vehicle — the same page has to cover a train and a taxi, and one of these triggers exists precisely because the app cannot tell what is carrying you. The fence row takes *уход* for leaving the spot, keeping the two motions distinct on one screen. |
+| continuing | продолжить (verb), продолжение (noun) | The section is «Продолжение поездки», taking «Начало поездки»'s shape so the two edges of a trip read as a pair. The slider takes the verb, «Продолжать в течение», rather than a second «продолжение», the noun already being overhead on that screen. |
 | positioning | определение местоположения | The status line says «Определение местоположения…», never «Поиск GPS» or «Поиск сигнала» — *поиск* is the user's, and the radio is not the subject. |
 | backup | резервная копия | Short form *копия*; the verb is «создать резервную копию». |
+| viewer | просмотр в браузере | No single noun reads naturally (*просмотрщик* is slang); the phrase says where the viewing happens. |
 | search | поиск (noun), найти (verb) | Only the user's. What the receiver does is *определение местоположения*. |
 | lock | блокировка; заблокировать / разблокировать | |
 | logs | журнал | The entries are never translated; only the screen's chrome is. Kept apart from *запись*, the recorder — the one collision in this group to watch. |
 | setup | настройка (noun), настроить (verb) | Not *настройки* (plural), which is the Settings hub: this is done once and then gone, where those are returned to. The singular is what keeps the two apart, so it must not drift to the plural. |
+| about | О приложении | |
+| privacy policy | политика конфиденциальности | *Конфиденциальность* is already the Privacy section's name, so the two share their noun. |
+| website | сайт | |
+| source code | исходный код | |
 
 ## Conventions
 

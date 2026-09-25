@@ -71,14 +71,19 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | Concept | Term | What it means |
 |---|---|---|
 | recording | recording | The act and state of capturing trips — one of the ways a trip arrives, beside importing and typing one in. Never *tracking*. |
-| setting-off | set off | The moment a trip begins, **from the reader's side** — what the app is trying to notice, as opposed to *recording*, which is what it then does. Settings' page is "Starting a trip". Never named after a mechanism: no *geofence*, no *trigger*, no *sensor*, since a reader chooses between these by how soon a trip is noticed and what it costs them, and could act on none of the machinery. |
-| continuing | continue | Movement returning soon after a stop being recorded into the trip that just ended rather than a new one. Settings' page is "Continuing a trip", the pair to *setting-off*'s "Starting a trip". **No trip is ever said to pause or resume** — nothing is held open, the trip finished at the stop and reached the timeline with its figures, and what a later movement does is join that record or start another. The receiver is a different subject and may still pause ("GPS paused — it resumes when you move"). |
+| setting-off | set off | The moment a trip begins, **from the reader's side** — what the app is trying to notice, as opposed to *recording*, which is what it then does. Its Settings section, on the Trips page, is "Starting a trip". Never named after a mechanism: no *geofence*, no *trigger*, no *sensor*, since a reader chooses between these by how soon a trip is noticed and what it costs them, and could act on none of the machinery. |
+| continuing | continue | Movement returning soon after a stop being recorded into the trip that just ended rather than a new one. Its Settings section is "Continuing a trip", the pair to *setting-off*'s "Starting a trip". **No trip is ever said to pause or resume** — nothing is held open, the trip finished at the stop and reached the timeline with its figures, and what a later movement does is join that record or start another. The receiver is a different subject and may still pause ("GPS paused — it resumes when you move"). |
 | positioning | positioning | Working out where the phone is — the process, from switching the receiver on to accepting a point. Never *fix*, and never *signal*. |
 | backup | backup | The full-app export: one file with everything. |
+| viewer | Viewer | The web page at breadcrumb.place that shows a backup file in the browser. Named for what it does to the file, never a *companion*, *app* or *site*. |
 | search | search | The user typing a query (places, cities). The only search there is — what the receiver does is *positioning*. |
 | lock | lock / unlock | The app lock, **as Settings names it**, where someone is hunting for the feature and needs the word every other app uses. The barrier itself never says it — see the decision below. |
 | logs | logs | Diagnostic entries the app writes about itself. The entries are never translated; only the screen's chrome is. |
 | setup | setup (noun), set up (verb) | Granting recording what Android makes it ask for — the screen that asks, and the Record tab's reminder that reopens it. Covers permissions **and** the battery exemption, which is why it is not called *permissions*. |
+| about | About | Settings' page for what the app is and where it comes from: its version, the website, the privacy policy, the source. |
+| privacy policy | privacy policy | The page on the website that Play's listing links to, under that fixed name. |
+| website | website | breadcrumb.place, as a whole. |
+| source code | source code | The public repository. |
 
 ## Conventions
 

@@ -7,20 +7,14 @@
     <string name="settings_group_display">Display</string>
     <string name="settings_group_privacy">Privacy</string>
     <string name="settings_group_data">Data</string>
-    <string name="settings_group_diagnostics">Diagnostics</string>
+    <string name="settings_trips">Trips</string>
     <string name="settings_sampling">Sampling</string>
-    <string name="settings_sampling_sub">How densely points are recorded</string>
     <string name="settings_point_quality">Point filter</string>
-    <string name="settings_point_quality_sub">Which points make it into the track</string>
     <!-- Not "GPS positioning": the P already is. -->
     <string name="settings_gps_search">Positioning</string>
-    <string name="settings_gps_search_sub">Save battery when no position can be found</string>
     <string name="settings_departure_triggers">Starting a trip</string>
-    <string name="settings_departure_triggers_sub">How the app notices you have set off</string>
     <string name="settings_trip_continuation">Continuing a trip</string>
-    <string name="settings_trip_continuation_sub">How long a stop can be before the next movement is a new trip</string>
     <string name="settings_track_filtering">Trip filtering</string>
-    <string name="settings_track_filtering_sub">Limits below which finished trips are discarded</string>
     <string name="settings_units">Units</string>
     <!-- The unit-system choices. "Automatic" reads the device country, not the language. -->
     <string name="units_choice_automatic">Automatic</string>
@@ -28,9 +22,7 @@
     <string name="units_choice_imperial">Miles</string>
     <string name="units_choice_uk">Miles + meters</string>
     <string name="settings_app_lock">App lock</string>
-    <string name="settings_app_lock_sub">Unlocking to open the app, and hiding it from screenshots</string>
     <string name="settings_online_services">Online services</string>
-    <string name="settings_online_services_sub">What may use the network, beyond the map</string>
     <string name="settings_recently_deleted_sub">Restorable for %1$d days</string>
     <string name="settings_logs">Logs</string>
     <string name="settings_reset">Reset</string>
@@ -38,6 +30,15 @@
     <!-- Attribution. Both are licence requirements, not decoration. -->
     <string name="credit_geonames">Place names from GeoNames, CC BY 4.0</string>
     <string name="credit_osm">Online search © OpenStreetMap contributors, ODbL</string>
+
+    <!-- About -->
+    <string name="settings_about">About</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_privacy_policy">Privacy policy</string>
+    <string name="about_website">Website</string>
+    <string name="about_source_code">Source code</string>
+    <!-- The store's own name, the same in every language. -->
+    <string name="about_google_play" translatable="false">Google Play</string>
 
     <!-- Sampling -->
     <string name="sampling_description">How densely points are recorded while moving</string>
@@ -119,6 +120,8 @@
     </plurals>
     <string name="data_backup">Back up everything</string>
     <string name="data_backup_idle">Your whole history as one file</string>
+    <string name="data_viewer">Viewer</string>
+    <string name="data_viewer_sub">Shows a backup file in your browser, with every trip on one map</string>
     <string name="data_backup_verb">Backing up…</string>
     <string name="data_backup_progress">Backing up trip %1$d of %2$d</string>
 

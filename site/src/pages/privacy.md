@@ -37,7 +37,7 @@ phone to your new one. No server sees it. You turn the transfer off in your phon
 in the app.
 
 You can lock the app behind your phone's unlock and hide it from screenshots and the recent-apps
-screen, under Settings → App lock. Recording carries on whether the app is locked or not.
+screen, under Settings → Privacy. Recording carries on whether the app is locked or not.
 
 ## What leaves the phone
 
@@ -50,7 +50,7 @@ screen, under Settings → App lock. Recording carries on whether the app is loc
   by name. That search sends the words you typed to [Photon](https://photon.komoot.io/). Once
   the trip's starting point is on the map, the search also sends that point, so the results are
   the ones most relevant to your trip. Until then it sends the destination, if that one is placed.
-  You can turn the search off under Settings → Online services.
+  You can turn the search off under Settings → Privacy.
   The app then searches only the list of cities built into it.
 - **What you export.** A trip shared as a GPX file, or a backup of your whole history, goes
   wherever you send it. The app never sends it anywhere on its own.
@@ -64,7 +64,7 @@ screen, under Settings → App lock. Recording carries on whether the app is loc
   trip that activity recognition missed, such as a train. Play Services is given the spot to watch,
   where you last stopped, or wherever the phone last was when you turned recording on or restarted
   the phone, and supplies rough positions while you are there. The app does not keep those
-  positions. You can turn the watch off under Settings → Starting a trip. How Play Services handles
+  positions. You can turn the watch off under Settings → Trips. How Play Services handles
   all of this is covered by Google's privacy policy, not this one.
 
 ## Permissions

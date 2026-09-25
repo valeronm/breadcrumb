@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
@@ -29,11 +30,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.util.DistanceSliderScale
 import io.github.valeronm.breadcrumb.util.SliderStops
+import io.github.valeronm.breadcrumb.util.openInBrowser
 import io.github.valeronm.breadcrumb.util.snapToStep
 
 /** Settings-style switch with a check/cross icon in the thumb mirroring its state. */
@@ -77,12 +82,42 @@ internal fun GroupedRows(vararg rows: @Composable () -> Unit) {
     }
 }
 
-/** Settings-style navigation row: label + chevron, opening a stacked screen. */
 @Composable
 internal fun NavRow(
     label: String,
     subtitle: String? = null,
     enabled: Boolean = true,
+    icon: ImageVector? = null,
+    onClick: () -> Unit,
+) = TappableRow(label, subtitle, enabled, icon, Icons.AutoMirrored.Filled.KeyboardArrowRight, onClick)
+
+/** Marked apart from [NavRow] so a link out of the app is not mistaken for a screen. */
+@Composable
+internal fun LinkRow(label: String, url: String, subtitle: String? = null) {
+    val context = LocalContext.current
+    TappableRow(label, subtitle, enabled = true, leading = null, Icons.AutoMirrored.Filled.OpenInNew) {
+        context.openInBrowser(url)
+    }
+}
+
+@Composable
+internal fun FootnoteText(text: String) {
+    Text(
+        text,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun TappableRow(
+    label: String,
+    subtitle: String?,
+    enabled: Boolean,
+    leading: ImageVector?,
+    trailing: ImageVector,
     onClick: () -> Unit,
 ) {
     // No vertical padding of its own: the GroupedRows card already pads the row.
@@ -93,6 +128,10 @@ internal fun NavRow(
             .alpha(if (enabled) 1f else 0.5f),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (leading != null) {
+            Icon(leading, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(16.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.bodyLarge)
             if (subtitle != null) {
@@ -104,7 +143,7 @@ internal fun NavRow(
             }
         }
         Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            trailing,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(28.dp),

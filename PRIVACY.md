@@ -33,8 +33,8 @@ your device.**
   trip you are entering, never your live location or wherever the map is
   looking. As with map requests, no account or identifier is attached, and no
   other location history is sent. Online search is on by default and can be
-  turned off in Settings → Online services; that page lists everything in the
-  app that uses the network beyond the map.
+  turned off in Settings → Privacy, whose Online services section lists
+  everything in the app that uses the network beyond the map.
 - **Nothing else.** The app has no accounts, no analytics, no ads, no
   crash-reporting SDKs, and no server of its own. Naming your journeys and
   resolving time zones use a database of cities and towns bundled inside the

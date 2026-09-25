@@ -37,8 +37,9 @@
         <item quantity="other">%d days ago</item>
     </plurals>
 
-    <!-- Handing a coordinate to the device's maps app, when the device turns out to have none. -->
+    <!-- Handing a coordinate to the maps app, or a link to the browser, when the device has none. -->
     <string name="maps_no_app">No maps app to open this in</string>
+    <string name="browser_no_app">No browser to open this in</string>
 
     <!-- Share sheet titles, raised from the trip page and the day header. What leaves the app is a
          track; the format is not named here — see `docs/glossary/en.md`. -->

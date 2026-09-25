@@ -6,23 +6,34 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ImportExport
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,14 +41,20 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
@@ -47,187 +64,55 @@ import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.UnitChoice
+import io.github.valeronm.breadcrumb.util.WebLinks
 import io.github.valeronm.breadcrumb.util.canAuthenticate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
-/** A Settings sub-screen stacked above the Settings hub (shares one overlay slot in MainScreen). */
-internal enum class SettingsDestination {
-    Sampling,
-    PointQuality,
-    GpsSearch,
-    DepartureTriggers,
-    TripContinuation,
-    TrackFiltering,
-    AppLock,
-    OnlineServices,
-    RecentlyDeleted,
-    Logs,
-}
-
 @Composable
-internal fun SettingsScreen(
-    viewModel: TrackListViewModel,
-    unitChoice: UnitChoice,
-    onUnitChoice: (UnitChoice) -> Unit,
-    onBack: () -> Unit,
-    onOpenDestination: (SettingsDestination) -> Unit,
-) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                colors = canvasTopBarColors(),
-                title = { Text(stringResource(R.string.settings_title)) },
-                navigationIcon = { BackNavIcon(onBack) },
-            )
+internal fun SettingsScreen(onBack: () -> Unit, onOpenPage: (SettingsPage) -> Unit) {
+    SettingsSubScreen(
+        stringResource(R.string.settings_title),
+        onBack,
+        actions = {
+            IconButton(onClick = { onOpenPage(SettingsPage.About) }) {
+                Icon(Icons.Filled.Info, contentDescription = stringResource(R.string.settings_about))
+            }
         },
-    ) { inner ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(inner)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-        ) {
-            Text(stringResource(R.string.settings_group_recording), style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            GroupedRows(
-                {
-                    NavRow(
-                        stringResource(R.string.settings_sampling),
-                        subtitle = stringResource(R.string.settings_sampling_sub),
-                    ) { onOpenDestination(SettingsDestination.Sampling) }
-                },
-                {
-                    NavRow(
-                        stringResource(R.string.settings_point_quality),
-                        subtitle = stringResource(R.string.settings_point_quality_sub),
-                    ) { onOpenDestination(SettingsDestination.PointQuality) }
-                },
-                {
-                    NavRow(
-                        stringResource(R.string.settings_gps_search),
-                        subtitle = stringResource(R.string.settings_gps_search_sub),
-                    ) { onOpenDestination(SettingsDestination.GpsSearch) }
-                },
-                {
-                    NavRow(
-                        stringResource(R.string.settings_departure_triggers),
-                        subtitle = stringResource(R.string.settings_departure_triggers_sub),
-                    ) { onOpenDestination(SettingsDestination.DepartureTriggers) }
-                },
-                {
-                    NavRow(
-                        stringResource(R.string.settings_trip_continuation),
-                        subtitle = stringResource(R.string.settings_trip_continuation_sub),
-                    ) { onOpenDestination(SettingsDestination.TripContinuation) }
-                },
-                {
-                    NavRow(
-                        stringResource(R.string.settings_track_filtering),
-                        subtitle = stringResource(R.string.settings_track_filtering_sub),
-                    ) { onOpenDestination(SettingsDestination.TrackFiltering) }
-                },
-            )
-            Spacer(Modifier.height(24.dp))
-            Text(stringResource(R.string.settings_group_display), style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            GroupedRows(
-                {
-                    Column {
-                        Text(stringResource(R.string.settings_units), style = MaterialTheme.typography.bodyLarge)
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            for (choice in UnitChoice.entries) {
-                                FilterToggleChip(
-                                    selected = choice == unitChoice,
-                                    label = stringResource(choice.labelRes),
-                                    onClick = { onUnitChoice(choice) },
-                                )
-                            }
-                        }
-                    }
-                },
-            )
-            Spacer(Modifier.height(24.dp))
-            Text(stringResource(R.string.settings_group_privacy), style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            GroupedRows(
-                {
-                    NavRow(
-                        stringResource(R.string.settings_app_lock),
-                        subtitle = stringResource(R.string.settings_app_lock_sub),
-                    ) { onOpenDestination(SettingsDestination.AppLock) }
-                },
-                {
-                    NavRow(
-                        stringResource(R.string.settings_online_services),
-                        subtitle = stringResource(R.string.settings_online_services_sub),
-                    ) { onOpenDestination(SettingsDestination.OnlineServices) }
-                },
-            )
-            Spacer(Modifier.height(24.dp))
-            Text(stringResource(R.string.settings_group_data), style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            GroupedRows(
-                { ImportTracksRow(viewModel) },
-                { ExportTracksRow(viewModel) },
-                { ExportBackupRow(viewModel) },
-                {
-                    NavRow(
-                        stringResource(R.string.discarded_title),
-                        subtitle = stringResource(
-                            R.string.settings_recently_deleted_sub,
-                            DISCARDED_RETENTION_DAYS,
-                        ),
-                    ) { onOpenDestination(SettingsDestination.RecentlyDeleted) }
-                },
-            )
-            Spacer(Modifier.height(24.dp))
-            Text(stringResource(R.string.settings_group_diagnostics), style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            GroupedRows(
-                { NavRow(stringResource(R.string.settings_logs)) { onOpenDestination(SettingsDestination.Logs) } },
-            )
-            Spacer(Modifier.height(32.dp))
-            Text(
-                BuildIdentity.shown,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            // Required by the atlas's licence, not a courtesy — CC BY 4.0 asks for the credit
-            // wherever the work is used, and the place names on the timeline are that use.
-            Text(
-                stringResource(R.string.credit_geonames),
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            // Likewise a licence term: ODbL asks for the credit wherever OSM-derived results show.
-            Text(
-                stringResource(R.string.credit_osm),
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+    ) {
+        GroupedRows(
+            { NavRow(stringResource(R.string.settings_group_recording), icon = Icons.Filled.MyLocation) { onOpenPage(SettingsPage.Recording) } },
+            { NavRow(stringResource(R.string.settings_trips), icon = Icons.Filled.Route) { onOpenPage(SettingsPage.Trips) } },
+            { NavRow(stringResource(R.string.settings_group_display), icon = Icons.Filled.Tune) { onOpenPage(SettingsPage.Display) } },
+            { NavRow(stringResource(R.string.settings_group_privacy), icon = Icons.Filled.Lock) { onOpenPage(SettingsPage.Privacy) } },
+        )
+        Spacer(Modifier.height(24.dp))
+        GroupedRows(
+            { NavRow(stringResource(R.string.settings_group_data), icon = Icons.Filled.ImportExport) { onOpenPage(SettingsPage.Data) } },
+            { NavRow(stringResource(R.string.settings_logs), icon = Icons.AutoMirrored.Filled.ReceiptLong) { onOpenPage(SettingsPage.Logs) } },
+        )
+        Spacer(Modifier.height(24.dp))
+        GroupedRows(
+            {
+                NavRow(
+                    stringResource(R.string.discarded_title),
+                    subtitle = stringResource(R.string.settings_recently_deleted_sub, DISCARDED_RETENTION_DAYS),
+                    icon = Icons.Filled.Delete,
+                ) { onOpenPage(SettingsPage.RecentlyDeleted) }
+            },
+        )
+        Spacer(Modifier.height(32.dp))
+        FootnoteText(BuildIdentity.shown)
     }
 }
 
-/** Shared scaffold for one settings sub-screen: title, back, optional top-bar Reset. */
 @Composable
-private fun SettingsSubScreen(
+internal fun SettingsSubScreen(
     title: String,
     onBack: () -> Unit,
-    resetPrefs: List<Pref<*>> = emptyList(),
+    actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Scaffold(
@@ -236,13 +121,7 @@ private fun SettingsSubScreen(
                 colors = canvasTopBarColors(),
                 title = { Text(title) },
                 navigationIcon = { BackNavIcon(onBack) },
-                actions = {
-                    if (resetPrefs.any { !it.isDefault }) {
-                        TextButton(onClick = { resetPrefs.forEach { it.reset() } }) {
-                            Text(stringResource(R.string.settings_reset))
-                        }
-                    }
-                },
+                actions = actions,
             )
         },
     ) { inner ->
@@ -257,19 +136,43 @@ private fun SettingsSubScreen(
     }
 }
 
-/** The explanatory line under a settings sub-screen's top bar. */
 @Composable
-private fun SettingsSubScreenDescription(text: String) {
+private fun SettingsGroup(
+    title: String,
+    description: String,
+    resetPrefs: List<Pref<*>>,
+    rows: @Composable () -> Unit,
+) {
+    Row(Modifier.minimumInteractiveComponentSize(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        if (resetPrefs.any { !it.isDefault }) {
+            TextButton(onClick = { resetPrefs.forEach { it.reset() } }) {
+                Text(stringResource(R.string.settings_reset))
+            }
+        }
+    }
     Text(
-        text,
+        description,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(Modifier.height(8.dp))
+    rows()
 }
 
 @Composable
-internal fun SamplingSettingsScreen(onBack: () -> Unit) {
+internal fun RecordingSettingsScreen(onBack: () -> Unit) {
+    SettingsSubScreen(stringResource(R.string.settings_group_recording), onBack) {
+        SamplingGroup()
+        Spacer(Modifier.height(24.dp))
+        PointFilterGroup()
+        Spacer(Modifier.height(24.dp))
+        PositioningGroup()
+    }
+}
+
+@Composable
+private fun SamplingGroup() {
     val context = LocalContext.current
     val intervalSec = rememberPref(
         AppSettings.DEFAULT_SAMPLING_MIN_INTERVAL_SEC,
@@ -279,8 +182,11 @@ internal fun SamplingSettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_SAMPLING_MIN_DISTANCE_M,
         { AppSettings.minDistanceM(context) },
     ) { AppSettings.setMinDistanceM(context, it) }
-    SettingsSubScreen(stringResource(R.string.settings_sampling), onBack, listOf(intervalSec, distanceM)) {
-        SettingsSubScreenDescription(stringResource(R.string.sampling_description))
+    SettingsGroup(
+        stringResource(R.string.settings_sampling),
+        stringResource(R.string.sampling_description),
+        listOf(intervalSec, distanceM),
+    ) {
         GroupedRows(
             {
                 SliderSetting(
@@ -304,7 +210,7 @@ internal fun SamplingSettingsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun PointQualitySettingsScreen(onBack: () -> Unit) {
+private fun PointFilterGroup() {
     val context = LocalContext.current
     val accuracyGateM = rememberPref(
         AppSettings.DEFAULT_ACCURACY_GATE_M,
@@ -314,12 +220,11 @@ internal fun PointQualitySettingsScreen(onBack: () -> Unit) {
         AppSettings.DEFAULT_REQUIRE_GNSS_FIX,
         { AppSettings.requireGnssFix(context) },
     ) { AppSettings.setRequireGnssFix(context, it) }
-    SettingsSubScreen(
+    SettingsGroup(
         stringResource(R.string.settings_point_quality),
-        onBack,
+        stringResource(R.string.quality_description),
         listOf(accuracyGateM, requireGnssFix),
     ) {
-        SettingsSubScreenDescription(stringResource(R.string.quality_description))
         GroupedRows(
             {
                 SwitchSettingRow(
@@ -346,14 +251,17 @@ internal fun PointQualitySettingsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun GpsSearchSettingsScreen(onBack: () -> Unit) {
+private fun PositioningGroup() {
     val context = LocalContext.current
     val gpsGiveUpSec = rememberPref(
         AppSettings.DEFAULT_GPS_GIVE_UP_SEC,
         { AppSettings.gpsGiveUpSec(context) },
     ) { AppSettings.setGpsGiveUpSec(context, it) }
-    SettingsSubScreen(stringResource(R.string.settings_gps_search), onBack, listOf(gpsGiveUpSec)) {
-        SettingsSubScreenDescription(stringResource(R.string.gps_description))
+    SettingsGroup(
+        stringResource(R.string.settings_gps_search),
+        stringResource(R.string.gps_description),
+        listOf(gpsGiveUpSec),
+    ) {
         GroupedRows(
             {
                 SliderSetting(
@@ -370,6 +278,17 @@ internal fun GpsSearchSettingsScreen(onBack: () -> Unit) {
     }
 }
 
+@Composable
+internal fun TripsSettingsScreen(onBack: () -> Unit) {
+    SettingsSubScreen(stringResource(R.string.settings_trips), onBack) {
+        DepartureGroup()
+        Spacer(Modifier.height(24.dp))
+        ContinuationGroup()
+        Spacer(Modifier.height(24.dp))
+        TripFilteringGroup()
+    }
+}
+
 /**
  * The ways the recorder can notice a journey starting when activity detection does not report one.
  * Three switches rather than a single "detect harder": they cost differently, they are blind in
@@ -377,7 +296,7 @@ internal fun GpsSearchSettingsScreen(onBack: () -> Unit) {
  * devices can have activity detection announce a car within seconds, or never announce it at all.
  */
 @Composable
-internal fun DepartureTriggersSettingsScreen(onBack: () -> Unit) {
+private fun DepartureGroup() {
     val context = LocalContext.current
     val fence = rememberPref(
         true,
@@ -391,12 +310,11 @@ internal fun DepartureTriggersSettingsScreen(onBack: () -> Unit) {
         false,
         { AppSettings.departureContinuous(context) },
     ) { AppSettings.setDepartureContinuous(context, it) }
-    SettingsSubScreen(
+    SettingsGroup(
         stringResource(R.string.settings_departure_triggers),
-        onBack,
+        stringResource(R.string.departure_description),
         listOf(fence, motion, continuous),
     ) {
-        SettingsSubScreenDescription(stringResource(R.string.departure_description))
         GroupedRows(
             {
                 SwitchSettingRow(
@@ -427,18 +345,17 @@ internal fun DepartureTriggersSettingsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun TripContinuationSettingsScreen(onBack: () -> Unit) {
+private fun ContinuationGroup() {
     val context = LocalContext.current
     val stitchWindowSec = rememberPref(
         AppSettings.DEFAULT_STITCH_WINDOW_SEC,
         { AppSettings.stitchWindowSec(context) },
     ) { AppSettings.setStitchWindowSec(context, it) }
-    SettingsSubScreen(
+    SettingsGroup(
         stringResource(R.string.settings_trip_continuation),
-        onBack,
+        stringResource(R.string.continuation_description),
         listOf(stitchWindowSec),
     ) {
-        SettingsSubScreenDescription(stringResource(R.string.continuation_description))
         GroupedRows(
             {
                 SliderSetting(
@@ -456,7 +373,7 @@ internal fun TripContinuationSettingsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
+private fun TripFilteringGroup() {
     val context = LocalContext.current
     val minDurationSec = rememberPref(
         AppSettings.DEFAULT_TRACK_MIN_DURATION_SEC,
@@ -473,12 +390,11 @@ internal fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
     // Min length and min extent share one scale: both are "how far did the track get" thresholds.
     val lengthScale =
         rememberDistanceScale(SliderStops(0, 500, 50), SliderStops(0, 1650, 150), zeroIsOff = true)
-    SettingsSubScreen(
+    SettingsGroup(
         stringResource(R.string.settings_track_filtering),
-        onBack,
+        stringResource(R.string.filter_description),
         listOf(minDurationSec, minLengthM, minExtentM),
     ) {
-        SettingsSubScreenDescription(stringResource(R.string.filter_description))
         GroupedRows(
             {
                 SliderSetting(
@@ -515,7 +431,16 @@ internal fun TrackFilteringSettingsScreen(onBack: () -> Unit) {
 private val LOCK_GRACE_CHOICES = listOf(0, 30, 60, 300)
 
 @Composable
-internal fun AppLockSettingsScreen(onBack: () -> Unit) {
+internal fun PrivacySettingsScreen(onBack: () -> Unit) {
+    SettingsSubScreen(stringResource(R.string.settings_group_privacy), onBack) {
+        AppLockGroup()
+        Spacer(Modifier.height(24.dp))
+        OnlineServicesGroup()
+    }
+}
+
+@Composable
+private fun AppLockGroup() {
     val context = LocalContext.current
     val graceSec = rememberPref(
         AppSettings.DEFAULT_APP_LOCK_GRACE_SEC,
@@ -528,12 +453,11 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
         false,
         { AppSettings.appLockTrustsKeyguard(context) },
     ) { AppSettings.setAppLockTrustsKeyguard(context, it) }
-    SettingsSubScreen(
+    SettingsGroup(
         stringResource(R.string.settings_app_lock),
-        onBack,
+        stringResource(R.string.privacy_description),
         listOf(graceSec, trustsKeyguard),
     ) {
-        SettingsSubScreenDescription(stringResource(R.string.privacy_description))
         GroupedRows(
             { RequireUnlockRow(context, lockable, graceSec, trustsKeyguard) },
             {
@@ -549,18 +473,17 @@ internal fun AppLockSettingsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun OnlineServicesSettingsScreen(onBack: () -> Unit) {
+private fun OnlineServicesGroup() {
     val context = LocalContext.current
     val onlineSearch = rememberPref(
         true,
         { AppSettings.isOnlinePlaceSearch(context) },
     ) { AppSettings.setOnlinePlaceSearch(context, it) }
-    SettingsSubScreen(
+    SettingsGroup(
         stringResource(R.string.settings_online_services),
-        onBack,
+        stringResource(R.string.online_services_description),
         listOf(onlineSearch),
     ) {
-        SettingsSubScreenDescription(stringResource(R.string.online_services_description))
         GroupedRows(
             {
                 SwitchSettingRow(
@@ -639,11 +562,173 @@ private fun lockGraceLabel(sec: Int): String =
         stringResource(R.string.lock_after, durationSettingLabel(sec))
     }
 
-/** Hub row that opens the GPX picker directly; the subtitle doubles as import progress. */
+@Composable
+internal fun LogsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val entries by DebugLog.entries.collectAsStateWithLifecycle(initialValue = emptyList())
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                colors = canvasTopBarColors(),
+                title = { Text(stringResource(R.string.logs_title, entries.size)) },
+                navigationIcon = { BackNavIcon(onBack) },
+                actions = {
+                    // The chooser title is chrome and translates; the log body it carries does not.
+                    val shareLogs = stringResource(R.string.logs_share)
+                    val scope = rememberCoroutineScope()
+                    IconButton(onClick = {
+                        // A stream, not EXTRA_TEXT: the persisted history runs to megabytes, and a
+                        // string that size dies in the binder transaction the intent rides.
+                        scope.launch(Dispatchers.IO) {
+                            val uri = LogExporter.export(context)
+                            val share = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            withContext(Dispatchers.Main) {
+                                context.startActivity(Intent.createChooser(share, shareLogs))
+                            }
+                        }
+                    }) { Icon(Icons.Filled.Share, contentDescription = shareLogs) }
+                    IconButton(onClick = { DebugLog.clear() }) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.logs_clear),
+                        )
+                    }
+                },
+            )
+        },
+    ) { inner ->
+        if (entries.isEmpty()) {
+            EmptyState(
+                stringResource(R.string.logs_empty),
+                Modifier.padding(inner).fillMaxSize(),
+            )
+        } else {
+            // Newest first so the latest events are visible without scrolling.
+            LazyColumn(modifier = Modifier.padding(inner).fillMaxSize().padding(horizontal = 12.dp)) {
+                items(entries.asReversed()) { e ->
+                    val color = when (e.level) {
+                        'E' -> MaterialTheme.colorScheme.error
+                        'W' -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
+                    Text(
+                        "${DebugLog.formatTime(e.timeMillis)}  ${e.message}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = color,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+internal enum class SettingsPage { Recording, Trips, Display, Privacy, Data, RecentlyDeleted, Logs, About }
+
+@Composable
+internal fun DisplaySettingsScreen(
+    onBack: () -> Unit,
+    unitChoice: UnitChoice,
+    onUnitChoice: (UnitChoice) -> Unit,
+) {
+    SettingsSubScreen(stringResource(R.string.settings_group_display), onBack) {
+        GroupedRows(
+            {
+                Column {
+                    Text(stringResource(R.string.settings_units), style = MaterialTheme.typography.bodyLarge)
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        for (choice in UnitChoice.entries) {
+                            FilterToggleChip(
+                                selected = choice == unitChoice,
+                                label = stringResource(choice.labelRes),
+                                onClick = { onUnitChoice(choice) },
+                            )
+                        }
+                    }
+                }
+            },
+        )
+    }
+}
+
+@Composable
+internal fun DataSettingsScreen(onBack: () -> Unit, viewModel: TrackListViewModel) {
+    SettingsSubScreen(stringResource(R.string.settings_group_data), onBack) {
+        GroupedRows(
+            { ExportBackupRow(viewModel) },
+            {
+                LinkRow(
+                    stringResource(R.string.data_viewer),
+                    WebLinks.VIEWER,
+                    subtitle = stringResource(R.string.data_viewer_sub),
+                )
+            },
+        )
+        Spacer(Modifier.height(24.dp))
+        GroupedRows(
+            { ImportTracksRow(viewModel) },
+            { ExportTracksRow(viewModel) },
+        )
+    }
+}
+
+@Composable
+internal fun AboutSettingsScreen(onBack: () -> Unit) {
+    SettingsSubScreen(stringResource(R.string.settings_about), onBack) {
+        AppIcon(Modifier.align(Alignment.CenterHorizontally))
+        Spacer(Modifier.height(12.dp))
+        Text(
+            stringResource(R.string.app_name),
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.titleLarge,
+        )
+        Text(
+            stringResource(R.string.about_version, BuildIdentity.shown),
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(24.dp))
+        GroupedRows(
+            { LinkRow(stringResource(R.string.about_google_play), WebLinks.PLAY) },
+            { LinkRow(stringResource(R.string.about_privacy_policy), WebLinks.PRIVACY_POLICY) },
+            { LinkRow(stringResource(R.string.about_website), WebLinks.SITE) },
+            { LinkRow(stringResource(R.string.about_source_code), WebLinks.SOURCE) },
+        )
+        Spacer(Modifier.height(24.dp))
+        // CC BY 4.0 asks for the credit wherever the work is used, and the timeline's place names
+        // are that use.
+        FootnoteText(stringResource(R.string.credit_geonames))
+        // ODbL asks for the credit wherever OSM-derived results show.
+        FootnoteText(stringResource(R.string.credit_osm))
+    }
+}
+
+/** `painterResource` cannot draw an adaptive icon. */
+@Composable
+private fun AppIcon(modifier: Modifier) {
+    val context = LocalContext.current
+    val sizePx = with(LocalDensity.current) { APP_ICON_SIZE.roundToPx() }
+    val icon = remember(sizePx) {
+        AppCompatResources.getDrawable(context, R.mipmap.ic_launcher)!!.toBitmap(sizePx, sizePx).asImageBitmap()
+    }
+    Image(icon, contentDescription = null, modifier = modifier.size(APP_ICON_SIZE))
+}
+
+private val APP_ICON_SIZE = 72.dp
+
 @Composable
 private fun ImportTracksRow(viewModel: TrackListViewModel) {
     val context = LocalContext.current
-    // Progress lives in the ViewModel, so it survives leaving Settings mid-import.
     val importProgress by viewModel.importExport.importProgress.collectAsStateWithLifecycle()
     val appContext = context.applicationContext
     val importLauncher = rememberLauncherForActivityResult(
@@ -736,11 +821,9 @@ private fun exportResultToast(context: Context, count: Int?) {
     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }
 
-/** Hub row that opens the folder picker and writes every track out as GPX. */
 @Composable
 private fun ExportTracksRow(viewModel: TrackListViewModel) {
     val appContext = LocalContext.current.applicationContext
-    // Progress lives in the ViewModel, so it survives leaving Settings mid-export.
     val progress by viewModel.importExport.gpxExportProgress.collectAsStateWithLifecycle()
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
@@ -761,11 +844,6 @@ private fun ExportTracksRow(viewModel: TrackListViewModel) {
     ) { exportLauncher.launch(null) }
 }
 
-/**
- * Hub row that writes the whole history as one gzipped JSON file — backup, and the web
- * companion's source. Progress lives in the ViewModel, so it survives leaving Settings
- * mid-export; the row is disabled (and counts up in its subtitle) while one runs.
- */
 @Composable
 private fun ExportBackupRow(viewModel: TrackListViewModel) {
     val appContext = LocalContext.current.applicationContext
@@ -787,69 +865,4 @@ private fun ExportBackupRow(viewModel: TrackListViewModel) {
         done = progress?.tracksDone,
         total = progress?.tracksTotal,
     ) { exportLauncher.launch(BackupExporter.fileName(System.currentTimeMillis())) }
-}
-
-@Composable
-internal fun LogsScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    val entries by DebugLog.entries.collectAsStateWithLifecycle(initialValue = emptyList())
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                colors = canvasTopBarColors(),
-                title = { Text(stringResource(R.string.logs_title, entries.size)) },
-                navigationIcon = { BackNavIcon(onBack) },
-                actions = {
-                    // The chooser title is chrome and translates; the log body it carries does not.
-                    val shareLogs = stringResource(R.string.logs_share)
-                    val scope = rememberCoroutineScope()
-                    IconButton(onClick = {
-                        // A stream, not EXTRA_TEXT: the persisted history runs to megabytes, and a
-                        // string that size dies in the binder transaction the intent rides.
-                        scope.launch(Dispatchers.IO) {
-                            val uri = LogExporter.export(context)
-                            val share = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            withContext(Dispatchers.Main) {
-                                context.startActivity(Intent.createChooser(share, shareLogs))
-                            }
-                        }
-                    }) { Icon(Icons.Filled.Share, contentDescription = shareLogs) }
-                    IconButton(onClick = { DebugLog.clear() }) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = stringResource(R.string.logs_clear),
-                        )
-                    }
-                },
-            )
-        },
-    ) { inner ->
-        if (entries.isEmpty()) {
-            EmptyState(
-                stringResource(R.string.logs_empty),
-                Modifier.padding(inner).fillMaxSize(),
-            )
-        } else {
-            // Newest first so the latest events are visible without scrolling.
-            LazyColumn(modifier = Modifier.padding(inner).fillMaxSize().padding(horizontal = 12.dp)) {
-                items(entries.asReversed()) { e ->
-                    val color = when (e.level) {
-                        'E' -> MaterialTheme.colorScheme.error
-                        'W' -> MaterialTheme.colorScheme.tertiary
-                        else -> MaterialTheme.colorScheme.onSurface
-                    }
-                    Text(
-                        "${DebugLog.formatTime(e.timeMillis)}  ${e.message}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = color,
-                        modifier = Modifier.padding(vertical = 2.dp),
-                    )
-                }
-            }
-        }
-    }
 }

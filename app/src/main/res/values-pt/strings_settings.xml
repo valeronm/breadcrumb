@@ -5,34 +5,32 @@
     <string name="settings_group_display">Apresentação</string>
     <string name="settings_group_privacy">Privacidade</string>
     <string name="settings_group_data">Dados</string>
-    <string name="settings_group_diagnostics">Diagnóstico</string>
+    <string name="settings_trips">Viagens</string>
     <string name="settings_sampling">Amostragem</string>
-    <string name="settings_sampling_sub">Com que densidade os pontos são gravados</string>
     <string name="settings_point_quality">Filtro de pontos</string>
-    <string name="settings_point_quality_sub">Que pontos entram no trajeto</string>
     <string name="settings_gps_search">Posicionamento</string>
-    <string name="settings_gps_search_sub">Poupar bateria quando não há posição a obter</string>
     <string name="settings_departure_triggers">Início de uma viagem</string>
-    <string name="settings_departure_triggers_sub">Como a aplicação percebe que partiu</string>
     <string name="settings_trip_continuation">Continuação de uma viagem</string>
-    <string name="settings_trip_continuation_sub">Quanto pode durar uma paragem antes de o movimento seguinte ser outra viagem</string>
     <string name="settings_track_filtering">Filtragem de viagens</string>
-    <string name="settings_track_filtering_sub">Limites abaixo dos quais as viagens terminadas são descartadas</string>
     <string name="settings_units">Unidades</string>
     <string name="units_choice_automatic">Automático</string>
     <string name="units_choice_metric">Quilómetros</string>
     <string name="units_choice_imperial">Milhas</string>
     <string name="units_choice_uk">Milhas + metros</string>
     <string name="settings_app_lock">Bloqueio da aplicação</string>
-    <string name="settings_app_lock_sub">Desbloquear para abrir a aplicação, e escondê-la das capturas de ecrã</string>
     <string name="settings_online_services">Serviços online</string>
-    <string name="settings_online_services_sub">O que pode usar a rede, além do mapa</string>
     <string name="settings_recently_deleted_sub">Recuperáveis durante %1$d dias</string>
     <string name="settings_logs">Registos</string>
     <string name="settings_reset">Repor</string>
 
     <string name="credit_geonames">Nomes de locais do GeoNames, CC BY 4.0</string>
     <string name="credit_osm">Pesquisa online © contribuidores do OpenStreetMap, ODbL</string>
+
+    <string name="settings_about">Acerca da aplicação</string>
+    <string name="about_version">Versão %1$s</string>
+    <string name="about_privacy_policy">Política de privacidade</string>
+    <string name="about_website">Site</string>
+    <string name="about_source_code">Código-fonte</string>
 
     <string name="sampling_description">Com que densidade os pontos são gravados em movimento</string>
     <string name="sampling_time_between">Tempo entre pontos</string>
@@ -94,6 +92,8 @@
     </plurals>
     <string name="data_backup">Copiar tudo</string>
     <string name="data_backup_idle">Todo o seu histórico num só ficheiro</string>
+    <string name="data_viewer">Visualizador</string>
+    <string name="data_viewer_sub">Mostra uma cópia de segurança no navegador, com todas as viagens num só mapa</string>
     <string name="data_backup_verb">A copiar…</string>
     <string name="data_backup_progress">A copiar a viagem %1$d de %2$d</string>
 

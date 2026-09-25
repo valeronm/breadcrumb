@@ -219,7 +219,7 @@ private fun MainScreen(
 
     // The detail (map) screen or Settings — previews the tabs underneath. Its back handler yields
     // while a layer is stacked above it.
-    var settingsDestination by remember { mutableStateOf<SettingsDestination?>(null) }
+    var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
     // A deleted track's full detail, stacked above the Recently deleted list.
     var discardedTrackId by remember { mutableStateOf<Long?>(null) }
     // Place detail is opened from the Places list or a timeline stay — back lands wherever it was
@@ -263,12 +263,11 @@ private fun MainScreen(
         over = tabsLayer,
         dismiss = { mainDestination = null },
     )
-    // Settings sub-screens stack above the hub — the predictive-back preview under them shows
-    // the hub (where back actually lands), not the tabs.
+    // Back from a Settings page previews the hub rather than the tabs.
     val settingsLayer = rememberOverlayLayer(
-        content = settingsDestination,
+        content = settingsPage,
         over = mainLayer,
-        dismiss = { settingsDestination = null },
+        dismiss = { settingsPage = null },
     )
     // Deleted-track detail: back returns to the Recently deleted list, previewing it under the gesture.
     val discardedLayer = rememberOverlayLayer(
@@ -466,10 +465,8 @@ private fun MainScreen(
         MainDestinationOverlay(
             layer = mainLayer,
             viewModel = viewModel,
-            unitChoice = unitChoice,
-            onUnitChoice = onUnitChoice,
             undo = undo,
-            onOpenDestination = { settingsDestination = it },
+            onOpenSettingsPage = { settingsPage = it },
             onEditTrip = { tripDraft = it },
         )
 
@@ -515,9 +512,11 @@ private fun MainScreen(
             },
         )
 
-        SettingsDestinationsOverlay(
+        SettingsPagesOverlay(
             layer = settingsLayer,
             viewModel = viewModel,
+            unitChoice = unitChoice,
+            onUnitChoice = onUnitChoice,
             onOpenTrack = { discardedTrackId = it },
         )
 
@@ -603,10 +602,8 @@ private fun DiscardedTrackOverlay(
 private fun MainDestinationOverlay(
     layer: OverlayLayerState<MainDestination>,
     viewModel: TrackListViewModel,
-    unitChoice: UnitChoice,
-    onUnitChoice: (UnitChoice) -> Unit,
     undo: UndoSnackbar,
-    onOpenDestination: (SettingsDestination) -> Unit,
+    onOpenSettingsPage: (SettingsPage) -> Unit,
     onEditTrip: (TripDraft) -> Unit,
 ) {
     // Resolved here rather than in the callback below, which is not a composable scope.
@@ -638,13 +635,7 @@ private fun MainDestinationOverlay(
                 )
             }
 
-            MainDestination.Settings -> SettingsScreen(
-                viewModel = viewModel,
-                unitChoice = unitChoice,
-                onUnitChoice = onUnitChoice,
-                onBack = layer.dismiss,
-                onOpenDestination = onOpenDestination,
-            )
+            MainDestination.Settings -> SettingsScreen(onBack = layer.dismiss, onOpenPage = onOpenSettingsPage)
         }
     }
 }
@@ -781,32 +772,28 @@ private fun rememberPlaceSummary(
 ): PlaceResolver.PlaceSummary? =
     remember(summaries, key, snapshot) { PlaceResolver.reacquire(summaries.orEmpty(), key, snapshot) }
 
-/**
- * Settings sub-screens: a second overlay layer above the hub — the gesture previews the hub
- * underneath, where back lands.
- */
 @Composable
-private fun SettingsDestinationsOverlay(
-    layer: OverlayLayerState<SettingsDestination>,
+private fun SettingsPagesOverlay(
+    layer: OverlayLayerState<SettingsPage>,
     viewModel: TrackListViewModel,
+    unitChoice: UnitChoice,
+    onUnitChoice: (UnitChoice) -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
     OverlayFrame(layer) { rendered ->
         when (rendered) {
-            SettingsDestination.Sampling -> SamplingSettingsScreen(onBack = layer.dismiss)
-            SettingsDestination.PointQuality -> PointQualitySettingsScreen(onBack = layer.dismiss)
-            SettingsDestination.GpsSearch -> GpsSearchSettingsScreen(onBack = layer.dismiss)
-            SettingsDestination.DepartureTriggers -> DepartureTriggersSettingsScreen(onBack = layer.dismiss)
-            SettingsDestination.TripContinuation -> TripContinuationSettingsScreen(onBack = layer.dismiss)
-            SettingsDestination.TrackFiltering -> TrackFilteringSettingsScreen(onBack = layer.dismiss)
-            SettingsDestination.AppLock -> AppLockSettingsScreen(onBack = layer.dismiss)
-            SettingsDestination.OnlineServices -> OnlineServicesSettingsScreen(onBack = layer.dismiss)
-            SettingsDestination.RecentlyDeleted -> DiscardedTracksScreen(
+            SettingsPage.Recording -> RecordingSettingsScreen(layer.dismiss)
+            SettingsPage.Trips -> TripsSettingsScreen(layer.dismiss)
+            SettingsPage.Display -> DisplaySettingsScreen(layer.dismiss, unitChoice, onUnitChoice)
+            SettingsPage.Privacy -> PrivacySettingsScreen(layer.dismiss)
+            SettingsPage.Data -> DataSettingsScreen(layer.dismiss, viewModel)
+            SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
                 viewModel = viewModel,
                 onBack = layer.dismiss,
                 onOpenTrack = onOpenTrack,
             )
-            SettingsDestination.Logs -> LogsScreen(onBack = layer.dismiss)
+            SettingsPage.Logs -> LogsScreen(onBack = layer.dismiss)
+            SettingsPage.About -> AboutSettingsScreen(layer.dismiss)
         }
     }
 }

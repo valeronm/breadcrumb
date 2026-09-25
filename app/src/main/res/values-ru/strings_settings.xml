@@ -5,34 +5,32 @@
     <string name="settings_group_display">Отображение</string>
     <string name="settings_group_privacy">Конфиденциальность</string>
     <string name="settings_group_data">Данные</string>
-    <string name="settings_group_diagnostics">Диагностика</string>
+    <string name="settings_trips">Поездки</string>
     <string name="settings_sampling">Интервал записи</string>
-    <string name="settings_sampling_sub">Как часто записываются точки</string>
     <string name="settings_point_quality">Фильтр точек</string>
-    <string name="settings_point_quality_sub">Какие точки попадают в маршрут</string>
     <string name="settings_gps_search">Определение местоположения</string>
-    <string name="settings_gps_search_sub">Экономить заряд, когда местоположение не определяется</string>
     <string name="settings_departure_triggers">Начало поездки</string>
-    <string name="settings_departure_triggers_sub">Как приложение замечает, что вы отправились в путь</string>
     <string name="settings_trip_continuation">Продолжение поездки</string>
-    <string name="settings_trip_continuation_sub">Насколько долгой может быть остановка, чтобы движение после неё осталось той же поездкой</string>
     <string name="settings_track_filtering">Фильтр поездок</string>
-    <string name="settings_track_filtering_sub">Пороги, ниже которых завершённые поездки отсеиваются</string>
     <string name="settings_units">Единицы измерения</string>
     <string name="units_choice_automatic">Автоматически</string>
     <string name="units_choice_metric">Километры</string>
     <string name="units_choice_imperial">Мили</string>
     <string name="units_choice_uk">Мили + метры</string>
     <string name="settings_app_lock">Блокировка приложения</string>
-    <string name="settings_app_lock_sub">Разблокировка при входе и защита от скриншотов</string>
     <string name="settings_online_services">Онлайн-сервисы</string>
-    <string name="settings_online_services_sub">Что может выходить в сеть, кроме карты</string>
     <string name="settings_recently_deleted_sub">Можно восстановить в течение %1$d дней</string>
     <string name="settings_logs">Журнал</string>
     <string name="settings_reset">Сброс</string>
 
     <string name="credit_geonames">Названия мест — GeoNames, CC BY 4.0</string>
     <string name="credit_osm">Онлайн-поиск © участники OpenStreetMap, ODbL</string>
+
+    <string name="settings_about">О приложении</string>
+    <string name="about_version">Версия %1$s</string>
+    <string name="about_privacy_policy">Политика конфиденциальности</string>
+    <string name="about_website">Сайт</string>
+    <string name="about_source_code">Исходный код</string>
 
     <string name="sampling_description">Как часто записываются точки во время движения</string>
     <string name="sampling_time_between">Время между точками</string>
@@ -96,6 +94,8 @@
     </plurals>
     <string name="data_backup">Создать резервную копию</string>
     <string name="data_backup_idle">Вся ваша история одним файлом</string>
+    <string name="data_viewer">Просмотр в браузере</string>
+    <string name="data_viewer_sub">Показывает резервную копию в браузере — все поездки на одной карте</string>
     <string name="data_backup_verb">Создание копии…</string>
     <string name="data_backup_progress">Копируется поездка %1$d из %2$d</string>
 
