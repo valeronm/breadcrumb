@@ -8,8 +8,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
@@ -48,10 +51,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
@@ -66,6 +71,7 @@ import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.UnitChoice
 import io.github.valeronm.breadcrumb.util.WebLinks
 import io.github.valeronm.breadcrumb.util.canAuthenticate
+import io.github.valeronm.breadcrumb.util.copyToClipboard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -104,7 +110,7 @@ internal fun SettingsScreen(onBack: () -> Unit, onOpenPage: (SettingsPage) -> Un
             },
         )
         Spacer(Modifier.height(32.dp))
-        FootnoteText(BuildIdentity.shown)
+        VersionText(MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -690,13 +696,7 @@ internal fun AboutSettingsScreen(onBack: () -> Unit) {
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.titleLarge,
         )
-        Text(
-            stringResource(R.string.about_version, BuildIdentity.shown),
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        VersionText(MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(24.dp))
         GroupedRows(
             { LinkRow(stringResource(R.string.about_google_play), WebLinks.PLAY) },
@@ -710,6 +710,23 @@ internal fun AboutSettingsScreen(onBack: () -> Unit) {
         FootnoteText(stringResource(R.string.credit_geonames))
         // ODbL asks for the credit wherever OSM-derived results show.
         FootnoteText(stringResource(R.string.credit_osm))
+    }
+}
+
+@Composable
+private fun VersionText(style: TextStyle) {
+    val context = LocalContext.current
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Text(
+            stringResource(R.string.about_version, BuildIdentity.shown),
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { context.copyToClipboard(BuildIdentity.shown, R.string.about_version_copied) }
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            textAlign = TextAlign.Center,
+            style = style,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

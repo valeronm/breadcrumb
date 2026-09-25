@@ -28,6 +28,7 @@
 
     <string name="settings_about">О приложении</string>
     <string name="about_version">Версия %1$s</string>
+    <string name="about_version_copied">Версия скопирована</string>
     <string name="about_privacy_policy">Политика конфиденциальности</string>
     <string name="about_website">Сайт</string>
     <string name="about_source_code">Исходный код</string>

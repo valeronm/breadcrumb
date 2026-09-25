@@ -28,6 +28,7 @@
 
     <string name="settings_about">Acerca da aplicação</string>
     <string name="about_version">Versão %1$s</string>
+    <string name="about_version_copied">Versão copiada</string>
     <string name="about_privacy_policy">Política de privacidade</string>
     <string name="about_website">Site</string>
     <string name="about_source_code">Código-fonte</string>
