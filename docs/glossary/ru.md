@@ -25,7 +25,6 @@ Sections and order follow `en.md`, so the two files read side by side.
 | insights | Статистика | Not a calque: Russian has no everyday noun for *insights*, so the tab is named for what is read there. |
 | journey | путешествие | Deliberately not a second *поездка* — see decisions below. |
 | statistics | По месяцам | **Not the literal *Статистика***, which this language already spends on the tab above — see decisions below. |
-| night-away | ночь вне дома | Insights' totals say plain «ночей»/«ночи», the card's subject being journeys already. |
 
 ### A trip
 
@@ -48,7 +47,6 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | pin | метка | The word Russian map UIs use for a dropped marker, and safely apart from «PIN-код» in the app-lock strings. The add-trip form's coordinates are *точки*. |
-| capture-radius | радиус охвата | |
 | place-category | категория | The *Путешествия* category shares its word with journey, in the plural; the surfaces keep them apart, a chip in a picker against a band in Insights. |
 
 ### Actions
@@ -63,7 +61,6 @@ Sections and order follow `en.md`, so the two files read side by side.
 | restore-trip | восстановить | |
 | restore-backup | восстановить | Like English, the object carries the difference; Russian does not split the verb. |
 | reset | сбросить | |
-| save | сохранить | Not «готово», which answers a different question — whether the reader is finished, not whether anything was kept. |
 
 ### The app
 
@@ -76,10 +73,6 @@ Sections and order follow `en.md`, so the two files read side by side.
 | lock | блокировка; заблокировать / разблокировать | |
 | logs | журнал | The entries are never translated; only the screen's chrome is. Kept apart from *запись*, the recorder — the one collision in this group to watch. |
 | setup | настройка (noun), настроить (verb) | Not *настройки* (plural), which is the Settings hub: this is done once and then gone, where those are returned to. The singular is what keeps the two apart, so it must not drift to the plural. |
-| about | О приложении | |
-| privacy policy | политика конфиденциальности | *Конфиденциальность* is already the Privacy section's name, so the two share their noun. |
-| website | сайт | |
-| source code | исходный код | |
 
 ## Conventions
 

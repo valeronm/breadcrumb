@@ -11,7 +11,7 @@
     <string name="setup_all_time_option">Разрешить в любом режиме</string>
 
     <string name="setup_activity_title">Физическая активность</string>
-    <string name="setup_activity_body">Запись начинается, когда приложение замечает, что вы пошли или поехали, и заканчивается, когда замечает, что вы остановились, — включать вручную ничего не нужно</string>
+    <string name="setup_activity_body">Запись начинается, когда приложение замечает ходьбу или поездку, и заканчивается, когда замечает остановку, — включать вручную ничего не нужно</string>
 
     <string name="setup_notifications_title">Уведомления</string>
     <string name="setup_notifications_body">Пока идёт запись, она видна как постоянное уведомление, и там же приложение сообщает о неполадках с ней</string>

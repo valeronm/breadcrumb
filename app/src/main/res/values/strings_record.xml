@@ -8,7 +8,7 @@
 
     <!-- Live track -->
     <string name="record_auto_recording">Auto recording</string>
-    <string name="record_waiting_for_fix">Finding your position…</string>
+    <string name="record_waiting_for_fix">Finding position…</string>
     <string name="record_current_track">Current trip · %1$s</string>
     <!-- Fills the activity slot above while nothing has been detected yet. -->
     <string name="record_activity_idle">Idle</string>

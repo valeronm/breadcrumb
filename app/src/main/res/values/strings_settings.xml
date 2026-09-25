@@ -135,5 +135,5 @@
     <string name="logs_title">Logs (%1$d)</string>
     <string name="logs_share">Share logs</string>
     <string name="logs_clear">Clear logs</string>
-    <string name="logs_empty">No logs yet. They appear here once recording is armed and you move.</string>
+    <string name="logs_empty">No logs yet. They appear here once recording is armed and picks up movement.</string>
 </resources>

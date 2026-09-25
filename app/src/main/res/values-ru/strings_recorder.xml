@@ -37,10 +37,10 @@
     <string name="recorder_track_in_progress">поездка продолжается</string>
     <string name="recorder_no_gps">нет GPS</string>
     <string name="recorder_no_gps_since">нет GPS с %1$s</string>
-    <string name="recorder_no_gps_settled">GPS приостановлен — возобновится, когда вы начнёте двигаться</string>
+    <string name="recorder_no_gps_settled">GPS приостановлен — возобновится при движении</string>
     <string name="recorder_positioning">определение местоположения</string>
     <string name="recorder_positioning_radius">определение местоположения ±%1$s</string>
-    <string name="recorder_waiting_for_fix">определяем ваше местоположение</string>
+    <string name="recorder_waiting_for_fix">определение местоположения</string>
     <string name="recorder_nothing_to_record">нечего записывать</string>
     <string name="recorder_nothing_to_record_for">нечего записывать: %1$s</string>
     <string name="recorder_restart_advice">обычно помогает перезагрузка телефона</string>

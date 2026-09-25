@@ -25,7 +25,6 @@ Sections and order follow `en.md`, so the two files read side by side.
 | insights | Resumo | Not a calque: Portuguese has no everyday noun for *insights*, so the tab is named for what it gives the reader. |
 | journey | viagem | |
 | statistics | Estatísticas | Free to be the literal word, *Resumo* naming the tab above it. |
-| night-away | noite fora | |
 
 ### A trip
 
@@ -48,7 +47,6 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | pin | pino | Only a place's. The add-trip form's coordinates are *pontos*. |
-| capture-radius | raio de captura | |
 | place-category | categoria | The *Viagem* category shares its word with trip/journey, which is the same collision as everywhere else in this file and needs no third term. |
 
 ### Actions
@@ -63,7 +61,6 @@ Sections and order follow `en.md`, so the two files read side by side.
 | restore-trip | recuperar | Matches *recuperáveis* on the same screens. Plain-prose "puts the trip back" (undo explainers) may still say *repõe*. |
 | restore-backup | restaurar | |
 | reset | repor | |
-| save | guardar | European Portuguese, and the verb already used of a trip too short to keep. Never *salvar*, which is Brazilian. |
 
 ### The app
 
@@ -76,10 +73,6 @@ Sections and order follow `en.md`, so the two files read side by side.
 | lock | bloquear / desbloquear | |
 | logs | registos | |
 | setup | configuração (noun), configurar (verb) | Not *definições*, which is the Settings hub: this is done once and then gone, where those are returned to. |
-| about | Acerca da aplicação | *Sobre* is Brazilian; European Portuguese heads this page with *Acerca de*, which needs its complement. |
-| privacy policy | política de privacidade | |
-| website | site | Not *sítio web*, which reads as officialese. |
-| source code | código-fonte | |
 
 ## Conventions
 

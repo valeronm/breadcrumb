@@ -11,7 +11,7 @@
     <string name="setup_all_time_option">Permitir sempre</string>
 
     <string name="setup_activity_title">Atividade física</string>
-    <string name="setup_activity_body">Reparar que começou a andar a pé ou de carro é o que inicia uma gravação, e reparar que parou é o que a termina — nada tem de ser ligado à mão</string>
+    <string name="setup_activity_body">Reparar em andar a pé ou de carro é o que inicia uma gravação, e reparar numa paragem é o que a termina — nada tem de ser ligado à mão</string>
 
     <string name="setup_notifications_title">Notificações</string>
     <string name="setup_notifications_body">Uma gravação mostra-se como uma notificação permanente enquanto decorre, e é aí que a aplicação comunica um problema com ela</string>

@@ -4,7 +4,7 @@
     <string name="record_no_tracks">Ainda sem viagens</string>
 
     <string name="record_auto_recording">Gravação automática</string>
-    <string name="record_waiting_for_fix">A localizar a sua posição…</string>
+    <string name="record_waiting_for_fix">A localizar…</string>
     <string name="record_current_track">Viagem atual · %1$s</string>
     <string name="record_activity_idle">Inativo</string>
     <string name="record_stat_speed">Velocidade</string>

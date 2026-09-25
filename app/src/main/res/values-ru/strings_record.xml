@@ -4,7 +4,7 @@
     <string name="record_no_tracks">Поездок пока нет</string>
 
     <string name="record_auto_recording">Автозапись</string>
-    <string name="record_waiting_for_fix">Определяем ваше местоположение…</string>
+    <string name="record_waiting_for_fix">Определение местоположения…</string>
     <string name="record_current_track">Текущая поездка · %1$s</string>
     <string name="record_activity_idle">Ожидание</string>
     <string name="record_stat_speed">Скорость</string>

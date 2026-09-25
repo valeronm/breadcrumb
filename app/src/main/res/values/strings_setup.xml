@@ -34,7 +34,7 @@
     <string name="setup_all_time_option">Allow all the time</string>
 
     <string name="setup_activity_title">Physical activity</string>
-    <string name="setup_activity_body">Noticing that you have started walking or driving is what begins a recording, and noticing that you have stopped is what ends it — nothing has to be switched on by hand</string>
+    <string name="setup_activity_body">Noticing walking or driving is what begins a recording, and noticing a stop is what ends it — nothing has to be switched on by hand</string>
 
     <string name="setup_notifications_title">Notifications</string>
     <string name="setup_notifications_body">A recording shows itself as an ongoing notification the whole time it runs, and that is also where the app reports a problem with one</string>

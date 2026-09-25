@@ -23,7 +23,6 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 | insights | Insights | The tab where the timeline is read in aggregate rather than day by day. Deliberately named after what the reader gets and not after any one of the things listed there — journeys were what it held first, and a name taken from them would have had to change the moment a second reading sat beside them, which is what *statistics* now is. |
 | journey | journey | A run of nights away from home (Insights). The Insights concept and nothing else: a ferry crossing or a bus ride is a **trip**, however long it takes. |
 | statistics | Statistics | Insights' other page: one month's figures read against the twelve behind it. Named for the reading rather than for the month, which is only how it is cut. **A language whose word for *insights* is already this one must find another** — the page cannot be named after the tab containing it. |
-| night-away | night away | A night not spent at home — what a journey is counted in. Insights' totals say plain "nights", the card's subject being journeys already; an unnamed journey's Insights row, which stands alone, says "nights away". The timeline's band instead opens with the journey's length in *days* — the same count its "Day N" marker walks through. |
 
 ### A trip
 
@@ -49,7 +48,6 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | Concept | Term | What it means |
 |---|---|---|
 | pin | pin | **A place's** marked coordinate, and only a place's — the thing its capture radius is drawn around. A coordinate the user drops while entering a trip is one of that trip's *points*, however alike the two look on a map. |
-| capture-radius | capture radius | The circle around a pin that claims trip ends. |
 | place-category | category | What a place is tagged as. The labels and their groups live in `strings_places.xml` — display text, free to reword and translate, over stored codes that are permanent. A language may well reuse a word from elsewhere in this table for one of them; say so in its file rather than inventing a synonym to keep them apart. |
 
 ### Actions
@@ -64,7 +62,6 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | restore-trip | restore | Putting one trip back from Recently deleted — "Restore trip". |
 | restore-backup | restore | Rebuilding everything from a backup file — "Restore from backup". The object carries the difference; English does not split the verb. |
 | reset | reset | Returning settings to their defaults. |
-| save | save | Committing an editor that has been holding its changes — the trip form, the place editor. Never *done*, which says the reader has finished rather than that anything was kept, and would be a promise the screen has not made: nothing on either is written until the button is pressed. A control that only dismisses changes already in effect is not this word either — it needs no verb at all. |
 
 ### The app
 
@@ -77,10 +74,6 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | lock | lock / unlock | The app lock, **as Settings names it**, where someone is hunting for the feature and needs the word every other app uses. The barrier itself never says it — see the decision below. |
 | logs | logs | Diagnostic entries the app writes about itself. The entries are never translated; only the screen's chrome is. |
 | setup | setup (noun), set up (verb) | Granting recording what Android makes it ask for — the screen that asks, and the Record tab's reminder that reopens it. Covers permissions **and** the battery exemption, which is why it is not called *permissions*. |
-| about | About | Settings' page for what the app is and where it comes from: its version, the website, the privacy policy, the source. |
-| privacy policy | privacy policy | The page on the website that Play's listing links to, under that fixed name. |
-| website | website | breadcrumb.place, as a whole. |
-| source code | source code | The public repository. |
 
 ## Conventions
 

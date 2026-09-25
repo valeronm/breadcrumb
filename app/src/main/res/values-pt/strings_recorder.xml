@@ -37,10 +37,10 @@
     <string name="recorder_track_in_progress">viagem em curso</string>
     <string name="recorder_no_gps">sem GPS</string>
     <string name="recorder_no_gps_since">sem GPS desde as %1$s</string>
-    <string name="recorder_no_gps_settled">GPS em pausa — retoma quando se mexer</string>
+    <string name="recorder_no_gps_settled">GPS em pausa — retoma com movimento</string>
     <string name="recorder_positioning">a localizar</string>
     <string name="recorder_positioning_radius">a localizar ±%1$s</string>
-    <string name="recorder_waiting_for_fix">a localizar a sua posição</string>
+    <string name="recorder_waiting_for_fix">a localizar</string>
     <string name="recorder_nothing_to_record">nada para gravar</string>
     <string name="recorder_nothing_to_record_for">nada para gravar há %1$s</string>
     <string name="recorder_restart_advice">reiniciar o telemóvel costuma resolver</string>

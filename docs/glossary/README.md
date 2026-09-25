@@ -6,7 +6,9 @@ two ways:
 
 - **Writing a string**: take the term from your language's file. If the concept isn't listed, it is
   either not a recurring concept (fine — write the sentence) or a new one, in which case add it to
-  [`en.md`](en.md) and answer it in every other language file.
+  [`en.md`](en.md) and answer it in every other language file. A concept recurs when more than one
+  screen names it; a word only one section uses stays in its string, where an entry would be a
+  second copy to keep in step.
 - **Reviewing**: read each `res/values*/strings_*.xml` against its language's file. A string using
   a rival term for a listed concept is a finding; either the string moves to the glossary's word or
   the language file records why that string is an exception.
@@ -44,6 +46,11 @@ sentences use — plus the writing conventions below, which every language share
   screen") turns the off state into a double negative, and the reader has to solve it to know what
   the switch is set to. Subtitles and descriptions are free to explain in whatever polarity reads
   best; the label beside the switch is not.
+
+- **Text about recording names no one.** The app measures a phone, not the person carrying it, so
+  the recorder's sentences drop the subject — "Finding position…", "it resumes on movement" — rather
+  than saying *you* or *the phone*. The timeline and places are the reader's history and say *your*;
+  what the reader does on screen — choosing, viewing, turning something on — stays *you*.
 
 - **A single sentence or fragment takes no final period; a text of several sentences keeps every
   period, the final one included.** This is the consensus of the platform style guides — [Material 3

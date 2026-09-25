@@ -106,5 +106,5 @@
     <string name="logs_title">Registos (%1$d)</string>
     <string name="logs_share">Partilhar os registos</string>
     <string name="logs_clear">Limpar os registos</string>
-    <string name="logs_empty">Ainda sem registos. Aparecem aqui assim que a gravação estiver armada e se mexer.</string>
+    <string name="logs_empty">Ainda sem registos. Aparecem aqui assim que a gravação estiver armada e detetar movimento.</string>
 </resources>

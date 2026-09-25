@@ -108,5 +108,5 @@
     <string name="logs_title">Журнал (%1$d)</string>
     <string name="logs_share">Поделиться журналом</string>
     <string name="logs_clear">Очистить журнал</string>
-    <string name="logs_empty">Журнал пока пуст. Он заполнится, когда запись включена и вы двигаетесь.</string>
+    <string name="logs_empty">Журнал пока пуст. Он заполнится, когда запись включена и есть движение.</string>
 </resources>

@@ -58,7 +58,7 @@
     <string name="recorder_no_gps_since">no GPS since %1$s</string>
     <!-- GPS is off rather than merely unheard (`RecordCardState.NO_GPS_SIGNAL`), so what this waits
          for is movement, not a signal. -->
-    <string name="recorder_no_gps_settled">GPS paused — it resumes when you move</string>
+    <string name="recorder_no_gps_settled">GPS paused — it resumes on movement</string>
     <string name="recorder_positioning">positioning</string>
     <!--
       While the accuracy gate rejects fixes, the shrinking radius is the progress indicator. The
@@ -67,7 +67,7 @@
     <string name="recorder_positioning_radius">positioning ±%1$s</string>
     <!-- The figure-less form of the state `recorder_positioning` reports with them: positioning is
          under way, so this must not say anything is missing or awaited. -->
-    <string name="recorder_waiting_for_fix">finding your position</string>
+    <string name="recorder_waiting_for_fix">finding position</string>
     <string name="recorder_nothing_to_record">nothing to record</string>
     <string name="recorder_nothing_to_record_for">nothing to record for %1$s</string>
     <string name="recorder_restart_advice">restarting the phone usually fixes it</string>
