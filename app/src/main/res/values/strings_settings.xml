@@ -49,50 +49,55 @@
     <!-- Point quality -->
     <string name="quality_description">Which points make it into the track</string>
     <string name="quality_require_fix">Require satellite positioning</string>
-    <string name="quality_require_fix_sub">Drops guessed positions, like in a tunnel</string>
-    <string name="quality_accuracy_description">Points less accurate than this are marked noisy and excluded</string>
+    <string name="quality_require_fix_sub">Drops guessed positions</string>
+    <string name="quality_accuracy_description">Points less accurate than this are excluded</string>
     <string name="quality_max_accuracy">Max accuracy radius</string>
 
     <!-- GPS search -->
-    <string name="gps_description">If no good position arrives for this long, GPS switches off to save battery — and retries when you move or another app gets a location. When set to Off, GPS never gives up.</string>
+    <string name="gps_description">When GPS stops searching, to save battery</string>
     <string name="gps_give_up_after">Give up after</string>
 
     <!-- Starting a trip. Deliberately says nothing about geofences, sensors or providers: what a
          reader chooses between is how quickly a trip is noticed and what it costs them. -->
-    <string name="departure_description">Activity detection describes your body, so a journey you sit still through — a train, a taxi, a bus — can look like standing on a platform. These are the other ways the app can tell you have set off. They work independently, and more of them means fewer journeys missed.</string>
-    <string name="departure_fence">Leaving where you stopped</string>
-    <string name="departure_fence_sub">Costs no battery, and can take several minutes to notice.</string>
-    <string name="departure_motion">Movement the phone senses</string>
-    <string name="departure_motion_sub">Costs nothing until the phone moves, then briefly checks where you are.</string>
+    <string name="departure_description">How the app notices a trip has started</string>
+    <string name="departure_activity">Activity detection</string>
+    <string name="departure_activity_sub">Uses almost no battery, but can miss trips</string>
+    <string name="departure_activity_always_on">Always on</string>
+    <string name="departure_fence">Distance from the last stop</string>
+    <string name="departure_fence_sub">Uses no battery, but can take minutes</string>
+    <string name="departure_motion">Motion-triggered checks</string>
+    <string name="departure_motion_sub">Uses battery only after the phone moves</string>
     <string name="departure_continuous">Regular position checks</string>
-    <string name="departure_continuous_sub">Notices soonest. The only one that uses battery while you are not going anywhere.</string>
+    <string name="departure_continuous_sub">Notices soonest, but always uses battery</string>
 
     <!-- Continuing a trip -->
-    <string name="continuation_description">Movements separated by less than this are recorded as one trip. When set to Off, every stop separates them.</string>
+    <string name="continuation_description">Stops shorter than this don\'t split a trip</string>
     <string name="continuation_window">Continue within</string>
 
     <!-- Track filtering -->
-    <string name="filter_description">Trips under these limits are moved to Recently deleted when they finish</string>
+    <string name="filter_description">Trips under these limits are deleted when they finish</string>
     <string name="filter_min_duration">Min duration</string>
     <string name="filter_min_length">Min length</string>
-    <string name="filter_extent_description">How far the trip spread from where it started — filters out standing-still noise</string>
+    <string name="filter_extent_description">The distance between the farthest points in the path</string>
     <string name="filter_min_extent">Min extent</string>
 
     <!-- Privacy and app lock -->
-    <string name="privacy_description">Recording is never locked — trips keep being recorded whether or not the app is</string>
+    <string name="privacy_description">Recording carries on while the app is locked</string>
     <string name="privacy_block_screenshots">Block screenshots</string>
-    <string name="privacy_block_screenshots_sub">Also hides the preview in the recent-apps switcher</string>
-    <!-- The map's tiles use the network regardless, so this page's promise names them. -->
-    <string name="online_services_description">Your history stays on this device. The network carries map imagery, and what is enabled here.</string>
+    <string name="online_services_description">What uses the network</string>
+    <!-- The map's tiles use the network whatever is switched off here. -->
+    <string name="privacy_online_maps">Maps</string>
+    <string name="privacy_online_maps_sub">Downloads the map as you view it</string>
+    <string name="privacy_online_maps_always_on">Always on</string>
     <string name="privacy_online_search">Online place search</string>
-    <string name="privacy_online_search_sub">Finds hotels and addresses by name; queries go to photon.komoot.io</string>
+    <string name="privacy_online_search_sub">Finds places and addresses by name</string>
     <string name="lock_require_unlock">Require unlock</string>
     <string name="lock_require_unlock_sub">Asks for your fingerprint or device PIN</string>
     <string name="lock_no_screen_lock">Set a screen lock on this device first</string>
     <string name="lock_trust_keyguard">Trust the phone\'s unlock</string>
-    <string name="lock_trust_keyguard_sub">The phone\'s own unlock also unlocks the app</string>
+    <string name="lock_trust_keyguard_sub">Unlocking the phone unlocks the app</string>
     <string name="lock_again">Lock again</string>
-    <string name="lock_again_sub">Leaving the app briefly — to pick a file or grant a permission — shouldn\'t ask again</string>
+    <string name="lock_again_sub">Time away before it asks again</string>
     <string name="lock_immediately">Immediately</string>
     <!-- Wraps a duration from the ladder, which is still English until the ICU pass. -->
     <string name="lock_after">After %1$s</string>
@@ -121,8 +126,8 @@
     </plurals>
     <string name="data_backup">Back up everything</string>
     <string name="data_backup_idle">Your whole history as one file</string>
-    <string name="data_viewer">Viewer</string>
-    <string name="data_viewer_sub">Shows a backup file in your browser, with every trip on one map</string>
+    <string name="data_viewer">Backup viewer</string>
+    <string name="data_viewer_sub">Shows it on a map in your browser</string>
     <string name="data_backup_verb">Backing up…</string>
     <string name="data_backup_progress">Backing up trip %1$d of %2$d</string>
 

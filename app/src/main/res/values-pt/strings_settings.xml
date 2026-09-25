@@ -39,43 +39,48 @@
 
     <string name="quality_description">Que pontos entram no trajeto</string>
     <string name="quality_require_fix">Exigir posicionamento por satélite</string>
-    <string name="quality_require_fix_sub">Descarta posições estimadas, como num túnel</string>
-    <string name="quality_accuracy_description">Os pontos com precisão pior do que esta são marcados como ruidosos e excluídos</string>
+    <string name="quality_require_fix_sub">Descarta posições estimadas</string>
+    <string name="quality_accuracy_description">Exclui pontos menos precisos do que isto</string>
     <string name="quality_max_accuracy">Raio máximo de precisão</string>
 
-    <string name="gps_description">Se não chegar nenhuma posição boa durante este tempo, o GPS desliga-se para poupar bateria — e volta a tentar quando se mexer ou quando outra aplicação obtiver uma localização. Com Desligado, o GPS nunca desiste.</string>
+    <string name="gps_description">Quando o GPS desliga, para poupar bateria</string>
     <string name="gps_give_up_after">Desistir ao fim de</string>
 
-    <string name="departure_description">A deteção de atividade descreve o seu corpo, por isso um percurso feito sentado — de comboio, de táxi, de autocarro — pode parecer estar parado numa plataforma. Estas são as outras formas de a aplicação saber que partiu. Funcionam de forma independente, e quantas mais estiverem ligadas, menos percursos se perdem.</string>
-    <string name="departure_fence">Sair de onde parou</string>
-    <string name="departure_fence_sub">Não gasta bateria, e pode demorar vários minutos a perceber.</string>
-    <string name="departure_motion">Movimento sentido pelo telemóvel</string>
-    <string name="departure_motion_sub">Não custa nada até o telemóvel se mexer; depois verifica brevemente onde está.</string>
+    <string name="departure_description">Como se deteta o início de uma viagem</string>
+    <string name="departure_activity">Deteção de atividade</string>
+    <string name="departure_activity_sub">Quase sem bateria, mas pode falhar viagens</string>
+    <string name="departure_activity_always_on">Sempre ativa</string>
+    <string name="departure_fence">Distância da última paragem</string>
+    <string name="departure_fence_sub">Não gasta bateria, mas pode demorar minutos</string>
+    <string name="departure_motion">Verificações por movimento</string>
+    <string name="departure_motion_sub">Gasta bateria só após o telemóvel se mexer</string>
     <string name="departure_continuous">Verificação regular da posição</string>
-    <string name="departure_continuous_sub">É a que percebe mais depressa. A única que gasta bateria enquanto não vai a lado nenhum.</string>
+    <string name="departure_continuous_sub">Deteta mais cedo, mas gasta sempre bateria</string>
 
-    <string name="continuation_description">Movimentos separados por menos do que isto são gravados como uma só viagem. Com Desligado, qualquer paragem separa-os.</string>
+    <string name="continuation_description">Paragens mais curtas não dividem a viagem</string>
     <string name="continuation_window">Continuar dentro de</string>
 
-    <string name="filter_description">As viagens abaixo destes limites passam para as eliminadas recentemente quando terminam</string>
+    <string name="filter_description">Viagens abaixo destes limites são eliminadas ao terminar</string>
     <string name="filter_min_duration">Duração mínima</string>
     <string name="filter_min_length">Comprimento mínimo</string>
-    <string name="filter_extent_description">Até onde a viagem se afastou de onde começou — filtra o ruído de estar parado</string>
+    <string name="filter_extent_description">A distância entre os pontos mais afastados do trajeto</string>
     <string name="filter_min_extent">Amplitude mínima</string>
 
-    <string name="privacy_description">A gravação nunca é bloqueada — as viagens continuam a ser gravadas, esteja a aplicação bloqueada ou não</string>
+    <string name="privacy_description">A gravação continua com a aplicação bloqueada</string>
     <string name="privacy_block_screenshots">Bloquear capturas de ecrã</string>
-    <string name="privacy_block_screenshots_sub">Esconde também a pré-visualização nas apps recentes</string>
-    <string name="online_services_description">O seu histórico fica neste dispositivo. A rede serve as imagens do mapa e o que estiver ativado aqui.</string>
+    <string name="online_services_description">O que usa a rede</string>
+    <string name="privacy_online_maps">Mapas</string>
+    <string name="privacy_online_maps_sub">Descarrega o mapa à medida que o vê</string>
+    <string name="privacy_online_maps_always_on">Sempre ativos</string>
     <string name="privacy_online_search">Pesquisa de locais online</string>
-    <string name="privacy_online_search_sub">Encontra hotéis e moradas pelo nome; as pesquisas vão para photon.komoot.io</string>
+    <string name="privacy_online_search_sub">Encontra sítios e moradas pelo nome</string>
     <string name="lock_require_unlock">Exigir desbloqueio</string>
     <string name="lock_require_unlock_sub">Pede a impressão digital ou o PIN do dispositivo</string>
     <string name="lock_no_screen_lock">Defina primeiro um bloqueio de ecrã neste dispositivo</string>
     <string name="lock_trust_keyguard">Confiar no desbloqueio do telemóvel</string>
-    <string name="lock_trust_keyguard_sub">O desbloqueio do próprio telemóvel também abre a aplicação</string>
+    <string name="lock_trust_keyguard_sub">Desbloquear o telemóvel abre a aplicação</string>
     <string name="lock_again">Voltar a bloquear</string>
-    <string name="lock_again_sub">Sair da aplicação por instantes — para escolher um ficheiro ou dar uma permissão — não deve voltar a perguntar</string>
+    <string name="lock_again_sub">Tempo fora antes de voltar a pedir</string>
     <string name="lock_immediately">Imediatamente</string>
     <string name="lock_after">Ao fim de %1$s</string>
 
@@ -93,8 +98,8 @@
     </plurals>
     <string name="data_backup">Copiar tudo</string>
     <string name="data_backup_idle">Todo o seu histórico num só ficheiro</string>
-    <string name="data_viewer">Visualizador</string>
-    <string name="data_viewer_sub">Mostra uma cópia de segurança no navegador, com todas as viagens num só mapa</string>
+    <string name="data_viewer">Visualizador de cópias</string>
+    <string name="data_viewer_sub">Mostra-a num mapa no navegador</string>
     <string name="data_backup_verb">A copiar…</string>
     <string name="data_backup_progress">A copiar a viagem %1$d de %2$d</string>
 

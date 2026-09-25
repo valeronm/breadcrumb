@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -132,22 +133,27 @@ private fun TappableRow(
             Icon(leading, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(16.dp))
         }
-        Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
-            if (subtitle != null) {
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+        RowLabels(label, subtitle)
         Icon(
             trailing,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(28.dp),
         )
+    }
+}
+
+@Composable
+private fun RowScope.RowLabels(title: String, subtitle: String?) {
+    Column(Modifier.weight(1f)) {
+        Text(title, style = MaterialTheme.typography.bodyLarge)
+        if (subtitle != null) {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -181,25 +187,33 @@ internal fun <T> rememberPref(default: T, load: () -> T, save: (T) -> Unit): Pre
 @Composable
 internal fun SwitchSettingRow(
     title: String,
-    subtitle: String,
+    subtitle: String? = null,
     checked: Boolean,
     enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
-) {
+) = SettingRow(title, subtitle) {
+    IconSwitch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+}
+
+/** A setting the user cannot change, stated in place of a switch. */
+@Composable
+internal fun FixedSettingRow(title: String, subtitle: String?, value: String) = SettingRow(title, subtitle) {
+    Text(
+        value,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun SettingRow(title: String, subtitle: String?, trailing: @Composable () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        RowLabels(title, subtitle)
         Spacer(Modifier.width(12.dp))
-        IconSwitch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+        trailing()
     }
 }
 

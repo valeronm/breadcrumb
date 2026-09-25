@@ -241,12 +241,7 @@ private fun PointFilterGroup() {
                 )
             },
             {
-                Text(
-                    stringResource(R.string.quality_accuracy_description),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
+                SettingCaption(stringResource(R.string.quality_accuracy_description))
                 val scale = rememberDistanceScale(SliderStops(10, 150, 10), SliderStops(25, 500, 25))
                 SliderSetting(stringResource(R.string.quality_max_accuracy), accuracyGateM.value, scale) {
                     accuracyGateM.set(it)
@@ -296,10 +291,10 @@ internal fun TripsSettingsScreen(onBack: () -> Unit) {
 }
 
 /**
- * The ways the recorder can notice a journey starting when activity detection does not report one.
- * Three switches rather than a single "detect harder": they cost differently, they are blind in
- * different places, and which combination is right depends on the phone — the same build on two
- * devices can have activity detection announce a car within seconds, or never announce it at all.
+ * Activity detection is a fixed row because nothing can turn it off. The departure triggers are
+ * separate switches rather than one "detect harder": they cost differently, are blind in different
+ * places, and which combination suits depends on the phone — the same build can have activity
+ * detection announce a car within seconds on one device and never on another.
  */
 @Composable
 private fun DepartureGroup() {
@@ -322,6 +317,13 @@ private fun DepartureGroup() {
         listOf(fence, motion, continuous),
     ) {
         GroupedRows(
+            {
+                FixedSettingRow(
+                    title = stringResource(R.string.departure_activity),
+                    subtitle = stringResource(R.string.departure_activity_sub),
+                    value = stringResource(R.string.departure_activity_always_on),
+                )
+            },
             {
                 SwitchSettingRow(
                     title = stringResource(R.string.departure_fence),
@@ -419,12 +421,7 @@ private fun TripFilteringGroup() {
                 }
             },
             {
-                Text(
-                    stringResource(R.string.filter_extent_description),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
+                SettingCaption(stringResource(R.string.filter_extent_description))
                 SliderSetting(stringResource(R.string.filter_min_extent), minExtentM.value, lengthScale) {
                     minExtentM.set(it)
                 }
@@ -469,7 +466,6 @@ private fun AppLockGroup() {
             {
                 SwitchSettingRow(
                     title = stringResource(R.string.privacy_block_screenshots),
-                    subtitle = stringResource(R.string.privacy_block_screenshots_sub),
                     checked = Privacy.blockScreenshots,
                     onCheckedChange = { Privacy.setBlockScreenshots(context, it) },
                 )
@@ -491,6 +487,13 @@ private fun OnlineServicesGroup() {
         listOf(onlineSearch),
     ) {
         GroupedRows(
+            {
+                FixedSettingRow(
+                    title = stringResource(R.string.privacy_online_maps),
+                    subtitle = stringResource(R.string.privacy_online_maps_sub),
+                    value = stringResource(R.string.privacy_online_maps_always_on),
+                )
+            },
             {
                 SwitchSettingRow(
                     title = stringResource(R.string.privacy_online_search),
@@ -538,12 +541,7 @@ private fun RequireUnlockRow(
 private fun LockGraceChips(graceSec: Pref<Int>) {
     Spacer(Modifier.height(12.dp))
     Text(stringResource(R.string.lock_again), style = MaterialTheme.typography.bodyMedium)
-    Text(
-        stringResource(R.string.lock_again_sub),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(bottom = 8.dp),
-    )
+    SettingCaption(stringResource(R.string.lock_again_sub))
     Row(
         modifier = Modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -728,6 +726,16 @@ private fun VersionText(style: TextStyle) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+@Composable
+private fun SettingCaption(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
 }
 
 /** `painterResource` cannot draw an adaptive icon. */

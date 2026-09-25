@@ -39,43 +39,48 @@
 
     <string name="quality_description">Какие точки попадают в маршрут</string>
     <string name="quality_require_fix">Только по спутникам</string>
-    <string name="quality_require_fix_sub">Отклоняет приблизительные местоположения — например, в тоннеле</string>
-    <string name="quality_accuracy_description">Точки с точностью хуже этой помечаются как отклонённые</string>
+    <string name="quality_require_fix_sub">Отклоняет примерные местоположения</string>
+    <string name="quality_accuracy_description">Точки с точностью хуже этой исключаются</string>
     <string name="quality_max_accuracy">Макс. радиус точности</string>
 
-    <string name="gps_description">Если за это время не приходит ни одной хорошей позиции, GPS отключается, чтобы не тратить заряд, и пробует снова, когда вы двигаетесь или другое приложение получает местоположение. Если выключено, GPS не отключается никогда.</string>
+    <string name="gps_description">Когда GPS отключается, чтобы не тратить заряд</string>
     <string name="gps_give_up_after">Отключать GPS через</string>
 
-    <string name="departure_description">Распознавание активности описывает ваше тело, поэтому дорогу, которую вы проводите сидя — в поезде, в такси, в автобусе, — оно может принять за ожидание на платформе. Вот другие способы, которыми приложение может понять, что вы отправились в путь. Они работают независимо друг от друга, и чем больше их включено, тем меньше поездок теряется.</string>
-    <string name="departure_fence">Уход с места остановки</string>
-    <string name="departure_fence_sub">Не тратит заряд, но может заметить только через несколько минут.</string>
-    <string name="departure_motion">Движение, которое чувствует телефон</string>
-    <string name="departure_motion_sub">Ничего не стоит, пока телефон неподвижен, — а затем ненадолго проверяет, где вы.</string>
+    <string name="departure_description">Как приложение замечает начало поездки</string>
+    <string name="departure_activity">Распознавание активности</string>
+    <string name="departure_activity_sub">Почти не тратит заряд, но может пропускать поездки</string>
+    <string name="departure_activity_always_on">Всегда включено</string>
+    <string name="departure_fence">Расстояние от последней остановки</string>
+    <string name="departure_fence_sub">Не тратит заряд, но может занять минуты</string>
+    <string name="departure_motion">Проверки при движении</string>
+    <string name="departure_motion_sub">Тратит заряд только после движения телефона</string>
     <string name="departure_continuous">Регулярная проверка положения</string>
-    <string name="departure_continuous_sub">Замечает быстрее всех. Единственный способ, который тратит заряд, пока вы никуда не едете.</string>
+    <string name="departure_continuous_sub">Замечает быстрее всех, но всегда тратит заряд</string>
 
-    <string name="continuation_description">Перемещения с перерывом короче этого времени записываются как одна поездка. Если выключено, любая остановка их разделяет.</string>
+    <string name="continuation_description">Остановки короче этого не разделяют поездку</string>
     <string name="continuation_window">Продолжать в течение</string>
 
-    <string name="filter_description">Поездки ниже этих порогов после завершения попадают в «Недавно удалённые»</string>
+    <string name="filter_description">Поездки ниже этих порогов удаляются после завершения</string>
     <string name="filter_min_duration">Мин. длительность</string>
     <string name="filter_min_length">Мин. длина</string>
-    <string name="filter_extent_description">Насколько поездка удалилась от начальной точки — отсеивает шум от стояния на месте</string>
+    <string name="filter_extent_description">Расстояние между самыми дальними точками маршрута</string>
     <string name="filter_min_extent">Мин. разброс</string>
 
-    <string name="privacy_description">Запись никогда не блокируется — поездки записываются независимо от того, заблокировано ли приложение</string>
+    <string name="privacy_description">Запись идёт и при заблокированном приложении</string>
     <string name="privacy_block_screenshots">Запретить скриншоты</string>
-    <string name="privacy_block_screenshots_sub">Также скрывает превью в списке недавних приложений</string>
-    <string name="online_services_description">Ваша история не покидает устройство. Сеть используется для карты и того, что включено здесь.</string>
+    <string name="online_services_description">Что использует сеть</string>
+    <string name="privacy_online_maps">Карты</string>
+    <string name="privacy_online_maps_sub">Загружает карту, когда вы её смотрите</string>
+    <string name="privacy_online_maps_always_on">Всегда включены</string>
     <string name="privacy_online_search">Онлайн-поиск мест</string>
-    <string name="privacy_online_search_sub">Ищет отели и адреса по названию; запросы уходят на photon.komoot.io</string>
+    <string name="privacy_online_search_sub">Находит места и адреса по названию</string>
     <string name="lock_require_unlock">Требовать разблокировку</string>
     <string name="lock_require_unlock_sub">Отпечаток пальца или PIN-код при входе</string>
     <string name="lock_no_screen_lock">Сначала настройте блокировку экрана на устройстве</string>
     <string name="lock_trust_keyguard">Доверять разблокировке телефона</string>
-    <string name="lock_trust_keyguard_sub">Разблокировка телефона открывает и приложение</string>
+    <string name="lock_trust_keyguard_sub">Разблокировка телефона открывает приложение</string>
     <string name="lock_again">Блокировать снова</string>
-    <string name="lock_again_sub">Короткий выход из приложения не будет требовать разблокировки заново</string>
+    <string name="lock_again_sub">Время вне приложения до нового запроса</string>
     <string name="lock_immediately">Сразу</string>
     <string name="lock_after">Через %1$s</string>
 
@@ -95,8 +100,8 @@
     </plurals>
     <string name="data_backup">Создать резервную копию</string>
     <string name="data_backup_idle">Вся ваша история одним файлом</string>
-    <string name="data_viewer">Просмотр в браузере</string>
-    <string name="data_viewer_sub">Показывает резервную копию в браузере — все поездки на одной карте</string>
+    <string name="data_viewer">Просмотр резервной копии</string>
+    <string name="data_viewer_sub">Показывает её на карте в браузере</string>
     <string name="data_backup_verb">Создание копии…</string>
     <string name="data_backup_progress">Копируется поездка %1$d из %2$d</string>
 
