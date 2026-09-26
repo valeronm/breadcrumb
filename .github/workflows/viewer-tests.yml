@@ -11,6 +11,9 @@ on:
       - 'site/src/viewer/**'
       - '.github/workflows/viewer-tests.yml'
 
+permissions:
+  contents: read
+
 jobs:
   node-tests:
     runs-on: ubuntu-latest

@@ -27,6 +27,9 @@ on:
       - '.github/workflows/pages.yml'
       - '.github/workflows/dependency-graph.yml'
 
+permissions:
+  contents: read
+
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
