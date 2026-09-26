@@ -34,9 +34,14 @@ class NoFixGuard(
         suspended = false
     }
 
-    /** A fix arrived, accepted or not: the receiver can see the sky. */
-    fun onFixReceived() {
+    /**
+     * A fix arrived, accepted or not: the receiver can see the sky. Returns how long the probe
+     * waited for it when it is the probe's first, and null otherwise.
+     */
+    fun onFixReceived(nowMs: Long): Long? {
+        val first = !fixSinceProbe
         fixSinceProbe = true
+        return if (first) nowMs - probeStartedMs else null
     }
 
     val waitingForFirstFix: Boolean get() = !fixSinceProbe

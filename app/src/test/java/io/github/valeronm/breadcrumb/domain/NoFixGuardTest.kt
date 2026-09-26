@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.domain
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -173,7 +174,8 @@ class NoFixGuardTest {
 
     @Test fun `a rejected fix ends the first-fix wait`() {
         val g = probing()
-        g.onFixReceived()
+        assertEquals(10_000L, g.onFixReceived(10_000))
+        assertNull("only the first fix is timed", g.onFixReceived(11_000))
         assertFalse(g.shouldGiveUp(wait, GIVE_UP_MS, firstFixWaitMs = wait))
         assertTrue(g.shouldGiveUp(GIVE_UP_MS, GIVE_UP_MS, firstFixWaitMs = wait))
     }
@@ -187,7 +189,7 @@ class NoFixGuardTest {
 
     @Test fun `each probe waits for its own first fix`() {
         val g = probing()
-        g.onFixReceived()
+        g.onFixReceived(10_000)
         g.onGaveUp(GIVE_UP_MS)
         g.onProbeStarted(500_000)
         assertTrue(g.shouldGiveUp(500_000 + wait, GIVE_UP_MS, firstFixWaitMs = wait))

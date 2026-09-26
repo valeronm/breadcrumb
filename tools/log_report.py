@@ -45,6 +45,8 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
                        r"(?P<age>-?\d+)s old\)$"),
     ("fence_armed", r"departure fence armed \("),
     ("fence_open", r"departure: opening a Moving track \((?P<latency>[^)]*)\)$"),
+    ("fence_resume", r"departure: left the give-up spot — resuming GPS \((?P<latency>[^)]*)\)$"),
+    ("probe_resume", r"departure: probe saw the phone leave the give-up spot — resuming GPS \("),
     ("probe_open", r"departure: probe saw the phone leave \((?P<latency>[^,]*), (?P<gap>\d+)m of (?P<bar>\d+)m "
                    r"\(margin (?P<margin>\d+)\), acc=(?P<acc>\d+)m, (?P<age>-?\d+)s old\)$"),
     ("departure_ignored", r"departure ignored — already recording"),
@@ -52,7 +54,8 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
     ("probe_stop", r"departure probe stopped \((?P<n>\d+) position\(s\)\)$"),
     ("watch", r"departure watch: (?P<gap>\d+)m of (?P<bar>\d+)m \(margin (?P<margin>\d+)\) \(acc=(?P<acc>\d+)m"),
     ("motion_fired", r"motion trigger fired$"),
-    ("gave_up", r"no-fix guard: probe gave up — GPS off"),
+    ("gave_up", r"no-fix guard: probe gave up(?P<nofix> with no fix at all)? — GPS off"),
+    ("first_fix", r"no-fix guard: first fix after (?P<s>\d+)s$"),
     ("probing_again", r"no-fix guard: probing again \((?P<signal>\w+)\)$"),
     ("gps_start", r"location updates started$"),
     ("gps_stop", r"location updates stopped$"),
@@ -91,6 +94,7 @@ class Track:
         self.drops = 0
         self.first_reading = None
         self.still_held_with_gps_off = False
+        self.gave_up_unfixed = False
 
     def unmeasured(self):
         # A track's logged duration is the span of its good points, or its whole open span when it has none.
@@ -165,19 +169,26 @@ class Report:
         self.exact_gps = any(e.kind == "gps_stop" for e in events)
         self.gps_gave_up_s = 0.0
         self.gps_gave_up_n = 0
+        self.gave_up_kinds = collections.Counter()
+        self.resumes, self.resumed_with_fix = collections.defaultdict(list), collections.Counter()
+        self.closed_while_given_up = 0
+        self.first_fixes, self.unfixed_stretches = [], 0
+        self.logs_first_fix = any(e.kind == "first_fix" for e in events)
         self.drops, self.holds = [], []
         self._run(events)
         self.days = max(1, len(self.daily))
 
     def _run(self, events):
         armed, prev_dt, pending, cur = False, None, None, None
-        gps_on = probe_start = hold_at = give_up_at = None
+        gps_on = probe_start = hold_at = last_stop = None
         probe_gaps = []
+        given_up = resume_cause = resumed_by = None
+        stretch_fixed = True
 
         def gps_close(at, gave_up=False):
             nonlocal gps_on
             if gps_on is None:
-                return
+                return 0.0
             start, tid = gps_on
             gps_on = None
             secs = max(0.0, (at - start).total_seconds())
@@ -187,6 +198,7 @@ class Report:
             if gave_up:
                 self.gps_gave_up_n += 1
                 self.gps_gave_up_s += secs
+            return secs
 
         day, d = None, None
         for i, e in enumerate(events):
@@ -228,6 +240,10 @@ class Report:
             elif k == "probe_open":
                 d["departures"] += 1
                 pending = {"cause": "departure probe", "i": i, "probe": g}
+            elif k == "fence_resume":
+                resume_cause = "geofence"
+            elif k == "probe_resume":
+                resume_cause = "position check"
             elif k == "departure_ignored":
                 self.departures_ignored += 1
             elif k == "open":
@@ -249,6 +265,9 @@ class Report:
                 t.pts, t.dist, t.dur, t.verdict, t.closed = int(g["pts"]), int(g["m"]), int(g["s"]), g["verdict"], e.dt
                 d["closed"] += 1
                 d[g["verdict"]] += 1
+                if given_up is not None:
+                    self.closed_while_given_up += 1
+                    given_up = resume_cause = None
                 if t.pts == 0:
                     d["zero"] += 1
                 if cur == tid:
@@ -294,16 +313,38 @@ class Report:
             elif k == "gave_up":
                 self.gave_up += 1
                 d["gave_up"] += 1
-                give_up_at = e.dt
+                # The service stops GPS first and logs the give-up after it.
+                if last_stop and (e.dt - last_stop[0]).total_seconds() < 2:
+                    self.gps_gave_up_n += 1
+                    self.gps_gave_up_s += last_stop[1]
+                self.gave_up_kinds["no fix at all" if g["nofix"]
+                                   else "after a fix" if self.logs_first_fix else "(build logs no kind)"] += 1
+                if g["nofix"] and cur in self.tracks:
+                    self.tracks[cur].gave_up_unfixed = True
+                given_up, resume_cause = e.dt, None
             elif k == "probing_again":
                 self.retries[g["signal"]] += 1
+                resume_cause = {"MOTION": "motion retry", "PASSIVE_FIX": "passive fix"}.get(g["signal"], g["signal"])
+            elif k == "first_fix":
+                self.first_fixes.append(int(g["s"]))
+                stretch_fixed = True
+                if resumed_by:
+                    self.resumed_with_fix[resumed_by] += 1
+                    resumed_by = None
             elif k == "gps_start":
                 gps_close(e.dt)
                 gps_on = (e.dt, cur)
+                stretch_fixed, resumed_by = False, None
+                if given_up is not None:
+                    # Nothing logged a signal, so what brought GPS back was a reading.
+                    resumed_by = resume_cause or "activity reading"
+                    self.resumes[resumed_by].append((e.dt - given_up).total_seconds())
+                    given_up = resume_cause = None
             elif k == "gps_stop":
-                gave = give_up_at is not None and (e.dt - give_up_at).total_seconds() < 2
-                gps_close(e.dt, gave_up=gave)
-                give_up_at = None
+                last_stop = (e.dt, gps_close(e.dt))
+                if self.logs_first_fix and not stretch_fixed:
+                    self.unfixed_stretches += 1
+                stretch_fixed = True
             elif k == "drop":
                 self.drops.append(None if g["acc"] == "null" else float(g["acc"]))
                 d["drops"] += 1
@@ -439,6 +480,31 @@ def report(r, daily):
     print(f"  no-fix give-ups {r.gave_up} ({r.per_day(r.gave_up):.0f}/day); GPS stretches ended by one "
           f"{r.gps_gave_up_n}, {hours(r.gps_gave_up_s)}; restarts after a give-up: " +
           (", ".join(f"{s} {n}" for s, n in r.retries.most_common()) or "none"))
+
+    if r.gave_up_kinds or r.first_fixes:
+        section("No-fix give-ups and what resumed GPS")
+        print("  give-ups: " + ", ".join(f"{kind} {n}" for kind, n in r.gave_up_kinds.most_common()))
+        if r.first_fixes:
+            ff = sorted(r.first_fixes)
+            print(f"  first fix after GPS started: {len(ff)} stretches, median {pct(ff, .5)}s, p90 {pct(ff, .9)}s, "
+                  f"max {ff[-1]}s; " + ", ".join(f"≤{b}s {sum(x <= b for x in ff) / len(ff) * 100:.0f}%"
+                                               for b in (15, 30, 60, 90)) +
+                  f"; stretches that stopped with no fix {r.unfixed_stretches}")
+        rows = []
+        for cause, waits in sorted(r.resumes.items(), key=lambda kv: -len(kv[1])):
+            w = sorted(waits)
+            rows.append((cause, len(w), f"{pct(w, .5) / 60:.1f} min", f"{pct(w, .9) / 60:.1f} min",
+                         r.resumed_with_fix[cause] if r.logs_first_fix else "-"))
+        if rows:
+            table(("resumed by", "times", "median wait", "p90 wait", "then got a fix"), rows)
+        print(f"  tracks closed while GPS was given up: {r.closed_while_given_up}")
+        unfixed = [t for t in closed if t.gave_up_unfixed]
+        if unfixed:
+            print(f"  tracks with a no-fix give-up: {len(unfixed)} — kept {sum(t.verdict == 'keep' for t in unfixed)}, "
+                  f"discarded {sum(t.verdict == 'discard' for t in unfixed)}, "
+                  f"purged {sum(t.verdict == 'purge' for t in unfixed)}")
+            for t in sorted((t for t in unfixed if t.verdict == "keep"), key=lambda t: t.opened or t.closed):
+                print(f"    kept: {(t.opened or t.closed):%m-%d %H:%M} {t.act} {t.pts} pts {t.dist} m")
 
     section("Tracks standing open with nothing measured")
     standing_open = sorted((t for t in closed if t.unmeasured() > 300), key=lambda t: -t.unmeasured())

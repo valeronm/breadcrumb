@@ -741,6 +741,7 @@ class LocationRecordingService : Service() {
                     DebugLog.i(
                         TAG,
                         "departure: probe saw the phone leave " +
+                            (if (effects.none { it is Effect.OpenTrack }) "the give-up spot — resuming GPS " else "") +
                             "($latency, ${measured(verdict.gapM, verdict.barM, verdict.marginM)}, $quality)",
                     )
 
@@ -828,7 +829,11 @@ class LocationRecordingService : Service() {
         // Once per batch rather than per accepted fix: the guard only records *when* a fix last
         // arrived, and a batch's fixes are delivered together.
         // A position with no satellites behind it is the platform's invention, not a view of the sky.
-        if (ingested.points.any { it.ignoreReason != IgnoreReason.NO_GNSS.code }) noFixGuard.onFixReceived()
+        if (ingested.points.any { it.ignoreReason != IgnoreReason.NO_GNSS.code }) {
+            noFixGuard.onFixReceived(SystemClock.elapsedRealtime())?.let { waitedMs ->
+                DebugLog.i(TAG, "no-fix guard: first fix after ${waitedMs / 1000}s")
+            }
+        }
         if (ingested.accepted > 0) noFixGuard.onFixAccepted(SystemClock.elapsedRealtime())
         // The only database write of the hot path: the points themselves. The track row is not
         // touched — a write to `tracks` per fix would wake every timeline query once a second (see
