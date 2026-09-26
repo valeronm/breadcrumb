@@ -1,0 +1,57 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 5 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          - language: python
+            build-mode: none
+          # Autobuild runs `assemble`, every build type in parallel, and the dex merges of four
+          # variants outgrow the Gradle heap; the analysis needs the Kotlin compiled once.
+          - language: java-kotlin
+            build-mode: manual
+    steps:
+      - uses: actions/checkout@v7
+
+      - if: matrix.build-mode == 'manual'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - if: matrix.build-mode == 'manual'
+        uses: gradle/actions/setup-gradle@v6
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      # The extractor reads the compiler as it runs, so a cached task output would hide its sources.
+      - if: matrix.build-mode == 'manual'
+        run: ./gradlew --no-build-cache :app:compileDebugKotlin
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
