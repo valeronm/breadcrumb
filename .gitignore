@@ -28,3 +28,7 @@ __pycache__/
 /site/node_modules/
 /site/dist/
 /site/.astro/
+
+# Claude Code session worktrees and personal settings
+/.claude/worktrees/
+/.claude/*.local.*
