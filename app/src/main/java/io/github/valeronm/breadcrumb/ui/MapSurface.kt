@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.util.Log
 import android.view.ContextThemeWrapper
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -36,6 +37,7 @@ import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.offline.OfflineManager
+import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /**
  * The map every screen draws on, and nothing drawn on it: the [MapView] and its lifecycle, the
@@ -256,6 +258,18 @@ internal fun MapShade(dark: Boolean, content: @Composable () -> Unit) {
     key(dark) {
         CompositionLocalProvider(LocalContext provides shaded, content = content)
     }
+}
+
+/**
+ * The shade the place maps draw in: what the reader picked with the Places map's switch, else the
+ * app theme. One choice for every map about places — the overview, a place's detail and its editor —
+ * so a place opened from a light overview does not come up dark.
+ */
+@Composable
+internal fun placesMapDark(): Boolean {
+    val context = LocalContext.current
+    val themeDark = isSystemInDarkTheme()
+    return remember { AppSettings.placesMapDark(context) } ?: themeDark
 }
 
 /** Whether the UI is in dark mode — the single switch for basemap flavor and map ink colors. */
