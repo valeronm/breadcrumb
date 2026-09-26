@@ -166,14 +166,14 @@ class Report:
         self.probes_with_positions = self.probes_still = 0
         self.fires, self.fire_outcomes = 0, collections.Counter()
         self.gave_up, self.retries = 0, collections.Counter()
-        self.exact_gps = any(e.kind == "gps_stop" for e in events)
+        self.gps_inferred = False
         self.gps_gave_up_s = 0.0
         self.gps_gave_up_n = 0
         self.gave_up_kinds = collections.Counter()
         self.resumes, self.resumed_with_fix = collections.defaultdict(list), collections.Counter()
+        self.resumes_on_logging_builds = collections.Counter()
         self.closed_while_given_up = 0
         self.first_fixes, self.unfixed_stretches = [], 0
-        self.logs_first_fix = any(e.kind == "first_fix" for e in events)
         self.drops, self.holds = [], []
         self._run(events)
         self.days = max(1, len(self.daily))
@@ -184,6 +184,14 @@ class Report:
         probe_gaps = []
         given_up = resume_cause = resumed_by = None
         stretch_fixed = True
+        # A log spans installs from before and after a line was added. A build whose every GPS start
+        # found nothing never logs "first fix after", and reads as a build that predates it.
+        build_kinds, build = collections.defaultdict(set), None
+        for e in events:
+            if e.kind == "arm":
+                build = e.g["build"]
+            build_kinds[build].add(e.kind)
+        logs = build_kinds.get(None, set())
 
         def gps_close(at, gave_up=False):
             nonlocal gps_on
@@ -208,11 +216,13 @@ class Report:
                 day, d = e.dt.date(), self.daily[e.dt.strftime("%m-%d")]
             if armed and prev_dt and k != "dead" and (e.dt - prev_dt).total_seconds() > 3600:
                 self.silences.append((prev_dt, e.dt))
-            if not self.exact_gps and k in INFERRED_GPS_END:
+            if "gps_stop" not in logs and k in INFERRED_GPS_END and gps_on is not None:
+                self.gps_inferred = True
                 gps_close(e.dt, gave_up=k == "gave_up")
             if k == "arm":
                 armed = True
                 self.builds[g["build"] or "(unstamped)"] += 1
+                logs = build_kinds[g["build"]]
             elif k == "disarm":
                 armed = False
                 self.disarms += 1
@@ -318,7 +328,7 @@ class Report:
                     self.gps_gave_up_n += 1
                     self.gps_gave_up_s += last_stop[1]
                 self.gave_up_kinds["no fix at all" if g["nofix"]
-                                   else "after a fix" if self.logs_first_fix else "(build logs no kind)"] += 1
+                                   else "after a fix" if "first_fix" in logs else "(build logs no kind)"] += 1
                 if g["nofix"] and cur in self.tracks:
                     self.tracks[cur].gave_up_unfixed = True
                 given_up, resume_cause = e.dt, None
@@ -339,10 +349,12 @@ class Report:
                     # Nothing logged a signal, so what brought GPS back was a reading.
                     resumed_by = resume_cause or "activity reading"
                     self.resumes[resumed_by].append((e.dt - given_up).total_seconds())
+                    if "first_fix" in logs:
+                        self.resumes_on_logging_builds[resumed_by] += 1
                     given_up = resume_cause = None
             elif k == "gps_stop":
                 last_stop = (e.dt, gps_close(e.dt))
-                if self.logs_first_fix and not stretch_fixed:
+                if "first_fix" in logs and not stretch_fixed:
                     self.unfixed_stretches += 1
                 stretch_fixed = True
             elif k == "drop":
@@ -470,7 +482,7 @@ def report(r, daily):
         accs = f", median arming accuracy {pct(sorted(r.fence_accs), .5)} m" if r.fence_accs else ""
         print("  fence armed from last known: " + ", ".join(f"{p} {n}" for p, n in r.fence_sources.items()) + accs)
 
-    section("Recorder GPS" + ("" if r.exact_gps else " (inferred: this build logs no stop)"))
+    section("Recorder GPS" + (" (inferred where a build logs no stop)" if r.gps_inferred else ""))
     total = r.gps_total()
     with_pts = sum(t.gps_s for t in closed if t.pts)
     zero = sum(t.gps_s for t in closed if t.pts == 0)
@@ -483,7 +495,7 @@ def report(r, daily):
 
     if r.gave_up_kinds or r.first_fixes:
         section("No-fix give-ups and what resumed GPS")
-        print("  give-ups: " + ", ".join(f"{kind} {n}" for kind, n in r.gave_up_kinds.most_common()))
+        print("  give-ups: " + (", ".join(f"{kind} {n}" for kind, n in r.gave_up_kinds.most_common()) or "0"))
         if r.first_fixes:
             ff = sorted(r.first_fixes)
             print(f"  first fix after GPS started: {len(ff)} stretches, median {pct(ff, .5)}s, p90 {pct(ff, .9)}s, "
@@ -494,7 +506,8 @@ def report(r, daily):
         for cause, waits in sorted(r.resumes.items(), key=lambda kv: -len(kv[1])):
             w = sorted(waits)
             rows.append((cause, len(w), f"{pct(w, .5) / 60:.1f} min", f"{pct(w, .9) / 60:.1f} min",
-                         r.resumed_with_fix[cause] if r.logs_first_fix else "-"))
+                         f"{r.resumed_with_fix[cause]} of {r.resumes_on_logging_builds[cause]}"
+                         if r.resumes_on_logging_builds[cause] else "-"))
         if rows:
             table(("resumed by", "times", "median wait", "p90 wait", "then got a fix"), rows)
         print(f"  tracks closed while GPS was given up: {r.closed_while_given_up}")
