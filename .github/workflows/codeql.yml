@@ -3,12 +3,25 @@ name: CodeQL
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'LICENSE'
   schedule:
     - cron: '23 5 * * 1'
 
 permissions:
   contents: read
+
+# Only a pull request's runs share a group; every other run gets its own and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   analyze:
@@ -27,8 +40,8 @@ jobs:
             build-mode: none
           - language: python
             build-mode: none
-          # Autobuild runs `assemble`, every build type in parallel, and the dex merges of four
-          # variants outgrow the Gradle heap; the analysis needs the Kotlin compiled once.
+          # Autobuild runs `assemble`, every build type in parallel, and the dex merges of every
+          # variant outgrow the Gradle heap; the analysis needs the Kotlin compiled once.
           - language: java-kotlin
             build-mode: manual
     steps:
@@ -36,13 +49,15 @@ jobs:
 
       - if: matrix.build-mode == 'manual'
         uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
 
       - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
-      # The extractor reads the compiler as it runs, so a cached task output would hide its sources.
+      # A task restored from the build cache never runs the compiler, so the extractor sees no sources.
       - if: matrix.build-mode == 'manual'
         run: ./gradlew --no-build-cache :app:compileDebugKotlin
 
