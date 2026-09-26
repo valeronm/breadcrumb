@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.annotation.StringRes
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,15 +20,23 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
@@ -37,6 +47,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
@@ -243,6 +254,11 @@ private fun PlacesMapPage(
     homeRequest: Int,
     onOpenPlace: (String) -> Unit,
 ) {
+    val context = LocalContext.current
+    // The theme's shade until the reader picks one here: an overview of streets reads better light
+    // for some, and the app theme is a choice about the chrome, not about the map.
+    val themeDark = isSystemInDarkTheme()
+    var dark by rememberSaveable { mutableStateOf(AppSettings.placesMapDark(context) ?: themeDark) }
     // Card padding keeps the texture-mode map off the back-gesture edge strips.
     Card(
         Modifier
@@ -262,12 +278,18 @@ private fun PlacesMapPage(
                     Modifier.fillMaxSize().padding(24.dp),
                 )
             } else {
-                MapLibrePlacesMap(
-                    places = mapPlaces,
-                    frameKey = homeRequest,
-                    onOpen = onOpenPlace,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                MapShade(dark) {
+                    MapLibrePlacesMap(
+                        places = mapPlaces,
+                        frameKey = homeRequest,
+                        onOpen = onOpenPlace,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                MapShadeToggle(dark) {
+                    dark = !dark
+                    AppSettings.setPlacesMapDark(context, dark)
+                }
             }
             MapFilterChip(
                 selected = showRareStops,
@@ -469,3 +491,24 @@ private fun visitPhrase(summary: PlaceResolver.PlaceSummary): String =
 @Composable
 private fun placeScrubberStops(listed: List<PlaceResolver.PlaceSummary>): List<ScrollStop<PlaceResolver.PlaceSummary>> =
     remember(listed) { listed.mapIndexed { index, summary -> ScrollStop(summary, index) } }
+
+/**
+ * Switches the Places map between its light and dark basemap. Bottom-right, clear of the filter chip
+ * top-left, the compass top-right and the attribution bottom-left; lifted over the zoom readout
+ * where dev builds show one.
+ */
+@Composable
+private fun BoxScope.MapShadeToggle(dark: Boolean, onToggle: () -> Unit) {
+    SmallFloatingActionButton(
+        onClick = onToggle,
+        containerColor = MaterialTheme.colorScheme.surface,
+        modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(end = 12.dp, bottom = if (BuildConfig.DEV_TOOLS) 44.dp else 12.dp),
+    ) {
+        Icon(
+            if (dark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+            contentDescription = stringResource(if (dark) R.string.places_map_light else R.string.places_map_dark),
+        )
+    }
+}

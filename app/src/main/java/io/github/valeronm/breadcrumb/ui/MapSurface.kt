@@ -3,18 +3,23 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import android.content.res.Configuration
 import android.util.Log
+import android.view.ContextThemeWrapper
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.FloatState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -32,6 +37,7 @@ import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.offline.OfflineManager
+import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /**
  * The map every screen draws on, and nothing drawn on it: the [MapView] and its lifecycle, the
@@ -226,6 +232,44 @@ internal fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom:
         positions.size == 1 -> map.cameraPosition = CameraPosition.Builder()
             .target(positions[0]).zoom(singlePointZoom).build()
     }
+}
+
+/**
+ * Draws the maps in [content] light or dark whatever the app theme is — the basemap flavor and every
+ * ink colour read through [isDarkUi], so the override is a context whose configuration says so
+ * rather than a flag threaded through each layer. Keyed on [dark]: a map's style loads once per
+ * [MapView], so a change of shade is a fresh map, never a restyled one.
+ */
+@Composable
+internal fun MapShade(dark: Boolean, content: @Composable () -> Unit) {
+    val base = LocalContext.current
+    // Read through LocalConfiguration, so a theme change recomposes this and re-derives the override.
+    val baseUiMode = LocalConfiguration.current.uiMode
+    val shaded = remember(base, baseUiMode, dark) {
+        ContextThemeWrapper(base, base.theme).apply {
+            applyOverrideConfiguration(
+                Configuration().apply {
+                    uiMode = (baseUiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
+                        if (dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
+                },
+            )
+        }
+    }
+    key(dark) {
+        CompositionLocalProvider(LocalContext provides shaded, content = content)
+    }
+}
+
+/**
+ * The shade the place maps draw in: what the reader picked with the Places map's switch, else the
+ * app theme. One choice for every map about places — the overview, a place's detail and its editor —
+ * so a place opened from a light overview does not come up dark.
+ */
+@Composable
+internal fun placesMapDark(): Boolean {
+    val context = LocalContext.current
+    val themeDark = isSystemInDarkTheme()
+    return remember { AppSettings.placesMapDark(context) } ?: themeDark
 }
 
 /** Whether the UI is in dark mode — the single switch for basemap flavor and map ink colors. */

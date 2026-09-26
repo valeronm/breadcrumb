@@ -87,4 +87,6 @@
         <item quantity="many">%d раз</item>
         <item quantity="other">%d раза</item>
     </plurals>
+    <string name="places_map_light">Показать светлую карту</string>
+    <string name="places_map_dark">Показать тёмную карту</string>
 </resources>
