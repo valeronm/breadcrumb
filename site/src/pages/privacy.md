@@ -50,8 +50,10 @@ screen, under Settings → Privacy. Recording carries on whether the app is lock
   by name. That search sends the words you typed to [Photon](https://photon.komoot.io/). Once
   the trip's starting point is on the map, the search also sends that point, so the results are
   the ones most relevant to your trip. Until then it sends the destination, if that one is placed.
+  When you name a place, the app suggests names from the same search. It sends the words you typed
+  and where the place is on the map.
   You can turn the search off under Settings → Privacy.
-  The app then searches only the list of cities built into it.
+  The app then searches only the list of cities built into it, and suggests no names.
 - **What you export.** A trip shared as a GPX file, or a backup of your whole history, goes
   wherever you send it. The app never sends it anywhere on its own.
 - **The log**, if you share it. The app keeps a log on the phone for troubleshooting. It reaches

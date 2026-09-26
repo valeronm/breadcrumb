@@ -14,11 +14,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.Place
@@ -32,7 +30,6 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -53,7 +50,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -413,21 +409,70 @@ internal fun AddTripScreen(
                     viewModel.searchCities(query, limit = 6)
                 }
             }
-            val onlineHits by produceState(emptyList<OnlinePlaceSearch.Hit>(), query) {
-                value = if (query.isBlank()) {
-                    emptyList()
-                } else {
-                    // A longer settle than the local scans: this one puts the query on the wire.
-                    delay(400)
-                    viewModel.searchOnline(query, near = origin.pin ?: destination.pin)
+            val onlineHits by rememberOnlineHits(query, near = origin.pin ?: destination.pin, viewModel)
+            SearchDropdown(
+                query = query,
+                open = query.isNotBlank(),
+                field = { anchor ->
+                    SearchField(
+                        query = query,
+                        onQueryChange = { query = it },
+                        placeholder = stringResource(R.string.addtrip_search_placeholder),
+                        modifier = Modifier.fillMaxWidth().then(anchor),
+                    )
+                },
+            ) {
+                for (place in placeMatches) {
+                    SearchResultRow(
+                        icon = Icons.Filled.Place,
+                        label = place.label,
+                        detail = placeCities[place.id]?.let { localityLabel(it) },
+                    ) {
+                        placePin(place.pin, place.label)
+                        query = ""
+                    }
+                }
+                for (hit in cityHits) {
+                    SearchResultRow(
+                        icon = Icons.Filled.LocationCity,
+                        label = hit.name,
+                        detail = countryDisplayName(hit.country),
+                    ) {
+                        placePin(Coordinate(hit.lat, hit.lon))
+                        query = ""
+                    }
+                }
+                // Below the local sections, minus what they already show — the
+                // geocoder returns big cities too, and "Lisbon" twice reads as a
+                // glitch, not as two sources.
+                val online = remember(cityHits, onlineHits) {
+                    val cities = cityHits.map { PlaceSearch.fold(it.name) }.toSet()
+                    OnlinePlaceSearch.distinctRows(
+                        onlineHits.filter { PlaceSearch.fold(it.name) !in cities },
+                    )
+                }
+                for (hit in online) {
+                    SearchResultRow(
+                        icon = Icons.Filled.TravelExplore,
+                        label = hit.name,
+                        detail = hit.locality,
+                    ) {
+                        // The one pick that knows its own name — carried so the
+                        // commit can create the place this end will have stayed at.
+                        placePin(Coordinate(hit.lat, hit.lon), hit.name)
+                        query = ""
+                    }
+                }
+                if (online.isNotEmpty()) OsmCredit()
+                if (placeMatches.isEmpty() && cityHits.isEmpty() && online.isEmpty()) {
+                    Text(
+                        stringResource(R.string.addtrip_no_matches),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
                 }
             }
-            SearchField(
-                query = query,
-                onQueryChange = { query = it },
-                placeholder = stringResource(R.string.addtrip_search_placeholder),
-                modifier = Modifier.fillMaxWidth(),
-            )
             Card(Modifier.weight(1f).fillMaxWidth()) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
                     MapLibreTripMap(
@@ -451,80 +496,6 @@ internal fun AddTripScreen(
                             ),
                             style = MaterialTheme.typography.labelSmall,
                         )
-                    }
-                    // Floating over the map rather than in the column: results coming and going
-                    // must not resize the MapView underneath (see PlaceEditScreen on why a resized
-                    // map is unfixable).
-                    if (query.isNotBlank()) {
-                        Surface(
-                            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        ) {
-                            Column(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
-                                for (place in placeMatches) {
-                                    PinSearchResult(
-                                        icon = Icons.Filled.Place,
-                                        label = place.label,
-                                        detail = placeCities[place.id]?.let { localityLabel(it) },
-                                    ) {
-                                        placePin(place.pin, place.label)
-                                        query = ""
-                                    }
-                                }
-                                for (hit in cityHits) {
-                                    PinSearchResult(
-                                        icon = Icons.Filled.LocationCity,
-                                        label = hit.name,
-                                        detail = countryDisplayName(hit.country),
-                                    ) {
-                                        placePin(Coordinate(hit.lat, hit.lon))
-                                        query = ""
-                                    }
-                                }
-                                // Below the local sections, minus what they already show — the
-                                // geocoder returns big cities too, and "Lisbon" twice reads as a
-                                // glitch, not as two sources. Deduped against itself as well:
-                                // Photon hands back distinct OSM objects (a suburb, its station)
-                                // whose rows would read identically.
-                                val online = remember(cityHits, onlineHits) {
-                                    val cities = cityHits.map { PlaceSearch.fold(it.name) }.toSet()
-                                    onlineHits.filter { PlaceSearch.fold(it.name) !in cities }
-                                        .distinctBy {
-                                            PlaceSearch.fold(it.name) to PlaceSearch.fold(it.locality.orEmpty())
-                                        }
-                                }
-                                for (hit in online) {
-                                    PinSearchResult(
-                                        icon = Icons.Filled.TravelExplore,
-                                        label = hit.name,
-                                        detail = hit.locality,
-                                    ) {
-                                        // The one pick that knows its own name — carried so the
-                                        // commit can create the place this end will have stayed at.
-                                        placePin(Coordinate(hit.lat, hit.lon), hit.name)
-                                        query = ""
-                                    }
-                                }
-                                if (online.isNotEmpty()) {
-                                    // ODbL's credit, at the results it applies to.
-                                    Text(
-                                        stringResource(R.string.addtrip_osm_credit),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                                    )
-                                }
-                                if (placeMatches.isEmpty() && cityHits.isEmpty() && online.isEmpty()) {
-                                    Text(
-                                        stringResource(R.string.addtrip_no_matches),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -617,55 +588,6 @@ internal fun AddTripScreen(
                         }
                     },
                 ) { TimePicker(timeState) }
-            }
-        }
-    }
-}
-
-/** One row of the pin search's results: a saved place or an atlas city, tapped to become the
- *  active end's pin. */
-@Composable
-private fun PinSearchResult(
-    icon: ImageVector,
-    label: String,
-    detail: String?,
-    onPick: () -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onPick)
-            // A floor rather than more padding: a row carrying a locality line under its name is
-            // tall enough already, and one without it would otherwise stand at two thirds of a
-            // finger — in a stacked, scrolling list, which is where a mis-hit picks the wrong pin.
-            .heightIn(min = 48.dp)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.width(12.dp))
-        // Stacked, not side by side: a hotel's name and a spelled-out locality routinely overrun
-        // one line between them, and two texts sharing a row collide instead of wrapping.
-        Column {
-            Text(
-                label,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (detail != null) {
-                Text(
-                    detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
     }

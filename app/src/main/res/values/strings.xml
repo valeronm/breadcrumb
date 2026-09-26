@@ -63,4 +63,5 @@
         <item quantity="one">%d failed</item>
         <item quantity="other">%d failed</item>
     </plurals>
+    <string name="common_osm_credit">Online results © OpenStreetMap</string>
 </resources>

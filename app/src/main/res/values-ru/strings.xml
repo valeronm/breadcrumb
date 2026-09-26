@@ -54,4 +54,5 @@
         <item quantity="many">%d с ошибкой</item>
         <item quantity="other">%d с ошибкой</item>
     </plurals>
+    <string name="common_osm_credit">Онлайн-результаты © OpenStreetMap</string>
 </resources>

@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -16,6 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
@@ -24,15 +29,27 @@ import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
+import io.github.valeronm.breadcrumb.domain.Coordinate
+import kotlinx.coroutines.delay
 
 /**
  * Corner shape for a row in a day group: large outer corners on the group's first/last edge,
@@ -216,4 +233,113 @@ internal fun SwipeActionRow(
             }
         },
     ) { content() }
+}
+
+@Composable
+internal fun SearchResultRow(
+    icon: ImageVector,
+    label: String,
+    detail: String?,
+    onPick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onPick)
+            // A floor rather than more padding: a row carrying a locality line under its name is
+            // tall enough already, and one without it would otherwise stand at two thirds of a
+            // finger — in a stacked, scrolling list, which is where a mis-hit picks the wrong result.
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        // Stacked, not side by side: a hotel's name and a spelled-out locality routinely overrun
+        // one line between them, and two texts sharing a row collide instead of wrapping.
+        Column {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (detail != null) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A search [field] with its results in a menu anchored under it, shown while [open]. The menu is a
+ * popup and takes no space in the layout around the field. A tap outside closes it until [query]
+ * changes.
+ */
+@Composable
+internal fun SearchDropdown(
+    query: String,
+    open: Boolean,
+    field: @Composable (anchor: Modifier) -> Unit,
+    results: @Composable ColumnScope.() -> Unit,
+) {
+    var dismissedFor by remember { mutableStateOf<String?>(null) }
+    val expanded = open && query != dismissedFor
+    // A tap on the field is typing, not a toggle.
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = {}) {
+        field(Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable))
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { dismissedFor = query },
+            modifier = Modifier.heightIn(max = 260.dp),
+            // A step above the surfaces a field sits on, which the menu would otherwise match.
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            content = results,
+        )
+    }
+}
+
+/** ODbL's credit, owed at every list holding [OnlinePlaceSearch] results. */
+@Composable
+internal fun OsmCredit() {
+    Text(
+        stringResource(R.string.common_osm_credit),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+    )
+}
+
+/**
+ * [OnlinePlaceSearch] results for [query], biased toward [near] as it stands when the request goes
+ * out, and bounded to [withinM] of it when given.
+ */
+@Composable
+internal fun rememberOnlineHits(
+    query: String,
+    near: Coordinate?,
+    viewModel: TrackListViewModel,
+    withinM: Double? = null,
+): State<List<OnlinePlaceSearch.Hit>> {
+    val latestNear by rememberUpdatedState(near)
+    return produceState(emptyList(), query) {
+        value = if (query.isBlank()) {
+            emptyList()
+        } else {
+            // A longer settle than a local scan's: this one puts the query on the wire.
+            delay(400)
+            viewModel.searchOnline(query, latestNear, withinM)
+        }
+    }
 }

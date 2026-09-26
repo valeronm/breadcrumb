@@ -12,7 +12,6 @@
     <string name="addtrip_search_placeholder">Поиск городов и мест</string>
     <string name="addtrip_tap_origin">Коснитесь места или удерживайте карту, чтобы задать начало поездки</string>
     <string name="addtrip_tap_destination">Коснитесь места или удерживайте карту, чтобы задать конец поездки</string>
-    <string name="addtrip_osm_credit">Онлайн-результаты © OpenStreetMap</string>
     <string name="addtrip_no_matches">Ничего не найдено</string>
 
     <string name="addtrip_origin">Откуда</string>

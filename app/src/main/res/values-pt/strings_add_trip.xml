@@ -12,7 +12,6 @@
     <string name="addtrip_search_placeholder">Procurar cidades e locais</string>
     <string name="addtrip_tap_origin">Toque num local ou mantenha premido para definir a origem</string>
     <string name="addtrip_tap_destination">Toque num local ou mantenha premido para definir o destino</string>
-    <string name="addtrip_osm_credit">Resultados online © OpenStreetMap</string>
     <string name="addtrip_no_matches">Sem correspondências</string>
 
     <string name="addtrip_origin">Origem</string>

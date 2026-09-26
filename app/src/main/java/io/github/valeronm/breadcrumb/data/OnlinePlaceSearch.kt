@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import io.github.valeronm.breadcrumb.data.export.JsonPullReader
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
@@ -12,6 +13,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.cos
 
 /**
  * Full-text place search over the network — the one lookup no bundled data can answer: a specific
@@ -34,22 +36,27 @@ object OnlinePlaceSearch {
         val lon: Double,
     )
 
+    /** Photon hands back distinct OSM objects (a suburb, its station) whose rows would read identically. */
+    fun distinctRows(hits: List<Hit>): List<Hit> =
+        hits.distinctBy { PlaceSearch.fold(it.name) to PlaceSearch.fold(it.locality.orEmpty()) }
+
     private const val TAG = "Breadcrumb"
     private const val LIMIT = 8
     private const val TIMEOUT_MS = 4_000
+    private const val METERS_PER_DEGREE = 111_320.0
+
+    /** A degree of longitude shrinks toward nothing near a pole; this floor keeps the box finite. */
+    private const val MIN_COS = 0.01
 
     /**
-     * Results for [query], biased toward [near] when given; empty on any failure — and empty
-     * without touching the network when the Privacy switch is off. The gate lives here, with the
-     * socket, so no later caller can put a query on the wire around it.
+     * Results for [query], biased toward [near] when given and bounded to [withinM] of it when that
+     * is given too; empty on any failure — and empty without touching the network when the Privacy
+     * switch is off. The gate lives here, with the socket, so no later caller can put a query on
+     * the wire around it.
      */
-    suspend fun search(context: Context, query: String, near: Coordinate?): List<Hit> {
+    suspend fun search(context: Context, query: String, near: Coordinate?, withinM: Double? = null): List<Hit> {
         if (!Settings.isOnlinePlaceSearch(context)) return emptyList()
-        val url = buildString {
-            append("https://photon.komoot.io/api/?limit=").append(LIMIT)
-            append("&q=").append(URLEncoder.encode(query, "UTF-8"))
-            near?.let { append("&lat=").append(it.lat).append("&lon=").append(it.lon) }
-        }
+        val url = url(query, near, withinM)
         return try {
             val connection = URL(url).openConnection() as HttpURLConnection
             connection.connectTimeout = TIMEOUT_MS
@@ -73,6 +80,20 @@ object OnlinePlaceSearch {
             // The parser's own checks — a body that isn't the GeoJSON Photon promises.
             DebugLog.i(TAG, "online place search unparseable: ${e.message}")
             emptyList()
+        }
+    }
+
+    internal fun url(query: String, near: Coordinate?, withinM: Double?): String = buildString {
+        append("https://photon.komoot.io/api/?limit=").append(LIMIT)
+        append("&q=").append(URLEncoder.encode(query, "UTF-8"))
+        near?.let { append("&lat=").append(it.lat).append("&lon=").append(it.lon) }
+        // The position only ranks results: a name common elsewhere can fill every slot of [LIMIT]
+        // with places far from it.
+        if (near != null && withinM != null) {
+            val dLat = withinM / METERS_PER_DEGREE
+            val dLon = withinM / (METERS_PER_DEGREE * cos(Math.toRadians(near.lat)).coerceAtLeast(MIN_COS))
+            append("&bbox=").append(near.lon - dLon).append(',').append(near.lat - dLat)
+            append(',').append(near.lon + dLon).append(',').append(near.lat + dLat)
         }
     }
 

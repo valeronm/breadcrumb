@@ -584,9 +584,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
 
     /** Empty when the online search is switched off or fails ([OnlinePlaceSearch]). */
-    suspend fun searchOnline(query: String, near: Coordinate?): List<OnlinePlaceSearch.Hit> =
+    suspend fun searchOnline(query: String, near: Coordinate?, withinM: Double? = null): List<OnlinePlaceSearch.Hit> =
         withContext(Dispatchers.IO) {
-            OnlinePlaceSearch.search(getApplication(), query, near)
+            OnlinePlaceSearch.search(getApplication(), query, near, withinM)
         }
 
     private companion object {

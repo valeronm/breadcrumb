@@ -17,7 +17,6 @@
     <string name="addtrip_tap_origin">Tap a place or long-press to set the origin</string>
     <string name="addtrip_tap_destination">Tap a place or long-press to set the destination</string>
     <!-- ODbL's credit, at the results it applies to. -->
-    <string name="addtrip_osm_credit">Online results © OpenStreetMap</string>
     <string name="addtrip_no_matches">No matches</string>
 
     <!-- The two ends. Each phrase is whole: the same word is a card title, a prefix and a

@@ -44,4 +44,5 @@
         <item quantity="one">%d falhou</item>
         <item quantity="other">%d falharam</item>
     </plurals>
+    <string name="common_osm_credit">Resultados online © OpenStreetMap</string>
 </resources>

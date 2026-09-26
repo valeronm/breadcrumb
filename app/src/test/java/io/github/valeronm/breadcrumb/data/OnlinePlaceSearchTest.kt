@@ -1,6 +1,8 @@
 package io.github.valeronm.breadcrumb.data
 
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -40,5 +42,22 @@ class OnlinePlaceSearchTest {
         """.trimIndent()
 
         assertEquals(0, OnlinePlaceSearch.parse(json.reader()).size)
+    }
+
+    private fun bbox(url: String) = url.substringAfter("&bbox=").split(',').map(String::toDouble)
+
+    @Test fun `a bound draws a box that far around the pin`() {
+        val box = bbox(OnlinePlaceSearch.url("cafe", Coordinate(0.0, 10.0), 1_113.2))
+        assertEquals(listOf(9.99, -0.01, 10.01, 0.01), box.map { Math.round(it * 1e9) / 1e9 })
+    }
+
+    @Test fun `a degree of longitude is shorter away from the equator`() {
+        val box = bbox(OnlinePlaceSearch.url("cafe", Coordinate(60.0, 10.0), 1_113.2))
+        assertEquals(0.04, box[2] - box[0], 1e-9)
+    }
+
+    @Test fun `without a bound or a pin the request carries no box`() {
+        assertFalse(OnlinePlaceSearch.url("cafe", Coordinate(0.0, 10.0), null).contains("bbox"))
+        assertFalse(OnlinePlaceSearch.url("cafe", null, 500.0).contains("bbox"))
     }
 }
