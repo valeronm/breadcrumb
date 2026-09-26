@@ -3,14 +3,17 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import android.content.res.Configuration
 import android.util.Log
+import android.view.ContextThemeWrapper
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.FloatState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -225,6 +228,30 @@ internal fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom:
         }
         positions.size == 1 -> map.cameraPosition = CameraPosition.Builder()
             .target(positions[0]).zoom(singlePointZoom).build()
+    }
+}
+
+/**
+ * Draws the maps in [content] light or dark whatever the app theme is — the basemap flavor and every
+ * ink colour read through [isDarkUi], so the override is a context whose configuration says so
+ * rather than a flag threaded through each layer. Keyed on [dark]: a map's style loads once per
+ * [MapView], so a change of shade is a fresh map, never a restyled one.
+ */
+@Composable
+internal fun MapShade(dark: Boolean, content: @Composable () -> Unit) {
+    val base = LocalContext.current
+    val shaded = remember(base, dark) {
+        ContextThemeWrapper(base, base.theme).apply {
+            applyOverrideConfiguration(
+                Configuration().apply {
+                    uiMode = (base.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
+                        if (dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
+                },
+            )
+        }
+    }
+    key(dark) {
+        CompositionLocalProvider(LocalContext provides shaded, content = content)
     }
 }
 

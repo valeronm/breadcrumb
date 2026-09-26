@@ -23,6 +23,7 @@ object Settings {
     private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
     private const val KEY_PLACES_SHOW_RARE_STOPS = "places_show_rare_stops"
     private const val KEY_PLACES_VIEW_MAP = "places_view_map"
+    private const val KEY_PLACES_MAP_DARK = "places_map_dark"
     private const val KEY_TIMELINE_VIEW_MAP = "timeline_view_map"
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
@@ -336,6 +337,14 @@ object Settings {
 
     fun setPlacesViewMap(context: Context, map: Boolean) {
         prefs(context).edit { putBoolean(KEY_PLACES_VIEW_MAP, map) }
+    }
+
+    /** Places tab: the map's basemap shade the user picked there, or null to follow the app theme. */
+    fun placesMapDark(context: Context): Boolean? =
+        prefs(context).takeIf { it.contains(KEY_PLACES_MAP_DARK) }?.getBoolean(KEY_PLACES_MAP_DARK, false)
+
+    fun setPlacesMapDark(context: Context, dark: Boolean) {
+        prefs(context).edit { putBoolean(KEY_PLACES_MAP_DARK, dark) }
     }
 
     /** Timeline tab: whether the day-map view (vs the list) was last selected. Defaults to the

@@ -86,4 +86,6 @@
         <item quantity="one">%d extremo</item>
         <item quantity="other">%d extremos</item>
     </plurals>
+    <string name="places_map_light">Mostrar o mapa claro</string>
+    <string name="places_map_dark">Mostrar o mapa escuro</string>
 </resources>

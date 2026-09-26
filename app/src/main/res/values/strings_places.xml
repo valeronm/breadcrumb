@@ -114,4 +114,6 @@
         <item quantity="one">%d visit</item>
         <item quantity="other">%d visits</item>
     </plurals>
+    <string name="places_map_light">Show the map light</string>
+    <string name="places_map_dark">Show the map dark</string>
 </resources>
