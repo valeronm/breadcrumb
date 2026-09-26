@@ -229,23 +229,21 @@ internal fun PlaceEditScreen(
             }
             Card(Modifier.weight(1f).fillMaxWidth()) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
-                    MapShade(placesMapDark()) {
-                        MapLibrePlaceMap(
-                            center = PlaceMarker(pin, summary.place),
-                            radiusM = radiusM.toDouble(),
-                            endpoints = summary.endpoints,
-                            neighbors = neighbors,
-                            capture = captureDots,
-                            rivalAreas = rivals,
-                            // Placing the center by hand, where the re-center action only snaps it to
-                            // what the circle already holds — and the center is what decides what is
-                            // held, so it needs an answer that isn't derived from the dots. A long press
-                            // rather than a tap: a tap is how a map is panned, and this is one Undo away
-                            // either way.
-                            onLongPress = { movePin(it, pinMoved) },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
+                    MapLibrePlaceMap(
+                        center = PlaceMarker(pin, summary.place),
+                        radiusM = radiusM.toDouble(),
+                        endpoints = summary.endpoints,
+                        neighbors = neighbors,
+                        capture = captureDots,
+                        rivalAreas = rivals,
+                        // Placing the center by hand, where the re-center action only snaps it to
+                        // what the circle already holds — and the center is what decides what is
+                        // held, so it needs an answer that isn't derived from the dots. A long press
+                        // rather than a tap: a tap is how a map is panned, and this is one Undo away
+                        // either way.
+                        onLongPress = { movePin(it, pinMoved) },
+                        modifier = Modifier.fillMaxSize(),
+                    )
                     // Over the map's corner, not under the slider: this number is read *while*
                     // dragging, and a hand reaching down to the slider covers everything below it.
                     // Here it sits beside the dots it counts, in the one part of the screen a thumb

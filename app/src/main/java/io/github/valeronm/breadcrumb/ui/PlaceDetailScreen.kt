@@ -394,17 +394,15 @@ private fun PlaceMapView(
     val neighbors = remember(neighborhood) {
         neighborhood.nearby.mapNotNull { other -> other.place?.let { PlaceMarker(other.anchor, it) } }
     }
-    MapShade(placesMapDark()) {
-        MapLibrePlaceMap(
-            center = PlaceMarker(summary.anchor, summary.place),
-            radiusM = summary.radiusM,
-            endpoints = emptyList(),
-            modifier = modifier,
-            neighbors = neighbors,
-            rivalAreas = neighborhood.rivals,
-            onLongPress = {},
-        )
-    }
+    MapLibrePlaceMap(
+        center = PlaceMarker(summary.anchor, summary.place),
+        radiusM = summary.radiusM,
+        endpoints = emptyList(),
+        modifier = modifier,
+        neighbors = neighbors,
+        rivalAreas = neighborhood.rivals,
+        onLongPress = {},
+    )
 }
 
 @Composable
