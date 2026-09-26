@@ -314,6 +314,14 @@ stand open until the next reading, which can be many hours. It ends at its last 
 has one, and the close hands the ground back to the triggers that opened it. A reading-opened track
 keeps the ordinary give-up.
 
+**A reading-opened track's give-up hands the ground to the departure triggers**, and leaving the spot
+where GPS gave up resumes GPS on that track rather than opening one. As trip starters the triggers
+rarely beat Activity Recognition; once a reading has named the track, nothing competes with them.
+That evidence is what lets a foot track give up quickly when no fix of any kind arrives: indoor
+walking is where GPS searches for nothing, and a walk that starts under a roof comes back when the
+phone leaves the building rather than on a blind retry. Vehicle and bicycle tracks, and a fix lost
+mid-track, which is what a tunnel is, keep the configured window.
+
 **The witness names movement, never what is doing the moving.** A track it proves is carried gets
 `UNKNOWN`, which displays as "Moving" and carries the most permissive quality ceiling — exactly what
 the evidence supports and nothing more. There is no carrier classifier and none is planned: telling
