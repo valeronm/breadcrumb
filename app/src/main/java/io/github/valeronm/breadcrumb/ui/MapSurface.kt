@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -240,11 +241,13 @@ internal fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom:
 @Composable
 internal fun MapShade(dark: Boolean, content: @Composable () -> Unit) {
     val base = LocalContext.current
-    val shaded = remember(base, dark) {
+    // Read through LocalConfiguration, so a theme change recomposes this and re-derives the override.
+    val baseUiMode = LocalConfiguration.current.uiMode
+    val shaded = remember(base, baseUiMode, dark) {
         ContextThemeWrapper(base, base.theme).apply {
             applyOverrideConfiguration(
                 Configuration().apply {
-                    uiMode = (base.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
+                    uiMode = (baseUiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
                         if (dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
                 },
             )
