@@ -1,7 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
 /**
- * Pure state machine for the no-fix give-up guard: a GPS probe that runs the configured window
+ * Pure state machine for the no-fix give-up guard: a GPS probe that runs its window
  * without one accepted fix (indoors on an activity-recognition false positive, or parked
  * underground) turns GPS off to wait for a cheap resume signal — significant motion, a passive fix
  * from another app, or an activity transition. Consecutive failed probes back off ([retryBaseMs] ×
@@ -22,6 +22,7 @@ class NoFixGuard(
 
     private var probeStartedMs = 0L
     private var lastAcceptedMs = 0L
+    private var fixSinceProbe = false
     private var failedProbes = 0
     private var nextProbeAllowedMs = 0L
 
@@ -29,12 +30,21 @@ class NoFixGuard(
     fun onProbeStarted(nowMs: Long) {
         probeStartedMs = nowMs
         lastAcceptedMs = 0L
+        fixSinceProbe = false
         suspended = false
     }
+
+    /** A fix arrived, accepted or not: the receiver can see the sky. */
+    fun onFixReceived() {
+        fixSinceProbe = true
+    }
+
+    val waitingForFirstFix: Boolean get() = !fixSinceProbe
 
     /** A fix passed the quality gates; the receiver is clearly converged. */
     fun onFixAccepted(nowMs: Long) {
         lastAcceptedMs = nowMs
+        fixSinceProbe = true
         failedProbes = 0
     }
 
@@ -51,12 +61,22 @@ class NoFixGuard(
      * the cross-check switched off — making the guard bit-for-bit the guard with no cross-check;
      * [Motion.Stopped] gives up like [Motion.Unknown], a standstill being no reason to keep a
      * fruitless probe running.
+     *
+     * **Until the probe's first fix the window is [firstFixWaitMs]** when that is positive: a fix of
+     * any kind ends it, since even one the accuracy gate rejects proves the sky is visible.
      */
-    fun shouldGiveUp(nowMs: Long, giveUpMs: Long, motion: Motion = Motion.Unknown): Boolean =
-        giveUpMs > 0 &&
+    fun shouldGiveUp(
+        nowMs: Long,
+        giveUpMs: Long,
+        motion: Motion = Motion.Unknown,
+        firstFixWaitMs: Long = 0L,
+    ): Boolean {
+        val windowMs = if (!fixSinceProbe && firstFixWaitMs > 0) minOf(firstFixWaitMs, giveUpMs) else giveUpMs
+        return giveUpMs > 0 &&
             !suspended &&
             motion !is Motion.Moving &&
-            nowMs - maxOf(probeStartedMs, lastAcceptedMs) >= giveUpMs
+            nowMs - maxOf(probeStartedMs, lastAcceptedMs) >= windowMs
+    }
 
     /** Record the failed probe and suspend. Returns how long motion-triggered retries are gated. */
     fun onGaveUp(nowMs: Long): Long {
@@ -84,5 +104,12 @@ class NoFixGuard(
     companion object {
         const val RETRY_BASE_MS = 120_000L
         const val RETRY_CAP_MS = 480_000L
+
+        // Nine in ten GPS starts on tracks that went on to record had a fix of some kind within a minute.
+        const val FIRST_FIX_WAIT_MS = 60_000L
+
+        /** Indoor walking is where probes find nothing. */
+        fun firstFixWaitFor(activity: ActivityType?): Long =
+            if (activity?.trackGroup == TrackGroup.FOOT) FIRST_FIX_WAIT_MS else 0L
     }
 }

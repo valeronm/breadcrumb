@@ -195,12 +195,13 @@ class ActivityIngest(
      * is what `EdgeStayDetector` trims and `KeepRule` discards; under-recording is not repairable at
      * all, which is the whole trade.
      *
-     * Empty while a track is already running — something got there first, and a second opinion about
-     * a journey under way is not news. The activity is [ActivityType.UNKNOWN]: the trigger knows the
-     * ground moved and nothing about what carried it.
+     * Empty while a track is already running with GPS on — something got there first, and a second
+     * opinion about a journey under way is not news. With GPS given up on the open track, leaving the
+     * spot it gave up at resumes GPS on that track instead. The activity is [ActivityType.UNKNOWN]:
+     * the trigger knows the ground moved and nothing about what carried it.
      */
     fun onDeparture(nowMs: Long, settings: ActivitySettings): List<Effect> {
-        if (recording) return emptyList()
+        if (recording) return if (noFixGuard.suspended) resumed() else emptyList()
         val out = ArrayList<Effect>()
         // Without the adopt, the STILL that ends this journey is no change at all.
         adoptAndApply(ActivityType.UNKNOWN, nowMs, settings, out)
@@ -238,7 +239,7 @@ class ActivityIngest(
     }
 
     /**
-     * A `GnssStatus` tick's worth of "has this probe run [giveUpMs] with nothing to show?" — the
+     * A `GnssStatus` tick's worth of "has this probe run its window with nothing to show?" — the
      * engine reports about once a second while searching, which is why the guard needs no timer of
      * its own and cannot be Doze-deferred while GPS is off. [elapsedMs] is monotonic (the guard's
      * only clock: a probe outlives a wall-clock step), [nowMs] is wall time for everything else.
@@ -257,7 +258,7 @@ class ActivityIngest(
         // the rest of the outing.
         if (!recording) return emptyList()
         val motion = motionVerdict(nowMs)
-        if (!noFixGuard.shouldGiveUp(elapsedMs, giveUpMs, motion)) return emptyList()
+        if (!noFixGuard.shouldGiveUp(elapsedMs, giveUpMs, motion, firstFixWaitMs)) return emptyList()
         // GPS is about to go, and with it the satellite tick that revisits a held reading. Past
         // [NoFixGuard.shouldGiveUp] the ground cannot be reading as moving.
         val out = ArrayList(applyReleased(gate.onMotion(motion) ?: gate.releaseHeld(), nowMs, settings))
@@ -273,7 +274,10 @@ class ActivityIngest(
             return out
         }
         out += Effect.StopGps
-        out += Effect.ArmResumeSignals(noFixGuard.onGaveUp(elapsedMs))
+        out += Effect.ArmResumeSignals(noFixGuard.onGaveUp(elapsedMs), noFixGuard.waitingForFirstFix)
+        // Watched from where the phone is now rather than from the last good fix: in a tunnel that
+        // fix is the entrance, and a watch anchored there would resume GPS underground at once.
+        watchForDeparture(null, nowMs, settings.triggers, out)
         out += Effect.Publish
         return out
     }
@@ -340,7 +344,8 @@ class ActivityIngest(
      * **GPS off for want of a fix**: this is the no-fix guard's resume. What each signal is worth is
      * decided here rather than where it is registered — a passive fix is the platform having
      * produced one somewhere, so it stands on its own evidence and ignores the backoff, while motion
-     * merely suggests the phone has gone somewhere and must wait its turn.
+     * merely suggests the phone has gone somewhere: inside the backoff it buys a burst to find out,
+     * and only past it does it retry GPS blind.
      *
      * **GPS off for want of a journey**: motion is the cheapest hint a departure may be under way,
      * and buys a short burst of coarse positions to settle it. This is the whole economy of the
@@ -354,11 +359,14 @@ class ActivityIngest(
     ): List<Effect> {
         if (noFixGuard.suspended) {
             val respectBackoff = signal == ResumeSignals.Signal.MOTION
-            // Too soon after the last failed probe; keep listening for motion instead.
+            // Too soon after the last failed probe to retry blind, so a burst asks whether the phone
+            // has left the spot GPS gave up at. The standing request already asks, and a burst would
+            // replace it with one that lapses.
             if (!noFixGuard.shouldProbe(elapsedMs, respectBackoff)) {
-                return listOf(Effect.ArmSignificantMotion)
+                val burst = settings.triggers.motion && !settings.triggers.continuous
+                return if (burst) motionBurst() else listOf(Effect.ArmSignificantMotion)
             }
-            return listOf(Effect.EnsureGps, Effect.Publish)
+            return resumed()
         }
         val triggers = settings.triggers
         if (signal != ResumeSignals.Signal.MOTION || !triggers.motion) return emptyList()
@@ -370,17 +378,19 @@ class ActivityIngest(
         val watchedAlready =
             triggers.continuous || recording
         if (watchedAlready) return emptyList()
-        // Re-armed straight away rather than after the window: the sensor is one-shot, and a phone
-        // still moving when it next fires is exactly the case worth hearing about. Extending a live
-        // window is what the probe does with a repeat ask.
-        return listOf(
-            Effect.StartDepartureProbe(
-                DepartureTriggers.MOTION_INTERVAL_MS,
-                DepartureTriggers.MOTION_WINDOW_MS,
-            ),
+        return motionBurst()
+    }
+
+    // Re-armed straight away rather than after the window: the sensor is one-shot, and a phone still
+    // moving when it next fires is exactly the case worth hearing about. Extending a live window is
+    // what the probe does with a repeat ask.
+    private fun motionBurst(): List<Effect> =
+        listOf(
+            Effect.StartDepartureProbe(DepartureTriggers.MOTION_INTERVAL_MS, DepartureTriggers.MOTION_WINDOW_MS),
             Effect.ArmSignificantMotion,
         )
-    }
+
+    val firstFixWaitMs: Long get() = NoFixGuard.firstFixWaitFor(ingest.openTrackActivity)
 
     /** Disarming: close whatever is open, without a publish — the caller resets the status wholesale. */
     fun closeOpenTrack(nowMs: Long): List<Effect> = ArrayList<Effect>().also { close(nowMs, it) }
@@ -500,7 +510,7 @@ class ActivityIngest(
         // whether this pass has already said so — [resume] asks for GPS without clearing the
         // suspension, and the suspension only lifts when the probe it describes actually starts.
         if (noFixGuard.suspended && gate.confirmed.recording && Effect.EnsureGps !in out) {
-            out += Effect.EnsureGps
+            startGps(out)
         }
         out += Effect.Publish
     }
@@ -542,7 +552,7 @@ class ActivityIngest(
 
     /**
      * Start every switched-on way of hearing that the phone has left [from] — null where the
-     * recorder has no fix of its own to anchor on, which each mechanism resolves its own way.
+     * recorder has no position of its own to anchor on, which each mechanism resolves its own way.
      *
      * They run in parallel rather than in preference order, because each is blind where another
      * sees: the fence survives this process dying but reports minutes late, the continuous request
@@ -601,6 +611,18 @@ class ActivityIngest(
         out += Effect.StopDepartureProbe
     }
 
+    /** A departure trigger learns nothing while GPS is on. */
+    private fun startGps(out: MutableList<Effect>) {
+        out += Effect.EnsureGps
+        stopWatchingForDeparture(out)
+    }
+
+    private fun resumed(): List<Effect> =
+        ArrayList<Effect>().also {
+            startGps(it)
+            it += Effect.Publish
+        }
+
     /**
      * Ask for a track to record [activity] into. Which one that turns out to be is the dispatcher's
      * to resolve — the last track if the stored history says this stretch continues it, a fresh row
@@ -619,8 +641,7 @@ class ActivityIngest(
     ) {
         controller.onRecording(activity)
         out += Effect.OpenTrack(activity, startedAt, settings.stitchWindowMs)
-        out += Effect.EnsureGps
-        stopWatchingForDeparture(out)
+        startGps(out)
     }
 
     /**

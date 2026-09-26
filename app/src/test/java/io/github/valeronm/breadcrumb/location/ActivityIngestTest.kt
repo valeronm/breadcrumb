@@ -2,10 +2,12 @@ package io.github.valeronm.breadcrumb.location
 
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.MeasuredPosition
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ORIGIN_LAT
 import io.github.valeronm.breadcrumb.domain.Speed
+import io.github.valeronm.breadcrumb.domain.at
 import io.github.valeronm.breadcrumb.domain.lonAt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -211,7 +213,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         // that matters — this is the path that revives a suspended probe.
         val out = reading(ActivityType.RUNNING, T0 + 2 * MINUTE)
 
-        assertEquals(listOf(Effect.StampReading(T0 + 2 * MINUTE), Effect.EnsureGps, Effect.Publish), out)
+        assertEquals(listOf(Effect.StampReading(T0 + 2 * MINUTE)) + resumed, out)
     }
 
     // --- The ground as a second witness -----------------------------------------
@@ -312,10 +314,66 @@ class ActivityIngestTest : ActivityIngestFixture() {
         val out = core.onGnssTick(T0 + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, settings)
 
         assertEquals(
-            listOf(Effect.StopGps, Effect.ArmResumeSignals(NoFixGuard.RETRY_BASE_MS), Effect.Publish),
+            listOf(
+                Effect.StopGps,
+                Effect.ArmResumeSignals(NoFixGuard.RETRY_BASE_MS, noFixAtAll = true),
+                Effect.ArmDepartureFence(null),
+                Effect.StartDepartureProbe(DepartureTriggers.MOTION_INTERVAL_MS, DepartureTriggers.ANCHOR_WINDOW_MS),
+                Effect.ArmSignificantMotion,
+                Effect.Publish,
+            ),
             out,
         )
         assertTrue(noFixGuard.suspended)
+        assertTrue("the track stays open", core.recording)
+    }
+
+    @Test fun `a walk with no fix at all gives up at the first-fix wait`() {
+        reading(ActivityType.WALKING, T0)
+        core.onProbeStarted(E0)
+
+        val waited = NoFixGuard.FIRST_FIX_WAIT_MS
+        assertTrue(core.onGnssTick(T0 + waited - 1, E0 + waited - 1, GIVE_UP_MS, settings).isEmpty())
+        val out = core.onGnssTick(T0 + waited, E0 + waited, GIVE_UP_MS, settings)
+
+        assertTrue(Effect.StopGps in out)
+        assertTrue(noFixGuard.suspended)
+    }
+
+    @Test fun `a drive waits the whole window for its first fix`() {
+        reading(ActivityType.DRIVING, T0)
+        core.onProbeStarted(E0)
+
+        val waited = NoFixGuard.FIRST_FIX_WAIT_MS
+        assertTrue(core.onGnssTick(T0 + waited, E0 + waited, GIVE_UP_MS, settings).isEmpty())
+        assertFalse(noFixGuard.suspended)
+    }
+
+    @Test fun `leaving the give-up spot resumes GPS on the open track`() {
+        givenGpsSuspended()
+
+        val out = departure(T0 + 5 * MINUTE)
+
+        assertEquals(
+            listOf(
+                Effect.EnsureGps,
+                Effect.DisarmDepartureFence,
+                Effect.StopDepartureProbe,
+                Effect.Publish,
+            ),
+            out,
+        )
+        assertTrue("the same track carries on", core.recording)
+    }
+
+    @Test fun `a probe position past the bar resumes GPS rather than opening a track`() {
+        givenGpsSuspended()
+        probeFix(MeasuredPosition(at(0.0), 10.0), T0 + 3 * MINUTE)
+
+        val out = probeFix(MeasuredPosition(at(2_000.0), 10.0), T0 + 4 * MINUTE)
+
+        assertTrue(Effect.EnsureGps in out)
+        assertTrue(out.none { it is Effect.OpenTrack })
     }
 
     @Test fun `moving ground vetoes the give-up, however long the probe has run`() {
@@ -376,13 +434,39 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
         val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + NoFixGuard.RETRY_BASE_MS, settings)
 
-        assertEquals(listOf(Effect.EnsureGps, Effect.Publish), out)
+        assertEquals(resumed, out)
     }
 
-    @Test fun `motion too soon after a failed probe re-arms the trigger instead of probing`() {
+    @Test fun `motion too soon after a failed probe asks whether the phone left instead of probing`() {
         givenGpsSuspended()
 
         val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + 1, settings)
+
+        assertEquals(
+            listOf(
+                Effect.StartDepartureProbe(DepartureTriggers.MOTION_INTERVAL_MS, DepartureTriggers.MOTION_WINDOW_MS),
+                Effect.ArmSignificantMotion,
+            ),
+            out,
+        )
+    }
+
+    @Test fun `motion too soon leaves the standing request running`() {
+        val continuous = settings.copy(triggers = TRIGGERS.copy(continuous = true))
+        startWalking()
+        core.onProbeStarted(E0)
+        core.onGnssTick(T0 + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, continuous)
+
+        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + 1, continuous)
+
+        assertEquals(listOf(Effect.ArmSignificantMotion), out)
+    }
+
+    @Test fun `motion too soon with that trigger off only re-arms the sensor`() {
+        givenGpsSuspended()
+        val motionOff = settings.copy(triggers = TRIGGERS.copy(motion = false))
+
+        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + 1, motionOff)
 
         assertEquals(
             "the one-shot trigger has fired and disarmed itself; the passive listener still stands",
@@ -396,7 +480,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
         val out = core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS + 1, settings)
 
-        assertEquals(listOf(Effect.EnsureGps, Effect.Publish), out)
+        assertEquals(resumed, out)
     }
 
     @Test fun `a probe resuming a suspended track opens a new segment`() {
@@ -422,6 +506,9 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
         assertTrue(core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS, settings).isEmpty())
     }
+
+    /** A resume: GPS back on, and the watch over the give-up spot torn down with it. */
+    private val resumed = listOf(Effect.EnsureGps, Effect.DisarmDepartureFence, Effect.StopDepartureProbe, Effect.Publish)
 
     /** A walk whose probe ran its window with nothing accepted, so GPS is off and waiting. */
     private fun givenGpsSuspended() {

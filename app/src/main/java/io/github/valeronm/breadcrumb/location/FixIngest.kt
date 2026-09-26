@@ -206,6 +206,9 @@ class FixIngest(internal val distance: DistanceFn) {
         return Ingested(batch, motion, accepted)
     }
 
+    /** The open track's label, or null with nothing open. */
+    val openTrackActivity: ActivityType? get() = openTrackLabel
+
     /** The next good fix opens a new segment: recording resumed, and nobody watched the gap. */
     fun markSegmentStart() {
         pendingSegmentStart = true

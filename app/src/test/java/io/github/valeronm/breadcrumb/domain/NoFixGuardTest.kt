@@ -161,6 +161,58 @@ class NoFixGuardTest {
         assertTrue(g.shouldGiveUp(300_000, 240_000, Motion.Unknown))
     }
 
+    // --- The first-fix wait ---------------------------------------------------
+
+    private val wait = NoFixGuard.FIRST_FIX_WAIT_MS
+
+    @Test fun `with no fix at all the probe gives up at the first-fix wait`() {
+        val g = probing()
+        assertFalse(g.shouldGiveUp(wait - 1, GIVE_UP_MS, firstFixWaitMs = wait))
+        assertTrue(g.shouldGiveUp(wait, GIVE_UP_MS, firstFixWaitMs = wait))
+    }
+
+    @Test fun `a rejected fix ends the first-fix wait`() {
+        val g = probing()
+        g.onFixReceived()
+        assertFalse(g.shouldGiveUp(wait, GIVE_UP_MS, firstFixWaitMs = wait))
+        assertTrue(g.shouldGiveUp(GIVE_UP_MS, GIVE_UP_MS, firstFixWaitMs = wait))
+    }
+
+    @Test fun `after an accepted fix a loss waits the whole window`() {
+        val g = probing()
+        g.onFixAccepted(10_000)
+        assertFalse(g.shouldGiveUp(10_000 + GIVE_UP_MS - 1, GIVE_UP_MS, firstFixWaitMs = wait))
+        assertTrue(g.shouldGiveUp(10_000 + GIVE_UP_MS, GIVE_UP_MS, firstFixWaitMs = wait))
+    }
+
+    @Test fun `each probe waits for its own first fix`() {
+        val g = probing()
+        g.onFixReceived()
+        g.onGaveUp(GIVE_UP_MS)
+        g.onProbeStarted(500_000)
+        assertTrue(g.shouldGiveUp(500_000 + wait, GIVE_UP_MS, firstFixWaitMs = wait))
+    }
+
+    @Test fun `a window of zero disables the first-fix wait too`() {
+        assertFalse(probing().shouldGiveUp(10_000_000, 0, firstFixWaitMs = wait))
+    }
+
+    @Test fun `the first-fix wait never outlasts a shorter window`() {
+        assertTrue(probing().shouldGiveUp(30_000, 30_000, firstFixWaitMs = wait))
+    }
+
+    @Test fun `moving ground vetoes the first-fix wait`() {
+        assertFalse(probing().shouldGiveUp(wait, GIVE_UP_MS, Motion.Moving(Speed.mps(6.0)), wait))
+    }
+
+    @Test fun `only a foot track waits for a first fix`() {
+        assertEquals(wait, NoFixGuard.firstFixWaitFor(ActivityType.WALKING))
+        assertEquals(wait, NoFixGuard.firstFixWaitFor(ActivityType.RUNNING))
+        for (activity in listOf(ActivityType.DRIVING, ActivityType.CYCLING, ActivityType.UNKNOWN, null)) {
+            assertEquals("$activity", 0L, NoFixGuard.firstFixWaitFor(activity))
+        }
+    }
+
     /** A guard with a probe running since t=0. */
     private fun probing(): NoFixGuard = NoFixGuard().apply { onProbeStarted(0) }
 }

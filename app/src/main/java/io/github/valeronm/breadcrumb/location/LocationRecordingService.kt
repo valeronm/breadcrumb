@@ -310,10 +310,11 @@ class LocationRecordingService : Service() {
             // is still centred on, and reporting against that would flatter it by the whole gap.
             val latency = watchedForMs(nowMs)
             val effects = core.onDeparture(nowMs, activitySettings())
-            if (effects.isEmpty()) {
-                DebugLog.i(TAG, "departure ignored — already recording ($latency)")
-            } else {
-                DebugLog.i(TAG, "departure: opening a Moving track ($latency)")
+            when {
+                effects.isEmpty() -> DebugLog.i(TAG, "departure ignored — already recording ($latency)")
+                effects.none { it is Effect.OpenTrack } ->
+                    DebugLog.i(TAG, "departure: left the give-up spot — resuming GPS ($latency)")
+                else -> DebugLog.i(TAG, "departure: opening a Moving track ($latency)")
             }
             dispatch(effects)
         }
@@ -397,8 +398,9 @@ class LocationRecordingService : Service() {
                 is Effect.ArmResumeSignals -> {
                     DebugLog.i(
                         TAG,
-                        "no-fix guard: probe gave up — GPS off " +
-                            "(motion retry gated ${effect.retryGatedMs / 1000}s)",
+                        "no-fix guard: probe gave up" +
+                            (if (effect.noFixAtAll) " with no fix at all" else "") +
+                            " — GPS off (motion retry gated ${effect.retryGatedMs / 1000}s)",
                     )
                     withContext(Dispatchers.Main) { resumeSignals.armAll() }
                 }
@@ -670,7 +672,12 @@ class LocationRecordingService : Service() {
         val giveUpMs = Settings.gpsGiveUpSec(this) * 1000L
         // The un-vetoed check is the cheap racy pre-filter; the veto needs the verdict, and the
         // verdict needs the lock.
-        if (gpsListener == null || !noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs)) return
+        val waitMs = core.firstFixWaitMs
+        if (gpsListener == null ||
+            !noFixGuard.shouldGiveUp(SystemClock.elapsedRealtime(), giveUpMs, firstFixWaitMs = waitMs)
+        ) {
+            return
+        }
         launchArmed("no-fix give-up") {
             // GPS is this service's own resource, so its own guard; whether the recording rules
             // the give-up out is the recorder's, and [ActivityIngest.onGnssTick] keeps it.
@@ -820,6 +827,8 @@ class LocationRecordingService : Service() {
         }
         // Once per batch rather than per accepted fix: the guard only records *when* a fix last
         // arrived, and a batch's fixes are delivered together.
+        // A position with no satellites behind it is the platform's invention, not a view of the sky.
+        if (ingested.points.any { it.ignoreReason != IgnoreReason.NO_GNSS.code }) noFixGuard.onFixReceived()
         if (ingested.accepted > 0) noFixGuard.onFixAccepted(SystemClock.elapsedRealtime())
         // The only database write of the hot path: the points themselves. The track row is not
         // touched — a write to `tracks` per fix would wake every timeline query once a second (see
