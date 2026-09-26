@@ -18,11 +18,12 @@ internal fun exportFileStamp(at: Long): String =
     SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(at))
 
 /**
- * A file in the app's exports dir — the one directory `file_paths.xml` lets the FileProvider
- * serve, so every share-by-Uri writes here. One spelling of the dir for all of them.
+ * The app's exports dir — the one directory `file_paths.xml` lets the FileProvider serve, so every
+ * share-by-Uri writes here. One spelling of the dir for all of them.
  */
-internal fun exportsFile(context: Context, name: String): File =
-    File(File(context.filesDir, "exports").apply { mkdirs() }, name)
+internal fun exportsDir(context: Context): File = File(context.filesDir, "exports").apply { mkdirs() }
+
+internal fun exportsFile(context: Context, name: String): File = File(exportsDir(context), name)
 
 /** The shareable content Uri for a file in the exports dir — one spelling of the authority. */
 internal fun exportUri(context: Context, file: File): Uri =
