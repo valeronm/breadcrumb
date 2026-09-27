@@ -131,6 +131,14 @@ class TimelineInvalidationTest {
         places.save(test.place("Home base", 1.0, -2.0).copy(id = id, radiusM = 250.0))
         awaitUntil { readings.last().clusters.single { it.placeId == id }.radiusM == 250.0 }
 
+        // A finished track writes derived rows and no place.
+        val moved = readings.last()
+        val next = repository.startTrack(ActivityType.WALKING, TEST_START + 600_000)
+        repository.addPoints((0..5).map { test.point(next, it).copy(timestamp = TEST_START + 600_000 + it * 10_000L) })
+        repository.finishTrack(next, TEST_START + 700_000)
+        awaitUntil { readings.last().intervals !== moved.intervals }
+        assertSame("the places were re-read", moved.places, readings.last().places)
+
         job.cancel()
     }
 

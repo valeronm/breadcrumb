@@ -56,27 +56,31 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * place with no visits. So they are read inside a transaction, which is what makes a set of
      * rows a snapshot rather than several timings.
      *
-     * **A write that reached no derived table re-reads none of them**, which is what a rename and a
-     * re-categorization are: the invalidation says which tables were written, and the derived rows —
-     * one per endpoint and one per interval in the whole history — are carried over instead of read
-     * again. Carried over on two conditions, not one: the reuse is only sound while the rows still
-     * describe the places just read, and the emission naming a table is evidence about the moment the
-     * tracker last refreshed rather than about this read. So the seeds are held against the fresh
-     * rows here too — cheap, being over rows already in hand — and a disagreement reads everything.
+     * **A write re-reads only the side it reached** — `places`, or the derived tables together. A
+     * rename or a re-categorization reaches no derived table, so the derived rows — one per endpoint
+     * and one per interval in the whole history — are carried over; a finished track reaches no
+     * place, so `places` is. The invalidation describes the moment the tracker last refreshed rather
+     * than this read, so a carried half is kept only while it agrees on seeds with the half just read
+     * — a check over rows already in hand — and is re-read otherwise.
      */
     fun observeStored(): Flow<StoredDerivation> =
         db.invalidationTracker
             .createFlow(TABLE_PLACES, *DERIVED_TABLES)
             .runningFold(null as StoredDerivation?) { previous, invalidated ->
                 db.withTransaction {
-                    val rows = places.allPlaces()
-                    val carried = previous
-                        ?.takeIf { DERIVED_TABLES.none(invalidated::contains) }
-                        ?.takeIf { seedsAgree(it.clusters, rows) }
+                    var carriedPlaces = previous?.places?.takeIf { TABLE_PLACES !in invalidated }
+                    var carriedDerived = previous?.takeIf { DERIVED_TABLES.none(invalidated::contains) }
+                    var rows = carriedPlaces ?: places.allPlaces()
+                    var clusters = carriedDerived?.clusters ?: derived.clustersOnce()
+                    if ((carriedPlaces != null || carriedDerived != null) && !seedsAgree(clusters, rows)) {
+                        // Only what was carried over is in doubt.
+                        if (carriedPlaces != null) rows = places.allPlaces().also { carriedPlaces = null }
+                        if (carriedDerived != null) clusters = derived.clustersOnce().also { carriedDerived = null }
+                    }
                     StoredDerivation(
-                        clusters = carried?.clusters ?: derived.clustersOnce(),
-                        members = carried?.members ?: derived.membersOnce(),
-                        intervals = carried?.intervals ?: derived.intervalsOnce(),
+                        clusters = clusters,
+                        members = carriedDerived?.members ?: derived.membersOnce(),
+                        intervals = carriedDerived?.intervals ?: derived.intervalsOnce(),
                         places = rows,
                     )
                 }

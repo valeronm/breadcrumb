@@ -471,10 +471,10 @@ reached the screens as two emissions, and the one in between held a place no clu
 which renders as a named place with no visits. Read together, they are also **not re-read together**:
 the invalidation names which tables were written, and a write that reached no derived table — a
 rename, a re-categorization — carries the previous rows over rather than reading one per endpoint and
-one per interval in the history again. On two conditions, not one, because that emission describes
-the moment the tracker last refreshed rather than this read: the seeds carried over must still say
-what the freshly read `places` do, which is the same correspondence `reconcile` establishes, asked of
-rows already in hand.
+one per interval in the history again, as a finished track carries `places` over, which an import
+leaves at over a thousand rows. On two conditions, not one, because that emission describes the
+moment the tracker last refreshed rather than this read: the two halves must still agree on seeds,
+which is the same correspondence `reconcile` establishes, asked of rows already in hand.
 
 What a screen must *not* wait for is the derivation
 itself: naming re-derives the history, so until that lands every reader is correctly showing the
