@@ -9,6 +9,7 @@ import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.BackupImporter
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
+import io.github.valeronm.breadcrumb.data.export.GoogleTimelineImporter
 import io.github.valeronm.breadcrumb.data.export.GpxExporter
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.util.DebugLog
@@ -111,6 +112,23 @@ internal class ImportExportController(
     fun restoreBackup(uri: Uri, onDone: (BackupImporter.Summary?) -> Unit) =
         runExclusiveOp(_restoreProgress, "backup restore", onDone) { onProgress ->
             BackupImporter.importFrom(app, backupRepositories, uri, onProgress)
+        }
+
+    /** Non-null while a Google Timeline import runs. */
+    private val _googleTimelineImportProgress = MutableStateFlow<OpProgress?>(null)
+    val googleTimelineImportProgress: StateFlow<OpProgress?> = _googleTimelineImportProgress
+
+    /** Loads a Google Timeline export into an empty history, merging nothing. Reports the summary,
+     *  or null on failure. */
+    fun importGoogleTimeline(uri: Uri, onDone: (GoogleTimelineImporter.Summary?) -> Unit) =
+        runExclusiveOp(_googleTimelineImportProgress, "google timeline import", onDone) { onProgress ->
+            GoogleTimelineImporter.importFrom(
+                app,
+                backupRepositories,
+                uri,
+                placeLabel = { app.getString(it.labelRes) },
+                onProgress = onProgress,
+            )
         }
 
     class GpxImportSummary(

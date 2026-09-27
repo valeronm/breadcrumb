@@ -21,7 +21,7 @@ object BackupImporter {
     class Summary(val tracks: Int, val points: Int, val places: Int)
 
     /** Tracks per insert transaction: one commit (and one observed-query wake) per batch, not per track. */
-    private const val INSERT_BATCH = 50
+    internal const val INSERT_BATCH = 50
 
     /**
      * Reads the backup at [uri] and inserts everything through the repositories, fresh ids

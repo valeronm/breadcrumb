@@ -69,6 +69,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | recording | gravação | The recorder's progressive titles use *A gravar*. Never *registo* — that is the logs, in this same group, and the collision cost the notification channel its name once already. |
 | positioning | localizar (verb), posicionamento (noun) | Progressive *a localizar* in the recorder's status line; *posicionamento por satélite* where the setting names the technique. |
 | backup | cópia de segurança | Short form *cópia*; the verb is *copiar*. |
+| google-timeline | Cronologia do Google | Google's own name for it in Portuguese. |
 | search | procurar (verb), pesquisa (noun) | Only the user's. What the receiver does is *posicionamento*. |
 | lock | bloquear / desbloquear | |
 | logs | registos | |

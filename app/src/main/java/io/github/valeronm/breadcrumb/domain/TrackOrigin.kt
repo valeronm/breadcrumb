@@ -7,7 +7,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * by whoever inserts the row**, because provenance is known at that moment and is not a property of
  * the fixes that can be measured later.
  *
- * Unknown is a first-class state rather than a third entry, following untagged places and
+ * Unknown is a first-class state rather than one more entry, following untagged places and
  * reason-less ignored points: null means no writer is named — a row from before the column, or a
  * code this build doesn't know, which reads as unknown and survives a backup round trip instead of
  * being rewritten to something this build prefers.
@@ -19,16 +19,23 @@ enum class TrackOrigin(
      *  implies one constant speed, an assumption no metric should be drawn from — where even a
      *  GPX with no speed field still carries real positions over real times. */
     val measuresMotion: Boolean,
+    /** Whether the fixes came from a file the user brought in rather than from this app. */
+    val imported: Boolean = false,
 ) {
     /** The recorder's own fixes, each with what the receiver said about its own measurement. */
     RECORDED("recorded", measuresFixQuality = true, measuresMotion = true),
 
     /** Parsed from a GPX file the user shared into the app: a path, not a measurement of one. */
-    IMPORTED("imported", measuresFixQuality = false, measuresMotion = true),
+    IMPORTED("imported", measuresFixQuality = false, measuresMotion = true, imported = true),
 
     /** Two endpoints the user typed into the add-trip form — a leg nothing recorded, held as a
      *  track so the timeline and journeys read it like any other. */
     MANUAL("manual", measuresFixQuality = false, measuresMotion = false),
+
+    /** Read from a Google Timeline export: Google's reconstruction of a trip, sampled once a minute
+     *  between its own endpoints, whose speeds from sample to sample are the reconstruction's
+     *  rather than the trip's. */
+    GOOGLE_TIMELINE("google_timeline", measuresFixQuality = false, measuresMotion = false, imported = true),
     ;
 
     companion object {

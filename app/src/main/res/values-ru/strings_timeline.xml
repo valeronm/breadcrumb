@@ -7,6 +7,13 @@
     <string name="timeline_restored">Восстановлено поездок: %1$d, мест: %2$d</string>
     <string name="timeline_restoring_count">Восстановление… поездок: %1$d</string>
     <string name="timeline_restoring_count_of">Восстановление поездок… %1$d из %2$d</string>
+    <string name="timeline_google_import_button">Импорт Хронологии Google</string>
+    <string name="timeline_google_import_hint">Экспортируйте её на телефоне: Настройки → Местоположение → Службы геолокации → Хронология.</string>
+    <string name="timeline_google_importing">Импорт Хронологии Google — поездки появятся после завершения</string>
+    <string name="timeline_google_importing_count_of">Импорт поездок… %1$d из %2$d</string>
+    <string name="timeline_google_imported">Импортировано поездок: %1$d, мест: %2$d</string>
+    <string name="timeline_google_imported_skipped">Импортировано поездок: %1$d, мест: %2$d; не удалось прочитать записей: %3$d</string>
+    <string name="timeline_google_import_failed">Не удалось импортировать — это не экспорт Хронологии Google?</string>
 
     <string name="timeline_sweep">Обработка поездок</string>
 

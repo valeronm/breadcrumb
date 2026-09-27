@@ -49,6 +49,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -252,25 +253,41 @@ internal fun TrackDetailScreen(
                         // track can cross a border, and the row this screen opened from says so.
                         val shiftColor = zoneShiftColor
                         val readerClock = LocalReaderClock.current
-                        Text(
-                            buildAnnotatedString {
-                                appendDateTime(
-                                    summary.startedAt, startZone, reader, shiftColor, readerClock,
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                buildAnnotatedString {
+                                    appendDateTime(
+                                        summary.startedAt, startZone, reader, shiftColor, readerClock,
+                                    )
+                                    summary.endedAt?.let { endedAt ->
+                                        append(" – ")
+                                        appendTime(endedAt, endZone, reader, shiftColor, readerClock)
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            // Only imports are named: a recording is what a track is, and a word
+                            // on every other one would say nothing.
+                            if (source?.imported == true) {
+                                Text(
+                                    stringResource(R.string.track_caption_imported),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                summary.endedAt?.let { endedAt ->
-                                    append(" – ")
-                                    appendTime(endedAt, endZone, reader, shiftColor, readerClock)
-                                }
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                            }
+                        }
                         Card(Modifier.fillMaxWidth()) { TrackStatsHeader(summary) }
                     }
                     val darkTheme = isSystemInDarkTheme()
-                    // No modes means no graph and no chips — a manual track's typed fixes carry no
-                    // metric at all, and which writers can say that is availableColorModes's call,
-                    // not this screen's.
+                    // No modes means no graph, no chips and a line in the activity's color — a manual
+                    // track's typed fixes carry no metric at all, and which writers can say that is
+                    // availableColorModes's call, not this screen's.
                     val measures = LocalMeasures.current
                     val graph = remember(seams, colorMode, activity, darkTheme, measures, colorModes) {
                         if (colorModes.isEmpty()) {
@@ -279,18 +296,15 @@ internal fun TrackDetailScreen(
                             metricGraphData(seams, colorMode, activity, darkTheme, measures)
                         }
                     }
+                    val lineArgb = activityColor(activity).toArgb()
+                    val solidLine = remember(load.good, lineArgb, colorModes) {
+                        if (colorModes.isEmpty()) solidColoring(load.good.size, lineArgb) else null
+                    }
                     // The chips carry no surface of their own: they are the control for the map
                     // below, not a block of content beside it, and a card around a row of chips
                     // reads as a third thing to look at.
                     if (colorModes.isNotEmpty()) {
-                        ColorModeSelector(
-                            colorMode,
-                            colorModes,
-                            // Only the import is named: a recording is what a track is, and a
-                            // word on every other one would say nothing.
-                            caption = stringResource(R.string.track_caption_imported)
-                                .takeIf { source == TrackOrigin.IMPORTED },
-                        ) { selectedMode = it }
+                        ColorModeSelector(colorMode, colorModes) { selectedMode = it }
                     }
                     // Map and scrubber read as one group: small gaps, small corners between them.
                     Column(
@@ -311,7 +325,7 @@ internal fun TrackDetailScreen(
                                     dwells = dwells,
                                     overruns = overruns,
                                     endPlaces = endPlaces,
-                                    precomputedColoring = graph?.coloring,
+                                    precomputedColoring = graph?.coloring ?: solidLine,
                                     precomputedSeams = seams,
                                     // A manual track's legs are typed, not travelled — drawn along
                                     // the great circle rather than as projected chords.

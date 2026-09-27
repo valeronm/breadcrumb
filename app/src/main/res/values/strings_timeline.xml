@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- TimelineTab: the Timeline tab's day headings and rows. -->
 <resources>
-    <!-- Empty state and backup restore -->
+    <!-- Empty state, backup restore and Google Timeline import -->
     <string name="timeline_empty">No trips yet. They appear here once recording captures some movement.</string>
     <string name="timeline_restoring">Restoring your backup — the timeline will appear when it finishes</string>
     <string name="timeline_restore_button">Restore from backup</string>
@@ -9,6 +9,13 @@
     <string name="timeline_restored">Restored %1$d trips and %2$d places</string>
     <string name="timeline_restoring_count">Restoring… %1$d trips</string>
     <string name="timeline_restoring_count_of">Restoring… %1$d of %2$d trips</string>
+    <string name="timeline_google_import_button">Import Google Timeline</string>
+    <string name="timeline_google_import_hint">Export it on your phone from Settings → Location → Location services → Timeline.</string>
+    <string name="timeline_google_importing">Importing your Google Timeline — the trips will appear when it finishes</string>
+    <string name="timeline_google_importing_count_of">Importing… %1$d of %2$d trips</string>
+    <string name="timeline_google_imported">Imported %1$d trips and %2$d places</string>
+    <string name="timeline_google_imported_skipped">Imported %1$d trips and %2$d places; %3$d entries could not be read</string>
+    <string name="timeline_google_import_failed">Import failed — not a Google Timeline export?</string>
 
     <!--
       Both re-derivation sweeps share this one line: which rule is being re-walked is nothing a

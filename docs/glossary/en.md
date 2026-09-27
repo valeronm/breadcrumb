@@ -70,6 +70,7 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | recording | recording | The act and state of capturing trips — one of the ways a trip arrives, beside importing and typing one in. Never *tracking*. |
 | positioning | positioning | Working out where the phone is — the process, from switching the receiver on to accepting a point. Never *fix*, and never *signal*. |
 | backup | backup | The full-app export: one file with everything. |
+| google-timeline | Google Timeline | Google's own location history, named as Google names it on the phone, since that is where the reader finds the export. |
 | search | search | The user typing a query (places, cities). The only search there is — what the receiver does is *positioning*. |
 | lock | lock / unlock | The app lock, **as Settings names it**, where someone is hunting for the feature and needs the word every other app uses. The barrier itself never says it — see the decision below. |
 | logs | logs | Diagnostic entries the app writes about itself. The entries are never translated; only the screen's chrome is. |

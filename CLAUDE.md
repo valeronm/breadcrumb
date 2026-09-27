@@ -425,7 +425,10 @@ ceiling: the number is in the exporter and the row it sizes is in `Entities.kt`,
 warn you on its own.
 Restore is offered only on the Timeline's empty state, and that
 screen is where it reports its progress. With tracks present a restore would have to merge with
-them, so the offer disappears as soon as the first track exists. The format also feeds the
+them, so the offer disappears as soon as the first track exists. The Google Timeline import
+(`GoogleTimelineImporter`) sits on the same empty state for the same reason, and creates only home
+and work places: the export names no place, and Google labels visits rather than places, so a spot
+qualifies on a majority of its labelled visits. The format also feeds the
 web companion viewer in `site/src/viewer/` (see its own README) — a change to it is a change to that viewer's
 input, and the viewer draws off-path fixes by the same conventions this app does *and derives the
 same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `site/src/viewer/js/stays.js`, tested case for case

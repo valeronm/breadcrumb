@@ -144,7 +144,13 @@ internal sealed interface Legend {
      * the words are resolved where the legend is drawn.
      */
     data class None(@StringRes val messageRes: Int) : Legend
+
+    /** One color along the whole line, standing for no metric, so there is nothing to explain. */
+    data object Solid : Legend
 }
+
+internal fun solidColoring(size: Int, argb: Int) =
+    TrackColoring(IntArray(size) { argb }, Legend.Solid, List(size) { null }, unit = "")
 
 /**
  * A metric's per-point colors and legend — plus the very series they were read from, so the graph
@@ -312,50 +318,24 @@ internal fun trackColoring(
     }
 }
 
-/**
- * Horizontally-scrollable chips to pick how the track line is colored, with [caption] held at the
- * row's trailing edge where the track has something to say about itself.
- *
- * A caption rather than a chip, and deliberately not tappable: it is here because this is the row an
- * imported track comes up short in, so the word explaining that belongs beside the gap and not on a
- * screen of its own — and not in the top bar, which carries what the track *is* rather than what its
- * fixes are. It sits **outside** the scroll — a trailing element inside one has no fixed edge to sit
- * at, and would be reachable only by scrolling the chips to their end.
- */
 @Composable
 internal fun ColorModeSelector(
     selected: ColorMode,
     modes: List<ColorMode>,
-    caption: String? = null,
     onSelect: (ColorMode) -> Unit,
 ) {
     Row(
         // No inset of its own: the row sits on the page beside cards, not inside one, so its own
         // padding would push the chips in from the edge every neighbour lines up on.
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            // The weight is what keeps the chips from pushing the caption off the edge: they scroll
-            // within what is left over, rather than the row growing to fit them.
-            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            for (mode in modes) {
-                FilterToggleChip(
-                    selected = mode == selected,
-                    label = stringResource(mode.labelRes),
-                    onClick = { onSelect(mode) },
-                )
-            }
-        }
-        if (caption != null) {
-            Text(
-                caption,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        for (mode in modes) {
+            FilterToggleChip(
+                selected = mode == selected,
+                label = stringResource(mode.labelRes),
+                onClick = { onSelect(mode) },
             )
         }
     }
@@ -364,6 +344,7 @@ internal fun ColorModeSelector(
 @Composable
 internal fun TrackLegend(legend: Legend, modifier: Modifier) {
     when (legend) {
+        Legend.Solid -> Unit
         is Legend.None ->
             LegendSurface(modifier) {
                 Text(stringResource(legend.messageRes), style = MaterialTheme.typography.labelSmall)

@@ -52,6 +52,13 @@ class ColorModeAvailabilityTest {
         )
     }
 
+    @Test fun `a Google Timeline track is offered neither speed nor the recorder's fix quality`() {
+        assertEquals(
+            listOf(ColorMode.ELEVATION),
+            availableColorModes(fullyRecorded, TrackOrigin.GOOGLE_TIMELINE),
+        )
+    }
+
     @Test fun `an import without elevation is offered speed alone`() {
         val points = listOf(pt(0), pt(1000))
         assertEquals(listOf(ColorMode.SPEED), availableColorModes(points, TrackOrigin.IMPORTED))
