@@ -126,7 +126,5 @@
     <string name="places_my_location">My location</string>
     <string name="places_new_here">New place here</string>
     <string name="places_no_location">The phone\'s location is not available right now</string>
-    <string name="places_map_light">Show the map light</string>
-    <string name="places_map_dark">Show the map dark</string>
     <string name="places_new_place">New place</string>
 </resources>

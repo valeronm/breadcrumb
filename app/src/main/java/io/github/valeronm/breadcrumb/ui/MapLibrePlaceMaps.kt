@@ -496,7 +496,7 @@ private fun featureNear(map: MapLibreMap, latLng: LatLng, layer: String): Featur
 
 /**
  * A screen's map camera, read live — mid-fling included — and carried to the next map built in its
- * place, since a shade flip builds a new map rather than restyling the old one.
+ * place, since a shade change builds a new map rather than restyling the old one.
  */
 internal class CameraCarry {
     private var map: MapLibreMap? = null

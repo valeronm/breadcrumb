@@ -17,6 +17,10 @@
     <string name="units_choice_metric">Километры</string>
     <string name="units_choice_imperial">Мили</string>
     <string name="units_choice_uk">Мили + метры</string>
+    <string name="settings_map_shade">Карта</string>
+    <string name="settings_map_shade_theme">Автоматически</string>
+    <string name="settings_map_shade_light">Светлая</string>
+    <string name="settings_map_shade_dark">Тёмная</string>
     <string name="settings_app_lock">Блокировка приложения</string>
     <string name="settings_online_services">Онлайн-сервисы</string>
     <string name="settings_recently_deleted_sub">Можно восстановить в течение %1$d дней</string>

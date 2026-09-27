@@ -638,27 +638,46 @@ internal fun DisplaySettingsScreen(
     onBack: () -> Unit,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
+    onMapShade: (MapShade) -> Unit,
 ) {
     SettingsSubScreen(stringResource(R.string.settings_group_display), onBack) {
         GroupedRows(
+            { ChoiceChipsRow(stringResource(R.string.settings_units), UnitChoice.entries, unitChoice, { it.labelRes }, onUnitChoice) },
             {
-                Column {
-                    Text(stringResource(R.string.settings_units), style = MaterialTheme.typography.bodyLarge)
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        for (choice in UnitChoice.entries) {
-                            FilterToggleChip(
-                                selected = choice == unitChoice,
-                                label = stringResource(choice.labelRes),
-                                onClick = { onUnitChoice(choice) },
-                            )
-                        }
-                    }
-                }
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_map_shade),
+                    MapShade.entries,
+                    LocalMapShade.current,
+                    { it.labelRes },
+                    onMapShade,
+                )
             },
         )
+    }
+}
+
+@Composable
+private fun <T> ChoiceChipsRow(
+    title: String,
+    choices: List<T>,
+    selected: T,
+    labelRes: (T) -> Int,
+    onPick: (T) -> Unit,
+) {
+    Column {
+        Text(title, style = MaterialTheme.typography.bodyLarge)
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            for (choice in choices) {
+                FilterToggleChip(
+                    selected = choice == selected,
+                    label = stringResource(labelRes(choice)),
+                    onClick = { onPick(choice) },
+                )
+            }
+        }
     }
 }
 

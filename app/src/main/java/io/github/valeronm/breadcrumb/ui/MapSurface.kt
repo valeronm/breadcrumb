@@ -2,16 +2,16 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import android.util.Log
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.FloatState
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -27,6 +27,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.valeronm.breadcrumb.BuildConfig
+import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.ui.theme.LocalDarkTheme
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -56,44 +58,47 @@ internal fun MapLibreStyledMap(
     onStyleLoaded: (ctx: Context, map: MapLibreMap, style: Style, dark: Boolean) -> Unit,
     onUpdate: (MapLibreMap, Style) -> Unit,
 ) {
-    val dark = LocalMapDark.current ?: isSystemInDarkTheme()
-    val currentCamera by rememberUpdatedState(camera)
-    val mapView = rememberMapLibreMapView(dark, onDestroying = { currentCamera?.detach() })
-    val host = remember(mapView) { MapHost() }
-    // The style loads asynchronously; inputs that arrive in the meantime recompose while the
-    // style is still null, so their update is skipped. Route the callback through the host so the
-    // load applies the *latest* composition's data, not what the first composition captured.
-    host.onStyleLoaded = onStyleLoaded
-    val zoom = remember { mutableFloatStateOf(0f) }
-    Box(modifier) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { mapView },
-            update = { view ->
-                if (!host.inited) {
-                    host.inited = true
-                    view.getMapAsync { map ->
-                        host.map = map
-                        currentCamera?.attach(map)
-                        val readZoom = { zoom.floatValue = map.cameraPosition.zoom.toFloat() }
-                        if (BuildConfig.DEV_TOOLS) map.addOnCameraMoveListener(readZoom)
-                        onMapReady(map)
-                        map.setStyle(Style.Builder().fromJson(styleFlavor(view.context, dark).json)) { style ->
-                            host.onStyleLoaded(view.context, map, style, dark)
-                            // The opening frame is a moveCamera, which lands before this listener
-                            // exists to hear it.
-                            if (BuildConfig.DEV_TOOLS) readZoom()
+    val dark = isMapDark()
+    // A map's style loads once per MapView.
+    key(dark) {
+        val currentCamera by rememberUpdatedState(camera)
+        val mapView = rememberMapLibreMapView(dark, onDestroying = { currentCamera?.detach() })
+        val host = remember(mapView) { MapHost() }
+        // The style loads asynchronously; inputs that arrive in the meantime recompose while the
+        // style is still null, so their update is skipped. Route the callback through the host so the
+        // load applies the *latest* composition's data, not what the first composition captured.
+        host.onStyleLoaded = onStyleLoaded
+        val zoom = remember { mutableFloatStateOf(0f) }
+        Box(modifier) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { mapView },
+                update = { view ->
+                    if (!host.inited) {
+                        host.inited = true
+                        view.getMapAsync { map ->
+                            host.map = map
+                            currentCamera?.attach(map)
+                            val readZoom = { zoom.floatValue = map.cameraPosition.zoom.toFloat() }
+                            if (BuildConfig.DEV_TOOLS) map.addOnCameraMoveListener(readZoom)
+                            onMapReady(map)
+                            map.setStyle(Style.Builder().fromJson(styleFlavor(view.context, dark).json)) { style ->
+                                host.onStyleLoaded(view.context, map, style, dark)
+                                // The opening frame is a moveCamera, which lands before this listener
+                                // exists to hear it.
+                                if (BuildConfig.DEV_TOOLS) readZoom()
+                            }
                         }
+                    } else {
+                        val map = host.map
+                        val style = map?.style ?: return@AndroidView
+                        onUpdate(map, style)
                     }
-                } else {
-                    val map = host.map
-                    val style = map?.style ?: return@AndroidView
-                    onUpdate(map, style)
-                }
-            },
-        )
-        if (BuildConfig.DEV_TOOLS) {
-            ZoomReadout(zoom, Modifier.align(Alignment.BottomEnd).padding(8.dp))
+                },
+            )
+            if (BuildConfig.DEV_TOOLS) {
+                ZoomReadout(zoom, Modifier.align(Alignment.BottomEnd).padding(8.dp))
+            }
         }
     }
 }
@@ -238,24 +243,29 @@ internal fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom:
     }
 }
 
-/** The shade [MapShade] set, or null where the maps follow the app theme. */
-private val LocalMapDark = compositionLocalOf<Boolean?> { null }
+internal enum class MapShade(@StringRes val labelRes: Int, val dark: Boolean?) {
+    THEME(R.string.settings_map_shade_theme, null),
+    LIGHT(R.string.settings_map_shade_light, false),
+    DARK(R.string.settings_map_shade_dark, true),
+    ;
 
-/** Draws the maps in [content] light or dark whatever the app theme is. Keyed on [dark] because a
- *  map's style loads once per [MapView]. */
-@Composable
-internal fun MapShade(dark: Boolean, content: @Composable () -> Unit) {
-    key(dark) {
-        CompositionLocalProvider(LocalMapDark provides dark, content = content)
+    companion object {
+        fun of(dark: Boolean?): MapShade = entries.first { it.dark == dark }
     }
 }
+
+internal val LocalMapShade = compositionLocalOf { MapShade.THEME }
+
+@Composable
+@ReadOnlyComposable
+internal fun isMapDark(): Boolean = LocalMapShade.current.dark ?: LocalDarkTheme.current
 
 private val BACKGROUND_COLOR_RE = Regex("\"background-color\":\\s*\"(#[0-9a-fA-F]{6})\"")
 
 /** One flavor's resolved style: the key-injected JSON and its own background color. */
 private class StyleFlavor(val json: String, val backgroundColor: Int)
 
-/** Both shades can be on screen at once, and a style is read for every map creation. */
+/** A style is read for every map creation. */
 private val cachedStyles = HashMap<Boolean, StyleFlavor>()
 
 /**

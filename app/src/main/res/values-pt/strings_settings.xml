@@ -17,6 +17,10 @@
     <string name="units_choice_metric">Quilómetros</string>
     <string name="units_choice_imperial">Milhas</string>
     <string name="units_choice_uk">Milhas + metros</string>
+    <string name="settings_map_shade">Mapa</string>
+    <string name="settings_map_shade_theme">Automático</string>
+    <string name="settings_map_shade_light">Claro</string>
+    <string name="settings_map_shade_dark">Escuro</string>
     <string name="settings_app_lock">Bloqueio da aplicação</string>
     <string name="settings_online_services">Serviços online</string>
     <string name="settings_recently_deleted_sub">Recuperáveis durante %1$d dias</string>

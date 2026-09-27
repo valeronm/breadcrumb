@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.ui
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -46,10 +45,8 @@ internal fun MapLibreJourneyMap(
     onOpenPlace: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // The colors follow the theme only through the unknown-type fallback, so that one color is
-    // read from composition and the map is remembered off it — a theme flip rebuilds, a plain
-    // recomposition costs nothing.
-    val fallback = MaterialTheme.colorScheme.onSurfaceVariant
+    // Only the unknown-type fallback depends on the map's shade.
+    val fallback = mapNeutral(isMapDark())
     val colorByType = remember(lines, fallback) {
         lines.map { it.activityType }.distinct()
             .associateWith { activityColorOr(ActivityType.ofName(it), fallback).toArgb() }

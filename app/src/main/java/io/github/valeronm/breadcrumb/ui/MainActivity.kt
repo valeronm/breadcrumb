@@ -93,6 +93,7 @@ class MainActivity : FragmentActivity() {
         setContent {
             AppTheme {
                 var unitChoice by remember { mutableStateOf(storedUnitChoice(this)) }
+                var mapShade by remember { mutableStateOf(MapShade.of(AppSettings.mapDark(this))) }
                 // FLAG_SECURE covers screenshots and the recents thumbnail together — the window
                 // either holds still-sensitive content or it doesn't, and the system draws no
                 // distinction between who is capturing it.
@@ -121,12 +122,21 @@ class MainActivity : FragmentActivity() {
                     LocalMeasures provides measures,
                     LocalDurationSymbols provides durations,
                     LocalReaderClock provides readerClock,
+                    LocalMapShade provides mapShade,
                 ) {
                     PrivacyGate(waitingImports = pendingGpxImport.value?.size ?: 0) {
-                        MainScreen(pendingGpxImport, unitChoice) {
-                            unitChoice = it
-                            AppSettings.setUnitChoice(this, it.name)
-                        }
+                        MainScreen(
+                            pendingGpxImport = pendingGpxImport,
+                            unitChoice = unitChoice,
+                            onUnitChoice = {
+                                unitChoice = it
+                                AppSettings.setUnitChoice(this, it.name)
+                            },
+                            onMapShade = {
+                                mapShade = it
+                                AppSettings.setMapDark(this, it.dark)
+                            },
+                        )
                     }
                 }
             }
@@ -180,6 +190,7 @@ private fun MainScreen(
     pendingGpxImport: MutableState<List<Uri>?>,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
+    onMapShade: (MapShade) -> Unit,
 ) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
@@ -238,7 +249,6 @@ private fun MainScreen(
     // A spot no stop has found, being named in the editor with no detail beneath it: there is no
     // place yet for a detail to be about.
     var newPlaceSpot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
-    val placesMapShadePick = rememberMapShadePick()
     // A journey opened from Insights or a Timeline band, keyed by its first night's sample
     // instant — the same key its list row uses, and the only identity a derived journey has.
     var journeyKey by remember { mutableStateOf<Long?>(null) }
@@ -343,134 +353,144 @@ private fun MainScreen(
         undo.show(message) { viewModel.restorePlace(place) }
     }
 
+    // A map covered by another layer keeps its shade until it is uncovered, rather than rebuilding
+    // unseen.
+    val mapShade = LocalMapShade.current
+    val tabsMapShade = remember { mutableStateOf(mapShade) }
+    val tabsUncovered = tabsLayer.onTop
+    SideEffect {
+        if (tabsUncovered) tabsMapShade.value = mapShade
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // The tabbed UI stays composed underneath so it can be previewed during the back gesture.
-        Scaffold(
-            modifier = Modifier.blurredBy { tabsLayer.blurDp },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            topBar = {
-                TopAppBar(
-                    colors = canvasTopBarColors(),
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(selectedTab.titleRes))
-                            // What it says is the variant, named in one place; whether to draw one
-                            // at all is a decision of its own, off on release and on demo so that
-                            // neither a shipped screen nor a screenshot carries a badge.
-                            val badge = BuildIdentity.variant?.takeIf { BuildConfig.SHOW_BUILD_BADGE }
-                            if (badge != null) {
-                                Spacer(Modifier.width(8.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                                ) {
-                                    Text(
-                                        badge,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+        CompositionLocalProvider(LocalMapShade provides tabsMapShade.value) {
+            Scaffold(
+                modifier = Modifier.blurredBy { tabsLayer.blurDp },
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+                topBar = {
+                    TopAppBar(
+                        colors = canvasTopBarColors(),
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(stringResource(selectedTab.titleRes))
+                                // What it says is the variant, named in one place; whether to draw one
+                                // at all is a decision of its own, off on release and on demo so that
+                                // neither a shipped screen nor a screenshot carries a badge.
+                                val badge = BuildIdentity.variant?.takeIf { BuildConfig.SHOW_BUILD_BADGE }
+                                if (badge != null) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                                    ) {
+                                        Text(
+                                            badge,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        actions = {
+                            // Only where the trip would land: the Timeline is the one tab that shows
+                            // what a manual entry changes.
+                            if (selectedTab == HomeTab.TIMELINE) {
+                                IconButton(onClick = {
+                                    tripDraft = TripDraft(day = timelineViewedDay.read())
+                                }) {
+                                    Icon(
+                                        Icons.Filled.Add,
+                                        contentDescription = stringResource(R.string.action_add_missing_trip),
                                     )
                                 }
                             }
-                        }
-                    },
-                    actions = {
-                        // Only where the trip would land: the Timeline is the one tab that shows
-                        // what a manual entry changes.
-                        if (selectedTab == HomeTab.TIMELINE) {
-                            IconButton(onClick = {
-                                tripDraft = TripDraft(day = timelineViewedDay.read())
-                            }) {
+                            IconButton(onClick = { mainDestination = MainDestination.Settings }) {
                                 Icon(
-                                    Icons.Filled.Add,
-                                    contentDescription = stringResource(R.string.action_add_missing_trip),
+                                    Icons.Filled.Settings,
+                                    contentDescription = stringResource(R.string.action_settings),
                                 )
                             }
-                        }
-                        IconButton(onClick = { mainDestination = MainDestination.Settings }) {
-                            Icon(
-                                Icons.Filled.Settings,
-                                contentDescription = stringResource(R.string.action_settings),
+                        },
+                    )
+                },
+                bottomBar = {
+                    // One container step below the canvas: the default surfaceContainer became the
+                    // light theme's canvas tone, which made the bar invisible against it.
+                    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                        for (tab in HomeTab.entries) {
+                            NavigationBarItem(
+                                selected = selectedTab == tab,
+                                onClick = {
+                                    // Re-tapping the open tab is the standard "go home" gesture: the
+                                    // Timeline returns to today, Places to the top of its list or the
+                                    // whole field of places. The tabs that don't wander take nothing.
+                                    if (selectedTab != tab) {
+                                        selectedTab = tab
+                                    } else {
+                                        when (tab) {
+                                            HomeTab.TIMELINE -> timelineJump = TimelineJump.Home
+                                            HomeTab.PLACES -> placesHomeRequest++
+                                            else -> Unit
+                                        }
+                                    }
+                                },
+                                icon = { Icon(tab.icon, contentDescription = null) },
+                                label = { Text(stringResource(tab.labelRes)) },
                             )
                         }
-                    },
-                )
-            },
-            bottomBar = {
-                // One container step below the canvas: the default surfaceContainer became the
-                // light theme's canvas tone, which made the bar invisible against it.
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                    for (tab in HomeTab.entries) {
-                        NavigationBarItem(
-                            selected = selectedTab == tab,
-                            onClick = {
-                                // Re-tapping the open tab is the standard "go home" gesture: the
-                                // Timeline returns to today, Places to the top of its list or the
-                                // whole field of places. The tabs that don't wander take nothing.
-                                if (selectedTab != tab) {
-                                    selectedTab = tab
-                                } else {
-                                    when (tab) {
-                                        HomeTab.TIMELINE -> timelineJump = TimelineJump.Home
-                                        HomeTab.PLACES -> placesHomeRequest++
-                                        else -> Unit
-                                    }
-                                }
+                    }
+                },
+            ) { inner ->
+                Box(modifier = Modifier.fillMaxSize().padding(inner)) {
+                    when (selectedTab) {
+                        HomeTab.RECORD -> RecordTab(
+                            setup = setup.state,
+                            autoOn = setup.autoOn,
+                            charging = charging,
+                            keepScreenOn = keepScreenOn,
+                            onToggleKeepScreenOn = { enabled ->
+                                keepScreenOn = enabled
+                                AppSettings.setKeepScreenOnCharging(context, enabled)
                             },
-                            icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(stringResource(tab.labelRes)) },
+                            viewModel = viewModel,
+                            onGrantSetupStep = setup::grant,
+                            onToggleAuto = setup::toggleAuto,
+                        )
+
+                        HomeTab.TIMELINE -> TimelineTab(
+                            items = timeline,
+                            viewModel = viewModel,
+                            undo = undo,
+                            jump = timelineJump,
+                            onJumpShown = { timelineJump = null },
+                            viewedDay = timelineViewedDay,
+                            onOpen = { mainDestination = MainDestination.TrackDetail(it) },
+                            onOpenPlace = { placeDetailKey = it },
+                            onOpenJourney = { journeyKey = it.travel.firstNightAt },
+                            onAddTrip = { tripDraft = it },
+                            onReplay = { track ->
+                                TrackReplayer.start(context, track.id)
+                                selectedTab = HomeTab.RECORD
+                            },
+                            onOpenRecording = { selectedTab = HomeTab.RECORD },
+                        )
+
+                        HomeTab.PLACES -> PlacesTab(
+                            viewModel = viewModel,
+                            homeRequest = placesHomeRequest,
+                            onOpenPlace = { placeDetailKey = it },
+                            onCreatePlaceAt = { at ->
+                                newPlaceSpot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
+                            },
+                        )
+                        HomeTab.INSIGHTS -> InsightsTab(
+                            viewModel = viewModel,
+                            onOpenJourney = { journeyKey = it.travel.firstNightAt },
                         )
                     }
-                }
-            },
-        ) { inner ->
-            Box(modifier = Modifier.fillMaxSize().padding(inner)) {
-                when (selectedTab) {
-                    HomeTab.RECORD -> RecordTab(
-                        setup = setup.state,
-                        autoOn = setup.autoOn,
-                        charging = charging,
-                        keepScreenOn = keepScreenOn,
-                        onToggleKeepScreenOn = { enabled ->
-                            keepScreenOn = enabled
-                            AppSettings.setKeepScreenOnCharging(context, enabled)
-                        },
-                        viewModel = viewModel,
-                        onGrantSetupStep = setup::grant,
-                        onToggleAuto = setup::toggleAuto,
-                    )
-
-                    HomeTab.TIMELINE -> TimelineTab(
-                        items = timeline,
-                        viewModel = viewModel,
-                        undo = undo,
-                        jump = timelineJump,
-                        onJumpShown = { timelineJump = null },
-                        viewedDay = timelineViewedDay,
-                        onOpen = { mainDestination = MainDestination.TrackDetail(it) },
-                        onOpenPlace = { placeDetailKey = it },
-                        onOpenJourney = { journeyKey = it.travel.firstNightAt },
-                        onAddTrip = { tripDraft = it },
-                        onReplay = { track ->
-                            TrackReplayer.start(context, track.id)
-                            selectedTab = HomeTab.RECORD
-                        },
-                        onOpenRecording = { selectedTab = HomeTab.RECORD },
-                    )
-
-                    HomeTab.PLACES -> PlacesTab(
-                        viewModel = viewModel,
-                        shadePick = placesMapShadePick,
-                        homeRequest = placesHomeRequest,
-                        onOpenPlace = { placeDetailKey = it },
-                        onCreatePlaceAt = { at ->
-                            newPlaceSpot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
-                        },
-                    )
-                    HomeTab.INSIGHTS -> InsightsTab(
-                        viewModel = viewModel,
-                        onOpenJourney = { journeyKey = it.travel.firstNightAt },
-                    )
                 }
             }
         }
@@ -530,7 +550,6 @@ private fun MainScreen(
             // has run — by position it can't be followed, a hand-placed pin being exactly what may
             // have moved.
             onCreated = { id -> placeDetailKey = PlaceResolver.keyOf(id) },
-            shadePick = placesMapShadePick,
             // Both layers go with it: the editor and the detail underneath are both about a row that
             // no longer exists, and the detail's key (`place:<id>`) would resolve against nothing.
             onRemove = { place ->
@@ -545,6 +564,7 @@ private fun MainScreen(
             viewModel = viewModel,
             unitChoice = unitChoice,
             onUnitChoice = onUnitChoice,
+            onMapShade = onMapShade,
             onOpenTrack = { discardedTrackId = it },
         )
 
@@ -752,7 +772,6 @@ private fun PlaceEditOverlay(
     snapshot: PlaceResolver.PlaceSummary?,
     onSaved: () -> Unit,
     onCreated: (Long) -> Unit,
-    shadePick: MutableState<Boolean?>,
     onRemove: (Place) -> Unit,
 ) {
     OverlayFrame(layer) { editKey ->
@@ -784,7 +803,6 @@ private fun PlaceEditOverlay(
                 onClose = layer.dismiss,
                 onSaved = onSaved,
                 onCreated = onCreated,
-                shadePick = shadePick,
                 onRemove = onRemove,
             )
         }
@@ -819,13 +837,14 @@ private fun SettingsPagesOverlay(
     viewModel: TrackListViewModel,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
+    onMapShade: (MapShade) -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
     OverlayFrame(layer) { rendered ->
         when (rendered) {
             SettingsPage.Recording -> RecordingSettingsScreen(layer.dismiss)
             SettingsPage.Trips -> TripsSettingsScreen(layer.dismiss)
-            SettingsPage.Display -> DisplaySettingsScreen(layer.dismiss, unitChoice, onUnitChoice)
+            SettingsPage.Display -> DisplaySettingsScreen(layer.dismiss, unitChoice, onUnitChoice, onMapShade)
             SettingsPage.Privacy -> PrivacySettingsScreen(layer.dismiss)
             SettingsPage.Data -> DataSettingsScreen(layer.dismiss, viewModel)
             SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(

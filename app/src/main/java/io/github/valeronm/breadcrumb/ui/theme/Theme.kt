@@ -6,8 +6,13 @@ import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
+
+/** Whether [AppTheme] resolved dark. */
+val LocalDarkTheme = staticCompositionLocalOf<Boolean> { error("read outside AppTheme") }
 
 @Composable
 fun AppTheme(
@@ -43,5 +48,7 @@ fun AppTheme(
             }
         }
     }
-    MaterialExpressiveTheme(colorScheme = colorScheme, typography = AppTypography, content = content)
+    CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
+        MaterialExpressiveTheme(colorScheme = colorScheme, typography = AppTypography, content = content)
+    }
 }

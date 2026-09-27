@@ -3,7 +3,6 @@ package io.github.valeronm.breadcrumb.ui
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -130,8 +129,10 @@ private fun ColorMode.carriedBy(points: List<TrackPoint>): Boolean = when (this)
     ColorMode.CN0 -> points.any { it.cn0 != null }
 }
 
-/** Gray for points the metric has no value for; darker on the light basemap. */
-private fun noDataArgb(dark: Boolean) = Color.hsl(0f, 0f, if (dark) 0.6f else 0.45f).toArgb()
+/** The gray for what a map draws with no color of its own. */
+internal fun mapNeutral(dark: Boolean): Color = Color.hsl(0f, 0f, if (dark) 0.6f else 0.45f)
+
+private fun noDataArgb(dark: Boolean) = mapNeutral(dark).toArgb()
 
 /** Legend content for the current color mode. */
 internal sealed interface Legend {
@@ -167,7 +168,18 @@ internal class TrackColoring(
     val legend: Legend,
     val values: List<Float?>,
     val unit: String,
-)
+    private val paint: RampPaint? = null,
+) {
+    /** A solid coloring comes back unchanged, having no ramp to repaint. */
+    fun inShade(dark: Boolean): TrackColoring =
+        if (paint == null || paint.dark == dark) {
+            this
+        } else {
+            rampColoring(values, unit, paint.copy(dark = dark))
+        }
+}
+
+internal data class RampPaint(val redAt: Float, val blueAt: Float, @StringRes val noDataRes: Int, val dark: Boolean)
 
 /** The plot's own label precision — ungrouped digits, unlike [Measures]' stat rows, and the unit only where given. */
 internal fun plotLabel(value: Float, unit: String = ""): String =
@@ -203,22 +215,23 @@ private fun rampColor(value: Float?, redAt: Float, blueAt: Float, palette: IntAr
 
 private fun rampColoring(
     values: List<Float?>,
-    redAt: Float,
-    blueAt: Float,
     unit: String,
-    mode: ColorMode,
-    dark: Boolean,
+    paint: RampPaint,
 ): TrackColoring {
     // Resolved once per coloring, not per point — Color.hsl is a real conversion.
-    val noData = noDataArgb(dark)
+    val noData = noDataArgb(paint.dark)
     if (values.all { it == null }) {
-        return TrackColoring(IntArray(values.size) { noData }, Legend.None(mode.noDataRes), values, unit)
+        return TrackColoring(IntArray(values.size) { noData }, Legend.None(paint.noDataRes), values, unit, paint)
     }
-    val palette = rampPalette(rampLuminance(dark))
-    val colors = IntArray(values.size) { rampColor(values[it], redAt, blueAt, palette, noData) }
+    val palette = rampPalette(rampLuminance(paint.dark))
+    val colors = IntArray(values.size) { rampColor(values[it], paint.redAt, paint.blueAt, palette, noData) }
     // Unit only on the rightmost label, else three "… unit" labels overflow the fixed-width legend.
-    val legend = Legend.Ramp(plotLabel(redAt), plotLabel((redAt + blueAt) / 2f), plotLabel(blueAt, unit))
-    return TrackColoring(colors, legend, values, unit)
+    val legend = Legend.Ramp(
+        plotLabel(paint.redAt),
+        plotLabel((paint.redAt + paint.blueAt) / 2f),
+        plotLabel(paint.blueAt, unit),
+    )
+    return TrackColoring(colors, legend, values, unit, paint)
 }
 
 /**
@@ -298,7 +311,7 @@ internal fun trackColoring(
     return when (mode) {
         ColorMode.SPEED -> {
             val s = speedScaleFor(activity ?: ActivityType.UNKNOWN, units)
-            rampColoring(values, s.min, s.max, unit, mode, dark)
+            rampColoring(values, unit, RampPaint(s.min, s.max, mode.noDataRes, dark))
         }
         ColorMode.ELEVATION -> {
             // Anchors come from the track's own range; a zero-width span would make a flat track a
@@ -307,14 +320,14 @@ internal fun trackColoring(
             val present = values.filterNotNull()
             val lo = present.minOrNull() ?: 0f
             val span = ((present.maxOrNull() ?: 0f) - lo).coerceAtLeast(1f)
-            rampColoring(values, lo, lo + span, unit, mode, dark)
+            rampColoring(values, unit, RampPaint(lo, lo + span, mode.noDataRes, dark))
         }
         // Lower accuracy radius is better, so zero sits at the blue (good) end. The red anchor is
         // hand-rounded per display unit like the speed scales: 150 ft, not the converted 164.
         ColorMode.ACCURACY ->
-            rampColoring(values, units.byShortUnit(meters = 50f, feet = 150f), 0f, unit, mode, dark)
-        ColorMode.SATELLITES -> rampColoring(values, 0f, 12f, unit, mode, dark)
-        ColorMode.CN0 -> rampColoring(values, 15f, 45f, unit, mode, dark)
+            rampColoring(values, unit, RampPaint(units.byShortUnit(meters = 50f, feet = 150f), 0f, mode.noDataRes, dark))
+        ColorMode.SATELLITES -> rampColoring(values, unit, RampPaint(0f, 12f, mode.noDataRes, dark))
+        ColorMode.CN0 -> rampColoring(values, unit, RampPaint(15f, 45f, mode.noDataRes, dark))
     }
 }
 
@@ -351,7 +364,7 @@ internal fun TrackLegend(legend: Legend, modifier: Modifier) {
             }
         is Legend.Ramp ->
             LegendSurface(modifier) {
-                val luminance = rampLuminance(isSystemInDarkTheme())
+                val luminance = rampLuminance(isMapDark())
                 // Dense stops along the same HSL ramp the track uses: the brush blends
                 // neighbors in RGB, and RGB midpoints of red/green and green/blue are muddy
                 // brown/gray — 30° hue steps stay on-hue.

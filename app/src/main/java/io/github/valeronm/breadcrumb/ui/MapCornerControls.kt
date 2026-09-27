@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -12,8 +11,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,7 +20,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,7 +38,6 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.location.DeviceLocation
 import kotlinx.coroutines.launch
-import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /**
  * A place map's corner buttons, in one order wherever they appear, so one learned on one map works
@@ -54,7 +49,6 @@ import io.github.valeronm.breadcrumb.data.Settings as AppSettings
  */
 @Composable
 internal fun BoxScope.MapCornerControls(
-    shade: MapShadeState,
     location: MyLocationState?,
     aiming: Boolean,
     /** What the crosshair's button is for on this map, said to a screen reader. */
@@ -97,14 +91,6 @@ internal fun BoxScope.MapCornerControls(
                 }
             }
         }
-        SmallFloatingActionButton(onClick = shade::toggle, containerColor = MaterialTheme.colorScheme.surface) {
-            Icon(
-                if (shade.dark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
-                contentDescription = stringResource(
-                    if (shade.dark) R.string.places_map_light else R.string.places_map_dark,
-                ),
-            )
-        }
     }
 }
 
@@ -135,43 +121,6 @@ private fun Crosshair(modifier: Modifier = Modifier) {
             drawLine(color, Offset(c + gap, c), Offset(size.width, c), width, StrokeCap.Round)
         }
     }
-}
-
-/**
- * The place maps' light/dark choice, shared by every map about places and kept in [AppSettings];
- * with nothing picked it follows the app theme.
- */
-internal class MapShadeState(
-    private val picked: MutableState<Boolean?>,
-    themeDark: Boolean,
-    val camera: CameraCarry,
-    private val persist: (Boolean) -> Unit,
-) {
-    val dark: Boolean = picked.value ?: themeDark
-
-    fun toggle() {
-        val next = !dark
-        picked.value = next
-        persist(next)
-    }
-}
-
-/**
- * The one pick every place map reads, so a flip on one map reaches the others still composed under
- * it. An unset pick is not saved with the screen, since the theme it stands for can change under
- * it.
- */
-@Composable
-internal fun rememberMapShadePick(): MutableState<Boolean?> {
-    val context = LocalContext.current
-    return remember { mutableStateOf(AppSettings.placesMapDark(context)) }
-}
-
-@Composable
-internal fun rememberMapShade(picked: MutableState<Boolean?>): MapShadeState {
-    val context = LocalContext.current
-    val camera = remember { CameraCarry() }
-    return MapShadeState(picked, isSystemInDarkTheme(), camera) { AppSettings.setPlacesMapDark(context, it) }
 }
 
 /**

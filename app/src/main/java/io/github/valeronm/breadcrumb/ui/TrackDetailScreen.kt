@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,6 +77,7 @@ import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.RoutePlaces
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
+import io.github.valeronm.breadcrumb.ui.theme.LocalDarkTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
 import kotlinx.coroutines.Dispatchers
@@ -290,7 +290,7 @@ internal fun TrackDetailScreen(
                         }
                         Card(Modifier.fillMaxWidth()) { TrackStatsHeader(summary) }
                     }
-                    val darkTheme = isSystemInDarkTheme()
+                    val darkTheme = LocalDarkTheme.current
                     // No modes means no graph, no chips and a line in the activity's color — a manual
                     // track's typed fixes carry no metric at all, and which writers can say that is
                     // availableColorModes's call, not this screen's.
@@ -302,7 +302,7 @@ internal fun TrackDetailScreen(
                             metricGraphData(seams, colorMode, activity, darkTheme, measures)
                         }
                     }
-                    val lineArgb = activityColor(activity).toArgb()
+                    val lineArgb = activityColorOr(activity, mapNeutral(isMapDark())).toArgb()
                     val solidLine = remember(load.good, lineArgb, colorModes) {
                         if (colorModes.isEmpty()) solidColoring(load.good.size, lineArgb) else null
                     }

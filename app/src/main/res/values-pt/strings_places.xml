@@ -95,7 +95,5 @@
     <string name="places_my_location">A minha localização</string>
     <string name="places_new_here">Novo local aqui</string>
     <string name="places_no_location">A localização do telemóvel não está disponível agora</string>
-    <string name="places_map_light">Mostrar o mapa claro</string>
-    <string name="places_map_dark">Mostrar o mapa escuro</string>
     <string name="places_new_place">Novo local</string>
 </resources>

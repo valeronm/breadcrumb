@@ -748,8 +748,9 @@ framework eagerly** — Kotlin compiles them into one class initializer per file
 dragging a sandbox and an emulated JVM behind an arithmetic assertion. `untaggedPinColor` is `by
 lazy` for exactly this reason. That is the rule; which file a formatter sits in is then free. The track
 map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps
-vector basemap** (dark or light flavor following the app theme): **the track is one line feature per
-run of same-colored fixes**, colored by the selected metric (ramp luminance also theme-dependent),
+vector basemap** (dark or light flavor per the Display page's map setting, which defaults to the
+app theme): **the track is one line feature per run of same-colored fixes**, colored by the
+selected metric (ramp luminance also shade-dependent),
 start/end and noisy-fix markers sit on a symbol layer, and switching the color metric rebuilds the
 line's source without moving the camera. Deliberately not a `line-gradient`: the banded ramp, the
 source's simplification tolerance and the layer's round caps are one mechanism serving that, and

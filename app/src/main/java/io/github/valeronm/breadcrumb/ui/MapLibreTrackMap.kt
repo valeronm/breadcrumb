@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -40,8 +39,8 @@ import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 
 /**
- * Renders a track on a Protomaps vector basemap (MapLibre GL Native), dark or light flavor per the app
- * theme. The line is drawn as one feature per run of same-colored fixes ([TrackColoring], the metric
+ * Renders a track on a Protomaps vector basemap (MapLibre GL Native), dark or light flavor per
+ * [isMapDark]. The line is drawn as one feature per run of same-colored fixes ([TrackColoring], the metric
  * picked by [colorMode]); start/end and noisy-fix markers ride a symbol layer; the named places at
  * the path's two ends are drawn as labeled pins with their capture areas; the camera fits the
  * track once on open — the places never move it, a route being the subject and them the annotation.
@@ -81,7 +80,7 @@ internal fun MapLibreTrackMap(
     // geometry only: the coloring, seams and markers stay on the stored fixes.
     greatCircleLegs: Boolean = false,
 ) {
-    val darkTheme = isSystemInDarkTheme()
+    val mapDark = isMapDark()
     // For the pin images an update may have to register — the style-loaded callback is handed a
     // context, an update is not.
     val context = LocalContext.current
@@ -91,9 +90,9 @@ internal fun MapLibreTrackMap(
         precomputedSeams ?: TrackQuality.seams(points)
     }
     val measures = LocalMeasures.current
-    val coloring = remember(precomputedColoring, seams, colorMode, activity, darkTheme, measures) {
-        precomputedColoring ?: trackColoring(
-            points, TrackQuality.pointSpeedsKmh(seams), colorMode, activity, darkTheme, measures,
+    val coloring = remember(precomputedColoring, seams, colorMode, activity, mapDark, measures) {
+        precomputedColoring?.inShade(mapDark) ?: trackColoring(
+            points, TrackQuality.pointSpeedsKmh(seams), colorMode, activity, mapDark, measures,
         )
     }
     val colors = coloring.colors
@@ -108,7 +107,7 @@ internal fun MapLibreTrackMap(
                 addEndPlaceAreas(style, endPlaces)
                 addDwellLayers(style, dwells)
                 addTrackLine(style, points, colors, greatCircleLegs)
-                addEdgeStayLayer(style, overruns, darkTheme) // over the line, off its ends
+                addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
                 // Over the recorder's own markers: at an end the two land within a capture radius of
                 // each other, and the place is the one that says where the journey went. The
@@ -250,8 +249,8 @@ private const val END_PLACE_AREA_LINE = "end-place-area-line"
 private const val END_PLACE_SOURCE = "end-place-src"
 private const val END_PLACE_LAYER = "end-place-layer"
 
-// Grays the colored line underneath rather than adding a color of its own: dark theme needs a
-// darker gray than the track to read as receding, light theme a lighter one.
+// Grays the colored line underneath rather than adding a color of its own: the dark basemap needs
+// a darker gray than the track to read as receding, the light basemap a lighter one.
 private const val EDGE_STAY_DIM_DARK = 0xD9424242.toInt()
 private const val EDGE_STAY_DIM_LIGHT = 0xD9BDBDBD.toInt()
 
@@ -266,7 +265,7 @@ private fun edgeStayFeature(overruns: List<EdgeStayIgnore.Overrun>): FeatureColl
 private fun addEdgeStayLayer(
     style: Style,
     overruns: List<EdgeStayIgnore.Overrun>,
-    darkTheme: Boolean,
+    dark: Boolean,
 ) {
     style.addSource(GeoJsonSource(EDGE_STAY_SOURCE, edgeStayFeature(overruns)))
     style.addLayer(
@@ -275,7 +274,7 @@ private fun addEdgeStayLayer(
             PropertyFactory.lineWidth(4f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            PropertyFactory.lineColor(if (darkTheme) EDGE_STAY_DIM_DARK else EDGE_STAY_DIM_LIGHT),
+            PropertyFactory.lineColor(if (dark) EDGE_STAY_DIM_DARK else EDGE_STAY_DIM_LIGHT),
         ),
     )
 }

@@ -21,6 +21,10 @@
     <string name="units_choice_metric">Kilometers</string>
     <string name="units_choice_imperial">Miles</string>
     <string name="units_choice_uk">Miles + meters</string>
+    <string name="settings_map_shade">Map</string>
+    <string name="settings_map_shade_theme">Automatic</string>
+    <string name="settings_map_shade_light">Light</string>
+    <string name="settings_map_shade_dark">Dark</string>
     <string name="settings_app_lock">App lock</string>
     <string name="settings_online_services">Online services</string>
     <string name="settings_recently_deleted_sub">Restorable for %1$d days</string>

@@ -20,7 +20,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -89,7 +88,6 @@ internal fun PlacesTab(
     onOpenPlace: (String) -> Unit,
     /** Starts a new place where the crosshair points, somewhere no stop has been found. */
     onCreatePlaceAt: (Coordinate) -> Unit,
-    shadePick: MutableState<Boolean?>,
 ) {
     val context = LocalContext.current
     val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
@@ -218,7 +216,6 @@ internal fun PlacesTab(
                         homeRequest = homeRequest,
                         onOpenPlace = onOpenPlace,
                         onCreatePlaceAt = onCreatePlaceAt,
-                        shadePick = shadePick,
                     )
                 }
 
@@ -250,9 +247,8 @@ private fun PlacesMapPage(
     homeRequest: Int,
     onOpenPlace: (String) -> Unit,
     onCreatePlaceAt: (Coordinate) -> Unit,
-    shadePick: MutableState<Boolean?>,
 ) {
-    val shade = rememberMapShade(shadePick)
+    val camera = remember { CameraCarry() }
     val myLocation = rememberMyLocation()
     var aiming by remember { mutableStateOf(false) }
     // Card padding keeps the texture-mode map off the back-gesture edge strips.
@@ -274,19 +270,16 @@ private fun PlacesMapPage(
                     Modifier.fillMaxSize().padding(24.dp),
                 )
             } else {
-                MapShade(shade.dark) {
-                    MapLibrePlacesMap(
-                        places = mapPlaces,
-                        frameKey = homeRequest,
-                        onOpen = onOpenPlace,
-                        camera = shade.camera,
-                        modifier = Modifier.fillMaxSize(),
-                        goTo = myLocation.goTo,
-                    )
-                }
+                MapLibrePlacesMap(
+                    places = mapPlaces,
+                    frameKey = homeRequest,
+                    onOpen = onOpenPlace,
+                    camera = camera,
+                    modifier = Modifier.fillMaxSize(),
+                    goTo = myLocation.goTo,
+                )
                 if (aiming) AimOverlay()
                 MapCornerControls(
-                    shade = shade,
                     location = myLocation,
                     aiming = aiming,
                     aimDescription = stringResource(R.string.places_new_place),
@@ -294,7 +287,7 @@ private fun PlacesMapPage(
                     onAim = { aiming = true },
                     onCancelAim = { aiming = false },
                     onConfirmAim = {
-                        shade.camera.center()?.let(onCreatePlaceAt)
+                        camera.center()?.let(onCreatePlaceAt)
                         aiming = false
                     },
                 )

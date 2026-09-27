@@ -106,7 +106,6 @@ internal fun PlaceEditScreen(
     onClose: () -> Unit,
     onSaved: () -> Unit,
     onCreated: (Long) -> Unit,
-    shadePick: MutableState<Boolean?>,
     /** Removes the place and leaves this screen — the caller owns both, since the Undo it offers has
      *  to outlive a layer that is going away. */
     onRemove: (Place) -> Unit,
@@ -137,7 +136,7 @@ internal fun PlaceEditScreen(
     // where a slider can simply be dragged again.
     val pinMoved = stringResource(R.string.places_pin_moved)
     var aiming by remember { mutableStateOf(false) }
-    val shade = rememberMapShade(shadePick)
+    val camera = remember { CameraCarry() }
     val movePin: (Coordinate, String) -> Unit = { target, message ->
         val was = pin
         pin = target
@@ -231,27 +230,24 @@ internal fun PlaceEditScreen(
             }
             Card(Modifier.weight(1f).fillMaxWidth()) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
-                    MapShade(shade.dark) {
-                        MapLibrePlaceMap(
-                            center = PlaceMarker(pin, summary.place),
-                            radiusM = radiusM.toDouble(),
-                            endpoints = summary.endpoints,
-                            neighbors = neighbors,
-                            capture = scan,
-                            rivalAreas = rivals,
-                            // Placing the center by hand, where the re-center action only snaps it to
-                            // what the circle already holds — and the center is what decides what is
-                            // held, so it needs an answer that isn't derived from the dots. A long press
-                            // rather than a tap: a tap is how a map is panned, and this is one Undo away
-                            // either way.
-                            onLongPress = { movePin(it, pinMoved) },
-                            camera = shade.camera,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
+                    MapLibrePlaceMap(
+                        center = PlaceMarker(pin, summary.place),
+                        radiusM = radiusM.toDouble(),
+                        endpoints = summary.endpoints,
+                        neighbors = neighbors,
+                        capture = scan,
+                        rivalAreas = rivals,
+                        // Placing the center by hand, where the re-center action only snaps it to
+                        // what the circle already holds — and the center is what decides what is
+                        // held, so it needs an answer that isn't derived from the dots. A long press
+                        // rather than a tap: a tap is how a map is panned, and this is one Undo away
+                        // either way.
+                        onLongPress = { movePin(it, pinMoved) },
+                        camera = camera,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                     if (aiming) AimOverlay()
                     MapCornerControls(
-                        shade = shade,
                         // A spot is already chosen here — see [MapCornerControls].
                         location = null,
                         aiming = aiming,
@@ -260,7 +256,7 @@ internal fun PlaceEditScreen(
                         onAim = { aiming = true },
                         onCancelAim = { aiming = false },
                         onConfirmAim = {
-                            shade.camera.center()?.let { movePin(it, pinMoved) }
+                            camera.center()?.let { movePin(it, pinMoved) }
                             aiming = false
                         },
                     )

@@ -96,7 +96,5 @@
     <string name="places_my_location">Моё местоположение</string>
     <string name="places_new_here">Новое место здесь</string>
     <string name="places_no_location">Местоположение телефона сейчас недоступно</string>
-    <string name="places_map_light">Показать светлую карту</string>
-    <string name="places_map_dark">Показать тёмную карту</string>
     <string name="places_new_place">Новое место</string>
 </resources>
