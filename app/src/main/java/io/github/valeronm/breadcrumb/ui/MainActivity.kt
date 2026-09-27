@@ -336,9 +336,11 @@ private fun MainScreen(
     // it back exactly as they were.
     // Resolved here: the callback below runs outside the composition.
     val placeDeleted = stringResource(R.string.places_deleted)
+    val unnamedPlaceDeleted = stringResource(R.string.places_deleted_unnamed)
     val removePlace: (Place) -> Unit = { place ->
         viewModel.deletePlace(place)
-        undo.show(placeDeleted.format(place.label)) { viewModel.restorePlace(place) }
+        val message = place.label?.let { placeDeleted.format(it) } ?: unnamedPlaceDeleted
+        undo.show(message) { viewModel.restorePlace(place) }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -505,6 +507,10 @@ private fun MainScreen(
                 landOnTimeline()
             },
             onAdjustArea = { editingArea = true },
+            onRemove = { place ->
+                placeLayer.dismiss()
+                removePlace(place)
+            },
         )
 
         PlaceEditOverlay(
@@ -680,6 +686,7 @@ private fun PlaceDetailOverlay(
     onResolved: (PlaceResolver.PlaceSummary) -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
     onAdjustArea: () -> Unit,
+    onRemove: (Place) -> Unit,
 ) {
     OverlayFrame(layer) { detailKey ->
         // Inside the frame, so the summaries behind `places` are computed only while this layer is
@@ -698,6 +705,7 @@ private fun PlaceDetailOverlay(
                 onBack = layer.dismiss,
                 onOpenVisit = onOpenVisit,
                 onAdjustArea = onAdjustArea,
+                onRemove = onRemove,
             )
         }
     }

@@ -458,7 +458,7 @@ private fun PlaceRow(
         iconDescription = category?.let { stringResource(it.labelRes) },
         // The atlas's city stands in where the user has said nothing, dimmed by `named` so a
         // worked-out name never reads as one they chose — the same rule the timeline's rows follow.
-        title = summary.name ?: stringResource(R.string.place_detected_stop),
+        title = summary.name ?: stringResource(summary.unnamedTitleRes),
         titleColor = placeTitleColor(named),
         subtitle = AnnotatedString(placeSubtitle(summary, sort)),
     )

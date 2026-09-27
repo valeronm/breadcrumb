@@ -31,6 +31,7 @@
     <string name="place_stay">Permanência</string>
 
     <string name="place_detected_stop">Permanência detetada</string>
+    <string name="place_imported">Local importado</string>
     <string name="place_no_visits">Ainda sem visitas</string>
     <plurals name="place_row_visits">
         <item quantity="one">%d visita</item>
@@ -62,6 +63,7 @@
     <string name="places_open_in_maps">Abrir na aplicação de mapas</string>
     <string name="places_edit">Editar o local</string>
     <string name="places_create">Criar local</string>
+    <string name="places_name">Dar nome ao local</string>
 
     <string name="places_name_field">Nome do local</string>
     <string name="places_capture_radius">Raio de captura</string>
@@ -82,6 +84,7 @@
     <string name="places_visit_since">desde as %1$s</string>
     <string name="places_shift_now">%1$s agora</string>
     <string name="places_deleted">\"%1$s\" eliminado</string>
+    <string name="places_deleted_unnamed">Local eliminado</string>
     <plurals name="places_captured_endpoints">
         <item quantity="one">%d extremo</item>
         <item quantity="other">%d extremos</item>

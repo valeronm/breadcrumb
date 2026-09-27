@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -59,6 +60,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
@@ -112,6 +114,14 @@ private enum class PlaceView(@StringRes val labelRes: Int) {
 
 private val placeViewLabels = PlaceView.entries.map { it.labelRes }
 
+/** What a place nobody named is called: a row an import brought in, else a stop the app found. */
+internal val PlaceResolver.PlaceSummary.unnamedTitleRes: Int
+    @StringRes get() = if (place != null) R.string.place_imported else R.string.place_detected_stop
+
+/** The offer to name a place nobody named: a row that exists only lacks a name, a stop has no row. */
+internal val PlaceResolver.PlaceSummary.namingActionRes: Int
+    @StringRes get() = if (place != null) R.string.places_name else R.string.places_create
+
 /**
  * Full-screen detail for one place: its name and category, its stats, and its visits. **It reads and
  * does not edit** — bar the category, whose one-tap chips are read off the name and belong beside the
@@ -138,9 +148,11 @@ internal fun PlaceDetailScreen(
     onBack: () -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
     onAdjustArea: () -> Unit,
+    /** Removes an unnamed row and leaves this screen. */
+    onRemove: (Place) -> Unit,
 ) {
     val context = LocalContext.current
-    // An unnamed row reads as the detected stop it seeds.
+    // Only a named row is edited, tagged and titled by its name here.
     val place = summary.place?.takeIf { it.isNamed }
     val suggester by viewModel.categorySuggester.collectAsStateWithLifecycle()
     // The place's own clock, not the reader's — a visit abroad is read here exactly as the timeline
@@ -166,7 +178,7 @@ internal fun PlaceDetailScreen(
     val visitStops = remember(visitGroups) {
         groupedScrollStops(visitGroups.map { (month, visits) -> month to visits.size })
     }
-    val title = place?.label ?: stringResource(R.string.place_detected_stop)
+    val title = place?.label ?: stringResource(summary.unnamedTitleRes)
     // A bar that expands is only worth having when there is something to expand *to*. Most names fit
     // the one line a closed bar gives them, and for those the pull-down reveals the same words in
     // bigger type — an affordance that costs a gesture to learn and returns nothing. So the question
@@ -175,7 +187,7 @@ internal fun PlaceDetailScreen(
     // time the bar moved.
     // Counted rather than read back off the rendered bar — an action added or withheld would
     // otherwise leave the title silently measured against a slot it doesn't have.
-    val titleTruncated = titleNeedsMoreThanOneLine(title, actionSlots = if (place == null) 1 else 2)
+    val titleTruncated = titleNeedsMoreThanOneLine(title, actionSlots = if (summary.place == null) 1 else 2)
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     // `collapsedFraction` moves with every scroll delta and every fling frame, while the only thing
     // read off it flips once. Derived, so the title recomposes on the crossing rather than the frame.
@@ -235,6 +247,16 @@ internal fun PlaceDetailScreen(
                         )
                     }
                 }
+                // Here rather than in its editor, which opens as the offer to name it, where a Remove
+                // would read as discarding the draft.
+                summary.place?.takeUnless { it.isNamed }?.let { row ->
+                    IconButton(onClick = { onRemove(row) }) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.places_remove),
+                        )
+                    }
+                }
             }
             if (titleTruncated) {
                 MediumTopAppBar(
@@ -276,14 +298,14 @@ internal fun PlaceDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
-                // The screen's one offer, and filled rather than tonal because it is the only thing
-                // to do here — a detected stop is a candidate, and everything else on the page is
-                // evidence for deciding. Opens the editor rather than a dialog: a name typed against
+                // Filled rather than tonal because naming is what this screen is for while nothing is
+                // named — the spot is a candidate, and everything else on the page is evidence for
+                // deciding. Opens the editor rather than a dialog: a name typed against
                 // nothing is a guess, and that screen is the one that can show what is being named.
                 Button(
                     onClick = onAdjustArea,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(stringResource(R.string.places_create)) }
+                ) { Text(stringResource(summary.namingActionRes)) }
             }
             Card(Modifier.fillMaxWidth()) { PlaceStatsHeader(summary) }
             ViewSwitchRow(

@@ -65,6 +65,8 @@
     <string name="places_open_in_maps">Open in maps app</string>
     <string name="places_edit">Edit place</string>
     <string name="places_create">Create place</string>
+    <!-- The same offer for a place an import brought in, which exists and only lacks a name. -->
+    <string name="places_name">Name place</string>
 
     <!-- Place editor -->
     <string name="places_name_field">Place name</string>
@@ -104,9 +106,13 @@
     <string name="places_shift_now">%1$s now</string>
     <!-- The undo snackbar after a place is removed; %1$s is the name the user gave it. -->
     <string name="places_deleted">\"%1$s\" deleted</string>
+    <!-- The undo snackbar after a place nobody named (one an import brought in) is removed. -->
+    <string name="places_deleted_unnamed">Place deleted</string>
 
     <!-- List rows -->
     <string name="place_detected_stop">Detected stay</string>
+    <!-- A place an import brought in and nobody has named. -->
+    <string name="place_imported">Imported place</string>
     <string name="place_no_visits">No visits yet</string>
     <!-- The row subtitle's count, apart from the timeline's `timeline_visits`: a language may
          count a row's visits with a different word than a stay's (Russian says "раз" here). -->

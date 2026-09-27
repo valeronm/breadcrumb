@@ -181,11 +181,11 @@ internal fun PlaceEditScreen(
                 title = {
                     Text(
                         // Titled with the action that opened it, not with what it does to a name —
-                        // "Create place" is the offer the button made. Bounded here rather than moved
-                        // into the content as on the detail screen: this screen's content is a
-                        // full-height map with nowhere to put a heading, and you arrive already
-                        // knowing which place you opened, or what you came to do to a stop.
-                        place?.label ?: stringResource(R.string.places_create),
+                        // "Create place" or "Name place" is the offer the button made. Bounded here
+                        // rather than moved into the content as on the detail screen: this screen's
+                        // content is a full-height map with nowhere to put a heading, and you arrive
+                        // already knowing which place you opened, or what you came to do to a stop.
+                        place?.label ?: stringResource(summary.namingActionRes),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
