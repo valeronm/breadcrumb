@@ -13,9 +13,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -49,12 +51,14 @@ import org.maplibre.android.offline.OfflineManager
 @Composable
 internal fun MapLibreStyledMap(
     modifier: Modifier = Modifier,
+    camera: CameraCarry? = null,
     onMapReady: (MapLibreMap) -> Unit = {},
     onStyleLoaded: (ctx: Context, map: MapLibreMap, style: Style, dark: Boolean) -> Unit,
     onUpdate: (MapLibreMap, Style) -> Unit,
 ) {
     val dark = LocalMapDark.current ?: isSystemInDarkTheme()
-    val mapView = rememberMapLibreMapView(dark)
+    val currentCamera by rememberUpdatedState(camera)
+    val mapView = rememberMapLibreMapView(dark, onDestroying = { currentCamera?.detach() })
     val host = remember(mapView) { MapHost() }
     // The style loads asynchronously; inputs that arrive in the meantime recompose while the
     // style is still null, so their update is skipped. Route the callback through the host so the
@@ -70,6 +74,7 @@ internal fun MapLibreStyledMap(
                     host.inited = true
                     view.getMapAsync { map ->
                         host.map = map
+                        currentCamera?.attach(map)
                         val readZoom = { zoom.floatValue = map.cameraPosition.zoom.toFloat() }
                         if (BuildConfig.DEV_TOOLS) map.addOnCameraMoveListener(readZoom)
                         onMapReady(map)
@@ -152,7 +157,7 @@ private fun raiseAmbientCacheCeiling(ctx: Context) {
 
 /** A MapLibre [MapView] whose lifecycle follows the composition's [LocalLifecycleOwner]. */
 @Composable
-private fun rememberMapLibreMapView(dark: Boolean): MapView {
+private fun rememberMapLibreMapView(dark: Boolean, onDestroying: () -> Unit): MapView {
     val ctx = LocalContext.current
     val mapView = remember {
         MapLibre.getInstance(ctx)
@@ -186,6 +191,7 @@ private fun rememberMapLibreMapView(dark: Boolean): MapView {
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            onDestroying()
             mapView.onStop()
             mapView.onDestroy()
         }

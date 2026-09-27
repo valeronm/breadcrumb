@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -88,6 +89,7 @@ internal fun PlacesTab(
     onOpenPlace: (String) -> Unit,
     /** Starts a new place where the crosshair points, somewhere no stop has been found. */
     onCreatePlaceAt: (Coordinate) -> Unit,
+    shadePick: MutableState<Boolean?>,
 ) {
     val context = LocalContext.current
     val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
@@ -216,6 +218,7 @@ internal fun PlacesTab(
                         homeRequest = homeRequest,
                         onOpenPlace = onOpenPlace,
                         onCreatePlaceAt = onCreatePlaceAt,
+                        shadePick = shadePick,
                     )
                 }
 
@@ -247,11 +250,10 @@ private fun PlacesMapPage(
     homeRequest: Int,
     onOpenPlace: (String) -> Unit,
     onCreatePlaceAt: (Coordinate) -> Unit,
+    shadePick: MutableState<Boolean?>,
 ) {
-    val shade = rememberMapShade()
+    val shade = rememberMapShade(shadePick)
     val myLocation = rememberMyLocation()
-    // Where the map is looking, and whether the crosshair is up to start a place there.
-    var mapCenter by remember { mutableStateOf<Coordinate?>(null) }
     var aiming by remember { mutableStateOf(false) }
     // Card padding keeps the texture-mode map off the back-gesture edge strips.
     Card(
@@ -279,13 +281,9 @@ private fun PlacesMapPage(
                         onOpen = onOpenPlace,
                         camera = shade.camera,
                         modifier = Modifier.fillMaxSize(),
-                        userLocation = myLocation.position,
                         goTo = myLocation.goTo,
-                        onCenterSettled = { mapCenter = it },
                     )
                 }
-                // A place where no stop has been found: the crosshair is dropped wherever the map
-                // looks — the phone's position after the location button, or anywhere panned to.
                 if (aiming) AimOverlay()
                 MapCornerControls(
                     shade = shade,
@@ -296,7 +294,7 @@ private fun PlacesMapPage(
                     onAim = { aiming = true },
                     onCancelAim = { aiming = false },
                     onConfirmAim = {
-                        mapCenter?.let(onCreatePlaceAt)
+                        shade.camera.center()?.let(onCreatePlaceAt)
                         aiming = false
                     },
                 )

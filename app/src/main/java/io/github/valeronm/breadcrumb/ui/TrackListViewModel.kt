@@ -191,12 +191,19 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
-    private class PendingPlace(val editing: String, val row: Place) {
+    /**
+     * A place row written but not yet derived, dressing whatever describes it: the spot it was
+     * edited from by key, and once the row has an id, anything already holding that place.
+     */
+    class PendingPlace internal constructor(private val editing: String, internal val row: Place) {
+        private fun describes(key: String, place: Place?) =
+            key == editing || (row.id != 0L && place?.id == row.id)
+
         fun dress(summary: PlaceResolver.PlaceSummary) =
-            if (summary.key == editing) summary.withPlace(row) else summary
+            if (describes(summary.key, summary.place)) summary.withPlace(row) else summary
 
         fun dress(stay: PlaceResolver.ResolvedStay) =
-            if (stay.key == editing) stay.withPlace(row) else stay
+            if (describes(stay.key, stay.place)) stay.withPlace(row) else stay
 
         /** An item the row changes nothing on comes back as the same instance. */
         fun dress(item: TimelineItem): TimelineItem = when (item) {
@@ -218,6 +225,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * the unnamed cluster.
      */
     private val pendingPlace = MutableStateFlow<PendingPlace?>(null)
+
+    val pendingPlaceRow: StateFlow<PendingPlace?> = pendingPlace
 
     /**
      * Shared, so a change to [pendingPlace] costs a map over these rows rather than a walk of the
@@ -420,7 +429,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 // the screens draw from already say what was written.
                 withTimeoutOrNull(PENDING_PLACE_TIMEOUT_MS) {
                     coroutineScope {
-                        launch { placeSummaries.first { summaries -> summaries.all { pending.dress(it) === it } } }
+                        launch {
+                            placeSummaries.first { summaries ->
+                                // A created row is in no list until the derivation places it.
+                                (pending.row.id == 0L || summaries.any { it.place?.id == pending.row.id }) &&
+                                    summaries.all { pending.dress(it) === it }
+                            }
+                        }
                         launch { resolvedTimeline.first { items -> items.all { pending.dress(it) === it } } }
                     }
                 }

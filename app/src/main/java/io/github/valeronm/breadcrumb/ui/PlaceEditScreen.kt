@@ -103,8 +103,8 @@ internal fun PlaceEditScreen(
     rivals: List<PlaceClusterer.Seed>,
     viewModel: TrackListViewModel,
     onClose: () -> Unit,
-    /** The row a create landed on — the screen underneath follows the place there. */
     onCreated: (Long) -> Unit,
+    shadePick: MutableState<Boolean?>,
     /** Removes the place and leaves this screen — the caller owns both, since the Undo it offers has
      *  to outlive a layer that is going away. */
     onRemove: (Place) -> Unit,
@@ -134,10 +134,8 @@ internal fun PlaceEditScreen(
     // Both ways of moving the pin are one step back: a jumped pin has nowhere obvious to return to,
     // where a slider can simply be dragged again.
     val pinMoved = stringResource(R.string.places_pin_moved)
-    // Where the map is looking, and whether the crosshair is up to place the pin there.
-    var mapCenter by remember { mutableStateOf<Coordinate?>(null) }
     var aiming by remember { mutableStateOf(false) }
-    val shade = rememberMapShade()
+    val shade = rememberMapShade(shadePick)
     val movePin: (Coordinate, String) -> Unit = { target, message ->
         val was = pin
         pin = target
@@ -247,12 +245,10 @@ internal fun PlaceEditScreen(
                             // rather than a tap: a tap is how a map is panned, and this is one Undo away
                             // either way.
                             onLongPress = { movePin(it, pinMoved) },
-                            onCenterSettled = { mapCenter = it },
                             camera = shade.camera,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
-                    // The precise way to place the pin — see [AimOverlay].
                     if (aiming) AimOverlay()
                     MapCornerControls(
                         shade = shade,
@@ -264,7 +260,7 @@ internal fun PlaceEditScreen(
                         onAim = { aiming = true },
                         onCancelAim = { aiming = false },
                         onConfirmAim = {
-                            mapCenter?.let { movePin(it, pinMoved) }
+                            shade.camera.center()?.let { movePin(it, pinMoved) }
                             aiming = false
                         },
                     )

@@ -61,8 +61,8 @@ object PlaceResolver {
 
     /**
      * A spot no stop has found, as the place screens read one — no visits, nothing captured, the
-     * pin where it was asked for. What a place started from the phone's own position is before it
-     * is saved; its key is the one an unnamed cluster there would carry, and nothing holds it.
+     * pin where it was asked for. Its key is the one an unnamed cluster there would carry, and no
+     * summary holds it.
      */
     fun emptySpot(at: Coordinate, radiusM: Double): PlaceSummary = PlaceSummary(
         place = null,

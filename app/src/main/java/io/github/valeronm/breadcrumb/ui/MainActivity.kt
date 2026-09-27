@@ -235,6 +235,7 @@ private fun MainScreen(
     // A flag rather than a second key: it can only ever be the place the detail below is showing,
     // so deriving the layer's content from that key keeps the two from needing to agree.
     var editingArea by remember { mutableStateOf(false) }
+    val placesMapShadePick = rememberMapShadePick()
     // A journey opened from Insights or a Timeline band, keyed by its first night's sample
     // instant — the same key its list row uses, and the only identity a derived journey has.
     var journeyKey by remember { mutableStateOf<Long?>(null) }
@@ -450,11 +451,11 @@ private fun MainScreen(
 
                     HomeTab.PLACES -> PlacesTab(
                         viewModel = viewModel,
+                        shadePick = placesMapShadePick,
                         homeRequest = placesHomeRequest,
                         onOpenPlace = { placeDetailKey = it },
                         // A place no stop found: the detail opens on an empty spot with the editor
-                        // over it, which names it; saving re-keys both onto the new row as a create
-                        // from a stop does.
+                        // over it, which names it.
                         onCreatePlaceAt = { at ->
                             val spot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
                             placeDetailSnapshot = spot
@@ -510,9 +511,9 @@ private fun MainScreen(
             snapshot = placeDetailSnapshot,
             // The row's id is the only thing that identifies a just-created place until a derivation
             // has run — by position it can't be followed, a hand-placed pin being exactly what may
-            // have moved. Re-keyed onto the row, the screen under the editor flips from the detected
-            // stop to the place as soon as the derivation lands.
+            // have moved.
             onCreated = { id -> placeDetailKey = PlaceResolver.keyOf(id) },
+            shadePick = placesMapShadePick,
             // Both layers go with it: the editor and the detail underneath are both about a row that
             // no longer exists, and the detail's key (`place:<id>`) would resolve against nothing.
             onRemove = { place ->
@@ -674,7 +675,8 @@ private fun PlaceDetailOverlay(
         // up — the derivation itself stays hot for the timeline, but this reading of it is idle
         // unless a screen wants it, and the frame is what knows that.
         val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
-        val summary = rememberPlaceSummary(placeSummaries, detailKey, snapshot)
+        val pending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
+        val summary = rememberPlaceSummary(placeSummaries, detailKey, snapshot, pending)
         SideEffect(summary) {
             summary?.let(onResolved)
         }
@@ -730,6 +732,7 @@ private fun PlaceEditOverlay(
     viewModel: TrackListViewModel,
     snapshot: PlaceResolver.PlaceSummary?,
     onCreated: (Long) -> Unit,
+    shadePick: MutableState<Boolean?>,
     onRemove: (Place) -> Unit,
 ) {
     OverlayFrame(layer) { editKey ->
@@ -738,7 +741,8 @@ private fun PlaceEditOverlay(
         // can move it, but a cluster being named here is keyed `cluster:<n>` — an index a
         // re-derivation is free to reassign, which without the fallback would drop the editor
         // mid-edit.
-        val summary = rememberPlaceSummary(placeSummaries, editKey, snapshot)
+        val pending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
+        val summary = rememberPlaceSummary(placeSummaries, editKey, snapshot, pending)
         summary?.let { detail ->
             val neighborhood = rememberNeighborhood(editKey, detail, placeSummaries)
             // Their endpoints as gray dots, named neighbors as labeled pins — the only part of a
@@ -759,6 +763,7 @@ private fun PlaceEditOverlay(
                 viewModel = viewModel,
                 onClose = layer.dismiss,
                 onCreated = onCreated,
+                shadePick = shadePick,
                 onRemove = onRemove,
             )
         }
@@ -773,14 +778,19 @@ private fun PlaceEditOverlay(
  *
  * [summaries] is null until the derivation lands, which needs no case of its own: a key resolves
  * against nothing then, and null is already the answer for a key this list doesn't hold.
+ *
+ * [pending] dresses the answer too, since [snapshot] is in no list it dresses.
  */
 @Composable
 private fun rememberPlaceSummary(
     summaries: List<PlaceResolver.PlaceSummary>?,
     key: String?,
     snapshot: PlaceResolver.PlaceSummary?,
+    pending: TrackListViewModel.PendingPlace?,
 ): PlaceResolver.PlaceSummary? =
-    remember(summaries, key, snapshot) { PlaceResolver.reacquire(summaries.orEmpty(), key, snapshot) }
+    remember(summaries, key, snapshot, pending) {
+        PlaceResolver.reacquire(summaries.orEmpty(), key, snapshot)?.let { pending?.dress(it) ?: it }
+    }
 
 @Composable
 private fun SettingsPagesOverlay(

@@ -99,8 +99,8 @@ internal fun rememberNeighborhood(
  * Renders one place on the basemap: the cluster's capture circle (a meter-true polygon around
  * [center]) with every captured track endpoint as small dots, plus [neighbors] — gray
  * neighbor-endpoint dots and labeled named pins — so the radius can be judged against what a wider
- * circle would swallow. The camera fits the circle once on open, and the data is a snapshot: an
- * input change is a full refresh.
+ * circle would swallow. The camera fits the circle once on open, unless [camera] carries one
+ * across, and the data is a snapshot: an input change is a full refresh.
  */
 @Composable
 internal fun MapLibrePlaceMap(
@@ -117,10 +117,6 @@ internal fun MapLibrePlaceMap(
     rivalAreas: List<PlaceClusterer.Seed> = emptyList(),
     /** A long press on the map, in map coordinates — how the center is placed by hand. */
     onLongPress: (Coordinate) -> Unit,
-    /** What the map is looking at, reported once the camera stops — where the editor's crosshair
-     *  aims. On settling rather than per frame, as [MapLibreTripMap] reports its own. */
-    onCenterSettled: (Coordinate) -> Unit = {},
-    /** Carries the camera across a shade flip, which builds a new map — see [CameraCarry]. */
     camera: CameraCarry? = null,
 ) {
     val applied = remember { AppliedPlaceInputs() }
@@ -128,7 +124,6 @@ internal fun MapLibrePlaceMap(
     // *current* callback rather than the one the first composition passed — that one would move the
     // pin while offering an Undo back to wherever the pin was when the map was built.
     val longPress by rememberUpdatedState(onLongPress)
-    val centerSettled by rememberUpdatedState(onCenterSettled)
     val placeContent = {
         PlaceMapContent(
             center = center,
@@ -139,15 +134,11 @@ internal fun MapLibrePlaceMap(
     }
     MapLibreStyledMap(
         modifier = modifier,
+        camera = camera,
         onMapReady = { map ->
             map.addOnMapLongClickListener { at ->
                 longPress(at.toCoordinate())
                 true
-            }
-            map.addOnCameraIdleListener {
-                camera?.latest = map.cameraPosition
-                val at = map.cameraPosition.target ?: return@addOnCameraIdleListener
-                centerSettled(at.toCoordinate())
             }
         },
         onStyleLoaded = { ctx, map, style, dark ->
@@ -401,8 +392,9 @@ internal fun rememberStayPlaces(
 /**
  * Every place on one map: labeled pins for named places, small dots for unnamed clusters, sized
  * down the zoom range (see [overviewIconSize]) and framed to fit them all on open, unless [camera]
- * hands it a position — and again when [frameKey] asks. A pin is colored by its category's group
- * and shows the category's glyph at [GLYPH_ZOOM]. Tapping a marker reports its key via [onOpen].
+ * or [goTo] hands it a position — and again when [frameKey] asks. A pin is colored by its
+ * category's group and shows the category's glyph at [GLYPH_ZOOM]. Tapping a marker reports its key
+ * via [onOpen].
  *
  * Each place that claims a reach ([OverviewPlace.radiusM]) also gets it drawn, under the markers and
  * in the weight a ring the screen is *not* about wears everywhere ([addContextCircleLayers]) — the
@@ -412,30 +404,20 @@ internal fun rememberStayPlaces(
 internal fun MapLibrePlacesMap(
     places: List<OverviewPlace>,
     /** Re-fits the camera to every place, as the map opened, when this differs from the value
-     *  last applied — the journey map's contract. Framing otherwise runs at most once per map instance;
-     *  the Places tab keys it on its home-gesture counter. */
+     *  last applied. Framing otherwise runs at most once per map instance. */
     frameKey: Any,
     onOpen: (String) -> Unit,
     camera: CameraCarry,
     modifier: Modifier = Modifier,
-    /** The phone's position, drawn as a dot; null draws none. */
-    userLocation: Coordinate? = null,
-    /** Where the screen wants the camera — see [MapCenterRequest]. */
+    /** The phone's position, where the camera goes and the dot is drawn — see [MapCenterRequest]. */
     goTo: MapCenterRequest? = null,
-    /** What the map is looking at once the camera stops — where the Places map's crosshair aims. */
-    onCenterSettled: (Coordinate) -> Unit = {},
 ) {
     val applied = remember { AppliedOverviewInputs() }
-    val centerSettled by rememberUpdatedState(onCenterSettled)
     applied.onOpen = onOpen
     MapLibreStyledMap(
         modifier = modifier,
+        camera = camera,
         onMapReady = { map ->
-            map.addOnCameraIdleListener {
-                camera.latest = map.cameraPosition
-                val at = map.cameraPosition.target ?: return@addOnCameraIdleListener
-                centerSettled(at.toCoordinate())
-            }
             map.addOnMapClickListener { latLng ->
                 val key = overviewPlaceKeyNear(map, latLng)
                 if (key != null) applied.onOpen(key)
@@ -452,20 +434,22 @@ internal fun MapLibrePlacesMap(
             style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             addOverviewLayers(ctx, style, places, dark)
-            applied.userLocation = userLocation
-            addUserLocationLayer(style, userLocation)
+            addUserLocationLayer(style, goTo?.at)
             val carried = camera.takeCarried()
-            if (carried != null) map.cameraPosition = carried else frameAllPlaces(map, places)
+            when {
+                carried != null -> map.cameraPosition = carried
+                goTo != null -> moveCameraTo(map, goTo.at)
+                else -> frameAllPlaces(map, places)
+            }
             applied.goTo = goTo
         },
         onUpdate = { map, style ->
-            if (applied.userLocation != userLocation) {
-                applied.userLocation = userLocation
-                updateUserLocation(style, userLocation)
-            }
             if (applied.goTo !== goTo) {
                 applied.goTo = goTo
-                goTo?.let { moveCameraTo(map, it.at) }
+                goTo?.let {
+                    updateUserLocation(style, it.at)
+                    moveCameraTo(map, it.at)
+                }
             }
             if (applied.places !== places) {
                 applied.places = places
@@ -517,24 +501,33 @@ private fun featureNear(map: MapLibreMap, latLng: LatLng, layer: String): Featur
     return map.queryRenderedFeatures(touch, layer).firstOrNull()
 }
 
-/** The camera a [MapLibrePlacesMap] last came to rest at, which the next map built in its place
- *  opens on only after [carryToNextMap]. */
+/**
+ * A screen's map camera, read live — mid-fling included — and carried to the next map built in its
+ * place, since a shade flip builds a new map rather than restyling the old one.
+ */
 internal class CameraCarry {
-    var latest: CameraPosition? = null
-    private var carry = false
+    private var map: MapLibreMap? = null
+    private var carried: CameraPosition? = null
 
-    fun carryToNextMap() {
-        carry = true
+    fun attach(map: MapLibreMap) {
+        this.map = map
     }
 
-    fun takeCarried(): CameraPosition? = latest.takeIf { carry }.also { carry = false }
+    /** Must run before the map is destroyed, while its camera can still be read. */
+    fun detach() {
+        carried = map?.cameraPosition
+        map = null
+    }
+
+    fun takeCarried(): CameraPosition? = carried.also { carried = null }
+
+    fun center(): Coordinate? = map?.cameraPosition?.target?.toCoordinate()
 }
 
 /** Last-applied input of the all-places overview map. */
 private class AppliedOverviewInputs {
     var places: List<OverviewPlace>? = null
     var frameKey: Any? = null
-    var userLocation: Coordinate? = null
     var goTo: MapCenterRequest? = null
 
     /** The click listener is registered once, so it reads the handler from here to never go stale. */

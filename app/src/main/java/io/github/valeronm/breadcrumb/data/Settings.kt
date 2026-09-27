@@ -339,7 +339,7 @@ object Settings {
         prefs(context).edit { putBoolean(KEY_PLACES_VIEW_MAP, map) }
     }
 
-    /** Places tab: the map's basemap shade the user picked there, or null to follow the app theme. */
+    /** The place maps' basemap shade the user picked, or null to follow the app theme. */
     fun placesMapDark(context: Context): Boolean? =
         prefs(context).takeIf { it.contains(KEY_PLACES_MAP_DARK) }?.getBoolean(KEY_PLACES_MAP_DARK, false)
 

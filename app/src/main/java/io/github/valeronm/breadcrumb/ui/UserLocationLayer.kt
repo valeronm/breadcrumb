@@ -11,17 +11,14 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
 import org.maplibre.geojson.Feature as GeoFeature
 
-/**
- * "You are here" on the place maps: the phone's position as the platform's blue dot reads
- * everywhere else, on top of everything — it is the one mark on these maps that is not the history.
- * Its own source and layer, so moving it touches nothing else.
- */
 private const val USER_LOCATION_SOURCE = "user-location-src"
 private const val USER_LOCATION_LAYER = "user-location-layer"
 
 /** The zoom a "go to my location" lands on at least — near enough to pick a house by. */
 internal const val USER_LOCATION_ZOOM = 17.0
 
+/** The phone's position, styled as the platform's blue dot. Add it after every other layer: it is
+ *  the one mark on a map that is not the history. */
 internal fun addUserLocationLayer(style: Style, at: Coordinate?) {
     style.addSource(GeoJsonSource(USER_LOCATION_SOURCE, userLocationFeatures(at)))
     style.addLayer(
