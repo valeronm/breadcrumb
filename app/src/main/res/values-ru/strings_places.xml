@@ -87,6 +87,13 @@
         <item quantity="many">%d раз</item>
         <item quantity="other">%d раза</item>
     </plurals>
+    <string name="places_pin_aim">Точно поставить метку</string>
+    <string name="places_pin_here">Поставить метку здесь</string>
+    <string name="places_pin_aim_hint">Сдвигайте карту, пока крестик не окажется на нужном месте</string>
+    <string name="places_my_location">Моё местоположение</string>
+    <string name="places_new_here">Новое место здесь</string>
+    <string name="places_no_location">Местоположение телефона сейчас недоступно</string>
     <string name="places_map_light">Показать светлую карту</string>
     <string name="places_map_dark">Показать тёмную карту</string>
+    <string name="places_new_place">Новое место</string>
 </resources>

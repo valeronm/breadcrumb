@@ -117,12 +117,18 @@ internal fun MapLibrePlaceMap(
     rivalAreas: List<PlaceClusterer.Seed> = emptyList(),
     /** A long press on the map, in map coordinates — how the center is placed by hand. */
     onLongPress: (Coordinate) -> Unit,
+    /** What the map is looking at, reported once the camera stops — where the editor's crosshair
+     *  aims. On settling rather than per frame, as [MapLibreTripMap] reports its own. */
+    onCenterSettled: (Coordinate) -> Unit = {},
+    /** Carries the camera across a shade flip, which builds a new map — see [CameraCarry]. */
+    camera: CameraCarry? = null,
 ) {
     val applied = remember { AppliedPlaceInputs() }
     // The listener is attached once, to a map that outlives every recomposition, so it must read the
     // *current* callback rather than the one the first composition passed — that one would move the
     // pin while offering an Undo back to wherever the pin was when the map was built.
     val longPress by rememberUpdatedState(onLongPress)
+    val centerSettled by rememberUpdatedState(onCenterSettled)
     val placeContent = {
         PlaceMapContent(
             center = center,
@@ -138,6 +144,11 @@ internal fun MapLibrePlaceMap(
                 longPress(at.toCoordinate())
                 true
             }
+            map.addOnCameraIdleListener {
+                camera?.latest = map.cameraPosition
+                val at = map.cameraPosition.target ?: return@addOnCameraIdleListener
+                centerSettled(at.toCoordinate())
+            }
         },
         onStyleLoaded = { ctx, map, style, dark ->
             applied.circleCenter = center.location
@@ -147,7 +158,8 @@ internal fun MapLibrePlaceMap(
             applied.capture = capture
             applied.rivalAreas = rivalAreas
             addPlaceLayers(ctx, style, placeContent(), dark)
-            framePlace(map, center.location, radiusM)
+            val carried = camera?.takeCarried()
+            if (carried != null) map.cameraPosition = carried else framePlace(map, center.location, radiusM)
         },
         onUpdate = { map, style ->
             if (applied.circleCenter != center.location || applied.circleRadiusM != radiusM) {
@@ -406,13 +418,24 @@ internal fun MapLibrePlacesMap(
     onOpen: (String) -> Unit,
     camera: CameraCarry,
     modifier: Modifier = Modifier,
+    /** The phone's position, drawn as a dot; null draws none. */
+    userLocation: Coordinate? = null,
+    /** Where the screen wants the camera — see [MapCenterRequest]. */
+    goTo: MapCenterRequest? = null,
+    /** What the map is looking at once the camera stops — where the Places map's crosshair aims. */
+    onCenterSettled: (Coordinate) -> Unit = {},
 ) {
     val applied = remember { AppliedOverviewInputs() }
+    val centerSettled by rememberUpdatedState(onCenterSettled)
     applied.onOpen = onOpen
     MapLibreStyledMap(
         modifier = modifier,
         onMapReady = { map ->
-            map.addOnCameraIdleListener { camera.latest = map.cameraPosition }
+            map.addOnCameraIdleListener {
+                camera.latest = map.cameraPosition
+                val at = map.cameraPosition.target ?: return@addOnCameraIdleListener
+                centerSettled(at.toCoordinate())
+            }
             map.addOnMapClickListener { latLng ->
                 val key = overviewPlaceKeyNear(map, latLng)
                 if (key != null) applied.onOpen(key)
@@ -429,10 +452,21 @@ internal fun MapLibrePlacesMap(
             style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             addOverviewLayers(ctx, style, places, dark)
+            applied.userLocation = userLocation
+            addUserLocationLayer(style, userLocation)
             val carried = camera.takeCarried()
             if (carried != null) map.cameraPosition = carried else frameAllPlaces(map, places)
+            applied.goTo = goTo
         },
         onUpdate = { map, style ->
+            if (applied.userLocation != userLocation) {
+                applied.userLocation = userLocation
+                updateUserLocation(style, userLocation)
+            }
+            if (applied.goTo !== goTo) {
+                applied.goTo = goTo
+                goTo?.let { moveCameraTo(map, it.at) }
+            }
             if (applied.places !== places) {
                 applied.places = places
                 updateOverviewSource(style, places)
@@ -500,6 +534,8 @@ internal class CameraCarry {
 private class AppliedOverviewInputs {
     var places: List<OverviewPlace>? = null
     var frameKey: Any? = null
+    var userLocation: Coordinate? = null
+    var goTo: MapCenterRequest? = null
 
     /** The click listener is registered once, so it reads the handler from here to never go stale. */
     var onOpen: (String) -> Unit = {}

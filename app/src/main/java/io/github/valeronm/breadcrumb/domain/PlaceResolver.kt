@@ -60,6 +60,22 @@ object PlaceResolver {
     fun keyOf(placeId: Long): String = "place:$placeId"
 
     /**
+     * A spot no stop has found, as the place screens read one — no visits, nothing captured, the
+     * pin where it was asked for. What a place started from the phone's own position is before it
+     * is saved; its key is the one an unnamed cluster there would carry, and nothing holds it.
+     */
+    fun emptySpot(at: Coordinate, radiusM: Double): PlaceSummary = PlaceSummary(
+        place = null,
+        visitCount = 0,
+        lastSeenMs = null,
+        totalMs = 0L,
+        anchor = at,
+        radiusM = radiusM,
+        endpoints = emptyList(),
+        endpointCentroid = at,
+    )
+
+    /**
      * What to call a stop: **the user's own name for it, else the city it sits in.**
      *
      * The precedence is the opposite of [TravelNaming]'s, and deliberately so. A journey is to a

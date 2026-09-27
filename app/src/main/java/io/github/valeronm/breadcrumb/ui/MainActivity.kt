@@ -64,6 +64,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
@@ -451,6 +452,15 @@ private fun MainScreen(
                         viewModel = viewModel,
                         homeRequest = placesHomeRequest,
                         onOpenPlace = { placeDetailKey = it },
+                        // A place no stop found: the detail opens on an empty spot with the editor
+                        // over it, which names it; saving re-keys both onto the new row as a create
+                        // from a stop does.
+                        onCreatePlaceAt = { at ->
+                            val spot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
+                            placeDetailSnapshot = spot
+                            placeDetailKey = spot.key
+                            editingArea = true
+                        },
                     )
                     HomeTab.INSIGHTS -> InsightsTab(
                         viewModel = viewModel,

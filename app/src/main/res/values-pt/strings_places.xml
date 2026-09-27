@@ -86,6 +86,13 @@
         <item quantity="one">%d extremo</item>
         <item quantity="other">%d extremos</item>
     </plurals>
+    <string name="places_pin_aim">Colocar o pino com precisão</string>
+    <string name="places_pin_here">Colocar o pino aqui</string>
+    <string name="places_pin_aim_hint">Mova o mapa até a cruz ficar sobre o local</string>
+    <string name="places_my_location">A minha localização</string>
+    <string name="places_new_here">Novo local aqui</string>
+    <string name="places_no_location">A localização do telemóvel não está disponível agora</string>
     <string name="places_map_light">Mostrar o mapa claro</string>
     <string name="places_map_dark">Mostrar o mapa escuro</string>
+    <string name="places_new_place">Novo local</string>
 </resources>
