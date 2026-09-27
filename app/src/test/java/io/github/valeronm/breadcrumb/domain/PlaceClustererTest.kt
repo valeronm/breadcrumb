@@ -267,6 +267,18 @@ class PlaceClustererTest {
 
     // --- wouldCapture: what a radius being dragged would take, without re-deriving -------------
 
+    @Test fun `an end stated here is taken at any radius, and one stated elsewhere at none`() {
+        val candidates = listOf(at(0.0), at(900.0), at(50.0), at(50.0))
+        val stated = PlaceClusterer.Stated(here = listOf(at(900.0), at(2000.0)), elsewhere = listOf(at(50.0)))
+        val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, PlaceClusterer.Contest(emptyList(), stated), flatDistance)
+
+        assertEquals(listOf(at(900.0)), scan.held)
+        assertEquals(listOf(at(50.0)), scan.conceded)
+        assertEquals(listOf(at(0.0), at(50.0)), scan.winnable.map { it.location })
+        assertEquals(2, scan.countWithin(25.0))
+        assertEquals(at(450.0).lon, checkNotNull(scan.centroidWithin(25.0)).lon, 1e-9)
+    }
+
     private fun wouldCapture(
         radiusM: Double,
         rivals: List<PlaceClusterer.Seed> = emptyList(),
@@ -309,7 +321,7 @@ class PlaceClustererTest {
         // winnable and conceded are what the screen draws; between them they must account for the
         // whole input, or dots vanish off the map.
         val candidates = listOf(at(0.0), at(120.0), at(250.0), at(900.0))
-        val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, emptyList(), flatDistance)
+        val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, PlaceClusterer.Contest(emptyList()), flatDistance)
 
         assertEquals(candidates.size, scan.winnable.size + scan.conceded.size)
         assertEquals(
@@ -322,7 +334,7 @@ class PlaceClustererTest {
         // The pruning the scan's cost depends on: at 900 m it can never be reached by a slider
         // that stops at 500, so it is settled up front rather than compared on every step.
         val scan = PlaceClusterer
-            .scanCapture(listOf(at(900.0)), at(0.0), 500.0, emptyList(), flatDistance)
+            .scanCapture(listOf(at(900.0)), at(0.0), 500.0, PlaceClusterer.Contest(emptyList()), flatDistance)
 
         assertTrue(scan.winnable.isEmpty())
         assertEquals(listOf(at(900.0)), scan.conceded)
@@ -332,7 +344,7 @@ class PlaceClustererTest {
         // What the edit screen's subtitle reads while the slider moves. One scan, then a count per
         // step — so it has to agree with the dots at every radius, boundary included.
         val candidates = listOf(at(0.0), at(120.0), at(120.0), at(250.0), at(900.0))
-        val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, emptyList(), flatDistance)
+        val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, PlaceClusterer.Contest(emptyList()), flatDistance)
 
         // The one exact distance the fixture has — the endpoint on the pin — pins inclusivity;
         // the rest are compared either side of themselves, since a projected meter offset does
@@ -348,7 +360,7 @@ class PlaceClustererTest {
         // Where re-centering would put the pin while the circle is being dragged — so it has to
         // move as the circle does, and describe the same set the count reports.
         val candidates = listOf(at(0.0), at(100.0), at(400.0))
-        val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, emptyList(), flatDistance)
+        val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, PlaceClusterer.Contest(emptyList()), flatDistance)
 
         assertEquals(at(50.0).lon, scan.centroidWithin(200.0)!!.lon, 1e-9)   // the first two
         assertEquals(at(166.666).lon, scan.centroidWithin(500.0)!!.lon, 1e-8) // all three
@@ -357,7 +369,7 @@ class PlaceClustererTest {
     @Test fun `a radius that takes nothing has no middle`() {
         // Null rather than the anchor: a pin is not evidence of where visits fell.
         val scan = PlaceClusterer
-            .scanCapture(listOf(at(300.0)), at(0.0), 500.0, emptyList(), flatDistance)
+            .scanCapture(listOf(at(300.0)), at(0.0), 500.0, PlaceClusterer.Contest(emptyList()), flatDistance)
 
         assertNull(scan.centroidWithin(100.0))
         assertEquals(0, scan.countWithin(100.0))
@@ -368,7 +380,7 @@ class PlaceClustererTest {
         // mean "this place's", the same as the dots that stay gray.
         val rival = PlaceClusterer.Seed(at(210.0), 100.0)
         val scan = PlaceClusterer
-            .scanCapture(listOf(at(0.0), at(200.0)), at(0.0), 500.0, listOf(rival), flatDistance)
+            .scanCapture(listOf(at(0.0), at(200.0)), at(0.0), 500.0, PlaceClusterer.Contest(listOf(rival)), flatDistance)
 
         assertEquals(1, scan.countWithin(500.0))
     }

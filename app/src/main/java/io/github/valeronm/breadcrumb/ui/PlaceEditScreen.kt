@@ -156,22 +156,30 @@ internal fun PlaceEditScreen(
     // colors the dots from where the pin was for a frame rather than blanking them. Keyed on what
     // the scan reads, not the whole summary — its visit stats move on every derivation and would
     // rebuild this for nothing.
-    val scan by produceState<PlaceClusterer.CaptureScan?>(null, pin, candidates, rivals, maxRadiusM) {
+    // Read once per opening: a statement changes only by an import, never while this screen is up.
+    // The scan waits for it, so a stated end is never drawn measured and then redrawn settled.
+    val stated by produceState<PlaceClusterer.Stated?>(null, place?.id, rivals) {
+        value = viewModel.statedEnds(place?.id, rivals.mapNotNull { it.placeId })
+    }
+    val scan by produceState<PlaceClusterer.CaptureScan?>(null, pin, candidates, rivals, maxRadiusM, stated) {
+        val loaded = stated ?: return@produceState
         value = withContext(Dispatchers.Default) {
             PlaceClusterer.scanCapture(
                 candidates = candidates,
                 anchor = pin,
                 maxRadiusM = maxRadiusM,
-                rivals = rivals,
+                contest = PlaceClusterer.Contest(rivals, loaded),
                 distance = AndroidDistance,
             )
         }
     }
     val captureDots = remember(scan) {
         // Conceded dots carry no distance — a nearer pin holds them at any radius, so the map
-        // must draw them settled rather than compare them.
+        // must draw them settled rather than compare them. Held dots carry none that any radius
+        // falls short of.
         scan?.let {
             it.winnable.map { reach -> CaptureDot(reach.location, reach.distanceM) } +
+                it.held.map { endpoint -> CaptureDot(endpoint, 0.0) } +
                 it.conceded.map { endpoint -> CaptureDot(endpoint, null) }
         }
     }

@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -84,5 +85,22 @@ class StatedPlaceWritesTest {
         val reunited = dao.track(id)!!
         assertEquals(a, reunited.startPlaceId)
         assertEquals(b, reunited.endPlaceId)
+    }
+
+    @Test fun `stated ends come back under the place they name`() = runTest {
+        val first = finishedWalk(0)
+        val second = finishedWalk(12)
+        val (a, b, c) = listOf(placeId("A"), placeId("B"), placeId("C"))
+        state(first, a, b)
+        state(second, c, a)
+        val rows = listOf(dao.track(first)!!, dao.track(second)!!)
+
+        val stated = repository.statedEnds(here = a, elsewhere = listOf(b))
+
+        assertEquals(
+            listOf(Coordinate(rows[0].startLat!!, rows[0].startLon!!), Coordinate(rows[1].endLat!!, rows[1].endLon!!)),
+            stated.here,
+        )
+        assertEquals(listOf(Coordinate(rows[0].endLat!!, rows[0].endLon!!)), stated.elsewhere)
     }
 }

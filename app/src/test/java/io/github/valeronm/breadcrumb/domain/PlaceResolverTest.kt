@@ -367,7 +367,7 @@ class PlaceResolverTest {
         // enough to take the far endpoint has a middle worth moving to, and one that reaches only
         // what is already under the pin does not — same scan, so the radius is what decides.
         val scan = PlaceClusterer.scanCapture(
-            listOf(at(0.0), at(600.0)), at(0.0), 1_000.0, emptyList(), flatDistance,
+            listOf(at(0.0), at(600.0)), at(0.0), 1_000.0, PlaceClusterer.Contest(emptyList()), flatDistance,
         )
         fun targetAt(radiusM: Double) = PlaceResolver.recenterTarget(at(0.0), scan, radiusM, flatDistance)
 

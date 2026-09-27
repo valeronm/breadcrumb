@@ -294,12 +294,26 @@ object PlaceClusterer {
         rivals: List<Seed>,
         distance: DistanceFn,
     ): List<Coordinate> {
-        val scan = scanCapture(candidates, anchor, radiusM, rivals, distance)
-        return scan.winnable.filter { it.distanceM <= radiusM }.map { it.location }
+        val scan = scanCapture(candidates, anchor, radiusM, Contest(rivals), distance)
+        return scan.held + scan.winnable.filter { it.distanceM <= radiusM }.map { it.location }
     }
 
     /** A candidate still in play, with the distance that decides it. */
     class Reach(val location: Coordinate, val distanceM: Double)
+
+    /**
+     * Candidates whose place is stated rather than measured: [here] are ends stated to the place
+     * being judged, which it holds at any radius, and [elsewhere] ends stated to another place,
+     * which that place holds whatever this radius does.
+     */
+    class Stated(val here: List<Coordinate>, val elsewhere: List<Coordinate>) {
+        companion object {
+            val None = Stated(emptyList(), emptyList())
+        }
+    }
+
+    /** What else claims a candidate: the [rivals]' pins by distance, and [stated] by statement. */
+    class Contest(val rivals: List<Seed>, val stated: Stated = Stated.None)
 
     /**
      * [wouldCapture]'s work, done once for a radius about to move repeatedly. Dragging asks the
@@ -317,6 +331,8 @@ object PlaceClusterer {
          * neighbor — so anything drawing them must treat them as settled, not compare them.
          */
         val conceded: List<Coordinate>,
+        /** Candidates stated to this place, taken at any radius. */
+        val held: List<Coordinate>,
     ) {
         /**
          * How many candidates a radius of [radiusM] would take — [wouldCapture]'s answer counted
@@ -324,7 +340,7 @@ object PlaceClusterer {
          * dragged radius asks this on every step and pays only a walk: the rival scan and its
          * distance calls are already spent in [scanCapture], leaving a comparison per candidate.
          */
-        fun countWithin(radiusM: Double): Int = winnable.count { it.distanceM <= radiusM }
+        fun countWithin(radiusM: Double): Int = held.size + winnable.count { it.distanceM <= radiusM }
 
         /**
          * The mean of what a radius of [radiusM] would take — where a pin following the dragged
@@ -333,9 +349,9 @@ object PlaceClusterer {
          * nor the reverse.
          */
         fun centroidWithin(radiusM: Double): Coordinate? {
-            var lat = 0.0
-            var lon = 0.0
-            var taken = 0
+            var lat = held.sumOf { it.lat }
+            var lon = held.sumOf { it.lon }
+            var taken = held.size
             for (reach in winnable) {
                 if (reach.distanceM > radiusM) continue
                 lat += reach.location.lat
@@ -354,21 +370,43 @@ object PlaceClusterer {
      * two distance calls, so a bound per candidate would spend `2N` to prune a rival list that is
      * only ever a handful of place pins; [cluster] builds it the other way round because there it
      * amortizes over every anchor in the history.
+     *
+     * A candidate in [Contest.stated] is settled by its statement, as the derivation settles it: one
+     * occurrence of it among [candidates] per occurrence there, and a stated coordinate that is not a
+     * candidate adds nothing.
      */
     fun scanCapture(
         candidates: List<Coordinate>,
         anchor: Coordinate,
         maxRadiusM: Double,
-        rivals: List<Seed>,
+        contest: Contest,
         distance: DistanceFn,
     ): CaptureScan {
+        val rivals = contest.rivals
+        val stated = contest.stated
         val reach = ReachBound.around(anchor.lat, anchor.lon, distance)
         val rivalReach = rivals.map { ReachBound.around(it.anchor.lat, it.anchor.lon, distance) }
         val winnable = ArrayList<Reach>(candidates.size)
         // Most candidates are conceded in the case this exists for: a dense neighborhood seen
         // through a slider that stops well short of it.
         val conceded = ArrayList<Coordinate>(candidates.size)
+        val held = ArrayList<Coordinate>(stated.here.size)
+        // Per coordinate, the statements still to match: to this place first, then elsewhere.
+        val pending = HashMap<Coordinate, IntArray>()
+        for (at in stated.here) pending.getOrPut(at) { IntArray(2) }[0]++
+        for (at in stated.elsewhere) pending.getOrPut(at) { IntArray(2) }[1]++
         for (candidate in candidates) {
+            val left = pending[candidate]
+            if (left != null && left[0] > 0) {
+                left[0]--
+                held += candidate
+                continue
+            }
+            if (left != null && left[1] > 0) {
+                left[1]--
+                conceded += candidate
+                continue
+            }
             if (reach.outOfReach(candidate.lat, candidate.lon, maxRadiusM)) {
                 conceded += candidate
                 continue
@@ -380,7 +418,7 @@ object PlaceClusterer {
                 winnable += Reach(candidate, own)
             }
         }
-        return CaptureScan(winnable, conceded)
+        return CaptureScan(winnable, conceded, held)
     }
 
     private fun losesTo(

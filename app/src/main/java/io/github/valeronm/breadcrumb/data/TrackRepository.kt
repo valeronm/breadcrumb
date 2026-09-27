@@ -18,11 +18,14 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
+import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.StitchRule
 import io.github.valeronm.breadcrumb.domain.TrackBounds
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
+import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
 
@@ -570,6 +573,31 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             derivation.reknit(listOf(mergedId, earlierId, laterId))
             mergedId
         }
+    }
+
+    /**
+     * The kept track ends stated to [here] and to any of [elsewhere], as coordinates — the stored
+     * derivation files each under its place, and records only where it was.
+     */
+    suspend fun statedEnds(here: Long?, elsewhere: List<Long>): PlaceClusterer.Stated {
+        val ids = listOfNotNull(here) + elsewhere
+        // Chunked because nothing bounds how many places sit around one; halved because the query
+        // binds the list twice. Keyed by track, since one stated at both ends can be in two chunks.
+        val rows = HashMap<Long, TrackEndpoints>()
+        for (chunk in ids.chunked(IDS_PER_STATEMENT / 2)) {
+            for (track in dao.statedTo(chunk)) rows[track.id] = track
+        }
+        val wanted = elsewhere.toHashSet()
+        val atHere = mutableListOf<Coordinate>()
+        val atElsewhere = mutableListOf<Coordinate>()
+        for (end in StayDeriver.endpointsOf(rows.values.map { it.toTrackEnd() })) {
+            when (end.placeId) {
+                null -> Unit
+                here -> atHere += end.at
+                in wanted -> atElsewhere += end.at
+            }
+        }
+        return PlaceClusterer.Stated(atHere, atElsewhere)
     }
 
     /** What a [splitTrack] did, and all [unsplitTracks] needs to take it back. */

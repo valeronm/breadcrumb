@@ -309,7 +309,7 @@ object PlaceResolver {
          * saving it quietly takes more than was shown.
          */
         val rivals: List<PlaceClusterer.Seed> = nearby.mapNotNull { other ->
-            other.place?.let { PlaceClusterer.Seed(other.anchor, other.radiusM) }
+            other.place?.let { PlaceClusterer.Seed(other.anchor, other.radiusM, it.id) }
         }
     }
 

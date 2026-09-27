@@ -311,6 +311,14 @@ interface TrackDao {
     )
     suspend fun endpointsFor(ids: List<Long>): List<TrackEndpoints>
 
+    /** Kept tracks with an end stated to one of [placeIds]. */
+    @RewriteQueriesToDropUnusedColumns
+    @Query(
+        "SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL " +
+            "AND (startPlaceId IN (:placeIds) OR endPlaceId IN (:placeIds))",
+    )
+    suspend fun statedTo(placeIds: List<Long>): List<TrackEndpoints>
+
     /**
      * The kept track on either side of a stretch being repaired — [excluding] holds the ids the
      * change itself touched, whose own rows must not answer as their own neighbour.
