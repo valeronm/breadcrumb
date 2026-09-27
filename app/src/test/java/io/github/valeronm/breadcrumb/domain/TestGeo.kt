@@ -48,4 +48,6 @@ internal fun trackSummary(
     pointCount = 2,
     ignoredCount = 0,
     source = source,
+    startPlaceId = null,
+    endPlaceId = null,
 )

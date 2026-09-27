@@ -70,7 +70,7 @@ offer the install yet, try again later.
   single trip needs no backup to come back: deletions, and trips the keep limits discard, wait in
   Recently deleted until they age out.
 - Google Timeline import — load the Timeline export from your phone into an empty timeline: every
-  trip with its path, and your home and work places.
+  trip with its path, and the places Google grouped your visits into, with home and work named.
 - App lock — an optional unlock on opening (fingerprint or device PIN), and a switch that blocks
   screenshots and hides the app in the recents switcher. Recording is never locked: trips keep
   being recorded whether or not the app is.

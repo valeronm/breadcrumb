@@ -1,10 +1,6 @@
 package io.github.valeronm.breadcrumb.data.db
 
-import android.content.Context
-import androidx.room.Room
-import androidx.room.util.TableInfo
 import androidx.sqlite.db.SupportSQLiteDatabase
-import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -100,36 +96,6 @@ class Migration18To19Test {
             assertTrue(c.moveToFirst())
             assertEquals("MOVED_UNRECORDED", c.getString(0))
             assertEquals(-2.01, c.getDouble(1), 1e-9)
-        }
-    }
-
-    /**
-     * **The guard a real upgrade is exposed to**, and this is where it belongs: Room compares what
-     * it finds against its entities on the first open after an upgrade, and only the *end* of the
-     * chain is ever compared that way — which, the chain being one migration long, is here. The
-     * case above reads column and index names, and so cannot see a nullability, a column type or
-     * the primary key; those live in the hand-written `CREATE TABLE` this migration rebuilds with,
-     * and get someone a crash on open rather than a failure here. [TableInfo] is the shape Room
-     * compares, rather than the `CREATE` text, so formatting is not mistaken for drift.
-     *
-     * Move it into the next migration's test when one lands, for the same reason it sits here.
-     */
-    @Suppress("DEPRECATION")
-    @Test
-    fun `the rebuilt table is the shape Room builds from the entities`() {
-        AppDatabase.MIGRATION_18_19.migrate(db)
-
-        val room = Room.inMemoryDatabaseBuilder(
-            ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
-        ).allowMainThreadQueries().build()
-        try {
-            val generated = room.openHelper.writableDatabase
-            assertEquals(
-                TableInfo.read(generated, "derived_intervals"),
-                TableInfo.read(db, "derived_intervals"),
-            )
-        } finally {
-            room.close()
         }
     }
 

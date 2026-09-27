@@ -115,7 +115,7 @@ object PlaceCategorySuggester {
         val examples = mutableMapOf<PlaceCategory, Int>()
         places.forEach { place ->
             val category = place.placeCategory ?: return@forEach
-            val features = featuresOf(place.label)
+            val features = featuresOf(place.label ?: return@forEach)
             if (features.isEmpty()) return@forEach
             val counts = featureCounts.getOrPut(category) { mutableMapOf() }
             features.forEach { feature -> counts[feature] = (counts[feature] ?: 0) + 1 }

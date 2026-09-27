@@ -37,6 +37,10 @@ class ReachBound private constructor(
             abs(otherLon - lon) * lonMetersPerDegree > reach
     }
 
+    /** How many degrees of latitude either side a candidate can sit and not be [outOfReach] at
+     *  [radiusM]. */
+    fun latitudeSpan(radiusM: Double): Double = radiusM * SLACK / latMetersPerDegree
+
     companion object {
 
         /** Probe span in degrees (~100 m): short enough to read as local, long enough that the

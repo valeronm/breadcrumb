@@ -67,6 +67,7 @@ import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
+import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -353,7 +354,10 @@ internal fun AddTripScreen(
                 }
             }
             var query by remember { mutableStateOf("") }
-            val savedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
+            val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
+            // An unnamed row reads as the unnamed cluster it seeds, which this form neither draws
+            // nor offers.
+            val savedPlaces = remember(storedPlaces) { storedPlaces.filter { it.isNamed } }
             val placeField = remember(savedPlaces) {
                 savedPlaces.map { place ->
                     OverviewPlace(
@@ -363,7 +367,7 @@ internal fun AddTripScreen(
                 }
             }
             // Pre-folded once per list — PlaceSearch's contract for filtering per keystroke.
-            val foldedLabels = remember(savedPlaces) { savedPlaces.map { PlaceSearch.fold(it.label) } }
+            val foldedLabels = remember(savedPlaces) { savedPlaces.map { PlaceSearch.fold(it.label.orEmpty()) } }
             // Nearest what the map is looking at first: a name is rarely unique across a history —
             // "Home", "Hotel", the same shop in three cities — and the ground on screen is the only
             // thing said about which one is meant. Falls back to the table's order until the map has
@@ -423,12 +427,13 @@ internal fun AddTripScreen(
                 },
             ) {
                 for (place in placeMatches) {
+                    val label = place.label ?: continue
                     SearchResultRow(
                         icon = Icons.Filled.Place,
-                        label = place.label,
+                        label = label,
                         detail = placeCities[place.id]?.let { localityLabel(it) },
                     ) {
-                        placePin(place.pin, place.label)
+                        placePin(place.pin, label)
                         query = ""
                     }
                 }

@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -591,5 +592,29 @@ class PlaceResolverTest {
 
         assertTrue(got === unnamedAgain)
         assertNull(got?.place)
+    }
+
+    // --- Unnamed place rows ----------------------------------------------------
+
+    @Test fun `a cluster an unnamed row seeds reads as an unnamed cluster, keyed by the row`() {
+        val row = place(7, "unused", at(0.0)).copy(label = null)
+        val s = summarize(listOf(stayAt(at(40.0), 1_000, 2_000), stayAt(at(60.0), 3_000, 4_000)), listOf(row))
+            .single()
+
+        assertEquals(row, s.place)
+        assertFalse(s.isNamed)
+        assertNull(s.name)
+        assertEquals(at(50.0).lon, s.pin.lon, 1e-9)
+        assertEquals(PlaceResolver.keyOf(7), s.key)
+        assertEquals(2, s.visitCount)
+    }
+
+    @Test fun `a stay at an unnamed row carries no label but the row's id`() {
+        val row = place(7, "unused", at(0.0)).copy(label = null)
+        val resolved = resolve(listOf(stay(at(40.0))), listOf(row)).values.single()
+
+        assertNull(resolved.label)
+        assertEquals(7L, resolved.placeId)
+        assertEquals(PlaceResolver.keyOf(7), resolved.key)
     }
 }

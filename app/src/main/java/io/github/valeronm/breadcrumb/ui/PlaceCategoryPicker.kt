@@ -146,7 +146,8 @@ internal fun PlaceCategorySection(
     // Keyed on the label as well as the model: a rename is new evidence about what this place is,
     // and it retrains the model that reads it.
     val suggestions = remember(suggester, place.label, category) {
-        if (category == null) suggester.suggest(place.label) else emptyList()
+        val label = place.label
+        if (category == null && label != null) suggester.suggest(label) else emptyList()
     }
     // Scrolls rather than wraps, so the line's height never depends on how long three category
     // labels happen to be. The picker chip is last and always present — it wears the caret, which is

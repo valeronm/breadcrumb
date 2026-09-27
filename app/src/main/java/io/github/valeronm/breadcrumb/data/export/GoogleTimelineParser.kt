@@ -16,10 +16,12 @@ internal class GoogleTimelineActivity(
 
 internal class GoogleTimelineVisit(
     val startMs: Long,
+    val endMs: Long,
     val placeId: String,
     val semanticType: String?,
-    val lat: Double,
-    val lon: Double,
+    val at: Coordinate,
+    /** False for a part of the visit enclosing it (a shop in a mall). */
+    val topLevel: Boolean,
 )
 
 /** Path samples in file order, held in primitive arrays: a multi-year export carries hundreds of
@@ -121,7 +123,12 @@ internal object GoogleTimelineParser {
 
     private class RawActivity(val start: Coordinate?, val end: Coordinate?, val type: String?)
 
-    private class RawVisit(val placeId: String?, val semanticType: String?, val at: Coordinate?)
+    private data class RawVisit(
+        val placeId: String?,
+        val semanticType: String?,
+        val at: Coordinate?,
+        val topLevel: Boolean = true,
+    )
 
     /**
      * Hands each field name of the object at the cursor to [onField], which must consume its value.
@@ -162,7 +169,7 @@ internal object GoogleTimelineParser {
         }
         if (!isObject) return false
         activity?.let { activities += activityOf(start, end, it) ?: return false }
-        visit?.let { visits += visitOf(start, it) ?: return false }
+        visit?.let { visits += visitOf(start, end, it) ?: return false }
         return true
     }
 
@@ -173,11 +180,12 @@ internal object GoogleTimelineParser {
         return GoogleTimelineActivity(startMs, endMs, raw.start, raw.end, raw.type)
     }
 
-    private fun visitOf(start: String?, raw: RawVisit): GoogleTimelineVisit? {
+    private fun visitOf(start: String?, end: String?, raw: RawVisit): GoogleTimelineVisit? {
         val startMs = instantOf(start) ?: return null
+        val endMs = instantOf(end) ?: return null
         val placeId = raw.placeId ?: return null
         val at = raw.at ?: return null
-        return GoogleTimelineVisit(startMs, placeId, raw.semanticType, at.lat, at.lon)
+        return GoogleTimelineVisit(startMs, endMs, placeId, raw.semanticType, at, raw.topLevel)
     }
 
     private fun readActivity(json: JsonPullReader): RawActivity {
@@ -197,10 +205,15 @@ internal object GoogleTimelineParser {
 
     private fun readVisit(json: JsonPullReader): RawVisit {
         var visit = RawVisit(null, null, null)
+        var level = 0
         json.forEachField { name ->
-            if (name == "topCandidate") visit = readVisitCandidate(json) else json.skipValue()
+            when (name) {
+                "topCandidate" -> visit = readVisitCandidate(json)
+                "hierarchyLevel" -> level = (json.nextPrimitive() as? Number)?.toInt() ?: 0
+                else -> json.skipValue()
+            }
         }
-        return visit
+        return visit.copy(topLevel = level == 0)
     }
 
     private fun readVisitCandidate(json: JsonPullReader): RawVisit {

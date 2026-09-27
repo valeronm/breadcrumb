@@ -1,4 +1,4 @@
-// Incremental parser for the Breadcrumb backup format (BackupExporter, format v1). A full-history
+// Incremental parser for the Breadcrumb backup format (BackupExporter, format v2). A full-history
 // export's "tracks" array runs to hundreds of MB of text — past what JSON.parse can take in one
 // bite — so this is fed decompressed text chunks and emits each track as soon as its object is
 // complete; memory stays at one value plus the current chunk. Token mode handles the small
@@ -9,7 +9,7 @@
 // Pure ES module — the import worker uses it in the browser, and node tests drive it directly.
 
 export const FORMAT = "breadcrumb-export";
-export const VERSION = 1;
+export const VERSION = 2;
 
 const WS = " \t\n\r";
 

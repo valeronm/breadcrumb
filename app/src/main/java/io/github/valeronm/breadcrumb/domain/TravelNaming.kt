@@ -87,17 +87,17 @@ object TravelNaming {
         private val places: List<Place>,
         private val distance: DistanceFn,
     ) {
-        private val seeds = PlaceClusterer.seedsOf(places)
+        private val seeds = PlaceClusterer.SeedIndex(PlaceClusterer.seedsOf(places))
         private val cities = HashMap<Coordinate, CityAtlas.City?>()
         private val pins = HashMap<Coordinate, Place?>()
 
         fun cityAt(at: Coordinate): CityAtlas.City? =
             cities.getOrPut(at) { atlas.naming(at.lat, at.lon, distance) }
 
-        /** The named place whose capture area holds [at], if any. */
+        /** The place whose capture area holds [at], if any. */
         fun pinAt(at: Coordinate): Place? =
             pins.getOrPut(at) {
-                PlaceClusterer.nearestSeedIndex(at.lat, at.lon, seeds, distance)?.let(places::getOrNull)
+                seeds.nearest(at.lat, at.lon, distance)?.let(places::getOrNull)
             }
 
         /** The place a cluster grew from, which is the pin that seeded it rather than a search. */

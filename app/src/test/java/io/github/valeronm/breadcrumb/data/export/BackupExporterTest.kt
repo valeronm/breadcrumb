@@ -89,7 +89,7 @@ class BackupExporterTest {
     @Test fun `header carries format, version, stamp and the point field order`() {
         val doc = export()
         assertEquals("breadcrumb-export", doc["format"])
-        assertEquals(1L, doc["version"])
+        assertEquals(2L, doc["version"])
         assertEquals(5_000L, doc["exportedAt"])
         assertEquals(0L, doc["trackCount"])
         val fields = doc["pointFields"].arr()

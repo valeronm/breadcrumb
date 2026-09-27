@@ -51,6 +51,7 @@ import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.util.SliderStops
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -302,8 +303,8 @@ internal fun PlaceEditScreen(
             // and it must not sit next to the name it would once have been performed by clearing.
             // Low emphasis in the error color, and it takes effect at once with an Undo — the app
             // answers a destructive tap with a way back rather than with a question first. Nothing
-            // to remove until there is a row.
-            if (place != null) {
+            // to remove until there is a name.
+            if (place?.isNamed == true) {
                 TextButton(
                     onClick = { onRemove(place) },
                     colors = ButtonDefaults.textButtonColors(

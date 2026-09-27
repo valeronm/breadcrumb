@@ -151,6 +151,7 @@ function buildTimeline(places) {
     placePins: places.map((p) => ({
       anchor: { lat: p.lat, lon: p.lon },
       radiusM: p.radiusM ?? PLACE_RADIUS_M,
+      placeId: p.id,
     })),
   });
   // Resolve over the UNSLICED stays: after slicing, a 3-day stay would count as 3 visits.
@@ -173,6 +174,8 @@ function toTrackEnd(t) {
     endedAt: t.endedAt,
     start: endpoint(t.startLat, t.startLon),
     end: endpoint(t.endLat, t.endLon),
+    startPlaceId: t.startPlaceId ?? null,
+    endPlaceId: t.endPlaceId ?? null,
   };
 }
 

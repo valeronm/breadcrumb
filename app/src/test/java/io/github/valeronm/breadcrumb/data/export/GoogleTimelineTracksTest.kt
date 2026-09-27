@@ -24,7 +24,7 @@ class GoogleTimelineTracksTest {
     }.sortedUnique()
 
     private fun buildFlat(activities: List<GoogleTimelineActivity>, path: SortedPath) =
-        GoogleTimelineTracks.build(activities, path, flatDistance)
+        GoogleTimelineTracks.build(activities, path, emptyList(), { null }, flatDistance)
 
     @Test fun `a sample the activity could not have reached is a jump, and the next is judged from the last good one`() {
         val walk = GoogleTimelineActivity(0, 3 * MIN, Coordinate(1.0, -2.0), Coordinate(1.002, -2.0), "WALKING")
@@ -105,5 +105,42 @@ class GoogleTimelineTracksTest {
         )
         expected.forEach { (google, app) -> assertEquals(google, app, GoogleTimelineTracks.activityFor(google)) }
         assertEquals(ActivityType.UNKNOWN, GoogleTimelineTracks.activityFor(null))
+    }
+
+    // --- Stated ends -----------------------------------------------------------------------------
+
+    private fun visit(placeId: String, startMs: Long, endMs: Long, topLevel: Boolean = true) =
+        GoogleTimelineVisit(startMs, endMs, placeId, "UNKNOWN", Coordinate(1.0, -2.0), topLevel)
+
+    private val rows = mapOf("home" to 11L, "shop" to 12L, "mall" to 13L)
+
+    private fun stated(activity: GoogleTimelineActivity, vararg visits: GoogleTimelineVisit) =
+        GoogleTimelineTracks.build(listOf(activity), path(), visits.toList(), rows::get, flatDistance)
+            .single().first.let { it.startPlaceId to it.endPlaceId }
+
+    @Test fun `a trip between two visits is stated to both`() {
+        assertEquals(
+            11L to 12L,
+            stated(activity(100, 400), visit("home", 0, 100), visit("shop", 400, 900)),
+        )
+    }
+
+    @Test fun `a visit a second off the trip states nothing`() {
+        assertEquals(
+            null to null,
+            stated(activity(100, 400), visit("home", 0, 99), visit("shop", 401, 900)),
+        )
+    }
+
+    @Test fun `a nested visit is not what a trip is stated to`() {
+        assertEquals(
+            null to 13L,
+            stated(
+                activity(100, 400),
+                visit("shop", 0, 100, topLevel = false),
+                visit("mall", 400, 900),
+                visit("shop", 400, 500, topLevel = false),
+            ),
+        )
     }
 }

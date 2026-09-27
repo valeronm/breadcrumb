@@ -11,6 +11,7 @@ import io.github.valeronm.breadcrumb.domain.placeCategory
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,9 +24,10 @@ class GoogleTimelineImportTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val target = TestDb()
+    private val places = PlaceRepository(context, target.db)
     private val repositories = BackupRepositories(
         tracks = target.repository,
-        places = PlaceRepository(context, target.db),
+        places = places,
         derivation = DerivationStore(context, target.db),
     )
 
@@ -37,9 +39,9 @@ class GoogleTimelineImportTest {
         """{"startTime":"${iso(startMs)}","endTime":"${iso(endMs)}","activity":{"start":{"latLng":"$fromLat°, -2.0°"},""" +
             """"end":{"latLng":"$toLat°, -2.0°"},"topCandidate":{"type":"$type"}}}"""
 
-    private fun visit(startMs: Long, lat: Double, semanticType: String) =
-        """{"startTime":"${iso(startMs)}","endTime":"${iso(startMs + 60_000)}","visit":{"topCandidate":""" +
-            """{"placeId":"home","semanticType":"$semanticType","placeLocation":{"latLng":"$lat°, -2.0°"}}}}"""
+    private fun visit(startMs: Long, lat: Double, semanticType: String, endMs: Long = startMs + 60_000, placeId: String = "home") =
+        """{"startTime":"${iso(startMs)}","endTime":"${iso(endMs)}","visit":{"hierarchyLevel":0,"topCandidate":""" +
+            """{"placeId":"$placeId","semanticType":"$semanticType","placeLocation":{"latLng":"$lat°, -2.0°"}}}}"""
 
     private fun path(startMs: Long, fromLat: Double, count: Int) =
         """{"startTime":"${iso(startMs)}","endTime":"${iso(startMs + count * 60_000L)}","timelinePath":[""" +
@@ -61,12 +63,13 @@ class GoogleTimelineImportTest {
     private val back = TEST_START + 3 * 3_600_000L
 
     private val twoTripsAndAHome = doc(
-        visit(out - 3_600_000L, 1.0, "HOME"),
+        visit(out - 3_600_000L, 1.0, "HOME", endMs = out),
         activity(out, out + 11 * 60_000L, 1.0, 1.011),
         path(out, 1.0, 10),
         path(out + 60 * 60_000L, 1.011, 3),
         activity(back, back + 11 * 60_000L, 1.011, 1.0, type = "IN_BUS"),
-        visit(back + 12 * 60_000L, 1.0, "HOME"),
+        visit(out + 11 * 60_000L, 1.011, "UNKNOWN", endMs = back, placeId = "cafe"),
+        visit(back + 11 * 60_000L, 1.0, "HOME"),
         """{"startTime":"bad","endTime":"bad","activity":{}}""",
     )
 
@@ -84,12 +87,46 @@ class GoogleTimelineImportTest {
         assertEquals(2, target.dao.allPointsFor(tracks[1].id).size)
     }
 
-    @Test fun `a home the visits agree on becomes a named, tagged place`() = runTest {
+    private suspend fun placeRow(googleId: String) =
+        target.db.placeDao().allPlaces().single { it.externalId == googleId }
+
+    @Test fun `every Google place is a place row, and only a home the visits agree on is named`() = runTest {
         val summary = import(twoTripsAndAHome)
-        assertEquals(1, summary.places)
-        val place = target.db.placeDao().allPlaces().single()
-        assertEquals("Home", place.label)
-        assertEquals(PlaceCategory.HOME, place.placeCategory)
+        assertEquals(2, summary.places)
+        val home = placeRow("home")
+        assertEquals("Home", home.label)
+        assertEquals(PlaceCategory.HOME, home.placeCategory)
+        assertEquals(GoogleTimelineImporter.PROVIDER, home.externalProvider)
+        val cafe = placeRow("cafe")
+        assertNull(cafe.label)
+        assertNull(cafe.category)
+    }
+
+    @Test fun `each trip end is stated to the visit Google joined it to`() = runTest {
+        import(twoTripsAndAHome)
+        val (outbound, inbound) = target.repository.exportTracks()
+        val home = placeRow("home").id
+        val cafe = placeRow("cafe").id
+        assertEquals(home to cafe, outbound.startPlaceId to outbound.endPlaceId)
+        assertEquals(cafe to home, inbound.startPlaceId to inbound.endPlaceId)
+    }
+
+    @Test fun `deleting a place clears the ends stated to it`() = runTest {
+        import(twoTripsAndAHome)
+        places.delete(placeRow("cafe").id)
+        val (outbound, inbound) = target.repository.exportTracks()
+        assertNull(outbound.endPlaceId)
+        assertNull(inbound.startPlaceId)
+        DerivedConsistency.assertMatchesFreshDerive(target.db, back + 86_400_000L)
+    }
+
+    @Test fun `naming an imported place writes the name onto its row`() = runTest {
+        import(twoTripsAndAHome)
+        val cafe = placeRow("cafe")
+        places.save(cafe.copy(label = "Cafe"))
+        val named = placeRow("cafe")
+        assertEquals(cafe.id, named.id)
+        assertEquals("Cafe", named.label)
     }
 
     @Test fun `the stays are derived exactly as a fresh pass would derive them`() = runTest {

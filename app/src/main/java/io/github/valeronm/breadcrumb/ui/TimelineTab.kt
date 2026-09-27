@@ -1215,7 +1215,7 @@ private fun StayRow(
     onClick: () -> Unit,
 ) {
     val place = item.place
-    val named = place?.label != null
+    val named = place?.isNamed == true
     // A short same-activity stay can be swiped to merge its two tracks — the merged track replaces
     // the stay and both originals, and Undo unmerges. Ineligible stays (no plan) aren't swipeable.
     MergeSwipeable(item.merge, shape, onMerge) {
@@ -1550,7 +1550,7 @@ private fun GapPlaceLine(
         Text(
             text = place.name ?: stringResource(R.string.timeline_unnamed_place),
             style = MaterialTheme.typography.titleMedium,
-            color = placeTitleColor(named = place.label != null),
+            color = placeTitleColor(named = place.isNamed),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),

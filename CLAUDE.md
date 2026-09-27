@@ -426,9 +426,12 @@ warn you on its own.
 Restore is offered only on the Timeline's empty state, and that
 screen is where it reports its progress. With tracks present a restore would have to merge with
 them, so the offer disappears as soon as the first track exists. The Google Timeline import
-(`GoogleTimelineImporter`) sits on the same empty state for the same reason, and creates only home
-and work places: the export names no place, and Google labels visits rather than places, so a spot
-qualifies on a majority of its labelled visits. The format also feeds the
+(`GoogleTimelineImporter`) sits on the same empty state for the same reason. It keeps Google's
+grouping of visits into places, which the user confirmed or corrected in Google and which a path
+sampled once a minute cannot recover: a place row per Google place, left unnamed unless it is a home
+or a work, and every trip end Google joined to a visit stated to that visit's place. Google labels
+visits rather than places, so a spot is a home or a work on a majority of its labelled visits. The
+format also feeds the
 web companion viewer in `site/src/viewer/` (see its own README) — a change to it is a change to that viewer's
 input, and the viewer draws off-path fixes by the same conventions this app does *and derives the
 same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `site/src/viewer/js/stays.js`, tested case for case
@@ -517,15 +520,24 @@ because knowing a night was reconstructed rather than observed changes nothing t
 When a new surface exposes a derived fact, check whether its wording leaks the evidence behind it:
 state what is known and stay silent on how well it is known.
 
-**A place row holds what the user said about a spot, and only that** — its name, its capture radius,
-and its `category` (`PlaceCategory.code`, null = untagged). Everything else about a place is derived
-on read. **A category and a name feed nothing on the way to a stay**, and the plumbing is built to
-say so: what reaches the derivation is a place's pin and its reach — `PlaceClusterer.seedOf`, the one
-projection that says so — carried into the derived tables as that place's seed cluster
-(`DerivationStore.reconcile`). A rename or a re-categorization moves no seed, so it writes nothing
+**A place row holds what was said about a spot, and only that** — its name, its capture radius, its
+`category` (`PlaceCategory.code`, null = untagged), and for a row an import made, which source said so
+(`externalProvider`, `externalId`). Everything else about a place is derived on read. **A row may be
+unnamed**, and then reads everywhere as the unnamed cluster it seeds; naming it writes onto that row,
+so the source's identity survives. **A category and a name feed nothing on the way to a stay**, and
+the plumbing is built to say so: what reaches the derivation is a place's pin, its reach and its row
+— `PlaceClusterer.seedOf`, the one projection that says so — carried into the derived tables as that
+place's seed cluster (`DerivationStore.reconcile`). A rename or a re-categorization moves no seed, so it writes nothing
 and re-derives nothing, which `DerivationStoreTest` pins. On the read side a place is matched to its
 cluster **by position**, `PlaceResolver` resolving positionally, which is why `DerivedReadModel`
-orders named clusters by their place's index and unnamed ones after them.
+orders seeded clusters by their place's index and organic ones after them.
+
+**A track's end can be stated to a place** (`startPlaceId`, `endPlaceId` on `tracks`), and a stated
+end joins that place's cluster whatever its distance from the pin, founding no anchor; two ends both
+stated agree exactly when they name the same place (`StayDeriver.verdictBetween`). A statement is
+evidence the capture radii cannot weigh, so only a writer holding such evidence sets one — the Google
+import, from Google's own visit grouping — and the recorder never does. Merge and split hand the
+statements on with the ends they belong to, and a cut is stated to nothing.
 
 The vocabulary is a closed set of permanent codes stored raw and mapped in the domain
 (`Place.placeCategory`, following the `activityType` / `IgnoreReason.code` precedent), with untagged

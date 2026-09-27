@@ -40,8 +40,8 @@ internal object DerivedReadModel {
      * clock. [DerivationStore.read] is what pairs them.
      *
      * **Cluster order is a contract, not a convenience.** [PlaceResolver] resolves a cluster to a
-     * place *positionally* — `seedIndex` indexes [StoredDerivation.places] — so named clusters come
-     * first in the order those are given, and unnamed ones follow. A stay's stored cluster is a row id,
+     * place *positionally* — `seedIndex` indexes [StoredDerivation.places] — so seeded clusters come
+     * first in the order those are given, and organic ones follow. A stay's stored cluster is a row id,
      * translated to that position here; no row id escapes this file.
      *
      * **The walk is over the whole history and is meant to be.** A screen that draws every day of a
@@ -50,10 +50,10 @@ internal object DerivedReadModel {
     fun mappedRows(stored: StoredDerivation): MappedRows {
         val placeOrder = stored.places.withIndex().associate { (index, place) -> place.id to index }
         // Resolved once per row and used for both the order and the seed index, so the two cannot
-        // disagree about which clusters are named.
+        // disagree about which clusters are seeded.
         val positionOf = { row: DerivedCluster -> row.placeId?.let(placeOrder::get) }
-        val (named, unnamed) = stored.clusters.partition { positionOf(it) != null }
-        val ordered = named.sortedBy(positionOf) + unnamed.sortedBy { it.id }
+        val (seeded, organic) = stored.clusters.partition { positionOf(it) != null }
+        val ordered = seeded.sortedBy(positionOf) + organic.sortedBy { it.id }
         val indexOfRow = ordered.withIndex().associate { (index, row) -> row.id to index }
 
         val membersByCluster = stored.members.groupBy { it.clusterId }

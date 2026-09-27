@@ -12,7 +12,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Track::class, TrackPoint::class, Place::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -74,6 +74,47 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * A place may have no name and may carry where it came from; a track's ends may be stated
+         * to a place. minSdk 26's SQLite cannot relax a NOT NULL in place, so `places` is rebuilt;
+         * the track columns are nullable references, which `ADD COLUMN` accepts.
+         */
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS places_new (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                      label TEXT,
+                      lat REAL NOT NULL,
+                      lon REAL NOT NULL,
+                      createdAt INTEGER NOT NULL,
+                      radiusM REAL NOT NULL,
+                      category TEXT,
+                      externalProvider TEXT,
+                      externalId TEXT )
+                    """,
+                )
+                db.execSQL(
+                    "INSERT INTO places_new (id, label, lat, lon, createdAt, radiusM, category) " +
+                        "SELECT id, label, lat, lon, createdAt, radiusM, category FROM places",
+                )
+                db.execSQL("DROP TABLE places")
+                db.execSQL("ALTER TABLE places_new RENAME TO places")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_places_externalProvider_externalId " +
+                        "ON places(externalProvider, externalId)",
+                )
+                for (column in listOf("startPlaceId", "endPlaceId")) {
+                    db.execSQL(
+                        "ALTER TABLE tracks ADD COLUMN $column INTEGER " +
+                            "REFERENCES places(id) ON UPDATE NO ACTION ON DELETE SET NULL",
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_tracks_$column ON tracks($column)")
+                }
+            }
+        }
+
+        /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
          * v18 is the floor: a database older than that fails to open rather than migrating.
@@ -82,7 +123,7 @@ abstract class AppDatabase : RoomDatabase() {
          * `version` above never renumbers downward for the same reason, since every installed
          * database would then present itself as a downgrade.
          */
-        private val MIGRATIONS = arrayOf(MIGRATION_18_19)
+        private val MIGRATIONS = arrayOf(MIGRATION_18_19, MIGRATION_19_20)
 
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {

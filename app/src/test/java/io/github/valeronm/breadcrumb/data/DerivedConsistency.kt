@@ -154,8 +154,17 @@ internal object DerivedConsistency {
         val byId = stored.clusters.associateBy { it.id }
         val membersOf = stored.members.groupBy { it.clusterId }
 
+        val statedPlaceOf = db.trackDao().endpointsOnce().flatMap {
+            listOf((it.id to true) to it.startPlaceId, (it.id to false) to it.endPlaceId)
+        }.toMap()
+        val seededPlaces = stored.seeds().mapNotNullTo(HashSet()) { it.placeId }
         for (member in stored.members) {
             val cluster = checkNotNull(byId[member.clusterId]) { "member of a cluster that is gone" }
+            val stated = statedPlaceOf[member.trackId to member.isStart]
+            if (stated != null && stated in seededPlaces) {
+                assertEquals("an endpoint stated to a place is filed under it", stated, cluster.placeId)
+                continue
+            }
             val away = AndroidDistance.meters(member.lat, member.lon, cluster.anchorLat, cluster.anchorLon)
             assertTrue("an endpoint sits ${away}m from a cluster reaching ${cluster.radiusM}m", away <= cluster.radiusM)
         }
@@ -167,9 +176,9 @@ internal object DerivedConsistency {
             assertEquals("$where: sumLat", members.sumOf { it.lat }, cluster.sumLat, 1e-9)
             assertEquals("$where: sumLon", members.sumOf { it.lon }, cluster.sumLon, 1e-9)
             if (members.isEmpty()) {
-                // A named cluster is the user's and survives its last visit; an unnamed one *is* its
-                // members, so an empty one is a row nothing would ever have created.
-                assertTrue("$where holds nothing and no place named it", cluster.placeId != null)
+                // A seeded cluster's place survives its last visit; an organic one *is* its members,
+                // so an empty one is a row nothing would ever have created.
+                assertTrue("$where holds nothing and no place seeds it", cluster.placeId != null)
             }
         }
 

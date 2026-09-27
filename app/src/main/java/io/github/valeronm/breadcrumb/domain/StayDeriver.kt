@@ -9,6 +9,8 @@ fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(
     endedAt = endedAt,
     start = if (startLat != null && startLon != null) Coordinate(startLat, startLon) else null,
     end = if (endLat != null && endLon != null) Coordinate(endLat, endLon) else null,
+    startPlaceId = startPlaceId,
+    endPlaceId = endPlaceId,
 )
 
 /**
@@ -16,11 +18,11 @@ fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(
  * zero sensing cost: the interval between the end of one kept track and the start of the next,
  * when both endpoints land at "the same place". Same place means any of:
  *  - the same endpoint cluster ([PlaceClusterer] over every track endpoint in history, *seeded* by
- *    the named-place pins at each pin's own capture radius — widening a venue's radius is generous
+ *    the place pins at each pin's own capture radius — widening a venue's radius is generous
  *    where blanket radii can't be; repeat visits widen organic clusters to the place's GPS scatter);
  *  - raw distance within [Params.agreementRadiusM], so nearby endpoints straddling two clusters
  *    still agree;
- *  - the same nearest *named place* pin within that pin's radius, for the residual case where a
+ *  - the same nearest *place* pin within that pin's radius, for the residual case where a
  *    nearer organic anchor pulled one endpoint out of the pin's seeded cluster.
  * Endpoint disagreement means movement the recorder missed, reported as a [Gap] instead. The
  * endpoints alone decide: whether the app was watching in between is a fact about the app, not
@@ -56,6 +58,9 @@ object StayDeriver {
         /** First/last good-point coordinates; null only defensively (kept tracks have ≥2 points). */
         val start: Coordinate?,
         val end: Coordinate?,
+        /** [io.github.valeronm.breadcrumb.data.db.Track.startPlaceId]. */
+        val startPlaceId: Long? = null,
+        val endPlaceId: Long? = null,
     )
 
     data class Params(
@@ -146,7 +151,7 @@ object StayDeriver {
     /** Derivation output: the timeline intervals plus the endpoint clusters stays index into. */
     data class Derivation(
         val intervals: List<Interval>,
-        /** Clusters over every track endpoint — one per named-place pin first (in pin order,
+        /** Clusters over every track endpoint — one per place pin first (in pin order,
          *  possibly memberless), then organic clusters chronologically; see [Stay.clusterId]. */
         val clusters: List<PlaceClusterer.Cluster>,
     )
@@ -162,7 +167,7 @@ object StayDeriver {
         tracks: List<TrackEnd>,
         params: Params = Params(),
         distance: DistanceFn,
-        /** Named-place pins with their per-place capture radii: seed the endpoint clustering
+        /** Place pins with their per-place capture radii: seed the endpoint clustering
          *  (in pin order — [PlaceResolver] maps [PlaceClusterer.Cluster.seedIndex] back to the
          *  same places list) and drive the same-nearest-pin agreement override. */
         placePins: List<PlaceClusterer.Seed> = emptyList(),
@@ -208,20 +213,33 @@ object StayDeriver {
      *
      * The ways to agree are tried in order of what they cost, not of what they mean: cluster
      * identity is already in hand, a distance is one call, and the shared-pin override is a scan of
-     * the named pins.
+     * the place pins.
      */
     class Agreement(
         private val params: Params,
         private val distance: DistanceFn,
         private val placePins: List<PlaceClusterer.Seed>,
     ) {
-        fun samePlace(a: Coordinate, b: Coordinate, sameCluster: Boolean): Boolean =
-            sameCluster ||
+        /** Two ends both stated to places are the same place exactly when it is the same one;
+         *  distance does not enter. */
+        fun samePlace(
+            a: Coordinate,
+            b: Coordinate,
+            sameCluster: Boolean,
+            aPlaceId: Long?,
+            bPlaceId: Long?,
+        ): Boolean {
+            if (aPlaceId != null && bPlaceId != null) return aPlaceId == bPlaceId
+            return sameCluster ||
                 distance.meters(a.lat, a.lon, b.lat, b.lon) <= params.agreementRadiusM ||
                 (nearestPin(a)?.let { it == nearestPin(b) } ?: false)
+        }
 
-        private fun nearestPin(e: Coordinate): Int? =
-            PlaceClusterer.nearestSeedIndex(e.lat, e.lon, placePins, distance)
+        // Built on the first pair nothing cheaper settles: a repair's seam is often settled by
+        // cluster identity or distance alone.
+        private val pins by lazy(LazyThreadSafetyMode.NONE) { PlaceClusterer.SeedIndex(placePins) }
+
+        private fun nearestPin(e: Coordinate): Int? = pins.nearest(e.lat, e.lon, distance)
     }
 
     /**
@@ -259,7 +277,7 @@ object StayDeriver {
         if (end < start) return Verdict.None
         val a = before.end
         val b = after.start
-        if (a == null || b == null || !agreement.samePlace(a, b, sameCluster)) {
+        if (a == null || b == null || !agreement.samePlace(a, b, sameCluster, before.endPlaceId, after.startPlaceId)) {
             // A zero-length disagreement ("moved without recording, in zero time") is meaningless —
             // whereas a zero-length *agreeing* pair is a split seam (an edge-stay trim's cut), and
             // its stay carries the merge-back offer.
@@ -285,6 +303,8 @@ object StayDeriver {
         val isStart: Boolean,
         val atMs: Long,
         val at: Coordinate,
+        /** The place this end is stated to, if any. */
+        val placeId: Long? = null,
     ) {
         val key: Endpoint get() = Endpoint(trackId, isStart)
     }
@@ -301,14 +321,14 @@ object StayDeriver {
      */
     fun endpointsOf(tracks: List<TrackEnd>): List<EndpointRef> = buildList {
         for (track in tracks) {
-            track.start?.let { add(EndpointRef(track.trackId, true, track.startedAt, it)) }
-            track.end?.let { add(EndpointRef(track.trackId, false, track.endedAt, it)) }
+            track.start?.let { add(EndpointRef(track.trackId, true, track.startedAt, it, track.startPlaceId)) }
+            track.end?.let { add(EndpointRef(track.trackId, false, track.endedAt, it, track.endPlaceId)) }
         }
     }
 
     /**
      * Clusters every track endpoint (chronological: each track's start then end) so anchors stay
-     * stable as history grows; pin seeds put endpoints near a named place in its cluster. The map
+     * stable as history grows; pin seeds put endpoints near a place in its cluster. The map
      * answers by [Endpoint], the clustering's own member indices carried back to the endpoints they
      * were taken from.
      */
@@ -319,8 +339,13 @@ object StayDeriver {
         distance: DistanceFn,
     ): Pair<List<PlaceClusterer.Cluster>, Map<Endpoint, Int>> {
         val endpoints = endpointsOf(tracks)
-        val clusters =
-            PlaceClusterer.cluster(endpoints.map { it.at }, params.placeRadiusM, distance, seeds = placePins)
+        val clusters = PlaceClusterer.cluster(
+            endpoints.map { it.at },
+            params.placeRadiusM,
+            distance,
+            seeds = placePins,
+            statedPlaceAt = { endpoints[it].placeId },
+        )
         val clusterOf = HashMap<Endpoint, Int>(endpoints.size)
         clusters.forEachIndexed { ci, cluster ->
             for (index in cluster.memberIndices) clusterOf[endpoints[index].key] = ci

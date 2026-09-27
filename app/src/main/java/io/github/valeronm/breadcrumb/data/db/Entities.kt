@@ -10,7 +10,24 @@ import androidx.room.PrimaryKey
  * A single continuous recording session for one activity type (e.g. one drive, one walk).
  * A new track is opened whenever the detected activity changes, and closed when it ends.
  */
-@Entity(tableName = "tracks", indices = [Index("startedAt")])
+@Entity(
+    tableName = "tracks",
+    indices = [Index("startedAt"), Index("startPlaceId"), Index("endPlaceId")],
+    foreignKeys = [
+        ForeignKey(
+            entity = Place::class,
+            parentColumns = ["id"],
+            childColumns = ["startPlaceId"],
+            onDelete = ForeignKey.SET_NULL,
+        ),
+        ForeignKey(
+            entity = Place::class,
+            parentColumns = ["id"],
+            childColumns = ["endPlaceId"],
+            onDelete = ForeignKey.SET_NULL,
+        ),
+    ],
+)
 data class Track(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val activityType: String,
@@ -63,6 +80,12 @@ data class Track(
      * devices that no pass ever cleared.
      */
     val needsReview: Boolean = false,
+    /** The place this track's first fix is stated to belong to, whatever its distance from it — set
+     *  by whoever wrote the row from evidence of their own, never measured. Null leaves the start
+     *  to the capture radii. */
+    val startPlaceId: Long? = null,
+    /** [startPlaceId] for the last fix. */
+    val endPlaceId: Long? = null,
 )
 
 @Entity(
@@ -120,29 +143,29 @@ data class TrackPoint(
 
 /**
  * A group of track endpoints that are one spot, and **the durable entity a stay belongs to** — the
- * place row beside it holds only what the user called it.
+ * place row beside it holds only what was said about the spot.
  *
- * [anchorLat]/[anchorLon] is the first member's position (or a named place's pin) and decides
+ * [anchorLat]/[anchorLon] is the first member's position (or a place's pin) and decides
  * membership: an endpoint joins the nearest cluster whose [radiusM] covers it. The centroid — where
  * the cluster is *reported* to be — is [sumLat]/[sumLon] over [memberCount], kept as running sums so
  * adding or removing one member is an exact O(1) update in either direction, and so that placing a
  * cluster on a map reads this row alone rather than joining [ClusterMember].
  *
- * A row with a [placeId] is a **seed**, and that is the whole difference user curation makes to the
- * grouping: a seed's anchor and radius are given, where an unnamed cluster's are whatever its
+ * A row with a [placeId] is a **seed**, and that is the whole difference a place makes to the
+ * grouping: a seed's anchor and radius are given, where an organic cluster's are whatever its
  * members made them.
  */
 @Entity(tableName = "derived_clusters", indices = [Index("placeId")])
 data class DerivedCluster(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    /** The place naming this cluster, or null while nothing has named it. No foreign key: the two
-     *  are maintained together in one transaction, and a place delete clears this by hand. */
+    /** The place seeding this cluster, or null for an organic one. No foreign key: the two are
+     *  maintained together in one transaction, and a place delete clears this by hand. */
     val placeId: Long? = null,
     val anchorLat: Double,
     val anchorLon: Double,
     val radiusM: Double,
     /** Running sums of member positions; the centroid is these over [memberCount], and the anchor
-     *  when that is zero — a named cluster whose stays were all deleted keeps its pin. */
+     *  when that is zero — a seeded cluster whose stays were all deleted keeps its pin. */
     val sumLat: Double,
     val sumLon: Double,
     val memberCount: Int,
@@ -239,14 +262,15 @@ data class DerivedInterval(
 }
 
 /**
- * A user-named place, created/renamed/deleted from the stay-naming dialog — the places feature's
- * only persisted layer, carrying what the user said about the spot (its name, what it is for,
- * how wide it captures) and nothing derived; stays, clusters and visit counts derive on read.
+ * A place, created/renamed/deleted from the stay-naming dialog or brought in by an import — the
+ * places feature's only persisted layer, carrying what was said about the spot (its name, what it
+ * is for, how wide it captures) and nothing derived; stays, clusters and visit counts derive on read.
  */
-@Entity(tableName = "places")
+@Entity(tableName = "places", indices = [Index(value = ["externalProvider", "externalId"], unique = true)])
 data class Place(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val label: String,
+    /** Null for a place known only from another source, which the user has not named. */
+    val label: String?,
     /** Cluster centroid at naming time. Never updated on rename — a stable pin. */
     val lat: Double,
     val lon: Double,
@@ -260,6 +284,10 @@ data class Place(
      *  string rather than the enum: a code this build doesn't know reads as untagged but survives
      *  the round trip through a backup, which mapping at the column would erase. */
     val category: String? = null,
+    /** Where this place came from when not from the user, with [externalId] the source's own
+     *  identifier for it. */
+    val externalProvider: String? = null,
+    val externalId: String? = null,
 )
 
 /** A finished track projected to what stay derivation needs: interval + endpoint coordinates. */
@@ -271,6 +299,8 @@ data class TrackEndpoints(
     val startLon: Double?,
     val endLat: Double?,
     val endLon: Double?,
+    val startPlaceId: Long?,
+    val endPlaceId: Long?,
 )
 
 /**
@@ -299,4 +329,7 @@ data class TrackSummary(
     /** [Track.source]: who wrote the fixes. Undefaulted like the columns beside it — a projection
      *  that leaves it out reads as a track whose writer is unknown, which is a claim, not a gap. */
     val source: String?,
+    /** [Track.startPlaceId] and [Track.endPlaceId]: the places this track's ends are stated to. */
+    val startPlaceId: Long?,
+    val endPlaceId: Long?,
 )

@@ -32,7 +32,7 @@ class StayLedgerTest {
      * The stored state a full derivation of [tracks] leaves — cluster rows numbered from 1, and one
      * membership per endpoint. The ledger is then asked to reach the same answer incrementally.
      */
-    private fun store(tracks: List<TrackEnd>, named: Set<Int> = emptySet()): Stored {
+    private fun store(tracks: List<TrackEnd>, seeded: Set<Int> = emptySet()): Stored {
         val derivation = StayDeriver.derive(
             tracks, StayDeriver.Params(), flatDistance, emptyList(),
         )
@@ -40,8 +40,7 @@ class StayLedgerTest {
         val clusters = derivation.clusters.mapIndexed { index, cluster ->
             StayLedger.ClusterRow(
                 id = index + 1L,
-                seed = PlaceClusterer.Seed(cluster.anchor, cluster.radiusM),
-                named = index in named,
+                seed = PlaceClusterer.Seed(cluster.anchor, cluster.radiusM, (index + 1L).takeIf { index in seeded }),
                 memberCount = cluster.visitCount,
             )
         }
@@ -186,15 +185,15 @@ class StayLedgerTest {
         assertTrue("and its memberships with it", 2L in mutations.removed.membershipsOfTracks)
     }
 
-    @Test fun `a cluster left holding nothing ends, unless the user named it`() {
+    @Test fun `a cluster left holding nothing ends, unless a place seeds it`() {
         val only = track(1, 60 * MIN, 120 * MIN)
-        val unnamed = store(listOf(only))
-        val named = store(listOf(only), named = setOf(0))
+        val organic = store(listOf(only))
+        val seeded = store(listOf(only), seeded = setOf(0))
 
-        assertEquals(listOf(1L), reknit(unnamed, removed = listOf(only)).removed.emptiedClusters)
+        assertEquals(listOf(1L), reknit(organic, removed = listOf(only)).removed.emptiedClusters)
         assertTrue(
-            "a named cluster survives its last visit",
-            reknit(named, removed = listOf(only)).removed.emptiedClusters.isEmpty(),
+            "a seeded cluster survives its last visit",
+            reknit(seeded, removed = listOf(only)).removed.emptiedClusters.isEmpty(),
         )
     }
 
@@ -270,7 +269,7 @@ class StayLedgerTest {
         assertEquals(nearby, afresh.clusters.single().anchor)
     }
 
-    @Test fun `a named cluster's reach decides agreement, as it does in a full derivation`() {
+    @Test fun `a seeded cluster's reach decides agreement, as it does in a full derivation`() {
         // The shared-pin override — the clause the ledger and the deriver share through Agreement.
         // Two endpoints too far apart to agree on their own, both inside one named place's radius.
         val wide = Coordinate(1.003, 1.0) // 300 m from home
@@ -278,7 +277,7 @@ class StayLedgerTest {
         val second = track(2, 240 * MIN, 300 * MIN, from = wide, to = wide)
         val stored = Stored(
             clusters = listOf(
-                StayLedger.ClusterRow(1L, PlaceClusterer.Seed(home, 500.0), named = true, memberCount = 2),
+                StayLedger.ClusterRow(1L, PlaceClusterer.Seed(home, 500.0, placeId = 1L), memberCount = 2),
             ),
             members = StayDeriver.endpointsOf(listOf(first)).map {
                 StayLedger.Membership(it.trackId, it.isStart, it.at, it.atMs, StayLedger.ClusterRef.Stored(1L))

@@ -40,6 +40,10 @@ interface TrackDao {
     @Query("UPDATE tracks SET endedAt = :endedAt WHERE id = :trackId")
     suspend fun closeTrack(trackId: Long, endedAt: Long)
 
+    /** [closeTrack] for an end whose stated place moves with it. */
+    @Query("UPDATE tracks SET endedAt = :endedAt, endPlaceId = :endPlaceId WHERE id = :trackId")
+    suspend fun closeTrackAtPlace(trackId: Long, endedAt: Long, endPlaceId: Long?)
+
     /**
      * Write a track's aggregates ([io.github.valeronm.breadcrumb.data.TrackStats]) onto its row —
      * on finish, merge, split, import, retype or overrun re-derivation, never per fix: the

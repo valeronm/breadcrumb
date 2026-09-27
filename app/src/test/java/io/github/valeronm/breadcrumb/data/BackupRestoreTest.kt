@@ -269,4 +269,52 @@ class BackupRestoreTest {
             TrackStats.of(points).matches(restored),
         )
     }
+
+    @Test fun `a track's stated places come back as the restored rows`() = runTest {
+        val google = source.db.placeDao().insert(
+            Place(
+                label = null, lat = 1.0, lon = -2.0, createdAt = TEST_START, radiusM = 90.0,
+                externalProvider = "google", externalId = "ChIJ-1",
+            ),
+        )
+        val trailhead = source.db.placeDao().insert(
+            Place(label = "Trailhead", lat = 1.01, lon = -2.01, createdAt = TEST_START, radiusM = 150.0),
+        )
+        val id = source.dao.insertTrack(
+            Track(
+                source = RECORDED, activityType = "WALKING", startedAt = TEST_START,
+                startPlaceId = google, endPlaceId = trailhead,
+            ),
+        )
+        source.dao.insertPoints((0..4).map { source.point(id, it) })
+        source.repository.finishTrack(id, TEST_START + 40_000L)
+
+        roundTrip()
+
+        val restored = target.repository.exportTracks().single()
+        val places = targetPlaces.allPlaces().associateBy { it.id }
+        val start = places.getValue(checkNotNull(restored.startPlaceId))
+        assertNull(start.label)
+        assertEquals("google" to "ChIJ-1", start.externalProvider to start.externalId)
+        assertEquals("Trailhead", places.getValue(checkNotNull(restored.endPlaceId)).label)
+        DerivedConsistency.assertMatchesFreshDerive(targetDb, TEST_START + 86_400_000L)
+    }
+
+    @Test fun `a track naming a place the file does not hold is refused`() = runTest {
+        val json = """{"format":"breadcrumb-export","version":2,"pointFields":["timestamp","lat","lon"],""" +
+            """"places":[],"tracks":[{"id":1,"activityType":"WALKING","startedAt":0,"endedAt":1,""" +
+            """"startPlaceId":5,"points":[[0,1.0,-2.0],[1,1.0,-2.0]]}]}"""
+        val failure = runCatching {
+            BackupImporter.restore(
+                java.io.StringReader(json),
+                BackupRepositories(
+                    tracks = target.repository,
+                    places = PlaceRepository(context, target.db),
+                    derivation = DerivationStore(context, target.db),
+                ),
+            )
+        }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(target.repository.exportTracks().isEmpty())
+    }
 }

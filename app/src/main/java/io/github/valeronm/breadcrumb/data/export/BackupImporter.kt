@@ -58,6 +58,9 @@ object BackupImporter {
         var points = 0
         var places = 0
         var total: Int? = null
+        val placeIds = HashMap<Long, Long>()
+        fun restoredPlace(fileId: Long) =
+            requireNotNull(placeIds[fileId]) { "a track names place $fileId, which the file does not hold before it" }
         val batch = mutableListOf<Pair<Track, List<TrackPoint>>>()
         suspend fun flush() {
             if (batch.isEmpty()) return
@@ -71,14 +74,18 @@ object BackupImporter {
             reader,
             onTrack = { track, trackPoints, tracksTotal ->
                 total = tracksTotal
-                batch += track to trackPoints
+                batch += track.copy(
+                    startPlaceId = track.startPlaceId?.let(::restoredPlace),
+                    endPlaceId = track.endPlaceId?.let(::restoredPlace),
+                ) to trackPoints
                 // Parsed counts as progress too — the first flush is 50 tracks in, and a count
                 // stuck at 0 until then reads as a hang.
                 onProgress(tracks + batch.size, total)
                 if (batch.size >= INSERT_BATCH) flush()
             },
             onPlaces = {
-                repositories.places.restorePlaces(it)
+                val ids = repositories.places.restorePlaces(it)
+                it.zip(ids) { place, id -> placeIds[place.id] = id }
                 places = it.size
             },
         )
@@ -187,6 +194,8 @@ object BackupImporter {
         var startLon: Double? = null
         var endLat: Double? = null
         var endLon: Double? = null
+        var startPlaceId: Long? = null
+        var endPlaceId: Long? = null
         val points = mutableListOf<TrackPoint>()
         val values = mutableListOf<Any?>() // one point's cells, reused across the whole track
         json.beginObject()
@@ -204,6 +213,8 @@ object BackupImporter {
                 "startLon" -> startLon = json.nextNumberOrNull()?.toDouble()
                 "endLat" -> endLat = json.nextNumberOrNull()?.toDouble()
                 "endLon" -> endLon = json.nextNumberOrNull()?.toDouble()
+                "startPlaceId" -> startPlaceId = json.nextNumberOrNull()?.toLong()
+                "endPlaceId" -> endPlaceId = json.nextNumberOrNull()?.toLong()
                 "points" -> {
                     json.beginArray()
                     while (json.hasNext()) points.add(readPoint(json, fields, id, values))
@@ -228,6 +239,8 @@ object BackupImporter {
             startLon = startLon,
             endLat = endLat,
             endLon = endLon,
+            startPlaceId = startPlaceId,
+            endPlaceId = endPlaceId,
         )
         return track to points
     }
@@ -268,7 +281,7 @@ object BackupImporter {
 
     private fun readPlace(json: JsonPullReader): Place {
         var id = 0L
-        var label = ""
+        var label: String? = null
         var lat = 0.0
         var lon = 0.0
         var createdAt = 0L
@@ -276,11 +289,13 @@ object BackupImporter {
         // Kept as the raw code: a category this build doesn't know reads as untagged but survives
         // the restore, so a file written by a later version isn't quietly stripped by this one.
         var category: String? = null
+        var externalProvider: String? = null
+        var externalId: String? = null
         json.beginObject()
         while (json.hasNext()) {
             when (json.nextName()) {
                 "id" -> id = json.nextNumber().toLong()
-                "label" -> label = json.nextString()
+                "label" -> label = json.nextStringOrNull()
                 "lat" -> lat = json.nextNumber().toDouble()
                 "lon" -> lon = json.nextNumber().toDouble()
                 "createdAt" -> createdAt = json.nextNumber().toLong()
@@ -289,6 +304,8 @@ object BackupImporter {
                 // writer that spells it `"category":null` must not abort the whole restore — the same
                 // tolerance nextNumberOrNull gives every other optional field.
                 "category" -> category = json.nextPrimitive() as? String
+                "externalProvider" -> externalProvider = json.nextStringOrNull()
+                "externalId" -> externalId = json.nextStringOrNull()
                 else -> json.skipValue()
             }
         }
@@ -296,6 +313,7 @@ object BackupImporter {
         return Place(
             id = id, label = label, lat = lat, lon = lon, createdAt = createdAt,
             radiusM = radiusM, category = category,
+            externalProvider = externalProvider, externalId = externalId,
         )
     }
 }

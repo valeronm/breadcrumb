@@ -75,15 +75,15 @@ class DerivationStoreTest {
         assertEquals(1.0, clusters.single().anchorLat, 1e-9)
     }
 
-    @Test fun `a named cluster keeps its id across a rebuild`() = runTest {
+    @Test fun `a seeded cluster keeps its id across a rebuild`() = runTest {
         // What a stay's place *is* — repointing it would silently rewrite the history's places.
         places.create(test.place("Home", 1.0, -2.0))
-        val before = derived.namedClusters().single()
+        val before = derived.seededClusters().single()
 
         twoTracks()
         store.rebuild()
 
-        val after = derived.namedClusters().single()
+        val after = derived.seededClusters().single()
         assertEquals(before.id, after.id)
         assertEquals(before.placeId, after.placeId)
         // Both tracks set off from the place and end ~550 m north of it, so its capture radius
@@ -173,7 +173,7 @@ class DerivationStoreTest {
         val withPlace = derived.intervalsOnce().map { it.type to it.start }
 
         places.delete(id)
-        assertTrue("its cluster went with it", derived.namedClusters().isEmpty())
+        assertTrue("its cluster went with it", derived.seededClusters().isEmpty())
         assertDerivedMatchesFreshDerive()
 
         places.restore(named)

@@ -92,13 +92,14 @@ object PlaceResolver {
     private fun displayName(place: Place?, city: String?): String? = place?.label ?: city
 
     /**
-     * **Where a place sits: the pin once named, [whileUnnamed] until then.** The two readings below
-     * describe the same stop on two screens, so they ask this rather than each holding a ternary —
-     * a refinement to one of a matched pair is how one stop comes to be drawn at two coordinates,
-     * and there is no test that can catch it.
+     * **Where a place sits: the pin once named, [whileUnnamed] until then** — a row nobody has
+     * named included, which reads as the unnamed cluster it seeds. The two readings below describe
+     * the same stop on two screens, so they ask this rather than each holding a ternary — a
+     * refinement to one of a matched pair is how one stop comes to be drawn at two coordinates, and
+     * there is no test that can catch it.
      */
     private fun pinOf(place: Place?, whileUnnamed: Coordinate): Coordinate =
-        place?.pin ?: whileUnnamed
+        place?.takeIf { it.isNamed }?.pin ?: whileUnnamed
 
     /**
      * The stays that are visits. **A stop of no duration is not one**: two tracks sharing an instant
@@ -121,9 +122,9 @@ object PlaceResolver {
 
     data class ResolvedStay(
         /**
-         * The matched place, or null for an unnamed cluster — the row itself rather than a copy
-         * per attribute, so a new place column reaches the timeline without a field here and the
-         * label/id pair can't come apart. Its pin is deliberately *not* [centroid]: the pin is
+         * The place row seeding this cluster, or null for an organic one — the row itself rather
+         * than a copy per attribute, so a new place column reaches the timeline without a field
+         * here and the label/id pair can't come apart. Its pin is deliberately *not* [centroid]: the pin is
          * where the user dropped it, the centroid where this cluster's endpoints actually sit.
          */
         val place: Place?,
@@ -146,8 +147,11 @@ object PlaceResolver {
          *  which is the same rule for the same reason. */
         private val keptKey: String? = null,
     ) {
-        /** The matched place's label, or null for an unnamed cluster. */
+        /** The matched place's label, or null while nothing has named this cluster. */
         val label: String? get() = place?.label
+
+        /** See [PlaceSummary.isNamed]. */
+        val isNamed: Boolean get() = place?.isNamed == true
 
         /** Where this stop sits — see [pinOf]; unnamed, that is the middle of what the cluster
          *  captured. */
@@ -162,7 +166,7 @@ object PlaceResolver {
         /** What to call this stop — see [displayName], which decides it for both readings. */
         val name: String? get() = displayName(place, city)
 
-        /** The matched place's id — non-null exactly when [label] is. */
+        /** The matched place's id, named or not. */
         val placeId: Long? get() = place?.id
 
         /** What the place is for; null for an unnamed or untagged one. */
@@ -186,8 +190,8 @@ object PlaceResolver {
     }
 
     /**
-     * Aggregate stats for one place on the Places screen. [place] is null for an unnamed cluster,
-     * still listed so it can be named.
+     * Aggregate stats for one place on the Places screen. [place] is the row seeding the cluster, or
+     * null for an organic one; either kind may be unnamed, and is still listed so it can be named.
      */
     data class PlaceSummary(
         val place: Place?,
@@ -223,7 +227,7 @@ object PlaceResolver {
          */
         private val keptKey: String? = null,
     ) {
-        val isNamed: Boolean get() = place != null
+        val isNamed: Boolean get() = place?.isNamed == true
 
         /** The city this place sits in, named or not — see [locality]. */
         val city: String? get() = locality?.name
@@ -238,9 +242,8 @@ object PlaceResolver {
         /**
          * Where this place sits — see [pinOf]; unnamed, that is the mean of what it captured, which
          * is exactly where naming would drop the pin. Derived, because a summary that carried it
-         * could hold a position its own anchor and endpoints disagree with. The [anchor] fallback
-         * cannot fire — only a seeded cluster can be empty of endpoints, and a seeded cluster is
-         * named — it is there because the mean is typed nullable for that case.
+         * could hold a position its own anchor and endpoints disagree with. The [anchor] fallback is
+         * for a seeded cluster nothing has visited, the only kind with no endpoints to average.
          */
         val pin: Coordinate get() = pinOf(place, endpointCentroid ?: anchor)
 
@@ -297,13 +300,13 @@ object PlaceResolver {
         }
 
         /**
-         * The pins that can out-compete [subject] for a candidate — **only *named* neighbors.**
-         * A named place is a seed, in the clusterer's anchor list before any endpoint is read, so
-         * it holds its ground whatever the subject's radius does; an unnamed cluster's anchor is
-         * merely the first endpoint no seed claimed, so ground a growing radius covers never forms
-         * one at all. Counting unnamed clusters as rivals makes them look immovable (each sits on
-         * its own members), and a widened radius then appears to capture nothing while saving it
-         * quietly takes more than was shown.
+         * The pins that can out-compete [subject] for a candidate — **only neighbors a place row
+         * seeds**, named or not. A seed is in the clusterer's anchor list before any endpoint is
+         * read, so it holds its ground whatever the subject's radius does; an organic cluster's
+         * anchor is merely the first endpoint no seed claimed, so ground a growing radius covers
+         * never forms one at all. Counting organic clusters as rivals makes them look immovable
+         * (each sits on its own members), and a widened radius then appears to capture nothing while
+         * saving it quietly takes more than was shown.
          */
         val rivals: List<PlaceClusterer.Seed> = nearby.mapNotNull { other ->
             other.place?.let { PlaceClusterer.Seed(other.anchor, other.radiusM) }

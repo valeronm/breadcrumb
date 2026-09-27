@@ -25,12 +25,23 @@ class StayDeriverTest {
     private val office = Coordinate(2.0, 2.0)
 
     /** A named-place pin at venue scale (the default place radius is 150 m; venues get widened). */
-    private fun pin(meters: Double, radiusM: Double = 350.0) = PlaceClusterer.Seed(at(meters), radiusM)
+    private fun pin(meters: Double, radiusM: Double = 350.0, placeId: Long? = null) =
+        PlaceClusterer.Seed(at(meters), radiusM, placeId)
 
     private val NOW = 1_000 * MIN
 
-    private fun track(id: Long, start: Long, end: Long, from: Coordinate? = home, to: Coordinate? = home) =
-        TrackEnd(trackId = id, startedAt = start, endedAt = end, start = from, end = to)
+    private fun track(
+        id: Long,
+        start: Long,
+        end: Long,
+        from: Coordinate? = home,
+        to: Coordinate? = home,
+        startPlace: Long? = null,
+        endPlace: Long? = null,
+    ) = TrackEnd(
+        trackId = id, startedAt = start, endedAt = end, start = from, end = to,
+        startPlaceId = startPlace, endPlaceId = endPlace,
+    )
 
     private fun derive(
         tracks: List<TrackEnd>,
@@ -587,7 +598,7 @@ class StayDeriverTest {
     private fun summary(id: Long, startedAt: Long) = TrackSummary(
         id = id, activityType = "WALKING", startedAt = startedAt,
         endedAt = startedAt + 10 * MIN, distanceMeters = 1000.0, pointCount = 100, ignoredCount = 0,
-        source = null,
+        source = null, startPlaceId = null, endPlaceId = null,
     )
 
     // --- Zero-length gaps (trim seams) -------------------------------------
@@ -625,5 +636,70 @@ class StayDeriverTest {
         val first = derive(tracks).first { it.afterTrackId == 1L }
         assertTrue(first is Gap)
         assertNotEquals((first as Gap).fromClusterId, first.toClusterId)
+    }
+
+    // --- Stated ends -------------------------------------------------------
+
+    private fun statedPair(to: Coordinate, from: Coordinate, endPlace: Long? = null, startPlace: Long? = null) =
+        listOf(
+            track(1, start = 60 * MIN, end = 120 * MIN, from = at(-5000.0), to = to, endPlace = endPlace),
+            track(2, start = 240 * MIN, end = 300 * MIN, from = from, to = at(5000.0), startPlace = startPlace),
+        )
+
+    @Test fun `a stated end joins its place's cluster however far from the pin`() {
+        val derivation = StayDeriver.derive(
+            statedPair(to = at(600.0), from = at(0.0), endPlace = 7),
+            StayDeriver.Params(), flatDistance, placePins = listOf(pin(0.0, placeId = 7)),
+        )
+        val stay = derivation.intervals.single() as Stay
+        assertEquals(0, derivation.clusters[stay.clusterId].seedIndex)
+    }
+
+    @Test fun `a stated end joins its own place over a nearer one`() {
+        val derivation = StayDeriver.derive(
+            statedPair(to = at(0.0), from = at(3000.0), endPlace = 2),
+            StayDeriver.Params(), flatDistance,
+            placePins = listOf(pin(0.0, placeId = 1), pin(300.0, placeId = 2)),
+        )
+        val gap = derivation.intervals.single() as Gap
+        assertEquals(1, derivation.clusters[checkNotNull(gap.fromClusterId)].seedIndex)
+    }
+
+    @Test fun `ends stated to different places are a gap however close`() {
+        val intervals = derive(
+            statedPair(to = at(0.0), from = at(50.0), endPlace = 1, startPlace = 2),
+            pins = listOf(pin(0.0, placeId = 1), pin(50.0, placeId = 2)),
+        )
+        assertEquals(GapReason.MOVED_UNRECORDED, (intervals.single() as Gap).reason)
+    }
+
+    @Test fun `ends stated to one place are a stay however far apart`() {
+        val derivation = StayDeriver.derive(
+            statedPair(to = at(0.0), from = at(2000.0), endPlace = 1, startPlace = 1),
+            StayDeriver.Params(), flatDistance, placePins = listOf(pin(0.0, placeId = 1)),
+        )
+        val stay = derivation.intervals.single() as Stay
+        assertEquals(0, derivation.clusters[stay.clusterId].seedIndex)
+    }
+
+    @Test fun `one stated end leaves the pair to the distance rule`() {
+        val intervals = derive(
+            statedPair(to = at(0.0), from = at(50.0), endPlace = 1),
+            pins = listOf(pin(2000.0, placeId = 1)),
+        )
+        assertTrue(intervals.single() is Stay)
+    }
+
+    @Test fun `a stated end founds no anchor for the ends after it`() {
+        val tracks = listOf(
+            track(1, start = 60 * MIN, end = 120 * MIN, from = at(0.0), to = at(5000.0), endPlace = 1),
+            track(2, start = 240 * MIN, end = 300 * MIN, from = at(5000.0), to = at(5000.0)),
+        )
+        val clusters = StayDeriver.derive(
+            tracks, StayDeriver.Params(), flatDistance, placePins = listOf(pin(0.0, placeId = 1)),
+        ).clusters
+        assertEquals(listOf(2, 2), clusters.map { it.visitCount })
+        assertNull(clusters[1].seedIndex)
+        assertEquals(at(5000.0), clusters[1].anchor)
     }
 }

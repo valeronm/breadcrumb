@@ -33,7 +33,8 @@ class GoogleTimelineParserTest {
         placeId: String = "p1",
         semanticType: String = "HOME",
         at: String = "1.0°, -2.0°",
-    ) = """{"startTime":"$start","endTime":"2024-01-01T09:00:00.000+01:00","visit":{"hierarchyLevel":0,""" +
+        level: Int = 0,
+    ) = """{"startTime":"$start","endTime":"2024-01-01T09:00:00.000+01:00","visit":{"hierarchyLevel":$level,""" +
         """"probability":0.9,"topCandidate":{"placeId":"$placeId","semanticType":"$semanticType",""" +
         """"probability":0.9,"placeLocation":{"latLng":"$at"}}}}"""
 
@@ -67,9 +68,14 @@ class GoogleTimelineParserTest {
             .visits.single()
         assertEquals("abc", v.placeId)
         assertEquals("INFERRED_WORK", v.semanticType)
-        assertEquals(1.002, v.lat, 0.0)
-        assertEquals(-2.003, v.lon, 0.0)
+        assertEquals(Coordinate(1.002, -2.003), v.at)
         assertEquals(ms("2024-01-01T07:00:00Z"), v.startMs)
+        assertEquals(ms("2024-01-01T08:00:00Z"), v.endMs)
+        assertEquals(true, v.topLevel)
+    }
+
+    @Test fun `a nested visit reads as not top-level`() {
+        assertEquals(false, parse(doc(visit(level = 1))).visits.single().topLevel)
     }
 
     @Test fun `path samples from every path segment are collected, an unreadable one dropped alone`() {

@@ -213,6 +213,8 @@ class TimelineRowTest {
                 pointCount = 100,
                 ignoredCount = 0,
                 source = "recorded",
+                startPlaceId = null,
+                endPlaceId = null,
             ),
             shape = SHAPE,
             zone = zone,

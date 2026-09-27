@@ -7,9 +7,10 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * The named places at a track's two ends — where the journey set out from and where it arrived. What
  * a route is annotated with, a line between two anonymous dots saying only *that* it went somewhere.
  *
- * A place holds an end when that end sits inside its capture radius, and the **nearest** such place
- * wins — literally [PlaceClusterer.nearestSeedIndex], the predicate that admits a stay, because it is
- * the same question about the same coordinate. Reusing the place's own radius leaves the user one
+ * An end stated to a place is held by that place, as the derivation files it. Otherwise a place
+ * holds an end when that end sits inside its capture radius, and the **nearest** such place wins —
+ * literally [PlaceClusterer.nearestSeedIndex], the predicate that admits a stay, because it is the
+ * same question about the same coordinate. Reusing the place's own radius leaves the user one
  * knob: narrowing a place to a doorway keeps other people's stops out of it *and* stops it claiming
  * the arrivals of journeys that merely finished down the street.
  *
@@ -28,27 +29,38 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 object RoutePlaces {
 
     /**
-     * The place at [points]' start followed by the place at its end, each dropped where no place
-     * holds that end. **Deduplicated**: a round trip home is one place, drawn once — the line already
-     * says it came back, and two pins on one spot would only fight over the same label.
+     * The place at [points]' start followed by the place at its end, each dropped where the place
+     * holding that end is unnamed or there is none. **Deduplicated**: a round trip home is one
+     * place, drawn once — the line already says it came back, and two pins on one spot would only
+     * fight over the same label.
      */
-    fun ends(points: List<TrackPoint>, places: List<Place>, distance: DistanceFn): List<Place> {
+    fun ends(
+        points: List<TrackPoint>,
+        places: List<Place>,
+        distance: DistanceFn,
+        startPlaceId: Long? = null,
+        endPlaceId: Long? = null,
+    ): List<Place> {
         if (points.isEmpty()) return emptyList()
         // One projection for both ends: it is the same pins answering the same question twice.
         val seeds = PlaceClusterer.seedsOf(places)
         return listOfNotNull(
-            holderOf(points.first(), seeds, places, distance),
-            holderOf(points.last(), seeds, places, distance),
+            holderOf(points.first(), startPlaceId, seeds, places, distance),
+            holderOf(points.last(), endPlaceId, seeds, places, distance),
         ).distinctBy { it.id }
     }
 
     /**
-     * The place whose capture area holds [point], or null where none does — the question [ends] asks
-     * of each end, for a caller that needs the two answers apart rather than deduplicated into a set
-     * of pins to draw.
+     * The named place holding [point], or null where none does — the question [ends] asks of each
+     * end, for a caller that needs the two answers apart rather than deduplicated into a set of pins
+     * to draw.
      */
-    fun holding(point: TrackPoint, places: List<Place>, distance: DistanceFn): Place? =
-        holderOf(point, PlaceClusterer.seedsOf(places), places, distance)
+    fun holding(
+        point: TrackPoint,
+        places: List<Place>,
+        distance: DistanceFn,
+        statedPlaceId: Long?,
+    ): Place? = holderOf(point, statedPlaceId, PlaceClusterer.seedsOf(places), places, distance)
 
     // Through the seeds, not the rows: a pin and its reach are the whole of what claims a
     // coordinate, and reading the columns here would be a second reader of a place's geometry
@@ -56,10 +68,13 @@ object RoutePlaces {
     // order — the index comes back positional.
     private fun holderOf(
         point: TrackPoint,
+        stated: Long?,
         seeds: List<PlaceClusterer.Seed>,
         places: List<Place>,
         distance: DistanceFn,
-    ): Place? =
-        PlaceClusterer.nearestSeedIndex(point.latitude, point.longitude, seeds, distance)
-            ?.let(places::get)
+    ): Place? {
+        val holder = stated?.let { id -> places.firstOrNull { it.id == id } }
+            ?: PlaceClusterer.nearestSeedIndex(point.latitude, point.longitude, seeds, distance)?.let(places::get)
+        return holder?.takeIf { it.isNamed }
+    }
 }

@@ -10,7 +10,7 @@ import java.time.ZoneId
 class TrackMergeTest {
 
     private fun track(id: Long, activity: String, startedAt: Long, source: String? = null) =
-        TrackSummary(id, activity, startedAt, endedAt = startedAt + 1000, distanceMeters = 100.0, pointCount = 10, ignoredCount = 0, source = source)
+        TrackSummary(id, activity, startedAt, endedAt = startedAt + 1000, distanceMeters = 100.0, pointCount = 10, ignoredCount = 0, source = source, startPlaceId = null, endPlaceId = null)
 
     private val before = track(1, "WALKING", 0)
     private val after = track(2, "WALKING", 300_000)

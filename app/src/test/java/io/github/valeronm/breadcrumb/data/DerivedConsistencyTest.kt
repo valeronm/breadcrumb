@@ -177,6 +177,35 @@ class DerivedConsistencyTest {
         assertExact()
     }
 
+    private fun state(trackId: Long, column: String, placeId: Long) =
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE tracks SET $column = ? WHERE id = ?", arrayOf<Any>(placeId, trackId),
+        )
+
+    @Test fun `ends stated to places agree through each repair, and a place delete clears them`() = runTest {
+        val ids = recordedHistory()
+        // Nowhere near any fix, so only the statement can put an end there.
+        val far = places.create(test.place("Far", 1.5, -2.5))
+        val home = places.create(test.place("Home", 1.0, -2.0))
+        state(ids[1], "endPlaceId", far)
+        state(ids[2], "startPlaceId", far)
+        state(ids[5], "endPlaceId", home)
+        state(ids[6], "startPlaceId", home)
+        store.rebuild()
+        assertExact()
+
+        val split = checkNotNull(repository.splitTrack(ids[4], hours(54) + 25_000L))
+        assertExact()
+        repository.unsplitTracks(ids[4], split)
+        assertExact()
+
+        checkNotNull(repository.mergeTracks(ids[0], ids[1]))
+        assertCoherent()
+
+        places.delete(far)
+        assertExact()
+    }
+
     // --- The weaker claim, where a track left the history ---------------------
     //
     // A delete or a merge can strand an anchor at a coordinate a fresh pass would not choose. What

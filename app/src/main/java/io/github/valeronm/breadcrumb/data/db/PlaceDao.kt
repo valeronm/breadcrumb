@@ -12,7 +12,7 @@ interface PlaceDao {
 
     /** Backup restore: one transaction for the whole list, not one per row. */
     @Insert
-    suspend fun insertAll(places: List<Place>)
+    suspend fun insertAll(places: List<Place>): List<Long>
 
     /**
      * Everything the place editor commits, as **one** write — deliberately not a setter per field.
@@ -22,7 +22,7 @@ interface PlaceDao {
      * are two full re-clusterings of the whole history for one Done tap.
      */
     @Query("UPDATE places SET label = :label, lat = :lat, lon = :lon, radiusM = :radiusM WHERE id = :id")
-    suspend fun update(id: Long, label: String, lat: Double, lon: Double, radiusM: Double)
+    suspend fun update(id: Long, label: String?, lat: Double, lon: Double, radiusM: Double)
 
     /** `PlaceCategory.code`, or null to untag. */
     @Query("UPDATE places SET category = :code WHERE id = :id")

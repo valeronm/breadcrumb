@@ -83,11 +83,14 @@ export function reachBound(lat, lon, distance) {
   const latProbe = lat >= 0 ? -PROBE_DEGREES : PROBE_DEGREES;
   const latPerDegree = distance(lat, lon, lat + latProbe, lon) / PROBE_DEGREES;
   const lonPerDegree = distance(lat, lon, lat, lon + PROBE_DEGREES) / PROBE_DEGREES;
-  return (otherLat, otherLon, radiusM) => {
+  const outOfReach = (otherLat, otherLon, radiusM) => {
     const reach = radiusM * SLACK;
     return Math.abs(otherLat - lat) * latPerDegree > reach
       || Math.abs(otherLon - lon) * lonPerDegree > reach;
   };
+  /** How many degrees of latitude either side a candidate can sit and not be out of reach. */
+  outOfReach.latitudeSpan = (radiusM) => radiusM * SLACK / latPerDegree;
+  return outOfReach;
 }
 
 // GreatCircle — the app's rule for drawing a manual track's leg: a straight segment in projected

@@ -549,6 +549,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                     startedAt = earlier.startedAt,
                     endedAt = later.endedAt,
                     source = earlier.source,
+                    startPlaceId = earlier.startPlaceId,
+                    endPlaceId = later.endPlaceId,
                 ),
             )
             dao.copyPointsInto(mergedId, earlierId)
@@ -622,13 +624,15 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 endedAt = endedAt,
                 // The half is the same recording, cut: a split never introduces a writer.
                 source = track.source,
+                endPlaceId = track.endPlaceId,
             )
             val secondId = dao.insertTrack(secondRow)
             dao.movePointsFrom(secondId, trackId, atTs)
-            dao.closeTrack(trackId, plan.firstEndTs)
+            // Nothing states where the cut was.
+            dao.closeTrackAtPlace(trackId, plan.firstEndTs, endPlaceId = null)
             // The points are the lists already in hand: the move rewrote one column and left every
             // row id, timestamp and flag alone, so re-reading them would buy nothing.
-            val first = track.copy(endedAt = plan.firstEndTs)
+            val first = track.copy(endedAt = plan.firstEndTs, endPlaceId = null)
             val second = secondRow.copy(id = secondId)
             // Recomputed per half, not divided: each is its own journey now.
             settler.settleAndRefresh(first, plan.firstEndTs, before, totalsStale = true)
@@ -657,13 +661,14 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // A second tap of the same undo has nothing left to take back; see [closedTrack] for the
             // other refusal, which a split's later half meets often — it is the newest row by id, so
             // a stop and a return is exactly what reopens it.
-            val rejoinedEnd = closedTrack(split.secondId)?.endedAt ?: return@withTransaction
+            val second = closedTrack(split.secondId) ?: return@withTransaction
+            val rejoinedEnd = checkNotNull(second.endedAt)
             // Points first: purging the row while they still hang off it would cascade them away.
             dao.movePointsFrom(originalId, split.secondId, Long.MIN_VALUE)
             dao.purgeTrack(split.secondId)
             // Written here rather than left to the settle below, which only rewrites an end it
             // disagrees with — and where it agrees, the row would keep the cut's own end.
-            dao.closeTrack(originalId, rejoinedEnd)
+            dao.closeTrackAtPlace(originalId, rejoinedEnd, second.endPlaceId)
             settler.settleAndRefresh(original, rejoinedEnd, dao.allPointsFor(originalId), totalsStale = true)
             derivation.reknit(listOf(originalId, split.secondId))
         }

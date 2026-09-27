@@ -26,11 +26,12 @@ object StayLedger {
     class ClusterRow(
         val id: Long,
         val seed: PlaceClusterer.Seed,
-        /** Named clusters are seeds — they survive with no members, and they are the pins the
-         *  shared-pin agreement override reads. */
-        val named: Boolean,
         val memberCount: Int,
-    )
+    ) {
+        /** Whether a place row seeds this cluster — a seed survives with no members, and seeds are
+         *  the pins the shared-pin agreement override reads. */
+        val seeded: Boolean get() = seed.placeId != null
+    }
 
     /** Which cluster an endpoint belongs to: one already stored, or one this pass founds. */
     sealed interface ClusterRef {
@@ -101,8 +102,9 @@ object StayLedger {
         val intervalsAfterTracks: List<Long>,
         /** Memberships, by the track whose endpoints they are. */
         val membershipsOfTracks: List<Long>,
-        /** Unnamed clusters left holding nothing, which is what ends one. A named cluster stays:
-         *  it is the user's, and its emptiness is a fact about the history rather than a mistake. */
+        /** Organic clusters left holding nothing, which is what ends one. A seeded cluster stays:
+         *  its place outlives its visits, and its emptiness is a fact about the history rather than
+         *  a mistake. */
         val emptiedClusters: List<Long>,
     )
 
@@ -162,7 +164,7 @@ object StayLedger {
         params: StayDeriver.Params = StayDeriver.Params(),
         distance: DistanceFn,
     ): Mutations {
-        val pins = stored.clusters.filter { it.named }.map { it.seed }
+        val pins = stored.clusters.filter { it.seeded }.map { it.seed }
         val agreement = StayDeriver.Agreement(params, distance, pins)
 
         val anchors = StoredAnchors(stored.clusters, params.placeRadiusM, distance)
@@ -188,7 +190,7 @@ object StayLedger {
         val memberships = mutableListOf<Membership>()
         val clusterOf = HashMap<StayDeriver.Endpoint, ClusterRef>()
         for (endpoint in StayDeriver.endpointsOf(seam.added)) {
-            val ref = anchors.claim(endpoint.at)
+            val ref = anchors.claim(endpoint.at, endpoint.placeId)
             memberships += Membership(endpoint.trackId, endpoint.isStart, endpoint.at, endpoint.atMs, ref)
             clusterOf[endpoint.key] = ref
             shift(ref, endpoint.at, +1)
@@ -212,7 +214,7 @@ object StayLedger {
                     seam.removed,
                 membershipsOfTracks = seam.added.map { it.trackId } + seam.removed,
                 emptiedClusters = stored.clusters
-                    .filterNot { it.named }
+                    .filterNot { it.seeded }
                     .filter { it.memberCount + (deltas[ClusterRef.Stored(it.id)]?.count ?: 0) <= 0 }
                     .map { it.id },
             ),
@@ -273,8 +275,8 @@ object StayLedger {
          * Which cluster an endpoint joins, by [PlaceClusterer.Anchoring]'s rule and no other — the
          * stored rows enter as its seeds, so an index past them is a cluster this pass founded.
          */
-        fun claim(endpoint: Coordinate): ClusterRef {
-            val index = anchoring.claim(endpoint)
+        fun claim(endpoint: Coordinate, placeId: Long?): ClusterRef {
+            val index = anchoring.claim(endpoint, placeId)
             if (index < stored.size) return ClusterRef.Stored(stored[index].id)
             val slot = index - stored.size
             // A new anchor lands at the end of the list, so a claim either fills the one slot past

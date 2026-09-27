@@ -23,7 +23,7 @@ interface DerivedDao {
 
     /** The seed list a rebuild derives from, ordered so a caller can map seed index → row id. */
     @Query("SELECT * FROM derived_clusters WHERE placeId IS NOT NULL ORDER BY id ASC")
-    suspend fun namedClusters(): List<DerivedCluster>
+    suspend fun seededClusters(): List<DerivedCluster>
 
     @Query("SELECT * FROM derived_clusters ORDER BY id ASC")
     suspend fun clustersOnce(): List<DerivedCluster>
@@ -76,11 +76,11 @@ interface DerivedDao {
     suspend fun deleteAllMembers()
 
     /**
-     * A rebuild's wipe stops here. A named cluster survives with its id because that id is what a
+     * A rebuild's wipe stops here. A seeded cluster survives with its id because that id is what a
      * stay's place *is* — dropping it and deriving a new one would repoint every stay in the
      * history at a different row while looking like a no-op. Its members go with the rest (the
-     * cascade takes an unnamed cluster's), and it is re-counted from the fresh derivation.
+     * cascade takes an organic cluster's), and it is re-counted from the fresh derivation.
      */
     @Query("DELETE FROM derived_clusters WHERE placeId IS NULL")
-    suspend fun deleteUnnamedClusters()
+    suspend fun deleteOrganicClusters()
 }

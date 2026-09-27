@@ -29,13 +29,26 @@ internal object GoogleTimelineTracks {
      * One track per activity, in start order. The activity's own endpoints are its first and last
      * fixes because a track's bounds are derived from its fixes, and some activities carry no path
      * samples at all.
+     *
+     * A track's end is stated to the place of the top-level visit starting at the instant it ends,
+     * and its start to the one ending at the instant it starts: Google joined the two exactly when
+     * their times are equal. [rowOf] is the place row a Google place id was inserted as.
      */
     fun build(
         activities: List<GoogleTimelineActivity>,
         path: SortedPath,
+        visits: List<GoogleTimelineVisit>,
+        rowOf: (String) -> Long?,
         distance: DistanceFn = AndroidDistance,
-    ): Sequence<Pair<Track, List<TrackPoint>>> =
-        activities.sortedBy { it.startMs }.asSequence().map { activity ->
+    ): Sequence<Pair<Track, List<TrackPoint>>> {
+        val arrivals = HashMap<Long, String>()
+        val departures = HashMap<Long, String>()
+        for (visit in visits) {
+            if (!visit.topLevel) continue
+            arrivals[visit.startMs] = visit.placeId
+            departures[visit.endMs] = visit.placeId
+        }
+        return activities.sortedBy { it.startMs }.asSequence().map { activity ->
             val type = activityFor(activity.type)
             val points = ArrayList<TrackPoint>()
             points += fix(activity.startMs, activity.start.lat, activity.start.lon)
@@ -50,8 +63,11 @@ internal object GoogleTimelineTracks {
                 source = TrackOrigin.GOOGLE_TIMELINE.code,
                 startedAt = activity.startMs,
                 endedAt = activity.endMs,
+                startPlaceId = departures[activity.startMs]?.let(rowOf),
+                endPlaceId = arrivals[activity.endMs]?.let(rowOf),
             ) to flagJumps(points, type, distance)
         }
+    }
 
     /** The export carries no accuracy or satellite evidence, so of the bad-fix rule only the jump
      *  gate can judge these fixes. */

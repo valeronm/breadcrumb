@@ -150,8 +150,14 @@ internal fun TrackDetailScreen(
     // first composition means the pins are there when the style loads, instead of a source rebuilt a
     // frame later.
     val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
-    val endPlaces = remember(points, storedPlaces) {
-        RoutePlaces.ends(points.orEmpty(), storedPlaces, AndroidDistance)
+    val endPlaces = remember(points, storedPlaces, summary?.startPlaceId, summary?.endPlaceId) {
+        RoutePlaces.ends(
+            points.orEmpty(),
+            storedPlaces,
+            AndroidDistance,
+            startPlaceId = summary?.startPlaceId,
+            endPlaceId = summary?.endPlaceId,
+        )
     }
     // The one seam walk this screen's derived series come from, keyed on the points alone — it is
     // the same distances whatever metric is displayed, and the graph, the map's colors and the
@@ -882,18 +888,18 @@ private fun tripDraftOf(
     places: List<Place>,
     zone: ZoneId,
 ): TripDraft {
-    fun endAt(point: TrackPoint?, atMs: Long) = TripDraftEnd(
+    fun endAt(point: TrackPoint?, atMs: Long, statedPlaceId: Long?) = TripDraftEnd(
         at = point?.let { Coordinate(it.latitude, it.longitude) },
         // The user's own name for the spot where a place holds this end — so the card reads as the
         // timeline does, and committing creates nothing: the place that would claim the pin is the
         // one the name came from.
-        placeName = point?.let { RoutePlaces.holding(it, places, AndroidDistance)?.label },
+        placeName = point?.let { RoutePlaces.holding(it, places, AndroidDistance, statedPlaceId)?.label },
         timeMs = atMs,
     )
     return TripDraft(
         day = summary.startedAt.toLocalDate(zone),
-        origin = endAt(points?.firstOrNull(), summary.startedAt),
-        destination = summary.endedAt?.let { endAt(points?.lastOrNull(), it) },
+        origin = endAt(points?.firstOrNull(), summary.startedAt, summary.startPlaceId),
+        destination = summary.endedAt?.let { endAt(points?.lastOrNull(), it, summary.endPlaceId) },
         editing = EditedTrip(summary.id, ActivityType.ofName(summary.activityType)),
     )
 }

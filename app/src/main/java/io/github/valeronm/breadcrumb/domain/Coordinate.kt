@@ -17,3 +17,6 @@ data class Coordinate(val lat: Double, val lon: Double)
 
 /** Where the user pinned this place — the row's coordinate. */
 val Place.pin: Coordinate get() = Coordinate(lat, lon)
+
+/** A row can exist with no name, and then reads everywhere as the unnamed cluster it seeds. */
+val Place.isNamed: Boolean get() = label != null

@@ -49,6 +49,7 @@ class BackupImporterTest {
             id = 3, activityType = "IN_VEHICLE", startedAt = 1_000L, endedAt = 9_000L,
             source = "recorded", distanceMeters = 42.5, pointCount = 2, ignoredCount = 1,
             startLat = 1.25, startLon = 2.5, endLat = 3.75, endLon = -4.5,
+            startPlaceId = 7, endPlaceId = 8,
         )
         val points = listOf(
             TrackPoint(
@@ -64,9 +65,13 @@ class BackupImporterTest {
             ),
         )
         val place = Place(id = 7, label = """Joe's "Bar"""", lat = 1.5, lon = 2.5, createdAt = 100L, radiusM = 60.0)
+        val unnamed = Place(
+            id = 8, label = null, lat = 1.5, lon = 2.75, createdAt = 200L, radiusM = 150.0,
+            externalProvider = "google", externalId = "ChIJ-1",
+        )
 
         val result = parse(
-            exportJson(listOf(track), mapOf(3L to points), listOf(place)),
+            exportJson(listOf(track), mapOf(3L to points), listOf(place, unnamed)),
         )
 
         val (parsedTrack, parsedPoints) = result.tracks.single()
@@ -74,7 +79,7 @@ class BackupImporterTest {
         // Ids don't survive (insertion re-keys), everything else must.
         assertEquals(points.map { it.copy(id = 0) }, parsedPoints.map { it.copy(id = 0) })
         assertEquals(listOf<Int?>(1), result.totals) // trackCount rode along
-        assertEquals(place, result.places.single().copy(id = place.id))
+        assertEquals(listOf(place, unnamed), result.places)
     }
 
     /**
@@ -208,7 +213,9 @@ class BackupImporterTest {
 
     @Test fun `a newer format version is rejected`() {
         val e = assertThrows(IllegalArgumentException::class.java) {
-            parse("""{"format":"breadcrumb-export","version":2,"pointFields":[],"tracks":[]}""")
+            parse(
+                """{"format":"breadcrumb-export","version":${BackupExporter.VERSION + 1},"pointFields":[],"tracks":[]}""",
+            )
         }
         assertTrue(e.message!!.contains("newer app"))
     }

@@ -33,6 +33,7 @@ import io.github.valeronm.breadcrumb.domain.TimelineRows
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Dispatchers
@@ -467,13 +468,21 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      */
     private suspend fun createTripPlaces(named: List<Pair<String, Coordinate>>) {
         // Current only while collected, which the add-trip form does.
-        val seeds = PlaceClusterer.seedsOf(storedPlaces.value).toMutableList()
+        val stored = storedPlaces.value
+        val seeds = PlaceClusterer.seedsOf(stored).toMutableList()
         val now = System.currentTimeMillis()
         val rows = mutableListOf<Place>()
+        val renamed = mutableListOf<Place>()
         for ((label, at) in named) {
             val trimmed = label.trim()
             if (trimmed.isEmpty()) continue
-            if (PlaceClusterer.nearestSeedIndex(at.lat, at.lon, seeds, AndroidDistance) != null) continue
+            val holder = PlaceClusterer.nearestSeedIndex(at.lat, at.lon, seeds, AndroidDistance)
+            if (holder != null) {
+                // An unnamed row takes the name, where a new row would sit on top of it.
+                val unnamed = stored.getOrNull(holder)?.takeUnless { it.isNamed }
+                if (unnamed != null && renamed.none { it.id == unnamed.id }) renamed += unnamed.copy(label = trimmed)
+                continue
+            }
             val row = Place(
                 label = trimmed, lat = at.lat, lon = at.lon,
                 createdAt = now, radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
@@ -482,7 +491,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             // Through seedOf, the projection every other seed came through.
             seeds += PlaceClusterer.seedOf(row)
         }
-        if (rows.isNotEmpty()) placeRepository.createAll(rows)
+        if (rows.isNotEmpty() || renamed.isNotEmpty()) placeRepository.createAndName(rows, renamed)
     }
 
     /** [placeName] is non-null exactly when the end should become a place. */

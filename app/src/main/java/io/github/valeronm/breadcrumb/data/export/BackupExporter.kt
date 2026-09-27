@@ -41,7 +41,7 @@ object BackupExporter {
      *  neither — the schema is unmoved and every reader takes a JSON number — so nothing in a file
      *  says which grid wrote it, and a reader must not assume one. Bump only on a breaking change:
      *  the importer refuses anything newer than it understands. */
-    const val VERSION = 1
+    const val VERSION = 2
 
     /** Field order of each per-point array in `tracks[].points`. Append-only across versions. */
     internal val POINT_FIELDS = listOf(
@@ -161,6 +161,15 @@ object BackupExporter {
         cells.text(""","trackCount":${content.tracks.size}""")
         cells.text(""","pointFields":[${POINT_FIELDS.joinToString(",") { str(it) }}]""")
 
+        // Before the tracks: a track names the places its ends are stated to, and a restore
+        // inserts tracks as it reads them.
+        cells.text(""","places":[""")
+        for (i in content.places.indices) {
+            if (i > 0) cells.char(',')
+            writePlace(cells, content.places[i])
+        }
+        cells.char(']')
+
         cells.text(""","tracks":[""")
         var written = 0
         // Read a batch, then write the tracks it holds — by id, since an imported track carries a
@@ -173,13 +182,6 @@ object BackupExporter {
                 written++
                 onTrackWritten(written)
             }
-        }
-        cells.char(']')
-
-        cells.text(""","places":[""")
-        for (i in content.places.indices) {
-            if (i > 0) cells.char(',')
-            writePlace(cells, content.places[i])
         }
         cells.text("]}")
         cells.flush()
@@ -236,6 +238,8 @@ object BackupExporter {
         cells.coordinate(""","startLon":""", t.startLon)
         cells.coordinate(""","endLat":""", t.endLat)
         cells.coordinate(""","endLon":""", t.endLon)
+        t.startPlaceId?.let { cells.text(""","startPlaceId":$it""") }
+        t.endPlaceId?.let { cells.text(""","endPlaceId":$it""") }
         cells.text(""","points":[""")
     }
 
@@ -279,11 +283,13 @@ object BackupExporter {
     // An untagged place writes no `category` key at all, so a history with no categories exports
     // exactly as it did before the column existed.
     private fun writePlace(cells: CellWriter, p: Place) {
-        cells.text("""{"id":${p.id},"label":${str(p.label)}""")
+        cells.text("""{"id":${p.id},"label":${strOrNull(p.label)}""")
         cells.coordinate(""","lat":""", p.lat)
         cells.coordinate(""","lon":""", p.lon)
         cells.text(""","createdAt":${p.createdAt},"radiusM":${p.radiusM}""")
         p.category?.let { cells.text(""","category":${str(it)}""") }
+        p.externalProvider?.let { cells.text(""","externalProvider":${str(it)}""") }
+        p.externalId?.let { cells.text(""","externalId":${str(it)}""") }
         cells.char('}')
     }
 

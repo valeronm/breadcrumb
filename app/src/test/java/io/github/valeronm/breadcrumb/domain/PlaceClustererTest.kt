@@ -122,6 +122,17 @@ class PlaceClustererTest {
         assertEquals(listOf(0, 1), clusters[1].memberIndices)
     }
 
+    @Test fun `a stated location joins its seed whatever the distance`() {
+        val clusters = PlaceClusterer.cluster(
+            listOf(at(5000.0), at(5000.0)),
+            distance = flatDistance,
+            seeds = listOf(seed(0.0).copy(placeId = 7)),
+            statedPlaceAt = { if (it == 0) 7L else null },
+        )
+        assertEquals(listOf(0), clusters[0].memberIndices)
+        assertEquals(listOf(1), clusters[1].memberIndices)
+    }
+
     // --- Reach-box pruning ------------------------------------------------------
     // The scan rejects most anchors on their coordinates ([ReachBound]), not on a distance call — sound
     // only if it never rejects an anchor the distance would have accepted. So these run against an
@@ -191,8 +202,10 @@ class PlaceClustererTest {
                 lon = base.lon + (rnd.nextDouble() - 0.5) * 0.004 * lonScale,
             )
         }
-        // Pins at the widest radius the UI offers, where the box has the most to admit.
-        val seeds = endpoints.take(6).map { PlaceClusterer.Seed(it, 500.0) }
+        // Pins at the widest radius the UI offers, where the box has the most to admit, and a crowd
+        // of narrower ones so the seed index has a band to cut.
+        val seeds = endpoints.take(6).map { PlaceClusterer.Seed(it, 500.0) } +
+            endpoints.drop(6).take(60).mapIndexed { i, at -> PlaceClusterer.Seed(at, 50.0 + (i % 5) * 50.0) }
         return endpoints to seeds
     }
 
@@ -206,6 +219,25 @@ class PlaceClustererTest {
                     referenceAssignments(endpoints, 150.0, sphere, seeds),
                     pruned,
                 )
+            }
+        }
+    }
+
+    @Test fun `the seed index finds the seed the plain scan finds, at every latitude`() {
+        for (lat in listOf(0.0, 1.0, 45.0, 84.0, -45.0)) {
+            for (latSpread in listOf(1.0, 0.02)) {
+                val (endpoints, _) = generatedHistory(lat, latSpread)
+                // Many seeds of mixed reach, a pair of them coincident so a tie has to be broken.
+                val seeds = endpoints.take(120).mapIndexed { i, at -> PlaceClusterer.Seed(at, 50.0 + (i % 10) * 50.0) } +
+                    PlaceClusterer.Seed(endpoints[0], 50.0)
+                val index = PlaceClusterer.SeedIndex(seeds)
+                for (point in endpoints) {
+                    assertEquals(
+                        "lat=$lat latSpread=$latSpread",
+                        PlaceClusterer.nearestSeedIndex(point.lat, point.lon, seeds, sphere),
+                        index.nearest(point.lat, point.lon, sphere),
+                    )
+                }
             }
         }
     }

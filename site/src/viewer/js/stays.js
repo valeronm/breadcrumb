@@ -59,24 +59,42 @@ const DEFAULT_PARAMS = {
  * outranking chronology; a seeded cluster's identity *is* its place (`seedIndex`), killing the
  * anchor lottery (a skewed first visit cannot found a shadow cluster beside a named place).
  * Assignment is nearest-qualifying-anchor, so an endpoint closer to a distinct organic anchor
- * still goes there. */
-export function clusterEndpoints(locations, radiusM, distance, seeds) {
+ * still goes there. `statedPlaceAt(index)` is the place a location is stated to, or null: it joins
+ * that place's seed whatever its distance, and founds no anchor; a place with no seed here leaves it
+ * to the radii. */
+export function clusterEndpoints(locations, radiusM, distance, seeds, statedPlaceAt = () => null) {
   const anchors = [];
   const radii = [];
   const members = [];
+  // The seeds never change once given, so they are searched through an index and only the anchors
+  // founded since are scanned.
+  const nearestSeed = seedIndex(seeds);
   for (const seed of seeds) {
     anchors.push(seed.anchor);
     radii.push(seed.radiusM);
     members.push([]);
   }
+  // Built on the first stated location: a history the recorder wrote has none.
+  let seedOfPlace = null;
   locations.forEach((location, index) => {
+    const placeId = statedPlaceAt(index);
+    if (placeId != null) {
+      seedOfPlace ??= new Map(seeds.flatMap((seed, i) => (seed.placeId == null ? [] : [[seed.placeId, i]])));
+      const statedSeed = seedOfPlace.get(placeId);
+      if (statedSeed != null) {
+        members[statedSeed].push(index);
+        return;
+      }
+    }
     // Nearest qualifying anchor, scanned inline: this runs per endpoint over the whole history, so
     // all but the handful of anchors in reach are rejected on their coordinates rather than on a
     // distance call.
     const outOfReach = reachBound(location.lat, location.lon, distance);
-    let nearest = -1;
-    let nearestD = Infinity;
-    for (let ci = 0; ci < anchors.length; ci++) {
+    let nearest = nearestSeed(location.lat, location.lon, distance, outOfReach) ?? -1;
+    let nearestD = nearest < 0 ? Infinity
+      : distance(anchors[nearest].lat, anchors[nearest].lon, location.lat, location.lon);
+    // Strictly nearer only: every seed precedes these, and a tie goes to the lower index.
+    for (let ci = seeds.length; ci < anchors.length; ci++) {
       const anchor = anchors[ci];
       if (outOfReach(anchor.lat, anchor.lon, radii[ci])) continue;
       const d = distance(anchor.lat, anchor.lon, location.lat, location.lon);
@@ -110,14 +128,52 @@ export function clusterEndpoints(locations, radiusM, distance, seeds) {
   });
 }
 
+/** The nearest seed whose own radius captures a point — the app's PlaceClusterer.SeedIndex, with
+ * the same answer as a plain scan in index order, ties included. Seeds sorted by latitude, so a
+ * point reads only the band its widest radius can reach; pins out of reach inside it cost
+ * coordinate arithmetic, not a distance call.
+ * @returns {(lat: number, lon: number, distance: Function) => number|null} */
+export function seedIndex(seeds) {
+  const order = seeds.map((_, i) => i).sort((a, b) => seeds[a].anchor.lat - seeds[b].anchor.lat);
+  const lats = order.map((i) => seeds[i].anchor.lat);
+  const widest = seeds.reduce((max, s) => Math.max(max, s.radiusM), 0);
+  const firstAtOrAbove = (lat) => {
+    let low = 0;
+    let high = lats.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (lats[mid] < lat) low = mid + 1;
+      else high = mid;
+    }
+    return low;
+  };
+  return (lat, lon, distance, outOfReach = reachBound(lat, lon, distance)) => {
+    if (seeds.length === 0) return null;
+    const span = outOfReach.latitudeSpan(widest);
+    let best = -1;
+    let bestD = Infinity;
+    for (let k = firstAtOrAbove(lat - span); k < lats.length && lats[k] <= lat + span; k++) {
+      const i = order[k];
+      const seed = seeds[i];
+      if (outOfReach(seed.anchor.lat, seed.anchor.lon, seed.radiusM)) continue;
+      const d = distance(seed.anchor.lat, seed.anchor.lon, lat, lon);
+      if (d <= seed.radiusM && (d < bestD || (d === bestD && i < best))) {
+        best = i;
+        bestD = d;
+      }
+    }
+    return best >= 0 ? best : null;
+  };
+}
+
 /** Derives the timeline's intervals from the tracks.
- * @param tracks ascending by time: {trackId, startedAt, endedAt, start, end} — start/end the
- *   first/last *good* point's {lat, lon}, or null (an unknown endpoint can only produce gaps,
- *   as in the app).
+ * @param tracks ascending by time: {trackId, startedAt, endedAt, start, end, startPlaceId,
+ *   endPlaceId} — start/end the first/last *good* point's {lat, lon}, or null (an unknown endpoint
+ *   can only produce gaps, as in the app); the place ids those ends are stated to, or null.
  * @param nowMs the instant the derivation is "as of" — the viewer passes the backup's export time,
  *   so an open tail stay is open as of the export rather than growing on every page load.
- * @param placePins named places as clustering seeds: {anchor: {lat, lon}, radiusM}, in places-list
- *   order, so a cluster's seedIndex identifies its place exactly.
+ * @param placePins places as clustering seeds: {anchor: {lat, lon}, radiusM, placeId}, in
+ *   places-list order, so a cluster's seedIndex identifies its place exactly.
  * @returns {{intervals: object[], clusters: object[]}} intervals ascending; a stay carries
  *   `clusterId`, a gap the cluster id of each known side. */
 export function deriveStays({
@@ -132,40 +188,36 @@ export function deriveStays({
   // different clusters, each joining the nearest anchor that reaches it.
   const endpoints = [];
   for (const track of tracks) {
-    if (track.start) endpoints.push({ key: endpointKey(track.trackId, true), at: track.start });
-    if (track.end) endpoints.push({ key: endpointKey(track.trackId, false), at: track.end });
+    if (track.start) {
+      endpoints.push({ key: endpointKey(track.trackId, true), at: track.start, placeId: track.startPlaceId });
+    }
+    if (track.end) {
+      endpoints.push({ key: endpointKey(track.trackId, false), at: track.end, placeId: track.endPlaceId });
+    }
   }
   const clusters = clusterEndpoints(
     endpoints.map((e) => e.at),
     p.placeRadiusM,
     distance,
     placePins,
+    (index) => endpoints[index].placeId,
   );
   const clusterOf = new Map();
   clusters.forEach((cluster, ci) => {
     for (const index of cluster.memberIndices) clusterOf.set(endpoints[index].key, ci);
   });
 
-  // Nearest pin whose own radius captures [e]. Pins out of reach cost coordinate arithmetic, not a
-  // distance call — the same rejection the clustering above runs.
+  // Built on the first pair nothing cheaper settles.
+  let pinIndex = null;
   const nearestPin = (e) => {
-    if (placePins.length === 0) return null;
-    const outOfReach = reachBound(e.lat, e.lon, distance);
-    let best = -1;
-    let bestD = Infinity;
-    for (let i = 0; i < placePins.length; i++) {
-      const pin = placePins[i];
-      if (outOfReach(pin.anchor.lat, pin.anchor.lon, pin.radiusM)) continue;
-      const d = distance(pin.anchor.lat, pin.anchor.lon, e.lat, e.lon);
-      if (d <= pin.radiusM && d < bestD) {
-        best = i;
-        bestD = d;
-      }
-    }
-    return best >= 0 ? best : null;
+    pinIndex ??= seedIndex(placePins);
+    return pinIndex(e.lat, e.lon, distance);
   };
 
-  const samePlace = (a, b, aCluster, bCluster) => {
+  // Two stated ends are the same place exactly when they are stated to the same one; distance does
+  // not enter.
+  const samePlace = (a, b, aCluster, bCluster, aPlace, bPlace) => {
+    if (aPlace != null && bPlace != null) return aPlace === bPlace;
     if (aCluster != null && aCluster === bCluster) return true;
     if (distance(a.lat, a.lon, b.lat, b.lon) <= p.agreementRadiusM) return true;
     const pinA = nearestPin(a);
@@ -184,7 +236,7 @@ export function deriveStays({
     const b = next.start;
     const aCluster = a ? clusterOf.get(endpointKey(prev.trackId, false)) : null;
     const bCluster = b ? clusterOf.get(endpointKey(next.trackId, true)) : null;
-    if (!a || !b || !samePlace(a, b, aCluster, bCluster)) {
+    if (!a || !b || !samePlace(a, b, aCluster, bCluster, prev.endPlaceId, next.startPlaceId)) {
       // A zero-length disagreement ("moved without recording, in zero time") is meaningless —
       // whereas a zero-length *agreeing* gap below is a split seam, an edge-stay trim's cut.
       if (gapEnd === gapStart) continue;

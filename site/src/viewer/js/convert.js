@@ -129,6 +129,9 @@ export function convertTrack(track, f) {
     startLon: track.startLon ?? null,
     endLat: track.endLat ?? null,
     endLon: track.endLon ?? null,
+    // The places the export states these ends to, by the file's own place ids.
+    startPlaceId: track.startPlaceId ?? null,
+    endPlaceId: track.endPlaceId ?? null,
     bbox: watched.length ? [minLon, minLat, maxLon, maxLat] : null,
     // One simplified line per watched stretch — several where the recording was interrupted, and the
     // usual one where it wasn't.

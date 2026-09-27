@@ -11,6 +11,10 @@ import java.io.Reader
 /** Loads a Google Timeline export; the history must be empty, since nothing is merged or deduplicated. */
 internal object GoogleTimelineImporter {
 
+    /** [io.github.valeronm.breadcrumb.data.db.Place.externalProvider] on the places an import makes,
+     *  whose `externalId` is Google's place id. */
+    const val PROVIDER = "google"
+
     class Summary(val tracks: Int, val places: Int, val skipped: Int)
 
     /** Returns the counts, or null if the stream couldn't be opened; throws on a file that is not
@@ -39,21 +43,24 @@ internal object GoogleTimelineImporter {
     ): Summary {
         val export = GoogleTimelineParser.parse(reader)
         require(export.activities.isNotEmpty()) { "no readable trip in the Google Timeline export" }
-        val places = GoogleTimelinePlaces.vote(export.visits).map {
+        val candidates = GoogleTimelinePlaces.places(export.visits)
+        val places = candidates.map {
             Place(
-                label = placeLabel(it.category),
+                label = it.category?.let(placeLabel),
                 lat = it.lat,
                 lon = it.lon,
                 createdAt = nowMs,
                 radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
-                category = it.category.code,
+                category = it.category?.code,
+                externalProvider = PROVIDER,
+                externalId = it.placeId,
             )
         }
-        repositories.places.restorePlaces(places)
+        val rowOf = candidates.map { it.placeId }.zip(repositories.places.restorePlaces(places)).toMap()
         val total = export.activities.size
         var done = 0
         onProgress(0, total)
-        GoogleTimelineTracks.build(export.activities, export.path)
+        GoogleTimelineTracks.build(export.activities, export.path, export.visits, rowOf::get)
             .chunked(BackupImporter.INSERT_BATCH)
             .forEach { batch ->
                 repositories.tracks.insertBackupTracks(batch)

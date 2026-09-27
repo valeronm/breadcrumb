@@ -26,20 +26,24 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     suspend fun allPlaces(): List<Place> = dao.allPlaces()
 
-    /** Backup restore: re-insert exported places under fresh ids (nothing references place ids).
+    /** Backup restore: re-insert exported places under fresh ids, answered in [places]' order.
      *  Seeded by the restore's own pass, which has a whole history to derive besides. */
-    suspend fun restorePlaces(places: List<Place>) = dao.insertAll(places.map { it.copy(id = 0) })
+    suspend fun restorePlaces(places: List<Place>): List<Long> = dao.insertAll(places.map { it.copy(id = 0) })
 
-    /** Inserts [place] and answers with the id Room gave it. Takes the whole row, as [createAll] and
+    /** Inserts [place] and answers with the id Room gave it. Takes the whole row, as [createAndName] and
      *  [restore] do, so a caller that has to *show* what it wrote shows the row that was written. */
     suspend fun create(place: Place): Long = seeding { dao.insert(place) }
 
     /**
-     * Several places as one write. A create re-derives the history, so a caller with more than one
-     * to make — a trip whose two ends were both picked by name — hands them over together and pays
-     * for one derivation rather than one each.
+     * Several places as one write: [created] inserted, and [named] — existing rows given a name —
+     * rewritten as [save] would. A create re-derives the history, so a caller with more than one to
+     * make — a trip whose two ends were both picked by name — hands them over together and pays for
+     * one derivation and one invalidation rather than one each.
      */
-    suspend fun createAll(places: List<Place>) = seeding { dao.insertAll(places) }
+    suspend fun createAndName(created: List<Place>, named: List<Place>) = seeding {
+        dao.insertAll(created)
+        for (row in named) dao.update(row.id, row.label, row.lat, row.lon, row.radiusM)
+    }
 
     /** Everything the editor commits about an existing place, as one row write — see [PlaceDao.update],
      *  whose column list is what "everything the editor commits" means. Takes the row for [create]'s

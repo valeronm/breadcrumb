@@ -125,4 +125,41 @@ class RoutePlacesTest {
         assertTrue(ends(emptyList(), place(1, east = 0.0)).isEmpty())
         assertTrue(ends(path(0.0, 500.0)).isEmpty())
     }
+
+    @Test
+    fun `an end stated to a place is held by it over a nearer one`() {
+        assertEquals(
+            listOf(7L, 3L),
+            RoutePlaces.ends(
+                path(0.0, 5_000.0),
+                listOf(place(3, east = 5_000.0), place(7, east = 0.0), place(9, east = 9_000.0)),
+                flatDistance,
+                endPlaceId = 3,
+            ).map { it.id },
+        )
+        assertEquals(
+            listOf(7L, 9L),
+            RoutePlaces.ends(
+                path(0.0, 5_000.0),
+                listOf(place(3, east = 5_000.0), place(7, east = 0.0), place(9, east = 9_000.0)),
+                flatDistance,
+                endPlaceId = 9,
+            ).map { it.id },
+        )
+    }
+
+    @Test
+    fun `an unnamed row holding an end names nothing there`() {
+        val unnamed = place(3, east = 5_000.0).copy(label = null)
+        assertEquals(listOf(7L), ends(path(0.0, 5_000.0), unnamed, place(7, east = 0.0)))
+        assertEquals(
+            listOf(7L),
+            RoutePlaces.ends(
+                path(0.0, 5_000.0),
+                listOf(unnamed, place(7, east = 0.0), place(9, east = 5_010.0)),
+                flatDistance,
+                endPlaceId = 3,
+            ).map { it.id },
+        )
+    }
 }

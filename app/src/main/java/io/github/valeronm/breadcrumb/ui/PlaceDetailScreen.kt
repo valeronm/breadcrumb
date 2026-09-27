@@ -63,6 +63,7 @@ import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.openInMaps
 import kotlinx.coroutines.flow.first
@@ -139,7 +140,8 @@ internal fun PlaceDetailScreen(
     onAdjustArea: () -> Unit,
 ) {
     val context = LocalContext.current
-    val place = summary.place
+    // An unnamed row reads as the detected stop it seeds.
+    val place = summary.place?.takeIf { it.isNamed }
     val suggester by viewModel.categorySuggester.collectAsStateWithLifecycle()
     // The place's own clock, not the reader's — a visit abroad is read here exactly as the timeline
     // row for that same visit reads it, and the two disagreeing was worse than either alone. One

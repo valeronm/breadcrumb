@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import {
   deriveStays, slicePerDay, interleave, resolveClusters, reportableDurationMs, clusterEndpoints,
-  mapVisiblePlaces, derivationInstant,
+  mapVisiblePlaces, derivationInstant, seedIndex,
 } from "../js/stays.js";
 import { metersBetween } from "../js/geo.js";
 import { stayMeta, gapMeta, formatTime, formatDurationMs } from "../js/format.js";
@@ -27,10 +27,10 @@ const nearHome = { lat: 1.0005, lon: 1.0 }; // 50 m away — agrees
 const office = { lat: 2.0, lon: 2.0 };
 
 /** A named-place pin at venue scale (the default place radius is 150 m; venues get widened). */
-const pin = (meters, radiusM = 350) => ({ anchor: at(meters), radiusM });
+const pin = (meters, radiusM = 350, placeId = null) => ({ anchor: at(meters), radiusM, placeId });
 
-const track = (trackId, startedAt, endedAt, start = home, end = home) =>
-  ({ trackId, startedAt, endedAt, start, end });
+const track = (trackId, startedAt, endedAt, start = home, end = home, startPlaceId = null, endPlaceId = null) =>
+  ({ trackId, startedAt, endedAt, start, end, startPlaceId, endPlaceId });
 
 const derive = (tracks, { now = NOW, placePins = [] } = {}) =>
   deriveStays({ tracks, nowMs: now, distance: flatDistance, placePins });
@@ -409,6 +409,85 @@ assert.equal(
   assert.deepEqual(gapMeta(gap(day, day + DAY, true, true)),
     { text: "missing recording · 1 d" },
     "a real 24-hour absence measures itself, midnight bounds and all");
+}
+
+// --- stated ends ----------------------------------------------------------------------------------
+{
+  const statedPair = (end, start, endPlace = null, startPlace = null) => [
+    track(1, 60 * MIN, 120 * MIN, at(-5000), end, null, endPlace),
+    track(2, 240 * MIN, 300 * MIN, start, at(5000), startPlace, null),
+  ];
+
+  // A stated end joins its place's cluster however far from the pin.
+  {
+    const { intervals, clusters } = derive(statedPair(at(600), at(0), 7), { placePins: [pin(0, 350, 7)] });
+    const stay = stays(intervals.filter((i) => i.end != null))[0];
+    assert.equal(clusters[stay.clusterId].seedIndex, 0);
+  }
+  // A stated end joins its own place over a nearer one.
+  {
+    const { intervals, clusters } = derive(statedPair(at(0), at(3000), 2), {
+      placePins: [pin(0, 350, 1), pin(300, 350, 2)],
+    });
+    const gap = gaps(intervals)[0];
+    assert.equal(clusters[gap.fromClusterId].seedIndex, 1);
+  }
+  // Ends stated to different places are a gap however close.
+  assert.equal(
+    gaps(betweenTracks(statedPair(at(0), at(50), 1, 2), { placePins: [pin(0, 350, 1), pin(50, 350, 2)] }))[0].reason,
+    "MOVED_UNRECORDED",
+  );
+  // Ends stated to one place are a stay however far apart.
+  {
+    const { intervals, clusters } = derive(statedPair(at(0), at(2000), 1, 1), { placePins: [pin(0, 350, 1)] });
+    const stay = stays(intervals.filter((i) => i.end != null))[0];
+    assert.equal(clusters[stay.clusterId].seedIndex, 0);
+  }
+  // One stated end leaves the pair to the distance rule.
+  assert.equal(
+    stays(betweenTracks(statedPair(at(0), at(50), 1), { placePins: [pin(2000, 350, 1)] })).length,
+    1,
+  );
+  // A stated end founds no anchor for the ends after it.
+  {
+    const { clusters } = derive([
+      track(1, 60 * MIN, 120 * MIN, at(0), at(5000), null, 1),
+      track(2, 240 * MIN, 300 * MIN, at(5000), at(5000)),
+    ], { placePins: [pin(0, 350, 1)] });
+    assert.deepEqual(clusters.map((c) => c.members.length), [2, 2]);
+    assert.equal(clusters[1].seedIndex, null);
+    assert.deepEqual(clusters[1].anchor, at(5000));
+  }
+  // A stated location joins its seed whatever the distance.
+  {
+    const clusters = clusterEndpoints(
+      [at(5000), at(5000)], 150, flatDistance, [pin(0, 350, 7)], (index) => (index === 0 ? 7 : null),
+    );
+    assert.deepEqual(clusters[0].memberIndices, [0]);
+    assert.deepEqual(clusters[1].memberIndices, [1]);
+  }
+}
+
+// --- the pin index answers as a plain scan does ------------------------------------------------------
+{
+  let state = 7;
+  const random = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (const lat of [0, 45, 84, -45]) {
+    const points = Array.from({ length: 300 }, () => ({ lat: lat + (random() - 0.5) * 0.05, lon: (random() - 0.5) * 0.05 }));
+    const seeds = points.slice(0, 120).map((anchor, i) => ({ anchor, radiusM: 50 + (i % 10) * 50 }));
+    seeds.push({ anchor: points[0], radiusM: 50 }); // coincident with seed 0, so a tie is broken
+    const plain = (p) => {
+      let best = null;
+      let bestD = Infinity;
+      seeds.forEach((s, i) => {
+        const d = metersBetween(s.anchor.lat, s.anchor.lon, p.lat, p.lon);
+        if (d <= s.radiusM && d < bestD) { best = i; bestD = d; }
+      });
+      return best;
+    };
+    const indexed = seedIndex(seeds);
+    for (const p of points) assert.equal(indexed(p.lat, p.lon, metersBetween), plain(p), `lat=${lat}`);
+  }
 }
 
 // --- the distance function itself -----------------------------------------------------------------

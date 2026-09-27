@@ -26,7 +26,7 @@ private const val TAG = "Breadcrumb"
  * derivation differently from the one that produced the rows it compares against.
  */
 internal fun DerivedCluster.toSeed() =
-    PlaceClusterer.Seed(Coordinate(anchorLat, anchorLon), radiusM)
+    PlaceClusterer.Seed(Coordinate(anchorLat, anchorLon), radiusM, placeId)
 
 /**
  * The stay/place derivation's storage, read and written — so that showing the timeline is a query
@@ -52,8 +52,8 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * several of them in a single transaction, and an observer each would turn that into a
      * re-emission each, every one re-running every reader downstream. And they are only meaningful
      * together — an interval names a cluster, a cluster is placed by its members, and **a cluster is
-     * named by a place**, whose row read apart from them is a named place no cluster points at, which
-     * is a place with no visits. So they are read inside a transaction, which is what makes a set of
+     * seeded by a place**, whose row read apart from them is a place no cluster points at, which is a
+     * place with no visits. So they are read inside a transaction, which is what makes a set of
      * rows a snapshot rather than several timings.
      *
      * **A write that reached no derived table re-reads none of them**, which is what a rename and a
@@ -102,7 +102,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
     /**
      * Re-derive the whole history and replace the stored rows with it, in one transaction.
      *
-     * **Named clusters are preserved, not recreated.** They are the seeds the derivation runs
+     * **Seeded clusters are preserved, not recreated.** They are the seeds the derivation runs
      * against, so they must exist before it starts; and their ids are what a stay's place *is*, so
      * re-inserting them would silently repoint every stay in the history at a new row. Everything
      * else is output, and is written afresh.
@@ -121,7 +121,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             db.withTransaction {
                 val trackEnds = tracks.endpointsOnce().map { it.toTrackEnd() }
                 SweepStatus.start(trackEnds.size)
-                val seeds = derived.namedClusters()
+                val seeds = derived.seededClusters()
                 val derivation = StayDeriver.derive(
                     tracks = trackEnds,
                     distance = AndroidDistance,
@@ -131,7 +131,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
 
                 derived.deleteAllIntervals()
                 derived.deleteAllMembers()
-                derived.deleteUnnamedClusters()
+                derived.deleteOrganicClusters()
 
                 // Seeded clusters come back in seed order, so a cluster's index into the derivation
                 // resolves to the row it was seeded from; the rest are new rows.
@@ -204,13 +204,13 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
     /** Whether reconciling the seeds moved one. Separate only so [reconcile] can read as the rule
      *  it enforces; nothing else may call it, a true answer being an obligation to re-derive. */
     private suspend fun alignSeeds(): Boolean {
-        val seeded = derived.namedClusters().associateBy { checkNotNull(it.placeId) }
+        val seeded = derived.seededClusters().associateBy { checkNotNull(it.placeId) }
         val rows = places.allPlaces()
         val kept = rows.mapTo(HashSet()) { it.id }
         var changed = false
         val orphaned = seeded.filterKeys { it !in kept }.map { (_, cluster) -> cluster.id }
         if (orphaned.isNotEmpty()) {
-            // Chunked because nothing bounds it: every named place deleted since the last pass is here.
+            // Chunked because nothing bounds it: every place deleted since the last pass is here.
             orphaned.chunked(IDS_PER_STATEMENT).forEach { derived.deleteClusters(it) }
             changed = true
         }
@@ -219,7 +219,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             if (seeds(cluster, place)) continue
             val seed = PlaceClusterer.seedOf(place)
             if (cluster == null) {
-                derived.insertCluster(seedRow(seed, placeId = place.id))
+                derived.insertCluster(seedRow(seed))
             } else {
                 derived.setClusterSeed(cluster.id, seed.anchor.lat, seed.anchor.lon, seed.radiusM)
             }
@@ -235,9 +235,8 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         sumLat: Double = 0.0,
         sumLon: Double = 0.0,
         memberCount: Int = 0,
-        placeId: Long? = null,
     ) = DerivedCluster(
-        placeId = placeId,
+        placeId = seed.placeId,
         anchorLat = seed.anchor.lat,
         anchorLon = seed.anchor.lon,
         radiusM = seed.radiusM,
@@ -320,7 +319,6 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
     private fun DerivedCluster.toClusterRow() = StayLedger.ClusterRow(
         id = id,
         seed = toSeed(),
-        named = placeId != null,
         memberCount = memberCount,
     )
 
