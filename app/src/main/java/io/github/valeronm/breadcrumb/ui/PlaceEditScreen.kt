@@ -103,6 +103,7 @@ internal fun PlaceEditScreen(
     rivals: List<PlaceClusterer.Seed>,
     viewModel: TrackListViewModel,
     onClose: () -> Unit,
+    onSaved: () -> Unit,
     onCreated: (Long) -> Unit,
     shadePick: MutableState<Boolean?>,
     /** Removes the place and leaves this screen — the caller owns both, since the Undo it offers has
@@ -212,7 +213,7 @@ internal fun PlaceEditScreen(
                     // deleted — that offer belongs to the Remove button below.
                     SaveAction(enabled = nameGiven) {
                         viewModel.savePlace(summary, name.value, pin, radiusM.toDouble(), onCreated)
-                        onClose()
+                        onSaved()
                     }
                 },
             )

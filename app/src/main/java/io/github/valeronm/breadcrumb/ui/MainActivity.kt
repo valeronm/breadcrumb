@@ -235,6 +235,9 @@ private fun MainScreen(
     // A flag rather than a second key: it can only ever be the place the detail below is showing,
     // so deriving the layer's content from that key keeps the two from needing to agree.
     var editingArea by remember { mutableStateOf(false) }
+    // A spot no stop has found, being named in the editor with no detail beneath it: there is no
+    // place yet for a detail to be about.
+    var newPlaceSpot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
     val placesMapShadePick = rememberMapShadePick()
     // A journey opened from Insights or a Timeline band, keyed by its first night's sample
     // instant — the same key its list row uses, and the only identity a derived journey has.
@@ -295,11 +298,15 @@ private fun MainScreen(
     )
     // Capture-area tuning stacks above the place detail — back returns to it, previewed under the
     // gesture, and discards the radius by simply never having written it. Its content is the
-    // detail's own key, so the two cannot drift apart or outlive one another.
+    // detail's own key, so the two cannot drift apart or outlive one another, unless it is naming a
+    // new spot, where the detail layer is empty and back returns to the tabs.
     val placeEditLayer = rememberOverlayLayer(
-        content = placeDetailKey?.takeIf { editingArea },
+        content = placeDetailKey?.takeIf { editingArea } ?: newPlaceSpot?.key,
         over = placeLayer,
-        dismiss = { editingArea = false },
+        dismiss = {
+            editingArea = false
+            newPlaceSpot = null
+        },
     )
     // The trip form: back discards the half-entered trip by construction, nothing having been
     // written until its check mark. Stacked on the track detail rather than on the tabs, because a
@@ -454,13 +461,8 @@ private fun MainScreen(
                         shadePick = placesMapShadePick,
                         homeRequest = placesHomeRequest,
                         onOpenPlace = { placeDetailKey = it },
-                        // A place no stop found: the detail opens on an empty spot with the editor
-                        // over it, which names it.
                         onCreatePlaceAt = { at ->
-                            val spot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
-                            placeDetailSnapshot = spot
-                            placeDetailKey = spot.key
-                            editingArea = true
+                            newPlaceSpot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
                         },
                     )
                     HomeTab.INSIGHTS -> InsightsTab(
@@ -508,7 +510,16 @@ private fun MainScreen(
         PlaceEditOverlay(
             layer = placeEditLayer,
             viewModel = viewModel,
-            snapshot = placeDetailSnapshot,
+            snapshot = newPlaceSpot ?: placeDetailSnapshot,
+            // A named spot opens its detail as a create from a stop leaves one, and [onCreated]
+            // re-keys it onto the row.
+            onSaved = {
+                newPlaceSpot?.let { spot ->
+                    placeDetailSnapshot = spot
+                    placeDetailKey = spot.key
+                }
+                placeEditLayer.dismiss()
+            },
             // The row's id is the only thing that identifies a just-created place until a derivation
             // has run — by position it can't be followed, a hand-placed pin being exactly what may
             // have moved.
@@ -731,6 +742,7 @@ private fun PlaceEditOverlay(
     layer: OverlayLayerState<String>,
     viewModel: TrackListViewModel,
     snapshot: PlaceResolver.PlaceSummary?,
+    onSaved: () -> Unit,
     onCreated: (Long) -> Unit,
     shadePick: MutableState<Boolean?>,
     onRemove: (Place) -> Unit,
@@ -762,6 +774,7 @@ private fun PlaceEditOverlay(
                 rivals = neighborhood.rivals,
                 viewModel = viewModel,
                 onClose = layer.dismiss,
+                onSaved = onSaved,
                 onCreated = onCreated,
                 shadePick = shadePick,
                 onRemove = onRemove,
