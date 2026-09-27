@@ -151,11 +151,11 @@ class DerivedConsistencyTest {
 
     @Test fun `a place deleted and restored leaves the derivation it had before the delete`() = runTest {
         recordedHistory()
-        val id = places.create(test.place("Home", 1.0, -2.0))
+        places.create(test.place("Home", 1.0, -2.0))
         val named = db.placeDao().allPlaces().single()
         assertExact()
 
-        places.delete(id)
+        val removal = places.delete(named)
         assertExact()
 
         // The whole argument for clearing the link rather than keeping the boundary: the round trip
@@ -163,7 +163,7 @@ class DerivedConsistencyTest {
         // Snapshotting the derivation either side would say it less: the tracks and the place are
         // identical to what stood before the delete, so exact agreement at both ends *is* the round
         // trip — and it compares radius, membership and cluster identity, which a snapshot did not.
-        places.restore(named)
+        places.restore(removal)
         assertExact()
     }
 
@@ -202,7 +202,7 @@ class DerivedConsistencyTest {
         checkNotNull(repository.mergeTracks(ids[0], ids[1]))
         assertCoherent()
 
-        places.delete(far)
+        places.delete(db.placeDao().allPlaces().single { it.id == far })
         assertExact()
     }
 

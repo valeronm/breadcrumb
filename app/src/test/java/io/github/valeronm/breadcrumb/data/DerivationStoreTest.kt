@@ -168,15 +168,15 @@ class DerivationStoreTest {
 
     @Test fun `deleting a place and undoing it leave the derivation either side of the delete`() = runTest {
         twoTracks()
-        val id = places.create(test.place("Home", 1.0, -2.0))
+        places.create(test.place("Home", 1.0, -2.0))
         val named = db.placeDao().allPlaces().single()
         val withPlace = derived.intervalsOnce().map { it.type to it.start }
 
-        places.delete(id)
+        val removal = places.delete(named)
         assertTrue("its cluster went with it", derived.seededClusters().isEmpty())
         assertDerivedMatchesFreshDerive()
 
-        places.restore(named)
+        places.restore(removal)
         assertEquals("the round trip lands where it started", withPlace, derived.intervalsOnce().map { it.type to it.start })
         assertDerivedMatchesFreshDerive()
     }

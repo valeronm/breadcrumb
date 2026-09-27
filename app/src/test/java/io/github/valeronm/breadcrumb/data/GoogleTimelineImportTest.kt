@@ -111,12 +111,20 @@ class GoogleTimelineImportTest {
         assertEquals(cafe to home, inbound.startPlaceId to inbound.endPlaceId)
     }
 
-    @Test fun `deleting a place clears the ends stated to it`() = runTest {
+    @Test fun `deleting a place clears the ends stated to it, and undoing it states them again`() = runTest {
         import(twoTripsAndAHome)
-        places.delete(placeRow("cafe").id)
+        val cafe = placeRow("cafe")
+        val removal = places.delete(cafe)
         val (outbound, inbound) = target.repository.exportTracks()
         assertNull(outbound.endPlaceId)
         assertNull(inbound.startPlaceId)
+        DerivedConsistency.assertMatchesFreshDerive(target.db, back + 86_400_000L)
+
+        places.restore(removal)
+        val (outboundAgain, inboundAgain) = target.repository.exportTracks()
+        assertEquals(cafe, placeRow("cafe"))
+        assertEquals(cafe.id, outboundAgain.endPlaceId)
+        assertEquals(cafe.id, inboundAgain.startPlaceId)
         DerivedConsistency.assertMatchesFreshDerive(target.db, back + 86_400_000L)
     }
 

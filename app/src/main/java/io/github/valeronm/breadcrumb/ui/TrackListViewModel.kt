@@ -36,7 +36,9 @@ import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -447,13 +449,19 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun deletePlace(id: Long) {
-        viewModelScope.launch { placeRepository.delete(id) }
+    // Only the latest: one Undo is offered at a time, and a newer removal replaces the older's.
+    private var lastRemoval: Pair<Long, Deferred<PlaceRepository.Removal>>? = null
+
+    fun deletePlace(place: Place) {
+        lastRemoval = place.id to viewModelScope.async { placeRepository.delete(place) }
     }
 
-    /** Undo a [deletePlace]; the row keeps its id. */
+    /** Undo a [deletePlace]; the row keeps its id and its stated ends. */
     fun restorePlace(place: Place) {
-        viewModelScope.launch { placeRepository.restore(place) }
+        val (id, removal) = lastRemoval ?: return
+        if (id != place.id) return
+        lastRemoval = null
+        viewModelScope.launch { placeRepository.restore(removal.await()) }
     }
 
     /** Null untags. A category is not a clustering input, so nothing re-derives. */

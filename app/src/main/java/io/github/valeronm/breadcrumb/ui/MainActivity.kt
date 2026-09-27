@@ -332,12 +332,12 @@ private fun MainScreen(
     val undo = rememberUndoSnackbar(snackbarHostState)
     // A place goes by the editor's Remove button, and the way back is the Undo — which has to be
     // raised from this host, not from a screen that may be dismissed by the same tap. Deleting
-    // removes only the label; the stays stay, as a detected stop again, and restoring re-pins the
-    // row exactly as it was.
+    // leaves the stays, as a detected stop again, and restoring puts the row and the ends stated to
+    // it back exactly as they were.
     // Resolved here: the callback below runs outside the composition.
     val placeDeleted = stringResource(R.string.places_deleted)
     val removePlace: (Place) -> Unit = { place ->
-        viewModel.deletePlace(place.id)
+        viewModel.deletePlace(place)
         undo.show(placeDeleted.format(place.label)) { viewModel.restorePlace(place) }
     }
 

@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import androidx.room.withTransaction
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import kotlinx.coroutines.flow.Flow
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabase.get(context)) {
 
     private val dao = db.placeDao()
+    private val tracks = db.trackDao()
     private val derivation = DerivationStore(context, db)
 
     fun observePlaces(): Flow<List<Place>> = dao.observeAll()
@@ -60,13 +62,26 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun setCategory(id: Long, category: PlaceCategory?) = dao.setCategory(id, category?.code)
 
-    suspend fun delete(id: Long) = seeding { dao.delete(id) }
+    /** What a [delete] takes with the row: the tracks whose start or end was stated to it, which the
+     *  foreign key clears. */
+    class Removal(val place: Place, val startsOf: List<Long>, val endsOf: List<Long>)
+
+    suspend fun delete(place: Place): Removal = seeding {
+        val removal = Removal(place, tracks.startsStatedTo(place.id), tracks.endsStatedTo(place.id))
+        dao.delete(place.id)
+        removal
+    }
 
     /**
-     * Undo a [delete] by re-inserting the row as it was — same id, pin, radius and creation time,
-     * so the stays that clustered to it cluster back exactly as before.
+     * Undo a [delete] by re-inserting the row as it was — same id, pin, radius and creation time —
+     * and stating its ends to it again, so the stays that clustered to it cluster back exactly as
+     * before.
      */
-    suspend fun restore(place: Place) = seeding { dao.insert(place) }
+    suspend fun restore(removal: Removal) = seeding {
+        dao.insert(removal.place)
+        removal.startsOf.chunked(IDS_PER_STATEMENT).forEach { tracks.stateStarts(it, removal.place.id) }
+        removal.endsOf.chunked(IDS_PER_STATEMENT).forEach { tracks.stateEnds(it, removal.place.id) }
+    }
 
     /**
      * One write to `places`, with the derivation's seeds brought back into agreement with it before
