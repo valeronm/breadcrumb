@@ -173,16 +173,6 @@ internal fun PlaceEditScreen(
             )
         }
     }
-    val captureDots = remember(scan) {
-        // Conceded dots carry no distance — a nearer pin holds them at any radius, so the map
-        // must draw them settled rather than compare them. Held dots carry none that any radius
-        // falls short of.
-        scan?.let {
-            it.winnable.map { reach -> CaptureDot(reach.location, reach.distanceM) } +
-                it.held.map { endpoint -> CaptureDot(endpoint, 0.0) } +
-                it.conceded.map { endpoint -> CaptureDot(endpoint, null) }
-        }
-    }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -247,7 +237,7 @@ internal fun PlaceEditScreen(
                             radiusM = radiusM.toDouble(),
                             endpoints = summary.endpoints,
                             neighbors = neighbors,
-                            capture = captureDots,
+                            capture = scan,
                             rivalAreas = rivals,
                             // Placing the center by hand, where the re-center action only snaps it to
                             // what the circle already holds — and the center is what decides what is

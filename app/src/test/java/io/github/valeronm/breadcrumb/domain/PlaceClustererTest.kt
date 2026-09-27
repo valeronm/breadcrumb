@@ -273,7 +273,8 @@ class PlaceClustererTest {
         val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, PlaceClusterer.Contest(emptyList(), stated), flatDistance)
 
         assertEquals(listOf(at(900.0)), scan.held)
-        assertEquals(listOf(at(50.0)), scan.conceded)
+        assertEquals(listOf(at(50.0)), scan.heldElsewhere)
+        assertTrue(scan.conceded.isEmpty())
         assertEquals(listOf(at(0.0), at(50.0)), scan.winnable.map { it.location })
         assertEquals(2, scan.countWithin(25.0))
         assertEquals(at(450.0).lon, checkNotNull(scan.centroidWithin(25.0)).lon, 1e-9)

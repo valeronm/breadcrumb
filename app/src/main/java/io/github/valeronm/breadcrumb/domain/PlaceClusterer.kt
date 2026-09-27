@@ -333,6 +333,8 @@ object PlaceClusterer {
         val conceded: List<Coordinate>,
         /** Candidates stated to this place, taken at any radius. */
         val held: List<Coordinate>,
+        /** Candidates stated to another place, which no radius here takes. */
+        val heldElsewhere: List<Coordinate>,
     ) {
         /**
          * How many candidates a radius of [radiusM] would take — [wouldCapture]'s answer counted
@@ -391,6 +393,7 @@ object PlaceClusterer {
         // through a slider that stops well short of it.
         val conceded = ArrayList<Coordinate>(candidates.size)
         val held = ArrayList<Coordinate>(stated.here.size)
+        val heldElsewhere = ArrayList<Coordinate>(stated.elsewhere.size)
         // Per coordinate, the statements still to match: to this place first, then elsewhere.
         val pending = HashMap<Coordinate, IntArray>()
         for (at in stated.here) pending.getOrPut(at) { IntArray(2) }[0]++
@@ -404,7 +407,7 @@ object PlaceClusterer {
             }
             if (left != null && left[1] > 0) {
                 left[1]--
-                conceded += candidate
+                heldElsewhere += candidate
                 continue
             }
             if (reach.outOfReach(candidate.lat, candidate.lon, maxRadiusM)) {
@@ -418,7 +421,7 @@ object PlaceClusterer {
                 winnable += Reach(candidate, own)
             }
         }
-        return CaptureScan(winnable, conceded, held)
+        return CaptureScan(winnable, conceded, held, heldElsewhere)
     }
 
     private fun losesTo(

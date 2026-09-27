@@ -40,15 +40,6 @@ import org.maplibre.geojson.Point
 // --- One place ------------------------------------------------------------------------------
 
 /**
- * One dot on the place map whose fate the *map* decides: [distanceM] (distance from the pin) is
- * compared against the live radius in a layer expression; null means settled — a neighbor keeps it
- * whatever the radius does, drawn gray uncompared. Carrying the distance rather than a resolved
- * icon means a drag changes one layer property, not thousands of features — that per-step rebuild
- * of the collection is what lags.
- */
-internal class CaptureDot(val location: Coordinate, val distanceM: Double?)
-
-/**
  * A place as these two maps draw it: what it is called and what it is for, at a spot. Being named is
  * what makes one a *pin* — an unnamed cluster stays a dot — and the name and the category always come
  * from the same place row, which is what the [Place] constructor is for. A track's end pins are
@@ -109,9 +100,10 @@ internal fun MapLibrePlaceMap(
     endpoints: List<Coordinate>,
     modifier: Modifier = Modifier,
     neighbors: List<PlaceMarker> = emptyList(),
-    // When set, these dots replace [endpoints] and the plain neighbor dots, and the radius decides
-    // each one's icon in a layer expression — so dragging costs one property, not a re-upload.
-    capture: List<CaptureDot>? = null,
+    // When set, its dots replace [endpoints] and the plain neighbor dots. Only the winnable ones are
+    // decided by the radius, in a layer expression — so dragging costs one property, not a
+    // re-upload; the rest are settled, a statement drawn as a ring and a measurement as a dot.
+    capture: PlaceClusterer.CaptureScan? = null,
     // Named neighbors' own capture areas, drawn muted under this one. They are what stops a dot
     // joining this place, so seeing them is what makes a gray dot inside your circle make sense.
     rivalAreas: List<PlaceClusterer.Seed> = emptyList(),
@@ -191,7 +183,7 @@ internal fun MapLibrePlaceMap(
 private class PlaceMarkers(
     val endpoints: List<Coordinate>,
     val neighbors: List<PlaceMarker>,
-    val capture: List<CaptureDot>?,
+    val capture: PlaceClusterer.CaptureScan?,
 )
 
 /** Everything the place map draws: its own area, the markers, and the areas it competes with. */
@@ -217,8 +209,8 @@ private class AppliedPlaceInputs {
      *  moved pin (which features to rebuild, where to point the camera) and both must be asked. */
     var center: PlaceMarker? = null
 
-    /** Identity, not equality: the scan hands back a new list only when the candidates change. */
-    var capture: List<CaptureDot>? = null
+    /** Identity, not equality: a new scan is made only when its inputs change. */
+    var capture: PlaceClusterer.CaptureScan? = null
     var rivalAreas: List<PlaceClusterer.Seed>? = null
 }
 
@@ -233,6 +225,8 @@ private const val PLACE_CIRCLE_LINE = "place-circle-line"
 private const val PLACE_MARKER_SOURCE = "place-marker-src"
 private const val PLACE_MARKER_LAYER = "place-marker-layer"
 private const val IMG_NEIGHBOR = "marker-neighbor"
+private const val IMG_ASSIGNED = "marker-assigned"
+private const val IMG_ASSIGNED_NEIGHBOR = "marker-assigned-neighbor"
 
 /** The dot a captured track endpoint is drawn as, on both maps — the one image id they share. */
 private const val IMG_ENDPOINT = "marker-endpoint"
@@ -262,6 +256,11 @@ private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent,
     addCaptureCircleLayers(style, PLACE_CIRCLE_SOURCE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE)
     addEndpointDotImages(ctx, style)
     style.addImage(IMG_NEIGHBOR, shadowedBitmap(ctx, R.drawable.ic_marker_neighbor, MarkerShadow.EVIDENCE))
+    style.addImage(IMG_ASSIGNED, shadowedBitmap(ctx, R.drawable.ic_marker_assigned, MarkerShadow.EVIDENCE))
+    style.addImage(
+        IMG_ASSIGNED_NEIGHBOR,
+        shadowedBitmap(ctx, R.drawable.ic_marker_assigned_neighbor, MarkerShadow.EVIDENCE),
+    )
     // This map holds one place at the zoom its own radius frames, so its pins are never the
     // small form: full size, glyphed, and no disc variant to carry.
     addPlacePinImages(ctx, style, PinSet.PlacesAndNeighbors)
@@ -292,17 +291,10 @@ private fun placeMarkerCollection(content: PlaceMapContent): FeatureCollection {
         features.add(neighborFeature(n))
     }
     if (capture != null) {
-        capture.forEach { dot ->
-            features.add(
-                // A settled dot is written as the gray icon; one still in play carries the
-                // distance instead and lets the layer decide.
-                if (dot.distanceM == null) {
-                    endpointFeature(dot.location, IMG_NEIGHBOR)
-                } else {
-                    endpointFeature(dot.location, IMG_NEIGHBOR, distanceM = dot.distanceM)
-                },
-            )
-        }
+        capture.winnable.forEach { features.add(endpointFeature(it.location, IMG_NEIGHBOR, distanceM = it.distanceM)) }
+        capture.conceded.forEach { features.add(endpointFeature(it, IMG_NEIGHBOR)) }
+        capture.held.forEach { features.add(endpointFeature(it, IMG_ASSIGNED)) }
+        capture.heldElsewhere.forEach { features.add(endpointFeature(it, IMG_ASSIGNED_NEIGHBOR)) }
     } else {
         markers.endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
     }
@@ -330,10 +322,11 @@ private fun neighborFeature(n: PlaceMarker): Feature = endpointFeature(
 )
 
 /**
- * The marker layer's icon property: only features carrying a distance (capture dots) resolve against
- * the radius; the rest keep their written icon. Keyed on the property being *present*, not a sentinel
- * icon name — that shares the image ids' value space (an image id "auto" would break it). A radius
- * change costs only this rebuild; correct with or without capture dots, so installed unconditionally.
+ * The marker layer's icon property: only features carrying a distance (the scan's winnable dots)
+ * resolve against the radius; the rest keep their written icon. Keyed on the property being
+ * *present*, not a sentinel icon name — that shares the image ids' value space (an image id "auto"
+ * would break it). A radius change costs only this rebuild; correct with or without a scan, so
+ * installed unconditionally.
  */
 private fun markerIconProperty(radiusM: Double) = PropertyFactory.iconImage(
     Expression.switchCase(
