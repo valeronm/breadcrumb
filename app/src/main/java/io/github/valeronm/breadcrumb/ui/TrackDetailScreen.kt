@@ -345,11 +345,13 @@ internal fun TrackDetailScreen(
                                 if (!noisyPoints.isNullOrEmpty()) {
                                     // On the map rather than in the bar: it shows and hides marks
                                     // drawn here.
-                                    MapFilterChip(
-                                        selected = showNoisy,
-                                        label = stringResource(R.string.track_filter_noisy),
-                                    ) {
-                                        showNoisyOverride = !showNoisy
+                                    MapFilterChips {
+                                        MapFilterChip(
+                                            selected = showNoisy,
+                                            label = stringResource(R.string.track_filter_noisy),
+                                        ) {
+                                            showNoisyOverride = !showNoisy
+                                        }
                                     }
                                 }
                             }

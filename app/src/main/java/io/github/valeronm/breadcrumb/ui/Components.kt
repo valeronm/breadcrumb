@@ -85,31 +85,37 @@ internal fun FilterToggleChip(selected: Boolean, label: String, onClick: () -> U
 }
 
 /**
- * A filter over what a map draws, in the map's top-left corner — the whole thing, corner and inset
- * included, because *where* it sits is as much the idiom as how it looks. The Places map's rare
- * stops and the track map's noisy points are the same control over different maps.
- *
- * Elevated on an opaque surface: the default chip tones all but vanish against a basemap.
+ * A map's filters, stacked in its top-left corner — the whole stack, corner and inset included,
+ * because *where* they sit is as much the idiom as how they look. The Places map's filters and the
+ * track map's noisy points are the same control over different maps.
  */
 @Composable
-internal fun BoxScope.MapFilterChip(selected: Boolean, label: String, onClick: () -> Unit) {
-    Box(
+internal fun BoxScope.MapFilterChips(content: @Composable ColumnScope.() -> Unit) {
+    val halo = touchHalo(FilterChipDefaults.Height)
+    Column(
         Modifier
             .align(Alignment.TopStart)
-            .padding(start = MapInset, top = MapInset - touchHalo(FilterChipDefaults.Height)),
-    ) {
-        ElevatedFilterChip(
-            selected = selected,
-            onClick = onClick,
-            label = { Text(label) },
-            leadingIcon = selectedCheck(selected),
-            colors = FilterChipDefaults.elevatedFilterChipColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-            ),
-            elevation = FilterChipDefaults.elevatedFilterChipElevation(elevation = 3.dp),
-        )
-    }
+            .padding(start = MapInset, top = MapInset - halo),
+        // Negative where the halos exceed the gap: the touch targets overlap, the chips do not.
+        verticalArrangement = Arrangement.spacedBy(8.dp - halo * 2),
+        content = content,
+    )
+}
+
+/** Elevated on an opaque surface: the default chip tones all but vanish against a basemap. */
+@Composable
+internal fun MapFilterChip(selected: Boolean, label: String, onClick: () -> Unit) {
+    ElevatedFilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) },
+        leadingIcon = selectedCheck(selected),
+        colors = FilterChipDefaults.elevatedFilterChipColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ),
+        elevation = FilterChipDefaults.elevatedFilterChipElevation(elevation = 3.dp),
+    )
 }
 
 private fun selectedCheck(selected: Boolean): (@Composable () -> Unit)? =

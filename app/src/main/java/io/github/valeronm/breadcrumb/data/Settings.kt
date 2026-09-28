@@ -22,6 +22,7 @@ object Settings {
     private const val KEY_REQUIRE_GNSS_FIX = "require_gnss_fix"
     private const val KEY_GPS_GIVE_UP_SEC = "gps_give_up_sec"
     private const val KEY_PLACES_SHOW_RARE_STOPS = "places_show_rare_stops"
+    private const val KEY_PLACES_PAST_YEAR_ONLY = "places_past_year_only"
     private const val KEY_PLACES_VIEW_MAP = "places_view_map"
 
     // Renaming this key drops every pick already saved under it.
@@ -331,6 +332,14 @@ object Settings {
 
     fun setPlacesShowRareStops(context: Context, enabled: Boolean) {
         prefs(context).edit { putBoolean(KEY_PLACES_SHOW_RARE_STOPS, enabled) }
+    }
+
+    /** Places map: show only places visited in the past twelve months. */
+    fun placesPastYearOnly(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_PLACES_PAST_YEAR_ONLY, false)
+
+    fun setPlacesPastYearOnly(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_PLACES_PAST_YEAR_ONLY, enabled) }
     }
 
     /** Places tab: whether the map view (vs the sorted list) was last selected. */

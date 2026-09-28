@@ -7,6 +7,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,6 +44,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.placeCategory
+import java.time.ZonedDateTime
 import java.util.Locale
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
@@ -58,13 +60,6 @@ private enum class PlacesSort(@StringRes val labelRes: Int) {
             entries.find { it.name == AppSettings.placesSort(context) } ?: LAST_VISIT
     }
 }
-
-// Clusters below the notable-visit floor are "rare stops": hidden on the map unless its chip is
-// on. A label doesn't exempt one — a place named on the strength of a single visit is exactly the
-// clutter the chip is asked to clear, and a named cluster with no visits at all (a dropped pin, or
-// one whose stays were deleted) is rarer still.
-private fun PlaceResolver.PlaceSummary.isRareStop() =
-    visitCount < PlaceResolver.NOTABLE_VISIT_MIN
 
 // LIST before MAP, matching the Timeline's switch: the two tabs wear the same control, and the
 // same choice should sit under the same thumb on both.
@@ -105,6 +100,7 @@ internal fun PlacesTab(
     val focusManager = LocalFocusManager.current
     var sort by remember { mutableStateOf(PlacesSort.fromSettings(context)) }
     var showRareStops by remember { mutableStateOf(AppSettings.placesShowRareStops(context)) }
+    var pastYearOnly by remember { mutableStateOf(AppSettings.placesPastYearOnly(context)) }
 
     val sorted = remember(sort, places) {
         val comparator = when (sort) {
@@ -129,12 +125,13 @@ internal fun PlacesTab(
     // matches whatever the row displays, which for an unnamed cluster is the city the atlas put
     // it in: a name on screen that a search for it doesn't return reads as a broken search.
     var query by remember { mutableStateOf("") }
-    // What the map draws — the list page shows `sorted` whole, since it offers no such filter and
-    // demoting rows there would bury places under a rule the screen gives no way to see or turn
-    // off. Note the chip's off default also hides the map's orange brief-stop dots: a one-off stop
-    // is a rare cluster by definition.
-    val mapVisible = remember(sorted, showRareStops) {
-        if (showRareStops) sorted else sorted.filterNot { it.isRareStop() }
+    // The list page shows `sorted` whole: it offers no filters, and demoting rows there would bury
+    // places under a rule the screen gives no way to see or turn off. The rare-stops chip's off
+    // default also hides the map's orange brief-stop dots, a one-off stop being a rare cluster by
+    // definition.
+    val mapFilter = remember(sorted, showRareStops, pastYearOnly) {
+        val since = ZonedDateTime.now(timelineZone()).minusYears(1).toInstant().toEpochMilli()
+        filterPlacesMap(sorted, showRareStops, since.takeIf { pastYearOnly })
     }
     // Derived here rather than in the map view, which is disposed on switching away — there, this
     // history-wide walk would re-run on every return to the map. Stay identity (afterTrackId +
@@ -145,8 +142,8 @@ internal fun PlacesTab(
             .filter { it.merge != null }
             .mapTo(HashSet()) { it.stay.afterTrackId to it.stay.start }
     }
-    val mapPlaces = remember(mapVisible, mergeableStays) {
-        mapVisible.map { summary ->
+    val mapPlaces = remember(mapFilter, mergeableStays) {
+        mapFilter.visible.map { summary ->
             overviewPlaceOf(
                 summary,
                 // Never a named place: a merge offer says the split may be an artifact, but a
@@ -202,15 +199,26 @@ internal fun PlacesTab(
                 PlacesPage.MAP -> viewStateHolder.SaveableStateProvider(PlacesPage.MAP) {
                     PlacesMapPage(
                         mapPlaces = mapPlaces,
-                        showRareStops = showRareStops,
-                        onToggleRareStops = {
-                            showRareStops = !showRareStops
-                            AppSettings.setPlacesShowRareStops(context, showRareStops)
-                        },
+                        emptiedBy = mapFilter.emptiedBy,
                         homeRequest = homeRequest,
                         onOpenPlace = onOpenPlace,
                         mapCamera = mapCamera,
-                    )
+                    ) {
+                        MapFilterChip(
+                            selected = showRareStops,
+                            label = stringResource(R.string.places_rare_stops),
+                        ) {
+                            showRareStops = !showRareStops
+                            AppSettings.setPlacesShowRareStops(context, showRareStops)
+                        }
+                        MapFilterChip(
+                            selected = pastYearOnly,
+                            label = stringResource(R.string.places_past_year),
+                        ) {
+                            pastYearOnly = !pastYearOnly
+                            AppSettings.setPlacesPastYearOnly(context, pastYearOnly)
+                        }
+                    }
                 }
 
                 PlacesPage.LIST -> viewStateHolder.SaveableStateProvider(PlacesPage.LIST) {
@@ -248,11 +256,11 @@ internal fun overviewPlaceOf(summary: PlaceResolver.PlaceSummary, brief: Boolean
 @Composable
 private fun PlacesMapPage(
     mapPlaces: List<OverviewPlace>,
-    showRareStops: Boolean,
-    onToggleRareStops: () -> Unit,
+    emptiedBy: PlacesMapFilter.Emptied?,
     homeRequest: Int,
     onOpenPlace: (String) -> Unit,
     mapCamera: CameraSlot,
+    filters: @Composable ColumnScope.() -> Unit,
 ) {
     val camera = remember { CameraCarry() }
     DisposableEffect(camera) {
@@ -269,15 +277,16 @@ private fun PlacesMapPage(
     ) {
         Box(Modifier.fillMaxSize().clipToBounds()) {
             if (mapPlaces.isEmpty()) {
-                // The filter, not the history, emptied this view — a bare basemap would read as
-                // "no places". The chip below stays on top of this message.
-                EmptyState(
-                    stringResource(
-                        R.string.places_all_rare,
-                        stringResource(R.string.places_rare_stops),
-                    ),
-                    Modifier.fillMaxSize().padding(24.dp),
-                )
+                // The filters, not the history, emptied this view — a bare basemap would read as
+                // "no places". The chips below stay on top of this message.
+                val message = when (emptiedBy) {
+                    PlacesMapFilter.Emptied.PAST_YEAR -> stringResource(
+                        R.string.places_none_past_year,
+                        stringResource(R.string.places_past_year),
+                    )
+                    else -> stringResource(R.string.places_all_rare, stringResource(R.string.places_rare_stops))
+                }
+                EmptyState(message, Modifier.fillMaxSize().padding(24.dp))
             } else {
                 MapLibrePlacesMap(
                     places = mapPlaces,
@@ -289,10 +298,7 @@ private fun PlacesMapPage(
                 )
                 MyLocationControl(myLocation)
             }
-            MapFilterChip(
-                selected = showRareStops,
-                label = stringResource(R.string.places_rare_stops),
-            ) { onToggleRareStops() }
+            MapFilterChips(filters)
         }
     }
 }
