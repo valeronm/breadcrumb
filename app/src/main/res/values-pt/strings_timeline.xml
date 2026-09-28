@@ -3,15 +3,10 @@
 
     <string name="timeline_empty">Ainda sem viagens. Aparecem aqui assim que a gravação captar algum movimento.</string>
     <string name="timeline_restoring">A restaurar a cópia de segurança — a cronologia aparece quando terminar</string>
-    <string name="timeline_restore_failed">Falha ao restaurar — não é uma cópia do Breadcrumb?</string>
-    <string name="timeline_restored">Restauradas %1$d viagens e %2$d locais</string>
     <string name="timeline_restoring_count">A restaurar… %1$d viagens</string>
     <string name="timeline_restoring_count_of">A restaurar… %1$d de %2$d viagens</string>
     <string name="timeline_google_importing">A importar a Cronologia do Google — as viagens aparecem quando terminar</string>
     <string name="timeline_google_importing_count_of">A importar… %1$d de %2$d viagens</string>
-    <string name="timeline_google_imported">Importadas %1$d viagens e %2$d locais</string>
-    <string name="timeline_google_imported_skipped">Importadas %1$d viagens e %2$d locais; %3$d entradas não puderam ser lidas</string>
-    <string name="timeline_google_import_failed">Falha ao importar — não é uma exportação da Cronologia do Google?</string>
 
     <string name="timeline_sweep">A reprocessar as viagens</string>
 

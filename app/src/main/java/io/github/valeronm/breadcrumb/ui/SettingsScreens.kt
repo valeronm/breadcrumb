@@ -945,9 +945,9 @@ private fun RestoreRow(viewModel: TrackListViewModel, blockedBy: String?) {
         if (uri == null) return@rememberLauncherForActivityResult
         viewModel.importExport.restoreBackup(uri) { outcome ->
             val message = when (outcome) {
-                null -> appContext.getString(R.string.timeline_restore_failed)
+                null -> appContext.getString(R.string.data_restore_failed)
                 is LoadOutcome.Loaded ->
-                    appContext.getString(R.string.timeline_restored, outcome.summary.tracks, outcome.summary.places)
+                    appContext.getString(R.string.data_restored, outcome.summary.tracks, outcome.summary.places)
                 else -> refusalMessage(appContext, outcome)
             }
             Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
@@ -976,12 +976,12 @@ private fun GoogleTimelineRow(viewModel: TrackListViewModel, blockedBy: String?)
         viewModel.importExport.importGoogleTimeline(uri) { outcome ->
             val summary = (outcome as? LoadOutcome.Loaded)?.summary
             val message = when {
-                outcome == null -> appContext.getString(R.string.timeline_google_import_failed)
+                outcome == null -> appContext.getString(R.string.data_google_import_failed)
                 summary == null -> refusalMessage(appContext, outcome)
                 summary.skipped == 0 ->
-                    appContext.getString(R.string.timeline_google_imported, summary.tracks, summary.places)
+                    appContext.getString(R.string.data_google_imported, summary.tracks, summary.places)
                 else -> appContext.getString(
-                    R.string.timeline_google_imported_skipped,
+                    R.string.data_google_imported_skipped,
                     summary.tracks,
                     summary.places,
                     summary.skipped,

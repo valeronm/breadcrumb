@@ -121,6 +121,11 @@
     <string name="data_google_reading">Reading the export…</string>
     <string name="data_only_when_empty">Only into an empty history</string>
     <string name="data_nothing_to_export">Nothing to export yet</string>
+    <string name="data_restored">Restored %1$d trips and %2$d places</string>
+    <string name="data_restore_failed">Restore failed — not a Breadcrumb backup?</string>
+    <string name="data_google_imported">Imported %1$d trips and %2$d places</string>
+    <string name="data_google_imported_skipped">Imported %1$d trips and %2$d places; %3$d entries could not be read</string>
+    <string name="data_google_import_failed">Import failed — not a Google Timeline export?</string>
     <string name="data_load_busy">Another import is already running</string>
     <string name="data_load_not_empty">Your history is no longer empty, so nothing was loaded</string>
     <string name="data_import_tracks">Import tracks</string>

@@ -97,6 +97,11 @@
     <string name="data_google_reading">Чтение экспорта…</string>
     <string name="data_only_when_empty">Только в пустую историю</string>
     <string name="data_nothing_to_export">Пока нечего экспортировать</string>
+    <string name="data_restored">Восстановлено поездок: %1$d, мест: %2$d</string>
+    <string name="data_restore_failed">Не удалось восстановить — это не копия Breadcrumb?</string>
+    <string name="data_google_imported">Импортировано поездок: %1$d, мест: %2$d</string>
+    <string name="data_google_imported_skipped">Импортировано поездок: %1$d, мест: %2$d; не удалось прочитать записей: %3$d</string>
+    <string name="data_google_import_failed">Не удалось импортировать — это не экспорт Хронологии Google?</string>
     <string name="data_load_busy">Уже идёт другой импорт</string>
     <string name="data_load_not_empty">История уже не пуста, поэтому ничего не загружено</string>
     <string name="data_import_tracks">Импорт маршрутов</string>

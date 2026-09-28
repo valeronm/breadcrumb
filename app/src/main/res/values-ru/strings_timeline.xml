@@ -2,15 +2,10 @@
 <resources>
     <string name="timeline_empty">Поездок пока нет. Они появятся здесь, когда запись зафиксирует движение.</string>
     <string name="timeline_restoring">Восстановление из резервной копии — история появится после завершения</string>
-    <string name="timeline_restore_failed">Не удалось восстановить — это не копия Breadcrumb?</string>
-    <string name="timeline_restored">Восстановлено поездок: %1$d, мест: %2$d</string>
     <string name="timeline_restoring_count">Восстановление… поездок: %1$d</string>
     <string name="timeline_restoring_count_of">Восстановление поездок… %1$d из %2$d</string>
     <string name="timeline_google_importing">Импорт Хронологии Google — поездки появятся после завершения</string>
     <string name="timeline_google_importing_count_of">Импорт поездок… %1$d из %2$d</string>
-    <string name="timeline_google_imported">Импортировано поездок: %1$d, мест: %2$d</string>
-    <string name="timeline_google_imported_skipped">Импортировано поездок: %1$d, мест: %2$d; не удалось прочитать записей: %3$d</string>
-    <string name="timeline_google_import_failed">Не удалось импортировать — это не экспорт Хронологии Google?</string>
 
     <string name="timeline_sweep">Обработка поездок</string>
 
