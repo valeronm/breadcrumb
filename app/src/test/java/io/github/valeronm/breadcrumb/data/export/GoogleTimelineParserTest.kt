@@ -5,6 +5,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.StringReader
 import java.time.Instant
@@ -91,6 +92,37 @@ class GoogleTimelineParserTest {
             export.path.times,
         )
         assertEquals(0, export.skipped)
+    }
+
+    private fun docWithSignals(vararg signals: String) =
+        """{"semanticSegments":[],"rawSignals":[${signals.joinToString(",")}]}"""
+
+    private fun position(time: String, at: String = "1.001°, -2.0°", readings: String = "") =
+        """{"position":{"LatLng":"$at",$readings"source":"UNKNOWN","timestamp":"$time"}}"""
+
+    @Test fun `raw positions read with their accuracy, other signals ignored`() {
+        val fixes = parse(
+            docWithSignals(
+                """{"activityRecord":{"probableActivities":[],"timestamp":"2024-01-01T10:00:00.000+01:00"}}""",
+                position("2024-01-01T10:00:05.000+01:00", readings = """"accuracyMeters":9,"altitudeMeters":71.5,"""),
+                """{"wifiScan":{"deliveryTime":"2024-01-01T10:00:05.000+01:00"}}""",
+            ),
+        ).fixes
+        assertArrayEquals(longArrayOf(ms("2024-01-01T09:00:05Z")), fixes.times)
+        assertEquals(1.001, fixes.lats[0], 0.0)
+        assertEquals(9f, fixes.accuracies!![0], 0f)
+    }
+
+    @Test fun `a raw position without accuracy keeps it unknown, an unreadable one dropped alone`() {
+        val fixes = parse(
+            docWithSignals(
+                position("2024-01-01T10:00:05.000+01:00"),
+                position("not a time"),
+                position("2024-01-01T10:00:09.000+01:00", at = "garbage"),
+            ),
+        ).fixes
+        assertEquals(1, fixes.times.size)
+        assertTrue(fixes.accuracies!![0].isNaN())
     }
 
     @Test fun `an activity that cannot be placed is skipped and counted`() {

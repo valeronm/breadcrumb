@@ -32,9 +32,9 @@ enum class TrackOrigin(
      *  track so the timeline and journeys read it like any other. */
     MANUAL("manual", measuresFixQuality = false, measuresMotion = false),
 
-    /** Read from a Google Timeline export: Google's reconstruction of a trip, sampled once a minute
-     *  between its own endpoints, whose speeds from sample to sample are the reconstruction's
-     *  rather than the trip's. */
+    /** Read from a Google Timeline export: the phone's own fixes over the export's last month, and
+     *  before it Google's reconstruction, whose samples are restamped to the minute and so imply
+     *  speeds the trip never had. */
     GOOGLE_TIMELINE("google_timeline", measuresFixQuality = false, measuresMotion = false, imported = true),
     ;
 

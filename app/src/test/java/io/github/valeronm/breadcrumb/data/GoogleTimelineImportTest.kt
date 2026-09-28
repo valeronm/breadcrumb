@@ -56,6 +56,7 @@ class GoogleTimelineImportTest {
         StringReader(json),
         repositories,
         placeLabel = { if (it == PlaceCategory.HOME) "Home" else "Work" },
+        maxAccuracyM = 50f,
         nowMs = TEST_START,
     )
 

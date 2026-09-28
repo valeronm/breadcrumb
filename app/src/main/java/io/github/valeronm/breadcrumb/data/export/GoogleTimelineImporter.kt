@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.data.export
 
 import android.content.Context
 import android.net.Uri
+import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
@@ -29,15 +30,19 @@ internal object GoogleTimelineImporter {
         val input = context.contentResolver.openInputStream(uri) ?: return null
         return input.use { raw ->
             InputStreamReader(raw, Charsets.UTF_8).buffered(BackupExporter.STREAM_BUFFER).use { reader ->
-                import(reader, repositories, placeLabel, System.currentTimeMillis(), onProgress)
+                val maxAccuracyM = Settings.accuracyGateM(context).toFloat()
+                import(reader, repositories, placeLabel, maxAccuracyM, System.currentTimeMillis(), onProgress)
             }
         }
     }
 
+    // Each parameter is an independent input from the caller.
+    @Suppress("LongParameterList")
     internal suspend fun import(
         reader: Reader,
         repositories: BackupRepositories,
         placeLabel: (PlaceCategory) -> String,
+        maxAccuracyM: Float,
         nowMs: Long,
         onProgress: (tracksDone: Int, tracksTotal: Int?) -> Unit = { _, _ -> },
     ): Summary {
@@ -60,7 +65,7 @@ internal object GoogleTimelineImporter {
         val total = export.activities.size
         var done = 0
         onProgress(0, total)
-        GoogleTimelineTracks.build(export.activities, export.path, export.visits, rowOf::get)
+        GoogleTimelineTracks.build(export, rowOf::get, maxAccuracyM)
             .chunked(BackupImporter.INSERT_BATCH)
             .forEach { batch ->
                 repositories.tracks.insertBackupTracks(batch)

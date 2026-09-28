@@ -26,35 +26,42 @@ internal object GoogleTimelineTracks {
     }
 
     /**
-     * One track per activity, in start order. The activity's own endpoints are its first and last
-     * fixes because a track's bounds are derived from its fixes, and some activities carry no path
-     * samples at all.
+     * One track per activity of [export], in start order. The activity's own endpoints are its first
+     * and last fixes because a track's bounds are derived from its fixes, and some activities carry
+     * no path samples at all.
+     *
+     * Between them sit the phone's own [GoogleTimelineExport.fixes] where they span the whole
+     * activity, and otherwise the [GoogleTimelineExport.path] samples, never both: each path sample
+     * is one of those fixes restamped to the minute, so the two interleaved would put one position
+     * at two times. A fix at or beyond [maxAccuracyM] is ignored as the recorder would ignore it.
      *
      * A track's end is stated to the place of the top-level visit starting at the instant it ends,
      * and its start to the one ending at the instant it starts: Google joined the two exactly when
      * their times are equal. [rowOf] is the place row a Google place id was inserted as.
      */
     fun build(
-        activities: List<GoogleTimelineActivity>,
-        path: SortedPath,
-        visits: List<GoogleTimelineVisit>,
+        export: GoogleTimelineExport,
         rowOf: (String) -> Long?,
+        maxAccuracyM: Float,
         distance: DistanceFn = AndroidDistance,
     ): Sequence<Pair<Track, List<TrackPoint>>> {
         val arrivals = HashMap<Long, String>()
         val departures = HashMap<Long, String>()
-        for (visit in visits) {
+        for (visit in export.visits) {
             if (!visit.topLevel) continue
             arrivals[visit.startMs] = visit.placeId
             departures[visit.endMs] = visit.placeId
         }
-        return activities.sortedBy { it.startMs }.asSequence().map { activity ->
+        val gates = TrackQuality.Gates(maxAccuracyM = maxAccuracyM)
+        return export.activities.sortedBy { it.startMs }.asSequence().map { activity ->
             val type = activityFor(activity.type)
+            val inside = if (spans(export.fixes, activity)) export.fixes else export.path
             val points = ArrayList<TrackPoint>()
             points += fix(activity.startMs, activity.start.lat, activity.start.lon)
-            var i = path.firstAfter(activity.startMs)
-            while (i < path.times.size && path.times[i] < activity.endMs) {
-                points += fix(path.times[i], path.lats[i], path.lons[i])
+            var i = inside.firstAfter(activity.startMs)
+            while (i < inside.times.size && inside.times[i] < activity.endMs) {
+                val accuracy = inside.accuracies?.get(i)?.takeUnless { it.isNaN() }
+                points += fix(inside.times[i], inside.lats[i], inside.lons[i], accuracy)
                 i++
             }
             points += fix(activity.endMs, activity.end.lat, activity.end.lon)
@@ -65,18 +72,27 @@ internal object GoogleTimelineTracks {
                 endedAt = activity.endMs,
                 startPlaceId = departures[activity.startMs]?.let(rowOf),
                 endPlaceId = arrivals[activity.endMs]?.let(rowOf),
-            ) to flagJumps(points, type, distance)
+            ) to flagBadFixes(points, type, gates, distance)
         }
     }
 
-    /** The export carries no accuracy or satellite evidence, so of the bad-fix rule only the jump
-     *  gate can judge these fixes. */
-    private val NO_EVIDENCE = TrackQuality.Gates(maxAccuracyM = Float.POSITIVE_INFINITY)
+    /** The export keeps [fixes] for its last month only, which can begin or end mid-trip. */
+    private fun spans(fixes: SortedPath, activity: GoogleTimelineActivity): Boolean {
+        val n = fixes.times.size
+        if (n == 0 || fixes.times[0] > activity.startMs || fixes.times[n - 1] < activity.endMs) return false
+        val first = fixes.firstAfter(activity.startMs)
+        return first < n && fixes.times[first] < activity.endMs
+    }
 
-    private fun flagJumps(points: List<TrackPoint>, type: ActivityType, distance: DistanceFn): List<TrackPoint> {
+    private fun flagBadFixes(
+        points: List<TrackPoint>,
+        type: ActivityType,
+        gates: TrackQuality.Gates,
+        distance: DistanceFn,
+    ): List<TrackPoint> {
         var lastGood: TrackPoint? = null
         return points.map { point ->
-            val reason = TrackQuality.badFixReason(lastGood, point, type, NO_EVIDENCE, distance)
+            val reason = TrackQuality.badFixReason(lastGood, point, type, gates, distance)
             if (reason == null) {
                 lastGood = point
                 point
@@ -86,12 +102,13 @@ internal object GoogleTimelineTracks {
         }
     }
 
-    private fun fix(timeMs: Long, lat: Double, lon: Double) = TrackPoint(
+    /** The export carries an altitude on only some of the phone's fixes, too few to draw a profile from. */
+    private fun fix(timeMs: Long, lat: Double, lon: Double, accuracyM: Float? = null) = TrackPoint(
         trackId = NO_TRACK,
         latitude = lat,
         longitude = lon,
         altitude = null,
-        accuracy = null,
+        accuracy = accuracyM,
         speed = null,
         bearing = null,
         timestamp = timeMs,

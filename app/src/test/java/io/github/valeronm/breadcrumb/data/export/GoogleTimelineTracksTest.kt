@@ -23,8 +23,18 @@ class GoogleTimelineTracksTest {
         timeAndLat.forEach { (t, lat) -> add(t, lat, -2.0) }
     }.sortedUnique()
 
-    private fun buildFlat(activities: List<GoogleTimelineActivity>, path: SortedPath) =
-        GoogleTimelineTracks.build(activities, path, emptyList(), { null }, flatDistance)
+    private val noFixes = PathSamples(withAccuracy = true).sortedUnique()
+
+    private fun buildFlat(
+        activities: List<GoogleTimelineActivity>,
+        path: SortedPath,
+        fixes: SortedPath = noFixes,
+    ) = GoogleTimelineTracks.build(
+        GoogleTimelineExport(activities, emptyList(), path, fixes, skipped = 0),
+        { null },
+        GATE_M,
+        flatDistance,
+    )
 
     @Test fun `a sample the activity could not have reached is a jump, and the next is judged from the last good one`() {
         val walk = GoogleTimelineActivity(0, 3 * MIN, Coordinate(1.0, -2.0), Coordinate(1.002, -2.0), "WALKING")
@@ -74,7 +84,7 @@ class GoogleTimelineTracksTest {
         assertEquals(listOf(100L, 300L), tracks.map { it.first.startedAt })
     }
 
-    @Test fun `fixes carry no receiver readings`() {
+    @Test fun `path samples carry no receiver readings`() {
         val (_, points) = buildFlat(listOf(activity(100, 400)), path(200)).single()
         points.forEach {
             assertNull(it.accuracy)
@@ -107,6 +117,52 @@ class GoogleTimelineTracksTest {
         assertEquals(ActivityType.UNKNOWN, GoogleTimelineTracks.activityFor(null))
     }
 
+    // --- The phone's own fixes -------------------------------------------------------------------
+
+    private fun fixesAt(vararg times: Long, accuracyM: Float = 10f) = PathSamples(withAccuracy = true).apply {
+        times.forEachIndexed { i, t -> add(t, 1.0 + i * 0.001, -2.001, accuracyM) }
+    }.sortedUnique()
+
+    @Test fun `fixes spanning the activity replace the path samples inside it`() {
+        val (_, points) = buildFlat(
+            listOf(activity(100, 400)),
+            path(200, 300),
+            fixesAt(50, 150, 250, 350, 450),
+        ).single()
+        assertEquals(listOf(100L, 150L, 250L, 350L, 400L), points.map { it.timestamp })
+    }
+
+    @Test fun `fixes carry their accuracy alone, the endpoints nothing`() {
+        val (_, points) = buildFlat(listOf(activity(100, 400)), path(), fixesAt(50, 150, 450)).single()
+        assertEquals(listOf(null, 10f, null), points.map { it.accuracy })
+        points.forEach {
+            assertNull(it.altitude)
+            assertNull(it.speed)
+        }
+    }
+
+    @Test fun `an activity the fixes begin or end inside keeps its path samples`() {
+        val beganInside = buildFlat(listOf(activity(100, 400)), path(200), fixesAt(150, 250, 450)).single()
+        assertEquals(listOf(100L, 200L, 400L), beganInside.second.map { it.timestamp })
+        val endedInside = buildFlat(listOf(activity(100, 400)), path(200), fixesAt(50, 250, 350)).single()
+        assertEquals(listOf(100L, 200L, 400L), endedInside.second.map { it.timestamp })
+    }
+
+    @Test fun `an activity with no fix inside keeps its path samples`() {
+        val (_, points) = buildFlat(listOf(activity(100, 400)), path(200), fixesAt(50, 450)).single()
+        assertEquals(listOf(100L, 200L, 400L), points.map { it.timestamp })
+    }
+
+    @Test fun `a fix at the accuracy gate is ignored for accuracy`() {
+        val (_, points) = buildFlat(
+            listOf(activity(0, 3 * MIN, type = "IN_PASSENGER_VEHICLE")),
+            path(),
+            fixesAt(-MIN, MIN, 4 * MIN, accuracyM = GATE_M),
+        ).single()
+        assertEquals(listOf(false, true, false), points.map { it.ignored })
+        assertEquals(IgnoreReason.ACCURACY.code, points[1].ignoreReason)
+    }
+
     // --- Stated ends -----------------------------------------------------------------------------
 
     private fun visit(placeId: String, startMs: Long, endMs: Long, topLevel: Boolean = true) =
@@ -115,7 +171,12 @@ class GoogleTimelineTracksTest {
     private val rows = mapOf("home" to 11L, "shop" to 12L, "mall" to 13L)
 
     private fun stated(activity: GoogleTimelineActivity, vararg visits: GoogleTimelineVisit) =
-        GoogleTimelineTracks.build(listOf(activity), path(), visits.toList(), rows::get, flatDistance)
+        GoogleTimelineTracks.build(
+            GoogleTimelineExport(listOf(activity), visits.toList(), path(), noFixes, skipped = 0),
+            rows::get,
+            GATE_M,
+            flatDistance,
+        )
             .single().first.let { it.startPlaceId to it.endPlaceId }
 
     @Test fun `a trip between two visits is stated to both`() {
@@ -142,5 +203,9 @@ class GoogleTimelineTracksTest {
                 visit("shop", 400, 500, topLevel = false),
             ),
         )
+    }
+
+    private companion object {
+        const val GATE_M = 50f
     }
 }

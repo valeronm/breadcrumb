@@ -24,24 +24,28 @@ internal class GoogleTimelineVisit(
     val topLevel: Boolean,
 )
 
-/** Path samples in file order, held in primitive arrays: a multi-year export carries hundreds of
- *  thousands, and a boxed object per sample would multiply the import's memory several times. */
-internal class PathSamples {
+/** Samples in file order, held in primitive arrays: a multi-year export carries hundreds of
+ *  thousands, and a boxed object per sample would multiply the import's memory several times.
+ *  NaN marks a sample that carried no accuracy. */
+internal class PathSamples(withAccuracy: Boolean = false) {
     private var times = LongArray(INITIAL)
     private var lats = DoubleArray(INITIAL)
     private var lons = DoubleArray(INITIAL)
+    private var accuracies = if (withAccuracy) FloatArray(INITIAL) else null
     var size = 0
         private set
 
-    fun add(timeMs: Long, lat: Double, lon: Double) {
+    fun add(timeMs: Long, lat: Double, lon: Double, accuracyM: Float = Float.NaN) {
         if (size == times.size) {
             times = times.copyOf(size * 2)
             lats = lats.copyOf(size * 2)
             lons = lons.copyOf(size * 2)
+            accuracies = accuracies?.copyOf(size * 2)
         }
         times[size] = timeMs
         lats[size] = lat
         lons[size] = lon
+        accuracies?.set(size, accuracyM)
         size++
     }
 
@@ -51,15 +55,22 @@ internal class PathSamples {
         val t = LongArray(size)
         val la = DoubleArray(size)
         val lo = DoubleArray(size)
+        val from = accuracies
+        val acc = from?.let { FloatArray(size) }
         var n = 0
         for (i in order) {
             if (n > 0 && t[n - 1] == times[i]) continue
             t[n] = times[i]
             la[n] = lats[i]
             lo[n] = lons[i]
+            if (acc != null) acc[n] = from[i]
             n++
         }
-        return if (n == size) SortedPath(t, la, lo) else SortedPath(t.copyOf(n), la.copyOf(n), lo.copyOf(n))
+        return if (n == size) {
+            SortedPath(t, la, lo, acc)
+        } else {
+            SortedPath(t.copyOf(n), la.copyOf(n), lo.copyOf(n), acc?.copyOf(n))
+        }
     }
 
     private companion object {
@@ -67,7 +78,13 @@ internal class PathSamples {
     }
 }
 
-internal class SortedPath(val times: LongArray, val lats: DoubleArray, val lons: DoubleArray) {
+internal class SortedPath(
+    val times: LongArray,
+    val lats: DoubleArray,
+    val lons: DoubleArray,
+    /** Null where the samples were kept without accuracies. */
+    val accuracies: FloatArray?,
+) {
     /** The index of the first sample later than [timeMs], or [times]' size when there is none. */
     fun firstAfter(timeMs: Long): Int {
         var lo = 0
@@ -83,7 +100,10 @@ internal class SortedPath(val times: LongArray, val lats: DoubleArray, val lons:
 internal class GoogleTimelineExport(
     val activities: List<GoogleTimelineActivity>,
     val visits: List<GoogleTimelineVisit>,
+    /** Google's reconstruction: the phone's fixes with their times rounded to the minute. */
     val path: SortedPath,
+    /** The phone's own fixes at their own times, which the export keeps for its last month only. */
+    val fixes: SortedPath,
     /** Activity and visit segments dropped for a field that could not be read. */
     val skipped: Int,
 )
@@ -100,25 +120,40 @@ internal object GoogleTimelineParser {
         val activities = mutableListOf<GoogleTimelineActivity>()
         val visits = mutableListOf<GoogleTimelineVisit>()
         val path = PathSamples()
+        val fixes = PathSamples(withAccuracy = true)
         var skipped = 0
         var segmentsSeen = false
         json.beginObject()
         while (json.hasNext()) {
-            if (json.nextName() != "semanticSegments") {
-                json.skipValue()
-                continue
+            when (json.nextName()) {
+                "semanticSegments" -> {
+                    segmentsSeen = true
+                    skipped += readSegments(json, activities, visits, path)
+                }
+                "rawSignals" -> readRawSignals(json, fixes)
+                else -> json.skipValue()
             }
-            segmentsSeen = true
-            json.beginArray()
-            while (json.hasNext()) {
-                if (!readSegment(json, activities, visits, path)) skipped++
-            }
-            json.endArray()
         }
         json.endObject()
         json.expectEnd()
         require(segmentsSeen) { "not a Google Timeline export" }
-        return GoogleTimelineExport(activities, visits, path.sortedUnique(), skipped)
+        return GoogleTimelineExport(activities, visits, path.sortedUnique(), fixes.sortedUnique(), skipped)
+    }
+
+    /** How many of the segments were an activity or a visit that could not be read. */
+    private fun readSegments(
+        json: JsonPullReader,
+        activities: MutableList<GoogleTimelineActivity>,
+        visits: MutableList<GoogleTimelineVisit>,
+        path: PathSamples,
+    ): Int {
+        var skipped = 0
+        json.beginArray()
+        while (json.hasNext()) {
+            if (!readSegment(json, activities, visits, path)) skipped++
+        }
+        json.endArray()
+        return skipped
     }
 
     private class RawActivity(val start: Coordinate?, val end: Coordinate?, val type: String?)
@@ -252,6 +287,37 @@ internal object GoogleTimelineParser {
             path.add(at, where.lat, where.lon)
         }
         json.endArray()
+    }
+
+    /** Activity records and Wi-Fi scans carry nothing a track holds. An unreadable position is
+     *  dropped alone. */
+    private fun readRawSignals(json: JsonPullReader, fixes: PathSamples) {
+        if (json.peekChar() != '[') {
+            json.skipValue()
+            return
+        }
+        json.beginArray()
+        while (json.hasNext()) {
+            json.forEachField { name -> if (name == "position") readPosition(json, fixes) else json.skipValue() }
+        }
+        json.endArray()
+    }
+
+    private fun readPosition(json: JsonPullReader, fixes: PathSamples) {
+        var point: String? = null
+        var time: String? = null
+        var accuracy = Float.NaN
+        json.forEachField { name ->
+            when (name) {
+                "LatLng" -> point = stringOrSkip(json)
+                "timestamp" -> time = stringOrSkip(json)
+                "accuracyMeters" -> accuracy = (json.nextPrimitive() as? Number)?.toFloat() ?: Float.NaN
+                else -> json.skipValue()
+            }
+        }
+        val at = instantOf(time) ?: return
+        val where = latLngOf(point) ?: return
+        fixes.add(at, where.lat, where.lon, accuracy)
     }
 
     private fun stringOrSkip(json: JsonPullReader): String? =
