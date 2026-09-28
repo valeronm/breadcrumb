@@ -496,11 +496,11 @@ private fun featureNear(map: MapLibreMap, latLng: LatLng, layer: String): Featur
 
 /**
  * A screen's map camera, read live — mid-fling included — and carried to the next map built in its
- * place, since a shade change builds a new map rather than restyling the old one.
+ * place, since a shade change builds a new map rather than restyling the old one. [carried] is where
+ * the first map opens.
  */
-internal class CameraCarry {
+internal class CameraCarry(private var carried: CameraPosition? = null) {
     private var map: MapLibreMap? = null
-    private var carried: CameraPosition? = null
 
     fun attach(map: MapLibreMap) {
         this.map = map
@@ -514,7 +514,14 @@ internal class CameraCarry {
 
     fun takeCarried(): CameraPosition? = carried.also { carried = null }
 
-    fun center(): Coordinate? = map?.cameraPosition?.target?.toCoordinate()
+    fun center(): Coordinate? = position()?.target?.toCoordinate()
+
+    fun position(): CameraPosition? = map?.cameraPosition
+}
+
+/** Read it from a callback, never during composition: it is a plain field, not snapshot state. */
+internal class CameraSlot {
+    var camera: CameraCarry? = null
 }
 
 /** Last-applied input of the all-places overview map. */

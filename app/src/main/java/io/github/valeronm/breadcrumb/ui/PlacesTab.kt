@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -38,7 +39,6 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -86,8 +86,8 @@ internal fun PlacesTab(
      *  one that consumes it. */
     homeRequest: Int,
     onOpenPlace: (String) -> Unit,
-    /** Starts a new place where the crosshair points, somewhere no stop has been found. */
-    onCreatePlaceAt: (Coordinate) -> Unit,
+    /** Holds the map view's camera while that view is showing. */
+    mapCamera: CameraSlot,
 ) {
     val context = LocalContext.current
     val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
@@ -112,9 +112,8 @@ internal fun PlacesTab(
             PlacesSort.TIME_SPENT -> compareByDescending { it.totalMs }
             PlacesSort.LAST_VISIT -> compareByDescending { it.lastSeenMs ?: Long.MIN_VALUE }
         }
-        // Zero-visit pass-through clusters exist for gap-side detail pages, never for this tab.
         places
-            .filter { it.isNamed || it.visitCount > 0 }
+            .filter { it.isListed }
             // Tiebreak: named before unnamed — a name the user chose outranks one worked out for
             // them — then alphabetically by whatever the row displays, so the derived tail is
             // ordered rather than left in whatever order the clustering produced it. Stable across
@@ -148,18 +147,13 @@ internal fun PlacesTab(
     }
     val mapPlaces = remember(mapVisible, mergeableStays) {
         mapVisible.map { summary ->
-            OverviewPlace(
-                marker = PlaceMarker(summary.anchor, summary.place),
-                key = summary.key,
+            overviewPlaceOf(
+                summary,
                 // Never a named place: a merge offer says the split may be an artifact, but a
                 // label says the user meant this place, and the dot claims the opposite.
                 brief = !summary.isNamed &&
                     summary.stays.singleOrNull()
                         ?.let { (it.afterTrackId to it.start) in mergeableStays } == true,
-                // Only a named place's reach is drawn: it is a number the user set and can judge
-                // against its neighbours here, where an unnamed cluster's is the clusterer's
-                // default repeated under every dot.
-                radiusM = summary.radiusM.takeIf { summary.isNamed },
             )
         }
     }
@@ -215,7 +209,7 @@ internal fun PlacesTab(
                         },
                         homeRequest = homeRequest,
                         onOpenPlace = onOpenPlace,
-                        onCreatePlaceAt = onCreatePlaceAt,
+                        mapCamera = mapCamera,
                     )
                 }
 
@@ -238,6 +232,18 @@ internal fun PlacesTab(
     }
 }
 
+/** Zero-visit pass-through clusters exist for gap-side detail pages, never for a listing of places. */
+internal val PlaceResolver.PlaceSummary.isListed: Boolean get() = isNamed || visitCount > 0
+
+internal fun overviewPlaceOf(summary: PlaceResolver.PlaceSummary, brief: Boolean = false) = OverviewPlace(
+    marker = PlaceMarker(summary.anchor, summary.place),
+    key = summary.key,
+    brief = brief,
+    // Only a named place's reach is drawn: it is a number the user set and can judge against its
+    // neighbours, where an unnamed cluster's is the clusterer's default repeated under every dot.
+    radiusM = summary.radiusM.takeIf { summary.isNamed },
+)
+
 /** The all-places map in its card; the rare-stops filter rides on the map it declutters. */
 @Composable
 private fun PlacesMapPage(
@@ -246,11 +252,14 @@ private fun PlacesMapPage(
     onToggleRareStops: () -> Unit,
     homeRequest: Int,
     onOpenPlace: (String) -> Unit,
-    onCreatePlaceAt: (Coordinate) -> Unit,
+    mapCamera: CameraSlot,
 ) {
     val camera = remember { CameraCarry() }
+    DisposableEffect(camera) {
+        mapCamera.camera = camera
+        onDispose { mapCamera.camera = null }
+    }
     val myLocation = rememberMyLocation()
-    var aiming by remember { mutableStateOf(false) }
     // Card padding keeps the texture-mode map off the back-gesture edge strips.
     Card(
         Modifier
@@ -278,19 +287,7 @@ private fun PlacesMapPage(
                     modifier = Modifier.fillMaxSize(),
                     goTo = myLocation.goTo,
                 )
-                if (aiming) AimOverlay()
-                MapCornerControls(
-                    location = myLocation,
-                    aiming = aiming,
-                    aimDescription = stringResource(R.string.places_new_place),
-                    confirmLabel = stringResource(R.string.places_new_here),
-                    onAim = { aiming = true },
-                    onCancelAim = { aiming = false },
-                    onConfirmAim = {
-                        camera.center()?.let(onCreatePlaceAt)
-                        aiming = false
-                    },
-                )
+                MyLocationControl(myLocation)
             }
             MapFilterChip(
                 selected = showRareStops,

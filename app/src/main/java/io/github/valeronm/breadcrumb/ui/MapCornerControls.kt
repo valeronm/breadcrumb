@@ -39,17 +39,8 @@ import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.location.DeviceLocation
 import kotlinx.coroutines.launch
 
-/**
- * A place map's corner buttons, in one order wherever they appear, so one learned on one map works
- * on another. Bottom-right, clear of the filter chip top-left, the compass top-right and the
- * attribution bottom-left, lifted over the zoom readout where dev builds show one.
- *
- * [location] is null on a map that opens on a spot already chosen, where going to the phone would
- * only lead away from it.
- */
 @Composable
 internal fun BoxScope.MapCornerControls(
-    location: MyLocationState?,
     aiming: Boolean,
     /** What the crosshair's button is for on this map, said to a screen reader. */
     aimDescription: String,
@@ -59,13 +50,7 @@ internal fun BoxScope.MapCornerControls(
     onCancelAim: () -> Unit,
     onConfirmAim: () -> Unit,
 ) {
-    Column(
-        Modifier
-            .align(Alignment.BottomEnd)
-            .padding(end = 12.dp, bottom = if (BuildConfig.DEV_TOOLS) 44.dp else 12.dp),
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    CornerColumn {
         if (aiming) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 SmallFloatingActionButton(onClick = onCancelAim, containerColor = MaterialTheme.colorScheme.surface) {
@@ -82,16 +67,37 @@ internal fun BoxScope.MapCornerControls(
                 Icon(Icons.Filled.PushPin, contentDescription = aimDescription)
             }
         }
-        if (location != null && location.available) {
-            SmallFloatingActionButton(onClick = location::goThere, containerColor = MaterialTheme.colorScheme.surface) {
-                if (location.locating) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Filled.MyLocation, contentDescription = stringResource(R.string.places_my_location))
-                }
+    }
+}
+
+/** Takes the same corner as [MapCornerControls], so a map carries one or the other. */
+@Composable
+internal fun BoxScope.MyLocationControl(location: MyLocationState) {
+    if (!location.available) return
+    CornerColumn {
+        SmallFloatingActionButton(onClick = location::goThere, containerColor = MaterialTheme.colorScheme.surface) {
+            if (location.locating) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Filled.MyLocation, contentDescription = stringResource(R.string.places_my_location))
             }
         }
     }
+}
+
+/**
+ * Bottom-right, clear of the filter chip top-left, the compass top-right and the attribution
+ * bottom-left, lifted over the zoom readout where dev builds show one.
+ */
+@Composable
+private fun BoxScope.CornerColumn(content: @Composable () -> Unit) {
+    Column(
+        Modifier
+            .align(Alignment.BottomEnd)
+            .padding(end = 12.dp, bottom = if (BuildConfig.DEV_TOOLS) 44.dp else 12.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) { content() }
 }
 
 /**
@@ -100,9 +106,11 @@ internal fun BoxScope.MapCornerControls(
  * aims at; the cross stays visible while the map moves under it, at any zoom.
  */
 @Composable
-internal fun BoxScope.AimOverlay() {
+internal fun BoxScope.AimOverlay(
+    hintPlacement: Modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp),
+) {
     Crosshair(Modifier.align(Alignment.Center))
-    LegendSurface(Modifier.align(Alignment.TopCenter).padding(top = 56.dp)) {
+    LegendSurface(hintPlacement) {
         Text(stringResource(R.string.places_pin_aim_hint), style = MaterialTheme.typography.labelSmall)
     }
 }

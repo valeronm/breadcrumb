@@ -64,6 +64,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -249,6 +250,8 @@ private fun MainScreen(
     // A spot no stop has found, being named in the editor with no detail beneath it: there is no
     // place yet for a detail to be about.
     var newPlaceSpot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
+    var newPlacePick by remember { mutableStateOf<NewPlacePick?>(null) }
+    val placesMapCamera = remember { CameraSlot() }
     // A journey opened from Insights or a Timeline band, keyed by its first night's sample
     // instant — the same key its list row uses, and the only identity a derived journey has.
     var journeyKey by remember { mutableStateOf<Long?>(null) }
@@ -295,6 +298,11 @@ private fun MainScreen(
         content = journeyKey,
         over = tabsLayer,
         dismiss = { journeyKey = null },
+    )
+    val newPlaceLayer = rememberOverlayLayer(
+        content = newPlacePick,
+        over = tabsLayer,
+        dismiss = { newPlacePick = null },
     )
     // Place detail is reached from the Timeline, the Places list, or a journey's map — stacked on
     // the journey layer so one opened there draws above it and back returns to it. Opened from a
@@ -407,6 +415,16 @@ private fun MainScreen(
                                     )
                                 }
                             }
+                            if (selectedTab == HomeTab.PLACES) {
+                                IconButton(onClick = {
+                                    newPlacePick = NewPlacePick(placesMapCamera.camera?.position())
+                                }) {
+                                    Icon(
+                                        Icons.Filled.Add,
+                                        contentDescription = stringResource(R.string.places_new_place),
+                                    )
+                                }
+                            }
                             IconButton(onClick = { mainDestination = MainDestination.Settings }) {
                                 Icon(
                                     Icons.Filled.Settings,
@@ -482,9 +500,7 @@ private fun MainScreen(
                             viewModel = viewModel,
                             homeRequest = placesHomeRequest,
                             onOpenPlace = { placeDetailKey = it },
-                            onCreatePlaceAt = { at ->
-                                newPlaceSpot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
-                            },
+                            mapCamera = placesMapCamera,
                         )
                         HomeTab.INSIGHTS -> InsightsTab(
                             viewModel = viewModel,
@@ -503,6 +519,16 @@ private fun MainScreen(
             undo = undo,
             onOpenSettingsPage = { settingsPage = it },
             onEditTrip = { tripDraft = it },
+        )
+
+        NewPlaceOverlay(
+            layer = newPlaceLayer,
+            viewModel = viewModel,
+            // A pick left open beneath the editor keeps its map rendering under two covering layers.
+            onPicked = { at ->
+                newPlaceSpot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
+                newPlacePick = null
+            },
         )
 
         PlaceDetailOverlay(
@@ -602,6 +628,17 @@ private fun MainScreen(
                 onDismiss = setup::dismissPrompt,
             )
         }
+    }
+}
+
+@Composable
+private fun NewPlaceOverlay(
+    layer: OverlayLayerState<NewPlacePick>,
+    viewModel: TrackListViewModel,
+    onPicked: (Coordinate) -> Unit,
+) {
+    OverlayFrame(layer) { pick ->
+        NewPlaceScreen(viewModel = viewModel, start = pick.start, onClose = layer.dismiss, onPicked = onPicked)
     }
 }
 
