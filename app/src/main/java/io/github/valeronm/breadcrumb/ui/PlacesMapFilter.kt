@@ -7,29 +7,30 @@ internal class PlacesMapFilter(
     /** Null while anything is visible. */
     val emptiedBy: Emptied?,
 ) {
-    enum class Emptied { RARE_STOPS, PAST_YEAR }
+    enum class Emptied { RARE_STOPS, LONG_AGO }
 }
 
 /**
- * [visitedSinceMs] is the past-year chip, null while it is off; a place with no visit never passes
- * it. When no place was visited since then, the past-year chip is what emptied the map, whatever the
- * rare-stops chip says, since turning that one on would bring nothing back. With rare stops shown and
- * no cutoff, the list is [places] itself.
+ * A place is long ago when its last visit ended before [longAgoBeforeMs], or when it has no visit.
+ * When every place is long ago and that chip is off, the long-ago chip is what emptied the map,
+ * whatever the rare-stops chip says, since turning that one on would bring nothing back. With both
+ * chips on, the list is [places] itself.
  */
 internal fun filterPlacesMap(
     places: List<PlaceResolver.PlaceSummary>,
     showRareStops: Boolean,
-    visitedSinceMs: Long?,
+    showLongAgo: Boolean,
+    longAgoBeforeMs: Long,
 ): PlacesMapFilter {
-    val recent = if (visitedSinceMs == null) {
+    val sinceCutoff = if (showLongAgo) {
         places
     } else {
-        places.filter { (it.lastSeenMs ?: Long.MIN_VALUE) >= visitedSinceMs }
+        places.filter { (it.lastSeenMs ?: Long.MIN_VALUE) >= longAgoBeforeMs }
     }
-    val visible = if (showRareStops) recent else recent.filterNot { it.isRareStop() }
+    val visible = if (showRareStops) sinceCutoff else sinceCutoff.filterNot { it.isRareStop() }
     val emptiedBy = when {
         visible.isNotEmpty() -> null
-        visitedSinceMs != null && recent.isEmpty() -> PlacesMapFilter.Emptied.PAST_YEAR
+        !showLongAgo && sinceCutoff.isEmpty() -> PlacesMapFilter.Emptied.LONG_AGO
         else -> PlacesMapFilter.Emptied.RARE_STOPS
     }
     return PlacesMapFilter(visible, emptiedBy)

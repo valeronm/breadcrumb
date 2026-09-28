@@ -9,9 +9,9 @@ import org.junit.Test
 
 class PlacesMapFilterTest {
 
-    @Test fun `with both chips off the places pass through as the same list`() {
+    @Test fun `with both chips on the places pass through as the same list`() {
         val places = listOf(place(visits = 1, lastSeen = OLD), place(visits = 5, lastSeen = RECENT))
-        val filter = filterPlacesMap(places, showRareStops = true, visitedSinceMs = null)
+        val filter = filterPlacesMap(places, showRareStops = true, showLongAgo = true, longAgoBeforeMs = SINCE)
         assertSame(places, filter.visible)
         assertNull(filter.emptiedBy)
     }
@@ -19,20 +19,20 @@ class PlacesMapFilterTest {
     @Test fun `the rare-stops chip off hides places below the notable floor`() {
         val rare = place(visits = PlaceResolver.NOTABLE_VISIT_MIN - 1, lastSeen = RECENT)
         val notable = place(visits = PlaceResolver.NOTABLE_VISIT_MIN, lastSeen = RECENT)
-        val filter = filterPlacesMap(listOf(rare, notable), showRareStops = false, visitedSinceMs = null)
+        val filter = filterPlacesMap(listOf(rare, notable), showRareStops = false, showLongAgo = true, longAgoBeforeMs = SINCE)
         assertEquals(listOf(notable), filter.visible)
     }
 
-    @Test fun `the past-year chip keeps a place last seen at or after the cutoff`() {
+    @Test fun `the long-ago chip off keeps a place last seen at or after the cutoff`() {
         val atCutoff = place(visits = 5, lastSeen = SINCE)
         val before = place(visits = 5, lastSeen = SINCE - 1)
-        val filter = filterPlacesMap(listOf(atCutoff, before), showRareStops = true, visitedSinceMs = SINCE)
+        val filter = filterPlacesMap(listOf(atCutoff, before), showRareStops = true, showLongAgo = false, longAgoBeforeMs = SINCE)
         assertEquals(listOf(atCutoff), filter.visible)
     }
 
-    @Test fun `the past-year chip hides a place with no visit`() {
+    @Test fun `the long-ago chip off hides a place with no visit`() {
         val unvisited = place(visits = 0, lastSeen = null)
-        val filter = filterPlacesMap(listOf(unvisited), showRareStops = true, visitedSinceMs = SINCE)
+        val filter = filterPlacesMap(listOf(unvisited), showRareStops = true, showLongAgo = false, longAgoBeforeMs = SINCE)
         assertEquals(emptyList<PlaceResolver.PlaceSummary>(), filter.visible)
     }
 
@@ -43,26 +43,26 @@ class PlacesMapFilterTest {
         val filter = filterPlacesMap(
             listOf(recentRare, oldNotable, recentNotable),
             showRareStops = false,
-            visitedSinceMs = SINCE,
+            showLongAgo = false, longAgoBeforeMs = SINCE,
         )
         assertEquals(listOf(recentNotable), filter.visible)
     }
 
-    @Test fun `nothing visited in the past year is emptied by that chip even with rare stops hidden`() {
+    @Test fun `every place long ago is emptied by the long-ago chip even with rare stops hidden`() {
         val places = listOf(place(visits = 1, lastSeen = OLD), place(visits = 5, lastSeen = OLD))
-        val filter = filterPlacesMap(places, showRareStops = false, visitedSinceMs = SINCE)
-        assertEquals(PlacesMapFilter.Emptied.PAST_YEAR, filter.emptiedBy)
+        val filter = filterPlacesMap(places, showRareStops = false, showLongAgo = false, longAgoBeforeMs = SINCE)
+        assertEquals(PlacesMapFilter.Emptied.LONG_AGO, filter.emptiedBy)
     }
 
-    @Test fun `recent places that are all rare are emptied by the rare-stops chip`() {
+    @Test fun `places since the cutoff that are all rare are emptied by the rare-stops chip`() {
         val places = listOf(place(visits = 1, lastSeen = RECENT), place(visits = 5, lastSeen = OLD))
-        val filter = filterPlacesMap(places, showRareStops = false, visitedSinceMs = SINCE)
+        val filter = filterPlacesMap(places, showRareStops = false, showLongAgo = false, longAgoBeforeMs = SINCE)
         assertEquals(PlacesMapFilter.Emptied.RARE_STOPS, filter.emptiedBy)
     }
 
-    @Test fun `every place rare with the past-year chip off is emptied by the rare-stops chip`() {
+    @Test fun `every place rare with the long-ago chip on is emptied by the rare-stops chip`() {
         val places = listOf(place(visits = 1, lastSeen = OLD))
-        val filter = filterPlacesMap(places, showRareStops = false, visitedSinceMs = null)
+        val filter = filterPlacesMap(places, showRareStops = false, showLongAgo = true, longAgoBeforeMs = SINCE)
         assertEquals(PlacesMapFilter.Emptied.RARE_STOPS, filter.emptiedBy)
     }
 

@@ -50,13 +50,13 @@
     <string name="places_sort_most_visits">Visitas</string>
     <string name="places_sort_time_spent">Tempo</string>
     <string name="places_rare_stops">Pouco visitados</string>
-    <string name="places_past_year">Último ano</string>
+    <string name="places_long_ago">Visitados há muito</string>
     <string name="places_scroll_list">Percorrer os locais</string>
     <string name="places_scroll_visits">Ir para um mês</string>
 
     <string name="places_empty">Ainda sem locais. Aparecem aqui assim que a gravação encontrar sítios onde parou.</string>
     <string name="places_all_rare">Todos os locais aqui são pouco visitados. Ative %1$s para os ver.</string>
-    <string name="places_none_past_year">Nenhum local aqui foi visitado no último ano. Desative %1$s para ver os restantes.</string>
+    <string name="places_all_long_ago">Todos os locais aqui foram visitados pela última vez há mais de um ano. Ative %1$s para os ver.</string>
     <string name="places_no_match">Nenhum local corresponde a \"%1$s\"</string>
     <string name="places_no_visits_detail">Ainda sem visitas. Aparecem aqui assim que a gravação detetar que ficou dentro deste local.</string>
 

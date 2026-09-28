@@ -48,7 +48,7 @@
     <string name="places_sort_time_spent">Time spent</string>
     <!-- The map's filter chips. The empty states below name them, so both read from here. -->
     <string name="places_rare_stops">Rarely visited</string>
-    <string name="places_past_year">Past year</string>
+    <string name="places_long_ago">Visited long ago</string>
     <!-- The scrubber handles, read aloud. Each names what dragging travels through, since that is
          what differs between the two lists, not the gesture. -->
     <string name="places_scroll_list">Scroll through the places</string>
@@ -57,7 +57,7 @@
     <!-- Empty states -->
     <string name="places_empty">No places yet. They appear here once recording finds somewhere you stopped.</string>
     <string name="places_all_rare">Every place here is rarely visited. Turn on %1$s to see them.</string>
-    <string name="places_none_past_year">No place here was visited in the past year. Turn off %1$s to see the others.</string>
+    <string name="places_all_long_ago">Every place here was last visited over a year ago. Turn on %1$s to see them.</string>
     <string name="places_no_match">No place matches \"%1$s\"</string>
     <string name="places_no_visits_detail">No visits yet. They appear here once recording finds you stopped inside this place.</string>
 

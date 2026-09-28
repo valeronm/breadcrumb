@@ -100,7 +100,7 @@ internal fun PlacesTab(
     val focusManager = LocalFocusManager.current
     var sort by remember { mutableStateOf(PlacesSort.fromSettings(context)) }
     var showRareStops by remember { mutableStateOf(AppSettings.placesShowRareStops(context)) }
-    var pastYearOnly by remember { mutableStateOf(AppSettings.placesPastYearOnly(context)) }
+    var showLongAgo by remember { mutableStateOf(AppSettings.placesShowLongAgo(context)) }
 
     val sorted = remember(sort, places) {
         val comparator = when (sort) {
@@ -129,9 +129,9 @@ internal fun PlacesTab(
     // places under a rule the screen gives no way to see or turn off. The rare-stops chip's off
     // default also hides the map's orange brief-stop dots, a one-off stop being a rare cluster by
     // definition.
-    val mapFilter = remember(sorted, showRareStops, pastYearOnly) {
+    val mapFilter = remember(sorted, showRareStops, showLongAgo) {
         val since = ZonedDateTime.now(timelineZone()).minusYears(1).toInstant().toEpochMilli()
-        filterPlacesMap(sorted, showRareStops, since.takeIf { pastYearOnly })
+        filterPlacesMap(sorted, showRareStops, showLongAgo, since)
     }
     // Derived here rather than in the map view, which is disposed on switching away — there, this
     // history-wide walk would re-run on every return to the map. Stay identity (afterTrackId +
@@ -212,11 +212,11 @@ internal fun PlacesTab(
                             AppSettings.setPlacesShowRareStops(context, showRareStops)
                         }
                         MapFilterChip(
-                            selected = pastYearOnly,
-                            label = stringResource(R.string.places_past_year),
+                            selected = showLongAgo,
+                            label = stringResource(R.string.places_long_ago),
                         ) {
-                            pastYearOnly = !pastYearOnly
-                            AppSettings.setPlacesPastYearOnly(context, pastYearOnly)
+                            showLongAgo = !showLongAgo
+                            AppSettings.setPlacesShowLongAgo(context, showLongAgo)
                         }
                     }
                 }
@@ -280,9 +280,9 @@ private fun PlacesMapPage(
                 // The filters, not the history, emptied this view — a bare basemap would read as
                 // "no places". The chips below stay on top of this message.
                 val message = when (emptiedBy) {
-                    PlacesMapFilter.Emptied.PAST_YEAR -> stringResource(
-                        R.string.places_none_past_year,
-                        stringResource(R.string.places_past_year),
+                    PlacesMapFilter.Emptied.LONG_AGO -> stringResource(
+                        R.string.places_all_long_ago,
+                        stringResource(R.string.places_long_ago),
                     )
                     else -> stringResource(R.string.places_all_rare, stringResource(R.string.places_rare_stops))
                 }
