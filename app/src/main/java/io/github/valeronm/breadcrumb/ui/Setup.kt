@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -45,15 +44,14 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
-import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.LOCATION_PERMISSIONS
 import io.github.valeronm.breadcrumb.util.activityRecognitionGranted
+import io.github.valeronm.breadcrumb.util.anyPermanentlyDenied
 import io.github.valeronm.breadcrumb.util.backgroundGranted
 import io.github.valeronm.breadcrumb.util.isBatteryOptimizationIgnored
 import io.github.valeronm.breadcrumb.util.locationGranted
 import io.github.valeronm.breadcrumb.util.notificationsGranted
 import io.github.valeronm.breadcrumb.util.openAppSettings
-import io.github.valeronm.breadcrumb.util.permanentlyDenied
 import io.github.valeronm.breadcrumb.util.requestIgnoreBatteryOptimization
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
@@ -208,25 +206,13 @@ private fun setupState(context: Context): SetupState {
         notificationsOk = context.notificationsGranted(),
         batteryOk = context.isBatteryOptimizationIgnored(),
     )
-    // The rationale query needs the activity, and a step that answers on a resume has no dialog to
-    // be refused twice in the first place. Narrowed to the unmet steps first, so a settled install
-    // makes no rationale calls at all.
-    //
-    // Logged rather than shrugged off: without an activity nothing is ever blocked, every such step
-    // is asked for with a dialog that will not appear, and the toggle silently does nothing — a
-    // failure indistinguishable from "no permission was ever refused twice" unless it says so here.
-    val activity = context as? Activity
-    if (activity == null) {
-        DebugLog.w("Breadcrumb", "setup state read off a non-activity context; blocked steps unknown")
-        return state
-    }
+    // A step that answers on a resume has no dialog to be refused twice. Narrowed to the unmet steps
+    // first, so a settled install makes no rationale calls at all.
     val askable = state.unmet.filter { it.asksThroughDialog }
     if (askable.isEmpty()) return state
     val asked = AppSettings.askedPermissions(context)
     return state.copy(
-        blocked = askable
-            .filter { step -> step.permissions(state).any { activity.permanentlyDenied(it, asked) } }
-            .toSet(),
+        blocked = askable.filter { context.anyPermanentlyDenied(it.permissions(state), asked) }.toSet(),
     )
 }
 
@@ -536,10 +522,10 @@ private fun allTimeOptionLabel(): String {
 }
 
 /**
- * Shown when a ladder run reaches a step Android has stopped taking questions about — the row's own
- * words, because during a run no row is on screen, over the one action left. Being dropped into
- * system settings with nothing said is a jump the reader cannot act on: they arrive not knowing
- * which switch was wanted or why the ordinary button was not offered.
+ * Shown when a permission Android has stopped asking about is wanted with no row on screen to explain
+ * it — the reason in words, over the one action left.
+ * Being dropped into system settings with nothing said is a jump the reader cannot act on: they
+ * arrive not knowing which switch was wanted or why the ordinary button was not offered.
  *
  * Not shown from the card's button, where both texts are already visible above it — there the tap
  * goes straight through. This dialog exists to *supply* that context, not to repeat it.

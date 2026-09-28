@@ -97,6 +97,7 @@
     <string name="places_pin_aim_hint">Сдвигайте карту, пока крестик не окажется на нужном месте</string>
     <string name="places_my_location">Моё местоположение</string>
     <string name="places_new_here">Новое место здесь</string>
+    <string name="places_location_reason">Карта сможет показать, где вы находитесь, когда местоположение будет разрешено</string>
     <string name="places_no_location">Местоположение телефона сейчас недоступно</string>
     <string name="places_new_place">Новое место</string>
 </resources>

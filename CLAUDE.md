@@ -645,15 +645,16 @@ instant, not at the pin of the place holding it, which can sit a street away and
 entered leg jumping off the path it fills. The trip type is deliberately *not* defaulted: it is the
 one thing neither end implies.
 
-**Every permission this app asks for hangs off one intention — turning recording on** (`ui/Setup.kt`,
-which holds the whole setup flow and, deliberately, no screen). Nothing is requested at launch and
-there is no onboarding page:
-the Record tab's toggle is the request, and flipping it on runs `SetupLadder` — each unmet
+**A permission is asked at the intention that needs it** — the platform's own "ask in context"
+guidance. Nothing is requested at launch and there is no onboarding page. Turning recording on is
+the intention nearly all of them follow from (`ui/Setup.kt`, which holds the whole setup flow and,
+deliberately, no screen); the other is a map's My location button, since wanting to see where you
+are is reason enough for plain location (`MyLocationState`), and a refusal there shares setup's
+record of what was asked, so the two cannot disagree about whether Android will still ask.
+The Record tab's toggle is the request, and flipping it on runs `SetupLadder` — each unmet
 requirement asked at the moment the one before it was granted. **The run ends the moment a step
 comes back unmet**, because a refusal is an answer and asking the next thing on top of it is how a
 permission flow turns into nagging; the run arms the recorder only if it got through everything.
-This is the platform's own "ask in context" guidance applied to an app whose one in-context moment
-is arming, there being no later feature to wander into.
 
 The ladder has **two signals and must not confuse them** — a dialog's result, which fires once for
 exactly what was asked, and a resume, which fires for reasons that have nothing to do with a run.

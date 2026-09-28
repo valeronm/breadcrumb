@@ -127,6 +127,7 @@
     <string name="places_pin_aim_hint">Move the map until the cross is on the spot</string>
     <string name="places_my_location">My location</string>
     <string name="places_new_here">New place here</string>
+    <string name="places_location_reason">The map can show where you are once location is allowed</string>
     <string name="places_no_location">The phone\'s location is not available right now</string>
     <string name="places_new_place">New place</string>
 </resources>

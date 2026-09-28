@@ -96,6 +96,7 @@
     <string name="places_pin_aim_hint">Mova o mapa até a cruz ficar sobre o local</string>
     <string name="places_my_location">A minha localização</string>
     <string name="places_new_here">Novo local aqui</string>
+    <string name="places_location_reason">O mapa pode mostrar onde está depois de permitir a localização</string>
     <string name="places_no_location">A localização do telemóvel não está disponível agora</string>
     <string name="places_new_place">Novo local</string>
 </resources>

@@ -75,6 +75,18 @@ internal fun Activity.permanentlyDenied(permission: String, asked: Set<String>):
         !ActivityCompat.shouldShowRequestPermissionRationale(this, permission)
 
 /**
+ * Whether Android has stopped asking for any of [permissions]. The rationale query needs an activity.
+ */
+internal fun Context.anyPermanentlyDenied(permissions: Collection<String>, asked: Set<String>): Boolean {
+    val activity = this as? Activity
+    if (activity == null) {
+        DebugLog.w("Breadcrumb", "permission state read off a non-activity context; blocked permissions unknown")
+        return false
+    }
+    return permissions.any { activity.permanentlyDenied(it, asked) }
+}
+
+/**
  * What the app lock accepts. The capability query below and the prompt that later asks for it must
  * name the same set: a check answering for authenticators the prompt doesn't request is exactly the
  * "lockout with no recovery" [canAuthenticate] exists to prevent.

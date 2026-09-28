@@ -1,6 +1,8 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +25,7 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,7 +42,11 @@ import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.location.DeviceLocation
+import io.github.valeronm.breadcrumb.util.LOCATION_PERMISSIONS
+import io.github.valeronm.breadcrumb.util.anyPermanentlyDenied
+import io.github.valeronm.breadcrumb.util.openAppSettings
 import kotlinx.coroutines.launch
+import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 @Composable
 internal fun BoxScope.MapCornerControls(
@@ -81,7 +88,18 @@ internal fun BoxScope.MapCornerControls(
 /** Takes the same corner as [MapCornerControls], so a map carries one or the other. */
 @Composable
 internal fun BoxScope.MyLocationControl(location: MyLocationState) {
-    if (!location.available) return
+    if (location.showingSettingsDialog) {
+        val context = LocalContext.current
+        BlockedStepDialog(
+            step = SetupStep.LOCATION,
+            bodyRes = R.string.places_location_reason,
+            onOpenSettings = {
+                location.dismissSettings()
+                context.openAppSettings()
+            },
+            onDismiss = location::dismissSettings,
+        )
+    }
     CornerSlot {
         SmallFloatingActionButton(onClick = location::goThere, containerColor = MaterialTheme.colorScheme.surface) {
             if (location.locating) {
@@ -134,11 +152,13 @@ internal fun AimHint(modifier: Modifier = Modifier) {
 
 /**
  * The phone's position on a map, known only once the reader asks to go there ([goTo]), since a
- * position cached by any provider can be hours old.
+ * position cached by any provider can be hours old. Asking is also what requests location when it
+ * is not granted: wanting to see where you are is the intention the permission follows from.
  */
 internal class MyLocationState(
-    /** False without a location grant — then the button is not offered. */
-    val available: Boolean,
+    private val granted: () -> Boolean,
+    /** Whether Android has stopped putting up its location dialog for this app. */
+    private val blocked: () -> Boolean,
     private val fetch: suspend () -> Coordinate?,
     private val launch: (suspend () -> Unit) -> Unit,
     private val onUnavailable: () -> Unit,
@@ -148,8 +168,32 @@ internal class MyLocationState(
     var locating by mutableStateOf(false)
         private set
 
+    var showingSettingsDialog by mutableStateOf(false)
+        private set
+
+    /** Puts up Android's location dialog, answering through [onAnswered]; a no-op while no
+     *  launcher is registered. */
+    var ask: () -> Unit = {}
+
     fun goThere() {
-        if (locating) return
+        when {
+            locating -> Unit
+            granted() -> locate()
+            blocked() -> showingSettingsDialog = true
+            else -> ask()
+        }
+    }
+
+    /** A grant finishes the tap that asked for it. */
+    fun onAnswered() {
+        if (granted()) locate()
+    }
+
+    fun dismissSettings() {
+        showingSettingsDialog = false
+    }
+
+    private fun locate() {
         locating = true
         launch {
             val here = fetch()
@@ -167,12 +211,26 @@ internal class MyLocationState(
 internal fun rememberMyLocation(): MyLocationState {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    return remember {
+    val location = remember {
         MyLocationState(
-            available = DeviceLocation.granted(context),
+            granted = { DeviceLocation.granted(context) },
+            blocked = { context.anyPermanentlyDenied(LOCATION_PERMISSIONS, AppSettings.askedPermissions(context)) },
             fetch = { DeviceLocation.current(context) },
             launch = { block -> scope.launch { block() } },
             onUnavailable = { Toast.makeText(context, R.string.places_no_location, Toast.LENGTH_SHORT).show() },
         )
     }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        location.onAnswered()
+    }
+    DisposableEffect(launcher) {
+        location.ask = {
+            // Recorded before the dialog: a process death before the answer would otherwise leave a
+            // refusal reading as a permission never asked for.
+            AppSettings.markPermissionsAsked(context, LOCATION_PERMISSIONS)
+            launcher.launch(LOCATION_PERMISSIONS.toTypedArray())
+        }
+        onDispose { location.ask = {} }
+    }
+    return location
 }
