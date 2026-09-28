@@ -246,7 +246,7 @@ internal fun PlaceEditScreen(
                         camera = camera,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    if (aiming) AimOverlay()
+                    if (aiming) AimCrosshair()
                     MapCornerControls(
                         aiming = aiming,
                         aimDescription = stringResource(R.string.places_pin_aim),
@@ -266,15 +266,21 @@ internal fun PlaceEditScreen(
                     val captured = remember(scan, radiusM, summary.endpoints) {
                         scan?.countWithin(radiusM.toDouble()) ?: summary.endpoints.size
                     }
-                    LegendSurface(Modifier.align(Alignment.TopStart).padding(8.dp)) {
-                        Text(
-                            pluralStringResource(
-                                R.plurals.places_captured_endpoints,
-                                captured,
-                                captured,
-                            ),
-                            style = MaterialTheme.typography.labelSmall,
-                        )
+                    Column(
+                        Modifier.align(Alignment.TopStart).padding(MapInset),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        LegendSurface {
+                            Text(
+                                pluralStringResource(
+                                    R.plurals.places_captured_endpoints,
+                                    captured,
+                                    captured,
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                        if (aiming) AimHint()
                     }
                 }
             }

@@ -395,7 +395,7 @@ internal fun TrackLegend(legend: Legend, modifier: Modifier) {
 internal val legendShape = RoundedCornerShape(8.dp)
 
 @Composable
-internal fun LegendSurface(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
+internal fun LegendSurface(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Surface(
         modifier = modifier,
         shape = legendShape,

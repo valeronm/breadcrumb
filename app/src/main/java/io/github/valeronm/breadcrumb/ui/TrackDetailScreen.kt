@@ -340,7 +340,7 @@ internal fun TrackDetailScreen(
                                 )
                                 if (showNoisy) {
                                     // Top-right, clear of the color-metric legend (bottom-right).
-                                    NoisyLegend(load.noisy, Modifier.align(Alignment.TopEnd).padding(12.dp))
+                                    NoisyLegend(load.noisy, Modifier.align(Alignment.TopEnd).padding(MapInset))
                                 }
                                 if (!noisyPoints.isNullOrEmpty()) {
                                     // On the map rather than in the bar: it shows and hides marks

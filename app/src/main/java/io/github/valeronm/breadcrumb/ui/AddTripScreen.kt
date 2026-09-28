@@ -490,7 +490,7 @@ internal fun AddTripScreen(
                         onCenterSettled = { mapCenter = it },
                         modifier = Modifier.fillMaxSize(),
                     )
-                    LegendSurface(Modifier.align(Alignment.TopStart).padding(8.dp)) {
+                    LegendSurface(Modifier.align(Alignment.TopStart).padding(MapInset)) {
                         Text(
                             stringResource(
                                 if (placingDestination) {

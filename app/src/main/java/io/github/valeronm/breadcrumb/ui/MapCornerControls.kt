@@ -3,9 +3,10 @@ package io.github.valeronm.breadcrumb.ui
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -15,10 +16,12 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +36,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.location.DeviceLocation
@@ -50,14 +52,20 @@ internal fun BoxScope.MapCornerControls(
     onCancelAim: () -> Unit,
     onConfirmAim: () -> Unit,
 ) {
-    CornerColumn {
+    CornerSlot {
         if (aiming) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp - touchHalo(SmallFabSize) * 2),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 SmallFloatingActionButton(onClick = onCancelAim, containerColor = MaterialTheme.colorScheme.surface) {
                     Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_cancel))
                 }
+                // A small FAB's height, touch target and shape, so it matches the one beside it.
                 ExtendedFloatingActionButton(
                     onClick = onConfirmAim,
+                    modifier = Modifier.minimumInteractiveComponentSize().height(SmallFabSize),
+                    shape = FloatingActionButtonDefaults.smallShape,
                     icon = { Icon(Icons.Filled.Check, contentDescription = null) },
                     text = { Text(confirmLabel) },
                 )
@@ -74,7 +82,7 @@ internal fun BoxScope.MapCornerControls(
 @Composable
 internal fun BoxScope.MyLocationControl(location: MyLocationState) {
     if (!location.available) return
-    CornerColumn {
+    CornerSlot {
         SmallFloatingActionButton(onClick = location::goThere, containerColor = MaterialTheme.colorScheme.surface) {
             if (location.locating) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -87,39 +95,25 @@ internal fun BoxScope.MyLocationControl(location: MyLocationState) {
 
 /**
  * Bottom-right, clear of the filter chip top-left, the compass top-right and the attribution
- * bottom-left, lifted over the zoom readout where dev builds show one.
+ * bottom-left.
  */
 @Composable
-private fun BoxScope.CornerColumn(content: @Composable () -> Unit) {
-    Column(
-        Modifier
-            .align(Alignment.BottomEnd)
-            .padding(end = 12.dp, bottom = if (BuildConfig.DEV_TOOLS) 44.dp else 12.dp),
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) { content() }
+private fun BoxScope.CornerSlot(content: @Composable () -> Unit) {
+    Box(Modifier.align(Alignment.BottomEnd).padding(MapInset - touchHalo(SmallFabSize))) { content() }
 }
+
+/** Material's small FAB container, which its library keeps internal. */
+private val SmallFabSize = 40.dp
 
 /**
- * The crosshair while it is up: a cross at the map's middle, where the pin would land, and a line
- * saying how to aim it. A long press drops a pin under a fingertip, which covers the very spot it
- * aims at; the cross stays visible while the map moves under it, at any zoom.
+ * The cross at the map's middle, where the pin would land. A long press drops a pin under a
+ * fingertip, which covers the very spot it aims at; the cross stays visible while the map moves
+ * under it, at any zoom. Drawn light over dark so it reads on either basemap.
  */
 @Composable
-internal fun BoxScope.AimOverlay(
-    hintPlacement: Modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp),
-) {
-    Crosshair(Modifier.align(Alignment.Center))
-    LegendSurface(hintPlacement) {
-        Text(stringResource(R.string.places_pin_aim_hint), style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-/** A cross drawn light over dark so it reads on either basemap. */
-@Composable
-private fun Crosshair(modifier: Modifier = Modifier) {
+internal fun BoxScope.AimCrosshair() {
     val ink = MaterialTheme.colorScheme.primary
-    Canvas(modifier.size(44.dp)) {
+    Canvas(Modifier.align(Alignment.Center).size(44.dp)) {
         val c = size.width / 2
         val gap = 5.dp.toPx()
         for ((color, width) in listOf(Color.White to 5.dp.toPx(), ink to 2.dp.toPx())) {
@@ -128,6 +122,13 @@ private fun Crosshair(modifier: Modifier = Modifier) {
             drawLine(color, Offset(0f, c), Offset(c - gap, c), width, StrokeCap.Round)
             drawLine(color, Offset(c + gap, c), Offset(size.width, c), width, StrokeCap.Round)
         }
+    }
+}
+
+@Composable
+internal fun AimHint(modifier: Modifier = Modifier) {
+    LegendSurface(modifier) {
+        Text(stringResource(R.string.places_pin_aim_hint), style = MaterialTheme.typography.labelSmall)
     }
 }
 

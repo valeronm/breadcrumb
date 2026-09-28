@@ -9,7 +9,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.TrackQuality
@@ -190,7 +189,7 @@ internal fun MapLibreTrackMap(
         )
         if (showLegend) {
             // Bottom-right: MapLibre's logo + attribution live bottom-left.
-            TrackLegend(coloring.legend, Modifier.align(Alignment.BottomEnd).padding(12.dp))
+            TrackLegend(coloring.legend, Modifier.align(Alignment.BottomEnd).padding(MapInset))
         }
     }
 }

@@ -45,6 +45,9 @@ import org.maplibre.android.offline.OfflineManager
  * basemap flavor, and the camera. Nothing here knows which map is on top of it.
  */
 
+/** Measured to what the eye sees of a control, not to its touch target ([touchHalo]). */
+internal val MapInset = 12.dp
+
 /**
  * Shared host for the map composables: owns the [MapView], loads the Protomaps style once, routes
  * later recompositions to [onUpdate], and runs [onMapReady] before the style loads (one-time map
@@ -97,7 +100,9 @@ internal fun MapLibreStyledMap(
                 },
             )
             if (BuildConfig.DEV_TOOLS) {
-                ZoomReadout(zoom, Modifier.align(Alignment.BottomEnd).padding(8.dp))
+                // Over MapLibre's logo and attribution: a dev build's user has no need of them, and the
+                // other corners hold each screen's own controls.
+                ZoomReadout(zoom, Modifier.align(Alignment.BottomStart).padding(MapInset))
             }
         }
     }

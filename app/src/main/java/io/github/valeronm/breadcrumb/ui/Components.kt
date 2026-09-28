@@ -48,6 +48,7 @@ import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,12 +65,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Chips occupy an invisible touch target (48dp minimum) around their 32dp visual height; an inset
- * that should read from a chip's *visible* edge subtracts this overshoot.
+ * A control smaller than the minimum touch target (48dp) sits inside an invisible one of that size;
+ * an inset that should read from the control's *visible* edge subtracts this overshoot.
  */
-private val chipHalo: Dp
-    @Composable get() = ((LocalMinimumInteractiveComponentSize.current - FilterChipDefaults.Height) / 2)
-        .coerceAtLeast(0.dp)
+@Composable
+@ReadOnlyComposable
+internal fun touchHalo(visible: Dp): Dp =
+    ((LocalMinimumInteractiveComponentSize.current - visible) / 2).coerceAtLeast(0.dp)
 
 /** Single-choice/filter chip: checkmark when selected. */
 @Composable
@@ -87,13 +89,15 @@ internal fun FilterToggleChip(selected: Boolean, label: String, onClick: () -> U
  * included, because *where* it sits is as much the idiom as how it looks. The Places map's rare
  * stops and the track map's noisy points are the same control over different maps.
  *
- * Elevated on an opaque surface: the default chip tones all but vanish against a basemap. The inset
- * subtracts [chipHalo] so the visible gap is the 12dp it looks like rather than 12dp from the
- * invisible touch target.
+ * Elevated on an opaque surface: the default chip tones all but vanish against a basemap.
  */
 @Composable
 internal fun BoxScope.MapFilterChip(selected: Boolean, label: String, onClick: () -> Unit) {
-    Box(Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 12.dp - chipHalo)) {
+    Box(
+        Modifier
+            .align(Alignment.TopStart)
+            .padding(start = MapInset, top = MapInset - touchHalo(FilterChipDefaults.Height)),
+    ) {
         ElevatedFilterChip(
             selected = selected,
             onClick = onClick,

@@ -74,7 +74,8 @@ internal fun NewPlaceScreen(
                         modifier = Modifier.fillMaxSize(),
                         goTo = myLocation.goTo,
                     )
-                    AimOverlay(hintPlacement = Modifier.align(Alignment.TopStart).padding(8.dp))
+                    AimCrosshair()
+                    AimHint(Modifier.align(Alignment.TopStart).padding(MapInset))
                     MyLocationControl(myLocation)
                 }
             }
