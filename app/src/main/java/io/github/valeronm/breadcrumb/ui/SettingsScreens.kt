@@ -65,6 +65,7 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.LogExporter
+import io.github.valeronm.breadcrumb.ui.ImportExportController.LoadOutcome
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.SliderStops
@@ -683,9 +684,20 @@ private fun <T> ChoiceChipsRow(
 
 @Composable
 internal fun DataSettingsScreen(onBack: () -> Unit, viewModel: TrackListViewModel) {
+    val historyEmpty by viewModel.historyEmpty.collectAsStateWithLifecycle()
+    val loadable by viewModel.historyLoadable.collectAsStateWithLifecycle()
+    val loadBlocked = if (loadable) null else stringResource(R.string.data_only_when_empty)
+    val exportBlocked = if (historyEmpty == false) null else stringResource(R.string.data_nothing_to_export)
     SettingsSubScreen(stringResource(R.string.settings_group_data), onBack) {
+        SectionHeading(stringResource(R.string.data_import_section))
         GroupedRows(
-            { ExportBackupRow(viewModel) },
+            { RestoreRow(viewModel, loadBlocked) },
+            { GoogleTimelineRow(viewModel, loadBlocked) },
+            { ImportTracksRow(viewModel) },
+        )
+        SectionHeading(stringResource(R.string.data_export_section))
+        GroupedRows(
+            { ExportBackupRow(viewModel, exportBlocked) },
             {
                 LinkRow(
                     stringResource(R.string.data_viewer),
@@ -693,11 +705,7 @@ internal fun DataSettingsScreen(onBack: () -> Unit, viewModel: TrackListViewMode
                     subtitle = stringResource(R.string.data_viewer_sub),
                 )
             },
-        )
-        Spacer(Modifier.height(24.dp))
-        GroupedRows(
-            { ImportTracksRow(viewModel) },
-            { ExportTracksRow(viewModel) },
+            { ExportTracksRow(viewModel, exportBlocked) },
         )
     }
 }
@@ -779,7 +787,8 @@ private fun ImportTracksRow(viewModel: TrackListViewModel) {
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        viewModel.importExport.importGpx(uris) { result ->
+        val busy = { Toast.makeText(appContext, R.string.data_load_busy, Toast.LENGTH_LONG).show() }
+        viewModel.importExport.importGpx(uris, onBusy = busy) { result ->
             Toast.makeText(appContext, gpxImportMessage(appContext, result), Toast.LENGTH_LONG).show()
         }
     }
@@ -812,8 +821,7 @@ private fun ImportTracksRow(viewModel: TrackListViewModel) {
 
 /**
  * A data action's row: the row, and under it while the action runs, how far it has got. Disabled
- * for as long as its own action runs, a second start of one being ignored rather than queued —
- * the actions are not exclusive of each other, and two of them can run at once.
+ * while its own action runs, and with [blockedBy] as its subtitle while that reason stands.
  *
  * [done] is null when nothing is running, which is the only thing that decides whether a bar is
  * there — [total] is the operation's own business and says which bar (see [OperationProgressBar]).
@@ -829,9 +837,11 @@ private fun DataActionRow(
     subtitle: String,
     done: Int?,
     total: Int?,
+    blockedBy: String? = null,
     onClick: () -> Unit,
 ) {
-    NavRow(label, subtitle, enabled = done == null, onClick = onClick)
+    val shown = if (done == null && blockedBy != null) blockedBy else subtitle
+    NavRow(label, shown, enabled = blockedBy == null && done == null, onClick = onClick)
     if (done != null) {
         Spacer(Modifier.height(8.dp))
         OperationProgressBar(done, total, Modifier.fillMaxWidth())
@@ -839,12 +849,12 @@ private fun DataActionRow(
 }
 
 /**
- * The busy subtitle shared by the export rows. Each row hands over its own whole phrases rather
- * than a verb and a noun to be assembled here: only English composes that way, and a noun built
- * outside its sentence can agree with nothing.
+ * The busy subtitle shared by the rows whose operation counts tracks. Each row hands over its own
+ * whole phrases rather than a verb and a noun to be assembled here: only English composes that way,
+ * and a noun built outside its sentence can agree with nothing.
  */
 @Composable
-private fun exportSubtitle(
+private fun progressSubtitle(
     progress: ImportExportController.OpProgress?,
     idle: String,
     @StringRes verb: Int,
@@ -853,7 +863,7 @@ private fun exportSubtitle(
     progress == null -> idle
     progress.tracksTotal != null ->
         stringResource(busy, progress.tracksDone, progress.tracksTotal)
-    else -> stringResource(verb)
+    else -> stringResource(verb, progress.tracksDone)
 }
 
 private fun exportResultToast(context: Context, count: Int?) {
@@ -866,7 +876,7 @@ private fun exportResultToast(context: Context, count: Int?) {
 }
 
 @Composable
-private fun ExportTracksRow(viewModel: TrackListViewModel) {
+private fun ExportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
     val appContext = LocalContext.current.applicationContext
     val progress by viewModel.importExport.gpxExportProgress.collectAsStateWithLifecycle()
     val exportLauncher = rememberLauncherForActivityResult(
@@ -877,7 +887,7 @@ private fun ExportTracksRow(viewModel: TrackListViewModel) {
     }
     DataActionRow(
         stringResource(R.string.data_export_tracks),
-        subtitle = exportSubtitle(
+        subtitle = progressSubtitle(
             progress,
             idle = stringResource(R.string.data_export_tracks_idle),
             verb = R.string.data_exporting,
@@ -885,11 +895,12 @@ private fun ExportTracksRow(viewModel: TrackListViewModel) {
         ),
         done = progress?.tracksDone,
         total = progress?.tracksTotal,
+        blockedBy = blockedBy,
     ) { exportLauncher.launch(null) }
 }
 
 @Composable
-private fun ExportBackupRow(viewModel: TrackListViewModel) {
+private fun ExportBackupRow(viewModel: TrackListViewModel, blockedBy: String?) {
     val appContext = LocalContext.current.applicationContext
     val progress by viewModel.importExport.exportProgress.collectAsStateWithLifecycle()
     val exportLauncher = rememberLauncherForActivityResult(
@@ -900,7 +911,7 @@ private fun ExportBackupRow(viewModel: TrackListViewModel) {
     }
     DataActionRow(
         stringResource(R.string.data_backup),
-        subtitle = exportSubtitle(
+        subtitle = progressSubtitle(
             progress,
             idle = stringResource(R.string.data_backup_idle),
             verb = R.string.data_backup_verb,
@@ -908,5 +919,88 @@ private fun ExportBackupRow(viewModel: TrackListViewModel) {
         ),
         done = progress?.tracksDone,
         total = progress?.tracksTotal,
+        blockedBy = blockedBy,
     ) { exportLauncher.launch(BackupExporter.fileName(System.currentTimeMillis())) }
+}
+
+private fun refusalMessage(context: Context, outcome: LoadOutcome<*>): String = context.getString(
+    when (outcome) {
+        LoadOutcome.Busy -> R.string.data_load_busy
+        else -> R.string.data_load_not_empty
+    },
+)
+
+// Octet-stream is what a file manager hands over for an extension it does not recognize. Each
+// importer rejects a file that isn't its format.
+private val BACKUP_MIME_TYPES =
+    arrayOf("application/gzip", "application/x-gzip", "application/octet-stream")
+
+private val GOOGLE_TIMELINE_MIME_TYPES = arrayOf("application/json", "application/octet-stream")
+
+@Composable
+private fun RestoreRow(viewModel: TrackListViewModel, blockedBy: String?) {
+    val appContext = LocalContext.current.applicationContext
+    val progress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        viewModel.importExport.restoreBackup(uri) { outcome ->
+            val message = when (outcome) {
+                null -> appContext.getString(R.string.timeline_restore_failed)
+                is LoadOutcome.Loaded ->
+                    appContext.getString(R.string.timeline_restored, outcome.summary.tracks, outcome.summary.places)
+                else -> refusalMessage(appContext, outcome)
+            }
+            Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
+        }
+    }
+    DataActionRow(
+        stringResource(R.string.data_restore),
+        subtitle = progressSubtitle(
+            progress,
+            idle = stringResource(R.string.data_restore_idle),
+            verb = R.string.timeline_restoring_count,
+            busy = R.string.timeline_restoring_count_of,
+        ),
+        done = progress?.tracksDone,
+        total = progress?.tracksTotal,
+        blockedBy = blockedBy,
+    ) { launcher.launch(BACKUP_MIME_TYPES) }
+}
+
+@Composable
+private fun GoogleTimelineRow(viewModel: TrackListViewModel, blockedBy: String?) {
+    val appContext = LocalContext.current.applicationContext
+    val progress by viewModel.importExport.googleTimelineImportProgress.collectAsStateWithLifecycle()
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        viewModel.importExport.importGoogleTimeline(uri) { outcome ->
+            val summary = (outcome as? LoadOutcome.Loaded)?.summary
+            val message = when {
+                outcome == null -> appContext.getString(R.string.timeline_google_import_failed)
+                summary == null -> refusalMessage(appContext, outcome)
+                summary.skipped == 0 ->
+                    appContext.getString(R.string.timeline_google_imported, summary.tracks, summary.places)
+                else -> appContext.getString(
+                    R.string.timeline_google_imported_skipped,
+                    summary.tracks,
+                    summary.places,
+                    summary.skipped,
+                )
+            }
+            Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
+        }
+    }
+    DataActionRow(
+        stringResource(R.string.data_google_import),
+        subtitle = progressSubtitle(
+            progress,
+            idle = stringResource(R.string.data_google_import_idle),
+            // No count until the file is read: the total is the trips found in it.
+            verb = R.string.data_google_reading,
+            busy = R.string.timeline_google_importing_count_of,
+        ),
+        done = progress?.tracksDone,
+        total = progress?.tracksTotal,
+        blockedBy = blockedBy,
+    ) { launcher.launch(GOOGLE_TIMELINE_MIME_TYPES) }
 }

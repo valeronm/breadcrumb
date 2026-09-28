@@ -83,6 +83,7 @@ internal fun PlacesTab(
     onOpenPlace: (String) -> Unit,
     /** Holds the map view's camera while that view is showing. */
     mapCamera: CameraSlot,
+    onOpenData: () -> Unit,
 ) {
     val context = LocalContext.current
     val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
@@ -177,7 +178,9 @@ internal fun PlacesTab(
         return
     }
     if (sorted.isEmpty()) {
-        EmptyState(stringResource(R.string.places_empty), Modifier.fillMaxSize().padding(24.dp))
+        EmptyState(stringResource(R.string.places_empty), Modifier.fillMaxSize().padding(24.dp)) {
+            RestoreOrImportButton(viewModel, onOpenData)
+        }
         return
     }
     Column(Modifier.fillMaxSize()) {

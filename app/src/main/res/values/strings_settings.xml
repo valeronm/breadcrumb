@@ -112,6 +112,17 @@
       to recognise one by its extension. A backup is the history itself, so it says trip.
       `docs/glossary/en.md` has both rules.
     -->
+    <string name="data_import_section">Import</string>
+    <string name="data_export_section">Export</string>
+    <string name="data_restore">Restore from backup</string>
+    <string name="data_restore_idle">Your whole history from a backup file</string>
+    <string name="data_google_import">Import Google Timeline</string>
+    <string name="data_google_import_idle">Export it on your phone from Settings → Location → Location services → Timeline</string>
+    <string name="data_google_reading">Reading the export…</string>
+    <string name="data_only_when_empty">Only into an empty history</string>
+    <string name="data_nothing_to_export">Nothing to export yet</string>
+    <string name="data_load_busy">Another import is already running</string>
+    <string name="data_load_not_empty">Your history is no longer empty, so nothing was loaded</string>
     <string name="data_import_tracks">Import tracks</string>
     <string name="data_import_idle">Trips from GPX files with timestamps</string>
     <string name="data_importing">Importing file %1$d of %2$d · %3$d tracks so far</string>

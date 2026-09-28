@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -732,6 +733,16 @@ class TrackRepositoryTest {
         assertNull(restored.discardedAt)
         assertNull(restored.discardReason)
         test.assertStatsMatchPoints(id)
+    }
+
+    @Test fun `only a kept track, the recording one included, makes the history non-empty`() = runTest {
+        assertFalse(repository.hasKeptTracks())
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        assertTrue(repository.hasKeptTracks())
+        repository.addPoints((0..5).map { test.point(id, it) })
+        repository.finishTrack(id, TEST_START + 60_000L)
+        repository.deleteTrack(id)
+        assertFalse(repository.hasKeptTracks())
     }
 
     @Test fun `the retention purge deletes only tracks discarded before the window`() = runTest {

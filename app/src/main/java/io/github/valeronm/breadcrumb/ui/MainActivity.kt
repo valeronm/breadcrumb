@@ -204,7 +204,10 @@ private fun MainScreen(
         val uris = pendingGpxImport.value ?: return@SideEffect
         if (Privacy.isLocked(context)) return@SideEffect
         pendingGpxImport.value = null
-        viewModel.importExport.importGpx(uris) { result ->
+        viewModel.importExport.importGpx(
+            uris,
+            onBusy = { Toast.makeText(context, R.string.data_load_busy, Toast.LENGTH_LONG).show() },
+        ) { result ->
             Toast.makeText(context, gpxImportMessage(context, result), Toast.LENGTH_LONG).show()
         }
     }
@@ -494,6 +497,7 @@ private fun MainScreen(
                                 selectedTab = HomeTab.RECORD
                             },
                             onOpenRecording = { selectedTab = HomeTab.RECORD },
+                            onOpenData = { settingsPage = SettingsPage.Data },
                         )
 
                         HomeTab.PLACES -> PlacesTab(
@@ -501,10 +505,12 @@ private fun MainScreen(
                             homeRequest = placesHomeRequest,
                             onOpenPlace = { placeDetailKey = it },
                             mapCamera = placesMapCamera,
+                            onOpenData = { settingsPage = SettingsPage.Data },
                         )
                         HomeTab.INSIGHTS -> InsightsTab(
                             viewModel = viewModel,
                             onOpenJourney = { journeyKey = it.travel.firstNightAt },
+                            onOpenData = { settingsPage = SettingsPage.Data },
                         )
                     }
                 }

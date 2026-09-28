@@ -1,8 +1,5 @@
 package io.github.valeronm.breadcrumb.ui
 
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -75,7 +72,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -130,12 +126,6 @@ internal sealed interface TimelineJump {
     data object Home : TimelineJump
 }
 
-/** What the backup picker filters on. Named rather than spelled at the launch, which is all. */
-private val BACKUP_MIME_TYPES =
-    arrayOf("application/gzip", "application/x-gzip", "application/octet-stream")
-
-private val GOOGLE_TIMELINE_MIME_TYPES = arrayOf("application/json", "application/octet-stream")
-
 private enum class TimelinePage(@StringRes val labelRes: Int) {
     LIST(R.string.timeline_view_list),
     MAP(R.string.timeline_view_map),
@@ -164,6 +154,7 @@ internal fun TimelineTab(
     onReplay: (TrackSummary) -> Unit,
     /** Open the Record tab — the recording row's tap, that being where the recording draws live. */
     onOpenRecording: () -> Unit,
+    onOpenData: () -> Unit,
 ) {
     // No list, no day — the empty and restoring branches below return before a real reader is
     // installed, and a closure left over from a previous composition would read dead state.
@@ -178,20 +169,19 @@ internal fun TimelineTab(
     val recording by viewModel.recordingRow.collectAsStateWithLifecycle()
     // In priority order: a restore or import outranks everything, since that screen reports its
     // progress for the whole run; then "not derived yet"; then a history that really is empty.
-    // Gated above the switch rather than per view — both views would show the same blank, and the
-    // empty state's offers want the whole tab.
+    // Gated above the switch rather than per view: both views would show the same blank.
     when {
         restoreProgress != null || googleImportProgress != null -> {
-            EmptyTracksState(viewModel.importExport)
+            EmptyTracksState(viewModel, onOpenData)
             return
         }
         items == null -> {
             DerivingState(Modifier.fillMaxSize())
             return
         }
-        // A recording alone is not an empty history: the loads offered here want an empty database.
+        // A recording alone is not an empty history: the list shows its row.
         items.isEmpty() && recording == null -> {
-            EmptyTracksState(viewModel.importExport)
+            EmptyTracksState(viewModel, onOpenData)
             return
         }
     }
@@ -984,50 +974,13 @@ internal fun TimelineItem.rowKey(): String = when (this) {
 }
 
 /**
- * The Timeline's empty state — the only place that offers restoring a backup or importing a Google
- * Timeline export. With tracks present either would have to merge with them, so the offers
- * disappear as soon as the first track exists.
- *
- * Octet-stream is accepted beside each format's own types because that is what a file manager hands
- * over for an extension it does not recognize; each importer rejects a file that isn't its format.
+ * The Timeline's empty state, which also reports a restore or a Google Timeline import for as long
+ * as one runs, wherever it was started.
  */
 @Composable
-private fun EmptyTracksState(importExport: ImportExportController) {
-    val restoring by importExport.restoreProgress.collectAsStateWithLifecycle()
-    val importing by importExport.googleTimelineImportProgress.collectAsStateWithLifecycle()
-    val appContext = LocalContext.current.applicationContext
-    val restoreLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        importExport.restoreBackup(uri) { summary ->
-            val message = if (summary == null) {
-                appContext.getString(R.string.timeline_restore_failed)
-            } else {
-                appContext.getString(R.string.timeline_restored, summary.tracks, summary.places)
-            }
-            Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
-        }
-    }
-    val googleLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        importExport.importGoogleTimeline(uri) { summary ->
-            val message = when {
-                summary == null -> appContext.getString(R.string.timeline_google_import_failed)
-                summary.skipped == 0 ->
-                    appContext.getString(R.string.timeline_google_imported, summary.tracks, summary.places)
-                else -> appContext.getString(
-                    R.string.timeline_google_imported_skipped,
-                    summary.tracks,
-                    summary.places,
-                    summary.skipped,
-                )
-            }
-            Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
-        }
-    }
+private fun EmptyTracksState(viewModel: TrackListViewModel, onOpenData: () -> Unit) {
+    val restoring by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
+    val importing by viewModel.importExport.googleTimelineImportProgress.collectAsStateWithLifecycle()
     val restore = restoring
     val import = importing
     val progress = restore ?: import
@@ -1046,34 +999,20 @@ private fun EmptyTracksState(importExport: ImportExportController) {
         else -> null
     }
     EmptyState(stringResource(headline), Modifier.fillMaxSize().padding(24.dp)) {
-        Spacer(Modifier.height(16.dp))
-        when {
-            progress != null -> {
-                count?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(16.dp))
-                }
-                OperationProgressBar(progress.tracksDone, progress.tracksTotal, Modifier.fillMaxWidth())
-            }
-            else -> {
-                TextButton(onClick = { restoreLauncher.launch(BACKUP_MIME_TYPES) }) {
-                    Text(stringResource(R.string.timeline_restore_button))
-                }
-                TextButton(onClick = { googleLauncher.launch(GOOGLE_TIMELINE_MIME_TYPES) }) {
-                    Text(stringResource(R.string.timeline_google_import_button))
-                }
-                Text(
-                    stringResource(R.string.timeline_google_import_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
+        if (progress == null) {
+            RestoreOrImportButton(viewModel, onOpenData)
+            return@EmptyState
         }
+        Spacer(Modifier.height(16.dp))
+        count?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(16.dp))
+        }
+        OperationProgressBar(progress.tracksDone, progress.tracksTotal, Modifier.fillMaxWidth())
     }
 }
 

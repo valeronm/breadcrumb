@@ -523,6 +523,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         }
     }
 
+    suspend fun hasKeptTracks(): Boolean = dao.hasKeptTracks()
+
     /** Hard-delete what sits in Recently deleted, up to and including the row discarded at
      *  [through] — the bound the caller measured, rows being discarded while it decides. */
     suspend fun purgeDiscarded(through: Long) {

@@ -423,10 +423,11 @@ query's fixed cost is most of what a short track costs to read, which is what ma
 time expensive. **A column added to `track_points` lowers that budget**, the cursor window being its
 ceiling: the number is in the exporter and the row it sizes is in `Entities.kt`, so neither file can
 warn you on its own.
-Restore is offered only on the Timeline's empty state, and that
-screen is where it reports its progress. With tracks present a restore would have to merge with
-them, so the offer disappears as soon as the first track exists. The Google Timeline import
-(`GoogleTimelineImporter`) sits on the same empty state for the same reason. It keeps Google's
+Restore and the Google Timeline import
+(`GoogleTimelineImporter`) sit in the Data page's Import section beside the GPX import, and take
+only an empty history: with tracks present either would have to merge with them, so both rows are
+disabled, saying why, from the first track on. The empty states of an empty history lead to that
+page, and the Timeline's empty state reports a running restore or import wherever it was started. It keeps Google's
 grouping of visits into places, which the user confirmed or corrected in Google and which a path
 sampled once a minute cannot recover: a place row per Google place, left unnamed unless it is a home
 or a work, and every trip end Google joined to a visit stated to that visit's place. Google labels

@@ -88,6 +88,17 @@
     <string name="lock_immediately">Imediatamente</string>
     <string name="lock_after">Ao fim de %1$s</string>
 
+    <string name="data_import_section">Importar</string>
+    <string name="data_export_section">Exportar</string>
+    <string name="data_restore">Restaurar de uma cópia</string>
+    <string name="data_restore_idle">Todo o seu histórico a partir de uma cópia</string>
+    <string name="data_google_import">Importar Cronologia do Google</string>
+    <string name="data_google_import_idle">Exporte-a no telemóvel em Definições → Localização → Serviços de localização → Cronologia</string>
+    <string name="data_google_reading">A ler a exportação…</string>
+    <string name="data_only_when_empty">Só para um histórico vazio</string>
+    <string name="data_nothing_to_export">Ainda não há nada para exportar</string>
+    <string name="data_load_busy">Já está a decorrer outra importação</string>
+    <string name="data_load_not_empty">O seu histórico já não está vazio, por isso nada foi carregado</string>
     <string name="data_import_tracks">Importar trajetos</string>
     <string name="data_import_idle">Viagens de ficheiros GPX com data e hora</string>
     <string name="data_importing">A importar o ficheiro %1$d de %2$d · %3$d trajetos até agora</string>

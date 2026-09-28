@@ -77,6 +77,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     val tracks: StateFlow<List<TrackSummary>> = trackRows
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Whether no finished track is kept; null until the first read, which is not an empty history. */
+    val historyEmpty: StateFlow<Boolean?> = trackRows
+        .map { it.isEmpty() }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val discardedTracks: StateFlow<List<DiscardedSummary>> = repository.observeDiscardedSummaries()
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -288,6 +294,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .distinctUntilChanged()
         .map { open -> open?.let { TimelineItem.RecordingItem(it.id, it.label, it.startedAt) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Whether a restore or a Google Timeline import may start: both merge nothing, so they take an
+     *  empty history with no track recording into it. */
+    val historyLoadable: StateFlow<Boolean> = combine(historyEmpty, recordingRow) { empty, recording ->
+        empty == true && recording == null
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /**
      * Tracks interleaved with derived stays and data gaps, newest first, sliced per local day.

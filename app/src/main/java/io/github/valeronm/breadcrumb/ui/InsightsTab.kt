@@ -80,15 +80,19 @@ import java.time.ZoneId
  * standing preference about how you read your places, this is where you happened to be last time.
  */
 @Composable
-internal fun InsightsTab(viewModel: TrackListViewModel, onOpenJourney: (TravelNaming.Summary) -> Unit) {
+internal fun InsightsTab(
+    viewModel: TrackListViewModel,
+    onOpenJourney: (TravelNaming.Summary) -> Unit,
+    onOpenData: () -> Unit,
+) {
     val pages = InsightsPage.entries
     val pager = rememberPagerState { pages.size }
     Column(Modifier.fillMaxSize()) {
         PagerTabRow(pager, pages.map { stringResource(it.labelRes) })
         HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { index ->
             when (pages[index]) {
-                InsightsPage.JOURNEYS -> JourneysPage(viewModel, onOpenJourney)
-                InsightsPage.STATISTICS -> StatisticsPage(viewModel)
+                InsightsPage.JOURNEYS -> JourneysPage(viewModel, onOpenJourney, onOpenData)
+                InsightsPage.STATISTICS -> StatisticsPage(viewModel, onOpenData)
             }
         }
     }
@@ -107,17 +111,20 @@ private enum class InsightsPage(@StringRes val labelRes: Int) {
  * of; a separate view would restate the same numbers somewhere you had to go and look.
  */
 @Composable
-private fun JourneysPage(viewModel: TrackListViewModel, onOpenJourney: (TravelNaming.Summary) -> Unit) {
+private fun JourneysPage(
+    viewModel: TrackListViewModel,
+    onOpenJourney: (TravelNaming.Summary) -> Unit,
+    onOpenData: () -> Unit,
+) {
     val travels by viewModel.travels.collectAsStateWithLifecycle()
     val rows = travels
     when {
         // Not derived yet is not the same answer as none, and saying "you have never travelled"
         // while the history is still being read is the worse of the two to get wrong.
         rows == null -> DerivingState(Modifier.fillMaxSize())
-        rows.isEmpty() -> EmptyState(
-            stringResource(R.string.insights_empty),
-            Modifier.fillMaxSize().padding(32.dp),
-        )
+        rows.isEmpty() -> EmptyState(stringResource(R.string.insights_empty), Modifier.fillMaxSize().padding(32.dp)) {
+            RestoreOrImportButton(viewModel, onOpenData)
+        }
         else -> TravelsList(rows, onOpenJourney)
     }
 }
@@ -283,16 +290,15 @@ private val journeyRangeYearFormat by PerLocale { DateIntervalFormat.getInstance
  * summing a flight and a walk answers no question anyone has.
  */
 @Composable
-private fun StatisticsPage(viewModel: TrackListViewModel) {
+private fun StatisticsPage(viewModel: TrackListViewModel, onOpenData: () -> Unit) {
     val months by viewModel.monthlyTotals.collectAsStateWithLifecycle()
     val rows = months
     when {
         // As on the journeys page: still deriving is not the same answer as nothing recorded.
         rows == null -> DerivingState(Modifier.fillMaxSize())
-        rows.isEmpty() -> EmptyState(
-            stringResource(R.string.insights_stats_empty),
-            Modifier.fillMaxSize().padding(32.dp),
-        )
+        rows.isEmpty() -> EmptyState(stringResource(R.string.insights_stats_empty), Modifier.fillMaxSize().padding(32.dp)) {
+            RestoreOrImportButton(viewModel, onOpenData)
+        }
         else -> MonthlyStats(rows)
     }
 }

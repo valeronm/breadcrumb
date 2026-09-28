@@ -38,6 +38,17 @@ internal class ImportExportController(
     /** Track progress of a long-running export/restore-style operation. */
     class OpProgress(val tracksDone: Int, val tracksTotal: Int?)
 
+    /** What a load into the history reports when it is not a failure, which is null. */
+    sealed interface LoadOutcome<out S> {
+        class Loaded<S>(val summary: S) : LoadOutcome<S>
+
+        /** Refused at the start: another load into the history is running. */
+        data object Busy : LoadOutcome<Nothing>
+
+        /** Refused at the start: the history holds a track, and this load merges nothing. */
+        data object NotEmpty : LoadOutcome<Nothing>
+    }
+
     /** Non-null while a GPX bulk export runs — drives the Export tracks row; survives navigation. */
     private val _gpxExportProgress = MutableStateFlow<OpProgress?>(null)
     val gpxExportProgress: StateFlow<OpProgress?> = _gpxExportProgress
@@ -105,12 +116,32 @@ internal class ImportExportController(
             BackupExporter.exportTo(app, backupRepositories, uri, System.currentTimeMillis(), onProgress)
         }
 
+    /** Two loads into the history running together would each insert without seeing the other. */
+    private fun loading(): Boolean =
+        _restoreProgress.value != null || _googleTimelineImportProgress.value != null || _importProgress.value != null
+
     /**
-     * Restores a backup file — the whole file, no merging, which is why the UI only offers it
-     * while the app is empty. Reports the summary, or null on failure.
+     * A load that merges nothing, so it starts only into a history holding no track, checked as it
+     * starts rather than when it was offered: a recording can end while the file is being picked.
      */
-    fun restoreBackup(uri: Uri, onDone: (BackupImporter.Summary?) -> Unit) =
-        runExclusiveOp(_restoreProgress, "backup restore", onDone) { onProgress ->
+    private fun <S> runEmptyHistoryLoad(
+        progress: MutableStateFlow<OpProgress?>,
+        logLabel: String,
+        onDone: (LoadOutcome<S>?) -> Unit,
+        load: suspend (onProgress: (Int, Int?) -> Unit) -> S?,
+    ) {
+        if (loading()) {
+            onDone(LoadOutcome.Busy)
+            return
+        }
+        runExclusiveOp(progress, logLabel, onDone) { onProgress ->
+            if (repository.hasKeptTracks()) LoadOutcome.NotEmpty else load(onProgress)?.let { LoadOutcome.Loaded(it) }
+        }
+    }
+
+    /** Restores a backup file whole into an empty history. Reports the outcome, or null on failure. */
+    fun restoreBackup(uri: Uri, onDone: (LoadOutcome<BackupImporter.Summary>?) -> Unit) =
+        runEmptyHistoryLoad(_restoreProgress, "backup restore", onDone) { onProgress ->
             BackupImporter.importFrom(app, backupRepositories, uri, onProgress)
         }
 
@@ -118,10 +149,9 @@ internal class ImportExportController(
     private val _googleTimelineImportProgress = MutableStateFlow<OpProgress?>(null)
     val googleTimelineImportProgress: StateFlow<OpProgress?> = _googleTimelineImportProgress
 
-    /** Loads a Google Timeline export into an empty history, merging nothing. Reports the summary,
-     *  or null on failure. */
-    fun importGoogleTimeline(uri: Uri, onDone: (GoogleTimelineImporter.Summary?) -> Unit) =
-        runExclusiveOp(_googleTimelineImportProgress, "google timeline import", onDone) { onProgress ->
+    /** Loads a Google Timeline export into an empty history. Reports the outcome, or null on failure. */
+    fun importGoogleTimeline(uri: Uri, onDone: (LoadOutcome<GoogleTimelineImporter.Summary>?) -> Unit) =
+        runEmptyHistoryLoad(_googleTimelineImportProgress, "google timeline import", onDone) { onProgress ->
             GoogleTimelineImporter.importFrom(
                 app,
                 backupRepositories,
@@ -147,10 +177,14 @@ internal class ImportExportController(
     /**
      * Imports the picked GPX files, one file at a time with [importProgress] updates.
      * [GpxImportSummary.failed] counts unreadable/unparseable files plus tracks without enough
-     * timestamped points to place on the timeline. A second call while one runs is ignored.
+     * timestamped points to place on the timeline. [onBusy] instead while any load into the history
+     * runs.
      */
-    fun importGpx(uris: List<Uri>, onDone: (GpxImportSummary) -> Unit) {
-        if (_importProgress.value != null) return
+    fun importGpx(uris: List<Uri>, onBusy: () -> Unit, onDone: (GpxImportSummary) -> Unit) {
+        if (loading()) {
+            onBusy()
+            return
+        }
         _importProgress.value = GpxImportProgress(0, uris.size, 0)
         scope.launch {
             var imported = 0

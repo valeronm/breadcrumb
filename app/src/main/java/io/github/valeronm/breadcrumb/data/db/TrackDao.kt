@@ -86,6 +86,10 @@ interface TrackDao {
     @Query("UPDATE tracks SET discardedAt = NULL, discardReason = NULL WHERE id = :trackId")
     suspend fun restoreTrack(trackId: Long)
 
+    /** Whether any track is kept, the one being recorded included; Recently deleted is not history. */
+    @Query("SELECT EXISTS(SELECT 1 FROM tracks WHERE discardedAt IS NULL)")
+    suspend fun hasKeptTracks(): Boolean
+
     /**
      * The newest row, whatever wrote it and whatever state it is in —
      * [io.github.valeronm.breadcrumb.domain.StitchRule] judges every one of those and this asks

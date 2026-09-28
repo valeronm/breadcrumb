@@ -3,13 +3,10 @@
 
     <string name="timeline_empty">Ainda sem viagens. Aparecem aqui assim que a gravação captar algum movimento.</string>
     <string name="timeline_restoring">A restaurar a cópia de segurança — a cronologia aparece quando terminar</string>
-    <string name="timeline_restore_button">Restaurar de uma cópia</string>
     <string name="timeline_restore_failed">Falha ao restaurar — não é uma cópia do Breadcrumb?</string>
     <string name="timeline_restored">Restauradas %1$d viagens e %2$d locais</string>
     <string name="timeline_restoring_count">A restaurar… %1$d viagens</string>
     <string name="timeline_restoring_count_of">A restaurar… %1$d de %2$d viagens</string>
-    <string name="timeline_google_import_button">Importar Cronologia do Google</string>
-    <string name="timeline_google_import_hint">Exporte-a no telemóvel em Definições → Localização → Serviços de localização → Cronologia.</string>
     <string name="timeline_google_importing">A importar a Cronologia do Google — as viagens aparecem quando terminar</string>
     <string name="timeline_google_importing_count_of">A importar… %1$d de %2$d viagens</string>
     <string name="timeline_google_imported">Importadas %1$d viagens e %2$d locais</string>

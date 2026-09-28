@@ -60,6 +60,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -299,6 +300,15 @@ internal fun EmptyState(
         )
         content()
     }
+}
+
+/** An empty history's way to the Data page, where every restore and import is offered. */
+@Composable
+internal fun RestoreOrImportButton(viewModel: TrackListViewModel, onOpenData: () -> Unit) {
+    val loadable by viewModel.historyLoadable.collectAsStateWithLifecycle()
+    if (!loadable) return
+    Spacer(Modifier.height(16.dp))
+    TextButton(onClick = onOpenData) { Text(stringResource(R.string.common_restore_or_import)) }
 }
 
 /**

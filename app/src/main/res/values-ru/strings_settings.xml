@@ -88,6 +88,17 @@
     <string name="lock_immediately">Сразу</string>
     <string name="lock_after">Через %1$s</string>
 
+    <string name="data_import_section">Импорт</string>
+    <string name="data_export_section">Экспорт</string>
+    <string name="data_restore">Восстановить из копии</string>
+    <string name="data_restore_idle">Вся ваша история из резервной копии</string>
+    <string name="data_google_import">Импорт Хронологии Google</string>
+    <string name="data_google_import_idle">Экспортируйте её на телефоне: Настройки → Местоположение → Службы геолокации → Хронология</string>
+    <string name="data_google_reading">Чтение экспорта…</string>
+    <string name="data_only_when_empty">Только в пустую историю</string>
+    <string name="data_nothing_to_export">Пока нечего экспортировать</string>
+    <string name="data_load_busy">Уже идёт другой импорт</string>
+    <string name="data_load_not_empty">История уже не пуста, поэтому ничего не загружено</string>
     <string name="data_import_tracks">Импорт маршрутов</string>
     <string name="data_import_idle">Поездки из файлов GPX с отметками времени</string>
     <string name="data_importing">Импорт файла %1$d из %2$d · маршрутов: %3$d</string>
