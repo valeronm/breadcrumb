@@ -171,6 +171,15 @@ internal fun PlacesTab(
     // Each view keeps its state across switches — above all the list's scroll position, which a
     // bare `when` would discard with the branch.
     val viewStateHolder = rememberSaveableStateHolder()
+    // Deriving and an empty history are the tab's states, not a view's.
+    if (derivedPlaces == null) {
+        DerivingState(Modifier.fillMaxSize())
+        return
+    }
+    if (sorted.isEmpty()) {
+        EmptyState(stringResource(R.string.places_empty), Modifier.fillMaxSize().padding(24.dp))
+        return
+    }
     Column(Modifier.fillMaxSize()) {
         ViewSwitchRow(
             labelsRes = placesPageLabels,
@@ -185,56 +194,45 @@ internal fun PlacesTab(
                 focusManager.clearFocus()
             },
         )
-        // Deriving and an empty history are the tab's states, not a view's — gated here, so the
-        // switch never toggles between two identical blanks.
-        if (derivedPlaces == null) {
-            DerivingState(Modifier.weight(1f).fillMaxWidth())
-        } else if (sorted.isEmpty()) {
-            EmptyState(
-                stringResource(R.string.places_empty),
-                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
-            )
-        } else {
-            when (page) {
-                PlacesPage.MAP -> viewStateHolder.SaveableStateProvider(PlacesPage.MAP) {
-                    PlacesMapPage(
-                        mapPlaces = mapPlaces,
-                        emptiedBy = mapFilter.emptiedBy,
-                        homeRequest = homeRequest,
-                        onOpenPlace = onOpenPlace,
-                        mapCamera = mapCamera,
+        when (page) {
+            PlacesPage.MAP -> viewStateHolder.SaveableStateProvider(PlacesPage.MAP) {
+                PlacesMapPage(
+                    mapPlaces = mapPlaces,
+                    emptiedBy = mapFilter.emptiedBy,
+                    homeRequest = homeRequest,
+                    onOpenPlace = onOpenPlace,
+                    mapCamera = mapCamera,
+                ) {
+                    MapFilterChip(
+                        selected = showRareStops,
+                        label = stringResource(R.string.places_rare_stops),
                     ) {
-                        MapFilterChip(
-                            selected = showRareStops,
-                            label = stringResource(R.string.places_rare_stops),
-                        ) {
-                            showRareStops = !showRareStops
-                            AppSettings.setPlacesShowRareStops(context, showRareStops)
-                        }
-                        MapFilterChip(
-                            selected = showLongAgo,
-                            label = stringResource(R.string.places_long_ago),
-                        ) {
-                            showLongAgo = !showLongAgo
-                            AppSettings.setPlacesShowLongAgo(context, showLongAgo)
-                        }
+                        showRareStops = !showRareStops
+                        AppSettings.setPlacesShowRareStops(context, showRareStops)
+                    }
+                    MapFilterChip(
+                        selected = showLongAgo,
+                        label = stringResource(R.string.places_long_ago),
+                    ) {
+                        showLongAgo = !showLongAgo
+                        AppSettings.setPlacesShowLongAgo(context, showLongAgo)
                     }
                 }
+            }
 
-                PlacesPage.LIST -> viewStateHolder.SaveableStateProvider(PlacesPage.LIST) {
-                    PlacesListPage(
-                        listed = listed,
-                        query = query,
-                        onQueryChange = { query = it },
-                        sort = sort,
-                        onSortChange = {
-                            sort = it
-                            AppSettings.setPlacesSort(context, it.name)
-                        },
-                        homeRequest = homeRequest,
-                        onOpenPlace = onOpenPlace,
-                    )
-                }
+            PlacesPage.LIST -> viewStateHolder.SaveableStateProvider(PlacesPage.LIST) {
+                PlacesListPage(
+                    listed = listed,
+                    query = query,
+                    onQueryChange = { query = it },
+                    sort = sort,
+                    onSortChange = {
+                        sort = it
+                        AppSettings.setPlacesSort(context, it.name)
+                    },
+                    homeRequest = homeRequest,
+                    onOpenPlace = onOpenPlace,
+                )
             }
         }
     }
