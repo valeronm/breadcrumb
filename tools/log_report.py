@@ -77,6 +77,9 @@ KNOWN = [re.compile(rx) for rx in [
 
 TRIGGERS = ("fence exit", "departure probe")
 
+# A reading and the open it causes are logged by one dispatch.
+OPENER_MAX_S = 5
+
 # Where a build that logs no "location updates stopped" turned GPS off.
 INFERRED_GPS_END = ("disarm", "fence_arm_from", "fence_armed", "probe_start", "gave_up")
 CAUSES = ("Activity Recognition", "departure probe", "fence exit", "Activity Recognition after a pause",
@@ -220,16 +223,16 @@ class Report:
                 self.gps_inferred = True
                 gps_close(e.dt, gave_up=k == "gave_up")
             if k == "arm":
-                armed = True
+                armed, pending = True, None
                 self.builds[g["build"] or "(unstamped)"] += 1
                 logs = build_kinds[g["build"]]
             elif k == "disarm":
-                armed = False
+                armed, pending = False, None
                 self.disarms += 1
             elif k == "dead":
                 self.deaths.append((prev_dt, e.dt))
                 gps_close(prev_dt)
-                probe_start = None
+                probe_start = pending = None
             elif k == "deaf":
                 self.deaf += 1
             elif k == "apply":
@@ -243,13 +246,13 @@ class Report:
                     t = self.tracks.get(tid)
                     if t and t.cause in TRIGGERS and t.first_reading is None:
                         t.first_reading = (g["act"], (e.dt - t.opened).total_seconds())
-                pending = {"cause": cause, "pair": pair, "i": i}
+                pending = {"cause": cause, "pair": pair, "dt": e.dt}
             elif k == "fence_open":
                 d["departures"] += 1
-                pending = {"cause": "fence exit", "i": i}
+                pending = {"cause": "fence exit", "dt": e.dt}
             elif k == "probe_open":
                 d["departures"] += 1
-                pending = {"cause": "departure probe", "i": i, "probe": g}
+                pending = {"cause": "departure probe", "probe": g, "dt": e.dt}
             elif k == "fence_resume":
                 resume_cause = "geofence"
             elif k == "probe_resume":
@@ -258,7 +261,8 @@ class Report:
                 self.departures_ignored += 1
             elif k == "open":
                 tid = g["track"]
-                p = pending if pending and i - pending["i"] <= 4 else {"cause": "unknown"}
+                fresh = pending and (e.dt - pending["dt"]).total_seconds() <= OPENER_MAX_S
+                p = pending if fresh else {"cause": "unknown"}
                 pending = None
                 if g["how"] == "continued" and tid in self.tracks:
                     self.stitches[p["cause"]] += 1
