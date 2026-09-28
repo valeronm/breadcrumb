@@ -173,7 +173,7 @@ internal fun TrackDetailScreen(
     var selectedMode by remember { mutableStateOf(ColorMode.SPEED) }
     // The points arrive after the first composition, so a mode can be selected and then turn out to
     // have nothing behind it — on a track opened from a metric the last one had.
-    val colorMode = if (selectedMode in colorModes) selectedMode else ColorMode.SPEED
+    val colorMode = if (selectedMode in colorModes) selectedMode else colorModes.firstOrNull() ?: ColorMode.SPEED
     // Noisy (ignored) fixes are hidden by default, behind the map's own chip.
     // A track with no drawable line is the exception — its noisy fixes are all there is to see, so
     // the default follows the points once they load, until the user says otherwise.
