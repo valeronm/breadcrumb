@@ -512,15 +512,19 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     private suspend fun closedTrack(trackId: Long): Track? =
         dao.track(trackId)?.takeIf { it.endedAt != null }
 
-    /** Bring a discarded track back to the timeline (undoes a delete/discard within retention). */
-    suspend fun restoreTrack(trackId: Long) {
-        db.withTransaction {
-            // Nothing to restore is the whole precondition, and it is the stronger one: reopening
-            // clears the discard columns, so a row the recorder holds is never discarded.
-            dao.track(trackId)?.takeIf { it.discardedAt != null } ?: return@withTransaction
-            dao.restoreTrack(trackId)
-            derivation.reknit(listOf(trackId))
-        }
+    /**
+     * Bring a discarded track back to the timeline (undoes a delete/discard within retention).
+     * False when the track overlaps one already there, which leaves it discarded.
+     */
+    suspend fun restoreTrack(trackId: Long): Boolean = db.withTransaction {
+        // Nothing to restore is the whole precondition, and it is the stronger one: reopening
+        // clears the discard columns, so a row the recorder holds is never discarded.
+        val track = dao.track(trackId)?.takeIf { it.discardedAt != null } ?: return@withTransaction true
+        val end = checkNotNull(track.endedAt)
+        if (dao.countTracksOverlapping(track.startedAt, end, trackId) > 0) return@withTransaction false
+        dao.restoreTrack(trackId)
+        derivation.reknit(listOf(trackId))
+        true
     }
 
     suspend fun hasKeptTracks(): Boolean = dao.hasKeptTracks()

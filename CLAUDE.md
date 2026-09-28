@@ -408,7 +408,9 @@ user-deleted tracks are reviewable and restorable from Settings → Recently del
 after 14 days; the same check runs on normal finish and via `finalizeDangling`, which cleans up
 tracks left open by a crash. **A merge is undone by restoring its originals from Recently deleted;
 a split by `unsplitTracks`** — which is why `mergeTracks` copies its points while `splitTrack`
-reassigns them. `GpxExporter` (`data/export/`) builds GPX for share intents (`FileProvider`) or
+reassigns them. A track comes back from Recently deleted only if it overlaps none on the timeline,
+so an original returns alone once the merged track is gone; `unmergeTracks` does both in one step.
+`GpxExporter` (`data/export/`) builds GPX for share intents (`FileProvider`) or
 bulk-writes to a user-picked folder (Storage Access Framework); `GpxParser` imports GPX files
 shared/opened into the app, and `importTracks` refuses a file whose period an existing track
 already covers. `BackupExporter`/`BackupImporter` (`data/export/`) are the full backup — one

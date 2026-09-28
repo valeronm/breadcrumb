@@ -735,6 +735,19 @@ class TrackRepositoryTest {
         test.assertStatsMatchPoints(id)
     }
 
+    @Test fun `a track overlapping one on the timeline stays in Recently deleted`() = runTest {
+        val first = finishedWalk(0)
+        val second = finishedWalk(12)
+        val mergedId = repository.mergeTracks(first, second)!!
+
+        assertFalse(repository.restoreTrack(first))
+        assertEquals(DiscardReason.MERGED.code, dao.track(first)!!.discardReason)
+
+        repository.deleteTrack(mergedId)
+        assertTrue(repository.restoreTrack(first))
+        assertNull(dao.track(first)!!.discardedAt)
+    }
+
     @Test fun `only a kept track, the recording one included, makes the history non-empty`() = runTest {
         assertFalse(repository.hasKeptTracks())
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)

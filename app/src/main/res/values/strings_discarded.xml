@@ -7,6 +7,7 @@
     <string name="discarded_empty">No deleted trips. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d days.</string>
     <string name="discarded_retention">Trips stay here for %1$d days, then are deleted forever</string>
     <string name="discarded_restore">Restore trip</string>
+    <string name="discarded_restore_overlaps">Not restored: it overlaps a trip on the timeline</string>
 
     <!-- The app's side is named by what it did, a reader knowing a keep rule only as something
          that happened without them. -->

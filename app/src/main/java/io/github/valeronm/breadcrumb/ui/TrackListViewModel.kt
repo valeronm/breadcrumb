@@ -586,8 +586,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun restoreTrack(trackId: Long) {
-        viewModelScope.launch { repository.restoreTrack(trackId) }
+    fun restoreTrack(trackId: Long, onOverlapping: () -> Unit = {}) {
+        viewModelScope.launch { if (!repository.restoreTrack(trackId)) onOverlapping() }
     }
 
     fun purgeDiscarded(through: Long) {
