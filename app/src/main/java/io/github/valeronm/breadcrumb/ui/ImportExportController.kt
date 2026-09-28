@@ -46,9 +46,6 @@ internal class ImportExportController(
     sealed interface LoadOutcome<out S> {
         class Loaded<S>(val summary: S) : LoadOutcome<S>
 
-        /** Refused at the start: another load into the history is running. */
-        data object Busy : LoadOutcome<Nothing>
-
         /** Refused at the start: the history holds a track, and this load merges nothing. */
         data object NotEmpty : LoadOutcome<Nothing>
     }
@@ -105,18 +102,22 @@ internal class ImportExportController(
         }
     }
 
-    /** Exports every track as a .gpx file into the picked folder; reports how many were written. */
-    fun exportAll(treeUri: Uri, onDone: (Int?) -> Unit) =
-        runExclusiveOp(_gpxExportProgress, "gpx export", onDone) { onProgress ->
+    /**
+     * Exports every track as a .gpx file into the picked folder; reports how many were written, or
+     * [onBusy] instead while another operation on the history runs.
+     */
+    fun exportAll(treeUri: Uri, onBusy: () -> Unit, onDone: (Int?) -> Unit) =
+        runHistoryOp(_gpxExportProgress, "gpx export", onBusy, onDone) { onProgress ->
             GpxExporter.exportAllToTree(app, repository, treeUri, onProgress)
         }
 
     /**
      * Writes the whole history as one gzipped JSON file (backup, and the web companion's data
-     * source); reports the track count, or null on failure.
+     * source); reports the track count, or null on failure, or [onBusy] instead while another
+     * operation on the history runs.
      */
-    fun exportBackup(uri: Uri, onDone: (Int?) -> Unit) =
-        runExclusiveOp(_exportProgress, "backup export", onDone) { onProgress ->
+    fun exportBackup(uri: Uri, onBusy: () -> Unit, onDone: (Int?) -> Unit) =
+        runHistoryOp(_exportProgress, "backup export", onBusy, onDone) { onProgress ->
             BackupExporter.exportTo(app, backupRepositories, uri, System.currentTimeMillis(), onProgress)
         }
 
@@ -124,23 +125,25 @@ internal class ImportExportController(
     private val _clearProgress = MutableStateFlow<OpProgress?>(null)
     val clearProgress: StateFlow<OpProgress?> = _clearProgress
 
-    /** Two operations on the history running together would each write without seeing the other. */
-    private fun loading(): Boolean = historyOps.any { it.value != null }
+    /** Two operations on the history running together would each read or write without seeing the other. */
+    fun historyOpRunning(): Boolean = historyOps.any { it.value != null }
 
-    /**
-     * Deletes the whole history, recording left armed; [onBusy] instead while another operation on
-     * the history runs.
-     */
-    fun clearHistory(onBusy: () -> Unit, onDone: (cleared: Boolean) -> Unit) {
-        if (loading()) {
-            onBusy()
-            return
-        }
-        runExclusiveOp(_clearProgress, "history clear", { onDone(it != null) }) {
+    private fun <T> runHistoryOp(
+        progress: MutableStateFlow<OpProgress?>,
+        logLabel: String,
+        onBusy: () -> Unit,
+        onDone: (T?) -> Unit,
+        op: suspend (onProgress: (Int, Int?) -> Unit) -> T?,
+    ) {
+        if (historyOpRunning()) onBusy() else runExclusiveOp(progress, logLabel, onDone, op)
+    }
+
+    /** Deletes the whole history, recording left armed. */
+    fun clearHistory(onBusy: () -> Unit, onDone: (cleared: Boolean) -> Unit) =
+        runHistoryOp(_clearProgress, "history clear", onBusy, { onDone(it != null) }) {
             val clear: suspend () -> Unit = { repository.clearHistory() }
             LocationRecordingService.instance?.clearingHistory(clear) ?: clear()
         }
-    }
 
     /**
      * A load that merges nothing, so it starts only into a history holding no track, checked as it
@@ -149,21 +152,16 @@ internal class ImportExportController(
     private fun <S> runEmptyHistoryLoad(
         progress: MutableStateFlow<OpProgress?>,
         logLabel: String,
+        onBusy: () -> Unit,
         onDone: (LoadOutcome<S>?) -> Unit,
         load: suspend (onProgress: (Int, Int?) -> Unit) -> S?,
-    ) {
-        if (loading()) {
-            onDone(LoadOutcome.Busy)
-            return
-        }
-        runExclusiveOp(progress, logLabel, onDone) { onProgress ->
-            if (repository.hasKeptTracks()) LoadOutcome.NotEmpty else load(onProgress)?.let { LoadOutcome.Loaded(it) }
-        }
+    ) = runHistoryOp(progress, logLabel, onBusy, onDone) { onProgress ->
+        if (repository.hasKeptTracks()) LoadOutcome.NotEmpty else load(onProgress)?.let { LoadOutcome.Loaded(it) }
     }
 
     /** Restores a backup file whole into an empty history. Reports the outcome, or null on failure. */
-    fun restoreBackup(uri: Uri, onDone: (LoadOutcome<BackupImporter.Summary>?) -> Unit) =
-        runEmptyHistoryLoad(_restoreProgress, "backup restore", onDone) { onProgress ->
+    fun restoreBackup(uri: Uri, onBusy: () -> Unit, onDone: (LoadOutcome<BackupImporter.Summary>?) -> Unit) =
+        runEmptyHistoryLoad(_restoreProgress, "backup restore", onBusy, onDone) { onProgress ->
             BackupImporter.importFrom(app, backupRepositories, uri, onProgress)
         }
 
@@ -172,16 +170,19 @@ internal class ImportExportController(
     val googleTimelineImportProgress: StateFlow<OpProgress?> = _googleTimelineImportProgress
 
     /** Loads a Google Timeline export into an empty history. Reports the outcome, or null on failure. */
-    fun importGoogleTimeline(uri: Uri, onDone: (LoadOutcome<GoogleTimelineImporter.Summary>?) -> Unit) =
-        runEmptyHistoryLoad(_googleTimelineImportProgress, "google timeline import", onDone) { onProgress ->
-            GoogleTimelineImporter.importFrom(
-                app,
-                backupRepositories,
-                uri,
-                placeLabel = { app.getString(it.labelRes) },
-                onProgress = onProgress,
-            )
-        }
+    fun importGoogleTimeline(
+        uri: Uri,
+        onBusy: () -> Unit,
+        onDone: (LoadOutcome<GoogleTimelineImporter.Summary>?) -> Unit,
+    ) = runEmptyHistoryLoad(_googleTimelineImportProgress, "google timeline import", onBusy, onDone) { onProgress ->
+        GoogleTimelineImporter.importFrom(
+            app,
+            backupRepositories,
+            uri,
+            placeLabel = { app.getString(it.labelRes) },
+            onProgress = onProgress,
+        )
+    }
 
     class GpxImportSummary(
         val imported: Int,
@@ -196,22 +197,29 @@ internal class ImportExportController(
     private val _importProgress = MutableStateFlow<GpxImportProgress?>(null)
     val importProgress: StateFlow<GpxImportProgress?> = _importProgress
 
-    /** Every operation that writes into the history or clears it; declared after each of them. */
-    private val historyOps: List<StateFlow<*>> =
-        listOf(_restoreProgress, _googleTimelineImportProgress, _importProgress, _clearProgress)
+    /** Every operation that reads, writes or clears the whole history; declared after each of them. */
+    private val historyOps: List<StateFlow<*>> = listOf(
+        _restoreProgress,
+        _googleTimelineImportProgress,
+        _importProgress,
+        _clearProgress,
+        _exportProgress,
+        _gpxExportProgress,
+    )
 
-    /** Whether one of [historyOps] runs, for the rows to show. It trails them, so the start guard reads them directly. */
+    /** Whether one of [historyOps] runs, for the rows to show. It trails them, so [historyOpRunning]
+     *  reads them directly. */
     val historyBusy: StateFlow<Boolean> = combine(historyOps) { ops -> ops.any { it != null } }
         .stateIn(scope, SharingStarted.Eagerly, false)
 
     /**
      * Imports the picked GPX files, one file at a time with [importProgress] updates.
      * [GpxImportSummary.failed] counts unreadable/unparseable files plus tracks without enough
-     * timestamped points to place on the timeline. [onBusy] instead while any load into the history
-     * runs.
+     * timestamped points to place on the timeline. [onBusy] instead while another operation on the
+     * history runs.
      */
     fun importGpx(uris: List<Uri>, onBusy: () -> Unit, onDone: (GpxImportSummary) -> Unit) {
-        if (loading()) {
+        if (historyOpRunning()) {
             onBusy()
             return
         }

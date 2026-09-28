@@ -290,12 +290,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         destination: ManualEnd,
         exceptTrackId: Long,
     ): ManualTrackResult? {
-        val from = origin.timestampMs
-        val to = destination.timestampMs
-        val taken = dao.countTracksSpanning(from, to, exceptTrackId) > 0 ||
-            dao.countTracksOverlapping(from, to, exceptTrackId) > 0
+        val taken = spanTaken(origin.timestampMs, destination.timestampMs, exceptTrackId)
         return ManualTrackResult.Overlapping.takeIf { taken }
     }
+
+    private suspend fun spanTaken(from: Long, to: Long, exceptTrackId: Long): Boolean =
+        dao.countTracksSpanning(from, to, exceptTrackId) > 0 ||
+            dao.countTracksOverlapping(from, to, exceptTrackId) > 0
 
     /**
      * A manual track's two fixes. Stamped exactly at the row's own bounds, because [TrackBounds] then
@@ -519,17 +520,18 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * False when the track overlaps one already there, which leaves it discarded.
      */
     suspend fun restoreTrack(trackId: Long): Boolean = db.withTransaction {
-        // Nothing to restore is the whole precondition, and it is the stronger one: reopening
-        // clears the discard columns, so a row the recorder holds is never discarded.
+        // Reopening clears the discard columns, so a discarded row is never the one the recorder holds.
         val track = dao.track(trackId)?.takeIf { it.discardedAt != null } ?: return@withTransaction true
         val end = checkNotNull(track.endedAt)
-        if (dao.countTracksOverlapping(track.startedAt, end, trackId) > 0) return@withTransaction false
+        if (spanTaken(track.startedAt, end, trackId)) return@withTransaction false
         dao.restoreTrack(trackId)
         derivation.reknit(listOf(trackId))
         true
     }
 
     suspend fun hasKeptTracks(): Boolean = dao.hasKeptTracks()
+
+    fun observeHasKeptTracks(): Flow<Boolean> = dao.observeHasKeptTracks()
 
     fun observeAnyRows(): Flow<Boolean> = dao.observeAnyRows()
 

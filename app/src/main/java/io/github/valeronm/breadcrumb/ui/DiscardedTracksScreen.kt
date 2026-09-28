@@ -148,7 +148,7 @@ internal fun DiscardedTracksScreen(
                         nowMs = nowMs,
                         onOpenTrack = onOpenTrack,
                         onRestore = { id ->
-                            viewModel.restoreTrack(id) {
+                            viewModel.restoreTrack(id, onBusy = { busyToast(appContext) }) {
                                 Toast.makeText(appContext, R.string.discarded_restore_overlaps, Toast.LENGTH_LONG).show()
                             }
                         },

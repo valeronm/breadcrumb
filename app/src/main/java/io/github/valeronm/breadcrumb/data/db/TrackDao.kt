@@ -90,6 +90,9 @@ interface TrackDao {
     @Query("SELECT EXISTS(SELECT 1 FROM tracks WHERE discardedAt IS NULL)")
     suspend fun hasKeptTracks(): Boolean
 
+    @Query("SELECT EXISTS(SELECT 1 FROM tracks WHERE discardedAt IS NULL)")
+    fun observeHasKeptTracks(): Flow<Boolean>
+
     /** Whether the database holds any track, deleted or recording ones included, or any place. */
     @Query("SELECT EXISTS(SELECT 1 FROM tracks) OR EXISTS(SELECT 1 FROM places)")
     fun observeAnyRows(): Flow<Boolean>

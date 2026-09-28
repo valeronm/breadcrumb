@@ -694,7 +694,7 @@ internal fun DataSettingsScreen(onBack: () -> Unit, viewModel: TrackListViewMode
     // A row whose own operation runs shows its progress whatever this says.
     val busy = if (historyBusy) stringResource(R.string.data_load_busy) else null
     val loadBlocked = busy ?: if (loadable) null else stringResource(R.string.data_only_when_empty)
-    val exportBlocked = if (historyEmpty == false) null else stringResource(R.string.data_nothing_to_export)
+    val exportBlocked = busy ?: if (historyEmpty == false) null else stringResource(R.string.data_nothing_to_export)
     SettingsSubScreen(stringResource(R.string.settings_group_data), onBack) {
         SectionHeading(stringResource(R.string.data_import_section))
         GroupedRows(
@@ -892,7 +892,9 @@ private fun ExportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.importExport.exportAll(uri) { count -> exportResultToast(appContext, count) }
+        viewModel.importExport.exportAll(uri, onBusy = { busyToast(appContext) }) { count ->
+            exportResultToast(appContext, count)
+        }
     }
     DataActionRow(
         stringResource(R.string.data_export_tracks),
@@ -915,7 +917,9 @@ private fun rememberBackupLauncher(viewModel: TrackListViewModel): () -> Unit {
         ActivityResultContracts.CreateDocument(BackupExporter.MIME_TYPE),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.importExport.exportBackup(uri) { count -> exportResultToast(appContext, count) }
+        viewModel.importExport.exportBackup(uri, onBusy = { busyToast(appContext) }) { count ->
+            exportResultToast(appContext, count)
+        }
     }
     return { launcher.launch(BackupExporter.fileName(System.currentTimeMillis())) }
 }
@@ -956,11 +960,11 @@ private fun ClearHistoryRow(viewModel: TrackListViewModel, busyBlocked: String?)
     if (!confirming) return
     // Read only while the dialog is up: nothing else on this page keeps the places query running.
     val trips by viewModel.tracks.collectAsStateWithLifecycle()
-    val places by viewModel.placeCount.collectAsStateWithLifecycle()
+    val places by viewModel.storedPlaces.collectAsStateWithLifecycle()
     // Whole sentences, one per count: two counts in one sentence would be assembled from parts.
     val text = listOfNotNull(
         trips.size.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.data_clear_trips, it, it) },
-        places.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.data_clear_places, it, it) },
+        places.size.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.data_clear_places, it, it) },
         stringResource(R.string.data_clear_body),
     ).joinToString(" ")
     ConfirmDialog(
@@ -984,15 +988,8 @@ private fun ClearHistoryRow(viewModel: TrackListViewModel, busyBlocked: String?)
     )
 }
 
-private fun busyToast(context: Context) =
+internal fun busyToast(context: Context) =
     Toast.makeText(context, R.string.data_load_busy, Toast.LENGTH_LONG).show()
-
-private fun refusalMessage(context: Context, outcome: LoadOutcome<*>): String = context.getString(
-    when (outcome) {
-        LoadOutcome.Busy -> R.string.data_load_busy
-        else -> R.string.data_load_not_empty
-    },
-)
 
 // Octet-stream is what a file manager hands over for an extension it does not recognize. Each
 // importer rejects a file that isn't its format.
@@ -1007,12 +1004,12 @@ private fun RestoreRow(viewModel: TrackListViewModel, blockedBy: String?) {
     val progress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.importExport.restoreBackup(uri) { outcome ->
+        viewModel.importExport.restoreBackup(uri, onBusy = { busyToast(appContext) }) { outcome ->
             val message = when (outcome) {
                 null -> appContext.getString(R.string.data_restore_failed)
                 is LoadOutcome.Loaded ->
                     appContext.getString(R.string.data_restored, outcome.summary.tracks, outcome.summary.places)
-                else -> refusalMessage(appContext, outcome)
+                LoadOutcome.NotEmpty -> appContext.getString(R.string.data_load_not_empty)
             }
             Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
         }
@@ -1037,11 +1034,11 @@ private fun GoogleTimelineRow(viewModel: TrackListViewModel, blockedBy: String?)
     val progress by viewModel.importExport.googleTimelineImportProgress.collectAsStateWithLifecycle()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.importExport.importGoogleTimeline(uri) { outcome ->
+        viewModel.importExport.importGoogleTimeline(uri, onBusy = { busyToast(appContext) }) { outcome ->
             val summary = (outcome as? LoadOutcome.Loaded)?.summary
             val message = when {
                 outcome == null -> appContext.getString(R.string.data_google_import_failed)
-                summary == null -> refusalMessage(appContext, outcome)
+                summary == null -> appContext.getString(R.string.data_load_not_empty)
                 summary.skipped == 0 ->
                     appContext.getString(R.string.data_google_imported, summary.tracks, summary.places)
                 else -> appContext.getString(

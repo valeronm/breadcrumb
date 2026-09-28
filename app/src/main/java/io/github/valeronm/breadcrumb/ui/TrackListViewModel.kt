@@ -295,15 +295,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .map { open -> open?.let { TimelineItem.RecordingItem(it.id, it.label, it.startedAt) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** Whether a restore or a Google Timeline import may start: both merge nothing, so they take an
-     *  empty history with no track recording into it. */
-    val historyLoadable: StateFlow<Boolean> = combine(historyEmpty, recordingRow) { empty, recording ->
-        empty == true && recording == null
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
-
-    val placeCount: StateFlow<Int> = placeRows
-        .map { it.size }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+    /** Whether a restore or a Google Timeline import may start, by the query their start is refused on. */
+    val historyLoadable: StateFlow<Boolean> = repository.observeHasKeptTracks()
+        .map { !it }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Whether clearing the history would delete anything. */
     val historyClearable: StateFlow<Boolean> = repository.observeAnyRows()
@@ -594,7 +589,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun restoreTrack(trackId: Long, onOverlapping: () -> Unit = {}) {
+    /** Refused, like an import, while an operation on the whole history runs. */
+    fun restoreTrack(trackId: Long, onBusy: () -> Unit = {}, onOverlapping: () -> Unit = {}) {
+        if (importExport.historyOpRunning()) {
+            onBusy()
+            return
+        }
         viewModelScope.launch { if (!repository.restoreTrack(trackId)) onOverlapping() }
     }
 

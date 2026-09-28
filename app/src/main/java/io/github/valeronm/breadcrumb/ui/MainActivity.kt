@@ -206,7 +206,7 @@ private fun MainScreen(
         pendingGpxImport.value = null
         viewModel.importExport.importGpx(
             uris,
-            onBusy = { Toast.makeText(context, R.string.data_load_busy, Toast.LENGTH_LONG).show() },
+            onBusy = { busyToast(context) },
         ) { result ->
             Toast.makeText(context, gpxImportMessage(context, result), Toast.LENGTH_LONG).show()
         }
