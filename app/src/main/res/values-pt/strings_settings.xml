@@ -102,7 +102,25 @@
     <string name="data_google_imported">Importadas %1$d viagens e %2$d locais</string>
     <string name="data_google_imported_skipped">Importadas %1$d viagens e %2$d locais; %3$d entradas não puderam ser lidas</string>
     <string name="data_google_import_failed">Falha ao importar — não é uma exportação da Cronologia do Google?</string>
-    <string name="data_load_busy">Já está a decorrer outra importação</string>
+    <string name="data_clear">Limpar histórico</string>
+    <string name="data_clear_idle">Apagar todas as viagens e locais deste telemóvel</string>
+    <string name="data_clearing">A limpar…</string>
+    <string name="data_nothing_to_clear">Nada para limpar</string>
+    <string name="data_clear_title">Limpar o histórico?</string>
+    <plurals name="data_clear_trips">
+        <item quantity="one">%d viagem será apagada.</item>
+        <item quantity="other">%d viagens serão apagadas.</item>
+    </plurals>
+    <plurals name="data_clear_places">
+        <item quantity="one">%d local será apagado.</item>
+        <item quantity="other">%d locais serão apagados.</item>
+    </plurals>
+    <string name="data_clear_body">Não é possível anular.</string>
+    <string name="data_clear_backup_first">Copiar primeiro</string>
+    <string name="data_clear_confirm">Limpar</string>
+    <string name="data_cleared">Histórico limpo</string>
+    <string name="data_clear_failed">Falha ao limpar</string>
+    <string name="data_load_busy">Já está a decorrer outra importação ou limpeza</string>
     <string name="data_load_not_empty">O seu histórico já não está vazio, por isso nada foi carregado</string>
     <string name="data_import_tracks">Importar trajetos</string>
     <string name="data_import_idle">Viagens de ficheiros GPX com data e hora</string>

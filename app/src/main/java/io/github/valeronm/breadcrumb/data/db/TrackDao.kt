@@ -90,6 +90,10 @@ interface TrackDao {
     @Query("SELECT EXISTS(SELECT 1 FROM tracks WHERE discardedAt IS NULL)")
     suspend fun hasKeptTracks(): Boolean
 
+    /** Whether the database holds any track, deleted or recording ones included, or any place. */
+    @Query("SELECT EXISTS(SELECT 1 FROM tracks) OR EXISTS(SELECT 1 FROM places)")
+    fun observeAnyRows(): Flow<Boolean>
+
     /**
      * The newest row, whatever wrote it and whatever state it is in —
      * [io.github.valeronm.breadcrumb.domain.StitchRule] judges every one of those and this asks

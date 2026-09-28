@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.ImportExport
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -47,14 +48,17 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -686,14 +690,17 @@ private fun <T> ChoiceChipsRow(
 internal fun DataSettingsScreen(onBack: () -> Unit, viewModel: TrackListViewModel) {
     val historyEmpty by viewModel.historyEmpty.collectAsStateWithLifecycle()
     val loadable by viewModel.historyLoadable.collectAsStateWithLifecycle()
-    val loadBlocked = if (loadable) null else stringResource(R.string.data_only_when_empty)
+    val historyBusy by viewModel.importExport.historyBusy.collectAsStateWithLifecycle()
+    // A row whose own operation runs shows its progress whatever this says.
+    val busy = if (historyBusy) stringResource(R.string.data_load_busy) else null
+    val loadBlocked = busy ?: if (loadable) null else stringResource(R.string.data_only_when_empty)
     val exportBlocked = if (historyEmpty == false) null else stringResource(R.string.data_nothing_to_export)
     SettingsSubScreen(stringResource(R.string.settings_group_data), onBack) {
         SectionHeading(stringResource(R.string.data_import_section))
         GroupedRows(
             { RestoreRow(viewModel, loadBlocked) },
             { GoogleTimelineRow(viewModel, loadBlocked) },
-            { ImportTracksRow(viewModel) },
+            { ImportTracksRow(viewModel, busy) },
         )
         SectionHeading(stringResource(R.string.data_export_section))
         GroupedRows(
@@ -707,6 +714,8 @@ internal fun DataSettingsScreen(onBack: () -> Unit, viewModel: TrackListViewMode
             },
             { ExportTracksRow(viewModel, exportBlocked) },
         )
+        Spacer(Modifier.height(24.dp))
+        GroupedRows({ ClearHistoryRow(viewModel, busy) })
     }
 }
 
@@ -779,7 +788,7 @@ private fun AppIcon(modifier: Modifier) {
 private val APP_ICON_SIZE = 72.dp
 
 @Composable
-private fun ImportTracksRow(viewModel: TrackListViewModel) {
+private fun ImportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
     val context = LocalContext.current
     val importProgress by viewModel.importExport.importProgress.collectAsStateWithLifecycle()
     val appContext = context.applicationContext
@@ -787,8 +796,7 @@ private fun ImportTracksRow(viewModel: TrackListViewModel) {
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        val busy = { Toast.makeText(appContext, R.string.data_load_busy, Toast.LENGTH_LONG).show() }
-        viewModel.importExport.importGpx(uris, onBusy = busy) { result ->
+        viewModel.importExport.importGpx(uris, onBusy = { busyToast(appContext) }) { result ->
             Toast.makeText(appContext, gpxImportMessage(appContext, result), Toast.LENGTH_LONG).show()
         }
     }
@@ -809,6 +817,7 @@ private fun ImportTracksRow(viewModel: TrackListViewModel) {
         // also what its subtitle counts.
         done = progress?.filesDone,
         total = progress?.filesTotal,
+        blockedBy = blockedBy,
     ) {
         importLauncher.launch(
             arrayOf(
@@ -900,15 +909,21 @@ private fun ExportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
 }
 
 @Composable
-private fun ExportBackupRow(viewModel: TrackListViewModel, blockedBy: String?) {
+private fun rememberBackupLauncher(viewModel: TrackListViewModel): () -> Unit {
     val appContext = LocalContext.current.applicationContext
-    val progress by viewModel.importExport.exportProgress.collectAsStateWithLifecycle()
-    val exportLauncher = rememberLauncherForActivityResult(
+    val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(BackupExporter.MIME_TYPE),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         viewModel.importExport.exportBackup(uri) { count -> exportResultToast(appContext, count) }
     }
+    return { launcher.launch(BackupExporter.fileName(System.currentTimeMillis())) }
+}
+
+@Composable
+private fun ExportBackupRow(viewModel: TrackListViewModel, blockedBy: String?) {
+    val progress by viewModel.importExport.exportProgress.collectAsStateWithLifecycle()
+    val backUp = rememberBackupLauncher(viewModel)
     DataActionRow(
         stringResource(R.string.data_backup),
         subtitle = progressSubtitle(
@@ -920,8 +935,57 @@ private fun ExportBackupRow(viewModel: TrackListViewModel, blockedBy: String?) {
         done = progress?.tracksDone,
         total = progress?.tracksTotal,
         blockedBy = blockedBy,
-    ) { exportLauncher.launch(BackupExporter.fileName(System.currentTimeMillis())) }
+        onClick = backUp,
+    )
 }
+
+@Composable
+private fun ClearHistoryRow(viewModel: TrackListViewModel, busyBlocked: String?) {
+    val appContext = LocalContext.current.applicationContext
+    val clearable by viewModel.historyClearable.collectAsStateWithLifecycle()
+    val progress by viewModel.importExport.clearProgress.collectAsStateWithLifecycle()
+    val backUp = rememberBackupLauncher(viewModel)
+    var confirming by remember { mutableStateOf(false) }
+    DataActionRow(
+        stringResource(R.string.data_clear),
+        subtitle = stringResource(if (progress == null) R.string.data_clear_idle else R.string.data_clearing),
+        done = progress?.tracksDone,
+        total = progress?.tracksTotal,
+        blockedBy = busyBlocked ?: if (clearable) null else stringResource(R.string.data_nothing_to_clear),
+    ) { confirming = true }
+    if (!confirming) return
+    // Read only while the dialog is up: nothing else on this page keeps the places query running.
+    val trips by viewModel.tracks.collectAsStateWithLifecycle()
+    val places by viewModel.placeCount.collectAsStateWithLifecycle()
+    // Whole sentences, one per count: two counts in one sentence would be assembled from parts.
+    val text = listOfNotNull(
+        trips.size.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.data_clear_trips, it, it) },
+        places.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.data_clear_places, it, it) },
+        stringResource(R.string.data_clear_body),
+    ).joinToString(" ")
+    ConfirmDialog(
+        icon = Icons.Filled.DeleteForever,
+        title = stringResource(R.string.data_clear_title),
+        text = text,
+        confirmLabel = stringResource(R.string.data_clear_confirm),
+        onConfirm = {
+            confirming = false
+            viewModel.importExport.clearHistory(onBusy = { busyToast(appContext) }) { cleared ->
+                val message = if (cleared) R.string.data_cleared else R.string.data_clear_failed
+                Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
+            }
+        },
+        onDismiss = { confirming = false },
+        secondaryLabel = stringResource(R.string.data_clear_backup_first),
+        onSecondary = {
+            confirming = false
+            backUp()
+        },
+    )
+}
+
+private fun busyToast(context: Context) =
+    Toast.makeText(context, R.string.data_load_busy, Toast.LENGTH_LONG).show()
 
 private fun refusalMessage(context: Context, outcome: LoadOutcome<*>): String = context.getString(
     when (outcome) {

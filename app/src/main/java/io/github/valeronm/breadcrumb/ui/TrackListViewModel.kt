@@ -301,6 +301,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         empty == true && recording == null
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+    val placeCount: StateFlow<Int> = placeRows
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** Whether clearing the history would delete anything. */
+    val historyClearable: StateFlow<Boolean> = repository.observeAnyRows()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     /**
      * Tracks interleaved with derived stays and data gaps, newest first, sliced per local day.
      *

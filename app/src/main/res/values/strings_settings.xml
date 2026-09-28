@@ -126,7 +126,25 @@
     <string name="data_google_imported">Imported %1$d trips and %2$d places</string>
     <string name="data_google_imported_skipped">Imported %1$d trips and %2$d places; %3$d entries could not be read</string>
     <string name="data_google_import_failed">Import failed — not a Google Timeline export?</string>
-    <string name="data_load_busy">Another import is already running</string>
+    <string name="data_clear">Clear history</string>
+    <string name="data_clear_idle">Delete every trip and place from this phone</string>
+    <string name="data_clearing">Clearing…</string>
+    <string name="data_nothing_to_clear">Nothing to clear</string>
+    <string name="data_clear_title">Clear history?</string>
+    <plurals name="data_clear_trips">
+        <item quantity="one">%d trip will be deleted.</item>
+        <item quantity="other">%d trips will be deleted.</item>
+    </plurals>
+    <plurals name="data_clear_places">
+        <item quantity="one">%d place will be deleted.</item>
+        <item quantity="other">%d places will be deleted.</item>
+    </plurals>
+    <string name="data_clear_body">This can\'t be undone.</string>
+    <string name="data_clear_backup_first">Back up first</string>
+    <string name="data_clear_confirm">Clear</string>
+    <string name="data_cleared">History cleared</string>
+    <string name="data_clear_failed">Clearing failed</string>
+    <string name="data_load_busy">Another import or clear is already running</string>
     <string name="data_load_not_empty">Your history is no longer empty, so nothing was loaded</string>
     <string name="data_import_tracks">Import tracks</string>
     <string name="data_import_idle">Trips from GPX files with timestamps</string>

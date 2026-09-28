@@ -102,7 +102,29 @@
     <string name="data_google_imported">Импортировано поездок: %1$d, мест: %2$d</string>
     <string name="data_google_imported_skipped">Импортировано поездок: %1$d, мест: %2$d; не удалось прочитать записей: %3$d</string>
     <string name="data_google_import_failed">Не удалось импортировать — это не экспорт Хронологии Google?</string>
-    <string name="data_load_busy">Уже идёт другой импорт</string>
+    <string name="data_clear">Очистить историю</string>
+    <string name="data_clear_idle">Удалить все поездки и места с этого телефона</string>
+    <string name="data_clearing">Очистка…</string>
+    <string name="data_nothing_to_clear">Нечего очищать</string>
+    <string name="data_clear_title">Очистить историю?</string>
+    <plurals name="data_clear_trips">
+        <item quantity="one">%d поездка будет удалена.</item>
+        <item quantity="few">%d поездки будут удалены.</item>
+        <item quantity="many">%d поездок будут удалены.</item>
+        <item quantity="other">%d поездки будут удалены.</item>
+    </plurals>
+    <plurals name="data_clear_places">
+        <item quantity="one">%d место будет удалено.</item>
+        <item quantity="few">%d места будут удалены.</item>
+        <item quantity="many">%d мест будут удалены.</item>
+        <item quantity="other">%d места будут удалены.</item>
+    </plurals>
+    <string name="data_clear_body">Отменить это нельзя.</string>
+    <string name="data_clear_backup_first">Сначала создать копию</string>
+    <string name="data_clear_confirm">Очистить</string>
+    <string name="data_cleared">История очищена</string>
+    <string name="data_clear_failed">Не удалось очистить</string>
+    <string name="data_load_busy">Уже идёт другой импорт или очистка</string>
     <string name="data_load_not_empty">История уже не пуста, поэтому ничего не загружено</string>
     <string name="data_import_tracks">Импорт маршрутов</string>
     <string name="data_import_idle">Поездки из файлов GPX с отметками времени</string>

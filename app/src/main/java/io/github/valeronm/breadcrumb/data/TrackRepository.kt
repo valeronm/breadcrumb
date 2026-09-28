@@ -27,7 +27,9 @@ import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.util.DebugLog
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 
 private const val TAG = "Breadcrumb"
 
@@ -528,6 +530,11 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     suspend fun hasKeptTracks(): Boolean = dao.hasKeptTracks()
+
+    fun observeAnyRows(): Flow<Boolean> = dao.observeAnyRows()
+
+    /** Every table in this database is history. Settings live elsewhere and stay. */
+    suspend fun clearHistory() = withContext(Dispatchers.IO) { db.clearAllTables() }
 
     /** Hard-delete what sits in Recently deleted, up to and including the row discarded at
      *  [through] — the bound the caller measured, rows being discarded while it decides. */

@@ -429,7 +429,10 @@ Restore and the Google Timeline import
 (`GoogleTimelineImporter`) sit in the Data page's Import section beside the GPX import, and take
 only an empty history: with tracks present either would have to merge with them, so both rows are
 disabled, saying why, from the first track on. The empty states of an empty history lead to that
-page, and the Timeline's empty state reports a running restore or import wherever it was started. It keeps Google's
+page, and the Timeline's empty state reports a running restore or import wherever it was started.
+Clearing the history from that page leaves the recorder armed, so it runs inside the recorder's lock:
+the open track is closed first and the recorder re-armed after, as a start re-arms it, and a fix
+arriving in between finds no track to write to. The Google Timeline import keeps Google's
 grouping of visits into places, which the user confirmed or corrected in Google and which a path
 sampled once a minute cannot recover: a place row per Google place, left unnamed unless it is a home
 or a work, and every trip end Google joined to a visit stated to that visit's place. Google labels

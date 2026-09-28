@@ -12,12 +12,16 @@ import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.data.export.GoogleTimelineImporter
 import io.github.valeronm.breadcrumb.data.export.GpxExporter
 import io.github.valeronm.breadcrumb.data.export.GpxParser
+import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -116,9 +120,27 @@ internal class ImportExportController(
             BackupExporter.exportTo(app, backupRepositories, uri, System.currentTimeMillis(), onProgress)
         }
 
-    /** Two loads into the history running together would each insert without seeing the other. */
-    private fun loading(): Boolean =
-        _restoreProgress.value != null || _googleTimelineImportProgress.value != null || _importProgress.value != null
+    /** Non-null while the history is being cleared. */
+    private val _clearProgress = MutableStateFlow<OpProgress?>(null)
+    val clearProgress: StateFlow<OpProgress?> = _clearProgress
+
+    /** Two operations on the history running together would each write without seeing the other. */
+    private fun loading(): Boolean = historyOps.any { it.value != null }
+
+    /**
+     * Deletes the whole history, recording left armed; [onBusy] instead while another operation on
+     * the history runs.
+     */
+    fun clearHistory(onBusy: () -> Unit, onDone: (cleared: Boolean) -> Unit) {
+        if (loading()) {
+            onBusy()
+            return
+        }
+        runExclusiveOp(_clearProgress, "history clear", { onDone(it != null) }) {
+            val clear: suspend () -> Unit = { repository.clearHistory() }
+            LocationRecordingService.instance?.clearingHistory(clear) ?: clear()
+        }
+    }
 
     /**
      * A load that merges nothing, so it starts only into a history holding no track, checked as it
@@ -173,6 +195,14 @@ internal class ImportExportController(
     /** Non-null while an import runs — drives the Settings progress row; survives navigation. */
     private val _importProgress = MutableStateFlow<GpxImportProgress?>(null)
     val importProgress: StateFlow<GpxImportProgress?> = _importProgress
+
+    /** Every operation that writes into the history or clears it; declared after each of them. */
+    private val historyOps: List<StateFlow<*>> =
+        listOf(_restoreProgress, _googleTimelineImportProgress, _importProgress, _clearProgress)
+
+    /** Whether one of [historyOps] runs, for the rows to show. It trails them, so the start guard reads them directly. */
+    val historyBusy: StateFlow<Boolean> = combine(historyOps) { ops -> ops.any { it != null } }
+        .stateIn(scope, SharingStarted.Eagerly, false)
 
     /**
      * Imports the picked GPX files, one file at a time with [importProgress] updates.

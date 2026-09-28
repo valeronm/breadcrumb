@@ -39,7 +39,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 
-/** Confirm-style dialog: icon, message, a confirmation action and a Cancel button. */
+/** Confirm-style dialog: icon, message, a confirmation action, an optional second action, and a Cancel button. */
 @Composable
 internal fun ConfirmDialog(
     icon: ImageVector,
@@ -48,6 +48,8 @@ internal fun ConfirmDialog(
     confirmLabel: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    secondaryLabel: String? = null,
+    onSecondary: () -> Unit = {},
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -55,7 +57,12 @@ internal fun ConfirmDialog(
         title = { Text(title) },
         text = { Text(text) },
         confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
+        dismissButton = {
+            Row {
+                secondaryLabel?.let { TextButton(onClick = onSecondary) { Text(it) } }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+            }
+        },
     )
 }
 

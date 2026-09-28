@@ -37,6 +37,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -238,6 +239,20 @@ class LocationRecordingService : Service() {
             }
         }
     }
+
+    /**
+     * Runs [clear] with no track open, then re-arms the recorder as a start does. Under [mutex], so no
+     * fix or reading lands between the close and the clear.
+     */
+    suspend fun clearingHistory(clear: suspend () -> Unit) = scope.async {
+        mutex.withLock {
+            if (!armed) return@withLock clear()
+            dispatch(core.closeOpenTrack(now()))
+            clear()
+            dispatch(core.onArmed(now(), activitySettings()))
+            publishStatus()
+        }
+    }.await()
 
     /** The clean end of a start that cannot be satisfied: nothing to tear down yet, so no [handleStop]. */
     private fun disarmAndStop() {
