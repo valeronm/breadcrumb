@@ -139,6 +139,15 @@
         <item quantity="one">%d place will be deleted.</item>
         <item quantity="other">%d places will be deleted.</item>
     </plurals>
+    <string name="data_clear_both">%1$s and %2$s will be deleted.</string>
+    <plurals name="data_clear_trip_count">
+        <item quantity="one">%d trip</item>
+        <item quantity="other">%d trips</item>
+    </plurals>
+    <plurals name="data_clear_place_count">
+        <item quantity="one">%d place</item>
+        <item quantity="other">%d places</item>
+    </plurals>
     <string name="data_clear_body">This can\'t be undone.</string>
     <string name="data_clear_backup_first">Back up first</string>
     <string name="data_clear_confirm">Clear</string>

@@ -119,6 +119,19 @@
         <item quantity="many">%d мест будут удалены.</item>
         <item quantity="other">%d места будут удалены.</item>
     </plurals>
+    <string name="data_clear_both">%1$s и %2$s будут удалены.</string>
+    <plurals name="data_clear_trip_count">
+        <item quantity="one">%d поездка</item>
+        <item quantity="few">%d поездки</item>
+        <item quantity="many">%d поездок</item>
+        <item quantity="other">%d поездки</item>
+    </plurals>
+    <plurals name="data_clear_place_count">
+        <item quantity="one">%d место</item>
+        <item quantity="few">%d места</item>
+        <item quantity="many">%d мест</item>
+        <item quantity="other">%d места</item>
+    </plurals>
     <string name="data_clear_body">Отменить это нельзя.</string>
     <string name="data_clear_backup_first">Сначала создать копию</string>
     <string name="data_clear_confirm">Очистить</string>

@@ -961,12 +961,19 @@ private fun ClearHistoryRow(viewModel: TrackListViewModel, busyBlocked: String?)
     // Read only while the dialog is up: nothing else on this page keeps the places query running.
     val trips by viewModel.tracks.collectAsStateWithLifecycle()
     val places by viewModel.storedPlaces.collectAsStateWithLifecycle()
-    // Whole sentences, one per count: two counts in one sentence would be assembled from parts.
-    val text = listOfNotNull(
-        trips.size.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.data_clear_trips, it, it) },
-        places.size.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.data_clear_places, it, it) },
-        stringResource(R.string.data_clear_body),
-    ).joinToString(" ")
+    // A frame per case, so each language owns the word order and the verb's agreement; the counts
+    // are whole plural phrases, subjects in every frame.
+    val t = trips.size
+    val p = places.size
+    val tripPhrase = pluralStringResource(R.plurals.data_clear_trip_count, t, t)
+    val placePhrase = pluralStringResource(R.plurals.data_clear_place_count, p, p)
+    val counted = when {
+        t > 0 && p > 0 -> stringResource(R.string.data_clear_both, tripPhrase, placePhrase)
+        t > 0 -> pluralStringResource(R.plurals.data_clear_trips, t, t)
+        p > 0 -> pluralStringResource(R.plurals.data_clear_places, p, p)
+        else -> null
+    }
+    val text = listOfNotNull(counted, stringResource(R.string.data_clear_body)).joinToString(" ")
     ConfirmDialog(
         icon = Icons.Filled.DeleteForever,
         title = stringResource(R.string.data_clear_title),

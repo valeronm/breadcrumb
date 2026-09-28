@@ -115,6 +115,15 @@
         <item quantity="one">%d local será apagado.</item>
         <item quantity="other">%d locais serão apagados.</item>
     </plurals>
+    <string name="data_clear_both">%1$s e %2$s serão apagados.</string>
+    <plurals name="data_clear_trip_count">
+        <item quantity="one">%d viagem</item>
+        <item quantity="other">%d viagens</item>
+    </plurals>
+    <plurals name="data_clear_place_count">
+        <item quantity="one">%d local</item>
+        <item quantity="other">%d locais</item>
+    </plurals>
     <string name="data_clear_body">Não é possível anular.</string>
     <string name="data_clear_backup_first">Copiar primeiro</string>
     <string name="data_clear_confirm">Limpar</string>
