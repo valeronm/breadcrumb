@@ -246,25 +246,9 @@ class TrackRepositoryTest {
 
     // --- Edge stays -----------------------------------------------------------------------------
 
-    /** A fix every 10 s advancing [stepLat] north, carrying the Doppler [speed] that pace implies. */
-    private fun linePoints(
-        trackId: Long,
-        fromIndex: Int,
-        count: Int,
-        fromLat: Double,
-        stepLat: Double,
-        speed: Float,
-    ) = (0 until count).map { i ->
-        test.point(trackId, fromIndex + i, lat = fromLat + i * stepLat).copy(speed = speed)
-    }
-
-    /** 14 m per fix — walking pace. */
-    private fun walkPoints(trackId: Long, fromIndex: Int, count: Int, fromLat: Double) =
-        linePoints(trackId, fromIndex, count, fromLat, stepLat = 0.000126, speed = 1.4f)
-
     /** 90 m per fix — vehicle pace, fast enough that one fix carries its speed bin alone. */
     private fun drivePoints(trackId: Long, fromIndex: Int, count: Int, fromLat: Double) =
-        linePoints(trackId, fromIndex, count, fromLat, stepLat = 0.000809, speed = 9f)
+        test.linePoints(trackId, fromIndex, count, fromLat, stepLat = 0.000809, speed = 9f)
 
     /** A fix every 10 s jittering ±15 m around [lat] at standstill Doppler speed. */
     private fun lingerPoints(trackId: Long, fromIndex: Int, count: Int, lat: Double) =
@@ -280,7 +264,7 @@ class TrackRepositoryTest {
      *  AR-lag tail. Returns the track's raw end time (one fix per 10 s throughout). */
     private suspend fun addWalkThenLingerTail(id: Long, lingerFixes: Int = 36): Long {
         repository.addPoints(
-            walkPoints(id, 0, 60, fromLat = 1.0) +
+            test.walkPoints(id, 0, 60, fromLat = 1.0) +
                 lingerPoints(id, 60, lingerFixes, lat = 1.0 + 60 * 0.000126),
         )
         return TEST_START + (60 + lingerFixes) * 10_000L
@@ -311,7 +295,7 @@ class TrackRepositoryTest {
 
     @Test fun `a track with nothing to cut keeps every fix`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.addPoints(walkPoints(id, 0, 90, fromLat = 1.0))
+        repository.addPoints(test.walkPoints(id, 0, 90, fromLat = 1.0))
         repository.finishTrack(id, TEST_START + 90 * 10_000L)
 
         val track = dao.track(id)!!
@@ -330,7 +314,7 @@ class TrackRepositoryTest {
         // start-stay followed by walking away is deliberately not detectable (transit-shaped).
         repository.addPoints(
             lingerPoints(id, 0, 90, lat = 1.0) +
-                walkPoints(id, 90, 60, fromLat = 1.0),
+                test.walkPoints(id, 90, 60, fromLat = 1.0),
         )
         repository.finishTrack(id, TEST_START + 150 * 10_000L)
 
@@ -346,7 +330,7 @@ class TrackRepositoryTest {
 
     @Test fun `the sweep hands back fixes the current rule does not flag`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.addPoints(walkPoints(id, 0, 90, fromLat = 1.0))
+        repository.addPoints(test.walkPoints(id, 0, 90, fromLat = 1.0))
         repository.finishTrack(id, TEST_START + 90 * 10_000L)
         // A verdict from a rule that has since moved: a tail flagged on a track that walks end to
         // end, with the clock pulled in to match, exactly as the older rule would have left it.
@@ -477,14 +461,14 @@ class TrackRepositoryTest {
         // they would draw, measure and export a leg across the gap.
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
         val resumeLat = 1.02
-        repository.addPoints(walkPoints(id, 0, 30, fromLat = 1.0))
+        repository.addPoints(test.walkPoints(id, 0, 30, fromLat = 1.0))
         repository.addPoints(
             listOf(
                 test.point(id, 30, lat = resumeLat, ignored = true)
                     .copy(ignoreReason = IgnoreReason.JUMP.code, segmentStart = true),
             ),
         )
-        repository.addPoints(walkPoints(id, 31, 30, fromLat = resumeLat))
+        repository.addPoints(test.walkPoints(id, 31, 30, fromLat = resumeLat))
         repository.finishTrack(id, TEST_START + 61 * 10_000L)
 
         val path = repository.pointsFor(id)
@@ -507,7 +491,7 @@ class TrackRepositoryTest {
         assertTrue(trimmed > 0)
         val secondStart = TEST_START + 200 * 10_000L
         val second = repository.startTrack(ActivityType.WALKING, secondStart)
-        repository.addPoints(walkPoints(second, 200, 60, fromLat = 1.01))
+        repository.addPoints(test.walkPoints(second, 200, 60, fromLat = 1.01))
         repository.finishTrack(second, secondStart + 60 * 10_000L)
 
         val mergedId = repository.mergeTracks(first, second)!!
@@ -560,51 +544,6 @@ class TrackRepositoryTest {
         assertEquals(0, repository.importTracks(file).imported)
     }
 
-    /** A file holding one straight walk: [count] fixes from [fromIndex], on the same line the
-     *  recorded-track tests walk, so an imported journey and a recorded one are the same shape. */
-    private fun importableWalk(fromIndex: Int, count: Int) = GpxParser.ImportableTrack(
-        activityTypeName = "WALKING",
-        startedAt = TEST_START + fromIndex * 10_000L,
-        endedAt = TEST_START + (fromIndex + count - 1) * 10_000L,
-        points = walkPoints(NO_TRACK, fromIndex, count, fromLat = 1.0 + fromIndex * 0.000126),
-    )
-
-    @Test fun `a file overlapping an existing track is skipped, not laid over it`() = runTest {
-        assertEquals(1, repository.importTracks(listOf(importableWalk(0, 60))).imported)
-
-        // The same journey cut differently: a span of its own, sharing 30 fixes with the first.
-        val counts = repository.importTracks(listOf(importableWalk(30, 60)))
-
-        assertEquals(0, counts.imported)
-        assertEquals("not an exact duplicate — the spans differ", 0, counts.duplicates)
-        assertEquals(1, counts.overlapping)
-        assertEquals(1, dao.allTrackIds().size)
-    }
-
-    @Test fun `back-to-back legs touching at one instant both import`() = runTest {
-        // The second leg starts at the exact timestamp the first ends. Touching is not overlapping,
-        // or a file split into legs would import the first and reject every one after it.
-        val counts = repository.importTracks(listOf(importableWalk(0, 60), importableWalk(59, 60)))
-
-        assertEquals(2, counts.imported)
-        assertEquals(0, counts.overlapping)
-    }
-
-    @Test fun `a span held only by a deleted track imports`() = runTest {
-        val recorded = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.addPoints(walkPoints(recorded, 0, 60, fromLat = 1.0))
-        repository.finishTrack(recorded, TEST_START + 60 * 10_000L)
-        repository.deleteTrack(recorded)
-
-        // Same span, so this is refused by both checks while the track is live — Recently deleted
-        // holds tracks on their way out, and must not keep the period reserved against an import.
-        val counts = repository.importTracks(listOf(importableWalk(0, 60)))
-
-        assertEquals(1, counts.imported)
-        assertEquals(0, counts.duplicates)
-        assertEquals(0, counts.overlapping)
-    }
-
     // --- Delete, restore, purge, unmerge --------------------------------------------------------
 
     /** A finished, kept 6-point walk; [fromIndex] spaces it out from other tracks in the test. */
@@ -641,7 +580,7 @@ class TrackRepositoryTest {
      */
     private suspend fun addWalkStopWalk(id: Long): Long {
         addWalkThenLingerTail(id, lingerFixes = 60)
-        repository.addPoints(walkPoints(id, 120, 60, fromLat = 1.0 + 60 * 0.000126))
+        repository.addPoints(test.walkPoints(id, 120, 60, fromLat = 1.0 + 60 * 0.000126))
         return TEST_START + 180 * 10_000L
     }
 
@@ -649,7 +588,7 @@ class TrackRepositoryTest {
      *  steps, the pace is what keeps the overrun rule from finding a stay to flag. */
     private suspend fun finishedPacedWalk(count: Int): Long {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.addPoints(walkPoints(id, 0, count, fromLat = 1.0))
+        repository.addPoints(test.walkPoints(id, 0, count, fromLat = 1.0))
         repository.finishTrack(id, TEST_START + count * 10_000L)
         return id
     }

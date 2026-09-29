@@ -22,9 +22,6 @@ data class TrackStatsUpdate(
     val endLon: Double?,
 )
 
-/** A kept track's bounds, [endedAt] null while it records. */
-class TrackSpan(val startedAt: Long, val endedAt: Long?)
-
 /** Excludes no row from the overlap checks — no track has this id ([TrackDao.countTracksSpanning]). */
 const val NO_TRACK = 0L
 
@@ -231,38 +228,19 @@ interface TrackDao {
     suspend fun countTracksSpanning(startedAt: Long, endedAt: Long, exceptTrackId: Long): Int
 
     /**
-     * Overlap check for GPX import, asked once [countTracksSpanning] rules out an exact duplicate:
-     * some track's own point span intersects the file's — a second path over a period already
-     * covered. Both ends compare strictly: tracks merely touching at one instant don't overlap, or
-     * a file split into back-to-back legs would import its first leg and reject the rest.
+     * A track holds the period between its bounds, which is where the timeline shows it. Both ends
+     * compare strictly, since the legs of one journey meet at an instant. A track still recording
+     * holds everything after its start, the recorder going on writing past its last fix.
      * [exceptTrackId] as above.
-     *
-     * **Asked of the path, so ignored fixes are not part of it** — unlike [countTracksSpanning],
-     * which asks after fixes a track *holds*. A trimmed overrun sits outside the row's own bounds:
-     * the edge-stay rule pulls `startedAt`/`endedAt` in to the first and last good fix and leaves
-     * the ignored ones where they were, on about a third of this history's tracks. Counting them
-     * would make a track overlap the very interval the timeline shows as empty beside it — and a
-     * trip entered to fill that gap is timed at exactly those bounds, so it would be refused every
-     * time.
      */
     @Query(
         """
         SELECT COUNT(*) FROM tracks t
         WHERE t.discardedAt IS NULL AND t.id != :exceptTrackId
-          AND EXISTS (
-            SELECT 1 FROM track_points p
-            WHERE p.trackId = t.id AND p.ignored = 0 AND p.timestamp < :endedAt
-          )
-          AND EXISTS (
-            SELECT 1 FROM track_points p
-            WHERE p.trackId = t.id AND p.ignored = 0 AND p.timestamp > :startedAt
-          )
+          AND t.startedAt < :endedAt AND (t.endedAt IS NULL OR t.endedAt > :startedAt)
         """,
     )
     suspend fun countTracksOverlapping(startedAt: Long, endedAt: Long, exceptTrackId: Long): Int
-
-    @Query("SELECT startedAt, endedAt FROM tracks WHERE discardedAt IS NULL")
-    suspend fun keptSpans(): List<TrackSpan>
 
     @Query("SELECT * FROM tracks WHERE endedAt IS NULL")
     suspend fun openTracks(): List<Track>

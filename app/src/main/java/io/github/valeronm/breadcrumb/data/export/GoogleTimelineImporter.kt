@@ -59,8 +59,7 @@ internal object GoogleTimelineImporter {
     ): Summary {
         val export = GoogleTimelineParser.parse(reader)
         require(export.activities.isNotEmpty()) { "no readable trip in the Google Timeline export" }
-        val taken = TakenSpans(repositories.tracks.keptSpans())
-        val (free, overlapping) = export.activities.partition { !taken.overlaps(it.startMs, it.endMs) }
+        val (free, overlapping) = export.activities.partition { !repositories.tracks.periodTaken(it.startMs, it.endMs) }
         val loaded = free.filter { GoogleTimelineTracks.hasLine(export, it, maxAccuracyM) }
         val ends = GoogleTimelineTracks.Ends(export.visits)
         val stated = loaded.flatMapTo(HashSet()) { listOfNotNull(ends.startOf(it), ends.endOf(it)) }

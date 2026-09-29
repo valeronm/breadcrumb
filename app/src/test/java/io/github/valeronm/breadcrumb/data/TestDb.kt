@@ -115,4 +115,20 @@ class TestDb {
         ignored = ignored,
         segmentStart = segmentStart,
     )
+
+    /** A fix every 10 s advancing [stepLat] north, carrying the Doppler [speed] that pace implies. */
+    fun linePoints(
+        trackId: Long,
+        fromIndex: Int,
+        count: Int,
+        fromLat: Double,
+        stepLat: Double,
+        speed: Float,
+    ) = (0 until count).map { i ->
+        point(trackId, fromIndex + i, lat = fromLat + i * stepLat).copy(speed = speed)
+    }
+
+    /** 14 m per fix — walking pace. */
+    fun walkPoints(trackId: Long, fromIndex: Int, count: Int, fromLat: Double) =
+        linePoints(trackId, fromIndex, count, fromLat, stepLat = 0.000126, speed = 1.4f)
 }

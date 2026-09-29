@@ -60,8 +60,6 @@ class ManualTrackTest {
     }
 
     @Test fun `a manual trip over an existing track's span is refused`() = runTest {
-        // The half of the overlap rule that still counts: these fixes are the walk's path, and a
-        // trip claiming the same minutes would be a second one over them.
         val walk = walkTrack()
 
         val result = manualTrip(startMs = TEST_START + 30_000L)
@@ -71,17 +69,9 @@ class ManualTrackTest {
     }
 
     @Test fun `a trip filling a gap is not refused by the overrun trimmed off its neighbour`() = runTest {
-        // The ordinary case, and it was refused: the edge-stay rule pulls a track's endedAt in to
-        // its last *good* fix and leaves the ignored overrun past it, on about a third of a real
-        // history's tracks. The gap the timeline draws starts at that pulled-in bound, so a trip
-        // entered to fill it starts there too — and an overlap check that counted the overrun found
-        // the neighbour sitting in the very interval it had just been trimmed out of.
-        //
-        // Stated outright rather than produced by finishing a track that lingers: what is under
-        // test is the overlap check, and a fixture built by the trimmer would answer to that rule's
-        // tuning as well as to this one.
+        // The overrun is stated rather than left by finishing a track that lingers, since a fixture
+        // built by the trimmer would answer to that rule's tuning as well.
         val walk = walkTrack()
-        // The overrun: fixes past the row's own end, ignored, exactly as a trim leaves them.
         val trimmedEnd = TEST_START + 30_000
         dao.closeTrack(walk, trimmedEnd)
         dao.setIgnored(
