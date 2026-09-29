@@ -14,7 +14,6 @@ import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
-import org.maplibre.android.style.layers.PropertyValue
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -74,17 +73,32 @@ private const val NEIGHBOR_MUTED_OPACITY = 0.7f
  * recedes: a dwell is *this track's* own evidence, where the ring belongs to a place the track
  * merely arrived in.
  */
-internal fun addCaptureCircleLayers(
+internal fun addCaptureCircleLayers(style: Style, sourceId: String, fillLayerId: String, lineLayerId: String) =
+    addCircleLayers(style, sourceId, fillLayerId, lineLayerId, opacity = 1f)
+
+/**
+ * [addCaptureCircleLayers] for a ring the screen is *not* about — a neighbouring place beside the one
+ * being edited, the reach of the place at a track's end. One function so the weight of "context" is
+ * set once for every surface that has some, rather than each remembering the opacity.
+ */
+internal fun addContextCircleLayers(
     style: Style,
     sourceId: String,
     fillLayerId: String,
     lineLayerId: String,
-    vararg extraProps: PropertyValue<*>,
+) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CONTEXT_AREA_OPACITY)
+
+private fun addCircleLayers(
+    style: Style,
+    sourceId: String,
+    fillLayerId: String,
+    lineLayerId: String,
+    opacity: Float,
 ) {
     style.addLayer(
         FillLayer(fillLayerId, sourceId).withProperties(
             PropertyFactory.fillColor(CIRCLE_FILL),
-            *extraProps,
+            PropertyFactory.fillOpacity(opacity),
         ),
     )
     style.addLayer(
@@ -92,26 +106,10 @@ internal fun addCaptureCircleLayers(
             PropertyFactory.lineColor(CIRCLE_LINE),
             PropertyFactory.lineWidth(1.5f),
             PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
-            *extraProps,
+            PropertyFactory.lineOpacity(opacity),
         ),
     )
 }
-
-/**
- * [addCaptureCircleLayers] for a ring the screen is *not* about — a neighbouring place beside the one
- * being edited, the reach of the place at a track's end. One function so the weight of "context" is
- * set once for every surface that has some, rather than each remembering to pass the pair.
- */
-internal fun addContextCircleLayers(
-    style: Style,
-    sourceId: String,
-    fillLayerId: String,
-    lineLayerId: String,
-) = addCaptureCircleLayers(
-    style, sourceId, fillLayerId, lineLayerId,
-    PropertyFactory.fillOpacity(CONTEXT_AREA_OPACITY),
-    PropertyFactory.lineOpacity(CONTEXT_AREA_OPACITY),
-)
 
 /**
  * Shared base of the marker layers: an icon per feature, drawn in source order — the load-bearing
