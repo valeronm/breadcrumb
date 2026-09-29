@@ -177,11 +177,18 @@ class TimelineRowTest {
 
     @Test
     fun `a stay at a place an import made names its origin aloud`() {
-        val imported = place("Café").copy(externalProvider = GoogleTimelineImporter.PROVIDER, externalId = "g")
-        stayRow(stayItem(noon, noon + HOUR, place = imported))
+        stayRow(stayItem(noon, noon + HOUR, place = importedPlace(label = null)))
 
         compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline))
             .assertIsDisplayed()
+    }
+
+    @Test
+    fun `a stay at an imported place the user named carries no origin mark`() {
+        stayRow(stayItem(noon, noon + HOUR, place = importedPlace(label = "Café")))
+
+        compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline))
+            .assertDoesNotExist()
     }
 
     @Test
@@ -318,8 +325,7 @@ class TimelineRowTest {
 
     @Test
     fun `a gap arriving at a place an import made names its origin aloud`() {
-        val imported = place("Café").copy(externalProvider = GoogleTimelineImporter.PROVIDER, externalId = "g")
-        val resolved = PlaceResolver.ResolvedStay(place = imported, visitCount = 1, centroid = ORIGIN)
+        val resolved = PlaceResolver.ResolvedStay(place = importedPlace(label = null), visitCount = 1, centroid = ORIGIN)
         gapRow(gapItem(start = noon, end = noon + HOUR).copy(toPlace = resolved))
 
         compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline))
@@ -385,7 +391,10 @@ class TimelineRowTest {
         compose.onNodeWithText(until.substringBefore("%1\$s"), substring = true).assertIsDisplayed()
     }
 
-    private fun place(label: String) = Place(
+    private fun importedPlace(label: String?) =
+        place(label).copy(externalProvider = GoogleTimelineImporter.PROVIDER, externalId = "g")
+
+    private fun place(label: String?) = Place(
         id = 1,
         label = label,
         lat = ORIGIN.lat,

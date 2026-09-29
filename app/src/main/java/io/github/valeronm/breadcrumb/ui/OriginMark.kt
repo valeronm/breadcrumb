@@ -18,6 +18,7 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.export.GoogleTimelineImporter
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.isNamed
 
 /** Where a trip or a place came from, when not from this app: the source's name and its glyph. */
 internal enum class OriginMark(@StringRes val labelRes: Int, val icon: ImageVector) {
@@ -35,11 +36,15 @@ internal val TrackOrigin.mark: OriginMark?
         TrackOrigin.MANUAL -> OriginMark.ENTERED_BY_HAND
     }
 
-/** Null for a place the user made; an import's rows name their source in [Place.externalProvider]. */
+/** Null for a place the user made, and for any named one: a name makes an import's row the user's. */
 internal val Place.mark: OriginMark?
-    get() = when (externalProvider) {
-        GoogleTimelineImporter.PROVIDER -> OriginMark.GOOGLE_TIMELINE
-        else -> null
+    get() = if (isNamed) {
+        null
+    } else {
+        when (externalProvider) {
+            GoogleTimelineImporter.PROVIDER -> OriginMark.GOOGLE_TIMELINE
+            else -> null
+        }
     }
 
 @Composable

@@ -17,7 +17,6 @@ import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
-import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import org.maplibre.android.camera.CameraPosition
@@ -459,7 +458,7 @@ private fun mergeMarkers(places: List<MergeMapPlace>): FeatureCollection {
     val features = ArrayList<Feature>(places.size)
     for (p in places) {
         val muted = p.role != MergeRole.KEEPER
-        val image = if (!p.place.isNamed && p.place.externalProvider != null) {
+        val image = if (p.place.mark != null) {
             IMG_ENDPOINT_IMPORTED
         } else {
             placePinImage(p.place.placeCategory, withGlyph = true, muted = muted)
