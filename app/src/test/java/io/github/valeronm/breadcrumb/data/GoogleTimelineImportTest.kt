@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.data.export.GoogleTimelineImporter
+import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
+import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
@@ -211,6 +213,24 @@ class GoogleTimelineImportTest {
         val cafe = placeRow("cafe")
         val (outbound, _) = target.repository.exportTracks()
         assertEquals(cafe.id, outbound.endPlaceId)
+    }
+
+    @Test fun `a trip ending in a linger keeps its tail, which the overrun rule would take off`() = runTest {
+        val steps = (1..40).map { i ->
+            val lat = if (i <= 30) 1.0 + i * 0.00018 else 1.0 + 30 * 0.00018 + if (i % 2 == 0) 0.00008 else -0.00008
+            """{"point":"$lat°, -2.0°","time":"${iso(out + i * 15_000L)}"}"""
+        }
+        val path = """{"startTime":"${iso(out)}","endTime":"${iso(out + 41 * 15_000L)}","timelinePath":[""" +
+            steps.joinToString(",") + "]}"
+        import(doc(activity(out, out + 41 * 15_000L, 1.0, 1.0 + 30 * 0.00018), path))
+        val track = target.repository.exportTracks().single()
+        val points = target.dao.allPointsFor(track.id)
+        assertTrue(points.none { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
+        assertEquals(points.last().timestamp, track.endedAt)
+        val recorderPlan = EdgeStayIgnore.settle(
+            points, track.startedAt, track.endedAt!!, EdgeStayDetector.BRIEF_STOP, AndroidDistance,
+        ).plan
+        assertTrue(recorderPlan.ignore.isNotEmpty())
     }
 
     @Test fun `a file with no readable trip is refused and writes nothing`() = runTest {

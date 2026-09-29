@@ -73,6 +73,19 @@ class EdgeStayIgnoreTest {
     }
 
     @Test
+    fun `a track the rule does not apply to keeps its arrival tail, and its old flags come back`() {
+        val points = walkThenLinger()
+        val flagged = settle(points, 0L, points.last().timestamp + 5_000L).points
+
+        val settled = EdgeStayIgnore.settle(flagged, 0L, points.last().timestamp, params = null, flatDistance)
+
+        assertTrue(settled.plan.ignore.isEmpty())
+        assertEquals(flagged.count { it.ignored }, settled.plan.restore.size)
+        assertTrue(settled.points.none { it.ignored })
+        assertEquals(points.last().timestamp, settled.bounds.endedAt)
+    }
+
+    @Test
     fun `re-planning an applied track changes nothing`() {
         // The invariant automatic application rests on: the plan is derived from the recording,
         // not from what the last plan left behind. Detection fed its own output would keep

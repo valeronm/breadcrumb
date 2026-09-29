@@ -576,7 +576,9 @@ bad-fix rule, and `EdgeStayIgnore`'s `IgnoreReason.EDGE_STAY` for good fixes rec
 at a track's edges (`IgnoreReason` holds the distinction). The second is applied automatically
 wherever a track's points change — finished, imported, merged, split, restored, or retyped across
 the foot/vehicle line — and `HistorySweeps.edgeStays` re-derives the whole history when
-`EdgeStayDetector.RULE_VERSION` moves.
+`EdgeStayDetector.RULE_VERSION` moves. A Google Timeline track is the exception, the rule having
+no tuning for it (`EdgeStayDetector.paramsFor`): Google ends a trip at the instant its visit begins,
+so the stop is already placed.
 
 **A track's clock is then set from the fixes that survive** (`TrackBounds`, applied in the same pass):
 its bounds are the first and last *good* point, never the transition that opened or closed the row.

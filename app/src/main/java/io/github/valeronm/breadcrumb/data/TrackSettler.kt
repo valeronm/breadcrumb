@@ -81,9 +81,10 @@ internal class TrackSettler(private val dao: TrackDao) {
     fun settleForInsert(track: Track, points: List<TrackPoint>): EdgeStayIgnore.Settled =
         settleOf(track, track.endedAt ?: track.startedAt, points)
 
-    /** Whether a retype from [from] to [to] changes the tuning the overrun rule runs under. */
-    fun tuningChanges(from: String, to: ActivityType): Boolean =
-        EdgeStayDetector.paramsFor(to.name) != EdgeStayDetector.paramsFor(from)
+    /** Whether retyping [track] to [to] changes the tuning the overrun rule runs under. */
+    fun tuningChanges(track: Track, to: ActivityType): Boolean =
+        EdgeStayDetector.paramsFor(to.name, track.source) !=
+            EdgeStayDetector.paramsFor(track.activityType, track.source)
 
     /** The rules over a track's points — the one place that says which tuning and which distance
      *  they run under. */
@@ -92,7 +93,7 @@ internal class TrackSettler(private val dao: TrackDao) {
             points = points,
             startedAt = track.startedAt,
             endedAt = endedAt,
-            params = EdgeStayDetector.paramsFor(track.activityType),
+            params = EdgeStayDetector.paramsFor(track.activityType, track.source),
             distance = AndroidDistance,
         )
 

@@ -333,14 +333,22 @@ class EdgeStayDetectorTest {
         )
         assertEquals(ActivityType.entries.size, expected.size)
         expected.forEach { (type, params) ->
-            assertEquals(type.name, params, EdgeStayDetector.paramsFor(type.name))
+            assertEquals(type.name, params, EdgeStayDetector.paramsFor(type.name, TrackOrigin.RECORDED.code))
         }
+    }
+
+    @Test
+    fun `a Google Timeline track has no overrun rule, whatever its activity`() {
+        ActivityType.entries.forEach {
+            assertEquals(it.name, null, EdgeStayDetector.paramsFor(it.name, TrackOrigin.GOOGLE_TIMELINE.code))
+        }
+        assertEquals(EdgeStayDetector.VEHICLE, EdgeStayDetector.paramsFor("DRIVING", TrackOrigin.IMPORTED.code))
     }
 
     @Test
     fun `a track naming an activity this build doesn't have runs without the floor`() {
         // A stored row can name anything — an old build's type, or a GPX <type> we no longer map.
-        assertEquals(EdgeStayDetector.BRIEF_STOP, EdgeStayDetector.paramsFor("HANG_GLIDING"))
+        assertEquals(EdgeStayDetector.BRIEF_STOP, EdgeStayDetector.paramsFor("HANG_GLIDING", TrackOrigin.RECORDED.code))
     }
 
     @Test

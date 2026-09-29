@@ -61,12 +61,13 @@ object EdgeStayIgnore {
      * of it — bounds taken before the flags land would keep the overrun's own fixes — so it is a
      * function rather than a recipe each writer repeats. What a caller then does with the result
      * differs and stays theirs: a stored track has rows to update, a restored one has none yet.
+     * Null [params] finds no overrun, so every flag the track holds is withdrawn.
      */
     fun settle(
         points: List<TrackPoint>,
         startedAt: Long,
         endedAt: Long,
-        params: EdgeStayDetector.Params,
+        params: EdgeStayDetector.Params?,
         distance: DistanceFn,
     ): Settled {
         val plan = plan(points, params, distance)
@@ -78,7 +79,7 @@ object EdgeStayIgnore {
      *  which is how a writer runs it — apart, the clock would be read off the wrong points. */
     internal fun plan(
         points: List<TrackPoint>,
-        params: EdgeStayDetector.Params,
+        params: EdgeStayDetector.Params?,
         distance: DistanceFn,
     ): Plan {
         val held = points.indices.filterTo(HashSet()) { i -> isEdgeStay(points[i]) }
@@ -90,7 +91,7 @@ object EdgeStayIgnore {
         } else {
             points.mapIndexed { i, p -> if (i in held) p.copy(ignored = false, ignoreReason = null) else p }
         }
-        val stays = EdgeStayDetector.detect(raw, params, distance)
+        val stays = params?.let { EdgeStayDetector.detect(raw, it, distance) }.orEmpty()
         val wanted = raw.indices.filterTo(HashSet()) { i ->
             !raw[i].ignored && stays.any { it.movesOut(raw[i].timestamp) }
         }

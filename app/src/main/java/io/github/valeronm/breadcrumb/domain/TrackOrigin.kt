@@ -21,6 +21,8 @@ enum class TrackOrigin(
     val measuresMotion: Boolean,
     /** Whether the fixes came from a file the user brought in rather than from this app. */
     val imported: Boolean = false,
+    /** Whether the writer ended each trip at its stop itself. */
+    val endsAtStops: Boolean = false,
 ) {
     /** The recorder's own fixes, each with what the receiver said about its own measurement. */
     RECORDED("recorded", measuresFixQuality = true, measuresMotion = true),
@@ -35,7 +37,14 @@ enum class TrackOrigin(
     /** Read from a Google Timeline export: the phone's own fixes over the export's last month, and
      *  before it Google's reconstruction, whose samples are restamped to the minute and so imply
      *  speeds the trip never had. */
-    GOOGLE_TIMELINE("google_timeline", measuresFixQuality = false, measuresMotion = false, imported = true),
+    GOOGLE_TIMELINE(
+        "google_timeline",
+        measuresFixQuality = false,
+        measuresMotion = false,
+        imported = true,
+        // Google ends a trip at the instant its visit begins.
+        endsAtStops = true,
+    ),
     ;
 
     companion object {

@@ -370,7 +370,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun setActivityType(trackId: Long, activityType: ActivityType) {
         db.withTransaction {
             val track = dao.track(trackId) ?: return@withTransaction
-            val retuned = settler.tuningChanges(from = track.activityType, to = activityType)
+            val retuned = settler.tuningChanges(track, to = activityType)
             // An unreadable stored activity has no ceiling to compare against, so nothing is withdrawn.
             val wasType = ActivityType.ofName(track.activityType)
             val raised = wasType != null &&
