@@ -325,9 +325,6 @@ internal fun TrackDetailScreen(
                                     endPlaces = endPlaces,
                                     precomputedColoring = graph?.coloring ?: solidLine,
                                     precomputedSeams = seams,
-                                    // A manual track's legs are typed, not travelled — drawn along
-                                    // the great circle rather than as projected chords.
-                                    greatCircleLegs = source == TrackOrigin.MANUAL,
                                     modifier = Modifier.fillMaxSize(),
                                 )
                                 if (showNoisy) {

@@ -53,4 +53,8 @@ class GreatCircleTest {
 
         assertEquals(2, arc.size)
     }
+
+    @Test fun `only a path of two fixes is drawn along the great circle`() {
+        assertEquals(listOf(false, true, false), listOf(1, 2, 3).map(GreatCircle::drawsPath))
+    }
 }

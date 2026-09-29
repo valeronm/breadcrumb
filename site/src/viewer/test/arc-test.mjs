@@ -1,5 +1,5 @@
 // greatCircleArc — the port of the app's GreatCircle, pinned case for case against
-// GreatCircleTest so the two draw a manual track's leg the same way. Needs no export file —
+// GreatCircleTest so the two draw a two-fix track's leg the same way. Needs no export file —
 // the cases are hand-built. Run: node site/src/viewer/test/arc-test.mjs
 import assert from "node:assert/strict";
 import { greatCircleArc } from "../js/geo.js";

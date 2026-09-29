@@ -18,6 +18,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
+import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.pin
@@ -74,11 +75,9 @@ internal fun MapLibreTrackMap(
     // …and the seam walk that coloring was built from ([TrackQuality.Seams]). Null = walk it here
     // (the live preview, which has no graph).
     precomputedSeams: TrackQuality.Seams? = null,
-    // Draw each leg along the great circle its two fixes imply, and frame the bow it adds — for a
-    // manual track, whose straight projected segment would be a route nothing travelled. Display
-    // geometry only: the coloring, seams and markers stay on the stored fixes.
-    greatCircleLegs: Boolean = false,
 ) {
+    // Display geometry only: the coloring, seams and markers stay on the stored fixes.
+    val greatCircleLegs = GreatCircle.drawsPath(points.size)
     val mapDark = isMapDark()
     // For the pin images an update may have to register — the style-loaded callback is handed a
     // context, an update is not.

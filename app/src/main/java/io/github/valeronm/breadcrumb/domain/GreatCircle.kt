@@ -29,6 +29,9 @@ object GreatCircle {
     /** Under this central angle (~11 km) a straight segment and the arc are the same line. */
     private const val MIN_ANGLE_RAD = 0.001
 
+    /** Two good fixes are a trip's ends with nothing observed between them. */
+    fun drawsPath(fixes: Int): Boolean = fixes == 2
+
     /**
      * The arc from [from] to [to] inclusive, ends exact. Degenerate spans hand back just the two
      * ends: a span too short for the bow to be visible, and an antipodal pair — where every

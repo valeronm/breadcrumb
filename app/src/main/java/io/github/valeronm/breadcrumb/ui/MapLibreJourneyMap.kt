@@ -144,9 +144,8 @@ private fun addSegmentCorners(segment: DoubleArray, into: MutableList<LatLng>) {
 }
 
 /**
- * One feature per drawn stretch, its color property shared per activity. A manual track's typed
- * endpoints are densified along their great circle ([greatCirclePositions]), as the track detail
- * draws them.
+ * One feature per drawn stretch, its color property shared per activity. A two-fix track is
+ * densified along its great circle ([greatCirclePositions]), as the track detail draws it.
  */
 private fun journeyCollection(lines: List<JourneyLine>, colorByType: Map<String, Int>): FeatureCollection {
     val features = ArrayList<Feature>()
@@ -157,7 +156,7 @@ private fun journeyCollection(lines: List<JourneyLine>, colorByType: Map<String,
             JsonObject().apply { addProperty(JOURNEY_COLOR_KEY, ColorUtils.colorToRgbaString(color)) }
         }
         for (segment in line.segments) {
-            val positions = segmentPositions(segment, line.manual)
+            val positions = segmentPositions(segment, line.greatCircle)
             if (positions.size >= 2) {
                 features += Feature.fromGeometry(LineString.fromLngLats(positions), props)
             }
@@ -166,8 +165,8 @@ private fun journeyCollection(lines: List<JourneyLine>, colorByType: Map<String,
     return FeatureCollection.fromFeatures(features)
 }
 
-private fun segmentPositions(segment: DoubleArray, manual: Boolean): List<Point> {
-    if (!manual || segment.size < 4) {
+private fun segmentPositions(segment: DoubleArray, greatCircle: Boolean): List<Point> {
+    if (!greatCircle || segment.size < 4) {
         return List(segment.size / 2) { i -> Point.fromLngLat(segment[i * 2], segment[i * 2 + 1]) }
     }
     val coords = List(segment.size / 2) { i -> Coordinate(segment[i * 2 + 1], segment[i * 2]) }

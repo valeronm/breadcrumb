@@ -352,10 +352,15 @@ function lineFeature(coordinates, properties = {}) {
   return { type: "Feature", properties, geometry: { type: "LineString", coordinates } };
 }
 
-/** A manual track's typed legs drawn along their great circles ([greatCircleArc]) — the app's
- * display rule, applied at the same depth: the stored geometry stays the two typed fixes, only
- * the line the map draws is densified. Each leg starts from the previous drawn position, so the
- * unwrapped longitudes stay continuous across an antimeridian however many legs cross it. */
+/** The app's GreatCircle.drawsPath over a stored track row. */
+function drawsGreatCircle(track) {
+  return track.pointCount === 2;
+}
+
+/** A line's legs drawn along their great circles ([greatCircleArc]), for display only: the stored
+ * geometry stays the fixes, and only the line the map draws is densified. Each leg starts from the
+ * previous drawn position, so the unwrapped longitudes stay continuous across an antimeridian
+ * however many legs cross it. */
 function arcLine(line) {
   if (line.length < 2) return line;
   const out = [line[0]];
@@ -398,7 +403,7 @@ export function setOverview(map, tracks) {
         const coords = new Float64Array(segment);
         let line = [];
         for (let i = 0; i < coords.length; i += 2) line.push([coords[i], coords[i + 1]]);
-        if (t.source === "manual") line = arcLine(line);
+        if (drawsGreatCircle(t)) line = arcLine(line);
         features.push(lineFeature(line, { id: t.id, color }));
       }
       if (t.bbox) {
@@ -540,7 +545,7 @@ export function showTrack(map, track, geometry) {
 
   whenLoaded(map, () => {
     const color = lineColor(track.activityType);
-    const drawn = track.source === "manual" ? paths.map(arcLine) : paths;
+    const drawn = drawsGreatCircle(track) ? paths.map(arcLine) : paths;
     clearSelectionSources(map);
     map.getSource("selected").setData(
       fc(drawn.filter((p) => p.length >= 2).map((p) => lineFeature(p, { color }))),

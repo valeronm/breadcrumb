@@ -2,9 +2,9 @@ package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.PolylineSimplifier
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
-import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -20,8 +20,7 @@ import kotlinx.coroutines.withContext
 internal class JourneyLine(
     val trackId: Long,
     val activityType: String,
-    /** Typed endpoints rather than travelled fixes — drawn along their great circle. */
-    val manual: Boolean,
+    val greatCircle: Boolean,
     val segments: List<DoubleArray>,
 )
 
@@ -62,7 +61,7 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
             JourneyLine(
                 trackId = track.id,
                 activityType = track.activityType,
-                manual = track.source == TrackOrigin.MANUAL.code,
+                greatCircle = GreatCircle.drawsPath(track.pointCount),
                 segments = SegmentBreaks.split(points).map(::segmentOf),
             )
         }
