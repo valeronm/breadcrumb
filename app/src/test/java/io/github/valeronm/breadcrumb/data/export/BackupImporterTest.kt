@@ -65,7 +65,9 @@ class BackupImporterTest {
                 ignored = true, ignoreReason = "JUMP",
             ),
         )
-        val place = Place(id = 7, label = """Joe's "Bar"""", lat = 1.5, lon = 2.5, createdAt = 100L, radiusM = 60.0)
+        val place = Place(
+            id = 7, label = """Joe's "Bar"""", lat = 1.5, lon = 2.5, createdAt = 100L, radiusM = 60.0, source = "manual",
+        )
         val unnamed = Place(
             id = 8, label = null, lat = 1.5, lon = 2.75, createdAt = 200L, radiusM = 150.0,
             source = "google_timeline",
@@ -112,7 +114,7 @@ class BackupImporterTest {
                 bearing = null, timestamp = 2_000L,
             ),
         )
-        val place = Place(id = 7, label = "Trailhead", lat = 1.0, lon = -2.0, createdAt = 100L, radiusM = 60.0)
+        val place = Place(id = 7, label = "Trailhead", lat = 1.0, lon = -2.0, createdAt = 100L, radiusM = 60.0, source = "manual")
 
         val first = exportJson(listOf(track), mapOf(3L to points), listOf(place))
         val parsed = parse(first)
@@ -120,6 +122,17 @@ class BackupImporterTest {
         val second = exportJson(listOf(parsedTrack), mapOf(parsedTrack.id to parsedPoints), parsed.places.map { it.place })
 
         assertEquals(first, second)
+    }
+
+    @Test fun `a place from a file that predates its source is the user's, and a stated source is kept`() {
+        val json = """{"format":"breadcrumb-export","version":2,"pointFields":["timestamp","lat","lon"],""" +
+            """"places":[{"id":1,"label":"Home","lat":1.0,"lon":-2.0,"createdAt":0,"radiusM":150.0},""" +
+            """{"id":2,"label":null,"lat":1.0,"lon":-2.0,"createdAt":0,"radiusM":150.0,"source":"google_timeline"}],""" +
+            """"tracks":[]}"""
+
+        val sources = parse(json).places.map { it.place.source }
+
+        assertEquals(listOf("manual", "google_timeline"), sources)
     }
 
     @Test fun `an older file's liveness array is skipped, not a parse error`() {

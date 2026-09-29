@@ -7,6 +7,7 @@ import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import java.io.Reader
 import java.util.zip.GZIPInputStream
@@ -293,7 +294,8 @@ object BackupImporter {
         // Kept as the raw code: a category this build doesn't know reads as untagged but survives
         // the restore, so a file written by a later version isn't quietly stripped by this one.
         var category: String? = null
-        var source: String? = null
+        // A file that predates the column holds only places the user made.
+        var source: String? = PlaceOrigin.MANUAL.code
         val identities = mutableListOf<PlaceIdentity>()
         json.beginObject()
         while (json.hasNext()) {

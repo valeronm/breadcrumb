@@ -13,6 +13,7 @@ import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import kotlinx.coroutines.flow.first
@@ -113,12 +114,13 @@ class BackupRestoreTest {
             Place(
                 label = "Home", lat = 1.0, lon = -2.0, createdAt = TEST_START,
                 radiusM = PlaceClusterer.DEFAULT_RADIUS_M, category = PlaceCategory.HOME.code,
+                source = PlaceOrigin.MANUAL.code,
             ),
         )
         source.db.placeDao().insert(
             Place(
                 label = "Trailhead", lat = 1.01, lon = -2.01, createdAt = TEST_START + 1_000L,
-                radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
+                radiusM = PlaceClusterer.DEFAULT_RADIUS_M, source = PlaceOrigin.MANUAL.code,
             ),
         )
         val summary = roundTrip()
