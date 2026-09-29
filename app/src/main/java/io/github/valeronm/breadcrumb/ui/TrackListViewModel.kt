@@ -26,6 +26,7 @@ import io.github.valeronm.breadcrumb.domain.MonthlyTotals
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -420,13 +421,15 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val existing = editing.place
         val trimmed = label.trim()
         if (trimmed.isEmpty()) return
-        val row = existing?.copy(label = trimmed, lat = pin.lat, lon = pin.lon, radiusM = radiusM)
+        val source = PlaceOrigin.MANUAL.code
+        val row = existing?.copy(label = trimmed, lat = pin.lat, lon = pin.lon, radiusM = radiusM, source = source)
             ?: Place(
                 label = trimmed,
                 lat = pin.lat,
                 lon = pin.lon,
                 createdAt = System.currentTimeMillis(),
                 radiusM = radiusM,
+                source = source,
             )
         if (PlaceResolver.saysSameAs(existing, row)) return
         var pending = PendingPlace(editing.key, row)
@@ -517,12 +520,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             if (holder != null) {
                 // An unnamed row takes the name, where a new row would sit on top of it.
                 val unnamed = stored.getOrNull(holder)?.takeUnless { it.isNamed }
-                if (unnamed != null && renamed.none { it.id == unnamed.id }) renamed += unnamed.copy(label = trimmed)
+                if (unnamed != null && renamed.none { it.id == unnamed.id }) renamed += unnamed.copy(label = trimmed, source = PlaceOrigin.MANUAL.code)
                 continue
             }
             val row = Place(
                 label = trimmed, lat = at.lat, lon = at.lon,
-                createdAt = now, radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
+                createdAt = now, radiusM = PlaceClusterer.DEFAULT_RADIUS_M, source = PlaceOrigin.MANUAL.code,
             )
             rows += row
             // Through seedOf, the projection every other seed came through.

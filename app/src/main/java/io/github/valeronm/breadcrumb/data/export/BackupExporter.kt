@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data.export
 import android.content.Context
 import android.net.Uri
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
@@ -95,6 +96,7 @@ object BackupExporter {
         val tracks: List<Track>,
         val pointsFor: suspend (List<Long>) -> Map<Long, List<TrackPoint>>,
         val places: List<Place>,
+        val identities: List<PlaceIdentity> = emptyList(),
     )
 
     /**
@@ -137,6 +139,7 @@ object BackupExporter {
                             }
                         },
                         places = repositories.places.allPlaces(),
+                        identities = repositories.places.allIdentities(),
                     ),
                     onTrackWritten = { done -> onProgress(done, tracks.size) },
                 )
@@ -164,9 +167,11 @@ object BackupExporter {
         // Before the tracks: a track names the places its ends are stated to, and a restore
         // inserts tracks as it reads them.
         cells.text(""","places":[""")
+        val identitiesOf = content.identities.groupBy { it.placeId }
         for (i in content.places.indices) {
             if (i > 0) cells.char(',')
-            writePlace(cells, content.places[i])
+            val place = content.places[i]
+            writePlace(cells, place, identitiesOf[place.id].orEmpty())
         }
         cells.char(']')
 
@@ -281,15 +286,22 @@ object BackupExporter {
     }
 
     // An untagged place writes no `category` key at all, so a history with no categories exports
-    // exactly as it did before the column existed.
-    private fun writePlace(cells: CellWriter, p: Place) {
+    // exactly as it did before the column existed; the same goes for `source` and `identities`.
+    private fun writePlace(cells: CellWriter, p: Place, identities: List<PlaceIdentity>) {
         cells.text("""{"id":${p.id},"label":${strOrNull(p.label)}""")
         cells.coordinate(""","lat":""", p.lat)
         cells.coordinate(""","lon":""", p.lon)
         cells.text(""","createdAt":${p.createdAt},"radiusM":${p.radiusM}""")
         p.category?.let { cells.text(""","category":${str(it)}""") }
-        p.externalProvider?.let { cells.text(""","externalProvider":${str(it)}""") }
-        p.externalId?.let { cells.text(""","externalId":${str(it)}""") }
+        p.source?.let { cells.text(""","source":${str(it)}""") }
+        if (identities.isNotEmpty()) {
+            cells.text(""","identities":[""")
+            for (i in identities.indices) {
+                if (i > 0) cells.char(',')
+                cells.text("""{"provider":${str(identities[i].provider)},"id":${str(identities[i].externalId)}}""")
+            }
+            cells.char(']')
+        }
         cells.char('}')
     }
 

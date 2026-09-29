@@ -5,7 +5,12 @@ import androidx.room.withTransaction
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.PlaceEdit
+import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
+import io.github.valeronm.breadcrumb.data.db.edit
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.PlaceOrigin
+import io.github.valeronm.breadcrumb.domain.placeOrigin
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -21,6 +26,7 @@ import kotlinx.coroutines.flow.Flow
 class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabase.get(context)) {
 
     private val dao = db.placeDao()
+    private val identities = db.placeIdentityDao()
     private val tracks = db.trackDao()
     private val derivation = DerivationStore(context, db)
 
@@ -28,13 +34,23 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     suspend fun allPlaces(): List<Place> = dao.allPlaces()
 
-    /** Backup restore: re-insert exported places under fresh ids, answered in [places]' order.
-     *  Seeded by the restore's own pass, which has a whole history to derive besides. */
-    suspend fun restorePlaces(places: List<Place>): List<Long> = dao.insertAll(places.map { it.copy(id = 0) })
+    /** Every identity [provider] gives a place. */
+    suspend fun identitiesOf(provider: String): List<PlaceIdentity> = identities.byProvider(provider)
+
+    suspend fun allIdentities(): List<PlaceIdentity> = identities.all()
+
+    /** Backup restore and the imports: insert each place under a fresh id with its identities,
+     *  answered in [places]' order. Seeded by the caller's own pass, which has a whole history to
+     *  derive besides. */
+    suspend fun restorePlaces(places: List<Pair<Place, List<PlaceIdentity>>>): List<Long> = db.withTransaction {
+        val ids = dao.insertAll(places.map { it.first.copy(id = 0) })
+        identities.upsert(ids.zip(places).flatMap { (id, place) -> place.second.map { it.copy(placeId = id) } })
+        ids
+    }
 
     /** Inserts [place] and answers with the id Room gave it. Takes the whole row, as [createAndName] and
      *  [restore] do, so a caller that has to *show* what it wrote shows the row that was written. */
-    suspend fun create(place: Place): Long = seeding { dao.insert(place) }
+    suspend fun create(place: Place): Long = seeding { dao.insert(written(place)) }
 
     /**
      * Several places as one write: [created] inserted, and [named] — existing rows given a name —
@@ -43,15 +59,21 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
      * one derivation and one invalidation rather than one each.
      */
     suspend fun createAndName(created: List<Place>, named: List<Place>) = seeding {
-        dao.insertAll(created)
-        for (row in named) dao.update(row.id, row.label, row.lat, row.lon, row.radiusM)
+        dao.insertAll(created.map(::written))
+        for (row in named) dao.update(written(row).edit())
     }
 
     /** Everything the editor commits about an existing place, as one row write — see [PlaceDao.update],
-     *  whose column list is what "everything the editor commits" means. Takes the row for [create]'s
+     *  whose [PlaceEdit] is what "everything the editor commits" means. Takes the row for [create]'s
      *  reason: a caller showing what it wrote must be showing the same value. */
     suspend fun save(place: Place) = seeding {
-        dao.update(place.id, place.label, place.lat, place.lon, place.radiusM)
+        dao.update(written(place).edit())
+    }
+
+    /** A place the app writes on the user's behalf is theirs from then on, whatever made the row. */
+    private fun written(place: Place): Place {
+        require(place.placeOrigin == PlaceOrigin.MANUAL) { "a place the user writes is ${PlaceOrigin.MANUAL.code}" }
+        return place
     }
 
     /**
@@ -62,9 +84,14 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun setCategory(id: Long, category: PlaceCategory?) = dao.setCategory(id, category?.code)
 
-    /** What a [delete] takes with the row: the tracks whose start or end was stated to it, which the
-     *  foreign key clears. */
-    class Removal(val place: Place, val startsOf: List<Long>, val endsOf: List<Long>)
+    /** What a [delete] takes with the row: its identities, and the tracks whose start or end was
+     *  stated to it, which the foreign keys clear. */
+    class Removal(
+        val place: Place,
+        val identities: List<PlaceIdentity>,
+        val startsOf: List<Long>,
+        val endsOf: List<Long>,
+    )
 
     suspend fun delete(place: Place): Removal = seeding { remove(place) }
 
@@ -79,8 +106,8 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
     class Merge(val removals: List<Removal>)
 
     /**
-     * Folds [absorbed] into [keep]: the trip ends stated to each absorbed row are stated to [keep],
-     * and the rows are removed. [keep]'s own row is not written. A row already gone is skipped, and
+     * Folds [absorbed] into [keep]: the trip ends stated to each absorbed row are stated to [keep], its
+     * identities name [keep], and the rows are removed. [keep]'s own row is not written. A row already gone is skipped, and
      * nothing happens if [keep] itself is gone.
      */
     suspend fun merge(keep: Place, absorbed: List<Place>): Merge = seeding {
@@ -88,7 +115,7 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
         val removals = absorbed
             .filter { it.id != keep.id && dao.place(it.id) != null }
             .map { place ->
-                val removal = remove(place)
+                val removal = remove(place, heir = keep.id)
                 removal.startsOf.chunked(IDS_PER_STATEMENT).forEach { tracks.stateStarts(it, keep.id) }
                 removal.endsOf.chunked(IDS_PER_STATEMENT).forEach { tracks.stateEnds(it, keep.id) }
                 removal
@@ -96,17 +123,23 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
         Merge(removals)
     }
 
-    /** Undo a [merge]: every absorbed row and every end stated to it come back as they were. */
+    /** Undo a [merge]: every absorbed row, its identities and every end stated to it come back as
+     *  they were. */
     suspend fun unmerge(merge: Merge) = seeding { merge.removals.forEach { reinstate(it) } }
 
-    private suspend fun remove(place: Place): Removal {
-        val removal = Removal(place, tracks.startsStatedTo(place.id), tracks.endsStatedTo(place.id))
+    /** [heir] takes the row's identities, which the foreign key would otherwise delete with it. */
+    private suspend fun remove(place: Place, heir: Long? = null): Removal {
+        val removal = Removal(
+            place, identities.of(place.id), tracks.startsStatedTo(place.id), tracks.endsStatedTo(place.id),
+        )
+        if (heir != null) identities.repoint(place.id, heir)
         dao.delete(place.id)
         return removal
     }
 
     private suspend fun reinstate(removal: Removal) {
         dao.insert(removal.place)
+        identities.upsert(removal.identities)
         removal.startsOf.chunked(IDS_PER_STATEMENT).forEach { tracks.stateStarts(it, removal.place.id) }
         removal.endsOf.chunked(IDS_PER_STATEMENT).forEach { tracks.stateEnds(it, removal.place.id) }
     }

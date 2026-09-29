@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.data.export
 
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import kotlinx.coroutines.test.runTest
@@ -21,7 +22,7 @@ class BackupImporterTest {
     private class Collected {
         val tracks = mutableListOf<Pair<Track, List<TrackPoint>>>()
         val totals = mutableListOf<Int?>()
-        var places: List<Place> = emptyList()
+        var places: List<BackupImporter.RestoredPlace> = emptyList()
     }
 
     private fun parse(json: String): Collected {
@@ -67,11 +68,12 @@ class BackupImporterTest {
         val place = Place(id = 7, label = """Joe's "Bar"""", lat = 1.5, lon = 2.5, createdAt = 100L, radiusM = 60.0)
         val unnamed = Place(
             id = 8, label = null, lat = 1.5, lon = 2.75, createdAt = 200L, radiusM = 150.0,
-            externalProvider = "google", externalId = "ChIJ-1",
+            source = "google_timeline",
         )
+        val identity = PlaceIdentity("google", "ChIJ-1", placeId = 8)
 
         val result = parse(
-            exportJson(listOf(track), mapOf(3L to points), listOf(place, unnamed)),
+            exportJson(listOf(track), mapOf(3L to points), listOf(place, unnamed), listOf(identity)),
         )
 
         val (parsedTrack, parsedPoints) = result.tracks.single()
@@ -79,7 +81,8 @@ class BackupImporterTest {
         // Ids don't survive (insertion re-keys), everything else must.
         assertEquals(points.map { it.copy(id = 0) }, parsedPoints.map { it.copy(id = 0) })
         assertEquals(listOf<Int?>(1), result.totals) // trackCount rode along
-        assertEquals(listOf(place, unnamed), result.places)
+        assertEquals(listOf(place, unnamed), result.places.map { it.place })
+        assertEquals(listOf(emptyList(), listOf(identity.copy(placeId = 0))), result.places.map { it.identities })
     }
 
     /**
@@ -114,7 +117,7 @@ class BackupImporterTest {
         val first = exportJson(listOf(track), mapOf(3L to points), listOf(place))
         val parsed = parse(first)
         val (parsedTrack, parsedPoints) = parsed.tracks.single()
-        val second = exportJson(listOf(parsedTrack), mapOf(parsedTrack.id to parsedPoints), parsed.places)
+        val second = exportJson(listOf(parsedTrack), mapOf(parsedTrack.id to parsedPoints), parsed.places.map { it.place })
 
         assertEquals(first, second)
     }

@@ -16,9 +16,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
-import io.github.valeronm.breadcrumb.data.export.GoogleTimelineImporter
+import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
-import io.github.valeronm.breadcrumb.domain.isNamed
+import io.github.valeronm.breadcrumb.domain.placeOrigin
 
 /** Where a trip or a place came from, when not from this app: the source's name and its glyph. */
 internal enum class OriginMark(@StringRes val labelRes: Int, val icon: ImageVector) {
@@ -36,15 +36,11 @@ internal val TrackOrigin.mark: OriginMark?
         TrackOrigin.MANUAL -> OriginMark.ENTERED_BY_HAND
     }
 
-/** Null for a place the user made, and for any named one: a name makes an import's row the user's. */
+/** Null for a place the user made or last edited, and for a source this build doesn't know. */
 internal val Place.mark: OriginMark?
-    get() = if (isNamed) {
-        null
-    } else {
-        when (externalProvider) {
-            GoogleTimelineImporter.PROVIDER -> OriginMark.GOOGLE_TIMELINE
-            else -> null
-        }
+    get() = when (placeOrigin) {
+        PlaceOrigin.GOOGLE_TIMELINE -> OriginMark.GOOGLE_TIMELINE
+        PlaceOrigin.MANUAL, null -> null
     }
 
 @Composable

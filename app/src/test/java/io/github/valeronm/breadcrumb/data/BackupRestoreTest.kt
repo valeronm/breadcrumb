@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
@@ -77,6 +78,7 @@ class BackupRestoreTest {
                 tracks = source.repository.exportTracks(),
                 pointsFor = { source.repository.pointsForTracks(it) },
                 places = source.db.placeDao().allPlaces(),
+                identities = source.db.placeIdentityDao().all(),
             ),
         )
         return BackupImporter.restore(
@@ -274,9 +276,10 @@ class BackupRestoreTest {
         val google = source.db.placeDao().insert(
             Place(
                 label = null, lat = 1.0, lon = -2.0, createdAt = TEST_START, radiusM = 90.0,
-                externalProvider = "google", externalId = "ChIJ-1",
+                source = "google_timeline",
             ),
         )
+        source.db.placeIdentityDao().upsert(listOf(PlaceIdentity("google", "ChIJ-1", google)))
         val trailhead = source.db.placeDao().insert(
             Place(label = "Trailhead", lat = 1.01, lon = -2.01, createdAt = TEST_START, radiusM = 150.0),
         )
@@ -295,7 +298,8 @@ class BackupRestoreTest {
         val places = targetPlaces.allPlaces().associateBy { it.id }
         val start = places.getValue(checkNotNull(restored.startPlaceId))
         assertNull(start.label)
-        assertEquals("google" to "ChIJ-1", start.externalProvider to start.externalId)
+        assertEquals("google_timeline", start.source)
+        assertEquals(listOf(PlaceIdentity("google", "ChIJ-1", start.id)), targetDb.placeIdentityDao().all())
         assertEquals("Trailhead", places.getValue(checkNotNull(restored.endPlaceId)).label)
         DerivedConsistency.assertMatchesFreshDerive(targetDb, TEST_START + 86_400_000L)
     }

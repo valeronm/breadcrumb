@@ -8,8 +8,10 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.placeCategory
+import io.github.valeronm.breadcrumb.domain.placeOrigin
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -90,8 +92,12 @@ class GoogleTimelineImportTest {
         assertEquals(2, target.dao.allPointsFor(tracks[1].id).size)
     }
 
-    private suspend fun placeRow(googleId: String) =
-        target.db.placeDao().allPlaces().single { it.externalId == googleId }
+    private suspend fun placeRow(googleId: String) = target.db.placeDao().allPlaces().single { it.id == idOf(googleId) }
+
+    private suspend fun idOf(googleId: String) =
+        target.db.placeIdentityDao().all().singleOrNull { it.externalId == googleId }?.placeId
+
+    private suspend fun googleIds() = target.db.placeIdentityDao().all().map { it.externalId }.toSet()
 
     @Test fun `every Google place is a place row, and only a home the visits agree on is named`() = runTest {
         val summary = import(twoTripsAndAHome)
@@ -99,7 +105,7 @@ class GoogleTimelineImportTest {
         val home = placeRow("home")
         assertEquals("Home", home.label)
         assertEquals(PlaceCategory.HOME, home.placeCategory)
-        assertEquals(GoogleTimelineImporter.PROVIDER, home.externalProvider)
+        assertEquals(PlaceOrigin.GOOGLE_TIMELINE, home.placeOrigin)
         val cafe = placeRow("cafe")
         assertNull(cafe.label)
         assertNull(cafe.category)
@@ -134,7 +140,7 @@ class GoogleTimelineImportTest {
     @Test fun `naming an imported place writes the name onto its row`() = runTest {
         import(twoTripsAndAHome)
         val cafe = placeRow("cafe")
-        places.save(cafe.copy(label = "Cafe"))
+        places.save(cafe.copy(label = "Cafe", source = PlaceOrigin.MANUAL.code))
         val named = placeRow("cafe")
         assertEquals(cafe.id, named.id)
         assertEquals("Cafe", named.label)
@@ -180,8 +186,7 @@ class GoogleTimelineImportTest {
         target.walk(back + 60_000L, 0, 5)
         val summary = import(homeCafeShop)
         assertEquals(2, summary.places)
-        val made = target.db.placeDao().allPlaces().map { it.externalId }.toSet()
-        assertEquals(setOf("home", "cafe"), made)
+        assertEquals(setOf("home", "cafe"), googleIds())
     }
 
     @Test fun `a home stands with no trip loaded there`() = runTest {
@@ -190,7 +195,7 @@ class GoogleTimelineImportTest {
         val summary = import(twoTripsAndAHome)
         assertEquals(0, summary.tracks)
         assertEquals(2, summary.overlapping)
-        assertEquals(listOf("home"), target.db.placeDao().allPlaces().mapNotNull { it.externalId })
+        assertEquals(setOf("home"), googleIds())
         DerivedConsistency.assertMatchesFreshDerive(target.db, back + 86_400_000L)
     }
 
@@ -213,12 +218,42 @@ class GoogleTimelineImportTest {
         DerivedConsistency.assertMatchesFreshDerive(target.db, back + 86_400_000L)
     }
 
+    @Test fun `a later export states trip ends at a merged-away Google place to the place kept`() = runTest {
+        import(
+            doc(
+                visit(out - 3_600_000L, 1.0, "HOME", endMs = out),
+                activity(out, out + 11 * 60_000L, 1.0, 1.011),
+                visit(out + 11 * 60_000L, 1.011, "UNKNOWN", endMs = back, placeId = "cafe"),
+            ),
+        )
+        val ownId = places.create(target.place("Café", 1.0112, -2.0))
+        val own = target.db.placeDao().allPlaces().single { it.id == ownId }
+        places.merge(own, listOf(placeRow("cafe")))
+
+        val summary = import(homeCafeShop)
+        assertEquals(1, summary.places)
+        assertEquals(ownId, idOf("cafe"))
+        val (outbound, later) = target.repository.exportTracks()
+        assertEquals(ownId, outbound.endPlaceId)
+        assertEquals(ownId, later.startPlaceId)
+        DerivedConsistency.assertMatchesFreshDerive(target.db, back + 86_400_000L)
+    }
+
+    @Test fun `an imported place is written as the import's until the editor saves it`() = runTest {
+        import(twoTripsAndAHome)
+        val cafe = placeRow("cafe")
+        assertEquals(PlaceOrigin.GOOGLE_TIMELINE, cafe.placeOrigin)
+        assertTrue(runCatching { places.save(cafe.copy(label = "Cafe")) }.isFailure)
+        places.save(cafe.copy(label = "Cafe", source = PlaceOrigin.MANUAL.code))
+        assertEquals(PlaceOrigin.MANUAL, placeRow("cafe").placeOrigin)
+    }
+
     @Test fun `a home the history holds takes Google's trip ends, and its row is not written`() = runTest {
         val ownId = places.create(target.place("Flat", 1.0005, -2.0).copy(category = PlaceCategory.HOME.code))
         val own = target.db.placeDao().allPlaces().single()
         val summary = import(twoTripsAndAHome)
         assertEquals(1, summary.places)
-        assertTrue(target.db.placeDao().allPlaces().none { it.externalId == "home" })
+        assertNull(idOf("home"))
         assertEquals(own, target.db.placeDao().allPlaces().single { it.id == ownId })
         val (outbound, inbound) = target.repository.exportTracks()
         assertEquals(ownId, outbound.startPlaceId)

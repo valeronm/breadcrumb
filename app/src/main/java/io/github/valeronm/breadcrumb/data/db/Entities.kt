@@ -266,7 +266,7 @@ data class DerivedInterval(
  * places feature's only persisted layer, carrying what was said about the spot (its name, what it
  * is for, how wide it captures) and nothing derived; stays, clusters and visit counts derive on read.
  */
-@Entity(tableName = "places", indices = [Index(value = ["externalProvider", "externalId"], unique = true)])
+@Entity(tableName = "places")
 data class Place(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     /** Null for a place known only from another source, which the user has not named. */
@@ -284,11 +284,29 @@ data class Place(
      *  string rather than the enum: a code this build doesn't know reads as untagged but survives
      *  the round trip through a backup, which mapping at the column would erase. */
     val category: String? = null,
-    /** Where this place came from when not from the user, with [externalId] the source's own
-     *  identifier for it. */
-    val externalProvider: String? = null,
-    val externalId: String? = null,
+    /** Who last wrote the row (`PlaceOrigin.code`), or null when unknown. The raw string, as
+     *  [category] is, so a code this build doesn't know survives a backup round trip. */
+    val source: String? = null,
 )
+
+/**
+ * What another source calls a place: [externalId] is the [provider]'s own identifier for the spot.
+ * A place can hold any number of them, and one identity names exactly one place.
+ */
+@Entity(
+    tableName = "place_identities",
+    primaryKeys = ["provider", "externalId"],
+    indices = [Index("placeId")],
+    foreignKeys = [
+        ForeignKey(
+            entity = Place::class,
+            parentColumns = ["id"],
+            childColumns = ["placeId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class PlaceIdentity(val provider: String, val externalId: String, val placeId: Long)
 
 /** A finished track projected to what stay derivation needs: interval + endpoint coordinates. */
 data class TrackEndpoints(

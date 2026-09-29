@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -86,6 +87,31 @@ class PlaceMergeTest {
         assertEquals(copy.id, endPlaceOf(out))
         assertEquals(copy.id, target.dao.track(back)!!.startPlaceId)
         DerivedConsistency.assertMatchesFreshDerive(target.db, later)
+    }
+
+    private suspend fun identities() = target.db.placeIdentityDao().all().toSet()
+
+    @Test fun `an absorbed place's identities name the kept one, and undo hands them back`() = runTest {
+        val keep = row("Home", 1.0)
+        val copy = row(null, 1.0012)
+        target.db.placeIdentityDao().upsert(listOf(PlaceIdentity("google", "ChIJ-1", copy.id)))
+
+        val merge = places.merge(keep, listOf(copy))
+        assertEquals(setOf(PlaceIdentity("google", "ChIJ-1", keep.id)), identities())
+
+        places.unmerge(merge)
+        assertEquals(setOf(PlaceIdentity("google", "ChIJ-1", copy.id)), identities())
+    }
+
+    @Test fun `deleting a place takes its identities, and undo brings them back`() = runTest {
+        val place = row(null, 1.0)
+        target.db.placeIdentityDao().upsert(listOf(PlaceIdentity("google", "ChIJ-1", place.id)))
+
+        val removal = places.delete(place)
+        assertTrue(identities().isEmpty())
+
+        places.restore(removal)
+        assertEquals(setOf(PlaceIdentity("google", "ChIJ-1", place.id)), identities())
     }
 
     @Test fun `a place gone by the time of the merge is skipped`() = runTest {

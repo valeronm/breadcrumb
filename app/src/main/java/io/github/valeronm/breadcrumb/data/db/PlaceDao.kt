@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data.db
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -21,8 +22,8 @@ interface PlaceDao {
      * [io.github.valeronm.breadcrumb.domain.PlaceClusterer.Seed] fields, two of those invalidations
      * are two full re-clusterings of the whole history for one Done tap.
      */
-    @Query("UPDATE places SET label = :label, lat = :lat, lon = :lon, radiusM = :radiusM WHERE id = :id")
-    suspend fun update(id: Long, label: String?, lat: Double, lon: Double, radiusM: Double)
+    @Update(entity = Place::class)
+    suspend fun update(edit: PlaceEdit)
 
     /** `PlaceCategory.code`, or null to untag. */
     @Query("UPDATE places SET category = :code WHERE id = :id")
@@ -40,3 +41,16 @@ interface PlaceDao {
     @Query("SELECT * FROM places ORDER BY createdAt ASC, id ASC")
     suspend fun allPlaces(): List<Place>
 }
+
+/** The columns of `places` the editor commits — [PlaceDao.update]'s whole write; `category` and
+ *  `createdAt` are not among them. */
+data class PlaceEdit(
+    val id: Long,
+    val label: String?,
+    val lat: Double,
+    val lon: Double,
+    val radiusM: Double,
+    val source: String?,
+)
+
+fun Place.edit() = PlaceEdit(id, label, lat, lon, radiusM, source)

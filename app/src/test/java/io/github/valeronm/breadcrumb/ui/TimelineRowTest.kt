@@ -16,9 +16,9 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
-import io.github.valeronm.breadcrumb.data.export.GoogleTimelineImporter
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -184,8 +184,8 @@ class TimelineRowTest {
     }
 
     @Test
-    fun `a stay at an imported place the user named carries no origin mark`() {
-        stayRow(stayItem(noon, noon + HOUR, place = importedPlace(label = "Café")))
+    fun `a stay at an imported place the user edited carries no origin mark`() {
+        stayRow(stayItem(noon, noon + HOUR, place = importedPlace(label = "Café").copy(source = PlaceOrigin.MANUAL.code)))
 
         compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline))
             .assertDoesNotExist()
@@ -391,8 +391,7 @@ class TimelineRowTest {
         compose.onNodeWithText(until.substringBefore("%1\$s"), substring = true).assertIsDisplayed()
     }
 
-    private fun importedPlace(label: String?) =
-        place(label).copy(externalProvider = GoogleTimelineImporter.PROVIDER, externalId = "g")
+    private fun importedPlace(label: String?) = place(label).copy(source = PlaceOrigin.GOOGLE_TIMELINE.code)
 
     private fun place(label: String?) = Place(
         id = 1,

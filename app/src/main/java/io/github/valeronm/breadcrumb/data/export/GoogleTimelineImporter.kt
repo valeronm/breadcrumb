@@ -5,8 +5,10 @@ import android.net.Uri
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import java.io.InputStreamReader
 import java.io.Reader
 
@@ -19,8 +21,8 @@ import java.io.Reader
  */
 internal object GoogleTimelineImporter {
 
-    /** [io.github.valeronm.breadcrumb.data.db.Place.externalProvider] on the places an import makes,
-     *  whose `externalId` is Google's place id. */
+    /** [PlaceIdentity.provider] of the identities an import gives its places, whose
+     *  [PlaceIdentity.externalId] is Google's place id. */
     const val PROVIDER = "google"
 
     /** [overlapping] counts the trips a kept track covered, [skipped] the entries that could not be read. */
@@ -64,6 +66,7 @@ internal object GoogleTimelineImporter {
         val existing = GoogleTimelinePlaces.matchExisting(
             candidates,
             repositories.places.allPlaces(),
+            repositories.places.identitiesOf(PROVIDER),
             AndroidDistance,
         )
         val added = candidates.filter {
@@ -77,11 +80,11 @@ internal object GoogleTimelineImporter {
                 createdAt = nowMs,
                 radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
                 category = it.category?.code,
-                externalProvider = PROVIDER,
-                externalId = it.placeId,
-            )
+                source = PlaceOrigin.GOOGLE_TIMELINE.code,
+            ) to listOf(PlaceIdentity(PROVIDER, it.placeId, placeId = 0))
         }
-        val rowOf = existing + added.map { it.placeId }.zip(repositories.places.restorePlaces(places))
+        val made = repositories.places.restorePlaces(places)
+        val rowOf = existing + added.map { it.placeId }.zip(made)
         val total = loaded.size
         var done = 0
         onProgress(0, total)

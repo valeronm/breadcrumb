@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.data.export
 
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import kotlinx.coroutines.test.runTest
@@ -11,6 +12,7 @@ internal fun exportJson(
     tracks: List<Track> = emptyList(),
     points: Map<Long, List<TrackPoint>> = emptyMap(),
     places: List<Place> = emptyList(),
+    identities: List<PlaceIdentity> = emptyList(),
 ): String {
     val out = StringWriter()
     runTest {
@@ -19,7 +21,7 @@ internal fun exportJson(
             5_000L,
             // filterKeys, not associateWith: the read this stands in for leaves a track with no
             // fixes out of the map rather than mapping it to an empty list.
-            BackupExporter.Content(tracks, { ids -> points.filterKeys { it in ids } }, places),
+            BackupExporter.Content(tracks, { ids -> points.filterKeys { it in ids } }, places, identities),
         )
     }
     return out.toString()

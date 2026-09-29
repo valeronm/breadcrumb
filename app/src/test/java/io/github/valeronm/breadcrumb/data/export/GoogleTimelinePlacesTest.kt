@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.data.export
 
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.flatDistance
@@ -75,8 +76,11 @@ class GoogleTimelinePlacesTest {
     private fun existing(id: Long, category: PlaceCategory?, lat: Double = 1.0, radiusM: Double = 150.0) =
         Place(id = id, label = "own", lat = lat, lon = -2.0, createdAt = 0, radiusM = radiusM, category = category?.code)
 
-    private fun match(candidates: List<GoogleTimelinePlaces.Candidate>, places: List<Place>) =
-        GoogleTimelinePlaces.matchExisting(candidates, places, flatDistance)
+    private fun match(
+        candidates: List<GoogleTimelinePlaces.Candidate>,
+        places: List<Place>,
+        identities: List<PlaceIdentity> = emptyList(),
+    ) = GoogleTimelinePlaces.matchExisting(candidates, places, identities, flatDistance)
 
     @Test fun `a home inside an existing home's circle is that home`() {
         assertEquals(mapOf("g" to 7L), match(listOf(candidate("g", PlaceCategory.HOME, lat = 1.001)), listOf(existing(7, PlaceCategory.HOME))))
@@ -88,8 +92,9 @@ class GoogleTimelinePlacesTest {
     }
 
     @Test fun `a place an earlier import made is matched by Google's id wherever its pin now is`() {
-        val earlier = existing(4, category = null).copy(externalProvider = GoogleTimelineImporter.PROVIDER, externalId = "g")
-        assertEquals(mapOf("g" to 4L), match(listOf(candidate("g", category = null, lat = 1.05)), listOf(earlier)))
+        val earlier = existing(4, category = null)
+        val identity = PlaceIdentity(GoogleTimelineImporter.PROVIDER, "g", placeId = 4)
+        assertEquals(mapOf("g" to 4L), match(listOf(candidate("g", category = null, lat = 1.05)), listOf(earlier), listOf(identity)))
     }
 
     @Test fun `a pin outside the existing circle stands as its own place`() {

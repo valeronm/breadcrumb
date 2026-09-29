@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data.export
 import android.content.Context
 import android.net.Uri
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
@@ -83,10 +84,10 @@ object BackupImporter {
                 onProgress(tracks + batch.size, total)
                 if (batch.size >= INSERT_BATCH) flush()
             },
-            onPlaces = {
-                val ids = repositories.places.restorePlaces(it)
-                it.zip(ids) { place, id -> placeIds[place.id] = id }
-                places = it.size
+            onPlaces = { read ->
+                val ids = repositories.places.restorePlaces(read.map { it.place to it.identities })
+                read.zip(ids) { restored, id -> placeIds[restored.place.id] = id }
+                places = read.size
             },
         )
         flush()
@@ -106,7 +107,7 @@ object BackupImporter {
     internal suspend fun parse(
         reader: Reader,
         onTrack: suspend (Track, List<TrackPoint>, tracksTotal: Int?) -> Unit,
-        onPlaces: suspend (List<Place>) -> Unit,
+        onPlaces: suspend (List<RestoredPlace>) -> Unit,
     ) {
         val json = JsonPullReader(reader)
         var formatSeen = false
@@ -144,7 +145,7 @@ object BackupImporter {
                     json.endArray()
                 }
                 "places" -> {
-                    val places = mutableListOf<Place>()
+                    val places = mutableListOf<RestoredPlace>()
                     json.beginArray()
                     while (json.hasNext()) places.add(readPlace(json))
                     json.endArray()
@@ -279,7 +280,10 @@ object BackupImporter {
         )
     }
 
-    private fun readPlace(json: JsonPullReader): Place {
+    /** A place as the file holds it, [place]'s id being the file's. */
+    internal class RestoredPlace(val place: Place, val identities: List<PlaceIdentity>)
+
+    private fun readPlace(json: JsonPullReader): RestoredPlace {
         var id = 0L
         var label: String? = null
         var lat = 0.0
@@ -289,8 +293,8 @@ object BackupImporter {
         // Kept as the raw code: a category this build doesn't know reads as untagged but survives
         // the restore, so a file written by a later version isn't quietly stripped by this one.
         var category: String? = null
-        var externalProvider: String? = null
-        var externalId: String? = null
+        var source: String? = null
+        val identities = mutableListOf<PlaceIdentity>()
         json.beginObject()
         while (json.hasNext()) {
             when (json.nextName()) {
@@ -304,16 +308,38 @@ object BackupImporter {
                 // writer that spells it `"category":null` must not abort the whole restore — the same
                 // tolerance nextNumberOrNull gives every other optional field.
                 "category" -> category = json.nextPrimitive() as? String
-                "externalProvider" -> externalProvider = json.nextStringOrNull()
-                "externalId" -> externalId = json.nextStringOrNull()
+                "source" -> source = json.nextStringOrNull()
+                "identities" -> {
+                    json.beginArray()
+                    while (json.hasNext()) readIdentity(json)?.let(identities::add)
+                    json.endArray()
+                }
                 else -> json.skipValue()
             }
         }
         json.endObject()
-        return Place(
-            id = id, label = label, lat = lat, lon = lon, createdAt = createdAt,
-            radiusM = radiusM, category = category,
-            externalProvider = externalProvider, externalId = externalId,
+        return RestoredPlace(
+            Place(
+                id = id, label = label, lat = lat, lon = lon, createdAt = createdAt,
+                radiusM = radiusM, category = category, source = source,
+            ),
+            identities,
         )
+    }
+
+    /** Null for an entry missing either half, which could name no place. */
+    private fun readIdentity(json: JsonPullReader): PlaceIdentity? {
+        var provider: String? = null
+        var externalId: String? = null
+        json.beginObject()
+        while (json.hasNext()) {
+            when (json.nextName()) {
+                "provider" -> provider = json.nextStringOrNull()
+                "id" -> externalId = json.nextStringOrNull()
+                else -> json.skipValue()
+            }
+        }
+        json.endObject()
+        return if (provider != null && externalId != null) PlaceIdentity(provider, externalId, placeId = 0) else null
     }
 }

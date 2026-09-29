@@ -445,10 +445,10 @@ that visit's place. A home or a work gets its row even with no trip loaded there
 the one fact such a row carries. Google labels visits rather than places, so a spot is a home or a
 work on a majority of its labelled visits. **A home or a work the history already holds is matched,
 not duplicated** — same category, Google's pin inside its circle — and Google's trip ends are stated
-to that row without writing it, so every place row the import wrote is one it created and carries its
-`externalProvider`. A place an earlier import made is found by Google's id and takes a newer
-export's trip ends the same way; one a merge absorbed has lost that id, and comes back as a row of
-its own. No other Google place is matched to an existing one, however close: only the category is
+to that row without writing it, so every place row the import wrote is one it created, written as
+`google_timeline` with Google's id as its identity. A place an earlier import made is found by that
+identity and takes a newer export's trip ends the same way, a Google place a merge absorbed included,
+since the merge hands its identity to the place kept. No other Google place is matched to an existing one, however close: only the category is
 evidence on both sides that two pins are one place. The
 format also feeds the
 web companion viewer in `site/src/viewer/` (see its own README) — a change to it is a change to that viewer's
@@ -540,8 +540,11 @@ When a new surface exposes a derived fact, check whether its wording leaks the e
 state what is known and stay silent on how well it is known.
 
 **A place row holds what was said about a spot, and only that** — its name, its capture radius, its
-`category` (`PlaceCategory.code`, null = untagged), and for a row an import made, which source said so
-(`externalProvider`, `externalId`). Everything else about a place is derived on read. **A row may be
+`category` (`PlaceCategory.code`, null = untagged), and who last wrote it (`source`,
+`PlaceOrigin.code`): the import writes `google_timeline`, any save of the place editor makes it
+`manual`, and that is all the origin mark reads. What other sources call the spot lives beside the row
+in `place_identities`, any number per place and each naming exactly one, and it never changes how a
+place is shown. Everything else about a place is derived on read. **A row may be
 unnamed**, and then reads everywhere as the unnamed cluster it seeds; naming it writes onto that row,
 so the source's identity survives. **A category and a name feed nothing on the way to a stay**, and
 the plumbing is built to say so: what reaches the derivation is a place's pin, its reach and its row

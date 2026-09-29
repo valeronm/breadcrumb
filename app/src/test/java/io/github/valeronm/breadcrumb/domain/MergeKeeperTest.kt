@@ -13,27 +13,21 @@ class MergeKeeperTest {
         lon = lonAt(meters),
         createdAt = 0,
         radiusM = 150.0,
-        externalProvider = provider,
-        externalId = provider?.let { "x$id" },
+        source = if (provider != null) PlaceOrigin.GOOGLE_TIMELINE.code else PlaceOrigin.MANUAL.code,
     )
 
-    @Test fun `the initial keeper is the nearest named place`() {
+    @Test fun `the initial keeper is the nearest place of the user's own`() {
         val opened = place(10, 0.0, provider = "google")
         val far = place(11, 100.0, label = "Far")
         val near = place(12, 50.0, label = "Near")
         assertEquals(12L, initialKeeper(opened, listOf(far, near), flatDistance).id)
     }
 
-    @Test fun `an unnamed place is never the initial keeper`() {
+    @Test fun `an imported place is never the initial keeper, named or not`() {
         val opened = place(10, 0.0, provider = "google")
-        val unnamed = place(12, 40.0)
-        assertEquals(10L, initialKeeper(opened, listOf(unnamed), flatDistance).id)
-    }
-
-    @Test fun `a named place an import made can be the initial keeper`() {
-        val opened = place(10, 0.0, provider = "google")
-        val named = place(11, 50.0, label = "Named", provider = "google")
-        assertEquals(11L, initialKeeper(opened, listOf(named), flatDistance).id)
+        val named = place(11, 50.0, label = "Home", provider = "google")
+        val unnamed = place(12, 40.0, provider = "google")
+        assertEquals(10L, initialKeeper(opened, listOf(named, unnamed), flatDistance).id)
     }
 
     @Test fun `an opened place of the user's own stays the keeper`() {

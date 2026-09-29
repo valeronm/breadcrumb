@@ -9,15 +9,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
-        Track::class, TrackPoint::class, Place::class,
+        Track::class, TrackPoint::class, Place::class, PlaceIdentity::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
     ],
-    version = 20,
+    version = 21,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
     abstract fun placeDao(): PlaceDao
+    abstract fun placeIdentityDao(): PlaceIdentityDao
     abstract fun derivedDao(): DerivedDao
 
     companion object {
@@ -115,6 +116,54 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * A place's identities at other sources move to `place_identities`, where a place can hold
+         * several and a merge can hand them on, and `places` names who last wrote the row instead.
+         * The migration runs before Room turns foreign keys on, so rebuilding `places` leaves the
+         * track ends stated to it in place.
+         */
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS place_identities (
+                      provider TEXT NOT NULL,
+                      externalId TEXT NOT NULL,
+                      placeId INTEGER NOT NULL,
+                      PRIMARY KEY(provider, externalId),
+                      FOREIGN KEY(placeId) REFERENCES places(id) ON UPDATE NO ACTION ON DELETE CASCADE )
+                    """,
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_place_identities_placeId ON place_identities(placeId)")
+                db.execSQL(
+                    "INSERT INTO place_identities (provider, externalId, placeId) " +
+                        "SELECT externalProvider, externalId, id FROM places " +
+                        "WHERE externalProvider IS NOT NULL AND externalId IS NOT NULL",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS places_new (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                      label TEXT,
+                      lat REAL NOT NULL,
+                      lon REAL NOT NULL,
+                      createdAt INTEGER NOT NULL,
+                      radiusM REAL NOT NULL,
+                      category TEXT,
+                      source TEXT )
+                    """,
+                )
+                // The Google Timeline import is the only writer that ever set a provider.
+                db.execSQL(
+                    "INSERT INTO places_new (id, label, lat, lon, createdAt, radiusM, category, source) " +
+                        "SELECT id, label, lat, lon, createdAt, radiusM, category, " +
+                        "CASE WHEN externalProvider = 'google' THEN 'google_timeline' ELSE 'manual' END FROM places",
+                )
+                db.execSQL("DROP TABLE places")
+                db.execSQL("ALTER TABLE places_new RENAME TO places")
+            }
+        }
+
+        /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
          * v18 is the floor: a database older than that fails to open rather than migrating.
@@ -123,7 +172,7 @@ abstract class AppDatabase : RoomDatabase() {
          * `version` above never renumbers downward for the same reason, since every installed
          * database would then present itself as a downgrade.
          */
-        private val MIGRATIONS = arrayOf(MIGRATION_18_19, MIGRATION_19_20)
+        private val MIGRATIONS = arrayOf(MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
 
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
