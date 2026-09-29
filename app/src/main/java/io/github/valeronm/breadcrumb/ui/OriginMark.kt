@@ -43,8 +43,7 @@ internal val Place.mark: OriginMark?
     }
 
 @Composable
-internal fun OriginGlyph(mark: OriginMark?, modifier: Modifier = Modifier) {
-    mark ?: return
+internal fun OriginGlyph(mark: OriginMark, modifier: Modifier = Modifier) {
     Icon(
         mark.icon,
         contentDescription = stringResource(mark.labelRes),

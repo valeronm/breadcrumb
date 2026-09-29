@@ -247,8 +247,7 @@ internal val PlaceResolver.PlaceSummary.isListed: Boolean get() = isNamed || vis
 internal fun overviewPlaceOf(summary: PlaceResolver.PlaceSummary, brief: Boolean = false) = OverviewPlace(
     marker = PlaceMarker(summary.anchor, summary.place),
     key = summary.key,
-    brief = brief,
-    imported = summary.place?.mark != null,
+    dot = UnnamedDot.of(summary.place, brief),
     // Only a named place's reach is drawn: it is a number the user set and can judge against its
     // neighbours, where an unnamed cluster's is the clusterer's default repeated under every dot.
     radiusM = summary.radiusM.takeIf { summary.isNamed },

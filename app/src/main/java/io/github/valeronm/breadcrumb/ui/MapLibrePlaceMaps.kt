@@ -352,12 +352,8 @@ internal class OverviewPlace(
     val marker: PlaceMarker,
     /** The place-detail key reported on tap. */
     val key: String,
-    /** The place's only stay is a merge-eligible short stop (a likely split-track artifact,
-     *  not a real visit) — unnamed dots render orange instead of blue. */
-    val brief: Boolean = false,
-    /** The place is a row an import made ([Place.mark]) — unnamed, its dot renders purple, over
-     *  [brief]: the source stated the place, which a short stop cannot make an artifact. */
-    val imported: Boolean = false,
+    /** What it draws as while unnamed; a named place is a pin whatever this says. */
+    val dot: UnnamedDot = UnnamedDot.CLUSTER,
     /**
      * How far this place reaches, where that is worth drawing — null draws no ring, which is the
      * answer for every place on a map that shows none at all. **Whose reach earns one is the
@@ -367,6 +363,27 @@ internal class OverviewPlace(
      */
     val radiusM: Double? = null,
 )
+
+internal enum class UnnamedDot(val imageId: String) {
+    CLUSTER(IMG_ENDPOINT),
+
+    /** Its only stay is a merge-eligible short stop: a likely split-track artifact, not a real visit. */
+    BRIEF(IMG_ENDPOINT_BRIEF),
+
+    /** A row an import made ([Place.mark]). */
+    IMPORTED(IMG_ENDPOINT_IMPORTED),
+    ;
+
+    companion object {
+        /** An import's place outranks a short stop: the source stated the place, which one stop cannot
+         *  make an artifact. */
+        fun of(place: Place?, brief: Boolean): UnnamedDot = when {
+            place?.mark != null -> IMPORTED
+            brief -> BRIEF
+            else -> CLUSTER
+        }
+    }
+}
 
 /**
  * The places a many-track map draws for [items]: every place one of the shown stays resolved to.
@@ -388,7 +405,7 @@ internal fun rememberStayPlaces(
             OverviewPlace(
                 marker = PlaceMarker(place.anchor, place.place),
                 key = place.key,
-                imported = place.place?.mark != null,
+                dot = UnnamedDot.of(place.place, brief = false),
             )
         }
     }
@@ -687,11 +704,7 @@ private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
     FeatureCollection.fromFeatures(
         // Unnamed dots first so named pins draw (and hit-test) on top.
         places.sortedBy { it.marker.label != null }.map { p ->
-            val dot = when {
-                p.imported -> IMG_ENDPOINT_IMPORTED
-                p.brief -> IMG_ENDPOINT_BRIEF
-                else -> IMG_ENDPOINT
-            }
+            val dot = p.dot.imageId
             Feature.fromGeometry(
                 p.marker.location.toPoint(),
                 JsonObject().apply {
