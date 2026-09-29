@@ -47,6 +47,8 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | pin | метка | The word Russian map UIs use for a dropped marker, and safely apart from «PIN-код» in the app-lock strings. The add-trip form's coordinates are *точки*. |
+| endpoint | конечная точка | |
+| link | связанный · будет связан | |
 | place-category | категория | The *Путешествия* category shares its word with journey, in the plural; the surfaces keep them apart, a chip in a picker against a band in Insights. |
 
 ### Actions

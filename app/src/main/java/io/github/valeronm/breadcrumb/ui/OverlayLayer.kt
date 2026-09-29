@@ -86,24 +86,24 @@ internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
         }
     }
 
+    /** How far the layers stacked on this one cover it, 0 to 1, following their open and close animations. */
+    val covered: Float get() = castByStacked { it.presence.value }
+
     /** Anything stacks on this at all. A layer nothing covers can never be blurred. */
     val stacked: Boolean get() = stackedOn.isNotEmpty()
 
-    /** Blur for this layer's own content, cast by whatever is stacked on it. */
-    val blurDp: Float get() = stackedOn.maxOfOrNull { it.castBlurDp } ?: 0f
+    /**
+     * Blur for this layer's own content, cast by whatever is stacked on it: full while a layer covers
+     * it, sharpening with that layer's gesture.
+     */
+    val blurDp: Float
+        get() = castByStacked { it.presence.value * (1f - 0.7f * easeOutBack(it.backProgress.value)) * 12f }
 
-    // Blur radius (dp) this layer casts downward: its own while it has content up — full while
-    // covering, sharpening with the gesture — and whatever is cast onto it while it does not.
-    // A layer with nothing rendered is not on screen, so a blur cast onto it must fall through
-    // to the first layer that is: a place opened from a tab stacks on a journey that isn't there,
-    // and it is the tabs that show beneath it. Read only through a parent's [blurDp] — a layer
-    // never applies its own.
-    private val castBlurDp: Float
-        get() = if (rendered != null) {
-            presence.value * (1f - 0.7f * easeOutBack(backProgress.value)) * 12f
-        } else {
-            blurDp
-        }
+    // A layer with nothing rendered is not on screen, so what is cast onto it falls through to the
+    // first layer that is: a place opened from a tab stacks on a journey that isn't there, and it is
+    // the tabs that show beneath it.
+    private fun castByStacked(own: (OverlayLayerState<*>) -> Float): Float =
+        stackedOn.maxOfOrNull { if (it.rendered != null) own(it) else it.castByStacked(own) } ?: 0f
 }
 
 // Ease-out on the gesture progress: like the system's cross-activity animation, most of the

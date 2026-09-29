@@ -1,10 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
-import androidx.annotation.DrawableRes
-import androidx.annotation.StringRes
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
@@ -32,9 +29,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,30 +39,26 @@ import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
-import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.MergePreview
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.initialKeeper
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import kotlinx.coroutines.launch
 
 /**
  * Choosing a merge among [members] — the opened place and the rows overlapping it, fixed when the
- * page opened. [stated] maps each member's id to the ends stated to it, null until loaded, and the
- * map draws no visits until then, since a guess would tint a stated end as a measured one.
+ * page opened.
  */
 @Composable
 internal fun MergePlacesScreen(
     opened: Place,
     members: List<PlaceResolver.PlaceSummary>,
-    stated: Map<Long, List<Coordinate>>?,
-    places: List<Place>,
     onBack: () -> Unit,
     onMerge: (keep: Place, absorbed: List<Place>) -> Unit,
 ) {
     val rows = members.mapNotNull { s -> s.place?.let { it to s } }
     var keeperId by remember(rows.isNotEmpty()) {
         mutableLongStateOf(
-            MergePreview.initialKeeper(opened, rows.map { it.first }.filter { it.id != opened.id }, AndroidDistance).id,
+            initialKeeper(opened, rows.map { it.first }.filter { it.id != opened.id }, AndroidDistance).id,
         )
     }
     var absorbed by remember(rows.isNotEmpty()) {
@@ -75,19 +68,6 @@ internal fun MergePlacesScreen(
     // `keeper` and `picked`.
     val keeper = rows.firstOrNull { it.first.id == keeperId }?.first
     val picked = rows.map { it.first }.filter { it.id in absorbed && it.id != keeperId }
-    val dots = remember(rows, stated, keeperId, absorbed, places) {
-        if (stated == null) {
-            emptyList()
-        } else {
-            MergePreview.dots(
-                rows.map { (p, s) -> MergePreview.Member(p, s.endpoints, stated[p.id].orEmpty()) },
-                keeperId,
-                absorbed,
-                places,
-                AndroidDistance,
-            )
-        }
-    }
     val mapPlaces = remember(rows, keeperId, absorbed) {
         rows.map { (p, _) ->
             val role = when {
@@ -120,7 +100,6 @@ internal fun MergePlacesScreen(
         Column(Modifier.padding(padding).fillMaxSize()) {
             MapLibreMergeMap(
                 places = mapPlaces,
-                dots = dots,
                 openedId = opened.id,
                 onTapPlace = { id ->
                     highlighted = id
@@ -130,7 +109,6 @@ internal fun MergePlacesScreen(
                 },
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
-            MergeLegend(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f)) {
                 item {
                     Text(
@@ -180,6 +158,13 @@ private fun MergeRow(
         Modifier
             .fillMaxWidth()
             .then(if (highlighted) Modifier.background(MaterialTheme.colorScheme.surfaceVariant) else Modifier)
+            .then(
+                if (isKeeper) {
+                    Modifier.semantics(mergeDescendants = true) {}
+                } else {
+                    Modifier.toggleable(value = isAbsorbed, role = Role.Checkbox, onValueChange = { onToggle() })
+                },
+            )
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -199,11 +184,12 @@ private fun MergeRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            val endpoints = summary.endpoints.size
             Text(
                 if (isOpened) {
-                    pluralStringResource(R.plurals.places_merge_opened_visits, summary.visitCount, summary.visitCount)
+                    pluralStringResource(R.plurals.places_merge_opened_endpoints, endpoints, endpoints)
                 } else {
-                    pluralStringResource(R.plurals.place_row_visits, summary.visitCount, summary.visitCount) +
+                    pluralStringResource(R.plurals.places_captured_endpoints, endpoints, endpoints) +
                         " · " + distanceText(meters)
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -216,33 +202,12 @@ private fun MergeRow(
         }
         if (!isKeeper) {
             val mergeIn = stringResource(R.string.places_merge_in)
+            // The row is the toggle.
             Checkbox(
                 checked = isAbsorbed,
-                onCheckedChange = { onToggle() },
+                onCheckedChange = null,
                 modifier = Modifier.semantics { contentDescription = mergeIn },
             )
         }
-    }
-}
-
-@Composable
-private fun MergeLegend(modifier: Modifier = Modifier) {
-    Row(
-        modifier,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        LegendEntry(R.drawable.ic_marker_endpoint, R.string.places_merge_lands_keeper)
-        LegendEntry(R.drawable.ic_marker_neighbor, R.string.places_merge_lands_other)
-        LegendEntry(R.drawable.ic_marker_endpoint_brief, R.string.places_merge_lands_none)
-    }
-}
-
-@Composable
-private fun LegendEntry(@DrawableRes icon: Int, @StringRes label: Int) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Image(painterResource(icon), contentDescription = null)
-        Spacer(Modifier.width(4.dp))
-        Text(stringResource(label), style = MaterialTheme.typography.bodySmall)
     }
 }

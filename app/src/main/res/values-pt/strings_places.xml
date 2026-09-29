@@ -100,16 +100,13 @@
     <string name="places_no_location">A localização do telemóvel não está disponível agora</string>
     <string name="places_new_place">Novo local</string>
     <string name="places_merge">Juntar locais</string>
-    <string name="places_merge_body">Os locais que juntar são eliminados. As visitas que a Cronologia do Google registou lá passam para o local que mantiver, e as restantes vão para o local cuja área as abrange.</string>
+    <string name="places_merge_body">Os locais que juntar são eliminados. Os extremos associados a eles passam a estar associados ao local que mantiver, e os restantes vão para o local cuja área os abrange.</string>
     <string name="places_merge_keep">Manter</string>
     <string name="places_merge_in">Juntar</string>
-    <plurals name="places_merge_opened_visits">
-        <item quantity="one">%d visita · aberto</item>
-        <item quantity="other">%d visitas · aberto</item>
+    <plurals name="places_merge_opened_endpoints">
+        <item quantity="one">%d extremo · aberto</item>
+        <item quantity="other">%d extremos · aberto</item>
     </plurals>
-    <string name="places_merge_lands_keeper">Local mantido</string>
-    <string name="places_merge_lands_other">Outro local</string>
-    <string name="places_merge_lands_none">Nenhum local</string>
     <plurals name="places_merge_confirm">
         <item quantity="one">Juntar %d local</item>
         <item quantity="other">Juntar %d locais</item>

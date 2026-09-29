@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -52,7 +53,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,10 +61,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
 import androidx.core.content.IntentCompat
 import androidx.fragment.app.FragmentActivity
@@ -660,19 +661,16 @@ private fun MainScreen(
 
         // Over every layer, since an undo is often raised as one layer closes onto another. Over the
         // tabs it sits where their Scaffold would put it, above the navigation bar.
+        val navigationBars = WindowInsets.navigationBars
         SnackbarHost(
             snackbarHostState,
             Modifier
                 .align(Alignment.BottomCenter)
                 .zIndex(Float.MAX_VALUE)
-                .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal))
-                .then(
-                    if (tabsLayer.onTop) {
-                        Modifier.padding(bottom = with(LocalDensity.current) { tabsBarHeightPx.toDp() })
-                    } else {
-                        Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
-                    },
-                ),
+                .windowInsetsPadding(navigationBars.only(WindowInsetsSides.Horizontal))
+                .offset {
+                    IntOffset(0, -lerp(tabsBarHeightPx, navigationBars.getBottom(this), tabsLayer.covered))
+                },
         )
 
         when (val open = setup.prompt) {
@@ -928,8 +926,17 @@ private fun MergePlacesOverlay(
     onMerge: (Place, List<Place>) -> Unit,
 ) {
     OverlayFrame(layer) { key ->
-        val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
-        val pending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
+        val liveSummaries by viewModel.places.collectAsStateWithLifecycle()
+        val livePending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
+        // A merge removes the absorbed rows, the opened one among them, while this page is still
+        // animating out.
+        val held = remember { HeldMergeSources() }
+        if (layer.requested || held.summaries == null) {
+            held.summaries = liveSummaries
+            held.pending = livePending
+        }
+        val placeSummaries = held.summaries
+        val pending = held.pending
         val opened = rememberPlaceSummary(placeSummaries, key, snapshot, pending)?.place ?: return@OverlayFrame
         val placed = remember(placeSummaries) {
             placeSummaries.orEmpty().mapNotNull { s -> s.place?.let { it to s } }
@@ -943,18 +950,18 @@ private fun MergePlacesOverlay(
             val byId = placed.filter { it.first.id in memberIds }.associate { it.first.id to it.second }
             memberIds.mapNotNull { byId[it] }
         }
-        val stated by produceState<Map<Long, List<Coordinate>>?>(null, memberIds) {
-            value = viewModel.statedEndsByPlace(memberIds)
-        }
         MergePlacesScreen(
             opened = opened,
             members = members,
-            stated = stated,
-            places = rows,
             onBack = layer.dismiss,
             onMerge = onMerge,
         )
     }
+}
+
+private class HeldMergeSources {
+    var summaries: List<PlaceResolver.PlaceSummary>? = null
+    var pending: TrackListViewModel.PendingPlace? = null
 }
 
 /**

@@ -634,12 +634,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      */
     suspend fun zonesOfTrack(trackId: Long): Clocks = derived.first().zonesOfTrack(trackId)
 
-    // Off the main thread, both: an imported place can hold thousands of stated ends to file.
+    // Off the main thread: an imported place can hold thousands of stated ends to file.
     suspend fun statedEnds(here: Long?, elsewhere: List<Long>): PlaceClusterer.Stated =
         withContext(Dispatchers.Default) { repository.statedEnds(here, elsewhere) }
-
-    suspend fun statedEndsByPlace(ids: List<Long>): Map<Long, List<Coordinate>> =
-        withContext(Dispatchers.Default) { repository.statedEndsByPlace(ids) }
 
     /**
      * The containing city, so a spot inside a capital resolves to the capital rather than its

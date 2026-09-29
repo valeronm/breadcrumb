@@ -132,16 +132,13 @@
     <string name="places_new_place">New place</string>
     <!-- Folding place rows whose circles overlap into one of them, chosen on the merge page. -->
     <string name="places_merge">Merge places</string>
-    <string name="places_merge_body">The places you merge in are deleted. Visits Google Timeline recorded there move to the place you keep, and the rest go to whichever place\'s area covers them.</string>
+    <string name="places_merge_body">The places you merge in are deleted. Endpoints linked to them are relinked to the place you keep, and the rest go to whichever place\'s area covers them.</string>
     <string name="places_merge_keep">Keep</string>
     <string name="places_merge_in">Merge in</string>
-    <plurals name="places_merge_opened_visits">
-        <item quantity="one">%d visit · opened</item>
-        <item quantity="other">%d visits · opened</item>
+    <plurals name="places_merge_opened_endpoints">
+        <item quantity="one">%d endpoint · opened</item>
+        <item quantity="other">%d endpoints · opened</item>
     </plurals>
-    <string name="places_merge_lands_keeper">Kept place</string>
-    <string name="places_merge_lands_other">Another place</string>
-    <string name="places_merge_lands_none">No place</string>
     <plurals name="places_merge_confirm">
         <item quantity="one">Merge %d place</item>
         <item quantity="other">Merge %d places</item>

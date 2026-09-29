@@ -48,6 +48,8 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | Concept | Term | What it means |
 |---|---|---|
 | pin | pin | **A place's** marked coordinate, and only a place's — the thing its capture radius is drawn around. A coordinate the user drops while entering a trip is one of that trip's *points*, however alike the two look on a map. |
+| endpoint | endpoint | Either end of a trip, **as a place's capture radius sees it** — what a circle takes in or leaves out. The unit of the Places screens that set a circle, tuning one and merging places, because what a circle decides is ends, not visits: one visit has an arrival and a departure. Everywhere else a trip's ends are its *start* and *end*. |
+| link | linked · relinked | An *endpoint* tied to a place by being stated to it, rather than by falling inside its capture radius: it belongs to that place wherever it lies, and a merge *relinks* it to the kept place. |
 | place-category | category | What a place is tagged as. The labels and their groups live in `strings_places.xml` — display text, free to reword and translate, over stored codes that are permanent. A language may well reuse a word from elsewhere in this table for one of them; say so in its file rather than inventing a synonym to keep them apart. |
 
 ### Actions

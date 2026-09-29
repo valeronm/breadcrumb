@@ -47,6 +47,8 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | pin | pino | Only a place's. The add-trip form's coordinates are *pontos*. |
+| endpoint | extremo | |
+| link | associado · passa a estar associado | |
 | place-category | categoria | The *Viagem* category shares its word with trip/journey, which is the same collision as everywhere else in this file and needs no third term. |
 
 ### Actions
