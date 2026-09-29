@@ -13,10 +13,13 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.MergePreview
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.isNamed
+import io.github.valeronm.breadcrumb.domain.pin
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -24,6 +27,7 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
@@ -251,6 +255,16 @@ private fun addEndpointDotImages(ctx: Context, style: Style, withOverviewDots: B
     }
 }
 
+/** The dots for an end some other place holds, measured or stated, and for one stated here. */
+private fun addNeighborDotImages(ctx: Context, style: Style) {
+    style.addImage(IMG_NEIGHBOR, shadowedBitmap(ctx, R.drawable.ic_marker_neighbor, MarkerShadow.EVIDENCE))
+    style.addImage(IMG_ASSIGNED, shadowedBitmap(ctx, R.drawable.ic_marker_assigned, MarkerShadow.EVIDENCE))
+    style.addImage(
+        IMG_ASSIGNED_NEIGHBOR,
+        shadowedBitmap(ctx, R.drawable.ic_marker_assigned_neighbor, MarkerShadow.EVIDENCE),
+    )
+}
+
 private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent, dark: Boolean) {
     // Rivals first, so this place's own circle reads on top of them where they overlap.
     style.addSource(GeoJsonSource(PLACE_RIVAL_SOURCE, captureAreaCollection(content.rivalAreas)))
@@ -260,12 +274,7 @@ private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent,
     )
     addCaptureCircleLayers(style, PLACE_CIRCLE_SOURCE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE)
     addEndpointDotImages(ctx, style)
-    style.addImage(IMG_NEIGHBOR, shadowedBitmap(ctx, R.drawable.ic_marker_neighbor, MarkerShadow.EVIDENCE))
-    style.addImage(IMG_ASSIGNED, shadowedBitmap(ctx, R.drawable.ic_marker_assigned, MarkerShadow.EVIDENCE))
-    style.addImage(
-        IMG_ASSIGNED_NEIGHBOR,
-        shadowedBitmap(ctx, R.drawable.ic_marker_assigned_neighbor, MarkerShadow.EVIDENCE),
-    )
+    addNeighborDotImages(ctx, style)
     // This map holds one place at the zoom its own radius frames, so its pins are never the
     // small form: full size, glyphed, and no disc variant to carry.
     addPlacePinImages(ctx, style, PinSet.PlacesAndNeighbors)
@@ -344,6 +353,155 @@ private fun markerIconProperty(radiusM: Double) = PropertyFactory.iconImage(
         Expression.get(ICON_KEY),
     ),
 )
+
+internal enum class MergeRole { KEEPER, MERGING, LEFT }
+
+/** [label] is null for an unnamed row. */
+internal class MergeMapPlace(val place: Place, val label: String?, val role: MergeRole)
+
+/**
+ * The places a merge is chosen among, each circle drawn by the role it would play and each visit by
+ * where [dots] say it lands. The camera fits every circle once on open.
+ */
+@Composable
+internal fun MapLibreMergeMap(
+    places: List<MergeMapPlace>,
+    dots: List<MergePreview.Dot>,
+    openedId: Long,
+    onTapPlace: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val applied = remember { AppliedMergeInputs() }
+    val tap by rememberUpdatedState(onTapPlace)
+    val current by rememberUpdatedState(places)
+    MapLibreStyledMap(
+        modifier = modifier,
+        onMapReady = { map ->
+            map.addOnMapClickListener { at ->
+                val point = at.toCoordinate()
+                val hit = current
+                    .map { it.place to AndroidDistance.meters(point.lat, point.lon, it.place.lat, it.place.lon) }
+                    .filter { (place, meters) -> meters <= place.radiusM }
+                    .minByOrNull { (_, meters) -> meters }
+                hit?.let { (place, _) -> tap(place.id) }
+                hit != null
+            }
+        },
+        onStyleLoaded = { ctx, map, style, dark ->
+            applied.places = places
+            applied.dots = dots
+            applied.openedId = openedId
+            for (c in MERGE_CIRCLES) {
+                style.addSource(GeoJsonSource(c.source, mergeCircles(places, c.role)))
+                c.addLayers(style, c.source, c.fill, c.line)
+            }
+            style.addSource(GeoJsonSource(MERGE_OPENED_SOURCE, openedCircle(places, openedId)))
+            style.addLayer(
+                LineLayer(MERGE_OPENED_LINE, MERGE_OPENED_SOURCE).withProperties(
+                    PropertyFactory.lineColor(CIRCLE_LINE),
+                    PropertyFactory.lineWidth(2.5f),
+                ),
+            )
+            addEndpointDotImages(ctx, style, withOverviewDots = true)
+            addNeighborDotImages(ctx, style)
+            addPlacePinImages(ctx, style, PinSet.PlacesAndNeighbors)
+            style.addSource(GeoJsonSource(MERGE_MARKER_SOURCE, mergeMarkers(places, dots)))
+            style.addLayer(labeledSymbolLayer(dark, MERGE_MARKER_LAYER, MERGE_MARKER_SOURCE))
+            frameTo(map, mergeExtent(places), singlePointZoom = 16.0)
+        },
+        onUpdate = { _, style ->
+            if (applied.places !== places) {
+                for (c in MERGE_CIRCLES) {
+                    style.getSourceAs<GeoJsonSource>(c.source)?.setGeoJson(mergeCircles(places, c.role))
+                }
+            }
+            if (applied.places !== places || applied.openedId != openedId) {
+                applied.openedId = openedId
+                style.getSourceAs<GeoJsonSource>(MERGE_OPENED_SOURCE)?.setGeoJson(openedCircle(places, openedId))
+            }
+            if (applied.places !== places || applied.dots !== dots) {
+                applied.places = places
+                applied.dots = dots
+                style.getSourceAs<GeoJsonSource>(MERGE_MARKER_SOURCE)?.setGeoJson(mergeMarkers(places, dots))
+            }
+        },
+    )
+}
+
+/**
+ * Last-applied inputs of the merge map. [places] and [dots] are compared by identity, since the
+ * screen remembers each against its inputs; [openedId] by value.
+ */
+private class AppliedMergeInputs {
+    var places: List<MergeMapPlace>? = null
+    var dots: List<MergePreview.Dot>? = null
+    var openedId: Long? = null
+}
+
+private fun mergeCircles(places: List<MergeMapPlace>, role: MergeRole): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        places.filter { it.role == role }.map { circleFeature(it.place.pin, it.place.radiusM) },
+    )
+
+/** One role's circles: a source and the fill and line layers [addLayers] puts on it. */
+private class MergeCircles(
+    val role: MergeRole,
+    id: String,
+    val addLayers: (style: Style, source: String, fill: String, line: String) -> Unit,
+) {
+    val source = "$id-src"
+    val fill = "$id-fill"
+    val line = "$id-line"
+}
+
+/** In drawing order: left-alone circles underneath, the keeper's and the merging ones over them. */
+private val MERGE_CIRCLES = listOf(
+    MergeCircles(MergeRole.LEFT, "merge-left", ::addContextCircleLayers),
+    MergeCircles(MergeRole.KEEPER, "merge-keeper", ::addCaptureCircleLayers),
+    MergeCircles(MergeRole.MERGING, "merge-merging", ::addMergingCircleLayers),
+)
+
+private fun openedCircle(places: List<MergeMapPlace>, openedId: Long): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        places.filter { it.place.id == openedId }.map { circleFeature(it.place.pin, it.place.radiusM) },
+    )
+
+/** Dots first and pins last, so every pin draws over the visits around it. */
+private fun mergeMarkers(places: List<MergeMapPlace>, dots: List<MergePreview.Dot>): FeatureCollection {
+    val features = ArrayList<Feature>(dots.size + places.size)
+    for (dot in dots) features += endpointFeature(dot.at, dotImage(dot))
+    for (p in places) {
+        val muted = p.role != MergeRole.KEEPER
+        val image = if (!p.place.isNamed && p.place.externalProvider != null) {
+            IMG_ENDPOINT_IMPORTED
+        } else {
+            placePinImage(p.place.placeCategory, withGlyph = true, muted = muted)
+        }
+        features += endpointFeature(p.place.pin, image, p.label, muted = muted)
+    }
+    return FeatureCollection.fromFeatures(features)
+}
+
+private fun dotImage(dot: MergePreview.Dot): String = when (dot.lands) {
+    MergePreview.Lands.KEEPER -> if (dot.stated) IMG_ASSIGNED else IMG_ENDPOINT
+    MergePreview.Lands.OTHER_PLACE -> if (dot.stated) IMG_ASSIGNED_NEIGHBOR else IMG_NEIGHBOR
+    MergePreview.Lands.NO_PLACE -> IMG_ENDPOINT_BRIEF
+}
+
+private fun mergeExtent(places: List<MergeMapPlace>): List<LatLng> = places.flatMap { p ->
+    val r = p.place.radiusM
+    listOf(
+        offsetMeters(p.place.pin, r, 0.0),
+        offsetMeters(p.place.pin, -r, 0.0),
+        offsetMeters(p.place.pin, 0.0, r),
+        offsetMeters(p.place.pin, 0.0, -r),
+    ).map { it.toLatLng() }
+}
+
+private const val MERGE_OPENED_SOURCE = "merge-opened-src"
+private const val MERGE_OPENED_LINE = "merge-opened-line"
+private const val MERGE_MARKER_SOURCE = "merge-marker-src"
+private const val MERGE_MARKER_LAYER = "merge-marker-layer"
 
 // --- All-places overview map ---------------------------------------------------------------
 

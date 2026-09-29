@@ -54,7 +54,8 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 
 | Concept | Term | What it means |
 |---|---|---|
-| merge | merge | Combining trips into one. A short stop a merge dissolves is *merged away*. |
+| merge | merge | Combining trips into one, or folding places into one. A short stop a merge dissolves is *merged away*. |
+| keep | keep | Choosing the one place a merge of places folds the others into — the *kept place*. |
 | split | split | Cutting one trip into two. |
 | delete | delete | Destroying data, and discarding an entity such as a place. One verb on purpose: severity is carried by the surface, not the word — a trip goes to Recently deleted, a place ends with its undo snackbar — and a softer verb for the second would promise less finality than is true. |
 | clear | clear | Emptying a list (logs, Recently deleted). |

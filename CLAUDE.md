@@ -623,8 +623,7 @@ from rewriting in place: the row is excluded from its own overlap check (`NO_TRA
 excludes nothing), since the fixes it would collide with are the ones being replaced; and the write
 is otherwise an insert, `finalizeImportedTrack` included, because the aggregates and the overrun
 verdict are functions of the points and these are new points. An edit is deliberately **not**
-undoable — every value is in the form, unlike a merge or a delete, and the undo snackbar's host
-cannot reach the layer a commit lands back on.
+undoable — every value is in the form, unlike a merge or a delete.
 
 **Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*
 rows and a Room SQL migration can't express the logic, add a repository pass and run it from

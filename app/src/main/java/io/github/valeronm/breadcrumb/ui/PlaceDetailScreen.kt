@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -150,6 +151,9 @@ internal fun PlaceDetailScreen(
     onAdjustArea: () -> Unit,
     /** Removes an unnamed row and leaves this screen. */
     onRemove: (Place) -> Unit,
+    /** Another place row's circle overlaps this one's. */
+    canMerge: Boolean,
+    onOpenMerge: () -> Unit,
 ) {
     val context = LocalContext.current
     // Only a named row is edited, tagged and titled by its name here.
@@ -187,7 +191,11 @@ internal fun PlaceDetailScreen(
     // time the bar moved.
     // Counted rather than read back off the rendered bar — an action added or withheld would
     // otherwise leave the title silently measured against a slot it doesn't have.
-    val titleTruncated = titleNeedsMoreThanOneLine(title, actionSlots = if (summary.place == null) 1 else 2)
+    val titleTruncated = titleNeedsMoreThanOneLine(
+        title,
+        actionSlots = (if (summary.place == null) 1 else 2) +
+            (if (canMerge) 1 else 0),
+    )
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     // `collapsedFraction` moves with every scroll delta and every fling frame, while the only thing
     // read off it flips once. Derived, so the title recomposes on the crossing rather than the frame.
@@ -233,6 +241,14 @@ internal fun PlaceDetailScreen(
                         Icons.AutoMirrored.Filled.OpenInNew,
                         contentDescription = stringResource(R.string.places_open_in_maps),
                     )
+                }
+                if (canMerge) {
+                    IconButton(onClick = onOpenMerge) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.CallMerge,
+                            contentDescription = stringResource(R.string.places_merge),
+                        )
+                    }
                 }
                 // Everything the user gets to say about a place — its name, its area, its pin — is
                 // edited behind this one action, which is why it wears a pencil rather than the

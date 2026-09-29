@@ -17,9 +17,14 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -47,25 +52,31 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.core.content.IntentCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.PlaceOverlap
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
@@ -250,6 +261,7 @@ private fun MainScreen(
     // A flag rather than a second key: it can only ever be the place the detail below is showing,
     // so deriving the layer's content from that key keeps the two from needing to agree.
     var editingArea by remember { mutableStateOf(false) }
+    var mergingPlaces by remember { mutableStateOf(false) }
     // A spot no stop has found, being named in the editor with no detail beneath it: there is no
     // place yet for a detail to be about.
     var newPlaceSpot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
@@ -329,6 +341,12 @@ private fun MainScreen(
             newPlaceSpot = null
         },
     )
+    // Back from a merge returns to the place detail with nothing written.
+    val mergeLayer = rememberOverlayLayer(
+        content = placeDetailKey?.takeIf { mergingPlaces },
+        over = placeLayer,
+        dismiss = { mergingPlaces = false },
+    )
     // The trip form: back discards the half-entered trip by construction, nothing having been
     // written until its check mark. Stacked on the track detail rather than on the tabs, because a
     // manual track is edited *from* that screen and back must return to it — and a form opened from
@@ -346,11 +364,11 @@ private fun MainScreen(
         selectedTab = HomeTab.TIMELINE
     }
 
-    // Undo snackbars for the Timeline's swipe actions and place removal. Owned here, not in the
-    // tabs: a tab switch would take the tab's composition (and its coroutine scope) with it, killing
-    // a snackbar mid-timer and the undo with it.
+    // Owned here, not in a tab: a tab switch disposes the tab's composition and its coroutine scope,
+    // and a snackbar still on its timer with them.
     val snackbarHostState = remember { SnackbarHostState() }
     val undo = rememberUndoSnackbar(snackbarHostState)
+    var tabsBarHeightPx by remember { mutableIntStateOf(0) }
     // A place goes by the editor's Remove button, and the way back is the Undo — which has to be
     // raised from this host, not from a screen that may be dismissed by the same tap. Deleting
     // leaves the stays, as a detected stop again, and restoring puts the row and the ends stated to
@@ -362,6 +380,14 @@ private fun MainScreen(
         viewModel.deletePlace(place)
         val message = place.label?.let { placeDeleted.format(it) } ?: unnamedPlaceDeleted
         undo.show(message) { viewModel.restorePlace(place) }
+    }
+    val mergePlaces: (Place, List<Place>) -> Unit = { keep, absorbed ->
+        viewModel.mergePlaces(keep, absorbed)
+        undo.show(context.resources.getQuantityString(R.plurals.places_merged, absorbed.size, absorbed.size)) {
+            viewModel.unmergePlaces(keep)
+        }
+        mergingPlaces = false
+        placeDetailKey = PlaceResolver.keyOf(keep.id)
     }
 
     // A map covered by another layer keeps its shade until it is uncovered, rather than rebuilding
@@ -378,7 +404,6 @@ private fun MainScreen(
         CompositionLocalProvider(LocalMapShade provides tabsMapShade.value) {
             Scaffold(
                 modifier = Modifier.blurredBy { tabsLayer.blurDp },
-                snackbarHost = { SnackbarHost(snackbarHostState) },
                 topBar = {
                     TopAppBar(
                         colors = canvasTopBarColors(),
@@ -440,7 +465,10 @@ private fun MainScreen(
                 bottomBar = {
                     // One container step below the canvas: the default surfaceContainer became the
                     // light theme's canvas tone, which made the bar invisible against it.
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                    NavigationBar(
+                        modifier = Modifier.onSizeChanged { tabsBarHeightPx = it.height },
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ) {
                         for (tab in HomeTab.entries) {
                             NavigationBarItem(
                                 selected = selectedTab == tab,
@@ -563,12 +591,14 @@ private fun MainScreen(
                 placeLayer.dismiss()
                 removePlace(place)
             },
+            onOpenMerge = { mergingPlaces = true },
         )
 
         PlaceEditOverlay(
             layer = placeEditLayer,
             viewModel = viewModel,
             snapshot = newPlaceSpot ?: placeDetailSnapshot,
+            snackbarHostState = snackbarHostState,
             // A named spot opens its detail as a create from a stop leaves one, and [onCreated]
             // re-keys it onto the row.
             onSaved = {
@@ -591,6 +621,13 @@ private fun MainScreen(
             },
         )
 
+        MergePlacesOverlay(
+            layer = mergeLayer,
+            viewModel = viewModel,
+            snapshot = placeDetailSnapshot,
+            onMerge = mergePlaces,
+        )
+
         SettingsPagesOverlay(
             layer = settingsLayer,
             viewModel = viewModel,
@@ -608,6 +645,7 @@ private fun MainScreen(
         AddTripOverlay(
             layer = addTripLayer,
             viewModel = viewModel,
+            snackbarHostState = snackbarHostState,
         )
 
         JourneyDetailOverlay(
@@ -618,6 +656,23 @@ private fun MainScreen(
                 landOnTimeline()
             },
             onOpenPlace = { placeDetailKey = it },
+        )
+
+        // Over every layer, since an undo is often raised as one layer closes onto another. Over the
+        // tabs it sits where their Scaffold would put it, above the navigation bar.
+        SnackbarHost(
+            snackbarHostState,
+            Modifier
+                .align(Alignment.BottomCenter)
+                .zIndex(Float.MAX_VALUE)
+                .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal))
+                .then(
+                    if (tabsLayer.onTop) {
+                        Modifier.padding(bottom = with(LocalDensity.current) { tabsBarHeightPx.toDp() })
+                    } else {
+                        Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+                    },
+                ),
         )
 
         when (val open = setup.prompt) {
@@ -653,9 +708,15 @@ private fun NewPlaceOverlay(
 private fun AddTripOverlay(
     layer: OverlayLayerState<TripDraft>,
     viewModel: TrackListViewModel,
+    snackbarHostState: SnackbarHostState,
 ) {
     OverlayFrame(layer) { draft ->
-        AddTripScreen(viewModel = viewModel, draft = draft, onClose = layer.dismiss)
+        AddTripScreen(
+            viewModel = viewModel,
+            draft = draft,
+            snackbarHostState = snackbarHostState,
+            onClose = layer.dismiss,
+        )
     }
 }
 
@@ -710,9 +771,6 @@ private fun MainDestinationOverlay(
                     summary = tracks.firstOrNull { it.id == rendered.id },
                     viewModel = viewModel,
                     onBack = layer.dismiss,
-                    // The screen closes on the cut. It could stay — this track is the first half now,
-                    // id and all — but the undo snackbar lives under the overlay, so keeping the layer
-                    // open would hide the one affordance that reverses the split.
                     onSplit = { atTs ->
                         val trackId = rendered.id
                         viewModel.splitTrack(trackId, atTs) { split ->
@@ -750,6 +808,7 @@ private fun PlaceDetailOverlay(
     onOpenVisit: (StayDeriver.Stay) -> Unit,
     onAdjustArea: () -> Unit,
     onRemove: (Place) -> Unit,
+    onOpenMerge: () -> Unit,
 ) {
     OverlayFrame(layer) { detailKey ->
         // Inside the frame, so the summaries behind `places` are computed only while this layer is
@@ -762,6 +821,11 @@ private fun PlaceDetailOverlay(
             summary?.let(onResolved)
         }
         summary?.let { detail ->
+            val canMerge = remember(detail.place, placeSummaries) {
+                val row = detail.place ?: return@remember false
+                PlaceOverlap.candidatesFor(row, placeSummaries.orEmpty().mapNotNull { it.place }, AndroidDistance)
+                    .isNotEmpty()
+            }
             PlaceDetailScreen(
                 summary = detail,
                 viewModel = viewModel,
@@ -769,6 +833,8 @@ private fun PlaceDetailOverlay(
                 onOpenVisit = onOpenVisit,
                 onAdjustArea = onAdjustArea,
                 onRemove = onRemove,
+                canMerge = canMerge,
+                onOpenMerge = onOpenMerge,
             )
         }
     }
@@ -813,6 +879,7 @@ private fun PlaceEditOverlay(
     layer: OverlayLayerState<String>,
     viewModel: TrackListViewModel,
     snapshot: PlaceResolver.PlaceSummary?,
+    snackbarHostState: SnackbarHostState,
     onSaved: () -> Unit,
     onCreated: (Long) -> Unit,
     onRemove: (Place) -> Unit,
@@ -843,12 +910,50 @@ private fun PlaceEditOverlay(
                 candidates = neighborhood.candidates,
                 rivals = neighborhood.rivals,
                 viewModel = viewModel,
+                snackbarHostState = snackbarHostState,
                 onClose = layer.dismiss,
                 onSaved = onSaved,
                 onCreated = onCreated,
                 onRemove = onRemove,
             )
         }
+    }
+}
+
+@Composable
+private fun MergePlacesOverlay(
+    layer: OverlayLayerState<String>,
+    viewModel: TrackListViewModel,
+    snapshot: PlaceResolver.PlaceSummary?,
+    onMerge: (Place, List<Place>) -> Unit,
+) {
+    OverlayFrame(layer) { key ->
+        val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
+        val pending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
+        val opened = rememberPlaceSummary(placeSummaries, key, snapshot, pending)?.place ?: return@OverlayFrame
+        val placed = remember(placeSummaries) {
+            placeSummaries.orEmpty().mapNotNull { s -> s.place?.let { it to s } }
+        }
+        val rows = remember(placed) { placed.map { it.first } }
+        // Fixed on open: choosing a keeper changes only the roles.
+        val memberIds = remember(key, placeSummaries != null) {
+            listOf(opened.id) + PlaceOverlap.candidatesFor(opened, rows, AndroidDistance).map { it.id }
+        }
+        val members = remember(placed, memberIds) {
+            val byId = placed.filter { it.first.id in memberIds }.associate { it.first.id to it.second }
+            memberIds.mapNotNull { byId[it] }
+        }
+        val stated by produceState<Map<Long, List<Coordinate>>?>(null, memberIds) {
+            value = viewModel.statedEndsByPlace(memberIds)
+        }
+        MergePlacesScreen(
+            opened = opened,
+            members = members,
+            stated = stated,
+            places = rows,
+            onBack = layer.dismiss,
+            onMerge = onMerge,
+        )
     }
 }
 

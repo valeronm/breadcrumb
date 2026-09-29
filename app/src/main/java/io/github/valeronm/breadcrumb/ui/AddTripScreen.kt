@@ -28,7 +28,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -187,8 +186,7 @@ private class TimeEdit(
  * the atlas resolves its pin to (shown on the end's card, never silently applied), so a past
  * flight's times can be entered as the boarding pass states them; with no pin placed yet the time
  * row stays disabled rather than guessing a zone. Everything is local until the check mark commits,
- * so backing out discards by construction — the [PlaceEditScreen] pattern, including the
- * screen-local snackbar host (the app's sits under this layer).
+ * so backing out discards by construction — the [PlaceEditScreen] pattern.
  *
  * What the form opens holding is [draft]'s — the ends a gap row could already fill in, or nothing
  * but the day the Timeline was showing. **It is also how a manual trip is edited**
@@ -199,6 +197,7 @@ private class TimeEdit(
 internal fun AddTripScreen(
     viewModel: TrackListViewModel,
     draft: TripDraft,
+    snackbarHostState: SnackbarHostState,
     onClose: () -> Unit,
 ) {
     // Keyed on the draft: a second gap's form can open while the first is still animating out, and
@@ -222,7 +221,6 @@ internal fun AddTripScreen(
     // like the ends beside it: a second form opening while the first animates out gets a map of its
     // own, and would otherwise sort around wherever that one was left.
     var mapCenter by remember(draft) { mutableStateOf<Coordinate?>(null) }
-    val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     val originCity by produceState<CityAtlas.City?>(null, origin.pin) {
@@ -280,7 +278,6 @@ internal fun AddTripScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),

@@ -53,7 +53,8 @@ Sections and order follow `en.md`, so the two files read side by side.
 
 | Concept | Term | Notes |
 |---|---|---|
-| merge | juntar | *Merged away* is *absorvida* — the stay is absorbed, not joined. |
+| merge | juntar | *Merged away* is *absorvida* — the stay is absorbed, not joined. Also for places: *juntar locais*. |
+| keep | manter | The kept place is the *local mantido*. |
 | split | dividir | |
 | delete | eliminar | |
 | clear | limpar | |

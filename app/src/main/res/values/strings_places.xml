@@ -130,4 +130,24 @@
     <string name="places_location_reason">The map can show where you are once location is allowed</string>
     <string name="places_no_location">The phone\'s location is not available right now</string>
     <string name="places_new_place">New place</string>
+    <!-- Folding place rows whose circles overlap into one of them, chosen on the merge page. -->
+    <string name="places_merge">Merge places</string>
+    <string name="places_merge_body">The places you merge in are deleted. Visits Google Timeline recorded there move to the place you keep, and the rest go to whichever place\'s area covers them.</string>
+    <string name="places_merge_keep">Keep</string>
+    <string name="places_merge_in">Merge in</string>
+    <plurals name="places_merge_opened_visits">
+        <item quantity="one">%d visit · opened</item>
+        <item quantity="other">%d visits · opened</item>
+    </plurals>
+    <string name="places_merge_lands_keeper">Kept place</string>
+    <string name="places_merge_lands_other">Another place</string>
+    <string name="places_merge_lands_none">No place</string>
+    <plurals name="places_merge_confirm">
+        <item quantity="one">Merge %d place</item>
+        <item quantity="other">Merge %d places</item>
+    </plurals>
+    <plurals name="places_merged">
+        <item quantity="one">%d place merged</item>
+        <item quantity="other">%d places merged</item>
+    </plurals>
 </resources>

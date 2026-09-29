@@ -598,24 +598,28 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * derivation files each under its place, and records only where it was.
      */
     suspend fun statedEnds(here: Long?, elsewhere: List<Long>): PlaceClusterer.Stated {
-        val ids = listOfNotNull(here) + elsewhere
+        val byPlace = statedEndsByPlace(listOfNotNull(here) + elsewhere)
+        return PlaceClusterer.Stated(
+            here?.let { byPlace[it] }.orEmpty(),
+            elsewhere.distinct().filter { it != here }.flatMap { byPlace[it].orEmpty() },
+        )
+    }
+
+    /** The kept track ends stated to each of [ids], as coordinates; a place with none is absent. */
+    suspend fun statedEndsByPlace(ids: List<Long>): Map<Long, List<Coordinate>> {
         // Chunked because nothing bounds how many places sit around one; halved because the query
         // binds the list twice. Keyed by track, since one stated at both ends can be in two chunks.
         val rows = HashMap<Long, TrackEndpoints>()
-        for (chunk in ids.chunked(IDS_PER_STATEMENT / 2)) {
+        for (chunk in ids.distinct().chunked(IDS_PER_STATEMENT / 2)) {
             for (track in dao.statedTo(chunk)) rows[track.id] = track
         }
-        val wanted = elsewhere.toHashSet()
-        val atHere = mutableListOf<Coordinate>()
-        val atElsewhere = mutableListOf<Coordinate>()
+        val wanted = ids.toHashSet()
+        val byPlace = HashMap<Long, MutableList<Coordinate>>()
         for (end in StayDeriver.endpointsOf(rows.values.map { it.toTrackEnd() })) {
-            when (end.placeId) {
-                null -> Unit
-                here -> atHere += end.at
-                in wanted -> atElsewhere += end.at
-            }
+            val id = end.placeId ?: continue
+            if (id in wanted) byPlace.getOrPut(id) { mutableListOf() } += end.at
         }
-        return PlaceClusterer.Stated(atHere, atElsewhere)
+        return byPlace
     }
 
     /** What a [splitTrack] did, and all [unsplitTracks] needs to take it back. */

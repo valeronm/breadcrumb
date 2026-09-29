@@ -53,7 +53,8 @@ Sections and order follow `en.md`, so the two files read side by side.
 
 | Concept | Term | Notes |
 |---|---|---|
-| merge | объединить | *Merged away* is *поглощена* — the stay is absorbed, not joined. |
+| merge | объединить | *Merged away* is *поглощена* — the stay is absorbed, not joined. Also for places: *объединить места*. |
+| keep | оставить | The kept place is the *оставляемое место*. |
 | split | разделить | |
 | delete | удалить | Never *убрать*, which reads as tidying up. |
 | clear | очистить | |

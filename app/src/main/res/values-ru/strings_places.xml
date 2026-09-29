@@ -100,4 +100,29 @@
     <string name="places_location_reason">Карта сможет показать, где вы находитесь, когда местоположение будет разрешено</string>
     <string name="places_no_location">Местоположение телефона сейчас недоступно</string>
     <string name="places_new_place">Новое место</string>
+    <string name="places_merge">Объединить места</string>
+    <string name="places_merge_body">Объединяемые места будут удалены. Посещения, записанные там Хронологией Google, перейдут к месту, которое вы оставите, а остальные — к месту, в область которого они попадают.</string>
+    <string name="places_merge_keep">Оставить</string>
+    <string name="places_merge_in">Объединить</string>
+    <plurals name="places_merge_opened_visits">
+        <item quantity="one">%d раз · открытое</item>
+        <item quantity="few">%d раза · открытое</item>
+        <item quantity="many">%d раз · открытое</item>
+        <item quantity="other">%d раза · открытое</item>
+    </plurals>
+    <string name="places_merge_lands_keeper">Оставляемое место</string>
+    <string name="places_merge_lands_other">Другое место</string>
+    <string name="places_merge_lands_none">Без места</string>
+    <plurals name="places_merge_confirm">
+        <item quantity="one">Объединить %d место</item>
+        <item quantity="few">Объединить %d места</item>
+        <item quantity="many">Объединить %d мест</item>
+        <item quantity="other">Объединить %d места</item>
+    </plurals>
+    <plurals name="places_merged">
+        <item quantity="one">%d место объединено</item>
+        <item quantity="few">%d места объединены</item>
+        <item quantity="many">%d мест объединено</item>
+        <item quantity="other">%d места объединено</item>
+    </plurals>
 </resources>

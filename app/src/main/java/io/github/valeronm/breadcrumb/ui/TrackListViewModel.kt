@@ -479,6 +479,20 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { placeRepository.restore(removal.await()) }
     }
 
+    private var lastMerge: Pair<Long, Deferred<PlaceRepository.Merge>>? = null
+
+    fun mergePlaces(keep: Place, absorbed: List<Place>) {
+        lastMerge = keep.id to viewModelScope.async { placeRepository.merge(keep, absorbed) }
+    }
+
+    /** Undo a [mergePlaces] into [keep]; the absorbed rows keep their ids and their stated ends. */
+    fun unmergePlaces(keep: Place) {
+        val (id, merge) = lastMerge ?: return
+        if (id != keep.id) return
+        lastMerge = null
+        viewModelScope.launch { placeRepository.unmerge(merge.await()) }
+    }
+
     /** Null untags. A category is not a clustering input, so nothing re-derives. */
     fun setPlaceCategory(id: Long, category: PlaceCategory?) {
         viewModelScope.launch { placeRepository.setCategory(id, category) }
@@ -620,9 +634,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      */
     suspend fun zonesOfTrack(trackId: Long): Clocks = derived.first().zonesOfTrack(trackId)
 
-    // Off the main thread: an imported place can hold thousands of stated ends to file.
+    // Off the main thread, both: an imported place can hold thousands of stated ends to file.
     suspend fun statedEnds(here: Long?, elsewhere: List<Long>): PlaceClusterer.Stated =
         withContext(Dispatchers.Default) { repository.statedEnds(here, elsewhere) }
+
+    suspend fun statedEndsByPlace(ids: List<Long>): Map<Long, List<Coordinate>> =
+        withContext(Dispatchers.Default) { repository.statedEndsByPlace(ids) }
 
     /**
      * The containing city, so a spot inside a capital resolves to the capital rather than its

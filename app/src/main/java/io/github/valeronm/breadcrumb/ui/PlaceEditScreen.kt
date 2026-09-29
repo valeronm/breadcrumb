@@ -21,7 +21,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -103,6 +102,7 @@ internal fun PlaceEditScreen(
     candidates: List<Coordinate>,
     rivals: List<PlaceClusterer.Seed>,
     viewModel: TrackListViewModel,
+    snackbarHostState: SnackbarHostState,
     onClose: () -> Unit,
     onSaved: () -> Unit,
     onCreated: (Long) -> Unit,
@@ -128,9 +128,6 @@ internal fun PlaceEditScreen(
     // every captured endpoint — so it must not turn on the name itself, or each keystroke would walk
     // the scan again. Derived, so it changes only as the field crosses between blank and not.
     val nameGiven by remember { derivedStateOf { name.value.isNotBlank() } }
-    // Its own host, not the app's: that one hangs off MainScreen's Scaffold, under every overlay
-    // layer, so an Undo offered from this screen would be covered by the screen offering it.
-    val snackbarHostState = remember { SnackbarHostState() }
     val undo = rememberUndoSnackbar(snackbarHostState)
     // Both ways of moving the pin are one step back: a jumped pin has nowhere obvious to return to,
     // where a slider can simply be dragged again.
@@ -173,7 +170,6 @@ internal fun PlaceEditScreen(
         }
     }
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),

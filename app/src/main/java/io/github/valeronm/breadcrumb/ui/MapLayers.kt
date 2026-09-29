@@ -42,7 +42,7 @@ internal const val DISTANCE_KEY = "dm"
 private const val MUTED_KEY = "muted"
 
 private const val CIRCLE_FILL = 0x2E5B9BF0
-private const val CIRCLE_LINE = 0x995B9BF0.toInt()
+internal const val CIRCLE_LINE = 0x995B9BF0.toInt()
 
 /**
  * A capture area on a map that is not *about* that area — a neighbouring place beside the one being
@@ -65,16 +65,14 @@ private const val CONTEXT_AREA_OPACITY = 0.35f
 private const val NEIGHBOR_MUTED_OPACITY = 0.7f
 
 /**
- * The capture-circle look — translucent fill + dashed outline — shared by every ring on every map: a
- * place's own reach, its neighbours', the stops detected inside a track, and the places at that
- * track's ends. All of them are "ground that counts as one spot", so all of them read as one species,
- * and only opacity says which of them the screen is about — [addContextCircleLayers] for the ones it
- * isn't. On a track's map that puts the dwell circles at full strength while an end place's ring
- * recedes: a dwell is *this track's* own evidence, where the ring belongs to a place the track
- * merely arrived in.
+ * The capture-circle look — translucent fill + dashed outline — for every ring standing for ground
+ * that counts as one spot, so they read as one species, and opacity says which of them the screen is
+ * about — [addContextCircleLayers] for the ones it isn't. On a track's map that puts the dwell
+ * circles at full strength while an end place's ring recedes: a dwell is *this track's* own evidence,
+ * where the ring belongs to a place the track merely arrived in.
  */
 internal fun addCaptureCircleLayers(style: Style, sourceId: String, fillLayerId: String, lineLayerId: String) =
-    addCircleLayers(style, sourceId, fillLayerId, lineLayerId, opacity = 1f)
+    addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.CAPTURE)
 
 /**
  * [addCaptureCircleLayers] for a ring the screen is *not* about — a neighbouring place beside the one
@@ -86,27 +84,39 @@ internal fun addContextCircleLayers(
     sourceId: String,
     fillLayerId: String,
     lineLayerId: String,
-) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CONTEXT_AREA_OPACITY)
+) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.CONTEXT)
 
-private fun addCircleLayers(
+/** [addCaptureCircleLayers] outlined in dots rather than dashes, for a place that would be merged into another. */
+internal fun addMergingCircleLayers(
     style: Style,
     sourceId: String,
     fillLayerId: String,
     lineLayerId: String,
-    opacity: Float,
-) {
+) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.MERGING)
+
+/** [dash] is in line widths. */
+private enum class CircleLook(val opacity: Float, val dash: Array<Float>, val cap: String) {
+    CAPTURE(1f, arrayOf(2f, 2f), Property.LINE_CAP_BUTT),
+    CONTEXT(CONTEXT_AREA_OPACITY, arrayOf(2f, 2f), Property.LINE_CAP_BUTT),
+
+    /** Round caps turn the 0.5-width dash into a short rounded dash about 1.5 widths long. */
+    MERGING(1f, arrayOf(0.5f, 2f), Property.LINE_CAP_ROUND),
+}
+
+private fun addCircleLayers(style: Style, sourceId: String, fillLayerId: String, lineLayerId: String, look: CircleLook) {
     style.addLayer(
         FillLayer(fillLayerId, sourceId).withProperties(
             PropertyFactory.fillColor(CIRCLE_FILL),
-            PropertyFactory.fillOpacity(opacity),
+            PropertyFactory.fillOpacity(look.opacity),
         ),
     )
     style.addLayer(
         LineLayer(lineLayerId, sourceId).withProperties(
             PropertyFactory.lineColor(CIRCLE_LINE),
             PropertyFactory.lineWidth(1.5f),
-            PropertyFactory.lineDasharray(arrayOf(2f, 2f)),
-            PropertyFactory.lineOpacity(opacity),
+            PropertyFactory.lineDasharray(look.dash),
+            PropertyFactory.lineCap(look.cap),
+            PropertyFactory.lineOpacity(look.opacity),
         ),
     )
 }
