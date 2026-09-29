@@ -9,6 +9,7 @@ import io.github.valeronm.breadcrumb.data.db.NO_TRACK
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.data.db.TrackSpan
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -530,6 +531,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     suspend fun hasKeptTracks(): Boolean = dao.hasKeptTracks()
+
+    suspend fun keptSpans(): List<TrackSpan> = dao.keptSpans()
 
     fun observeHasKeptTracks(): Flow<Boolean> = dao.observeHasKeptTracks()
 

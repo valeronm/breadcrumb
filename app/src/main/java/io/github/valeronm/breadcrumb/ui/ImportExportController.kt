@@ -42,12 +42,12 @@ internal class ImportExportController(
     /** Track progress of a long-running export/restore-style operation. */
     class OpProgress(val tracksDone: Int, val tracksTotal: Int?)
 
-    /** What a load into the history reports when it is not a failure, which is null. */
-    sealed interface LoadOutcome<out S> {
-        class Loaded<S>(val summary: S) : LoadOutcome<S>
+    /** What a restore reports when it is not a failure, which is null. */
+    sealed interface RestoreOutcome {
+        class Restored(val summary: BackupImporter.Summary) : RestoreOutcome
 
-        /** Refused at the start: the history holds a track, and this load merges nothing. */
-        data object NotEmpty : LoadOutcome<Nothing>
+        /** Refused at the start: the history holds a track, and a restore merges nothing. */
+        data object NotEmpty : RestoreOutcome
     }
 
     /** Non-null while a GPX bulk export runs — drives the Export tracks row; survives navigation. */
@@ -146,35 +146,29 @@ internal class ImportExportController(
         }
 
     /**
-     * A load that merges nothing, so it starts only into a history holding no track, checked as it
-     * starts rather than when it was offered: a recording can end while the file is being picked.
+     * Restores a backup file whole into an empty history. Reports the outcome, or null on failure.
+     * Emptiness is checked as the restore starts rather than when it was offered: a recording can
+     * end while the file is being picked.
      */
-    private fun <S> runEmptyHistoryLoad(
-        progress: MutableStateFlow<OpProgress?>,
-        logLabel: String,
-        onBusy: () -> Unit,
-        onDone: (LoadOutcome<S>?) -> Unit,
-        load: suspend (onProgress: (Int, Int?) -> Unit) -> S?,
-    ) = runHistoryOp(progress, logLabel, onBusy, onDone) { onProgress ->
-        if (repository.hasKeptTracks()) LoadOutcome.NotEmpty else load(onProgress)?.let { LoadOutcome.Loaded(it) }
-    }
-
-    /** Restores a backup file whole into an empty history. Reports the outcome, or null on failure. */
-    fun restoreBackup(uri: Uri, onBusy: () -> Unit, onDone: (LoadOutcome<BackupImporter.Summary>?) -> Unit) =
-        runEmptyHistoryLoad(_restoreProgress, "backup restore", onBusy, onDone) { onProgress ->
-            BackupImporter.importFrom(app, backupRepositories, uri, onProgress)
+    fun restoreBackup(uri: Uri, onBusy: () -> Unit, onDone: (RestoreOutcome?) -> Unit) =
+        runHistoryOp(_restoreProgress, "backup restore", onBusy, onDone) { onProgress ->
+            if (repository.hasKeptTracks()) {
+                RestoreOutcome.NotEmpty
+            } else {
+                BackupImporter.importFrom(app, backupRepositories, uri, onProgress)?.let(RestoreOutcome::Restored)
+            }
         }
 
     /** Non-null while a Google Timeline import runs. */
     private val _googleTimelineImportProgress = MutableStateFlow<OpProgress?>(null)
     val googleTimelineImportProgress: StateFlow<OpProgress?> = _googleTimelineImportProgress
 
-    /** Loads a Google Timeline export into an empty history. Reports the outcome, or null on failure. */
+    /** Loads a Google Timeline export into the history. Reports the counts, or null on failure. */
     fun importGoogleTimeline(
         uri: Uri,
         onBusy: () -> Unit,
-        onDone: (LoadOutcome<GoogleTimelineImporter.Summary>?) -> Unit,
-    ) = runEmptyHistoryLoad(_googleTimelineImportProgress, "google timeline import", onBusy, onDone) { onProgress ->
+        onDone: (GoogleTimelineImporter.Summary?) -> Unit,
+    ) = runHistoryOp(_googleTimelineImportProgress, "google timeline import", onBusy, onDone) { onProgress ->
         GoogleTimelineImporter.importFrom(
             app,
             backupRepositories,

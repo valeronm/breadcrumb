@@ -22,6 +22,9 @@ data class TrackStatsUpdate(
     val endLon: Double?,
 )
 
+/** A kept track's bounds, [endedAt] null while it records. */
+class TrackSpan(val startedAt: Long, val endedAt: Long?)
+
 /** Excludes no row from the overlap checks — no track has this id ([TrackDao.countTracksSpanning]). */
 const val NO_TRACK = 0L
 
@@ -257,6 +260,9 @@ interface TrackDao {
         """,
     )
     suspend fun countTracksOverlapping(startedAt: Long, endedAt: Long, exceptTrackId: Long): Int
+
+    @Query("SELECT startedAt, endedAt FROM tracks WHERE discardedAt IS NULL")
+    suspend fun keptSpans(): List<TrackSpan>
 
     @Query("SELECT * FROM tracks WHERE endedAt IS NULL")
     suspend fun openTracks(): List<Track>

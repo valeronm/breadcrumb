@@ -1,7 +1,9 @@
 package io.github.valeronm.breadcrumb.data.export
 
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.flatDistance
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -65,5 +67,33 @@ class GoogleTimelinePlacesTest {
     @Test fun `several homes are several places`() {
         val result = places(visits("a", "HOME", 2), visits("b", "HOME", 2, lat = 1.05), visits("c", "WORK", 2, lat = 1.1))
         assertEquals(listOf(PlaceCategory.HOME, PlaceCategory.HOME, PlaceCategory.WORK), result.map { it.category })
+    }
+
+    private fun candidate(placeId: String, category: PlaceCategory?, lat: Double = 1.0) =
+        GoogleTimelinePlaces.Candidate(placeId, category, lat, -2.0)
+
+    private fun existing(id: Long, category: PlaceCategory?, lat: Double = 1.0, radiusM: Double = 150.0) =
+        Place(id = id, label = "own", lat = lat, lon = -2.0, createdAt = 0, radiusM = radiusM, category = category?.code)
+
+    private fun match(candidates: List<GoogleTimelinePlaces.Candidate>, places: List<Place>) =
+        GoogleTimelinePlaces.matchExisting(candidates, places, flatDistance)
+
+    @Test fun `a home inside an existing home's circle is that home`() {
+        assertEquals(mapOf("g" to 7L), match(listOf(candidate("g", PlaceCategory.HOME, lat = 1.001)), listOf(existing(7, PlaceCategory.HOME))))
+    }
+
+    @Test fun `of two homes holding the pin, the nearer is the match`() {
+        val homes = listOf(existing(1, PlaceCategory.HOME, lat = 1.0), existing(2, PlaceCategory.HOME, lat = 1.0015))
+        assertEquals(mapOf("g" to 2L), match(listOf(candidate("g", PlaceCategory.HOME, lat = 1.001)), homes))
+    }
+
+    @Test fun `a pin outside the existing circle stands as its own place`() {
+        val home = existing(1, PlaceCategory.HOME, radiusM = 50.0)
+        assertTrue(match(listOf(candidate("g", PlaceCategory.HOME, lat = 1.001)), listOf(home)).isEmpty())
+    }
+
+    @Test fun `only the same category matches, and an untagged candidate never does`() {
+        val places = listOf(existing(1, PlaceCategory.WORK), existing(2, null))
+        assertTrue(match(listOf(candidate("h", PlaceCategory.HOME), candidate("u", null)), places).isEmpty())
     }
 }

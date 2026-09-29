@@ -155,6 +155,64 @@ class GoogleTimelineImportTest {
         assertTrue(track.distanceMeters < 500.0)
     }
 
+    private val homeCafeShop = doc(
+        visit(out - 3_600_000L, 1.0, "HOME", endMs = out),
+        activity(out, out + 11 * 60_000L, 1.0, 1.011),
+        visit(out + 11 * 60_000L, 1.011, "UNKNOWN", endMs = back, placeId = "cafe"),
+        activity(back, back + 11 * 60_000L, 1.011, 1.02),
+        visit(back + 11 * 60_000L, 1.02, "UNKNOWN", placeId = "shop"),
+    )
+
+    @Test fun `a trip a kept track overlaps is skipped, and the other loads`() = runTest {
+        val recorded = target.walk(back + 60_000L, 0, 5)
+        val summary = import(homeCafeShop)
+        assertEquals(1, summary.tracks)
+        assertEquals(1, summary.overlapping)
+        val tracks = target.repository.exportTracks()
+        assertEquals(listOf(TrackOrigin.GOOGLE_TIMELINE.code, TrackOrigin.RECORDED.code), tracks.map { it.source })
+        assertEquals(recorded, tracks[1].id)
+        DerivedConsistency.assertMatchesFreshDerive(target.db, back + 86_400_000L)
+    }
+
+    @Test fun `a place only a skipped trip reached is not made`() = runTest {
+        target.walk(back + 60_000L, 0, 5)
+        val summary = import(homeCafeShop)
+        assertEquals(2, summary.places)
+        val made = target.db.placeDao().allPlaces().map { it.externalId }.toSet()
+        assertEquals(setOf("home", "cafe"), made)
+    }
+
+    @Test fun `a home stands with no trip loaded there`() = runTest {
+        target.walk(out + 60_000L, 0, 5)
+        target.walk(back + 60_000L, 5, 0)
+        val summary = import(twoTripsAndAHome)
+        assertEquals(0, summary.tracks)
+        assertEquals(2, summary.overlapping)
+        assertEquals(listOf("home"), target.db.placeDao().allPlaces().mapNotNull { it.externalId })
+        DerivedConsistency.assertMatchesFreshDerive(target.db, back + 86_400_000L)
+    }
+
+    @Test fun `a home the history holds takes Google's trip ends, and its row is not written`() = runTest {
+        val ownId = places.create(target.place("Flat", 1.0005, -2.0).copy(category = PlaceCategory.HOME.code))
+        val own = target.db.placeDao().allPlaces().single()
+        val summary = import(twoTripsAndAHome)
+        assertEquals(1, summary.places)
+        assertTrue(target.db.placeDao().allPlaces().none { it.externalId == "home" })
+        assertEquals(own, target.db.placeDao().allPlaces().single { it.id == ownId })
+        val (outbound, inbound) = target.repository.exportTracks()
+        assertEquals(ownId, outbound.startPlaceId)
+        assertEquals(ownId, inbound.endPlaceId)
+        DerivedConsistency.assertMatchesFreshDerive(target.db, back + 86_400_000L)
+    }
+
+    @Test fun `an untagged place the history holds does not absorb Google's place beside it`() = runTest {
+        places.create(target.place("Cafe", 1.011, -2.0))
+        import(twoTripsAndAHome)
+        val cafe = placeRow("cafe")
+        val (outbound, _) = target.repository.exportTracks()
+        assertEquals(cafe.id, outbound.endPlaceId)
+    }
+
     @Test fun `a file with no readable trip is refused and writes nothing`() = runTest {
         val failure = runCatching { import(doc(visit(out, 1.0, "HOME"))) }.exceptionOrNull()
         assertTrue(failure is IllegalArgumentException)

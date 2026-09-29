@@ -1,6 +1,10 @@
 package io.github.valeronm.breadcrumb.data.export
 
+import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.placeCategory
 
 /**
  * The places a Google Timeline export supports: one per Google place with a top-level visit, and one
@@ -52,5 +56,21 @@ internal object GoogleTimelinePlaces {
             val pin = checkNotNull(tally.latest)
             Candidate(placeId, category, pin.at.lat, pin.at.lon)
         }
+    }
+
+    /**
+     * The existing row each home or work candidate is, keyed by Google place id: a place of the
+     * same category whose circle holds the candidate's pin, the nearest where several do. Only a
+     * category both sides state is trusted to make two pins one place.
+     */
+    fun matchExisting(candidates: List<Candidate>, existing: List<Place>, distance: DistanceFn): Map<String, Long> {
+        val byCategory = existing.groupBy { it.placeCategory }
+        val matches = HashMap<String, Long>()
+        for (candidate in candidates) {
+            val same = byCategory[candidate.category ?: continue] ?: continue
+            PlaceClusterer.nearestSeedIndex(candidate.lat, candidate.lon, PlaceClusterer.seedsOf(same), distance)
+                ?.let { matches[candidate.placeId] = same[it].id }
+        }
+        return matches
     }
 }

@@ -35,25 +35,19 @@ internal object GoogleTimelineTracks {
      * is one of those fixes restamped to the minute, so the two interleaved would put one position
      * at two times. A fix at or beyond [maxAccuracyM] is ignored as the recorder would ignore it.
      *
-     * A track's end is stated to the place of the top-level visit starting at the instant it ends,
-     * and its start to the one ending at the instant it starts: Google joined the two exactly when
-     * their times are equal. [rowOf] is the place row a Google place id was inserted as.
+     * A track's ends are stated to the places [Ends] joins them to, [rowOf] being the place row a
+     * Google place id stands as.
      */
     fun build(
         export: GoogleTimelineExport,
         rowOf: (String) -> Long?,
         maxAccuracyM: Float,
         distance: DistanceFn = AndroidDistance,
+        activities: List<GoogleTimelineActivity> = export.activities,
     ): Sequence<Pair<Track, List<TrackPoint>>> {
-        val arrivals = HashMap<Long, String>()
-        val departures = HashMap<Long, String>()
-        for (visit in export.visits) {
-            if (!visit.topLevel) continue
-            arrivals[visit.startMs] = visit.placeId
-            departures[visit.endMs] = visit.placeId
-        }
+        val ends = Ends(export.visits)
         val gates = TrackQuality.Gates(maxAccuracyM = maxAccuracyM)
-        return export.activities.sortedBy { it.startMs }.asSequence().map { activity ->
+        return activities.sortedBy { it.startMs }.asSequence().map { activity ->
             val type = activityFor(activity.type)
             val inside = if (spans(export.fixes, activity)) export.fixes else export.path
             val points = ArrayList<TrackPoint>()
@@ -70,10 +64,32 @@ internal object GoogleTimelineTracks {
                 source = TrackOrigin.GOOGLE_TIMELINE.code,
                 startedAt = activity.startMs,
                 endedAt = activity.endMs,
-                startPlaceId = departures[activity.startMs]?.let(rowOf),
-                endPlaceId = arrivals[activity.endMs]?.let(rowOf),
+                startPlaceId = ends.startOf(activity)?.let(rowOf),
+                endPlaceId = ends.endOf(activity)?.let(rowOf),
             ) to flagBadFixes(points, type, gates, distance)
         }
+    }
+
+    /**
+     * The Google place an activity's ends are joined to: its end to the top-level visit starting at
+     * the instant it ends, and its start to the one ending at the instant it starts. Google joined the
+     * two exactly when their times are equal.
+     */
+    class Ends(visits: List<GoogleTimelineVisit>) {
+        private val arrivals = HashMap<Long, String>()
+        private val departures = HashMap<Long, String>()
+
+        init {
+            for (visit in visits) {
+                if (!visit.topLevel) continue
+                arrivals[visit.startMs] = visit.placeId
+                departures[visit.endMs] = visit.placeId
+            }
+        }
+
+        fun startOf(activity: GoogleTimelineActivity): String? = departures[activity.startMs]
+
+        fun endOf(activity: GoogleTimelineActivity): String? = arrivals[activity.endMs]
     }
 
     /** The export keeps [fixes] for its last month only, which can begin or end mid-trip. */

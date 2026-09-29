@@ -425,10 +425,12 @@ query's fixed cost is most of what a short track costs to read, which is what ma
 time expensive. **A column added to `track_points` lowers that budget**, the cursor window being its
 ceiling: the number is in the exporter and the row it sizes is in `Entities.kt`, so neither file can
 warn you on its own.
-Restore and the Google Timeline import
-(`GoogleTimelineImporter`) sit in the Data page's Import section beside the GPX import, and take
-only an empty history: with tracks present either would have to merge with them, so both rows are
-disabled, saying why, from the first track on. The empty states of an empty history lead to that
+Restore, the Google Timeline import
+(`GoogleTimelineImporter`) and the GPX import sit in the Data page's Import section. Restore takes
+only an empty history: with tracks present it would have to merge with them, so its row is disabled,
+saying why, from the first track on. The two imports load beside the kept history and skip every
+trip a kept track overlaps, so where the recorder and a file both cover a stretch, the recorder's
+track stands. The empty states of an empty history lead to that
 page, and the Timeline's empty state reports a running restore or import wherever it was started.
 Clearing the history from that page leaves the recorder armed, so it runs inside the recorder's lock:
 the open track is closed first and the recorder re-armed after, as a start re-arms it, and a fix
@@ -437,9 +439,15 @@ imports, clear, both exports, and a restore from Recently deleted — refuses to
 runs, `ImportExportController.historyOpRunning` being the one place that says whether one does: an
 export beside a clear would write a file missing what the clear took. The Google Timeline import keeps Google's
 grouping of visits into places, which the user confirmed or corrected in Google and which a path
-sampled once a minute cannot recover: a place row per Google place, left unnamed unless it is a home
-or a work, and every trip end Google joined to a visit stated to that visit's place. Google labels
-visits rather than places, so a spot is a home or a work on a majority of its labelled visits. The
+sampled once a minute cannot recover: a place row per Google place a loaded trip starts or ends at,
+left unnamed unless it is a home or a work, and every trip end Google joined to a visit stated to
+that visit's place. A home or a work gets its row even with no trip loaded there, its category being
+the one fact such a row carries. Google labels visits rather than places, so a spot is a home or a
+work on a majority of its labelled visits. **A home or a work the history already holds is matched,
+not duplicated** — same category, Google's pin inside its circle — and Google's trip ends are stated
+to that row without writing it, so every place row the import wrote is one it created and carries its
+`externalProvider`. No other Google place is matched to an existing one, however close: only the
+category is evidence on both sides that two pins are one place. The
 format also feeds the
 web companion viewer in `site/src/viewer/` (see its own README) — a change to it is a change to that viewer's
 input, and the viewer draws off-path fixes by the same conventions this app does *and derives the

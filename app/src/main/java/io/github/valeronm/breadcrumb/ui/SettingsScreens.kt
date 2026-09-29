@@ -68,8 +68,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
+import io.github.valeronm.breadcrumb.data.export.GoogleTimelineImporter
 import io.github.valeronm.breadcrumb.data.export.LogExporter
-import io.github.valeronm.breadcrumb.ui.ImportExportController.LoadOutcome
+import io.github.valeronm.breadcrumb.ui.ImportExportController.RestoreOutcome
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.SliderStops
@@ -699,7 +700,7 @@ internal fun DataSettingsScreen(onBack: () -> Unit, viewModel: TrackListViewMode
         SectionHeading(stringResource(R.string.data_import_section))
         GroupedRows(
             { RestoreRow(viewModel, loadBlocked) },
-            { GoogleTimelineRow(viewModel, loadBlocked) },
+            { GoogleTimelineRow(viewModel, busy) },
             { ImportTracksRow(viewModel, busy) },
         )
         SectionHeading(stringResource(R.string.data_export_section))
@@ -1014,9 +1015,9 @@ private fun RestoreRow(viewModel: TrackListViewModel, blockedBy: String?) {
         viewModel.importExport.restoreBackup(uri, onBusy = { busyToast(appContext) }) { outcome ->
             val message = when (outcome) {
                 null -> appContext.getString(R.string.data_restore_failed)
-                is LoadOutcome.Loaded ->
+                is RestoreOutcome.Restored ->
                     appContext.getString(R.string.data_restored, outcome.summary.tracks, outcome.summary.places)
-                LoadOutcome.NotEmpty -> appContext.getString(R.string.data_load_not_empty)
+                RestoreOutcome.NotEmpty -> appContext.getString(R.string.data_load_not_empty)
             }
             Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
         }
@@ -1041,19 +1042,11 @@ private fun GoogleTimelineRow(viewModel: TrackListViewModel, blockedBy: String?)
     val progress by viewModel.importExport.googleTimelineImportProgress.collectAsStateWithLifecycle()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.importExport.importGoogleTimeline(uri, onBusy = { busyToast(appContext) }) { outcome ->
-            val summary = (outcome as? LoadOutcome.Loaded)?.summary
-            val message = when {
-                outcome == null -> appContext.getString(R.string.data_google_import_failed)
-                summary == null -> appContext.getString(R.string.data_load_not_empty)
-                summary.skipped == 0 ->
-                    appContext.getString(R.string.data_google_imported, summary.tracks, summary.places)
-                else -> appContext.getString(
-                    R.string.data_google_imported_skipped,
-                    summary.tracks,
-                    summary.places,
-                    summary.skipped,
-                )
+        viewModel.importExport.importGoogleTimeline(uri, onBusy = { busyToast(appContext) }) { summary ->
+            val message = if (summary == null) {
+                appContext.getString(R.string.data_google_import_failed)
+            } else {
+                googleImportMessage(appContext, summary)
             }
             Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
         }
@@ -1071,4 +1064,19 @@ private fun GoogleTimelineRow(viewModel: TrackListViewModel, blockedBy: String?)
         total = progress?.tracksTotal,
         blockedBy = blockedBy,
     ) { launcher.launch(GOOGLE_TIMELINE_MIME_TYPES) }
+}
+
+private fun googleImportMessage(context: Context, summary: GoogleTimelineImporter.Summary): String {
+    val loaded = if (summary.skipped == 0) {
+        context.getString(R.string.data_google_imported, summary.tracks, summary.places)
+    } else {
+        context.getString(R.string.data_google_imported_skipped, summary.tracks, summary.places, summary.skipped)
+    }
+    if (summary.overlapping == 0) return loaded
+    val overlapping = context.resources.getQuantityString(
+        R.plurals.gpx_overlapping,
+        summary.overlapping,
+        summary.overlapping,
+    )
+    return "$loaded · $overlapping"
 }

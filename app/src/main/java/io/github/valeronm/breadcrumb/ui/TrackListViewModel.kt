@@ -295,7 +295,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         .map { open -> open?.let { TimelineItem.RecordingItem(it.id, it.label, it.startedAt) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** Whether a restore or a Google Timeline import may start, by the query their start is refused on. */
+    /** Whether a restore may start, by the query its start is refused on. */
     val historyLoadable: StateFlow<Boolean> = repository.observeHasKeptTracks()
         .map { !it }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
