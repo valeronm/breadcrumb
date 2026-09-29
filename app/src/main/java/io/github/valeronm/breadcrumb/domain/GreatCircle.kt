@@ -29,8 +29,12 @@ object GreatCircle {
     /** Under this central angle (~11 km) a straight segment and the arc are the same line. */
     private const val MIN_ANGLE_RAD = 0.001
 
-    /** Two good fixes are a trip's ends with nothing observed between them. */
-    fun drawsPath(fixes: Int): Boolean = fixes == 2
+    /**
+     * A flight's legs span distances a projected chord visibly misplaces, and two good fixes are a
+     * trip's ends with nothing observed between them.
+     */
+    fun drawsPath(fixes: Int, activity: ActivityType?): Boolean =
+        fixes == 2 || activity?.trackGroup == TrackGroup.AIR
 
     /**
      * The arc from [from] to [to] inclusive, ends exact. Degenerate spans hand back just the two

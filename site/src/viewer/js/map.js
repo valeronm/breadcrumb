@@ -354,7 +354,7 @@ function lineFeature(coordinates, properties = {}) {
 
 /** The app's GreatCircle.drawsPath over a stored track row. */
 function drawsGreatCircle(track) {
-  return track.pointCount === 2;
+  return track.pointCount === 2 || track.activityType === "FLIGHT";
 }
 
 /** A line's legs drawn along their great circles ([greatCircleArc]), for display only: the stored

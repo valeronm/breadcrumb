@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.PolylineSimplifier
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
@@ -61,7 +62,7 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
             JourneyLine(
                 trackId = track.id,
                 activityType = track.activityType,
-                greatCircle = GreatCircle.drawsPath(track.pointCount),
+                greatCircle = GreatCircle.drawsPath(track.pointCount, ActivityType.ofName(track.activityType)),
                 segments = SegmentBreaks.split(points).map(::segmentOf),
             )
         }

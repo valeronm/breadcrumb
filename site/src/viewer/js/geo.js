@@ -93,8 +93,9 @@ export function reachBound(lat, lon, distance) {
   return outOfReach;
 }
 
-// GreatCircle — the app's rule for drawing a track of two good fixes: a straight segment in projected
-// space is a route nothing travelled, so the leg is drawn along the shorter great-circle arc.
+// GreatCircle — the app's rule for drawing a flight or a track of two good fixes: a straight
+// segment in projected space is a route nothing travelled, so the leg is drawn along the shorter
+// great-circle arc.
 // Spherical on purpose (this shapes a line, it measures nothing), same constants as the app's.
 
 /** Arc samples per radian of central angle — one point per ~1.2° keeps a hemisphere-scale arc

@@ -77,7 +77,7 @@ internal fun MapLibreTrackMap(
     precomputedSeams: TrackQuality.Seams? = null,
 ) {
     // Display geometry only: the coloring, seams and markers stay on the stored fixes.
-    val greatCircleLegs = GreatCircle.drawsPath(points.size)
+    val greatCircleLegs = GreatCircle.drawsPath(points.size, activity)
     val mapDark = isMapDark()
     // For the pin images an update may have to register — the style-loaded callback is handed a
     // context, an update is not.

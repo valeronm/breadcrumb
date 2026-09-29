@@ -8,6 +8,7 @@ import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.GreatCircle
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.style.expressions.Expression
@@ -144,8 +145,9 @@ private fun addSegmentCorners(segment: DoubleArray, into: MutableList<LatLng>) {
 }
 
 /**
- * One feature per drawn stretch, its color property shared per activity. A two-fix track is
- * densified along its great circle ([greatCirclePositions]), as the track detail draws it.
+ * One feature per drawn stretch, its color property shared per activity. A line
+ * [GreatCircle.drawsPath] names is densified along its great circle ([greatCirclePositions]), as
+ * the track detail draws it.
  */
 private fun journeyCollection(lines: List<JourneyLine>, colorByType: Map<String, Int>): FeatureCollection {
     val features = ArrayList<Feature>()
