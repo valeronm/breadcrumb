@@ -31,6 +31,9 @@ interface PlaceDao {
     @Query("DELETE FROM places WHERE id = :id")
     suspend fun delete(id: Long)
 
+    @Query("SELECT * FROM places WHERE id = :id")
+    suspend fun place(id: Long): Place?
+
     @Query("SELECT * FROM places ORDER BY createdAt ASC, id ASC")
     fun observeAll(): Flow<List<Place>>
 

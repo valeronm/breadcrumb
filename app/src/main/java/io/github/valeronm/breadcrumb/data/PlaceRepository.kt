@@ -66,18 +66,46 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
      *  foreign key clears. */
     class Removal(val place: Place, val startsOf: List<Long>, val endsOf: List<Long>)
 
-    suspend fun delete(place: Place): Removal = seeding {
-        val removal = Removal(place, tracks.startsStatedTo(place.id), tracks.endsStatedTo(place.id))
-        dao.delete(place.id)
-        removal
-    }
+    suspend fun delete(place: Place): Removal = seeding { remove(place) }
 
     /**
      * Undo a [delete] by re-inserting the row as it was — same id, pin, radius and creation time —
      * and stating its ends to it again, so the stays that clustered to it cluster back exactly as
      * before.
      */
-    suspend fun restore(removal: Removal) = seeding {
+    suspend fun restore(removal: Removal) = seeding { reinstate(removal) }
+
+    /** The rows a [merge] removed, each with the trip ends that were stated to it. */
+    class Merge(val removals: List<Removal>)
+
+    /**
+     * Folds [absorbed] into [keep]: the trip ends stated to each absorbed row are stated to [keep],
+     * and the rows are removed. [keep]'s own row is not written. A row already gone is skipped, and
+     * nothing happens if [keep] itself is gone.
+     */
+    suspend fun merge(keep: Place, absorbed: List<Place>): Merge = seeding {
+        if (dao.place(keep.id) == null) return@seeding Merge(emptyList())
+        val removals = absorbed
+            .filter { it.id != keep.id && dao.place(it.id) != null }
+            .map { place ->
+                val removal = remove(place)
+                removal.startsOf.chunked(IDS_PER_STATEMENT).forEach { tracks.stateStarts(it, keep.id) }
+                removal.endsOf.chunked(IDS_PER_STATEMENT).forEach { tracks.stateEnds(it, keep.id) }
+                removal
+            }
+        Merge(removals)
+    }
+
+    /** Undo a [merge]: every absorbed row and every end stated to it come back as they were. */
+    suspend fun unmerge(merge: Merge) = seeding { merge.removals.forEach { reinstate(it) } }
+
+    private suspend fun remove(place: Place): Removal {
+        val removal = Removal(place, tracks.startsStatedTo(place.id), tracks.endsStatedTo(place.id))
+        dao.delete(place.id)
+        return removal
+    }
+
+    private suspend fun reinstate(removal: Removal) {
         dao.insert(removal.place)
         removal.startsOf.chunked(IDS_PER_STATEMENT).forEach { tracks.stateStarts(it, removal.place.id) }
         removal.endsOf.chunked(IDS_PER_STATEMENT).forEach { tracks.stateEnds(it, removal.place.id) }
