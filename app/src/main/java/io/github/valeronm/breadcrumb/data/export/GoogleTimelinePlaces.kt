@@ -59,14 +59,23 @@ internal object GoogleTimelinePlaces {
     }
 
     /**
-     * The existing row each home or work candidate is, keyed by Google place id: a place of the
-     * same category whose circle holds the candidate's pin, the nearest where several do. Only a
-     * category both sides state is trusted to make two pins one place.
+     * The existing row each candidate is, keyed by Google place id: the row an earlier import made for
+     * that Google place, else, for a home or a work, a place of the same category whose circle holds
+     * the candidate's pin, the nearest where several do. Only Google's own id, or a category both sides
+     * state, is trusted to make two pins one place.
      */
     fun matchExisting(candidates: List<Candidate>, existing: List<Place>, distance: DistanceFn): Map<String, Long> {
+        val imported = existing.filter { it.externalProvider == GoogleTimelineImporter.PROVIDER }
+            .mapNotNull { p -> p.externalId?.let { it to p.id } }
+            .toMap()
         val byCategory = existing.groupBy { it.placeCategory }
         val matches = HashMap<String, Long>()
         for (candidate in candidates) {
+            val known = imported[candidate.placeId]
+            if (known != null) {
+                matches[candidate.placeId] = known
+                continue
+            }
             val same = byCategory[candidate.category ?: continue] ?: continue
             PlaceClusterer.nearestSeedIndex(candidate.lat, candidate.lon, PlaceClusterer.seedsOf(same), distance)
                 ?.let { matches[candidate.placeId] = same[it].id }

@@ -446,8 +446,10 @@ the one fact such a row carries. Google labels visits rather than places, so a s
 work on a majority of its labelled visits. **A home or a work the history already holds is matched,
 not duplicated** — same category, Google's pin inside its circle — and Google's trip ends are stated
 to that row without writing it, so every place row the import wrote is one it created and carries its
-`externalProvider`. No other Google place is matched to an existing one, however close: only the
-category is evidence on both sides that two pins are one place. The
+`externalProvider`. A place an earlier import made is found by Google's id and takes a newer
+export's trip ends the same way; one a merge absorbed has lost that id, and comes back as a row of
+its own. No other Google place is matched to an existing one, however close: only the category is
+evidence on both sides that two pins are one place. The
 format also feeds the
 web companion viewer in `site/src/viewer/` (see its own README) — a change to it is a change to that viewer's
 input, and the viewer draws off-path fixes by the same conventions this app does *and derives the

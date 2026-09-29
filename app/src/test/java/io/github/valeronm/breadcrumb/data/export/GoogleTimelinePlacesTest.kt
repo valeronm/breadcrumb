@@ -87,6 +87,11 @@ class GoogleTimelinePlacesTest {
         assertEquals(mapOf("g" to 2L), match(listOf(candidate("g", PlaceCategory.HOME, lat = 1.001)), homes))
     }
 
+    @Test fun `a place an earlier import made is matched by Google's id wherever its pin now is`() {
+        val earlier = existing(4, category = null).copy(externalProvider = GoogleTimelineImporter.PROVIDER, externalId = "g")
+        assertEquals(mapOf("g" to 4L), match(listOf(candidate("g", category = null, lat = 1.05)), listOf(earlier)))
+    }
+
     @Test fun `a pin outside the existing circle stands as its own place`() {
         val home = existing(1, PlaceCategory.HOME, radiusM = 50.0)
         assertTrue(match(listOf(candidate("g", PlaceCategory.HOME, lat = 1.001)), listOf(home)).isEmpty())

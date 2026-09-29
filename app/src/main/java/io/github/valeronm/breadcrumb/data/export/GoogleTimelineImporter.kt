@@ -13,8 +13,9 @@ import java.io.Reader
 /**
  * Loads a Google Timeline export beside the history already kept. A trip a kept track overlaps is
  * skipped. A Google place becomes a row only where a loaded trip starts or ends, or when it is a home
- * or a work, since that category is all an unvisited row carries. A home or a work the history
- * already holds takes the trip ends Google joined to its own, and that row is not written.
+ * or a work, since that category is all an unvisited row carries. A place an earlier import made,
+ * found by Google's id, and a home or a work the history already holds take the trip ends Google
+ * joined to their own, and those rows are not written.
  */
 internal object GoogleTimelineImporter {
 

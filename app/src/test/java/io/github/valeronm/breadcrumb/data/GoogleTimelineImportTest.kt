@@ -194,6 +194,25 @@ class GoogleTimelineImportTest {
         DerivedConsistency.assertMatchesFreshDerive(target.db, back + 86_400_000L)
     }
 
+    @Test fun `a later export states its trip ends to the rows an earlier one made`() = runTest {
+        import(
+            doc(
+                visit(out - 3_600_000L, 1.0, "HOME", endMs = out),
+                activity(out, out + 11 * 60_000L, 1.0, 1.011),
+                visit(out + 11 * 60_000L, 1.011, "UNKNOWN", endMs = back, placeId = "cafe"),
+            ),
+        )
+        val cafe = placeRow("cafe")
+        val summary = import(homeCafeShop)
+        assertEquals(1, summary.tracks)
+        assertEquals(1, summary.overlapping)
+        assertEquals(1, summary.places)
+        assertEquals(cafe, placeRow("cafe"))
+        val (_, later) = target.repository.exportTracks()
+        assertEquals(cafe.id to placeRow("shop").id, later.startPlaceId to later.endPlaceId)
+        DerivedConsistency.assertMatchesFreshDerive(target.db, back + 86_400_000L)
+    }
+
     @Test fun `a home the history holds takes Google's trip ends, and its row is not written`() = runTest {
         val ownId = places.create(target.place("Flat", 1.0005, -2.0).copy(category = PlaceCategory.HOME.code))
         val own = target.db.placeDao().allPlaces().single()
