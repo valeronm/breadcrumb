@@ -189,6 +189,18 @@ class GoogleTimelineImportTest {
         assertEquals(setOf("home", "cafe"), googleIds())
     }
 
+    @Test fun `a trip its own jump check leaves one good fix is not loaded, nor its place made`() = runTest {
+        // ~1.1 km in a minute is no walk: the end is a jump, and the trip would collapse to its start.
+        val sprint = doc(
+            activity(out, out + 60_000L, 1.0, 1.01),
+            visit(out + 60_000L, 1.01, "UNKNOWN", endMs = back, placeId = "far"),
+        )
+        val summary = import(sprint)
+        assertEquals(0, summary.tracks)
+        assertTrue(target.repository.exportTracks().isEmpty())
+        assertNull(idOf("far"))
+    }
+
     @Test fun `a home stands with no trip loaded there`() = runTest {
         target.walk(out + 60_000L, 0, 5)
         target.walk(back + 60_000L, 5, 0)

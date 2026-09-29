@@ -7,6 +7,7 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
+import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 
 internal object GoogleTimelineTracks {
@@ -46,28 +47,53 @@ internal object GoogleTimelineTracks {
         activities: List<GoogleTimelineActivity> = export.activities,
     ): Sequence<Pair<Track, List<TrackPoint>>> {
         val ends = Ends(export.visits)
-        val gates = TrackQuality.Gates(maxAccuracyM = maxAccuracyM)
         return activities.sortedBy { it.startMs }.asSequence().map { activity ->
-            val type = activityFor(activity.type)
-            val inside = if (spans(export.fixes, activity)) export.fixes else export.path
-            val points = ArrayList<TrackPoint>()
-            points += fix(activity.startMs, activity.start.lat, activity.start.lon)
-            var i = inside.firstAfter(activity.startMs)
-            while (i < inside.times.size && inside.times[i] < activity.endMs) {
-                val accuracy = inside.accuracies?.get(i)?.takeUnless { it.isNaN() }
-                points += fix(inside.times[i], inside.lats[i], inside.lons[i], accuracy)
-                i++
-            }
-            points += fix(activity.endMs, activity.end.lat, activity.end.lon)
             Track(
-                activityType = type.name,
+                activityType = activityFor(activity.type).name,
                 source = TrackOrigin.GOOGLE_TIMELINE.code,
                 startedAt = activity.startMs,
                 endedAt = activity.endMs,
                 startPlaceId = ends.startOf(activity)?.let(rowOf),
                 endPlaceId = ends.endOf(activity)?.let(rowOf),
-            ) to flagBadFixes(points, type, gates, distance)
+            ) to pointsOf(export, activity, maxAccuracyM, distance).toList()
         }
+    }
+
+    /**
+     * Whether [activity] keeps a line once its own fixes are checked: at least
+     * [KeepRule.MIN_LINE_POINTS] good ones. A trip below that collapses to one instant, and its
+     * stored span can overlap nothing, so a later import would load it again.
+     */
+    fun hasLine(
+        export: GoogleTimelineExport,
+        activity: GoogleTimelineActivity,
+        maxAccuracyM: Float,
+        distance: DistanceFn = AndroidDistance,
+    ): Boolean = pointsOf(export, activity, maxAccuracyM, distance)
+        .filter { !it.ignored }
+        .take(KeepRule.MIN_LINE_POINTS)
+        .count() == KeepRule.MIN_LINE_POINTS
+
+    /** Built and checked a fix at a time, so a reader can stop early: no later fix can un-flag one. */
+    private fun pointsOf(
+        export: GoogleTimelineExport,
+        activity: GoogleTimelineActivity,
+        maxAccuracyM: Float,
+        distance: DistanceFn,
+    ): Sequence<TrackPoint> {
+        val inside = if (spans(export.fixes, activity)) export.fixes else export.path
+        val points = sequence {
+            yield(fix(activity.startMs, activity.start.lat, activity.start.lon))
+            var i = inside.firstAfter(activity.startMs)
+            while (i < inside.times.size && inside.times[i] < activity.endMs) {
+                val accuracy = inside.accuracies?.get(i)?.takeUnless { it.isNaN() }
+                yield(fix(inside.times[i], inside.lats[i], inside.lons[i], accuracy))
+                i++
+            }
+            yield(fix(activity.endMs, activity.end.lat, activity.end.lon))
+        }
+        val gates = TrackQuality.Gates(maxAccuracyM = maxAccuracyM)
+        return flagBadFixes(points, activityFor(activity.type), gates, distance)
     }
 
     /**
@@ -101,11 +127,11 @@ internal object GoogleTimelineTracks {
     }
 
     private fun flagBadFixes(
-        points: List<TrackPoint>,
+        points: Sequence<TrackPoint>,
         type: ActivityType,
         gates: TrackQuality.Gates,
         distance: DistanceFn,
-    ): List<TrackPoint> {
+    ): Sequence<TrackPoint> {
         var lastGood: TrackPoint? = null
         return points.map { point ->
             val reason = TrackQuality.badFixReason(lastGood, point, type, gates, distance)

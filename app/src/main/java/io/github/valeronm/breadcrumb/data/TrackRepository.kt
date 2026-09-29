@@ -322,8 +322,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     /**
      * Inserts a batch of backup tracks, points and all, under fresh ids in one transaction, so a
      * 3000-track restore commits (and wakes the observed timeline queries) dozens of times, not
-     * thousands. No keep thresholds, no duplicate check: restore targets an empty app (the UI only
-     * offers it there).
+     * thousands. No keep thresholds and no duplicate check: a restore targets an empty app (the UI
+     * only offers it there), and the Google Timeline import decides both before it calls this.
      */
     suspend fun insertBackupTracks(batch: List<Pair<Track, List<TrackPoint>>>) {
         db.withTransaction {

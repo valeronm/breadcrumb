@@ -14,8 +14,9 @@ import java.io.Reader
 
 /**
  * Loads a Google Timeline export beside the history already kept. A trip a kept track overlaps is
- * skipped. A Google place becomes a row only where a loaded trip starts or ends, or when it is a home
- * or a work, since that category is all an unvisited row carries. A place an earlier import made,
+ * skipped, and so is one its own fixes leave without a line ([GoogleTimelineTracks.hasLine]). A
+ * Google place becomes a row only where a loaded trip starts or ends, or when it is a home or a
+ * work, since that category is all an unvisited row carries. A place an earlier import made,
  * found by Google's id, and a home or a work the history already holds take the trip ends Google
  * joined to their own, and those rows are not written.
  */
@@ -59,7 +60,8 @@ internal object GoogleTimelineImporter {
         val export = GoogleTimelineParser.parse(reader)
         require(export.activities.isNotEmpty()) { "no readable trip in the Google Timeline export" }
         val taken = TakenSpans(repositories.tracks.keptSpans())
-        val (loaded, overlapping) = export.activities.partition { !taken.overlaps(it.startMs, it.endMs) }
+        val (free, overlapping) = export.activities.partition { !taken.overlaps(it.startMs, it.endMs) }
+        val loaded = free.filter { GoogleTimelineTracks.hasLine(export, it, maxAccuracyM) }
         val ends = GoogleTimelineTracks.Ends(export.visits)
         val stated = loaded.flatMapTo(HashSet()) { listOfNotNull(ends.startOf(it), ends.endOf(it)) }
         val candidates = GoogleTimelinePlaces.places(export.visits)
