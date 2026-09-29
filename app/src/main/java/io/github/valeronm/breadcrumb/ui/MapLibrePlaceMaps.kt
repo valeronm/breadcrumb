@@ -232,16 +232,21 @@ private const val IMG_ASSIGNED_NEIGHBOR = "marker-assigned-neighbor"
 private const val IMG_ENDPOINT = "marker-endpoint"
 
 /**
- * Registers the endpoint dot, [withBrief] adding the orange variant. One function because the
- * drawable and its shadow weight are one decision: a dot registered at a different weight on one map
- * reads as a different kind of thing on the other, which is the opposite of what sharing the id says.
+ * Registers the endpoint dot, [withOverviewDots] adding the orange and purple variants. One function
+ * because the drawable and its shadow weight are one decision: a dot registered at a different weight
+ * on one map reads as a different kind of thing on the other, which is the opposite of what sharing
+ * the id says.
  */
-private fun addEndpointDotImages(ctx: Context, style: Style, withBrief: Boolean = false) {
+private fun addEndpointDotImages(ctx: Context, style: Style, withOverviewDots: Boolean = false) {
     style.addImage(IMG_ENDPOINT, shadowedBitmap(ctx, R.drawable.ic_marker_endpoint, MarkerShadow.EVIDENCE))
-    if (withBrief) {
+    if (withOverviewDots) {
         style.addImage(
             IMG_ENDPOINT_BRIEF,
             shadowedBitmap(ctx, R.drawable.ic_marker_endpoint_brief, MarkerShadow.EVIDENCE),
+        )
+        style.addImage(
+            IMG_ENDPOINT_IMPORTED,
+            shadowedBitmap(ctx, R.drawable.ic_marker_endpoint_imported, MarkerShadow.EVIDENCE),
         )
     }
 }
@@ -350,6 +355,9 @@ internal class OverviewPlace(
     /** The place's only stay is a merge-eligible short stop (a likely split-track artifact,
      *  not a real visit) — unnamed dots render orange instead of blue. */
     val brief: Boolean = false,
+    /** The place is a row an import made ([Place.mark]) — unnamed, its dot renders purple, over
+     *  [brief]: the source stated the place, which a short stop cannot make an artifact. */
+    val imported: Boolean = false,
     /**
      * How far this place reaches, where that is worth drawing — null draws no ring, which is the
      * answer for every place on a map that shows none at all. **Whose reach earns one is the
@@ -377,7 +385,11 @@ internal fun rememberStayPlaces(
     }
     return remember(summaries, stayKeys) {
         summaries.orEmpty().filter { it.key in stayKeys }.map { place ->
-            OverviewPlace(marker = PlaceMarker(place.anchor, place.place), key = place.key)
+            OverviewPlace(
+                marker = PlaceMarker(place.anchor, place.place),
+                key = place.key,
+                imported = place.place?.mark != null,
+            )
         }
     }
 }
@@ -540,6 +552,7 @@ private const val OVERVIEW_CIRCLE_SOURCE = "places-overview-circle-src"
 private const val OVERVIEW_CIRCLE_FILL = "places-overview-circle-fill"
 private const val OVERVIEW_CIRCLE_LINE = "places-overview-circle-line"
 private const val IMG_ENDPOINT_BRIEF = "marker-endpoint-brief"
+private const val IMG_ENDPOINT_IMPORTED = "marker-endpoint-imported"
 
 /** The place-detail key a tapped feature reports back through [MapLibrePlacesMap]'s `onOpen`. */
 private const val PLACE_KEY = "key"
@@ -592,7 +605,7 @@ internal fun addOverviewLayers(
     dark: Boolean,
     fullSize: Boolean = false,
 ) {
-    addEndpointDotImages(ctx, style, withBrief = true)
+    addEndpointDotImages(ctx, style, withOverviewDots = true)
     addPlacePinImages(ctx, style)
     style.addSource(GeoJsonSource(OVERVIEW_SOURCE, overviewCollection(places)))
     val layer = labeledSymbolLayer(dark, OVERVIEW_LAYER, OVERVIEW_SOURCE).withProperties(
@@ -674,7 +687,11 @@ private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
     FeatureCollection.fromFeatures(
         // Unnamed dots first so named pins draw (and hit-test) on top.
         places.sortedBy { it.marker.label != null }.map { p ->
-            val dot = if (p.brief) IMG_ENDPOINT_BRIEF else IMG_ENDPOINT
+            val dot = when {
+                p.imported -> IMG_ENDPOINT_IMPORTED
+                p.brief -> IMG_ENDPOINT_BRIEF
+                else -> IMG_ENDPOINT
+            }
             Feature.fromGeometry(
                 p.marker.location.toPoint(),
                 JsonObject().apply {

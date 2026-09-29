@@ -283,7 +283,10 @@ internal fun PlaceDetailScreen(
             // Directly under the name it qualifies, before anything the user has a say in: where a
             // place is is a fact about it, where the category and the counts are what has been made
             // of it.
-            PlaceLocality(summary.anchor, nowMs, viewModel)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PlaceLocality(summary.anchor, nowMs, viewModel, Modifier.weight(1f))
+                OriginCaption(summary.place?.mark)
+            }
             // What this is for and what it adds up to, held above the visits rather than read once
             // and scrolled past — the counts summarise the list moving under them, and the chip is
             // the screen's one control. Above the list rather than a sticky header inside it: at
@@ -365,7 +368,7 @@ internal fun PlaceDetailScreen(
  * visit, and [zoneShiftLabel] is asked at the instant either time.
  */
 @Composable
-private fun PlaceLocality(at: Coordinate, nowMs: Long, viewModel: TrackListViewModel) {
+private fun PlaceLocality(at: Coordinate, nowMs: Long, viewModel: TrackListViewModel, modifier: Modifier = Modifier) {
     val locale = LocalConfiguration.current.locales[0]
     val city by produceState<CityAtlas.City?>(null, at) { value = viewModel.cityAt(at) }
     val resolved = city ?: return
@@ -394,7 +397,7 @@ private fun PlaceLocality(at: Coordinate, nowMs: Long, viewModel: TrackListViewM
         },
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 4.dp),
+        modifier = modifier.padding(start = 4.dp),
     )
 }
 

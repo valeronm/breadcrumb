@@ -19,8 +19,6 @@ enum class TrackOrigin(
      *  implies one constant speed, an assumption no metric should be drawn from — where even a
      *  GPX with no speed field still carries real positions over real times. */
     val measuresMotion: Boolean,
-    /** Whether the fixes came from a file the user brought in rather than from this app. */
-    val imported: Boolean = false,
     /** Whether the writer ended each trip at its stop itself. */
     val endsAtStops: Boolean = false,
 ) {
@@ -28,7 +26,7 @@ enum class TrackOrigin(
     RECORDED("recorded", measuresFixQuality = true, measuresMotion = true),
 
     /** Parsed from a GPX file the user shared into the app: a path, not a measurement of one. */
-    IMPORTED("imported", measuresFixQuality = false, measuresMotion = true, imported = true),
+    IMPORTED("imported", measuresFixQuality = false, measuresMotion = true),
 
     /** Two endpoints the user typed into the add-trip form — a leg nothing recorded, held as a
      *  track so the timeline and journeys read it like any other. */
@@ -41,7 +39,6 @@ enum class TrackOrigin(
         "google_timeline",
         measuresFixQuality = false,
         measuresMotion = false,
-        imported = true,
         // Google ends a trip at the instant its visit begins.
         endsAtStops = true,
     ),

@@ -65,4 +65,8 @@
         <item quantity="other">%d failed</item>
     </plurals>
     <string name="common_osm_credit">Online results © OpenStreetMap</string>
+    <!-- Where a trip or a place came from; one recorded or made in the app carries none. -->
+    <string name="common_origin_gpx" translatable="false">GPX</string>
+    <string name="common_origin_google_timeline">Google Timeline</string>
+    <string name="common_origin_entered_by_hand">Entered by hand</string>
 </resources>

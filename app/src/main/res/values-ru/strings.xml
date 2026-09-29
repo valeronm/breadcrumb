@@ -56,4 +56,6 @@
         <item quantity="other">%d с ошибкой</item>
     </plurals>
     <string name="common_osm_credit">Онлайн-результаты © OpenStreetMap</string>
+    <string name="common_origin_google_timeline">Хронология Google</string>
+    <string name="common_origin_entered_by_hand">Введена вручную</string>
 </resources>

@@ -85,6 +85,8 @@ internal fun ListRowCard(
     /** What the badge *means* is the caller's, so its color is too — the default is only a default. */
     badgeColor: Color = MaterialTheme.colorScheme.tertiary,
     badgeContentColor: Color = MaterialTheme.colorScheme.onTertiary,
+    /** Drawn at the top-right corner, beside the title. */
+    mark: OriginMark? = null,
     colors: CardColors? = null,
     onClick: (() -> Unit)? = null,
 ) {
@@ -111,6 +113,10 @@ internal fun ListRowCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            if (mark != null) {
+                Spacer(Modifier.width(8.dp))
+                OriginGlyph(mark, Modifier.align(Alignment.Top))
             }
         }
     }

@@ -16,12 +16,14 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.data.export.GoogleTimelineImporter
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
@@ -174,6 +176,15 @@ class TimelineRowTest {
     }
 
     @Test
+    fun `a stay at a place an import made names its origin aloud`() {
+        val imported = place("Café").copy(externalProvider = GoogleTimelineImporter.PROVIDER, externalId = "g")
+        stayRow(stayItem(noon, noon + HOUR, place = imported))
+
+        compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline))
+            .assertIsDisplayed()
+    }
+
+    @Test
     fun `a stay running to midnight states only the bound it has`() {
         // The whole point of the sentence resources: this row names one clock time, and the wording
         // around it has to come from the one-bound resource rather than the two-bound one.
@@ -202,7 +213,7 @@ class TimelineRowTest {
 
     // --- Track rows ----------------------------------------------------------
 
-    private fun trackRow(activity: ActivityType) = row {
+    private fun trackRow(activity: ActivityType, source: TrackOrigin = TrackOrigin.RECORDED) = row {
         TrackRow(
             track = TrackSummary(
                 id = 1,
@@ -212,7 +223,7 @@ class TimelineRowTest {
                 distanceMeters = 5_000.0,
                 pointCount = 100,
                 ignoredCount = 0,
-                source = "recorded",
+                source = source.code,
                 startPlaceId = null,
                 endPlaceId = null,
             ),
@@ -231,6 +242,23 @@ class TimelineRowTest {
         val cycling = context.getString(R.string.activity_cycling)
         compose.onNodeWithText(cycling, substring = true).assertIsDisplayed()
         compose.onNodeWithContentDescription(cycling).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a trip from elsewhere names its origin aloud`() {
+        trackRow(ActivityType.DRIVING, TrackOrigin.GOOGLE_TIMELINE)
+        compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline))
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun `a recorded trip carries no origin mark`() {
+        trackRow(ActivityType.DRIVING)
+        listOf(
+            R.string.common_origin_gpx,
+            R.string.common_origin_google_timeline,
+            R.string.common_origin_entered_by_hand,
+        ).forEach { compose.onNodeWithContentDescription(context.getString(it)).assertDoesNotExist() }
     }
 
     @Test
@@ -286,6 +314,16 @@ class TimelineRowTest {
             onOpenPlace = {},
             onAddTrip = {},
         )
+    }
+
+    @Test
+    fun `a gap arriving at a place an import made names its origin aloud`() {
+        val imported = place("Café").copy(externalProvider = GoogleTimelineImporter.PROVIDER, externalId = "g")
+        val resolved = PlaceResolver.ResolvedStay(place = imported, visitCount = 1, centroid = ORIGIN)
+        gapRow(gapItem(start = noon, end = noon + HOUR).copy(toPlace = resolved))
+
+        compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline))
+            .assertIsDisplayed()
     }
 
     @Test

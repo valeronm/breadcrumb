@@ -86,6 +86,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.activityTotals
@@ -1063,6 +1064,7 @@ internal fun TrackRow(
     ) {
         val activity = ActivityType.ofName(track.activityType)
         val activityName = activityLabel(LocalContext.current, track.activityType)
+        val origin = TrackOrigin.fromCode(track.source)
         val reader = timelineZone()
         // Each end on its own clock where they differ — a track is the one recorded row that can
         // cross a border, and flattening it onto the departure's clock hides the crossing. The two
@@ -1077,6 +1079,7 @@ internal fun TrackRow(
             icon = activityIcon(activity),
             disc = activityDiscStyle(activity),
             iconDescription = activityName,
+            mark = origin?.mark,
             // What happened leads; when it happened is the metadata line.
             title = "$activityName · " + distanceText(track.distanceMeters),
             titleColor = MaterialTheme.colorScheme.onSurface,
@@ -1263,6 +1266,7 @@ internal fun StayCard(
         iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
         badge = if (mergeable) Icons.Filled.Pause else null,
         badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
+        mark = place?.place?.mark,
         // The place leads; when (with midnight slices phrased humanly) is the metadata line. The
         // atlas's city stands in where the user has said nothing, dimmed by `named` below so a
         // worked-out name never reads as one they chose. A merge-eligible stop the atlas can't
@@ -1486,22 +1490,29 @@ private fun GapPlaceLine(
             contentDescription = category?.let { stringResource(it.labelRes) },
         )
         Spacer(Modifier.width(16.dp))
-        Text(
-            text = place.name ?: stringResource(R.string.timeline_unnamed_place),
-            style = MaterialTheme.typography.titleMedium,
-            color = placeTitleColor(named = place.isNamed),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        if (at != null) {
-            Spacer(Modifier.width(12.dp))
+        // A long name truncates here, before the origin glyph.
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = at,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = place.name ?: stringResource(R.string.timeline_unnamed_place),
+                style = MaterialTheme.typography.titleMedium,
+                color = placeTitleColor(named = place.isNamed),
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
             )
+            if (at != null) {
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = at,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+        place.place?.mark?.let {
+            Spacer(Modifier.width(8.dp))
+            OriginGlyph(it)
         }
     }
 }

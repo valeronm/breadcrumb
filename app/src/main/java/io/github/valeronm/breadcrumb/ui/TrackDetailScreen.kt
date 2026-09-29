@@ -278,15 +278,7 @@ internal fun TrackDetailScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
-                            // Only imports are named: a recording is what a track is, and a word
-                            // on every other one would say nothing.
-                            if (source?.imported == true) {
-                                Text(
-                                    stringResource(R.string.track_caption_imported),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            OriginCaption(source?.mark)
                         }
                         Card(Modifier.fillMaxWidth()) { TrackStatsHeader(summary) }
                     }

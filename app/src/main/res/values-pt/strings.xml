@@ -46,4 +46,6 @@
         <item quantity="other">%d falharam</item>
     </plurals>
     <string name="common_osm_credit">Resultados online © OpenStreetMap</string>
+    <string name="common_origin_google_timeline">Cronologia do Google</string>
+    <string name="common_origin_entered_by_hand">Introduzida à mão</string>
 </resources>

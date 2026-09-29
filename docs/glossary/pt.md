@@ -70,6 +70,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | positioning | localizar (verb), posicionamento (noun) | Progressive *a localizar* in the recorder's status line; *posicionamento por satélite* where the setting names the technique. |
 | backup | cópia de segurança | Short form *cópia*; the verb is *copiar*. |
 | google-timeline | Cronologia do Google | Google's own name for it in Portuguese. |
+| entered-by-hand | introduzida à mão | Agrees with *viagem*, the trip it marks. |
 | search | procurar (verb), pesquisa (noun) | Only the user's. What the receiver does is *posicionamento*. |
 | lock | bloquear / desbloquear | |
 | logs | registos | |
