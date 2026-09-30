@@ -991,8 +991,14 @@ why the workflow is the only thing standing between a forgotten bump and Play.
   populated place of 1,000+ **and every administrative seat whatever its size**, which is why that
   file rather than the smaller `cities5000`, a historic village being exactly what a journey gets
   named after. Packed by `tools/pack_cities.py` (its docstring is the format spec) and checked in, so
-  a fresh checkout and CI need no network; regenerate only to take a newer dump. **CC BY 4.0 — the
-  credit in Settings is a licence requirement, not decoration.** Feature codes decide nothing about
+  a fresh checkout and CI need no network; regenerate only to take a newer dump. **A place is named
+  in the app's language** where GeoNames' `alternateNamesV2` has a name for it: the same run writes
+  `res/raw-<language>/city_names.bin` for the languages the app ships besides English, holding only
+  the names that differ from a row's own, and an empty default. They are resources rather than
+  assets so the bundle's language splits deliver a device only its own languages' tables. They index
+  the atlas's rows, so the atlas and its tables are regenerated together from one day's dumps and
+  never apart, and only the table for the language the screens are in is loaded. **CC BY 4.0 — the credit in Settings is a licence
+  requirement, not decoration.** Feature codes decide nothing about
   what a place *is*: Paris's arrondissements are plain `PPL`, same as any town, so districts are
   separated from towns by the naming heuristic in `CityAtlas` (a window plus a population dominance
   factor) and not by the data. The rows carry an IANA zone, read in two places: the timeline's

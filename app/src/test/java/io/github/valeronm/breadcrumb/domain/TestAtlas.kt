@@ -35,32 +35,53 @@ internal fun atlasOf(vararg rows: TestCity): CityAtlas {
     val sorted = rows.sortedBy { it.lat }
     val zones = sorted.map { it.zone }.distinct().sorted()
     val out = ByteArrayOutputStream()
-    fun u8(v: Int) = out.write(v and 0xFF)
-    fun u16(v: Int) {
-        u8(v shr 8)
-        u8(v)
-    }
-    fun i32(v: Int) {
-        u16(v shr 16)
-        u16(v)
-    }
-
     out.write("BCTY1".toByteArray(StandardCharsets.US_ASCII))
-    i32(sorted.size)
-    u16(zones.size)
+    out.i32(sorted.size)
+    out.u16(zones.size)
     for (zone in zones) {
         val encoded = zone.toByteArray(StandardCharsets.UTF_8)
-        u8(encoded.size)
+        out.u8(encoded.size)
         out.write(encoded)
     }
     for (row in sorted) {
-        i32((row.lat * 1e6).roundToInt())
-        i32((row.lon * 1e6).roundToInt())
-        u16(row.popThousands)
+        out.i32((row.lat * 1e6).roundToInt())
+        out.i32((row.lon * 1e6).roundToInt())
+        out.u16(row.popThousands)
         out.write(row.country.toByteArray(StandardCharsets.US_ASCII))
-        u16(zones.indexOf(row.zone))
-        u8(row.name.toByteArray(StandardCharsets.UTF_8).size)
+        out.u16(zones.indexOf(row.zone))
+        out.u8(row.name.toByteArray(StandardCharsets.UTF_8).size)
     }
     for (row in sorted) out.write(row.name.toByteArray(StandardCharsets.UTF_8))
     return CityAtlas.parse(out.toByteArray())
+}
+
+/**
+ * A names table for an atlas of [rowCount] rows, [names] keyed by row — the order [atlasOf] sorts
+ * them into, which for rows on one latitude is the order they were given in — read back as one for
+ * an atlas of [parsedFor] rows.
+ */
+internal fun localNamesOf(rowCount: Int, names: Map<Int, String>, parsedFor: Int = rowCount): CityAtlas.LocalNames {
+    val out = ByteArrayOutputStream()
+    out.write("BCTN1".toByteArray(StandardCharsets.US_ASCII))
+    out.i32(rowCount)
+    out.i32(names.size)
+    val sorted = names.toSortedMap()
+    for ((row, name) in sorted) {
+        out.i32(row)
+        out.u8(name.toByteArray(StandardCharsets.UTF_8).size)
+    }
+    for (name in sorted.values) out.write(name.toByteArray(StandardCharsets.UTF_8))
+    return CityAtlas.LocalNames.parse(out.toByteArray(), parsedFor)
+}
+
+private fun ByteArrayOutputStream.u8(v: Int) = write(v and 0xFF)
+
+private fun ByteArrayOutputStream.u16(v: Int) {
+    u8(v shr 8)
+    u8(v)
+}
+
+private fun ByteArrayOutputStream.i32(v: Int) {
+    u16(v shr 16)
+    u16(v)
 }

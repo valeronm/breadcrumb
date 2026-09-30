@@ -48,6 +48,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -139,6 +140,7 @@ class MainActivity : FragmentActivity() {
                 ) {
                     PrivacyGate(waitingImports = pendingGpxImport.value?.size ?: 0) {
                         MainScreen(
+                            language = locale.language,
                             pendingGpxImport = pendingGpxImport,
                             unitChoice = unitChoice,
                             onUnitChoice = {
@@ -200,6 +202,7 @@ private sealed interface MainDestination {
 
 @Composable
 private fun MainScreen(
+    language: String,
     pendingGpxImport: MutableState<List<Uri>?>,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
@@ -207,6 +210,7 @@ private fun MainScreen(
 ) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
+    LaunchedEffect(viewModel, language) { viewModel.useLanguage(language) }
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
 
     // Waits for the lock rather than relying on the gate: PrivacyGate draws over this composition

@@ -9,7 +9,7 @@ of tab-separated text with 19 columns, of which the app needs five; this writes 
 fixed-width table sorted by latitude, which is what lets the lookup binary-search a coordinate
 instead of scanning 160,000 rows.
 
-    ./tools/pack_cities.py cities1000.txt app/src/main/assets/cities.bin
+    ./tools/pack_cities.py cities1000.txt alternateNamesV2.zip app/src/main
 
 The output is checked into the repo. Regenerate it only to take a newer dump — a fresh checkout and
 CI must never need the network for it.
@@ -31,14 +31,40 @@ Format (big-endian, matching java.nio.ByteBuffer's default so the reader needs n
 
 Names carry no offsets: the reader accumulates the lengths in one pass at load, which costs a
 microsecond and saves 270 KB of asset.
+
+With it, `res/raw-<language>/city_names.bin` per language in LANGUAGES, holding the names a place
+has in that language where they differ from its row's name, and an empty one in `res/raw/` for every
+other language. Resources rather than assets because an app bundle splits resources by language,
+so a device downloads only its own languages' tables. Source:
+https://download.geonames.org/export/dump/alternateNamesV2.zip (CC BY 4.0), read from the zip as it
+is — unpacked it is close to 800 MB. A place's name in a language is the one GeoNames marks
+preferred, else its first name that is not short, colloquial or historic and carries no end date,
+else a short one: the unmarked names also hold inflected forms, which come later in the file than
+the name itself.
+
+    magic       5 bytes  "BCTN1"
+    rowCount    int32    the rows of the cities.bin written in the same run, which it indexes
+    entryCount  int32
+    entries     entryCount x 5 bytes, ascending by row:
+                    row     int32   index into cities.bin's rows
+                    nameLen uint8   UTF-8 byte length of the name
+    names       concatenated UTF-8, in entry order
 """
 
+import io
+import os
 import struct
 import sys
+import zipfile
 
 MAGIC = b"BCTY1"
+NAMES_MAGIC = b"BCTN1"
+# The app's languages besides English, whose rows already carry English or local names.
+LANGUAGES = ("pt", "ru")
 # GeoNames dump columns, of the 19 the format defines.
-COL_NAME, COL_LAT, COL_LON, COL_FEATURE, COL_COUNTRY, COL_POP, COL_TZ = 1, 4, 5, 7, 8, 14, 17
+COL_ID, COL_NAME, COL_LAT, COL_LON, COL_FEATURE, COL_COUNTRY, COL_POP, COL_TZ = 0, 1, 4, 5, 7, 8, 14, 17
+# alternateNamesV2 columns.
+ALT_ID, ALT_LANG, ALT_NAME, ALT_PREFERRED, ALT_SHORT, ALT_COLLOQUIAL, ALT_HISTORIC, ALT_TO = 1, 2, 3, 4, 5, 6, 7, 9
 MAX_NAME_BYTES = 255
 MAX_POP_K = 0xFFFF
 
@@ -76,6 +102,7 @@ def read_rows(path):
                 country,
                 f[COL_TZ],
                 name,
+                f[COL_ID],
             )
         )
     rows.sort(key=lambda r: r[0])
@@ -92,7 +119,7 @@ def pack(rows):
         encoded = zone.encode("utf-8")
         out += struct.pack(">B", len(encoded)) + encoded
     names = bytearray()
-    for lat, lon, pop_k, country, zone, name in rows:
+    for lat, lon, pop_k, country, zone, name, _ in rows:
         out += struct.pack(">iiH", lat, lon, pop_k)
         out += country
         out += struct.pack(">HB", zone_index[zone], len(name))
@@ -100,15 +127,59 @@ def pack(rows):
     return bytes(out + names)
 
 
-def main(argv):
-    if len(argv) != 3:
-        raise SystemExit(f"usage: {argv[0]} <cities5000.txt> <out.bin>")
-    rows = read_rows(argv[1])
-    blob = pack(rows)
-    with open(argv[2], "wb") as out:
+def read_names(path, rows):
+    """Each language's name per row index, where it differs from the row's own name."""
+    row_of = {r[6]: i for i, r in enumerate(rows)}
+    best = {language: {} for language in LANGUAGES}
+    with zipfile.ZipFile(path) as archive, archive.open("alternateNamesV2.txt") as raw:
+        for line in io.TextIOWrapper(raw, encoding="utf-8"):
+            f = line.rstrip("\n").split("\t")
+            chosen = best.get(f[ALT_LANG])
+            row = row_of.get(f[ALT_ID])
+            if chosen is None or row is None:
+                continue
+            if f[ALT_COLLOQUIAL] == "1" or f[ALT_HISTORIC] == "1" or (len(f) > ALT_TO and f[ALT_TO]):
+                continue
+            rank = 0 if f[ALT_PREFERRED] == "1" else 2 if f[ALT_SHORT] == "1" else 1
+            if row not in chosen or rank < chosen[row][0]:
+                chosen[row] = (rank, f[ALT_NAME])
+    names = {}
+    for language, chosen in best.items():
+        names[language] = {}
+        for row, (_, name) in chosen.items():
+            encoded = name.encode("utf-8")
+            if encoded != rows[row][5] and 0 < len(encoded) <= MAX_NAME_BYTES:
+                names[language][row] = encoded
+    return names
+
+
+def pack_names(row_count, names):
+    out = bytearray(NAMES_MAGIC)
+    out += struct.pack(">ii", row_count, len(names))
+    blob = bytearray()
+    for row, name in sorted(names.items()):
+        out += struct.pack(">iB", row, len(name))
+        blob += name
+    return bytes(out + blob)
+
+
+def write(path, blob, what):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as out:
         out.write(blob)
+    print(f"{what} -> {path} ({len(blob) / 1e6:.2f} MB)")
+
+
+def main(argv):
+    if len(argv) != 4:
+        raise SystemExit(f"usage: {argv[0]} <cities1000.txt> <alternateNamesV2.zip> <app/src/main>")
+    rows = read_rows(argv[1])
     zones = len({r[4] for r in rows})
-    print(f"{len(rows):,} cities, {zones} time zones -> {argv[2]} ({len(blob) / 1e6:.2f} MB)")
+    write(os.path.join(argv[3], "assets", "cities.bin"), pack(rows), f"{len(rows):,} cities, {zones} time zones")
+    write(os.path.join(argv[3], "res", "raw", "city_names.bin"), pack_names(len(rows), {}), "no names")
+    for language, names in read_names(argv[2], rows).items():
+        path = os.path.join(argv[3], "res", f"raw-{language}", "city_names.bin")
+        write(path, pack_names(len(rows), names), f"{len(names):,} {language} names")
 
 
 if __name__ == "__main__":

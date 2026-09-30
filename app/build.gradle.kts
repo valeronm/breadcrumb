@@ -329,6 +329,14 @@ android {
                 )
                     .withPropertyName("stringResources")
                     .withPathSensitivity(PathSensitivity.RELATIVE)
+                it.inputs.files(
+                    layout.projectDirectory.file("src/main/assets/cities.bin"),
+                    layout.projectDirectory.file("src/main/res/xml/locales_config.xml"),
+                    layout.projectDirectory.dir("src/main/res").asFileTree
+                        .matching { include("raw*/city_names.bin") },
+                )
+                    .withPropertyName("cityAtlas")
+                    .withPathSensitivity(PathSensitivity.RELATIVE)
                 qemuJavaLauncher?.let { launcher -> it.executable = launcher.path }
                 // Robolectric reaches into JDK internals the module system seals from 17 on, and
                 // without these every Robolectric test — not some — dies before the first

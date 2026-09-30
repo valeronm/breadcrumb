@@ -18,20 +18,91 @@ import kotlin.math.roundToInt
  * to the query's latitude and walks outward only while a row's latitude alone could still beat the
  * best distance found — over 160,000 cities that settles in a few dozen distance calls.
  *
+ * A place is named in a language through [withNames] wherever that language's table has a name for
+ * it, and by its row's own name everywhere else.
+ *
  * Held as the raw bytes rather than decoded into objects: a row is six fields read by offset when
  * one is wanted, and 160,000 of them as instances would cost more heap than the file. Only the
  * winning row's name is ever turned into a String — with one exception: the first name search
  * folds every name once into its own index ([searchByName]).
  */
-class CityAtlas private constructor(
-    private val bytes: ByteArray,
-    private val rowCount: Int,
-    private val rowsAt: Int,
-    private val namesAt: Int,
-    /** Start of each row's name within the names blob; one longer than [rowCount]. */
-    private val nameStarts: IntArray,
-    private val zones: List<String>,
-) {
+class CityAtlas private constructor(private val table: Table, private val local: LocalNames = LocalNames.NONE) {
+
+    /** The parsed rows, shared by every [withNames] copy of one atlas. */
+    private class Table(
+        val bytes: ByteArray,
+        val rowCount: Int,
+        val rowsAt: Int,
+        val namesAt: Int,
+        /** Start of each row's name within the names blob; one longer than [rowCount]. */
+        val nameStarts: IntArray,
+        val zones: List<String>,
+    )
+
+    private val bytes = table.bytes
+    private val rowCount = table.rowCount
+    private val rowsAt = table.rowsAt
+    private val namesAt = table.namesAt
+    private val nameStarts = table.nameStarts
+    private val zones = table.zones
+
+    /**
+     * The names places have in one language where they differ from a row's own, packed as that
+     * language's `res/raw-<language>/city_names.bin` — the packer's docstring is the format. Indexes the rows of
+     * the atlas written in the same run, which [parse] checks by their count.
+     */
+    class LocalNames private constructor(
+        private val bytes: ByteArray,
+        private val rows: IntArray,
+        private val namesAt: Int,
+        /** Start of each entry's name within the names blob; one longer than [rows]. */
+        private val nameStarts: IntArray,
+    ) {
+        /** The row's name in this language, or null where it has none of its own. */
+        fun nameOf(row: Int): String? {
+            val entry = rows.binarySearch(row)
+            if (entry < 0) return null
+            val from = namesAt + nameStarts[entry]
+            return String(bytes, from, nameStarts[entry + 1] - nameStarts[entry], StandardCharsets.UTF_8)
+        }
+
+        companion object {
+            private const val ENTRY_BYTES = 5
+
+            /** No names of a language's own: every row reads its base name. */
+            val NONE = LocalNames(ByteArray(0), IntArray(0), 0, IntArray(1))
+            private val MAGIC = "BCTN1".toByteArray(StandardCharsets.US_ASCII)
+
+            /** Throws [IllegalArgumentException] on anything that isn't a names table for an atlas
+             *  of [rowCount] rows — a build error, both files shipping inside the APK. */
+            fun parse(bytes: ByteArray, rowCount: Int): LocalNames {
+                require(bytes.size > MAGIC.size && MAGIC.indices.all { bytes[it] == MAGIC[it] }) {
+                    "not a city names table"
+                }
+                val header = ByteBuffer.wrap(bytes, MAGIC.size, bytes.size - MAGIC.size)
+                val forRows = header.int
+                require(forRows == rowCount) { "city names index $forRows rows, the atlas has $rowCount" }
+                val entryCount = header.int
+                val entriesAt = header.position()
+                val namesAt = entriesAt + entryCount * ENTRY_BYTES
+                require(entryCount >= 0 && namesAt <= bytes.size) { "city names table is truncated" }
+                val entries = ByteBuffer.wrap(bytes)
+                val rows = IntArray(entryCount)
+                val nameStarts = IntArray(entryCount + 1)
+                for (entry in 0 until entryCount) {
+                    rows[entry] = entries.getInt(entriesAt + entry * ENTRY_BYTES)
+                    val length = bytes[entriesAt + entry * ENTRY_BYTES + 4].toInt() and 0xFF
+                    nameStarts[entry + 1] = nameStarts[entry] + length
+                }
+                require(namesAt + nameStarts[entryCount] <= bytes.size) { "city names are truncated" }
+                return LocalNames(bytes, rows, namesAt, nameStarts)
+            }
+        }
+    }
+
+    /** This atlas naming its places from [names] where a row has one there, and by the row's own
+     *  name everywhere else. Shares the rows; the search index is built afresh for the new names. */
+    fun withNames(names: LocalNames): CityAtlas = CityAtlas(table, names)
 
     /** A named place, with how far it sat from the coordinate that found it. */
     class City(
@@ -55,7 +126,10 @@ class CityAtlas private constructor(
         val lon: Double,
     )
 
-    /** The folded names as one string plus per-row offsets into it — [searchByName]'s index. */
+    /**
+     * The folded names as one string plus per-row offsets into it — [searchByName]'s index. A row
+     * with a name of its own in [local]'s language holds both, that one after [NAME_SEPARATOR].
+     */
     private class FoldedNames(val text: String, val starts: IntArray)
 
     /** Built on the first search, kept for the process; a benign race — two builders agree. */
@@ -64,10 +138,11 @@ class CityAtlas private constructor(
 
     /**
      * The rows whose names contain [query], by [PlaceSearch]'s rules (substring,
-     * case- and accent-insensitive): prefix matches before infix ones, each bucket most populous
-     * first, at most [limit]. The first call folds every name into one searchable string — about
-     * twice the names blob in heap (UTF-16 over UTF-8), paid only if a search ever happens — after
-     * which a query is a string scan and a handful of row reads.
+     * case- and accent-insensitive), a row's own name and its name in [local]'s language alike:
+     * prefix matches before infix ones, each bucket most populous first, at most [limit]. The first
+     * call folds every name into one searchable string — about twice the names blob in heap (UTF-16
+     * over UTF-8), paid only if a search ever happens — after which a query is a string scan and a
+     * handful of row reads.
      */
     fun searchByName(query: String, limit: Int): List<Hit> {
         val needle = PlaceSearch.fold(query)
@@ -81,7 +156,7 @@ class CityAtlas private constructor(
             // indexOf finds the leftmost hit, so one running past this row's end is a false match
             // spanning two names — and no real one can sit earlier in the row to go back for.
             if (at + needle.length <= names.starts[row + 1]) {
-                (if (at == names.starts[row]) prefix else infix) += row
+                (if (names.startsWith(needle, row)) prefix else infix) += row
             }
             at = names.text.indexOf(needle, names.starts[row + 1])
         }
@@ -125,10 +200,20 @@ class CityAtlas private constructor(
         val starts = IntArray(rowCount + 1)
         for (row in 0 until rowCount) {
             starts[row] = out.length
-            out.append(PlaceSearch.fold(nameAt(row)))
+            out.append(PlaceSearch.fold(baseNameAt(row)))
+            val localName = local.nameOf(row) ?: continue
+            // A folded query holds no separator, so no match can run from one name into the other.
+            out.append(NAME_SEPARATOR)
+            out.append(PlaceSearch.fold(localName))
         }
         starts[rowCount] = out.length
         return FoldedNames(out.toString(), starts).also { foldedNames = it }
+    }
+
+    private fun FoldedNames.startsWith(needle: String, row: Int): Boolean {
+        if (text.startsWith(needle, starts[row])) return true
+        val separator = text.indexOf(NAME_SEPARATOR, starts[row])
+        return separator in 0 until starts[row + 1] && text.startsWith(needle, separator + 1)
     }
 
     /** The row whose folded name holds [offset]: the last row starting at or before it. */
@@ -326,7 +411,9 @@ class CityAtlas private constructor(
         )
     }
 
-    private fun nameAt(row: Int): String {
+    private fun nameAt(row: Int): String = local.nameOf(row) ?: baseNameAt(row)
+
+    private fun baseNameAt(row: Int): String {
         val from = namesAt + nameStarts[row]
         return String(bytes, from, nameStarts[row + 1] - nameStarts[row], StandardCharsets.UTF_8)
     }
@@ -398,6 +485,8 @@ class CityAtlas private constructor(
          *  one-char query hits tens of thousands of rows for a ranking no single letter asked. */
         private const val MIN_QUERY_CHARS = 2
 
+        private const val NAME_SEPARATOR = '\u0000'
+
         /** How far out those voters may be gathered from, and how far a same-country name may sit. */
         private const val COUNTRY_REACH_M = 25_000.0
 
@@ -429,7 +518,7 @@ class CityAtlas private constructor(
                 nameStarts[row + 1] = nameStarts[row] + length
             }
             require(namesAt + nameStarts[rowCount] <= bytes.size) { "city atlas names are truncated" }
-            return CityAtlas(bytes, rowCount, rowsAt, namesAt, nameStarts, zones)
+            return CityAtlas(Table(bytes, rowCount, rowsAt, namesAt, nameStarts, zones))
         }
     }
 }

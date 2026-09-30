@@ -164,6 +164,35 @@ class CityAtlasTest {
         assertEquals(listOf("Cdef", "Abcd"), atlas.searchByName("cd", limit = 5).map { it.name })
     }
 
+    @Test fun `a place is named in the language that has a name for it, and by its own elsewhere`() {
+        val base = atlasOf(row("Lisbon", 0.0), row("Porto", 300_000.0))
+        val atlas = base.withNames(localNamesOf(2, mapOf(0 to "Lisboa")))
+
+        assertEquals("Lisboa", atlas.nearest(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+        assertEquals("Porto", atlas.nearest(ORIGIN_LAT, lonAt(300_000.0), flatDistance)?.name)
+        assertEquals("Lisbon", base.nearest(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+    }
+
+    @Test fun `name search finds a place by either name and reports the language's`() {
+        val atlas = atlasOf(row("Lisbon", 0.0, pop = 10), row("Olisboa", 300_000.0, pop = 500))
+            .withNames(localNamesOf(2, mapOf(0 to "Lisboa")))
+
+        assertEquals(listOf("Lisboa"), atlas.searchByName("lisbon", limit = 5).map { it.name })
+        assertEquals(listOf("Lisboa", "Olisboa"), atlas.searchByName("lisboa", limit = 5).map { it.name })
+    }
+
+    @Test fun `a match spanning a place's two names is no hit`() {
+        val atlas = atlasOf(row("Abcd", 0.0)).withNames(localNamesOf(1, mapOf(0 to "Efgh")))
+
+        assertTrue(atlas.searchByName("de", limit = 5).isEmpty())
+    }
+
+    @Test fun `a names table for another atlas is rejected at parse`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            localNamesOf(2, mapOf(0 to "Lisboa"), parsedFor = 3)
+        }
+    }
+
     @Test fun `an empty atlas names nothing rather than failing`() {
         val atlas = atlasOf()
 

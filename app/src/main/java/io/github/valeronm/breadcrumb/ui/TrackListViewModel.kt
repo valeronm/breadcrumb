@@ -67,6 +67,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     internal val importExport = ImportExportController(app, viewModelScope, repository, backupRepositories)
 
+    /** The language the screens are in, which places are named in. It outlives a language switch,
+     *  as this model does, so the screens hand it over ([useLanguage]). */
+    private val language = MutableStateFlow(app.resources.configuration.locales[0].language)
+
+    fun useLanguage(code: String) {
+        language.value = code
+    }
+
     internal val journeyPolylines = JourneyPolylines(repository)
 
     // Opening a track re-emits an identical list, since the query leaves out open tracks.
@@ -99,6 +107,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val now: Long,
         val tracks: List<StayDeriver.TrackEnd>,
         val cities: Map<Coordinate, CityAtlas.City>,
+        val language: String,
     ) {
         val stays: List<StayDeriver.Stay> = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
 
@@ -143,28 +152,33 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      */
     private var cityByPoint: Map<Coordinate, CityAtlas.City?> = emptyMap()
 
+    /** The language [cityByPoint] was named in. */
+    private var cityLanguage: String? = null
+
     /**
      * Points a place claims are resolved too: a label says what the user calls a spot, not which
      * country it is in or what time it is there.
      */
     private fun citiesOf(
         points: List<Coordinate>,
+        language: String,
     ): Map<Coordinate, CityAtlas.City> {
-        val previous = cityByPoint
+        val previous = if (language == cityLanguage) cityByPoint else emptyMap()
         val resolved = HashMap<Coordinate, CityAtlas.City?>(points.size)
         val found = HashMap<Coordinate, CityAtlas.City>(points.size)
         for (at in points) {
             if (at in resolved) continue
-            val city = if (previous.containsKey(at)) previous[at] else cityOf(at)
+            val city = if (previous.containsKey(at)) previous[at] else cityOf(at, language)
             resolved[at] = city
             city?.let { found[at] = it }
         }
         cityByPoint = resolved
+        cityLanguage = language
         return found
     }
 
-    private fun cityOf(at: Coordinate): CityAtlas.City? =
-        Cities.atlas(getApplication()).naming(at.lat, at.lon, AndroidDistance)
+    private fun cityOf(at: Coordinate, language: String): CityAtlas.City? =
+        Cities.atlas(getApplication(), language).naming(at.lat, at.lon, AndroidDistance)
 
     /**
      * The places come from the stored snapshot rather than an arm of their own, which would turn
@@ -182,7 +196,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             .distinctUntilChanged(),
         // Mapped in the arm, so a new derivation or an arm/disarm leaves an unchanged list alone.
         repository.observeEndpoints().distinctUntilChanged().map { ends -> ends.map { it.toTrackEnd() } },
-    ) { stored, (_, activeStartedAt), trackEnds ->
+        language,
+    ) { stored, (_, activeStartedAt), trackEnds, language ->
         val now = System.currentTimeMillis()
         val derivation = derivationStore.read(
             stored, now, activeStartedAt,
@@ -195,7 +210,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             trackEnds,
             // Here rather than where the rows are built, which re-runs on writes that move no
             // cluster.
-            citiesOf(derivation.clusters.map { it.centroid }),
+            citiesOf(derivation.clusters.map { it.centroid }, language),
+            language,
         )
     }
         .flowOn(Dispatchers.Default)
@@ -334,7 +350,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         TravelNaming.summarize(
             travels,
             timeline,
-            TravelNaming.Atlas(Cities.atlas(getApplication()), d.places, AndroidDistance),
+            TravelNaming.Atlas(Cities.atlas(getApplication(), d.language), d.places, AndroidDistance),
         )
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -647,13 +663,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      */
     suspend fun cityAt(at: Coordinate): CityAtlas.City? = withContext(Dispatchers.Default) {
         // Bypasses [cityByPoint], which only the derivation's coroutine may touch.
-        cityOf(at)
+        cityOf(at, language.value)
     }
 
     /** The first call builds the atlas's folded-name index. */
     suspend fun searchCities(query: String, limit: Int): List<CityAtlas.Hit> =
         withContext(Dispatchers.Default) {
-            Cities.atlas(getApplication()).searchByName(query, limit)
+            Cities.atlas(getApplication(), language.value).searchByName(query, limit)
         }
 
     /** Empty when the online search is switched off or fails ([OnlinePlaceSearch]). */
