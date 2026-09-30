@@ -159,7 +159,8 @@ internal class ImportExportController(
             }
         }
 
-    /** Non-null while a Google Timeline import runs. */
+    /** Non-null while a Google Timeline import runs; its total is the trips found in the file, so it
+     *  stays null until the file is read. */
     private val _googleTimelineImportProgress = MutableStateFlow<OpProgress?>(null)
     val googleTimelineImportProgress: StateFlow<OpProgress?> = _googleTimelineImportProgress
 

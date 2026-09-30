@@ -117,7 +117,7 @@ internal fun DiscardedTracksScreen(
     ) { inner ->
         if (tracks.isEmpty()) {
             EmptyState(
-                stringResource(R.string.discarded_empty, DISCARDED_RETENTION_DAYS),
+                pluralStringResource(R.plurals.discarded_empty, DISCARDED_RETENTION_DAYS, DISCARDED_RETENTION_DAYS),
                 Modifier.padding(inner).fillMaxSize().padding(horizontal = 24.dp),
             )
         } else {
@@ -194,7 +194,7 @@ private fun DiscardedList(
     LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         item {
             Text(
-                stringResource(R.string.discarded_retention, DISCARDED_RETENTION_DAYS),
+                pluralStringResource(R.plurals.discarded_retention, DISCARDED_RETENTION_DAYS, DISCARDED_RETENTION_DAYS),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),

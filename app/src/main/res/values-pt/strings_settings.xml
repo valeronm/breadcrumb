@@ -23,7 +23,11 @@
     <string name="settings_map_shade_dark">Escuro</string>
     <string name="settings_app_lock">Bloqueio da aplicação</string>
     <string name="settings_online_services">Serviços online</string>
-    <string name="settings_recently_deleted_sub">Recuperáveis durante %1$d dias</string>
+    <plurals name="settings_recently_deleted_sub">
+        <item quantity="one">Recuperáveis durante %1$d dia</item>
+        <item quantity="many">Recuperáveis durante %1$d dias</item>
+        <item quantity="other">Recuperáveis durante %1$d dias</item>
+    </plurals>
     <string name="settings_logs">Registos</string>
     <string name="settings_reset">Repor</string>
 
@@ -92,36 +96,45 @@
     <string name="data_export_section">Exportar</string>
     <string name="data_restore">Restaurar de uma cópia</string>
     <string name="data_restore_idle">Todo o seu histórico a partir de uma cópia</string>
-    <string name="data_google_import">Importar Cronologia do Google</string>
-    <string name="data_google_import_idle">Exporte-a no telemóvel em Definições → Localização → Serviços de localização → Cronologia</string>
+    <string name="data_google_import">Importar Linha cronológica da Google</string>
+    <string name="data_google_import_idle">Exporte-a no telemóvel em Definições → Localização → Serviços de localização → Linha cronológica</string>
     <string name="data_google_reading">A ler a exportação…</string>
     <string name="data_only_when_empty">Só para um histórico vazio</string>
     <string name="data_nothing_to_export">Ainda não há nada para exportar</string>
-    <string name="data_restored">Restauradas %1$d viagens e %2$d locais</string>
+    <string name="data_restored">%1$s e %2$s restaurados</string>
     <string name="data_restore_failed">Falha ao restaurar — não é uma cópia do Breadcrumb?</string>
-    <string name="data_google_imported">Importadas %1$d viagens e %2$d locais</string>
-    <string name="data_google_imported_skipped">Importadas %1$d viagens e %2$d locais; %3$d entradas não puderam ser lidas</string>
-    <string name="data_google_import_failed">Falha ao importar — não é uma exportação da Cronologia do Google?</string>
+    <string name="data_google_imported">%1$s e %2$s importados</string>
+    <string name="data_google_imported_skipped">%1$s e %2$s importados; %3$s</string>
+    <plurals name="data_google_unreadable">
+        <item quantity="one">%d entrada não pôde ser lida</item>
+        <item quantity="many">%d entradas não puderam ser lidas</item>
+        <item quantity="other">%d entradas não puderam ser lidas</item>
+    </plurals>
+    <string name="data_google_import_failed">Falha ao importar — não é uma exportação da Linha cronológica da Google?</string>
     <string name="data_clear">Limpar histórico</string>
-    <string name="data_clear_idle">Apagar todas as viagens e locais deste telemóvel</string>
+    <string name="data_clear_idle">Eliminar todas as viagens e locais deste telemóvel</string>
     <string name="data_clearing">A limpar…</string>
     <string name="data_nothing_to_clear">Nada para limpar</string>
     <string name="data_clear_title">Limpar o histórico?</string>
     <plurals name="data_clear_trips">
-        <item quantity="one">%d viagem será apagada.</item>
-        <item quantity="other">%d viagens serão apagadas.</item>
+        <item quantity="one">%d viagem será eliminada.</item>
+        <item quantity="many">%d viagens serão eliminadas.</item>
+        <item quantity="other">%d viagens serão eliminadas.</item>
     </plurals>
     <plurals name="data_clear_places">
-        <item quantity="one">%d local será apagado.</item>
-        <item quantity="other">%d locais serão apagados.</item>
+        <item quantity="one">%d local será eliminado.</item>
+        <item quantity="many">%d locais serão eliminados.</item>
+        <item quantity="other">%d locais serão eliminados.</item>
     </plurals>
-    <string name="data_clear_both">%1$s e %2$s serão apagados.</string>
-    <plurals name="data_clear_trip_count">
+    <string name="data_clear_both">%1$s e %2$s serão eliminados.</string>
+    <plurals name="data_trip_count">
         <item quantity="one">%d viagem</item>
+        <item quantity="many">%d viagens</item>
         <item quantity="other">%d viagens</item>
     </plurals>
-    <plurals name="data_clear_place_count">
+    <plurals name="data_place_count">
         <item quantity="one">%d local</item>
+        <item quantity="many">%d locais</item>
         <item quantity="other">%d locais</item>
     </plurals>
     <string name="data_clear_body">Não é possível anular.</string>
@@ -133,7 +146,11 @@
     <string name="data_load_not_empty">O seu histórico já não está vazio, por isso nada foi carregado</string>
     <string name="data_import_tracks">Importar trajetos</string>
     <string name="data_import_idle">Viagens de ficheiros GPX com data e hora</string>
-    <string name="data_importing">A importar o ficheiro %1$d de %2$d · %3$d trajetos até agora</string>
+    <plurals name="data_importing">
+        <item quantity="one">A importar o ficheiro %1$d de %2$d · %3$d trajeto até agora</item>
+        <item quantity="many">A importar o ficheiro %1$d de %2$d · %3$d trajetos até agora</item>
+        <item quantity="other">A importar o ficheiro %1$d de %2$d · %3$d trajetos até agora</item>
+    </plurals>
     <string name="data_export_tracks">Exportar trajetos</string>
     <string name="data_export_tracks_idle">Cada trajeto como um ficheiro GPX, para uma pasta à sua escolha</string>
     <string name="data_exporting">A exportar…</string>
@@ -141,6 +158,7 @@
     <string name="data_export_failed">Falha ao exportar</string>
     <plurals name="data_exported">
         <item quantity="one">%d trajeto exportado</item>
+        <item quantity="many">%d trajetos exportados</item>
         <item quantity="other">%d trajetos exportados</item>
     </plurals>
     <string name="data_backup">Copiar tudo</string>

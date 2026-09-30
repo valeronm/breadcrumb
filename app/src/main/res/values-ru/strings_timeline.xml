@@ -2,10 +2,25 @@
 <resources>
     <string name="timeline_empty">Поездок пока нет. Они появятся здесь, когда запись зафиксирует движение.</string>
     <string name="timeline_restoring">Восстановление из резервной копии — история появится после завершения</string>
-    <string name="timeline_restoring_count">Восстановление… поездок: %1$d</string>
-    <string name="timeline_restoring_count_of">Восстановление поездок… %1$d из %2$d</string>
+    <plurals name="timeline_restoring_count">
+        <item quantity="one">Восстановление… поездок: %1$d</item>
+        <item quantity="few">Восстановление… поездок: %1$d</item>
+        <item quantity="many">Восстановление… поездок: %1$d</item>
+        <item quantity="other">Восстановление… поездок: %1$d</item>
+    </plurals>
+    <plurals name="timeline_restoring_count_of">
+        <item quantity="one">Восстановление поездок… %1$d из %2$d</item>
+        <item quantity="few">Восстановление поездок… %1$d из %2$d</item>
+        <item quantity="many">Восстановление поездок… %1$d из %2$d</item>
+        <item quantity="other">Восстановление поездок… %1$d из %2$d</item>
+    </plurals>
     <string name="timeline_google_importing">Импорт Хронологии Google — поездки появятся после завершения</string>
-    <string name="timeline_google_importing_count_of">Импорт поездок… %1$d из %2$d</string>
+    <plurals name="timeline_google_importing_count_of">
+        <item quantity="one">Импорт поездок… %1$d из %2$d</item>
+        <item quantity="few">Импорт поездок… %1$d из %2$d</item>
+        <item quantity="many">Импорт поездок… %1$d из %2$d</item>
+        <item quantity="other">Импорт поездок… %1$d из %2$d</item>
+    </plurals>
 
     <string name="timeline_sweep">Обработка поездок</string>
 

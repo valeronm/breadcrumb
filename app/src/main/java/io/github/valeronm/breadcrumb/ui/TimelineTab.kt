@@ -979,6 +979,18 @@ internal fun TimelineItem.rowKey(): String = when (this) {
  * as one runs, wherever it was started.
  */
 @Composable
+internal fun restoringCount(done: Int, total: Int?): String =
+    if (total == null) {
+        pluralStringResource(R.plurals.timeline_restoring_count, done, done)
+    } else {
+        pluralStringResource(R.plurals.timeline_restoring_count_of, total, done, total)
+    }
+
+@Composable
+internal fun googleImportingCount(done: Int, total: Int): String =
+    pluralStringResource(R.plurals.timeline_google_importing_count_of, total, done, total)
+
+@Composable
 private fun EmptyTracksState(viewModel: TrackListViewModel, onOpenData: () -> Unit) {
     val restoring by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     val importing by viewModel.importExport.googleTimelineImportProgress.collectAsStateWithLifecycle()
@@ -991,12 +1003,9 @@ private fun EmptyTracksState(viewModel: TrackListViewModel, onOpenData: () -> Un
         else -> R.string.timeline_empty
     }
     val count = when {
-        restore != null -> restore.tracksTotal?.let {
-            stringResource(R.string.timeline_restoring_count_of, restore.tracksDone, it)
-        } ?: stringResource(R.string.timeline_restoring_count, restore.tracksDone)
-        // No count until the file is read: the total is the trips found in it.
+        restore != null -> restoringCount(restore.tracksDone, restore.tracksTotal)
         import?.tracksTotal != null ->
-            stringResource(R.string.timeline_google_importing_count_of, import.tracksDone, import.tracksTotal)
+            googleImportingCount(import.tracksDone, import.tracksTotal)
         else -> null
     }
     EmptyState(stringResource(headline), Modifier.fillMaxSize().padding(24.dp)) {

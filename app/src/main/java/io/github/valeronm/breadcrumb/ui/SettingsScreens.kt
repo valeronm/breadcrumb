@@ -5,7 +5,6 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.StringRes
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -110,7 +109,11 @@ internal fun SettingsScreen(onBack: () -> Unit, onOpenPage: (SettingsPage) -> Un
             {
                 NavRow(
                     stringResource(R.string.discarded_title),
-                    subtitle = stringResource(R.string.settings_recently_deleted_sub, DISCARDED_RETENTION_DAYS),
+                    subtitle = pluralStringResource(
+                        R.plurals.settings_recently_deleted_sub,
+                        DISCARDED_RETENTION_DAYS,
+                        DISCARDED_RETENTION_DAYS,
+                    ),
                     icon = Icons.Filled.Delete,
                 ) { onOpenPage(SettingsPage.RecentlyDeleted) }
             },
@@ -807,8 +810,9 @@ private fun ImportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
         subtitle = if (progress == null) {
             stringResource(R.string.data_import_idle)
         } else {
-            stringResource(
-                R.string.data_importing,
+            pluralStringResource(
+                R.plurals.data_importing,
+                progress.imported,
                 (progress.filesDone + 1).coerceAtMost(progress.filesTotal),
                 progress.filesTotal,
                 progress.imported,
@@ -859,28 +863,26 @@ private fun DataActionRow(
 }
 
 /**
- * The busy subtitle shared by the rows whose operation counts tracks. Each row hands over its own
- * whole phrases rather than a verb and a noun to be assembled here: only English composes that way,
- * and a noun built outside its sentence can agree with nothing.
+ * Each row formats its own whole phrases, since only the row knows which count its noun agrees with,
+ * and a noun assembled here, outside its sentence, could agree with nothing.
  */
 @Composable
 private fun progressSubtitle(
     progress: ImportExportController.OpProgress?,
     idle: String,
-    @StringRes verb: Int,
-    @StringRes busy: Int,
+    verb: @Composable (done: Int) -> String,
+    busy: @Composable (done: Int, total: Int) -> String,
 ): String = when {
     progress == null -> idle
-    progress.tracksTotal != null ->
-        stringResource(busy, progress.tracksDone, progress.tracksTotal)
-    else -> stringResource(verb, progress.tracksDone)
+    progress.tracksTotal != null -> busy(progress.tracksDone, progress.tracksTotal)
+    else -> verb(progress.tracksDone)
 }
 
 private fun exportResultToast(context: Context, count: Int?) {
     val message = if (count == null) {
         context.getString(R.string.data_export_failed)
     } else {
-        context.resources.getQuantityString(R.plurals.data_exported, count, count)
+        context.counted(R.plurals.data_exported, count)
     }
     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }
@@ -902,8 +904,8 @@ private fun ExportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
         subtitle = progressSubtitle(
             progress,
             idle = stringResource(R.string.data_export_tracks_idle),
-            verb = R.string.data_exporting,
-            busy = R.string.data_exporting_progress,
+            verb = { stringResource(R.string.data_exporting) },
+            busy = { done, total -> stringResource(R.string.data_exporting_progress, done, total) },
         ),
         done = progress?.tracksDone,
         total = progress?.tracksTotal,
@@ -934,8 +936,8 @@ private fun ExportBackupRow(viewModel: TrackListViewModel, blockedBy: String?) {
         subtitle = progressSubtitle(
             progress,
             idle = stringResource(R.string.data_backup_idle),
-            verb = R.string.data_backup_verb,
-            busy = R.string.data_backup_progress,
+            verb = { stringResource(R.string.data_backup_verb) },
+            busy = { done, total -> stringResource(R.string.data_backup_progress, done, total) },
         ),
         done = progress?.tracksDone,
         total = progress?.tracksTotal,
@@ -966,8 +968,8 @@ private fun ClearHistoryRow(viewModel: TrackListViewModel, busyBlocked: String?)
     // are whole plural phrases, subjects in every frame.
     val t = trips.size
     val p = places.size
-    val tripPhrase = pluralStringResource(R.plurals.data_clear_trip_count, t, t)
-    val placePhrase = pluralStringResource(R.plurals.data_clear_place_count, p, p)
+    val tripPhrase = pluralStringResource(R.plurals.data_trip_count, t, t)
+    val placePhrase = pluralStringResource(R.plurals.data_place_count, p, p)
     val counted = when {
         t > 0 && p > 0 -> stringResource(R.string.data_clear_both, tripPhrase, placePhrase)
         t > 0 -> pluralStringResource(R.plurals.data_clear_trips, t, t)
@@ -1015,8 +1017,11 @@ private fun RestoreRow(viewModel: TrackListViewModel, blockedBy: String?) {
         viewModel.importExport.restoreBackup(uri, onBusy = { busyToast(appContext) }) { outcome ->
             val message = when (outcome) {
                 null -> appContext.getString(R.string.data_restore_failed)
-                is RestoreOutcome.Restored ->
-                    appContext.getString(R.string.data_restored, outcome.summary.tracks, outcome.summary.places)
+                is RestoreOutcome.Restored -> appContext.getString(
+                    R.string.data_restored,
+                    appContext.counted(R.plurals.data_trip_count, outcome.summary.tracks),
+                    appContext.counted(R.plurals.data_place_count, outcome.summary.places),
+                )
                 RestoreOutcome.NotEmpty -> appContext.getString(R.string.data_load_not_empty)
             }
             Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
@@ -1027,8 +1032,8 @@ private fun RestoreRow(viewModel: TrackListViewModel, blockedBy: String?) {
         subtitle = progressSubtitle(
             progress,
             idle = stringResource(R.string.data_restore_idle),
-            verb = R.string.timeline_restoring_count,
-            busy = R.string.timeline_restoring_count_of,
+            verb = { done -> restoringCount(done, total = null) },
+            busy = { done, total -> restoringCount(done, total) },
         ),
         done = progress?.tracksDone,
         total = progress?.tracksTotal,
@@ -1056,9 +1061,8 @@ private fun GoogleTimelineRow(viewModel: TrackListViewModel, blockedBy: String?)
         subtitle = progressSubtitle(
             progress,
             idle = stringResource(R.string.data_google_import_idle),
-            // No count until the file is read: the total is the trips found in it.
-            verb = R.string.data_google_reading,
-            busy = R.string.timeline_google_importing_count_of,
+            verb = { stringResource(R.string.data_google_reading) },
+            busy = { done, total -> googleImportingCount(done, total) },
         ),
         done = progress?.tracksDone,
         total = progress?.tracksTotal,
@@ -1067,16 +1071,15 @@ private fun GoogleTimelineRow(viewModel: TrackListViewModel, blockedBy: String?)
 }
 
 private fun googleImportMessage(context: Context, summary: GoogleTimelineImporter.Summary): String {
+    val trips = context.counted(R.plurals.data_trip_count, summary.tracks)
+    val places = context.counted(R.plurals.data_place_count, summary.places)
     val loaded = if (summary.skipped == 0) {
-        context.getString(R.string.data_google_imported, summary.tracks, summary.places)
+        context.getString(R.string.data_google_imported, trips, places)
     } else {
-        context.getString(R.string.data_google_imported_skipped, summary.tracks, summary.places, summary.skipped)
+        val unreadable = context.counted(R.plurals.data_google_unreadable, summary.skipped)
+        context.getString(R.string.data_google_imported_skipped, trips, places, unreadable)
     }
     if (summary.overlapping == 0) return loaded
-    val overlapping = context.resources.getQuantityString(
-        R.plurals.gpx_overlapping,
-        summary.overlapping,
-        summary.overlapping,
-    )
+    val overlapping = context.counted(R.plurals.gpx_overlapping, summary.overlapping)
     return "$loaded · $overlapping"
 }

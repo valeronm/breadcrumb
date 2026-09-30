@@ -4,10 +4,19 @@
     <!-- Empty state, backup restore and Google Timeline import -->
     <string name="timeline_empty">No trips yet. They appear here once recording captures some movement.</string>
     <string name="timeline_restoring">Restoring your backup — the timeline will appear when it finishes</string>
-    <string name="timeline_restoring_count">Restoring… %1$d trips</string>
-    <string name="timeline_restoring_count_of">Restoring… %1$d of %2$d trips</string>
+    <plurals name="timeline_restoring_count">
+        <item quantity="one">Restoring… %1$d trip</item>
+        <item quantity="other">Restoring… %1$d trips</item>
+    </plurals>
+    <plurals name="timeline_restoring_count_of">
+        <item quantity="one">Restoring… %1$d of %2$d trip</item>
+        <item quantity="other">Restoring… %1$d of %2$d trips</item>
+    </plurals>
     <string name="timeline_google_importing">Importing your Google Timeline — the trips will appear when it finishes</string>
-    <string name="timeline_google_importing_count_of">Importing… %1$d of %2$d trips</string>
+    <plurals name="timeline_google_importing_count_of">
+        <item quantity="one">Importing… %1$d of %2$d trip</item>
+        <item quantity="other">Importing… %1$d of %2$d trips</item>
+    </plurals>
 
     <!--
       Both re-derivation sweeps share this one line: which rule is being re-walked is nothing a

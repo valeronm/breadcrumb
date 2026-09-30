@@ -16,6 +16,7 @@
 
     <plurals name="journey_visits">
         <item quantity="one">%d visita</item>
+        <item quantity="many">%d visitas</item>
         <item quantity="other">%d visitas</item>
     </plurals>
 </resources>

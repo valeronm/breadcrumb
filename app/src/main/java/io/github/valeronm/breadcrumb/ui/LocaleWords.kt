@@ -1,6 +1,8 @@
 package io.github.valeronm.breadcrumb.ui
 
+import android.content.Context
 import android.text.format.DateFormat
+import androidx.annotation.PluralsRes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
@@ -17,6 +19,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+
+internal fun Context.counted(@PluralsRes plural: Int, count: Int): String =
+    resources.getQuantityString(plural, count, count)
 
 /** Epoch millis → the local calendar date in [zone]. */
 internal fun Long.toLocalDate(zone: ZoneId): LocalDate =

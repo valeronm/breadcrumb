@@ -183,7 +183,7 @@ private fun pendingImportNote(context: Context, files: Int): String? =
     if (files <= 0) {
         null
     } else {
-        context.resources.getQuantityString(R.plurals.lock_pending_imports, files, files)
+        context.counted(R.plurals.lock_pending_imports, files)
     }
 
 /**

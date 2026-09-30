@@ -6,18 +6,22 @@
 
     <plurals name="insights_journeys">
         <item quantity="one">%d viagem</item>
+        <item quantity="many">%d viagens</item>
         <item quantity="other">%d viagens</item>
     </plurals>
     <plurals name="insights_nights">
         <item quantity="one">%d noite</item>
+        <item quantity="many">%d noites</item>
         <item quantity="other">%d noites</item>
     </plurals>
     <plurals name="insights_cities">
         <item quantity="one">%d cidade</item>
+        <item quantity="many">%d cidades</item>
         <item quantity="other">%d cidades</item>
     </plurals>
     <plurals name="insights_countries">
         <item quantity="one">%d país</item>
+        <item quantity="many">%d países</item>
         <item quantity="other">%d países</item>
     </plurals>
 
@@ -32,6 +36,7 @@
 
     <plurals name="insights_stats_visits">
         <item quantity="one">%d visita</item>
+        <item quantity="many">%d visitas</item>
         <item quantity="other">%d visitas</item>
     </plurals>
 

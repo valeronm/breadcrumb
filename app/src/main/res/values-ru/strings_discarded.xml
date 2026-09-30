@@ -3,10 +3,20 @@
     <string name="discarded_title">Недавно удалённые</string>
     <string name="discarded_title_count">Недавно удалённые (%1$d)</string>
     <string name="discarded_clear_all">Очистить всё</string>
-    <string name="discarded_empty">Удалённых поездок нет. Они появляются здесь, когда вы удаляете поездку или её отсеивает фильтр, и их можно восстановить в течение %1$d дней.</string>
-    <string name="discarded_retention">Поездки хранятся здесь %1$d дней, затем удаляются навсегда</string>
+    <plurals name="discarded_empty">
+        <item quantity="one">Удалённых поездок нет. Они появляются здесь, когда вы удаляете поездку или её отсеивает фильтр, и их можно восстановить в течение %1$d дня.</item>
+        <item quantity="few">Удалённых поездок нет. Они появляются здесь, когда вы удаляете поездку или её отсеивает фильтр, и их можно восстановить в течение %1$d дней.</item>
+        <item quantity="many">Удалённых поездок нет. Они появляются здесь, когда вы удаляете поездку или её отсеивает фильтр, и их можно восстановить в течение %1$d дней.</item>
+        <item quantity="other">Удалённых поездок нет. Они появляются здесь, когда вы удаляете поездку или её отсеивает фильтр, и их можно восстановить в течение %1$d дня.</item>
+    </plurals>
+    <plurals name="discarded_retention">
+        <item quantity="one">Поездки хранятся здесь %1$d день, затем удаляются навсегда</item>
+        <item quantity="few">Поездки хранятся здесь %1$d дня, затем удаляются навсегда</item>
+        <item quantity="many">Поездки хранятся здесь %1$d дней, затем удаляются навсегда</item>
+        <item quantity="other">Поездки хранятся здесь %1$d дня, затем удаляются навсегда</item>
+    </plurals>
     <string name="discarded_restore">Восстановить поездку</string>
-    <string name="discarded_restore_overlaps">Не восстановлено: пересекается с поездкой в истории</string>
+    <string name="discarded_restore_overlaps">Не восстановлена: пересекается с поездкой в истории</string>
 
     <string name="discarded_filter_all">Все</string>
     <string name="discarded_filter_you">Вами</string>

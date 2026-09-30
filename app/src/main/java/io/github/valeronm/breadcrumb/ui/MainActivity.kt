@@ -384,7 +384,7 @@ private fun MainScreen(
     }
     val mergePlaces: (Place, List<Place>) -> Unit = { keep, absorbed ->
         viewModel.mergePlaces(keep, absorbed)
-        undo.show(context.resources.getQuantityString(R.plurals.places_merged, absorbed.size, absorbed.size)) {
+        undo.show(context.counted(R.plurals.places_merged, absorbed.size)) {
             viewModel.unmergePlaces(keep)
         }
         mergingPlaces = false
@@ -1016,15 +1016,12 @@ private fun SettingsPagesOverlay(
 internal fun gpxImportMessage(
     context: Context,
     result: ImportExportController.GpxImportSummary,
-): String {
-    fun quantity(plural: Int, count: Int) = context.resources.getQuantityString(plural, count, count)
-    return buildList {
-        add(quantity(R.plurals.gpx_imported, result.imported))
-        if (result.duplicates > 0) add(quantity(R.plurals.gpx_duplicates, result.duplicates))
-        if (result.overlapping > 0) add(quantity(R.plurals.gpx_overlapping, result.overlapping))
-        if (result.failed > 0) add(quantity(R.plurals.gpx_failed, result.failed))
-    }.joinToString(" · ")
-}
+): String = buildList {
+    add(context.counted(R.plurals.gpx_imported, result.imported))
+    if (result.duplicates > 0) add(context.counted(R.plurals.gpx_duplicates, result.duplicates))
+    if (result.overlapping > 0) add(context.counted(R.plurals.gpx_overlapping, result.overlapping))
+    if (result.failed > 0) add(context.counted(R.plurals.gpx_failed, result.failed))
+}.joinToString(" · ")
 
 /** Live charger state from the sticky ACTION_BATTERY_CHANGED broadcast (reacts to plug/unplug). */
 @Composable

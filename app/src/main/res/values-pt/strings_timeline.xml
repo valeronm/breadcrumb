@@ -3,19 +3,33 @@
 
     <string name="timeline_empty">Ainda sem viagens. Aparecem aqui assim que a gravação captar algum movimento.</string>
     <string name="timeline_restoring">A restaurar a cópia de segurança — a cronologia aparece quando terminar</string>
-    <string name="timeline_restoring_count">A restaurar… %1$d viagens</string>
-    <string name="timeline_restoring_count_of">A restaurar… %1$d de %2$d viagens</string>
-    <string name="timeline_google_importing">A importar a Cronologia do Google — as viagens aparecem quando terminar</string>
-    <string name="timeline_google_importing_count_of">A importar… %1$d de %2$d viagens</string>
+    <plurals name="timeline_restoring_count">
+        <item quantity="one">A restaurar… %1$d viagem</item>
+        <item quantity="many">A restaurar… %1$d viagens</item>
+        <item quantity="other">A restaurar… %1$d viagens</item>
+    </plurals>
+    <plurals name="timeline_restoring_count_of">
+        <item quantity="one">A restaurar… %1$d de %2$d viagem</item>
+        <item quantity="many">A restaurar… %1$d de %2$d viagens</item>
+        <item quantity="other">A restaurar… %1$d de %2$d viagens</item>
+    </plurals>
+    <string name="timeline_google_importing">A importar a Linha cronológica da Google — as viagens aparecem quando terminar</string>
+    <plurals name="timeline_google_importing_count_of">
+        <item quantity="one">A importar… %1$d de %2$d viagem</item>
+        <item quantity="many">A importar… %1$d de %2$d viagens</item>
+        <item quantity="other">A importar… %1$d de %2$d viagens</item>
+    </plurals>
 
     <string name="timeline_sweep">A reprocessar as viagens</string>
 
     <plurals name="timeline_nights_away">
         <item quantity="one">%d noite fora</item>
+        <item quantity="many">%d noites fora</item>
         <item quantity="other">%d noites fora</item>
     </plurals>
     <plurals name="timeline_journey_days">
         <item quantity="one">%d dia</item>
+        <item quantity="many">%d dias</item>
         <item quantity="other">%d dias</item>
     </plurals>
 
@@ -50,6 +64,7 @@
 
     <plurals name="timeline_visits">
         <item quantity="one">%d visita</item>
+        <item quantity="many">%d visitas</item>
         <item quantity="other">%d visitas</item>
     </plurals>
 </resources>

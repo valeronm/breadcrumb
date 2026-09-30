@@ -23,7 +23,12 @@
     <string name="settings_map_shade_dark">Тёмная</string>
     <string name="settings_app_lock">Блокировка приложения</string>
     <string name="settings_online_services">Онлайн-сервисы</string>
-    <string name="settings_recently_deleted_sub">Можно восстановить в течение %1$d дней</string>
+    <plurals name="settings_recently_deleted_sub">
+        <item quantity="one">Можно восстановить в течение %1$d дня</item>
+        <item quantity="few">Можно восстановить в течение %1$d дней</item>
+        <item quantity="many">Можно восстановить в течение %1$d дней</item>
+        <item quantity="other">Можно восстановить в течение %1$d дня</item>
+    </plurals>
     <string name="settings_logs">Журнал</string>
     <string name="settings_reset">Сброс</string>
 
@@ -92,15 +97,21 @@
     <string name="data_export_section">Экспорт</string>
     <string name="data_restore">Восстановить из копии</string>
     <string name="data_restore_idle">Вся ваша история из резервной копии</string>
-    <string name="data_google_import">Импорт Хронологии Google</string>
-    <string name="data_google_import_idle">Экспортируйте её на телефоне: Настройки → Местоположение → Службы геолокации → Хронология</string>
+    <string name="data_google_import">Импортировать Хронологию Google</string>
+    <string name="data_google_import_idle">Экспортируйте её на телефоне: Настройки → Геолокация → Сервисы геолокации → Хронология</string>
     <string name="data_google_reading">Чтение экспорта…</string>
     <string name="data_only_when_empty">Только в пустую историю</string>
     <string name="data_nothing_to_export">Пока нечего экспортировать</string>
-    <string name="data_restored">Восстановлено поездок: %1$d, мест: %2$d</string>
+    <string name="data_restored">Восстановлено: %1$s и %2$s</string>
     <string name="data_restore_failed">Не удалось восстановить — это не копия Breadcrumb?</string>
-    <string name="data_google_imported">Импортировано поездок: %1$d, мест: %2$d</string>
-    <string name="data_google_imported_skipped">Импортировано поездок: %1$d, мест: %2$d; не удалось прочитать записей: %3$d</string>
+    <string name="data_google_imported">Импортировано: %1$s и %2$s</string>
+    <string name="data_google_imported_skipped">Импортировано: %1$s и %2$s; %3$s</string>
+    <plurals name="data_google_unreadable">
+        <item quantity="one">не удалось прочитать %d запись</item>
+        <item quantity="few">не удалось прочитать %d записи</item>
+        <item quantity="many">не удалось прочитать %d записей</item>
+        <item quantity="other">не удалось прочитать %d записи</item>
+    </plurals>
     <string name="data_google_import_failed">Не удалось импортировать — это не экспорт Хронологии Google?</string>
     <string name="data_clear">Очистить историю</string>
     <string name="data_clear_idle">Удалить все поездки и места с этого телефона</string>
@@ -110,23 +121,23 @@
     <plurals name="data_clear_trips">
         <item quantity="one">%d поездка будет удалена.</item>
         <item quantity="few">%d поездки будут удалены.</item>
-        <item quantity="many">%d поездок будут удалены.</item>
+        <item quantity="many">%d поездок будет удалено.</item>
         <item quantity="other">%d поездки будут удалены.</item>
     </plurals>
     <plurals name="data_clear_places">
         <item quantity="one">%d место будет удалено.</item>
         <item quantity="few">%d места будут удалены.</item>
-        <item quantity="many">%d мест будут удалены.</item>
+        <item quantity="many">%d мест будет удалено.</item>
         <item quantity="other">%d места будут удалены.</item>
     </plurals>
     <string name="data_clear_both">%1$s и %2$s будут удалены.</string>
-    <plurals name="data_clear_trip_count">
+    <plurals name="data_trip_count">
         <item quantity="one">%d поездка</item>
         <item quantity="few">%d поездки</item>
         <item quantity="many">%d поездок</item>
         <item quantity="other">%d поездки</item>
     </plurals>
-    <plurals name="data_clear_place_count">
+    <plurals name="data_place_count">
         <item quantity="one">%d место</item>
         <item quantity="few">%d места</item>
         <item quantity="many">%d мест</item>
@@ -141,7 +152,12 @@
     <string name="data_load_not_empty">История уже не пуста, поэтому ничего не загружено</string>
     <string name="data_import_tracks">Импорт маршрутов</string>
     <string name="data_import_idle">Поездки из файлов GPX с отметками времени</string>
-    <string name="data_importing">Импорт файла %1$d из %2$d · маршрутов: %3$d</string>
+    <plurals name="data_importing">
+        <item quantity="one">Импорт файла %1$d из %2$d · маршрутов: %3$d</item>
+        <item quantity="few">Импорт файла %1$d из %2$d · маршрутов: %3$d</item>
+        <item quantity="many">Импорт файла %1$d из %2$d · маршрутов: %3$d</item>
+        <item quantity="other">Импорт файла %1$d из %2$d · маршрутов: %3$d</item>
+    </plurals>
     <string name="data_export_tracks">Экспорт маршрутов</string>
     <string name="data_export_tracks_idle">Каждый маршрут отдельным файлом GPX в выбранную папку</string>
     <string name="data_exporting">Экспорт…</string>

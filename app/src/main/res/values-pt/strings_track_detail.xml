@@ -14,6 +14,7 @@
     <string name="track_split_at">Dividir às %1$s?</string>
     <plurals name="track_points">
         <item quantity="one">%d ponto</item>
+        <item quantity="many">%d pontos</item>
         <item quantity="other">%d pontos</item>
     </plurals>
     <string name="track_split_explainer">As duas viagens mantêm todos os pontos, e a permanência entre elas passa a aparecer na cronologia. Anular repõe a viagem.</string>

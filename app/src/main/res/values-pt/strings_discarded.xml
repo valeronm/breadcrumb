@@ -3,10 +3,18 @@
     <string name="discarded_title">Eliminadas recentemente</string>
     <string name="discarded_title_count">Eliminadas recentemente (%1$d)</string>
     <string name="discarded_clear_all">Limpar tudo</string>
-    <string name="discarded_empty">Sem viagens eliminadas. Aparecem aqui quando elimina uma ou quando uma regra a descarta, e ficam recuperáveis durante %1$d dias.</string>
-    <string name="discarded_retention">As viagens ficam aqui %1$d dias e depois são eliminadas definitivamente</string>
+    <plurals name="discarded_empty">
+        <item quantity="one">Sem viagens eliminadas. Aparecem aqui quando elimina uma ou quando uma regra a descarta, e ficam recuperáveis durante %1$d dia.</item>
+        <item quantity="many">Sem viagens eliminadas. Aparecem aqui quando elimina uma ou quando uma regra a descarta, e ficam recuperáveis durante %1$d dias.</item>
+        <item quantity="other">Sem viagens eliminadas. Aparecem aqui quando elimina uma ou quando uma regra a descarta, e ficam recuperáveis durante %1$d dias.</item>
+    </plurals>
+    <plurals name="discarded_retention">
+        <item quantity="one">As viagens ficam aqui %1$d dia e depois são eliminadas definitivamente</item>
+        <item quantity="many">As viagens ficam aqui %1$d dias e depois são eliminadas definitivamente</item>
+        <item quantity="other">As viagens ficam aqui %1$d dias e depois são eliminadas definitivamente</item>
+    </plurals>
     <string name="discarded_restore">Recuperar a viagem</string>
-    <string name="discarded_restore_overlaps">Não foi restaurada: sobrepõe-se a uma viagem na cronologia</string>
+    <string name="discarded_restore_overlaps">Não foi recuperada: sobrepõe-se a uma viagem na cronologia</string>
 
     <string name="discarded_filter_all">Todas</string>
     <string name="discarded_filter_you">Por si</string>
@@ -14,6 +22,7 @@
     <string name="discarded_none_of_source">Nenhuma viagem aqui corresponde a este filtro.</string>
     <plurals name="discarded_excluded">
         <item quantity="one">%d excluído</item>
+        <item quantity="many">%d excluídos</item>
         <item quantity="other">%d excluídos</item>
     </plurals>
     <string name="discarded_clear_confirm_title">Limpar as eliminadas recentemente?</string>
@@ -23,6 +32,7 @@
     -->
     <plurals name="discarded_clear_confirm_body">
         <item quantity="one">%d viagem será eliminada definitivamente. Não é possível anular.</item>
+        <item quantity="many">Todas as %d viagens serão eliminadas definitivamente. Não é possível anular.</item>
         <item quantity="other">Todas as %d viagens serão eliminadas definitivamente. Não é possível anular.</item>
     </plurals>
     <string name="discarded_delete_all">Eliminar tudo</string>
@@ -33,6 +43,7 @@
 
     <plurals name="discarded_days_left">
         <item quantity="one">falta %d dia</item>
+        <item quantity="many">faltam %d dias</item>
         <item quantity="other">faltam %d dias</item>
     </plurals>
     <string name="discarded_removal_due">eliminação pendente</string>

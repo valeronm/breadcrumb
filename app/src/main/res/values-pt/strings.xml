@@ -20,6 +20,7 @@
     <string name="relative_yesterday">ontem</string>
     <plurals name="relative_days_ago">
         <item quantity="one">há %d dia</item>
+        <item quantity="many">há %d dias</item>
         <item quantity="other">há %d dias</item>
     </plurals>
 
@@ -31,21 +32,25 @@
 
     <plurals name="gpx_imported">
         <item quantity="one">%d trajeto importado</item>
+        <item quantity="many">%d trajetos importados</item>
         <item quantity="other">%d trajetos importados</item>
     </plurals>
     <plurals name="gpx_duplicates">
         <item quantity="one">%d duplicado ignorado</item>
+        <item quantity="many">%d duplicados ignorados</item>
         <item quantity="other">%d duplicados ignorados</item>
     </plurals>
     <plurals name="gpx_overlapping">
         <item quantity="one">%d sobreposto ignorado</item>
+        <item quantity="many">%d sobrepostos ignorados</item>
         <item quantity="other">%d sobrepostos ignorados</item>
     </plurals>
     <plurals name="gpx_failed">
         <item quantity="one">%d falhou</item>
+        <item quantity="many">%d falharam</item>
         <item quantity="other">%d falharam</item>
     </plurals>
     <string name="common_osm_credit">Resultados online © OpenStreetMap</string>
-    <string name="common_origin_google_timeline">Cronologia do Google</string>
+    <string name="common_origin_google_timeline">Linha cronológica da Google</string>
     <string name="common_origin_entered_by_hand">Introduzida à mão</string>
 </resources>

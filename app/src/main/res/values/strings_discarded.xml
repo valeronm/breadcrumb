@@ -4,8 +4,14 @@
     <string name="discarded_title">Recently deleted</string>
     <string name="discarded_title_count">Recently deleted (%1$d)</string>
     <string name="discarded_clear_all">Clear all</string>
-    <string name="discarded_empty">No deleted trips. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d days.</string>
-    <string name="discarded_retention">Trips stay here for %1$d days, then are deleted forever</string>
+    <plurals name="discarded_empty">
+        <item quantity="one">No deleted trips. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d day.</item>
+        <item quantity="other">No deleted trips. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d days.</item>
+    </plurals>
+    <plurals name="discarded_retention">
+        <item quantity="one">Trips stay here for %1$d day, then are deleted forever</item>
+        <item quantity="other">Trips stay here for %1$d days, then are deleted forever</item>
+    </plurals>
     <string name="discarded_restore">Restore trip</string>
     <string name="discarded_restore_overlaps">Not restored: it overlaps a trip on the timeline</string>
 

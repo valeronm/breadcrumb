@@ -35,6 +35,7 @@
     <string name="place_no_visits">Ainda sem visitas</string>
     <plurals name="place_row_visits">
         <item quantity="one">%d visita</item>
+        <item quantity="many">%d visitas</item>
         <item quantity="other">%d visitas</item>
     </plurals>
 
@@ -78,6 +79,7 @@
     <!-- A label agreeing with the number above it, never carrying one — see the English original. -->
     <plurals name="places_stat_visits" tools:ignore="ImpliedQuantity">
         <item quantity="one">Visita</item>
+        <item quantity="many">Visitas</item>
         <item quantity="other">Visitas</item>
     </plurals>
     <string name="places_stat_time_there">Tempo lá</string>
@@ -89,6 +91,7 @@
     <string name="places_deleted_unnamed">Local eliminado</string>
     <plurals name="places_captured_endpoints">
         <item quantity="one">%d extremo</item>
+        <item quantity="many">%d extremos</item>
         <item quantity="other">%d extremos</item>
     </plurals>
     <string name="places_pin_aim">Colocar o pino com precisão</string>
@@ -105,14 +108,17 @@
     <string name="places_merge_in">Juntar</string>
     <plurals name="places_merge_opened_endpoints">
         <item quantity="one">%d extremo · aberto</item>
+        <item quantity="many">%d extremos · aberto</item>
         <item quantity="other">%d extremos · aberto</item>
     </plurals>
     <plurals name="places_merge_confirm">
         <item quantity="one">Juntar %d local</item>
+        <item quantity="many">Juntar %d locais</item>
         <item quantity="other">Juntar %d locais</item>
     </plurals>
     <plurals name="places_merged">
         <item quantity="one">%d local juntado</item>
+        <item quantity="many">%d locais juntados</item>
         <item quantity="other">%d locais juntados</item>
     </plurals>
 </resources>

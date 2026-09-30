@@ -72,7 +72,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | recording | запись | Progressive titles use «Идёт запись». Never *отслеживание* — that is *tracking*, the concept the app refuses. |
 | positioning | определение местоположения | The status line says «Определение местоположения…», never «Поиск GPS» or «Поиск сигнала» — *поиск* is the user's, and the radio is not the subject. |
 | backup | резервная копия | Short form *копия*; the verb is «создать резервную копию». |
-| google-timeline | Хронология Google | Google's own name for it in Russian. |
+| google-timeline | Хронология Google | *Хронология* is what the phone's Settings call it; *Google* says whose it is, as the English name does. |
 | entered-by-hand | введена вручную | Agrees with *поездка*, the trip it marks. |
 | search | поиск (noun), найти (verb) | Only the user's. What the receiver does is *определение местоположения*. |
 | lock | блокировка; заблокировать / разблокировать | |
