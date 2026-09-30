@@ -468,20 +468,47 @@ assert.equal(
   }
 }
 
+// --- a named place outranks the others covering an endpoint -----------------------------------------
+{
+  const seed = (meters, named, radiusM = 350) => ({ anchor: at(meters), radiusM, named });
+
+  // A named seed takes a location a nearer unnamed seed also covers.
+  let clusters = clusterEndpoints([at(300)], 150, flatDistance, [seed(0, true), seed(400, false)]);
+  assert.deepEqual(clusters[0].memberIndices, [0]);
+  assert.deepEqual(clusters[1].memberIndices, []);
+
+  // A named seed takes a location nearer an organic anchor.
+  clusters = clusterEndpoints([at(400), at(300)], 150, flatDistance, [seed(0, true)]);
+  assert.deepEqual(clusters[0].memberIndices, [1]);
+  assert.deepEqual(clusters[1].memberIndices, [0]);
+
+  // Between two named seeds the nearer one takes the location.
+  clusters = clusterEndpoints([at(300)], 150, flatDistance, [seed(0, true), seed(400, true)]);
+  assert.deepEqual(clusters[0].memberIndices, []);
+  assert.deepEqual(clusters[1].memberIndices, [0]);
+
+  // A named seed that does not cover the location takes nothing.
+  clusters = clusterEndpoints([at(300)], 150, flatDistance, [seed(0, true, 100), seed(400, false)]);
+  assert.deepEqual(clusters[0].memberIndices, []);
+  assert.deepEqual(clusters[1].memberIndices, [0]);
+}
+
 // --- the pin index answers as a plain scan does ------------------------------------------------------
 {
   let state = 7;
   const random = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648;
   for (const lat of [0, 45, 84, -45]) {
     const points = Array.from({ length: 300 }, () => ({ lat: lat + (random() - 0.5) * 0.05, lon: (random() - 0.5) * 0.05 }));
-    const seeds = points.slice(0, 120).map((anchor, i) => ({ anchor, radiusM: 50 + (i % 10) * 50 }));
-    seeds.push({ anchor: points[0], radiusM: 50 }); // coincident with seed 0, so a tie is broken
+    const seeds = points.slice(0, 120).map((anchor, i) => ({ anchor, radiusM: 50 + (i % 10) * 50, named: i % 3 === 0 }));
+    seeds.push({ anchor: points[0], radiusM: 50, named: true }); // coincident with seed 0, so a tie is broken
     const plain = (p) => {
       let best = null;
       let bestD = Infinity;
+      let bestNamed = false;
       seeds.forEach((s, i) => {
         const d = metersBetween(s.anchor.lat, s.anchor.lon, p.lat, p.lon);
-        if (d <= s.radiusM && d < bestD) { best = i; bestD = d; }
+        if (d > s.radiusM) return;
+        if (s.named !== bestNamed ? s.named : d < bestD) { best = i; bestD = d; bestNamed = s.named; }
       });
       return best;
     };

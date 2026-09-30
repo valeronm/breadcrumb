@@ -164,7 +164,8 @@ internal fun PlaceEditScreen(
                 candidates = candidates,
                 anchor = pin,
                 maxRadiusM = maxRadiusM,
-                contest = PlaceClusterer.Contest(rivals, loaded),
+                // Saving takes a name, so the place measured here is always a named one.
+                contest = PlaceClusterer.Contest(rivals, loaded, named = true),
                 distance = AndroidDistance,
             )
         }

@@ -11,8 +11,8 @@ import io.github.valeronm.breadcrumb.data.db.Place
  * pre-existing anchors with their own venue-scale capture radii that outrank chronology; a seeded
  * cluster's identity *is* its place ([Cluster.seedIndex]), killing the anchor lottery — a skewed
  * first visit cannot found a shadow cluster next to a place, since endpoints within the seed
- * radius join the pin's cluster (assignment is nearest-qualifying-anchor, so an endpoint closer to
- * a distinct organic anchor still goes there).
+ * radius join the pin's cluster (a named seed covering an endpoint takes it; otherwise assignment is
+ * nearest-qualifying-anchor, so an endpoint closer to a distinct organic anchor still goes there).
  */
 object PlaceClusterer {
 
@@ -30,17 +30,19 @@ object PlaceClusterer {
         val radiusM: Double,
         /** The place row this seed is, or null for an anchor no place holds. */
         val placeId: Long? = null,
+        /** Whether the place has a name: a named seed outranks every unnamed anchor covering a point. */
+        val named: Boolean = false,
     )
 
     /**
-     * What clustering reads off a stored place: where it sits, how far it reaches, and which row it
-     * is. **This is the whole of a place's influence on the derivation** — its name and its category
-     * reach clustering nowhere — so an observer that re-derives only when this projection changes
-     * cannot miss a move and cannot re-run on a rename. One function rather than a `Seed(…)` at each such observer,
-     * because a term added here has to reach every one of them or the ones it misses stop noticing
-     * what they exist to notice.
+     * What clustering reads off a stored place: where it sits, how far it reaches, which row it is,
+     * and whether it has a name. **This is the whole of a place's influence on the derivation** —
+     * its category and the wording of its name reach clustering nowhere — so an observer that
+     * re-derives only when this projection changes cannot miss a move and cannot re-run on a
+     * rename. One function rather than a `Seed(…)` at each such observer, because a term added here
+     * has to reach every one of them or the ones it misses stop noticing what they exist to notice.
      */
-    fun seedOf(place: Place): Seed = Seed(place.pin, place.radiusM, place.id)
+    fun seedOf(place: Place): Seed = Seed(place.pin, place.radiusM, place.id, named = place.isNamed)
 
     /**
      * **Where a cluster reports itself to be**, from its members' sums and count — with [anchor] the
@@ -56,12 +58,12 @@ object PlaceClusterer {
     fun seedsOf(places: List<Place>): List<Seed> = places.map(::seedOf)
 
     /**
-     * Which of [seeds] claims ([lat], [lon]): the nearest one whose own radius covers it, or null
-     * where none does. **The single statement of the rule** — [cluster] admits an endpoint to a
-     * seeded cluster by it, [StayDeriver] decides two endpoints are the same place by it through
+     * Which of [seeds] claims ([lat], [lon]): among those whose own radius covers it, the nearest
+     * named one, else the nearest unnamed one, or null where none covers it. **The single statement
+     * of the rule** — [cluster] admits an endpoint to a seeded cluster by it, [StayDeriver] decides two endpoints are the same place by it through
      * [SeedIndex], which is tested against it, and a track's ends are named by it ([RoutePlaces]) —
-     * so the inclusive radius and the nearest-wins tie-break are settled in one spot rather than
-     * agreeing three times by comment.
+     * so the inclusive radius, named-before-nearest and the tie-break are settled in one spot rather
+     * than agreeing three times by comment.
      *
      * Scanned in one pass returning an index, not a [Seed]: handing back a pin-with-distance would
      * box a `Double` per call. Seeds out of reach cost coordinate arithmetic, not a distance call
@@ -81,17 +83,24 @@ object PlaceClusterer {
         val reach = ReachBound.around(lat, lon, distance)
         var nearest = -1
         var nearestM = Double.MAX_VALUE
+        var nearestNamed = false
         for (i in seeds.indices) {
             val seed = seeds[i]
             if (reach.outOfReach(seed.anchor.lat, seed.anchor.lon, seed.radiusM)) continue
             val meters = distance.meters(seed.anchor.lat, seed.anchor.lon, lat, lon)
-            if (meters <= seed.radiusM && meters < nearestM) {
+            if (meters <= seed.radiusM && outranks(seed.named, meters, nearestNamed, nearestM)) {
                 nearest = i
                 nearestM = meters
+                nearestNamed = seed.named
             }
         }
         return nearest.takeIf { it >= 0 }
     }
+
+    /** Whether a covering pin beats the best so far: a named one beats an unnamed one at any
+     *  distance, and between two alike the strictly nearer wins. */
+    private fun outranks(named: Boolean, meters: Double, bestNamed: Boolean, bestM: Double): Boolean =
+        if (named != bestNamed) named else meters < bestM
 
     /**
      * [nearestSeedIndex] for a fixed seed list asked about many points, with the same answer, ties
@@ -113,6 +122,7 @@ object PlaceClusterer {
             val span = reach.latitudeSpan(widestM)
             var nearest = -1
             var nearestM = Double.MAX_VALUE
+            var nearestNamed = false
             var k = firstAtOrAbove(lat - span)
             while (k < lats.size && lats[k] <= lat + span) {
                 val i = order[k++]
@@ -122,9 +132,11 @@ object PlaceClusterer {
                 if (meters > seed.radiusM) continue
                 // The band is walked out of index order, so a tie goes to the lower index as the
                 // plain scan's strict comparison leaves it.
-                if (meters < nearestM || meters == nearestM && i < nearest) {
+                val tie = seed.named == nearestNamed && meters == nearestM
+                if (outranks(seed.named, meters, nearestNamed, nearestM) || tie && i < nearest) {
                     nearest = i
                     nearestM = meters
+                    nearestNamed = seed.named
                 }
             }
             return nearest
@@ -190,6 +202,7 @@ object PlaceClusterer {
         private val radii = seeds.mapTo(mutableListOf()) { it.radiusM }
         private val seedCount = seeds.size
         private val seedIndex = SeedIndex(seeds)
+        private val namedSeed = BooleanArray(seeds.size) { seeds[it].named }
 
         /** Built on the first stated claim: a pass over recorded history makes none. */
         private val seedOfPlace: Map<Long, Int> by lazy {
@@ -204,9 +217,10 @@ object PlaceClusterer {
         fun seedAt(index: Int): Seed = Seed(points[index], radii[index])
 
         /**
-         * The index of the anchor claiming [at] — **nearest qualifying**, not merely within range —
-         * founding one there when none reaches it. All but the handful in reach are rejected on
-         * their coordinates ([ReachBound]) rather than on a distance call. A location stated to
+         * The index of the anchor claiming [at] — a named seed covering it, else the **nearest
+         * qualifying** anchor, not merely one within range — founding one there when none reaches
+         * it. All but the handful in reach are rejected on their coordinates ([ReachBound]) rather
+         * than on a distance call. A location stated to
          * [placeId] joins that place's seed as given, neither measuring its distance nor founding an
          * anchor; a place with no seed here leaves it to the radii.
          */
@@ -214,6 +228,7 @@ object PlaceClusterer {
             placeId?.let(seedOfPlace::get)?.let { return it }
             val reach = ReachBound.around(at.lat, at.lon, distance)
             var nearest = seedIndex.indexNearest(at.lat, at.lon, reach, distance)
+            if (nearest >= 0 && namedSeed[nearest]) return nearest
             var nearestD = if (nearest < 0) {
                 Double.MAX_VALUE
             } else {
@@ -266,22 +281,24 @@ object PlaceClusterer {
     }
 
     /**
-     * Which of [candidates] an anchor at [anchor] with [radiusM] would take, given the [rivals]
+     * Which of [candidates] an anchor at [anchor] with [radiusM] would take, given the [Contest.rivals]
      * already anchored around it — for one anchor what [cluster] answers for all, so a radius
      * being dragged can show what it captures without a write and a full re-derivation. It applies
-     * the same test — *nearest qualifying anchor*, not merely within range — because "inside the
-     * circle" over-promises: an endpoint inside this radius but closer to a neighbor that also
-     * covers it stays with the neighbor, and a preview that lit it up would be lying.
+     * the same test — a named pin before an unnamed one, then the *nearest qualifying anchor*, not
+     * merely one within range — because "inside the circle" over-promises: an endpoint inside this
+     * radius that a neighbor covering it outranks stays with the neighbor, and a preview that lit it
+     * up would be lying.
      *
-     * **[rivals] are seeds — place pins — and nothing else.** Only a seed is in [cluster]'s anchor
+     * **[Contest.rivals] are seeds — place pins — and nothing else.** Only a seed is in [cluster]'s anchor
      * list before any endpoint is read, so only a seed holds its ground whatever this radius does;
      * an organic cluster's anchor is just the first endpoint no seed claimed, and ground a radius
      * grows over never produces one — each endpoint there joins the pin as it is processed.
      * Passing organic anchors in as rivals makes them look immovable (they sit on their own
      * members and win every comparison), and a widened radius then appears to capture nothing.
-     * A rival takes a candidate only when *strictly* nearer, matching [cluster]'s `d < nearestD`
-     * scan for a subject preceding its rivals in the anchor list; exact ties are the only case
-     * where the two can disagree. One approximation remains: an organic anchor formed *outside*
+     * A rival takes a candidate when it is named and the subject is not, or when the two are alike
+     * and the rival is *strictly* nearer, matching [cluster]'s `d < nearestD` scan for a subject
+     * preceding its rivals in the anchor list; exact ties are the only case where the two can
+     * disagree. One approximation remains: an organic anchor formed *outside*
      * this radius can still hold an endpoint inside it when nearer than the pin — it must sit
      * within its own default radius of the endpoint while out of reach of this one, a narrow band.
      * The plain statement of the rule, kept for reading and as the reference [scanCapture] is
@@ -291,10 +308,10 @@ object PlaceClusterer {
         candidates: List<Coordinate>,
         anchor: Coordinate,
         radiusM: Double,
-        rivals: List<Seed>,
+        contest: Contest,
         distance: DistanceFn,
     ): List<Coordinate> {
-        val scan = scanCapture(candidates, anchor, radiusM, Contest(rivals), distance)
+        val scan = scanCapture(candidates, anchor, radiusM, contest, distance)
         return scan.held + scan.winnable.filter { it.distanceM <= radiusM }.map { it.location }
     }
 
@@ -312,8 +329,11 @@ object PlaceClusterer {
         }
     }
 
-    /** What else claims a candidate: the [rivals]' pins by distance, and [stated] by statement. */
-    class Contest(val rivals: List<Seed>, val stated: Stated = Stated.None)
+    /**
+     * What else claims a candidate: the [rivals]' pins by name and distance, and [stated] by
+     * statement. [named] is whether the anchor being judged has a name.
+     */
+    class Contest(val rivals: List<Seed>, val stated: Stated = Stated.None, val named: Boolean = false)
 
     /**
      * [wouldCapture]'s work, done once for a radius about to move repeatedly. Dragging asks the
@@ -415,7 +435,7 @@ object PlaceClusterer {
                 continue
             }
             val own = distance.meters(anchor.lat, anchor.lon, candidate.lat, candidate.lon)
-            if (own > maxRadiusM || losesTo(candidate, own, rivals, rivalReach, distance)) {
+            if (own > maxRadiusM || losesTo(candidate, own, contest, rivalReach, distance)) {
                 conceded += candidate
             } else {
                 winnable += Reach(candidate, own)
@@ -427,17 +447,18 @@ object PlaceClusterer {
     private fun losesTo(
         candidate: Coordinate,
         own: Double,
-        rivals: List<Seed>,
+        contest: Contest,
         rivalReach: List<ReachBound>,
         distance: DistanceFn,
     ): Boolean {
+        val rivals = contest.rivals
         for (i in rivals.indices) {
             val rival = rivals[i]
             if (rivalReach[i].outOfReach(candidate.lat, candidate.lon, rival.radiusM)) continue
             val theirs = distance.meters(
                 rival.anchor.lat, rival.anchor.lon, candidate.lat, candidate.lon,
             )
-            if (theirs <= rival.radiusM && theirs < own) return true
+            if (theirs <= rival.radiusM && outranks(rival.named, theirs, contest.named, own)) return true
         }
         return false
     }

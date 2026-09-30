@@ -40,6 +40,11 @@ class DerivationStoreTest {
     private suspend fun assertDerivedMatchesFreshDerive() =
         DerivedConsistency.assertMatchesFreshDerive(db, now)
 
+    private suspend fun placeHoldingStartOf(trackId: Long): Long? {
+        val clusterId = derived.membersForTracks(listOf(trackId)).single { it.isStart }.clusterId
+        return derived.clustersOnce().single { it.id == clusterId }.placeId
+    }
+
     /** Two walks from the same spot, three hours apart — a history with one interval in it. */
     private suspend fun twoTracks() {
         track(0, 5, TEST_START)
@@ -160,10 +165,24 @@ class DerivationStoreTest {
         )
         assertDerivedMatchesFreshDerive()
 
-        // A label reaches clustering nowhere, so nothing is re-derived and every row stands.
+        // The wording of a name reaches clustering nowhere, so nothing is re-derived and every row stands.
         val named = derived.clustersOnce().map { it.id }
         places.save(test.place("Home base", 1.0, -2.0).copy(id = id))
         assertEquals("a rename costs no derivation", named, derived.clustersOnce().map { it.id })
+    }
+
+    @Test fun `naming a place takes the ends it covers from a nearer unnamed one`() = runTest {
+        val walk = track(0, 5, TEST_START)
+        track(0, 5, TEST_START + 3 * 60 * 60_000L)
+        val near = places.create(test.place("", 1.0005, -2.0).copy(label = null))
+        val far = test.place("", 0.999, -2.0).copy(label = null)
+        val farId = places.create(far)
+        assertEquals(near, placeHoldingStartOf(walk))
+
+        places.save(far.copy(id = farId, label = "Cafe"))
+
+        assertEquals(farId, placeHoldingStartOf(walk))
+        assertDerivedMatchesFreshDerive()
     }
 
     @Test fun `deleting a place and undoing it leave the derivation either side of the delete`() = runTest {

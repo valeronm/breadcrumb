@@ -69,7 +69,7 @@ internal object DerivedConsistency {
             // The named rows are *inputs* to the reference pass, not outputs compared against it:
             // they are the pins the app's own derivation was seeded from, so a reference seeded any
             // other way would be answering a different question.
-            placePins = seeds.map { it.toSeed() },
+            placePins = db.placeDao().namedIds().toHashSet().let { named -> seeds.map { it.toSeed(named) } },
         )
         val endpoints = StayDeriver.endpointsOf(tracks)
         val membersOf = stored.members.groupBy { it.clusterId }
@@ -207,7 +207,7 @@ internal object DerivedConsistency {
         val agreement = StayDeriver.Agreement(
             StayDeriver.Params(),
             AndroidDistance,
-            stored.seeds().map { it.toSeed() },
+            db.placeDao().namedIds().toHashSet().let { named -> stored.seeds().map { it.toSeed(named) } },
         )
         val positionOf = stored.clusters.withIndex().associate { (index, row) -> row.id to index }
         val clusterOfEndpoint = stored.members.associate { (it.trackId to it.isStart) to positionOf.getValue(it.clusterId) }
@@ -259,7 +259,7 @@ internal object DerivedConsistency {
         }
     }
 
-    private fun DerivedCluster.anchor() = toSeed().anchor
+    private fun DerivedCluster.anchor() = Coordinate(anchorLat, anchorLon)
 
     private fun ClusterMember.identity() = listOf(trackId, isStart, lat, lon, atMs)
 

@@ -40,6 +40,9 @@ interface PlaceDao {
 
     @Query("SELECT * FROM places ORDER BY createdAt ASC, id ASC")
     suspend fun allPlaces(): List<Place>
+
+    @Query("SELECT id FROM places WHERE label IS NOT NULL")
+    suspend fun namedIds(): List<Long>
 }
 
 /** The columns of `places` the editor commits — [PlaceDao.update]'s whole write; `category` and

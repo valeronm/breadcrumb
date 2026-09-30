@@ -152,6 +152,7 @@ function buildTimeline(places) {
       anchor: { lat: p.lat, lon: p.lon },
       radiusM: p.radiusM ?? PLACE_RADIUS_M,
       placeId: p.id,
+      named: p.label != null,
     })),
   });
   // Resolve over the UNSLICED stays: after slicing, a 3-day stay would count as 3 visits.

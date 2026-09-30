@@ -147,7 +147,8 @@ object TravelDeriver {
         }
         val best = nightsPerCluster.indices.maxByOrNull { nightsPerCluster[it] }
         if (best == null || nightsPerCluster[best] == 0) return Home(emptySet(), emptyList())
-        return Home(setOf(best), listOf(clusters[best].seed))
+        val seed = clusters[best].seedIndex?.let { PlaceClusterer.seedOf(places[it]) } ?: clusters[best].seed
+        return Home(setOf(best), listOf(seed))
     }
 
     /**

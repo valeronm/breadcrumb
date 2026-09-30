@@ -54,14 +54,14 @@ const DEFAULT_PARAMS = {
 /** Groups endpoints into *places* by anchor-based greedy leader clustering in chronological input
  * order: a cluster's anchor is its first-ever member's location, so appending newer history never
  * re-shuffles the clusters older stays belong to, and every member sits within its anchor's
- * capture radius, so a cluster can't chain-walk across a neighborhood. The user's named-place pins
- * enter as `seeds` ({anchor, radiusM}) — pre-existing anchors with their own venue-scale radii,
- * outranking chronology; a seeded cluster's identity *is* its place (`seedIndex`), killing the
- * anchor lottery (a skewed first visit cannot found a shadow cluster beside a named place).
- * Assignment is nearest-qualifying-anchor, so an endpoint closer to a distinct organic anchor
- * still goes there. `statedPlaceAt(index)` is the place a location is stated to, or null: it joins
- * that place's seed whatever its distance, and founds no anchor; a place with no seed here leaves it
- * to the radii. */
+ * capture radius, so a cluster can't chain-walk across a neighborhood. The places' pins enter as
+ * `seeds` ({anchor, radiusM, placeId, named}) — pre-existing anchors with their own venue-scale
+ * radii, outranking chronology; a seeded cluster's identity *is* its place (`seedIndex`), killing
+ * the anchor lottery (a skewed first visit cannot found a shadow cluster beside a place). A named
+ * seed covering an endpoint takes it; otherwise assignment is nearest-qualifying-anchor, so an
+ * endpoint closer to a distinct organic anchor still goes there. `statedPlaceAt(index)` is the
+ * place a location is stated to, or null: it joins that place's seed whatever its distance, and
+ * founds no anchor; a place with no seed here leaves it to the radii. */
 export function clusterEndpoints(locations, radiusM, distance, seeds, statedPlaceAt = () => null) {
   const anchors = [];
   const radii = [];
@@ -91,6 +91,10 @@ export function clusterEndpoints(locations, radiusM, distance, seeds, statedPlac
     // distance call.
     const outOfReach = reachBound(location.lat, location.lon, distance);
     let nearest = nearestSeed(location.lat, location.lon, distance, outOfReach) ?? -1;
+    if (nearest >= 0 && seeds[nearest].named) {
+      members[nearest].push(index);
+      return;
+    }
     let nearestD = nearest < 0 ? Infinity
       : distance(anchors[nearest].lat, anchors[nearest].lon, location.lat, location.lon);
     // Strictly nearer only: every seed precedes these, and a tie goes to the lower index.
@@ -128,7 +132,8 @@ export function clusterEndpoints(locations, radiusM, distance, seeds, statedPlac
   });
 }
 
-/** The nearest seed whose own radius captures a point — the app's PlaceClusterer.SeedIndex, with
+/** The seed claiming a point: among those whose own radius covers it, the nearest named one, else
+ * the nearest unnamed one — the app's PlaceClusterer.SeedIndex, with
  * the same answer as a plain scan in index order, ties included. Seeds sorted by latitude, so a
  * point reads only the band its widest radius can reach; pins out of reach inside it cost
  * coordinate arithmetic, not a distance call.
@@ -152,14 +157,18 @@ export function seedIndex(seeds) {
     const span = outOfReach.latitudeSpan(widest);
     let best = -1;
     let bestD = Infinity;
+    let bestNamed = false;
     for (let k = firstAtOrAbove(lat - span); k < lats.length && lats[k] <= lat + span; k++) {
       const i = order[k];
       const seed = seeds[i];
       if (outOfReach(seed.anchor.lat, seed.anchor.lon, seed.radiusM)) continue;
       const d = distance(seed.anchor.lat, seed.anchor.lon, lat, lon);
-      if (d <= seed.radiusM && (d < bestD || (d === bestD && i < best))) {
+      if (d > seed.radiusM) continue;
+      const named = Boolean(seed.named);
+      if (named !== bestNamed ? named : d < bestD || (d === bestD && i < best)) {
         best = i;
         bestD = d;
+        bestNamed = named;
       }
     }
     return best >= 0 ? best : null;
@@ -172,7 +181,7 @@ export function seedIndex(seeds) {
  *   can only produce gaps, as in the app); the place ids those ends are stated to, or null.
  * @param nowMs the instant the derivation is "as of" — the viewer passes the backup's export time,
  *   so an open tail stay is open as of the export rather than growing on every page load.
- * @param placePins places as clustering seeds: {anchor: {lat, lon}, radiusM, placeId}, in
+ * @param placePins places as clustering seeds: {anchor: {lat, lon}, radiusM, placeId, named}, in
  *   places-list order, so a cluster's seedIndex identifies its place exactly.
  * @returns {{intervals: object[], clusters: object[]}} intervals ascending; a stay carries
  *   `clusterId`, a gap the cluster id of each known side. */

@@ -546,11 +546,15 @@ state what is known and stay silent on how well it is known.
 in `place_identities`, any number per place and each naming exactly one, and it never changes how a
 place is shown. Everything else about a place is derived on read. **A row may be
 unnamed**, and then reads everywhere as the unnamed cluster it seeds; naming it writes onto that row,
-so the source's identity survives. **A category and a name feed nothing on the way to a stay**, and
-the plumbing is built to say so: what reaches the derivation is a place's pin, its reach and its row
-— `PlaceClusterer.seedOf`, the one projection that says so — carried into the derived tables as that
-place's seed cluster (`DerivationStore.reconcile`). A rename or a re-categorization moves no seed, so it writes nothing
-and re-derives nothing, which `DerivationStoreTest` pins. On the read side a place is matched to its
+so the source's identity survives. **A category feeds nothing on the way to a stay, and a name only
+by being there**: where several circles cover a measured end, a named place takes it before any
+unnamed one, a name being the user's word on which spot the end belongs to. The plumbing is built to
+say so: what reaches the derivation is a place's pin, its reach, whether it is named and its row —
+`PlaceClusterer.seedOf`, the one projection that says so — carried into the derived tables as that
+place's seed cluster (`DerivationStore.reconcile`). The cluster rows do not copy whether a place is
+named, so a place write that names or unnames one rebuilds (`PlaceRepository`). A rename or a
+re-categorization moves no seed, so it writes nothing and re-derives nothing, which
+`DerivationStoreTest` pins. On the read side a place is matched to its
 cluster **by position**, `PlaceResolver` resolving positionally, which is why `DerivedReadModel`
 orders seeded clusters by their place's index and organic ones after them.
 

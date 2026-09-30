@@ -83,7 +83,8 @@ class PlaceClustererTest {
 
     // --- Seeded clustering ------------------------------------------------------
 
-    private fun seed(meters: Double, radius: Double = 350.0) = PlaceClusterer.Seed(at(meters), radius)
+    private fun seed(meters: Double, radius: Double = 350.0, named: Boolean = false) =
+        PlaceClusterer.Seed(at(meters), radius, named = named)
 
     private fun clusterSeeded(seeds: List<PlaceClusterer.Seed>, vararg locations: Coordinate) =
         PlaceClusterer.cluster(locations.toList(), distance = flatDistance, seeds = seeds)
@@ -120,6 +121,30 @@ class PlaceClustererTest {
         val clusters = clusterSeeded(listOf(seed(0.0)), at(400.0), at(300.0))
         assertTrue(clusters[0].memberIndices.isEmpty())
         assertEquals(listOf(0, 1), clusters[1].memberIndices)
+    }
+
+    @Test fun `a named seed takes a location a nearer unnamed seed also covers`() {
+        val clusters = clusterSeeded(listOf(seed(0.0, named = true), seed(400.0)), at(300.0))
+        assertEquals(listOf(0), clusters[0].memberIndices)
+        assertTrue(clusters[1].memberIndices.isEmpty())
+    }
+
+    @Test fun `a named seed takes a location nearer an organic anchor`() {
+        val clusters = clusterSeeded(listOf(seed(0.0, named = true)), at(400.0), at(300.0))
+        assertEquals(listOf(1), clusters[0].memberIndices)
+        assertEquals(listOf(0), clusters[1].memberIndices)
+    }
+
+    @Test fun `between two named seeds the nearer one takes the location`() {
+        val clusters = clusterSeeded(listOf(seed(0.0, named = true), seed(400.0, named = true)), at(300.0))
+        assertTrue(clusters[0].memberIndices.isEmpty())
+        assertEquals(listOf(0), clusters[1].memberIndices)
+    }
+
+    @Test fun `a named seed that does not cover the location takes nothing`() {
+        val clusters = clusterSeeded(listOf(seed(0.0, radius = 100.0, named = true), seed(400.0)), at(300.0))
+        assertTrue(clusters[0].memberIndices.isEmpty())
+        assertEquals(listOf(0), clusters[1].memberIndices)
     }
 
     @Test fun `a stated location joins its seed whatever the distance`() {
@@ -165,11 +190,15 @@ class PlaceClustererTest {
         locations.forEachIndexed { index, location ->
             var nearest = -1
             var nearestD = Double.MAX_VALUE
+            var nearestNamed = false
             for (ci in anchors.indices) {
                 val d = distance.meters(anchors[ci].lat, anchors[ci].lon, location.lat, location.lon)
-                if (d <= radii[ci] && d < nearestD) {
+                if (d > radii[ci]) continue
+                val named = ci < seeds.size && seeds[ci].named
+                if (if (named != nearestNamed) named else d < nearestD) {
                     nearest = ci
                     nearestD = d
+                    nearestNamed = named
                 }
             }
             if (nearest >= 0) {
@@ -204,8 +233,10 @@ class PlaceClustererTest {
         }
         // Pins at the widest radius the UI offers, where the box has the most to admit, and a crowd
         // of narrower ones so the seed index has a band to cut.
-        val seeds = endpoints.take(6).map { PlaceClusterer.Seed(it, 500.0) } +
-            endpoints.drop(6).take(60).mapIndexed { i, at -> PlaceClusterer.Seed(at, 50.0 + (i % 5) * 50.0) }
+        val seeds = endpoints.take(6).mapIndexed { i, at -> PlaceClusterer.Seed(at, 500.0, named = i % 2 == 0) } +
+            endpoints.drop(6).take(60).mapIndexed { i, at ->
+                PlaceClusterer.Seed(at, 50.0 + (i % 5) * 50.0, named = i % 4 == 0)
+            }
         return endpoints to seeds
     }
 
@@ -228,8 +259,9 @@ class PlaceClustererTest {
             for (latSpread in listOf(1.0, 0.02)) {
                 val (endpoints, _) = generatedHistory(lat, latSpread)
                 // Many seeds of mixed reach, a pair of them coincident so a tie has to be broken.
-                val seeds = endpoints.take(120).mapIndexed { i, at -> PlaceClusterer.Seed(at, 50.0 + (i % 10) * 50.0) } +
-                    PlaceClusterer.Seed(endpoints[0], 50.0)
+                val seeds = endpoints.take(120).mapIndexed { i, at ->
+                    PlaceClusterer.Seed(at, 50.0 + (i % 10) * 50.0, named = i % 3 == 0)
+                } + PlaceClusterer.Seed(endpoints[0], 50.0, named = true)
                 val index = PlaceClusterer.SeedIndex(seeds)
                 for (point in endpoints) {
                     assertEquals(
@@ -284,8 +316,9 @@ class PlaceClustererTest {
         radiusM: Double,
         rivals: List<PlaceClusterer.Seed> = emptyList(),
         vararg candidates: Coordinate,
+        named: Boolean = false,
     ) = PlaceClusterer.wouldCapture(
-        candidates.toList(), at(0.0), radiusM, rivals, flatDistance,
+        candidates.toList(), at(0.0), radiusM, PlaceClusterer.Contest(rivals, named = named), flatDistance,
     )
 
     @Test fun `takes the candidates inside the radius and no others`() {
@@ -304,6 +337,16 @@ class PlaceClustererTest {
         // to the rival, so a preview must not claim it.
         val rival = PlaceClusterer.Seed(at(300.0), 150.0)
         assertTrue(wouldCapture(400.0, listOf(rival), at(250.0)).isEmpty())
+    }
+
+    @Test fun `a named rival keeps a candidate from an unnamed place, however near`() {
+        val rival = PlaceClusterer.Seed(at(500.0), 400.0, named = true)
+        assertTrue(wouldCapture(400.0, listOf(rival), at(200.0)).isEmpty())
+    }
+
+    @Test fun `a named place keeps a candidate a nearer unnamed rival covers`() {
+        val rival = PlaceClusterer.Seed(at(300.0), 150.0)
+        assertEquals(listOf(at(250.0)), wouldCapture(400.0, listOf(rival), at(250.0), named = true))
     }
 
     @Test fun `a farther rival does not block it`() {
@@ -409,7 +452,7 @@ class PlaceClustererTest {
             PlaceClusterer.cluster(locations, distance = flatDistance, seeds = listOf(seed))
                 .first { it.seedIndex == 0 }
                 .members,
-            PlaceClusterer.wouldCapture(locations, seed.anchor, seed.radiusM, emptyList(), flatDistance),
+            PlaceClusterer.wouldCapture(locations, seed.anchor, seed.radiusM, PlaceClusterer.Contest(emptyList()), flatDistance),
         )
     }
 
@@ -428,7 +471,7 @@ class PlaceClustererTest {
         assertEquals(
             real,
             PlaceClusterer.wouldCapture(
-                candidates, subject.anchor, subject.radiusM, listOf(rival), flatDistance,
+                candidates, subject.anchor, subject.radiusM, PlaceClusterer.Contest(listOf(rival)), flatDistance,
             ),
         )
     }

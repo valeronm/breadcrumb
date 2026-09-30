@@ -12,6 +12,7 @@ import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.StayLedger
+import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
@@ -23,10 +24,14 @@ private const val TAG = "Breadcrumb"
 /**
  * What a stored cluster is to the clustering: an anchor with a reach. **The one projection that
  * decides cluster identity**, so it is written once — a second hand-copy would let a caller seed a
- * derivation differently from the one that produced the rows it compares against.
+ * derivation differently from the one that produced the rows it compares against. [named] comes
+ * from the cluster's place, which the row does not copy.
  */
-internal fun DerivedCluster.toSeed() =
-    PlaceClusterer.Seed(Coordinate(anchorLat, anchorLon), radiusM, placeId)
+internal fun DerivedCluster.toSeed(named: Boolean) =
+    PlaceClusterer.Seed(Coordinate(anchorLat, anchorLon), radiusM, placeId, named)
+
+/** [toSeed] with [named] read off the ids of the places that have a name. */
+internal fun DerivedCluster.toSeed(named: Set<Long>) = toSeed(placeId in named)
 
 /**
  * The stay/place derivation's storage, read and written — so that showing the timeline is a query
@@ -99,9 +104,10 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /** Whether [cluster] is the seed cluster [place] should have — what [alignSeeds] establishes
-     *  one place at a time and [seedsAgree] asks of a whole reading. */
+     *  one place at a time and [seedsAgree] asks of a whole reading. Blind to naming, which both
+     *  sides read off [place]. */
     private fun seeds(cluster: DerivedCluster?, place: Place) =
-        cluster != null && cluster.toSeed() == PlaceClusterer.seedOf(place)
+        cluster != null && cluster.toSeed(named = place.isNamed) == PlaceClusterer.seedOf(place)
 
     /**
      * Re-derive the whole history and replace the stored rows with it, in one transaction.
@@ -126,10 +132,11 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
                 val trackEnds = tracks.endpointsOnce().map { it.toTrackEnd() }
                 SweepStatus.start(trackEnds.size)
                 val seeds = derived.seededClusters()
+                val named = places.namedIds().toHashSet()
                 val derivation = StayDeriver.derive(
                     tracks = trackEnds,
                     distance = AndroidDistance,
-                    placePins = seeds.map { it.toSeed() },
+                    placePins = seeds.map { it.toSeed(named) },
                 )
                 SweepStatus.advance(trackEnds.size)
 
@@ -182,10 +189,12 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * way [rebuild] is reached outside a repair.
      *
      * The seed half is the whole of how user curation reaches these tables. A place's influence on
-     * the derivation is its pin and its reach ([PlaceClusterer.seedOf], the one projection that says
-     * so), so a place with no cluster gets one, a place whose circle moved moves its cluster's, and a
-     * cluster whose place is gone goes with it — the rebuild then re-derives that ground organically.
-     * A rename or a re-categorization moves no seed: nothing is written and no history is re-derived.
+     * the derivation is its pin, its reach and whether it has a name ([PlaceClusterer.seedOf], the
+     * one projection that says so), so a place with no cluster gets one, a place whose circle moved
+     * moves its cluster's, and a cluster whose place is gone goes with it — the rebuild then
+     * re-derives that ground organically. It cannot see a place being named or unnamed ([toSeed]),
+     * so a caller that does either passes [stale]. A rename or a re-categorization moves no seed:
+     * nothing is written and no history is re-derived.
      *
      * [stale] is for a caller that knows the rows are wrong for a reason of its own — a sweep having
      * rewritten the endpoints under them, a restore having just landed a history, this build's rules
@@ -290,7 +299,9 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
                 StayLedger.reknit(
                     seam = StayLedger.Seam(prev, ids, added, next),
                     stored = StayLedger.Stored(
-                        clusters = derived.clustersOnce().map { it.toClusterRow() },
+                        clusters = places.namedIds().toHashSet().let { named ->
+                            derived.clustersOnce().map { it.toClusterRow(named) }
+                        },
                         membershipOf = (leaving + neighbours).map { it.toMembership() }
                             .groupBy { it.trackId },
                     ),
@@ -320,9 +331,9 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         derived.insertIntervals(mutations.intervals.map { it.toRow(founded) })
     }
 
-    private fun DerivedCluster.toClusterRow() = StayLedger.ClusterRow(
+    private fun DerivedCluster.toClusterRow(named: Set<Long>) = StayLedger.ClusterRow(
         id = id,
-        seed = toSeed(),
+        seed = toSeed(named),
         memberCount = memberCount,
     )
 
@@ -479,7 +490,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
          * next launch, which is the lever for a rule change here or in the deriver — and the repair
          * for rows nobody trusts.
          */
-        const val LOGIC_VERSION = 2
+        const val LOGIC_VERSION = 3
 
         /** The tables this class writes — the ones [observeStored] carries over when a write
          *  reached none of them. Named apart from `places`, which is the writing the user does. */

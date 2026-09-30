@@ -147,11 +147,13 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
     /**
      * One write to `places`, with the derivation's seeds brought back into agreement with it before
      * the transaction closes — so no reader can see a place whose circle the stored stays were not
-     * derived against.
+     * derived against. A place gaining or losing its name re-derives as well, since
+     * [DerivationStore.reconcile] cannot see it.
      */
     private suspend fun <T> seeding(write: suspend () -> T): T = db.withTransaction {
+        val named = dao.namedIds().toHashSet()
         val result = write()
-        derivation.reconcile()
+        derivation.reconcile(stale = dao.namedIds().toHashSet() != named)
         result
     }
 }
