@@ -538,8 +538,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     fun observeAnyRows(): Flow<Boolean> = dao.observeAnyRows()
 
-    /** Every table in this database is history. Settings live elsewhere and stay. */
-    suspend fun clearHistory() = withContext(Dispatchers.IO) { db.clearAllTables() }
+    suspend fun clearHistory() = withContext(Dispatchers.IO) { db.clearHistory() }
 
     /** Hard-delete what sits in Recently deleted, up to and including the row discarded at
      *  [through] — the bound the caller measured, rows being discarded while it decides. */

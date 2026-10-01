@@ -4,7 +4,10 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.execSQL
+import androidx.room.immediateTransaction
 import androidx.room.migration.Migration
+import androidx.room.useWriterConnection
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
@@ -21,7 +24,35 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun placeIdentityDao(): PlaceIdentityDao
     abstract fun derivedDao(): DerivedDao
 
+    /** Every table in this database is history. Settings live elsewhere and stay. */
+    suspend fun clearHistory() = useWriterConnection { connection ->
+        val secureDelete = connection.usePrepared("PRAGMA secure_delete") {
+            it.step()
+            it.getLong(0)
+        }
+        // A table that is a foreign-key parent or child is deleted a row at a time, through the
+        // cascades and every index, where with the keys off SQLite truncates it. The pragma holds
+        // per connection and is a no-op inside a transaction.
+        connection.execSQL("PRAGMA foreign_keys = OFF")
+        // Under the file's auto_vacuum the freed pages are cut off its end at checkpoint, so
+        // zeroing them first protects nothing.
+        connection.execSQL("PRAGMA secure_delete = FAST")
+        try {
+            connection.immediateTransaction {
+                for (table in HISTORY_TABLES) execSQL("DELETE FROM `$table`")
+            }
+        } finally {
+            connection.execSQL("PRAGMA secure_delete = $secureDelete")
+            connection.execSQL("PRAGMA foreign_keys = ON")
+        }
+    }
+
     companion object {
+        private val HISTORY_TABLES = listOf(
+            "tracks", "track_points", "places", "place_identities",
+            "derived_clusters", "cluster_members", "derived_intervals",
+        )
+
         @Volatile
         private var instance: AppDatabase? = null
 
