@@ -30,7 +30,7 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
     ("deaf", r"reading (?P<late>\d+)s late \(advanced -?\d+ms\) — registration deaf"),
     ("transition", r"transition (?P<dir>ENTER|EXIT) (?P<act>\w+) \((?P<ago>[\d.]+)s ago\)$"),
     ("apply", r"applyActivity: (?P<prev>\w+) -> (?P<act>\w+) \(track=(?P<track>\w+)"
-              r"(?: paused=(?P<paused>\w+))?(?: reading=-(?P<lag>\d+)s)?(?: ground=(?P<ground>\w+))?\)$"),
+              r"(?: paused=(?P<paused>\w+))?(?: reading=-(?P<lag>\d+)s)?(?: ground=(?P<ground>\w+)(?:@[\d.]+kmh)?)?\)$"),
     ("open", r"\s*-> (?P<how>opened|continued) (?P<act>\w+) track (?P<track>\d+)$"),
     ("relabel", r"\s*-> relabelled track (?P<track>\d+) as (?P<act>\w+)$"),
     ("closing", r"\s*-> closing track (?P<track>\d+)$"),
