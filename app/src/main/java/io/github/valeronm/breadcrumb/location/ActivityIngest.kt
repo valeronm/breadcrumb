@@ -301,7 +301,8 @@ class ActivityIngest(
         nowMs: Long,
         settings: ActivitySettings,
     ): List<Effect> {
-        val verdict = watch.judge(position)
+        val resuming = recording && noFixGuard.suspended
+        val verdict = watch.judge(position, if (resuming) RESUME_MARGIN_M else DepartureWatch.SOLO_MARGIN_M)
         lastProbeVerdict = verdict
         return when (verdict) {
             is DepartureWatch.Verdict.Anchored -> anchored(verdict, settings.triggers)
@@ -685,6 +686,11 @@ class ActivityIngest(
     }
 
     companion object {
+        // A false departure with GPS given up on the open track costs one more GPS search rather
+        // than a track. Standstill wander clears the combined error by this much on about one
+        // give-up in twenty-five.
+        private const val RESUME_MARGIN_M = 20.0
+
         // A reading this soon after a registration is its replay. Comfortably over the settle
         // ActivityRecognitionManager waits before re-requesting.
         private const val REGISTRATION_REPLAY_WINDOW_MS = 5_000L

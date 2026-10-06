@@ -366,11 +366,11 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertTrue("the same track carries on", core.recording)
     }
 
-    @Test fun `a probe position past the bar resumes GPS rather than opening a track`() {
+    @Test fun `a probe position a short walk from the give-up spot resumes GPS rather than opening a track`() {
         givenGpsSuspended()
         probeFix(MeasuredPosition(at(0.0), 10.0), T0 + 3 * MINUTE)
 
-        val out = probeFix(MeasuredPosition(at(2_000.0), 10.0), T0 + 4 * MINUTE)
+        val out = probeFix(MeasuredPosition(at(50.0), 10.0), T0 + 4 * MINUTE)
 
         assertTrue(Effect.EnsureGps in out)
         assertTrue(out.none { it is Effect.OpenTrack })

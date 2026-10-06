@@ -10,10 +10,9 @@ package io.github.valeronm.breadcrumb.domain
  * them — a standing slow request, and a short fast burst after the hardware motion sensor fires —
  * are suppliers rather than rules, and neither can drift from the other about what leaving means.
  *
- * **Corroboration is the usual evidence**: two consecutive positions past [MARGIN_M] are a
- * departure, while one alone must clear [SOLO_MARGIN_M] — the pricing is on the two constants.
- * [Verdict.Near] carries the distance against the bar so the log can say what the real
- * distributions are.
+ * **Corroboration is the usual evidence**: two consecutive positions past [REPEAT_MARGIN_M] are a
+ * departure, while one alone must clear the solo margin [judge] is given. [Verdict.Near] carries
+ * the distance against the bar so the log can say what the real distributions are.
  *
  * **Nothing here reaches a track.** These positions come from Wi-Fi and cell, land tens to hundreds
  * of meters out, and are a wake and nothing else — the same contract the departure fence has.
@@ -43,12 +42,9 @@ class DepartureWatch(
 
         /**
          * Judged, and not far enough. [gapM] against [barM] is **the measurement the whole rule
-         * turns on**, and the one nothing outside this class could previously see: a burst that
-         * ends with no departure otherwise says nothing about whether the phone stayed put or
-         * merely fell short of the bar. [barM] is the bar in force for this position's evidence,
-         * and [marginM] names which margin built it — the corroborated one or the solo one — since
-         * the two bars overlap once the accuracies are added, and a logged distribution that can't
-         * be split by regime can tune neither constant.
+         * turns on**: a burst that ends with no departure otherwise says nothing about whether the
+         * phone stayed put or merely fell short of the bar. [marginM] is the margin that built
+         * [barM], since bars built from different margins overlap once the accuracies are added.
          */
         data class Near(val gapM: Double, val barM: Double, val marginM: Double) : Verdict
 
@@ -106,7 +102,7 @@ class DepartureWatch(
 
     /**
      * [Verdict.Departed] once [position] is further from the anchor than either position's own
-     * error can account for, plus the margin its evidence earns ([MARGIN_M] / [SOLO_MARGIN_M]).
+     * error can account for, plus the margin its evidence earns ([REPEAT_MARGIN_M] / [soloMarginM]).
      * Both accuracies are subtracted because a departure has to out-run the *sum* of the two
      * uncertainties to mean anything — a coarse position beside a coarse anchor is not evidence of
      * movement however far apart the two coordinates read.
@@ -121,7 +117,7 @@ class DepartureWatch(
      * effectively once: a sharp anchor is never replaced, which is what keeps the anchor from
      * creeping along under a slow departure.
      */
-    fun judge(position: MeasuredPosition): Verdict {
+    fun judge(position: MeasuredPosition, soloMarginM: Double = SOLO_MARGIN_M): Verdict {
         if (!watching) return Verdict.Dormant
         val from = anchor
         if (from == null) {
@@ -133,8 +129,8 @@ class DepartureWatch(
             position.coordinate.lat, position.coordinate.lon,
         )
         val errorM = from.accuracyM + position.accuracyM
-        val corroboratedBar = MARGIN_M + errorM
-        val marginM = if (corroborating) MARGIN_M else SOLO_MARGIN_M
+        val corroboratedBar = REPEAT_MARGIN_M + errorM
+        val marginM = if (corroborating) minOf(REPEAT_MARGIN_M, soloMarginM) else soloMarginM
         val bar = marginM + errorM
         corroborating = gap > corroboratedBar
         if (gap > bar) return Verdict.Departed(gap, bar, marginM)
@@ -151,21 +147,18 @@ class DepartureWatch(
 
     companion object {
         /**
-         * The margin the usual evidence clears: two consecutive positions this far past the
-         * combined error. Corroboration is what makes it affordable — the coarse stream's one
-         * confident lie, a stationary phone re-deriving its position from a changed Wi-Fi
-         * environment, retreats on the next delivery and never corroborates itself, while measured
-         * standstill wander stays under ~20 m against accuracies in the tens. A lie that *repeats*
-         * still fires, and what that now costs is bounded: a false departure opens a track
+         * Two consecutive positions must each be this far past the combined error. A stationary
+         * phone re-deriving its position from a changed Wi-Fi environment lands one position away
+         * and is back on the next delivery, while measured standstill wander stays under ~20 m
+         * against accuracies in the tens. A jump that repeats still fires, and opens a track
          * [ArrivalWatch] closes minutes later and `KeepRule` discards.
          */
-        const val MARGIN_M = 50.0
+        const val REPEAT_MARGIN_M = 50.0
 
         /**
-         * What a *lone* position must clear to fire by itself — this rule's solo bar, as
-         * `EdgeStayDetector`'s `soloMovingSpeed` is to its `movingSpeed`. Kept at the margin every
-         * position used to need, whose width was priced for exactly the single repositioning jump
-         * that corroboration now absorbs.
+         * The solo margin [judge] uses unless given another, as `EdgeStayDetector`'s
+         * `soloMovingSpeed` is to its `movingSpeed`. Its width is priced for a single
+         * repositioning jump.
          */
         const val SOLO_MARGIN_M = 150.0
     }

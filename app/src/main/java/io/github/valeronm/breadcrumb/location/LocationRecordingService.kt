@@ -780,10 +780,9 @@ class LocationRecordingService : Service() {
     }
 
     /**
-     * The distance a probe position reached against the distance it needed, phrased for a log line.
-     * One spelling for both verdicts that carry the trio, so the two cannot drift apart on how the
-     * same measurement is written. The margin names the regime, which the bar alone cannot: the
-     * solo and corroborated bars overlap once the accuracies are added.
+     * One spelling for [DepartureWatch.Verdict.Near] and [DepartureWatch.Verdict.Departed]. The
+     * margin is printed because bars built from different margins overlap once the accuracies are
+     * added.
      */
     private fun measured(gapM: Double, barM: Double, marginM: Double) =
         "${gapM.toInt()}m of ${barM.toInt()}m (margin ${marginM.toInt()})"

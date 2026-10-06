@@ -58,7 +58,7 @@ class DepartureWatchTest {
         val verdict = watch.judge(pos(130.0, accuracyM = 20.0)) as DepartureWatch.Verdict.Departed
         assertEquals(
             "the second answers it, judged by the corroborated margin — which the verdict names",
-            DepartureWatch.MARGIN_M,
+            DepartureWatch.REPEAT_MARGIN_M,
             verdict.marginM,
             0.0,
         )
@@ -210,6 +210,25 @@ class DepartureWatchTest {
             1e-9,
         )
         assertEquals("and says so", DepartureWatch.SOLO_MARGIN_M, verdict.marginM, 0.0)
+    }
+
+    @Test
+    fun `a lone position is judged by the solo margin the caller gives`() {
+        watch.begin(pos(0.0))
+
+        assertTrue(watch.judge(pos(15.0), soloMarginM = 20.0) is DepartureWatch.Verdict.Near)
+        val verdict = watch.judge(pos(25.0), soloMarginM = 20.0) as DepartureWatch.Verdict.Departed
+        assertEquals(20.0, verdict.marginM, 0.0)
+    }
+
+    @Test
+    fun `a corroborated position never needs more than a lone one would`() {
+        watch.begin(pos(0.0))
+        assertFalse(watch.departedAt(pos(DepartureWatch.REPEAT_MARGIN_M + 30)))
+
+        val verdict = watch.judge(pos(30.0), soloMarginM = 20.0) as DepartureWatch.Verdict.Departed
+
+        assertEquals(20.0, verdict.marginM, 0.0)
     }
 
     private companion object {
