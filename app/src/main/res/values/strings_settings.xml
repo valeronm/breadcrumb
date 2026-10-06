@@ -68,16 +68,16 @@
          reader chooses between is how quickly a trip is noticed and what it costs them. -->
     <string name="departure_description">How the app notices a trip has started</string>
     <string name="departure_activity">Activity detection</string>
-    <string name="departure_activity_sub">Uses almost no battery, but can miss trips</string>
+    <string name="departure_activity_sub">Walking, cycling and driving</string>
     <string name="departure_activity_always_on">Always on</string>
-    <string name="departure_fence">Distance from the last stop</string>
-    <string name="departure_fence_sub">Uses no battery, but can take minutes</string>
-    <string name="departure_motion">Motion-triggered checks</string>
-    <string name="departure_motion_sub">Uses battery only after the phone moves</string>
-    <string name="departure_wifi">Checks after leaving Wi-Fi</string>
-    <string name="departure_wifi_sub">Uses battery only after the phone leaves a Wi-Fi network</string>
-    <string name="departure_continuous">Regular position checks</string>
-    <string name="departure_continuous_sub">Notices soonest, but always uses battery</string>
+    <string name="departure_fence">Leaving where you stopped</string>
+    <string name="departure_fence_sub">Trains, taxis and other rides you sit through</string>
+    <string name="departure_motion">Movement the phone senses</string>
+    <string name="departure_motion_sub">Trips the row above misses</string>
+    <string name="departure_wifi">Leaving a Wi-Fi network</string>
+    <string name="departure_wifi_sub">Trips that start indoors</string>
+    <string name="departure_continuous">Regular checks</string>
+    <string name="departure_continuous_sub">Whatever the others miss, using more battery</string>
 
     <!-- Continuing a trip -->
     <string name="continuation_description">Stops shorter than this don\'t split a trip</string>

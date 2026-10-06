@@ -57,16 +57,16 @@
 
     <string name="departure_description">Как приложение замечает начало поездки</string>
     <string name="departure_activity">Распознавание активности</string>
-    <string name="departure_activity_sub">Почти не тратит заряд, но может пропускать поездки</string>
+    <string name="departure_activity_sub">Пешком, на велосипеде и на автомобиле</string>
     <string name="departure_activity_always_on">Всегда включено</string>
-    <string name="departure_fence">Расстояние от последней остановки</string>
-    <string name="departure_fence_sub">Не тратит заряд, но может занять минуты</string>
-    <string name="departure_motion">Проверки при движении</string>
-    <string name="departure_motion_sub">Тратит заряд только после движения телефона</string>
-    <string name="departure_wifi">Проверки при отключении от Wi-Fi</string>
-    <string name="departure_wifi_sub">Тратит заряд только после отключения телефона от сети Wi-Fi</string>
-    <string name="departure_continuous">Регулярная проверка положения</string>
-    <string name="departure_continuous_sub">Замечает быстрее всех, но всегда тратит заряд</string>
+    <string name="departure_fence">Уход с места остановки</string>
+    <string name="departure_fence_sub">Поезда, такси и другие поездки, в которых вы сидите</string>
+    <string name="departure_motion">Движение, которое чувствует телефон</string>
+    <string name="departure_motion_sub">Поездки, которые пропускает строка выше</string>
+    <string name="departure_wifi">Отключение от сети Wi-Fi</string>
+    <string name="departure_wifi_sub">Поездки, которые начинаются в помещении</string>
+    <string name="departure_continuous">Регулярные проверки</string>
+    <string name="departure_continuous_sub">То, что пропускают остальные, с большим расходом заряда</string>
 
     <string name="continuation_description">Остановки короче этого не разделяют поездку</string>
     <string name="continuation_window">Продолжать в течение</string>

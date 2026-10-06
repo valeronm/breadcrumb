@@ -56,16 +56,16 @@
 
     <string name="departure_description">Como se deteta o início de uma viagem</string>
     <string name="departure_activity">Deteção de atividade</string>
-    <string name="departure_activity_sub">Quase sem bateria, mas pode falhar viagens</string>
+    <string name="departure_activity_sub">A pé, de bicicleta e de carro</string>
     <string name="departure_activity_always_on">Sempre ativa</string>
-    <string name="departure_fence">Distância da última paragem</string>
-    <string name="departure_fence_sub">Não gasta bateria, mas pode demorar minutos</string>
-    <string name="departure_motion">Verificações por movimento</string>
-    <string name="departure_motion_sub">Gasta bateria só após o telemóvel se mexer</string>
-    <string name="departure_wifi">Verificações ao sair do Wi-Fi</string>
-    <string name="departure_wifi_sub">Gasta bateria só após o telemóvel sair de uma rede Wi-Fi</string>
-    <string name="departure_continuous">Verificação regular da posição</string>
-    <string name="departure_continuous_sub">Deteta mais cedo, mas gasta sempre bateria</string>
+    <string name="departure_fence">Sair de onde parou</string>
+    <string name="departure_fence_sub">Comboios, táxis e outras viagens em que vai sentado</string>
+    <string name="departure_motion">Movimento que o telemóvel sente</string>
+    <string name="departure_motion_sub">Viagens que a linha acima não deteta</string>
+    <string name="departure_wifi">Sair de uma rede Wi-Fi</string>
+    <string name="departure_wifi_sub">Viagens que começam dentro de um edifício</string>
+    <string name="departure_continuous">Verificações regulares</string>
+    <string name="departure_continuous_sub">O que escapa às outras, gastando mais bateria</string>
 
     <string name="continuation_description">Paragens mais curtas não dividem a viagem</string>
     <string name="continuation_window">Continuar dentro de</string>
