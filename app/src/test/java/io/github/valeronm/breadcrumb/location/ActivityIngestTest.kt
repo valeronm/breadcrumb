@@ -442,13 +442,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
         val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + 1, settings)
 
-        assertEquals(
-            listOf(
-                Effect.StartDepartureProbe(DepartureTriggers.MOTION_INTERVAL_MS, DepartureTriggers.MOTION_WINDOW_MS),
-                Effect.ArmSignificantMotion,
-            ),
-            out,
-        )
+        assertEquals(listOf(signalBurst, Effect.ArmSignificantMotion), out)
     }
 
     @Test fun `motion too soon leaves the standing request running`() {
@@ -481,6 +475,21 @@ class ActivityIngestTest : ActivityIngestFixture() {
         val out = core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS + 1, settings)
 
         assertEquals(resumed, out)
+    }
+
+    @Test fun `a lost Wi-Fi network ignores the backoff`() {
+        givenGpsSuspended()
+
+        val out = core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + GIVE_UP_MS + 1, settings)
+
+        assertEquals(resumed, out)
+    }
+
+    @Test fun `a lost Wi-Fi network resumes nothing when that trigger is switched off`() {
+        givenGpsSuspended()
+        val off = settings.copy(triggers = settings.triggers.copy(wifi = false))
+
+        assertTrue(core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + GIVE_UP_MS + 1, off).isEmpty())
     }
 
     @Test fun `a probe resuming a suspended track opens a new segment`() {

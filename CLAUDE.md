@@ -260,9 +260,9 @@ The pieces below only make sense together — read them as a unit.
   members.
 - **The service's platform surface is split by concern**, so each piece fits on a screen and the
   service reads as wiring: `RecorderNotifications` (the shade), `WatchdogAlarm` (the 15-minute
-  wake), `ResumeSignals`, `GnssWatch`. These buy readability, not testability: they wrap final
-  platform classes and are host-untestable. `startLocationUpdates` and `stopLocationUpdates`
-  deliberately stay in the service; each says why.
+  wake), `ResumeSignals`, `GnssWatch`, `WifiWatch`. These buy readability, not testability: they
+  wrap final platform classes and are host-untestable. `startLocationUpdates` and
+  `stopLocationUpdates` deliberately stay in the service; each says why.
 - `ActivityRecognitionManager` registers Activity Transition updates (and a one-shot activity
   *snapshot* on arming). Results arrive at `ActivityTransitionReceiver`, which forwards the detected
   `ActivityType` to `LocationRecordingService.instance` (it does not start the service).
@@ -836,6 +836,11 @@ twelve months before it", a watch for leaving where you stopped over a geofence 
 accuracy and simplicity pull apart on the landing page, simplicity wins as long as the sentence is
 not false.
 
+**The privacy page describes the released build, not `main`.** The site deploys on every push, so a
+page edited beside a feature is live while every installed app still behaves the old way, and the
+feature can change again before it ships. A change to what the app collects, logs or sends is
+written into the page in the release's version-bump commit.
+
 ## Releases
 
 When preparing a Play release (version bump, building the bundle, or writing the "What's new"
@@ -874,7 +879,8 @@ forgetting it. GitHub Actions automates the pipeline
 tag — it fails unless the tag is exactly `v` plus the committed `versionName` and the `versionCode`
 exceeds every previously tagged one, builds the signed
 bundle (upload keystore + Protomaps key come from repo secrets), and attaches the `.aab` to a
-GitHub Release. Release flow: commit the version bump → push it to `main` → tag it
+GitHub Release. Release flow: commit the version bump, with the privacy page brought up to date for
+what the release ships → push it to `main` → tag it
 `v<version>` → push the tag (the tag alone would build, but a commit no branch contains is not a
 release; when later commits must stay local, `git push origin <bump-sha>:main` pushes the bump on
 its own) → append the "What's new" text (written per `docs/release-notes-guide.md`) to the GitHub

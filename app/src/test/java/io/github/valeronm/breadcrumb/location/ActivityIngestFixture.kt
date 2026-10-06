@@ -22,6 +22,11 @@ abstract class ActivityIngestFixture {
     protected val noFixGuard = NoFixGuard()
     protected val core = ActivityIngest(ingest, noFixGuard)
 
+    protected val signalBurst = Effect.StartDepartureProbe(
+        DepartureTriggers.MOTION_INTERVAL_MS,
+        DepartureTriggers.MOTION_WINDOW_MS,
+    )
+
     protected val settings = ActivitySettings(
         stitchWindowMs = STITCH_WINDOW_MS,
         uncorroboratedHoldMs = HOLD_CAP_MS,
@@ -125,6 +130,6 @@ abstract class ActivityIngestFixture {
          * not say otherwise runs these, so the effect lists assert the sequence a phone actually
          * performs — a fixture turning everything on would pin a combination nobody runs.
          */
-        val TRIGGERS = DepartureTriggers(fence = true, continuous = false, motion = true)
+        val TRIGGERS = DepartureTriggers(fence = true, continuous = false, motion = true, wifi = true)
     }
 }

@@ -74,6 +74,8 @@
     <string name="departure_fence_sub">Uses no battery, but can take minutes</string>
     <string name="departure_motion">Motion-triggered checks</string>
     <string name="departure_motion_sub">Uses battery only after the phone moves</string>
+    <string name="departure_wifi">Checks after leaving Wi-Fi</string>
+    <string name="departure_wifi_sub">Uses battery only after the phone leaves a Wi-Fi network</string>
     <string name="departure_continuous">Regular position checks</string>
     <string name="departure_continuous_sub">Notices soonest, but always uses battery</string>
 

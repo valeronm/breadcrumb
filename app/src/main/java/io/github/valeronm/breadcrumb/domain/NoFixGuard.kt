@@ -4,10 +4,10 @@ package io.github.valeronm.breadcrumb.domain
  * Pure state machine for the no-fix give-up guard: a GPS probe that runs its window
  * without one accepted fix (indoors on an activity-recognition false positive, or parked
  * underground) turns GPS off to wait for a cheap resume signal — significant motion, a passive fix
- * from another app, or an activity transition. Consecutive failed probes back off ([retryBaseMs] ×
- * 2^(failures−1), capped at [retryCapMs]) so pacing around indoors doesn't degenerate into
- * GPS-always-on; only motion-triggered retries respect that gate, since a transition or a passive
- * fix is evidence in itself. Android-free like [ActivityGate]: clocks are injected (the recorder
+ * from another app, a lost Wi-Fi network, or an activity transition. Consecutive failed probes back
+ * off ([retryBaseMs] × 2^(failures−1), capped at [retryCapMs]) so pacing around indoors doesn't
+ * degenerate into GPS-always-on; only motion-triggered retries respect that gate, since each of the
+ * others is evidence in itself. Android-free like [ActivityGate]: clocks are injected (the recorder
  * passes elapsedRealtime), and the side effects — stopping/starting location updates, arming
  * sensors — stay in [io.github.valeronm.breadcrumb.location.LocationRecordingService].
  */

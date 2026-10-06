@@ -62,6 +62,8 @@
     <string name="departure_fence_sub">Não gasta bateria, mas pode demorar minutos</string>
     <string name="departure_motion">Verificações por movimento</string>
     <string name="departure_motion_sub">Gasta bateria só após o telemóvel se mexer</string>
+    <string name="departure_wifi">Verificações ao sair do Wi-Fi</string>
+    <string name="departure_wifi_sub">Gasta bateria só após o telemóvel sair de uma rede Wi-Fi</string>
     <string name="departure_continuous">Verificação regular da posição</string>
     <string name="departure_continuous_sub">Deteta mais cedo, mas gasta sempre bateria</string>
 

@@ -113,8 +113,8 @@ offer the install yet, try again later.
 ### Starting a trip
 
 Activity recognition's departure report is the usual start, but a journey you sit still through —
-a train, a taxi, a bus — can produce no report at all. Three more ways of noticing you have set
-off run beside it, each switchable on the *Starting a trip* settings page. All three answer one
+a train, a taxi, a bus — can produce no report at all. More ways of noticing you have set
+off run beside it, each switchable on the *Starting a trip* settings page. All of them answer one
 shared rule — the phone has left once a position sits further from where you stopped than both
 positions' stated error can explain — and differ only in what feeds them, a trade of how soon a
 trip is noticed against what it costs:
@@ -123,6 +123,8 @@ trip is noticed against what it costs:
   several minutes to notice.
 - Movement the phone senses — the hardware significant-motion sensor fires a short burst of
   coarse position checks. Costs nothing until the phone moves.
+- Leaving a Wi-Fi network — fires the same short burst. Costs nothing until it happens, and the
+  network's name is never read.
 - Regular position checks — a standing coarse request through the whole idle stretch. Notices
   soonest, and is the only one that uses battery while you are going nowhere, so it is off by
   default.

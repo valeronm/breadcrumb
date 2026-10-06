@@ -24,10 +24,14 @@ import org.junit.Test
  */
 class DepartureTriggerTest : ActivityIngestFixture() {
 
-    private fun triggers(fence: Boolean = false, continuous: Boolean = false, motion: Boolean = false) =
-        settings.copy(triggers = DepartureTriggers(fence, continuous, motion))
+    private fun triggers(
+        fence: Boolean = false,
+        continuous: Boolean = false,
+        motion: Boolean = false,
+        wifi: Boolean = false,
+    ) = settings.copy(triggers = DepartureTriggers(fence, continuous, motion, wifi))
 
-    private val burst = Effect.StartDepartureProbe(
+    private val anchorBurst = Effect.StartDepartureProbe(
         DepartureTriggers.MOTION_INTERVAL_MS,
         DepartureTriggers.ANCHOR_WINDOW_MS,
     )
@@ -39,10 +43,8 @@ class DepartureTriggerTest : ActivityIngestFixture() {
     // --- Which triggers go up, and from where -----------------------------------
 
     @Test fun `each trigger is armed only when it is switched on`() {
-        // The anchor burst rides along with the two that need somewhere to measure from; the
-        // continuous request supplies its own anchor rather than being interrupted by a burst.
         assertEquals(
-            listOf(Effect.ArmDepartureFence(from = null), burst),
+            listOf(Effect.ArmDepartureFence(from = null), anchorBurst),
             ActivityIngest(ingest, noFixGuard).onArmed(T0, triggers(fence = true)),
         )
         assertEquals(
@@ -50,9 +52,10 @@ class DepartureTriggerTest : ActivityIngestFixture() {
             ActivityIngest(ingest, noFixGuard).onArmed(T0, triggers(continuous = true)),
         )
         assertEquals(
-            listOf(burst, Effect.ArmSignificantMotion),
+            listOf(anchorBurst, Effect.ArmSignificantMotion),
             ActivityIngest(ingest, noFixGuard).onArmed(T0, triggers(motion = true)),
         )
+        assertEquals(listOf(anchorBurst), ActivityIngest(ingest, noFixGuard).onArmed(T0, triggers(wifi = true)))
         // Every trigger off is a recorder that will not notice a departure at all — which is the
         // user's to choose, and must not quietly leave one of them running.
         assertTrue(ActivityIngest(ingest, noFixGuard).onArmed(T0, triggers()).isEmpty())
@@ -104,7 +107,7 @@ class DepartureTriggerTest : ActivityIngestFixture() {
      */
     @Test fun `an anchorless arming buys a burst, and re-arms the fence on what it finds`() {
         assertEquals(
-            listOf(Effect.ArmDepartureFence(from = null), burst, Effect.ArmSignificantMotion),
+            listOf(Effect.ArmDepartureFence(from = null), anchorBurst, Effect.ArmSignificantMotion),
             core.onArmed(T0, settings),
         )
 
@@ -152,27 +155,56 @@ class DepartureTriggerTest : ActivityIngestFixture() {
         )
     }
 
-    // --- What the motion sensor buys --------------------------------------------
+    // --- What a signal buys -----------------------------------------------------
 
     @Test fun `motion while idle buys a burst of positions, and re-arms the sensor`() {
         core.onArmed(T0, settings)
 
         assertEquals(
-            listOf(
-                Effect.StartDepartureProbe(
-                    DepartureTriggers.MOTION_INTERVAL_MS,
-                    DepartureTriggers.MOTION_WINDOW_MS,
-                ),
-                Effect.ArmSignificantMotion,
-            ),
+            listOf(signalBurst, Effect.ArmSignificantMotion),
             core.onResumeSignal(ResumeSignals.Signal.MOTION, E0, settings),
         )
     }
 
-    @Test fun `motion while a track is running is not worth asking about`() {
+    @Test fun `a lost Wi-Fi network while idle buys a burst of positions`() {
+        val wifi = triggers(wifi = true)
+        core.onArmed(T0, wifi)
+
+        assertEquals(listOf(signalBurst), core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0, wifi))
+    }
+
+    @Test fun `a lost Wi-Fi network buys nothing when that trigger is switched off`() {
+        val off = triggers(fence = true, motion = true)
+        core.onArmed(T0, off)
+
+        assertTrue(core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0, off).isEmpty())
+    }
+
+    @Test fun `a burst a signal bought outlives the position that anchors the watch`() {
+        core.onArmed(T0, settings)
+        probeFix(probeAt(0.0, accuracyM = 300.0), T0 + 5_000, settings)
+        core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0, settings)
+
+        val out = probeFix(probeAt(20.0, accuracyM = 15.0), T0 + 20_000, settings)
+
+        assertEquals(listOf(Effect.ArmDepartureFence(Coordinate(ORIGIN_LAT, lonAt(20.0)))), out)
+    }
+
+    @Test fun `an anchor burst that found nothing does not stop a standing request started after it`() {
+        core.onArmed(T0, triggers(fence = true))
+        val continuous = triggers(fence = true, continuous = true)
+        core.onArmed(T0 + 120_000, continuous)
+
+        val out = probeFix(probeAt(0.0), T0 + 125_000, continuous)
+
+        assertFalse(out.contains(Effect.StopDepartureProbe))
+    }
+
+    @Test fun `neither motion nor a lost Wi-Fi network is worth asking about while a track is running`() {
         reading(ActivityType.WALKING, T0)
 
         assertTrue(core.onResumeSignal(ResumeSignals.Signal.MOTION, E0, settings).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0, settings).isEmpty())
     }
 
     @Test fun `motion buys nothing when that trigger is switched off`() {
@@ -188,11 +220,12 @@ class DepartureTriggerTest : ActivityIngestFixture() {
      * its window lapsed, leaving the continuous trigger silently dead until the next stop. The
      * cadence a burst would buy is not worth that, and positions are already arriving.
      */
-    @Test fun `motion buys nothing while the standing request is already running`() {
-        val both = triggers(fence = true, continuous = true, motion = true)
+    @Test fun `neither signal buys a burst while the standing request is already running`() {
+        val both = triggers(fence = true, continuous = true, motion = true, wifi = true)
         core.onArmed(T0, both)
 
         assertTrue(core.onResumeSignal(ResumeSignals.Signal.MOTION, E0, both).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0, both).isEmpty())
     }
 
     /**

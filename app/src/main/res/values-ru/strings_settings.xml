@@ -63,6 +63,8 @@
     <string name="departure_fence_sub">Не тратит заряд, но может занять минуты</string>
     <string name="departure_motion">Проверки при движении</string>
     <string name="departure_motion_sub">Тратит заряд только после движения телефона</string>
+    <string name="departure_wifi">Проверки при отключении от Wi-Fi</string>
+    <string name="departure_wifi_sub">Тратит заряд только после отключения телефона от сети Wi-Fi</string>
     <string name="departure_continuous">Регулярная проверка положения</string>
     <string name="departure_continuous_sub">Замечает быстрее всех, но всегда тратит заряд</string>
 

@@ -74,6 +74,7 @@ class LocationRecordingService : Service() {
     private val watchdogAlarm = WatchdogAlarm(this)
     private val departureFence = DepartureFence(this)
     private val departureProbe = DepartureProbe(this, ::onProbePosition)
+    private val wifiWatch = WifiWatch(this) { onResumeSignal(ResumeSignals.Signal.WIFI_LOST) }
 
     // Held rather than rebuilt per post: the shade is re-worded once per fix batch for the length of
     // a drive. It caches no text — every accessor reads the resource table again — so a language
@@ -205,6 +206,7 @@ class LocationRecordingService : Service() {
             return
         }
         watchdogAlarm.schedule()
+        wifiWatch.start()
         TrackingStatus.update { it.copy(tracking = true) }
 
         // Start armed but idle — recording begins when a moving activity transition arrives.
@@ -265,6 +267,7 @@ class LocationRecordingService : Service() {
         armed = false
         DebugLog.i(TAG, "handleStop: disarming")
         watchdogAlarm.cancel()
+        wifiWatch.stop()
         activityManager.stop()
         // The session this stop ends. A re-arm before the coroutine below runs starts another, and
         // this stop must then do nothing: its teardown would reset a core that arm just set up, and
@@ -384,6 +387,7 @@ class LocationRecordingService : Service() {
             fence = Settings.departureFence(this),
             continuous = Settings.departureContinuous(this),
             motion = Settings.departureMotion(this),
+            wifi = Settings.departureWifi(this),
         ),
     )
 
@@ -715,8 +719,8 @@ class LocationRecordingService : Service() {
         launchArmed("resume signal") {
             val effects =
                 core.onResumeSignal(signal, SystemClock.elapsedRealtime(), activitySettings())
-            // The departure branch needs no line of its own: ResumeSignals already logs the
-            // firing, and the probe logs the burst it starts with a cadence that names it.
+            // The departure branch needs no line of its own: the firing is logged where it is
+            // registered, and the probe logs the burst it starts.
             if (Effect.EnsureGps in effects) DebugLog.i(TAG, "no-fix guard: probing again ($signal)")
             dispatch(effects)
         }
@@ -928,6 +932,7 @@ class LocationRecordingService : Service() {
 
     override fun onDestroy() {
         stopLocationUpdates()
+        wifiWatch.stop()
         // Unlike the fence, which the system holds and which is meant to outlive this process, the
         // probe is a live request owned by it — one left behind delivers to a callback whose service
         // is gone.

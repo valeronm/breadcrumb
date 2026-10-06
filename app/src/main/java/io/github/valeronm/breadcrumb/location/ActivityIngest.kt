@@ -43,6 +43,10 @@ class ActivityIngest(
     // fix path's seam rather than a second parameter, so the two cannot be wired to disagree.
     private val watch = DepartureWatch(ingest.distance, DepartureFence.RADIUS_M)
 
+    // A burst bought for an anchor and one a signal extends at the same cadence are one request to
+    // the probe.
+    private var burstIsForAnchor = false
+
     // The stop side of what [watch] starts: fed the witness's verdicts on the satellite tick, fires
     // the close that ends a track no reading has named. See [onArrivalTick] for why only those.
     private val arrival = ArrivalWatch()
@@ -331,10 +335,9 @@ class ActivityIngest(
         if (verdict.provisional) return emptyList()
         val out = ArrayList<Effect>()
         if (triggers.fence) out += Effect.ArmDepartureFence(verdict.at.coordinate)
-        // The burst existed to produce exactly this. A standing request is not the burst's to stop,
-        // and stopping it here would take the continuous trigger down on the first position it ever
-        // delivered.
-        if (!triggers.continuous) out += Effect.StopDepartureProbe
+        // A burst a signal bought, or the standing request, still has positions to judge from the
+        // new anchor.
+        if (burstIsForAnchor) out += Effect.StopDepartureProbe
         return out
     }
 
@@ -352,14 +355,20 @@ class ActivityIngest(
      * and buys a short burst of coarse positions to settle it. This is the whole economy of the
      * motion trigger — a hardware sensor costs nothing until the phone actually moves, so the
      * request that costs something is only ever built when there is something to ask about.
+     *
+     * **A lost Wi-Fi network** ignores the backoff: pacing indoors keeps the network.
      */
     fun onResumeSignal(
         signal: ResumeSignals.Signal,
         elapsedMs: Long,
         settings: ActivitySettings,
     ): List<Effect> {
+        if (signal == ResumeSignals.Signal.WIFI_LOST && !settings.triggers.wifi) return emptyList()
         if (noFixGuard.suspended) {
-            val respectBackoff = signal == ResumeSignals.Signal.MOTION
+            val respectBackoff = when (signal) {
+                ResumeSignals.Signal.MOTION -> true
+                ResumeSignals.Signal.PASSIVE_FIX, ResumeSignals.Signal.WIFI_LOST -> false
+            }
             // Too soon after the last failed probe to retry blind, so a burst asks whether the phone
             // has left the spot GPS gave up at. The standing request already asks, and a burst would
             // replace it with one that lapses.
@@ -370,26 +379,32 @@ class ActivityIngest(
             return resumed()
         }
         val triggers = settings.triggers
-        if (signal != ResumeSignals.Signal.MOTION || !triggers.motion) return emptyList()
         // Two states where a burst would buy nothing. A running track already has the ground under
         // continuous observation at a resolution this could not improve on — and so, more cheaply,
         // does the standing request: positions are already arriving, so the only thing a burst could
         // add is a faster cadence, at the price of the two requests being one object with one window
         // between them.
-        val watchedAlready =
-            triggers.continuous || recording
-        if (watchedAlready) return emptyList()
-        return motionBurst()
+        if (triggers.continuous || recording) return emptyList()
+        return when (signal) {
+            ResumeSignals.Signal.MOTION -> if (triggers.motion) motionBurst() else emptyList()
+            ResumeSignals.Signal.WIFI_LOST -> ArrayList<Effect>().also(::signalBurst)
+            ResumeSignals.Signal.PASSIVE_FIX -> emptyList()
+        }
     }
 
     // Re-armed straight away rather than after the window: the sensor is one-shot, and a phone still
     // moving when it next fires is exactly the case worth hearing about. Extending a live window is
     // what the probe does with a repeat ask.
     private fun motionBurst(): List<Effect> =
-        listOf(
-            Effect.StartDepartureProbe(DepartureTriggers.MOTION_INTERVAL_MS, DepartureTriggers.MOTION_WINDOW_MS),
-            Effect.ArmSignificantMotion,
-        )
+        ArrayList<Effect>().also {
+            signalBurst(it)
+            it += Effect.ArmSignificantMotion
+        }
+
+    private fun signalBurst(out: MutableList<Effect>) {
+        burstIsForAnchor = false
+        out += Effect.StartDepartureProbe(DepartureTriggers.MOTION_INTERVAL_MS, DepartureTriggers.MOTION_WINDOW_MS)
+    }
 
     val firstFixWaitMs: Long get() = NoFixGuard.firstFixWaitFor(ingest.openTrackActivity)
 
@@ -572,6 +587,8 @@ class ActivityIngest(
         out: MutableList<Effect>,
     ) {
         watch.watch(from, atMs)
+        val anyTrigger = triggers.fence || triggers.motion || triggers.wifi
+        burstIsForAnchor = from == null && !triggers.continuous && anyTrigger
         if (triggers.fence) out += Effect.ArmDepartureFence(from?.coordinate)
         when {
             // The standing request will produce the anchor on its own schedule; a burst on top would
@@ -582,12 +599,9 @@ class ActivityIngest(
                     durationMs = 0,
                 )
 
-            // **Nothing here knows where the phone is**, so every trigger is working blind: the
-            // watch has nothing to measure against, and the fence has been dropped on a last-known
-            // that may be hours old. One short burst settles both, and buying it here is what keeps
-            // arming — after a reboot or an app update, when Play Services has dropped every fence —
-            // from being the case the recorder is weakest in.
-            from == null && (triggers.fence || triggers.motion) ->
+            // **Nothing here knows where the phone is**: the watch has nothing to measure against,
+            // and a fence armed now sits on a last-known that may be hours old.
+            burstIsForAnchor ->
                 out += Effect.StartDepartureProbe(
                     DepartureTriggers.MOTION_INTERVAL_MS,
                     DepartureTriggers.ANCHOR_WINDOW_MS,

@@ -153,9 +153,9 @@ sealed interface Effect {
  * parallel rather than ranked — each fails where another works, which is why the user can run any
  * combination and why none of them is a fallback for another.
  *
- * The fence is free and slow, the motion window is free until it fires, the continuous request costs
- * battery for the whole of the state the recorder spends most of its life in. That is the whole
- * reason the last one is off unless asked for.
+ * The fence is free and slow, the motion window and a lost Wi-Fi network are free until they fire,
+ * the continuous request costs battery for the whole of the state the recorder spends most of its
+ * life in. That is the whole reason the continuous request is off unless asked for.
  */
 data class DepartureTriggers(
     /** The geofence: a system-held registration that survives this process dying. */
@@ -164,6 +164,8 @@ data class DepartureTriggers(
     val continuous: Boolean,
     /** A short burst of coarse positions after the hardware motion sensor fires. */
     val motion: Boolean,
+    /** A joined Wi-Fi network going away: a short burst of coarse positions, or a GPS retry after a give-up. */
+    val wifi: Boolean,
 ) {
     companion object {
         /**

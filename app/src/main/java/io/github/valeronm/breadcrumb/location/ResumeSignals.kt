@@ -17,10 +17,10 @@ import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.isGranted
 
 /**
- * The two cheap ways to hear that conditions may have changed while GPS is off — neither of which
- * costs a GPS engine. This reports only *which* fired; what a signal is worth is recorder policy and
- * lives with the guard that acts on it, so it can be exercised off the device rather than asserted
- * here.
+ * Significant motion and a passive fix: cheap ways to hear that conditions may have changed while
+ * GPS is off, neither of which costs a GPS engine. This reports only *which* fired; what a signal
+ * is worth is recorder policy and lives with the guard that acts on it, so it can be exercised off
+ * the device rather than asserted here.
  *
  * **[Signal.MOTION] serves two unrelated consumers, and this is deliberately blind to which.** GPS
  * off after a failed probe makes it the no-fix guard's resume; GPS off for want of a journey makes
@@ -38,8 +38,8 @@ class ResumeSignals(
     private val onSignal: (Signal) -> Unit,
 ) {
 
-    /** Which cheap signal fired. */
-    enum class Signal { MOTION, PASSIVE_FIX }
+    /** Which cheap signal fired. [WIFI_LOST] is reported by [WifiWatch]. */
+    enum class Signal { MOTION, PASSIVE_FIX, WIFI_LOST }
 
     private val sensors by lazy { context.getSystemService(SensorManager::class.java) }
     private val motionSensor by lazy { sensors?.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION) }

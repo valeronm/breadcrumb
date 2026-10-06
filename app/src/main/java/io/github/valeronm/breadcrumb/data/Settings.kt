@@ -40,6 +40,7 @@ object Settings {
     private const val KEY_DEPARTURE_FENCE = "departure_fence"
     private const val KEY_DEPARTURE_MOTION = "departure_motion"
     private const val KEY_DEPARTURE_CONTINUOUS = "departure_continuous"
+    private const val KEY_DEPARTURE_WIFI = "departure_wifi"
     private const val KEY_ASKED_PERMISSIONS = "asked_permissions"
 
     // The key string doesn't match the edge-stay name and must stay that way: a renamed key reads
@@ -235,7 +236,7 @@ object Settings {
 
     // --- Departure triggers --------------------------------------------------
     //
-    // Three independent ways to notice the phone has left a stop, because activity detection only
+    // Independent ways to notice the phone has left a stop, because activity detection only
     // describes the body: a passenger sits still, so a train, a taxi and a bus can all be announced
     // as nothing at all. They are switches rather than a mode because they cost differently and
     // fail differently, and no ordering of them is right on every phone.
@@ -262,7 +263,7 @@ object Settings {
 
     /**
      * A standing coarse-position request for the whole time nothing is recording. Off by default,
-     * and it is the only one of the three that needs defending: idle is the state the recorder
+     * and it is the only one of them that needs defending: idle is the state the recorder
      * spends most of its life in, so this is the one trigger whose cost is paid all day and mostly
      * by a phone that is going nowhere.
      */
@@ -271,6 +272,14 @@ object Settings {
 
     fun setDepartureContinuous(context: Context, enabled: Boolean) {
         prefs(context).edit { putBoolean(KEY_DEPARTURE_CONTINUOUS, enabled) }
+    }
+
+    /** A joined Wi-Fi network going away. On by default: it costs nothing until it happens. */
+    fun departureWifi(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_DEPARTURE_WIFI, true)
+
+    fun setDepartureWifi(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_DEPARTURE_WIFI, enabled) }
     }
 
     // --- Privacy -------------------------------------------------------------

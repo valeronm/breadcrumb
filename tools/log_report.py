@@ -54,6 +54,7 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
     ("probe_stop", r"departure probe stopped \((?P<n>\d+) position\(s\)\)$"),
     ("watch", r"departure watch: (?P<gap>\d+)m of (?P<bar>\d+)m \(margin (?P<margin>\d+)\) \(acc=(?P<acc>\d+)m"),
     ("motion_fired", r"motion trigger fired$"),
+    ("wifi_lost", r"wifi lost$"),
     ("gave_up", r"no-fix guard: probe gave up(?P<nofix> with no fix at all)? — GPS off"),
     ("first_fix", r"no-fix guard: first fix after (?P<s>\d+)s$"),
     ("probing_again", r"no-fix guard: probing again \((?P<signal>\w+)\)$"),
@@ -67,7 +68,7 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
 KNOWN = [re.compile(rx) for rx in [
     r"snapshot ", r"watchdog", r"transition ", r"removing transition updates", r"cancelling transition PendingIntent",
     r"boot receiver", r"edge-stay sweep", r"stats sweep", r"derivation rebuild", r"purged \d+ discarded",
-    r"cleared \d+ track", r"handleStart:", r"departure fence", r"departure watch anchored", r"motion trigger",
+    r"cleared \d+ track", r"handleStart:", r"departure fence", r"departure watch anchored", r"motion trigger", r"wifi ",
     r"motion cross-check", r"backup export", r"gpx import", r"manual track", r"live delivery resumed",
     r"activity detection not responding", r"\s*EXIT \w+ -> treating as STILL", r"track \d+: \d+ jump fixes restored",
     r"track \d+ split at", r"stay after track", r"unreadable gap reason", r"online place search", r"onReceive:",
@@ -76,6 +77,10 @@ KNOWN = [re.compile(rx) for rx in [
 ]]
 
 TRIGGERS = ("fence exit", "departure probe")
+
+# What a probe departure's burst is credited to: a signal that started or extended it, else this.
+WATCH_START = "watch start"
+SIGNAL_LABEL = {"motion_fired": "motion", "wifi_lost": "wifi lost"}
 
 # A reading and the open it causes are logged by one dispatch.
 OPENER_MAX_S = 5
@@ -167,7 +172,8 @@ class Report:
         self.fence_sources, self.fence_accs = collections.Counter(), []
         self.probe_durations, self.watch_n = [], 0
         self.probes_with_positions = self.probes_still = 0
-        self.fires, self.fire_outcomes = 0, collections.Counter()
+        self.signals = collections.Counter()
+        self.signal_outcomes = collections.defaultdict(collections.Counter)
         self.gave_up, self.retries = 0, collections.Counter()
         self.gps_inferred = False
         self.gps_gave_up_s = 0.0
@@ -185,6 +191,7 @@ class Report:
         armed, prev_dt, pending, cur = False, None, None, None
         gps_on = probe_start = hold_at = last_stop = None
         probe_gaps = []
+        burst_bought_by = WATCH_START
         given_up = resume_cause = resumed_by = None
         stretch_fixed = True
         # A log spans installs from before and after a line was added. A build whose every GPS start
@@ -233,6 +240,7 @@ class Report:
                 self.deaths.append((prev_dt, e.dt))
                 gps_close(prev_dt)
                 probe_start = pending = None
+                burst_bought_by = WATCH_START
             elif k == "deaf":
                 self.deaf += 1
             elif k == "apply":
@@ -252,7 +260,7 @@ class Report:
                 pending = {"cause": "fence exit", "dt": e.dt}
             elif k == "probe_open":
                 d["departures"] += 1
-                pending = {"cause": "departure probe", "probe": g, "dt": e.dt}
+                pending = {"cause": "departure probe", "probe": g, "bought_by": burst_bought_by, "dt": e.dt}
             elif k == "fence_resume":
                 resume_cause = "geofence"
             elif k == "probe_resume":
@@ -307,15 +315,13 @@ class Report:
                     if probe_gaps:
                         self.probes_with_positions += 1
                         self.probes_still += max(probe_gaps) < 20
-                    probe_start = None
+                    probe_start, burst_bought_by = None, WATCH_START
             elif k == "watch":
                 self.watch_n += 1
                 d["positions"] += 1
                 if probe_start is not None:
                     probe_gaps.append(int(g["gap"]))
-            elif k == "motion_fired":
-                self.fires += 1
-                d["fires"] += 1
+            elif k in SIGNAL_LABEL:
                 if probe_start is not None:
                     outcome = "extended a running probe"
                 else:
@@ -323,7 +329,12 @@ class Report:
                     outcome = ("started a departure probe" if "probe_start" in ahead
                                else "restarted GPS after a give-up" if "probing_again" in ahead
                                else "nothing")
-                self.fire_outcomes[outcome] += 1
+                if "probe" in outcome:
+                    burst_bought_by = SIGNAL_LABEL[k]
+                self.signals[k] += 1
+                self.signal_outcomes[k][outcome] += 1
+                if k == "motion_fired":
+                    d["fires"] += 1
             elif k == "gave_up":
                 self.gave_up += 1
                 d["gave_up"] += 1
@@ -338,7 +349,7 @@ class Report:
                 given_up, resume_cause = e.dt, None
             elif k == "probing_again":
                 self.retries[g["signal"]] += 1
-                resume_cause = {"MOTION": "motion retry", "PASSIVE_FIX": "passive fix"}.get(g["signal"], g["signal"])
+                resume_cause = {"MOTION": "motion retry", "PASSIVE_FIX": "passive fix", "WIFI_LOST": "wifi lost"}.get(g["signal"], g["signal"])
             elif k == "first_fix":
                 self.first_fixes.append(int(g["s"]))
                 stretch_fixed = True
@@ -468,6 +479,10 @@ def report(r, daily):
         print(f"  probe departures on one position (margin 150): {split(lambda p: p['margin'] == '150')}, "
               f"on two in a row: {split(lambda p: p['margin'] != '150')}, "
               f"position worse than 200 m: {split(lambda p: int(p['acc']) > 200)}")
+        bought = collections.Counter(t.extra["bought_by"] for t in probes)
+        kept = collections.Counter(t.extra["bought_by"] for t in probes if t.verdict == "keep")
+        print("  probe departures by what bought the burst: " +
+              ", ".join(f"{b} {n} (kept {kept[b]})" for b, n in bought.most_common()))
     for t in sorted((t for t in trig if t.verdict == "keep"), key=lambda t: t.opened):
         fr = f"{t.first_reading[0]} {t.first_reading[1]:.0f}s later" if t.first_reading else "no reading"
         print(f"    kept: {t.opened:%m-%d %H:%M} track {t.id} ({t.cause}) {t.pts} pts {t.dist} m, then {fr}")
@@ -480,8 +495,11 @@ def report(r, daily):
         per_dep = f", {r.watch_n / len(trig):.0f} per departure" if trig else ""
         print(f"  positions judged: {r.watch_n} ({r.per_day(r.watch_n):.0f}/day{per_dep}); probes that never saw "
               f"20 m of movement: {r.probes_still} of {r.probes_with_positions}")
-    print(f"  motion trigger fired {r.fires}× ({r.per_day(r.fires):.0f}/day): " +
-          ", ".join(f"{o} {n}" for o, n in r.fire_outcomes.most_common()))
+    for kind, what in (("motion_fired", "motion trigger fired"), ("wifi_lost", "Wi-Fi lost")):
+        n = r.signals[kind]
+        if n or kind == "motion_fired":
+            print(f"  {what} {n}× ({r.per_day(n):.0f}/day): " +
+                  ", ".join(f"{o} {c}" for o, c in r.signal_outcomes[kind].most_common()))
     if r.fence_sources:
         accs = f", median arming accuracy {pct(sorted(r.fence_accs), .5)} m" if r.fence_accs else ""
         print("  fence armed from last known: " + ", ".join(f"{p} {n}" for p, n in r.fence_sources.items()) + accs)
@@ -604,7 +622,7 @@ def headline(r):
         ("h/day open, nothing measured", f"{sum(t.unmeasured() for t in closed) / 3600 / r.days:.1f}"),
         ("departures /day", f"{r.per_day(len(trig)):.1f}"),
         ("departures kept", sum(t.verdict == "keep" for t in trig)),
-        ("motion fires /day", f"{r.per_day(r.fires):.0f}"),
+        ("motion fires /day", f"{r.per_day(r.signals['motion_fired']):.0f}"),
         ("probe h/day", f"{sum(r.probe_durations) / 3600 / r.days:.1f}"),
         ("positions judged /day", f"{r.per_day(r.watch_n):.0f}"),
         ("dropped fixes /day", f"{r.per_day(len(r.drops)):.0f}"),

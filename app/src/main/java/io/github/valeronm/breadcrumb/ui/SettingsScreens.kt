@@ -316,6 +316,10 @@ private fun DepartureGroup() {
         true,
         { AppSettings.departureMotion(context) },
     ) { AppSettings.setDepartureMotion(context, it) }
+    val wifi = rememberPref(
+        true,
+        { AppSettings.departureWifi(context) },
+    ) { AppSettings.setDepartureWifi(context, it) }
     val continuous = rememberPref(
         false,
         { AppSettings.departureContinuous(context) },
@@ -323,7 +327,7 @@ private fun DepartureGroup() {
     SettingsGroup(
         stringResource(R.string.settings_departure_triggers),
         stringResource(R.string.departure_description),
-        listOf(fence, motion, continuous),
+        listOf(fence, motion, wifi, continuous),
     ) {
         GroupedRows(
             {
@@ -347,6 +351,14 @@ private fun DepartureGroup() {
                     subtitle = stringResource(R.string.departure_motion_sub),
                     checked = motion.value,
                     onCheckedChange = { motion.set(it) },
+                )
+            },
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.departure_wifi),
+                    subtitle = stringResource(R.string.departure_wifi_sub),
+                    checked = wifi.value,
+                    onCheckedChange = { wifi.set(it) },
                 )
             },
             {
