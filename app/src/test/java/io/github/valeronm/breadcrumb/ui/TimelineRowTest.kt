@@ -7,13 +7,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.Settings.TimelineDisplayOptions
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -127,6 +130,13 @@ class TimelineRowTest {
         }
     }
 
+    private fun durationTextForTest(milliseconds: Long): String = formatDurationMs(milliseconds, durationSymbols(context))
+
+    private fun classicDisplayOptions(showVisitTime: Boolean = true) = TimelineDisplayOptions(
+        showVisitTime = showVisitTime,
+        modernTimelineLayout = false,
+    )
+
     // --- Stay rows -----------------------------------------------------------
 
     private fun stayItem(
@@ -150,14 +160,20 @@ class TimelineRowTest {
         holdsEnd = holdsEnd,
     )
 
-    private fun stayRow(item: TimelineItem.StayItem) = row {
+    private fun stayRow(
+        item: TimelineItem.StayItem,
+        displayOptions: TimelineDisplayOptions = TimelineDisplayOptions(),
+        showOriginalArrival: Boolean = false,
+    ) = row {
         StayCard(
             item = item,
             shape = SHAPE,
             named = item.place?.label != null,
             highlighted = false,
+            showOriginalArrival = showOriginalArrival,
             zone = zone,
             onClick = {},
+            displayOptions = displayOptions,
         )
     }
 
@@ -192,20 +208,34 @@ class TimelineRowTest {
     }
 
     @Test
-    fun `a stay running to midnight states only the bound it has`() {
-        // The whole point of the sentence resources: this row names one clock time, and the wording
-        // around it has to come from the one-bound resource rather than the two-bound one.
-        stayRow(stayItem(start = noon, end = midnightNext, holdsEnd = false))
+    fun `a stay shows its arrival once in the gutter and only duration below the name`() {
+        stayRow(stayItem(start = noon, end = noon + HOUR))
 
-        val from = context.getString(R.string.timeline_stay_from, clock.time(noon, zone))
-        compose.onNodeWithText(from).assertIsDisplayed()
+        compose.onAllNodesWithText(clock.time(noon, zone)).assertCountEquals(1)
+        compose.onNodeWithText(clock.time(noon + HOUR, zone), substring = true).assertDoesNotExist()
+        compose.onNodeWithText(durationTextForTest(HOUR)).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.timeline_stay_between, clock.time(noon, zone), clock.time(noon + HOUR, zone)))
+            .assertDoesNotExist()
     }
 
     @Test
-    fun `a stay filling a whole day names no clock time at all`() {
+    fun `a stay filling a whole day shows its duration without an arrival time`() {
         stayRow(stayItem(start = midnight, end = midnightNext, holdsStart = false, holdsEnd = false))
 
-        compose.onNodeWithText(context.getString(R.string.timeline_all_day)).assertIsDisplayed()
+        compose.onNodeWithText(durationTextForTest(midnightNext - midnight)).assertIsDisplayed()
+        compose.onNodeWithText(clock.time(midnight, zone), substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `a lone ongoing stay can show its actual arrival before today's midnight`() {
+        val arrival = noon - 2 * (midnightNext - midnight)
+        stayRow(
+            stayItem(start = midnight, end = null, holdsStart = false).copy(originalArrivalAt = arrival),
+            showOriginalArrival = true,
+        )
+
+        compose.onNodeWithText(clock.time(arrival, zone)).assertIsDisplayed()
+        compose.onNodeWithText(clock.time(midnight, zone), substring = true).assertDoesNotExist()
     }
 
     @Test
@@ -218,9 +248,33 @@ class TimelineRowTest {
         ).assertIsDisplayed()
     }
 
+    @Test
+    fun `a classic stay states its bounds in the subtitle when visit times are on`() {
+        stayRow(stayItem(start = noon, end = noon + HOUR), displayOptions = classicDisplayOptions())
+
+        compose.onNodeWithText(clock.time(noon, zone), substring = true).assertIsDisplayed()
+        compose.onNodeWithText(clock.time(noon + HOUR, zone), substring = true).assertIsDisplayed()
+        compose.onNodeWithText(durationTextForTest(HOUR), substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a classic stay hides clock bounds but keeps duration when visit times are off`() {
+        stayRow(
+            stayItem(start = noon, end = noon + HOUR),
+            displayOptions = classicDisplayOptions(showVisitTime = false),
+        )
+
+        compose.onNodeWithText(clock.time(noon, zone), substring = true).assertDoesNotExist()
+        compose.onNodeWithText(durationTextForTest(HOUR)).assertIsDisplayed()
+    }
+
     // --- Track rows ----------------------------------------------------------
 
-    private fun trackRow(activity: ActivityType, source: TrackOrigin = TrackOrigin.RECORDED) = row {
+    private fun trackRow(
+        activity: ActivityType,
+        source: TrackOrigin = TrackOrigin.RECORDED,
+        displayOptions: TimelineDisplayOptions = TimelineDisplayOptions(),
+    ) = row {
         TrackRow(
             track = TrackSummary(
                 id = 1,
@@ -236,9 +290,9 @@ class TimelineRowTest {
             ),
             shape = SHAPE,
             zone = zone,
-            endZone = null,
             onOpen = {},
             onDelete = {},
+            displayOptions = displayOptions,
         )
     }
 
@@ -249,6 +303,16 @@ class TimelineRowTest {
         val cycling = context.getString(R.string.activity_cycling)
         compose.onNodeWithText(cycling, substring = true).assertIsDisplayed()
         compose.onNodeWithContentDescription(cycling).assertIsDisplayed()
+    }
+
+    @Test
+    fun `movement shows duration and distance without departure or arrival clock times`() {
+        trackRow(ActivityType.WALKING)
+
+        compose.onNodeWithText(clock.time(noon, zone), substring = true).assertDoesNotExist()
+        compose.onNodeWithText(clock.time(noon + HOUR, zone), substring = true).assertDoesNotExist()
+        compose.onNodeWithText(durationTextForTest(HOUR), substring = true).assertIsDisplayed()
+        compose.onNodeWithText(measures().distance(5_000.0)).assertIsDisplayed()
     }
 
     @Test
@@ -276,6 +340,27 @@ class TimelineRowTest {
         // suite's — that the row asks the measures in composition rather than formatting its own.
         val distance = Measures(UnitSystem.METRIC, unitSymbols(context)).distance(5_000.0)
         compose.onNodeWithText(distance, substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a classic track states its clock range in the subtitle when visit times are on`() {
+        trackRow(ActivityType.WALKING, displayOptions = classicDisplayOptions())
+
+        compose.onNodeWithText(clock.time(noon, zone), substring = true).assertIsDisplayed()
+        compose.onNodeWithText(clock.time(noon + HOUR, zone), substring = true).assertIsDisplayed()
+        compose.onNodeWithText(durationTextForTest(HOUR), substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a classic track hides clock times but keeps duration when visit times are off`() {
+        trackRow(
+            ActivityType.WALKING,
+            displayOptions = classicDisplayOptions(showVisitTime = false),
+        )
+
+        compose.onNodeWithText(clock.time(noon, zone), substring = true).assertDoesNotExist()
+        compose.onNodeWithText(durationTextForTest(HOUR), substring = true).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.activity_walking), substring = true).assertIsDisplayed()
     }
 
     @Test

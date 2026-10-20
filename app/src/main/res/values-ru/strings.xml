@@ -60,4 +60,5 @@
     <string name="common_osm_report_error">Сообщить об ошибке на карте</string>
     <string name="common_origin_google_timeline">Хронология Google</string>
     <string name="common_origin_entered_by_hand">Введена вручную</string>
+    <string name="timeline_day_actions">Действия за день</string>
 </resources>

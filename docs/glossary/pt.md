@@ -25,6 +25,8 @@ Sections and order follow `en.md`, so the two files read side by side.
 | insights | Resumo | Not a calque: Portuguese has no everyday noun for *insights*, so the tab is named for what it gives the reader. |
 | journey | viagem | |
 | statistics | Estatísticas | Free to be the literal word, *Resumo* naming the tab above it. |
+| timeline-layout | layout da cronologia | *Moderno* — mapa com a cronologia do dia num painel arrastável; *Clássico* — lista de dias com mapa à parte. Não confundir com a paleta de cores *Clássica*. |
+| path-location-colours | cores do percurso e dos locais | A página onde se escolhem as cores de um local e as cores do percurso na cronologia. |
 
 ### A trip
 

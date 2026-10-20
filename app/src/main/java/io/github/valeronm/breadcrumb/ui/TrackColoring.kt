@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -136,8 +137,11 @@ internal fun mapNeutral(dark: Boolean): Color = Color.hsl(0f, 0f, if (dark) 0.6f
 
 /** An activity's line on a map, [mapNeutral] where the type is unknown. [dark] is [isMapDark], read
  *  by the caller since a batch of lines reads it once. */
-internal fun mapActivityArgb(activity: ActivityType?, dark: Boolean): Int =
-    activityColorOr(activity, mapNeutral(dark)).toArgb()
+internal fun mapActivityArgb(
+    activity: ActivityType?,
+    dark: Boolean,
+    palette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
+): Int = timelineActivityColorOr(activity, palette, mapNeutral(dark)).toArgb()
 
 private fun noDataArgb(dark: Boolean) = mapNeutral(dark).toArgb()
 

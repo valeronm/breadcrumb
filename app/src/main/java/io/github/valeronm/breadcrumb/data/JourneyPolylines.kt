@@ -34,6 +34,17 @@ internal class JourneyLine(
  */
 internal class JourneyPolylines(private val repository: TrackRepository) {
 
+    /** Build the same simplified map geometry for an unfinished track's current fixes. */
+    suspend fun liveLine(trackId: Long, activityType: ActivityType, points: List<TrackPoint>): JourneyLine =
+        withContext(Dispatchers.Default) {
+            JourneyLine(
+                trackId = trackId,
+                activityType = activityType.name,
+                greatCircle = GreatCircle.drawsPath(points.size, activityType),
+                segments = SegmentBreaks.split(points).map(::segmentOf),
+            )
+        }
+
     /**
      * The lines for [tracks], in their order, emitted progressively — partial lists while the
      * loads run, always the complete one last. Emissions are batched rather than per track: each

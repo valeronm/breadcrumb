@@ -73,4 +73,5 @@
     <string name="common_origin_gpx" translatable="false">GPX</string>
     <string name="common_origin_google_timeline">Google Timeline</string>
     <string name="common_origin_entered_by_hand">Entered by hand</string>
+    <string name="timeline_day_actions">Day actions</string>
 </resources>

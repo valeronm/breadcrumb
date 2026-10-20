@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import android.provider.Settings
 import androidx.test.core.app.ApplicationProvider
+import io.github.valeronm.breadcrumb.data.Settings.ClockTimeFormat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -74,6 +75,12 @@ class ReaderClockTest {
             "a phone set to 12-hour should not be shown a 24-hour clock",
             hasDayPeriod(readerClockOf(context).time(afternoon, UTC)),
         )
+    }
+
+    @Test fun `readerClockOf can override the system hour cycle`() {
+        Settings.System.putString(context.contentResolver, Settings.System.TIME_12_24, "24")
+        assertTrue(hasDayPeriod(readerClockOf(context, ClockTimeFormat.HOUR_12).time(afternoon, UTC)))
+        assertNoDayPeriod(readerClockOf(context, ClockTimeFormat.HOUR_24).time(afternoon, UTC))
     }
 
     private fun hasDayPeriod(time: String) = time.any { it.isLetter() }

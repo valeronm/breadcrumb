@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -20,25 +21,30 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.AutoMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.ImportExport
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -58,6 +64,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -80,20 +87,23 @@ import kotlinx.coroutines.withContext
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 @Composable
-internal fun SettingsScreen(say: (String) -> Unit, onBack: () -> Unit, onOpenPage: (SettingsPage) -> Unit) {
-    SettingsSubScreen(
-        stringResource(R.string.settings_title),
-        onBack,
-        actions = {
-            IconButton(onClick = { onOpenPage(SettingsPage.About) }) {
-                Icon(Icons.Filled.Info, contentDescription = stringResource(R.string.settings_about))
-            }
-        },
+internal fun SettingsScreen(say: (String) -> Unit, onOpenPage: (SettingsPage) -> Unit) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
     ) {
+        GroupedRows(
+            {
+                NavRow(
+                    stringResource(R.string.settings_auto_recording),
+                    icon = Icons.Filled.AutoMode,
+                ) { onOpenPage(SettingsPage.Record) }
+            },
+        )
+        Spacer(Modifier.height(24.dp))
         GroupedRows(
             { NavRow(stringResource(R.string.settings_group_recording), icon = Icons.Filled.MyLocation) { onOpenPage(SettingsPage.Recording) } },
             { NavRow(stringResource(R.string.settings_trips), icon = Icons.Filled.Route) { onOpenPage(SettingsPage.Trips) } },
-            { NavRow(stringResource(R.string.settings_group_display), icon = Icons.Filled.Tune) { onOpenPage(SettingsPage.Display) } },
+            { NavRow(stringResource(R.string.settings_group_display), icon = Icons.Filled.Palette) { onOpenPage(SettingsPage.Display) } },
             { NavRow(stringResource(R.string.settings_group_privacy), icon = Icons.Filled.Lock) { onOpenPage(SettingsPage.Privacy) } },
         )
         Spacer(Modifier.height(24.dp))
@@ -117,6 +127,42 @@ internal fun SettingsScreen(say: (String) -> Unit, onBack: () -> Unit, onOpenPag
         )
         Spacer(Modifier.height(32.dp))
         VersionText(MaterialTheme.typography.bodySmall, say)
+    }
+}
+
+@Composable
+internal fun RecordSettingsScreen(
+    onBack: () -> Unit,
+    setup: SetupState,
+    autoOn: Boolean,
+    charging: Boolean,
+    keepScreenOn: Boolean,
+    onToggleKeepScreenOn: (Boolean) -> Unit,
+    viewModel: TrackListViewModel,
+    onGrantSetupStep: (SetupStep) -> Unit,
+    onToggleAuto: (Boolean) -> Unit,
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                colors = canvasTopBarColors(),
+                title = { Text(stringResource(R.string.settings_auto_recording)) },
+                navigationIcon = { BackNavIcon(onBack) },
+            )
+        },
+    ) { inner ->
+        Box(Modifier.fillMaxSize().padding(inner)) {
+            RecordTab(
+                setup = setup,
+                autoOn = autoOn,
+                charging = charging,
+                keepScreenOn = keepScreenOn,
+                onToggleKeepScreenOn = onToggleKeepScreenOn,
+                viewModel = viewModel,
+                onGrantSetupStep = onGrantSetupStep,
+                onToggleAuto = onToggleAuto,
+            )
+        }
     }
 }
 
@@ -661,18 +707,103 @@ internal fun LogsScreen(onBack: () -> Unit) {
     }
 }
 
-internal enum class SettingsPage { Recording, Trips, Display, Privacy, Data, RecentlyDeleted, Logs, About }
+internal enum class SettingsPage {
+    Record,
+    Recording,
+    Trips,
+    Display,
+    TimelineLayout,
+    PathLocationColours,
+    Privacy,
+    Data,
+    RecentlyDeleted,
+    Logs,
+    About,
+}
 
 @Composable
 internal fun DisplaySettingsScreen(
     onBack: () -> Unit,
+    onOpenTimelineLayout: () -> Unit,
+    onOpenPathLocationColours: () -> Unit,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
+    onClockTimeFormat: (AppSettings.ClockTimeFormat) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+    timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
+    onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
 ) {
+    val context = LocalContext.current
+    var clockTimeFormat by remember { mutableStateOf(AppSettings.clockTimeFormat(context)) }
     SettingsSubScreen(stringResource(R.string.settings_group_display), onBack) {
         GroupedRows(
-            { ChoiceChipsRow(stringResource(R.string.settings_units), UnitChoice.entries, unitChoice, { it.labelRes }, onUnitChoice) },
+            {
+                NavRow(
+                    label = stringResource(R.string.settings_timeline_layout),
+                    subtitle = stringResource(timelineLayoutChoiceLabelRes(timelineDisplayOptions.modernTimelineLayout)),
+                    onClick = onOpenTimelineLayout,
+                )
+            },
+        )
+        SectionHeading(stringResource(R.string.settings_timeline_section))
+        GroupedRows(
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_timeline_visit_time),
+                    subtitle = stringResource(R.string.settings_timeline_visit_time_sub),
+                    checked = timelineDisplayOptions.showVisitTime,
+                    onCheckedChange = {
+                        onTimelineDisplayOptions(timelineDisplayOptions.copy(showVisitTime = it))
+                    },
+                )
+            },
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_timeline_day_summary),
+                    subtitle = stringResource(R.string.settings_timeline_day_summary_sub),
+                    checked = timelineDisplayOptions.showDaySummary,
+                    onCheckedChange = {
+                        onTimelineDisplayOptions(timelineDisplayOptions.copy(showDaySummary = it))
+                    },
+                )
+            },
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_timeline_pause_icon),
+                    subtitle = stringResource(R.string.settings_timeline_pause_icon_sub),
+                    checked = timelineDisplayOptions.showPauseIcon,
+                    onCheckedChange = {
+                        onTimelineDisplayOptions(timelineDisplayOptions.copy(showPauseIcon = it))
+                    },
+                )
+            },
+            {
+                NavRow(
+                    label = stringResource(R.string.settings_path_location_colours),
+                    subtitle = stringResource(
+                        R.string.settings_path_location_colours_sub,
+                        stringResource(locationColorModeLabelRes(timelineDisplayOptions.locationColorMode)),
+                        stringResource(timelinePaletteLabelRes(timelineColorPalette)),
+                    ),
+                    // A switch reserves the minimum touch height; this row sits in that group, so it
+                    // takes the same height rather than reading as the short one.
+                    modifier = Modifier.minimumInteractiveComponentSize(),
+                    onClick = onOpenPathLocationColours,
+                )
+            },
+        )
+        SectionHeading(stringResource(R.string.settings_units))
+        GroupedRows(
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_distance_units),
+                    UnitChoice.entries,
+                    unitChoice,
+                    { it.labelRes },
+                    onUnitChoice,
+                )
+            },
             {
                 ChoiceChipsRow(
                     stringResource(R.string.settings_map_shade),
@@ -682,7 +813,162 @@ internal fun DisplaySettingsScreen(
                     onMapShade,
                 )
             },
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_time_format),
+                    AppSettings.ClockTimeFormat.entries,
+                    clockTimeFormat,
+                    {
+                        when (it) {
+                            AppSettings.ClockTimeFormat.SYSTEM -> R.string.settings_time_format_system
+                            AppSettings.ClockTimeFormat.HOUR_12 -> R.string.settings_time_format_12
+                            AppSettings.ClockTimeFormat.HOUR_24 -> R.string.settings_time_format_24
+                        }
+                    },
+                ) {
+                    clockTimeFormat = it
+                    onClockTimeFormat(it)
+                }
+            },
         )
+    }
+}
+
+@StringRes
+internal fun timelineLayoutChoiceLabelRes(modern: Boolean): Int =
+    if (modern) R.string.settings_timeline_layout_modern else R.string.settings_timeline_layout_classic
+
+@StringRes
+private fun locationColorModeLabelRes(mode: AppSettings.TimelineLocationColorMode): Int = when (mode) {
+    AppSettings.TimelineLocationColorMode.LOCATION_COLORS -> R.string.settings_timeline_location_colors_category
+    AppSettings.TimelineLocationColorMode.LAST_TRIP_TYPE -> R.string.settings_timeline_location_colors_trip
+}
+
+@StringRes
+private fun timelinePaletteLabelRes(palette: AppSettings.TimelineColorPalette): Int = when (palette) {
+    AppSettings.TimelineColorPalette.CLASSIC -> R.string.settings_timeline_palette_classic
+    AppSettings.TimelineColorPalette.ARC_TIMELINE -> R.string.settings_timeline_palette_arc
+}
+
+@Composable
+internal fun TimelineLayoutSettingsScreen(
+    onBack: () -> Unit,
+    timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
+    onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+) {
+    val modern = timelineDisplayOptions.modernTimelineLayout
+    SettingsSubScreen(stringResource(R.string.settings_timeline_layout), onBack) {
+        Text(
+            stringResource(R.string.settings_timeline_layout_description),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(16.dp))
+        Column(
+            Modifier.selectableGroup(),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            TimelineLayoutChoiceRow(
+                index = 0,
+                count = 2,
+                selected = modern,
+                title = stringResource(R.string.settings_timeline_layout_modern),
+                subtitle = stringResource(R.string.settings_timeline_layout_modern_sub),
+                onClick = {
+                    onTimelineDisplayOptions(timelineDisplayOptions.copy(modernTimelineLayout = true))
+                },
+            )
+            TimelineLayoutChoiceRow(
+                index = 1,
+                count = 2,
+                selected = !modern,
+                title = stringResource(R.string.settings_timeline_layout_classic),
+                subtitle = stringResource(R.string.settings_timeline_layout_classic_sub),
+                onClick = {
+                    onTimelineDisplayOptions(timelineDisplayOptions.copy(modernTimelineLayout = false))
+                },
+            )
+        }
+        SectionHeading(stringResource(R.string.settings_timeline_layout_preview))
+        TimelineLayoutSamplePreview(
+            modern = modern,
+            displayOptions = timelineDisplayOptions,
+            colorPalette = timelineColorPalette,
+        )
+    }
+}
+
+@Composable
+internal fun PathLocationColoursSettingsScreen(
+    onBack: () -> Unit,
+    timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
+    onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+    onTimelineColorPalette: (AppSettings.TimelineColorPalette) -> Unit,
+) {
+    SettingsSubScreen(stringResource(R.string.settings_path_location_colours), onBack) {
+        GroupedRows(
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_timeline_location_colors),
+                    AppSettings.TimelineLocationColorMode.entries,
+                    timelineDisplayOptions.locationColorMode,
+                    ::locationColorModeLabelRes,
+                ) {
+                    onTimelineDisplayOptions(timelineDisplayOptions.copy(locationColorMode = it))
+                }
+            },
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_timeline_color_palette),
+                    AppSettings.TimelineColorPalette.entries,
+                    timelineColorPalette,
+                    ::timelinePaletteLabelRes,
+                    onTimelineColorPalette,
+                )
+            },
+        )
+        SectionHeading(stringResource(R.string.settings_timeline_layout_preview))
+        TimelineColourSamplePreview(
+            displayOptions = timelineDisplayOptions,
+            colorPalette = timelineColorPalette,
+        )
+    }
+}
+
+@Composable
+private fun TimelineLayoutChoiceRow(
+    index: Int,
+    count: Int,
+    selected: Boolean,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth(), shape = groupedRowShape(index, count)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(
+                selected = selected,
+                onClick = null,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

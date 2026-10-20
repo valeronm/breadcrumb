@@ -41,6 +41,25 @@ class TrackRepositoryTest {
     private suspend fun goodPoints(trackId: Long): List<TrackPoint> =
         dao.allPointsFor(trackId).filterNot { it.ignored }
 
+    @Test fun `incremental live preview reads ignored rows so segment breaks can be carried`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints(
+            listOf(
+                test.point(id, 0),
+                test.point(id, 1, ignored = true).copy(segmentStart = true),
+                test.point(id, 2),
+                test.point(id, 3, ignored = true),
+                test.point(id, 4),
+            ),
+        )
+
+        val firstId = dao.allPointsFor(id)[1].id
+        val added = repository.allPointsAfter(id, firstId)
+
+        assertEquals(listOf(false, true, false), added.map { it.ignored })
+        assertEquals(added.map { it.id }.sorted(), added.map { it.id })
+    }
+
     @Test fun `finishing a track writes the aggregates the recorder never wrote`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
         repository.addPoints((0..5).map { test.point(id, it) })

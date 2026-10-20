@@ -1,15 +1,22 @@
 package io.github.valeronm.breadcrumb.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.data.JourneyLine
+import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
@@ -44,18 +51,20 @@ internal fun MapLibreJourneyMap(
     /** Reports a tapped place's detail key, as the all-places map does. */
     onOpenPlace: (String) -> Unit,
     modifier: Modifier = Modifier,
+    colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
 ) {
     // Only the unknown-type fallback depends on the map's shade.
     val dark = isMapDark()
-    val colorByType = remember(lines, dark) {
+    val colorByType = remember(lines, dark, colorPalette) {
         lines.map { it.activityType }.distinct()
-            .associateWith { mapActivityArgb(ActivityType.ofName(it), dark) }
+            .associateWith { mapActivityArgb(ActivityType.ofName(it), dark, colorPalette) }
     }
     val collection = remember(lines, colorByType) { journeyCollection(lines, colorByType) }
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     val applied = remember { AppliedJourneyInputs() }
     applied.onOpenPlace = onOpenPlace
     MapLibreStyledMap(
-        modifier = modifier,
+        modifier = modifier.onSizeChanged { viewportSize = it },
         onMapReady = { map ->
             map.addOnMapClickListener { latLng ->
                 val key = overviewPlaceKeyNear(map, latLng)
@@ -64,10 +73,12 @@ internal fun MapLibreJourneyMap(
             }
         },
         onStyleLoaded = { ctx, map, style, dark ->
+            applied.viewportSize = viewportSize
             applied.collection = collection
             applied.places = places
             applied.frameKey = frameKey
             applied.framedComplete = linesComplete
+            applied.hasFramedPositions = framePositions(lines, places).isNotEmpty()
             style.addSource(GeoJsonSource(JOURNEY_SOURCE, collection))
             style.addLayer(
                 LineLayer(JOURNEY_LAYER, JOURNEY_SOURCE).withProperties(
@@ -78,9 +89,10 @@ internal fun MapLibreJourneyMap(
                 ),
             )
             addOverviewLayers(ctx, style, places, dark, fullSize = true)
-            frame(map, lines, places)
+            frameModernTimelineOverview(map, lines, places, bottomPaddingPx = 0)
         },
         onUpdate = { map, style ->
+            val placesJustArrived = applied.places.orEmpty().isEmpty() && places.isNotEmpty()
             if (applied.collection !== collection) {
                 applied.collection = collection
                 style.getSourceAs<GeoJsonSource>(JOURNEY_SOURCE)?.setGeoJson(collection)
@@ -89,10 +101,17 @@ internal fun MapLibreJourneyMap(
                 applied.places = places
                 updateOverviewSource(style, places)
             }
-            if (applied.frameKey != frameKey || (linesComplete && !applied.framedComplete)) {
+            val hasPositions = framePositions(lines, places).isNotEmpty()
+            val completed = linesComplete && !applied.framedComplete
+            val contentArrived = !applied.hasFramedPositions && hasPositions
+            val viewportChanged = applied.viewportSize != viewportSize
+            val contentChanged = applied.frameKey != frameKey || completed || contentArrived || placesJustArrived
+            if (contentChanged || viewportChanged) {
+                applied.viewportSize = viewportSize
                 applied.frameKey = frameKey
                 applied.framedComplete = linesComplete
-                frame(map, lines, places)
+                applied.hasFramedPositions = hasPositions
+                frameModernTimelineOverview(map, lines, places, bottomPaddingPx = 0)
             }
         },
     )
@@ -102,6 +121,8 @@ private class AppliedJourneyInputs {
     var collection: FeatureCollection? = null
     var places: List<OverviewPlace>? = null
     var frameKey: Any? = null
+    var viewportSize = IntSize.Zero
+    var hasFramedPositions = false
 
     /** The click listener is registered once, so it reads the handler from here to never go stale. */
     var onOpenPlace: (String) -> Unit = {}
@@ -110,8 +131,15 @@ private class AppliedJourneyInputs {
     var framedComplete = false
 }
 
-private fun frame(map: MapLibreMap, lines: List<JourneyLine>, places: List<OverviewPlace>) {
-    frameTo(map, framePositions(lines, places), singlePointZoom = 13.0)
+internal fun frameModernTimelineOverview(map: MapLibreMap, lines: List<JourneyLine>, places: List<OverviewPlace>, bottomPaddingPx: Int) {
+    // A fully expanded sheet leaves no usable map; frame again when it is lowered.
+    if (map.height - bottomPaddingPx < 192) return
+    frameTo(
+        map,
+        framePositions(lines, places).distinct(),
+        singlePointZoom = 13.0,
+        obscured = MapInsets(top = 0, bottom = bottomPaddingPx),
+    )
 }
 
 /**
@@ -174,6 +202,12 @@ private fun segmentPositions(segment: DoubleArray, greatCircle: Boolean): List<P
     return greatCirclePositions(coords).map { it.toPoint() }
 }
 
-private const val JOURNEY_SOURCE = "journey-lines-src"
-private const val JOURNEY_LAYER = "journey-lines-layer"
+internal const val JOURNEY_SOURCE = "journey-lines-src"
+internal const val JOURNEY_LAYER = "journey-lines-layer"
 internal const val JOURNEY_COLOR_KEY = "color"
+
+internal fun setModernTimelineOverviewLinesVisible(style: Style, visible: Boolean) {
+    style.getLayer(JOURNEY_LAYER)?.setProperties(
+        PropertyFactory.visibility(if (visible) Property.VISIBLE else Property.NONE),
+    )
+}

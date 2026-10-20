@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.ColorUtils
+import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
@@ -41,6 +42,27 @@ internal fun activityColorOr(activity: ActivityType?, fallback: Color): Color = 
     ActivityType.WALKING -> Color.hsl(275f, ACTIVITY_SAT, ACTIVITY_LUM) // violet
     else -> fallback
 }
+
+internal fun timelineActivityColorOr(
+    activity: ActivityType?,
+    palette: TimelineColorPalette,
+    fallback: Color,
+): Color = when (palette) {
+    TimelineColorPalette.CLASSIC -> activityColorOr(activity, fallback)
+    TimelineColorPalette.ARC_TIMELINE -> when (activity) {
+        ActivityType.WALKING -> Color(0xFF4CAF50)
+        ActivityType.RUNNING -> Color(0xFFFF9800)
+        ActivityType.CYCLING -> Color(0xFF2196F3)
+        ActivityType.DRIVING -> Color(0xFF777777)
+        ActivityType.TAXI -> Color(0xFFFFC107)
+        ActivityType.TRANSIT -> Color(0xFF9C27B0)
+        else -> activityColorOr(activity, fallback)
+    }
+}
+
+@Composable
+internal fun timelineActivityColor(activity: ActivityType?, palette: TimelineColorPalette): Color =
+    timelineActivityColorOr(activity, palette, MaterialTheme.colorScheme.onSurfaceVariant)
 
 // The places' categorical palette: what a place was for, by category group rather than by category —
 // fifteen colors would be a legend to memorize, five are a pattern picked up by scrolling. Built like
@@ -217,8 +239,10 @@ internal fun categoryGlyphTint(category: PlaceCategory?) =
  * travel from being mistaken for a kind of stop.
  */
 @Composable
-internal fun activityDiscStyle(activity: ActivityType?): DiscStyle =
-    DiscStyle.tonal(activityColor(activity))
+internal fun activityDiscStyle(
+    activity: ActivityType?,
+    palette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
+): DiscStyle = DiscStyle.tonal(timelineActivityColor(activity, palette))
 
 /**
  * The disc anything place-like wears in a list row (Timeline stays, the Places list): a categorized

@@ -46,6 +46,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,6 +85,9 @@ internal fun ListRowCard(
     title: String,
     titleColor: Color,
     subtitle: AnnotatedString,
+    titleStyle: TextStyle = MaterialTheme.typography.titleMedium,
+    subtitleStyle: TextStyle = MaterialTheme.typography.bodyMedium,
+    titleMaxLines: Int = Int.MAX_VALUE,
     modifier: Modifier = Modifier,
     iconDescription: String? = null,
     /** A second fact about the row, marked on the disc's corner instead of replacing its glyph. */
@@ -95,6 +99,8 @@ internal fun ListRowCard(
     /** Drawn at the top-right corner, beside the title. */
     mark: OriginMark? = null,
     colors: CardColors? = null,
+    leadingContent: (@Composable () -> Unit)? = null,
+    contentVerticalPadding: Dp = 12.dp,
     onClick: (() -> Unit)? = null,
     /** Drawn at the end of the row, centered beside the text. */
     trailing: (@Composable () -> Unit)? = null,
@@ -102,26 +108,38 @@ internal fun ListRowCard(
     val cardColors = colors ?: CardDefaults.cardColors()
     val rowContent: @Composable ColumnScope.() -> Unit = {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = contentVerticalPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconDisc(
-                icon,
-                disc,
-                contentDescription = iconDescription,
-                badge = badge,
-                badgeDescription = badgeDescription,
-                badgeColor = badgeColor,
-                badgeContentColor = badgeContentColor,
-            )
+            if (leadingContent != null) {
+                leadingContent()
+            } else {
+                IconDisc(
+                    icon,
+                    disc,
+                    contentDescription = iconDescription,
+                    badge = badge,
+                    badgeDescription = badgeDescription,
+                    badgeColor = badgeColor,
+                    badgeContentColor = badgeContentColor,
+                )
+            }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor)
                 Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    title,
+                    style = titleStyle,
+                    color = titleColor,
+                    maxLines = titleMaxLines,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        subtitle,
+                        style = subtitleStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (mark != null) {
                 Spacer(Modifier.width(8.dp))

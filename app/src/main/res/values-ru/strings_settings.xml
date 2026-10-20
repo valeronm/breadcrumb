@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_title">Настройки</string>
+    <string name="settings_auto_recording">Автозапись</string>
     <string name="settings_group_recording">Запись</string>
     <string name="settings_group_display">Отображение</string>
     <string name="settings_group_privacy">Конфиденциальность</string>
@@ -13,6 +14,8 @@
     <string name="settings_trip_continuation">Продолжение поездки</string>
     <string name="settings_track_filtering">Фильтр поездок</string>
     <string name="settings_units">Единицы измерения</string>
+    <string name="settings_distance_units">Единицы расстояния</string>
+    <string name="settings_timeline_section">Хронология</string>
     <string name="units_choice_automatic">Автоматически</string>
     <string name="units_choice_metric">Километры</string>
     <string name="units_choice_imperial">Мили</string>
@@ -21,6 +24,33 @@
     <string name="settings_map_shade_theme">Автоматически</string>
     <string name="settings_map_shade_light">Светлая</string>
     <string name="settings_map_shade_dark">Тёмная</string>
+    <string name="settings_time_format">Время</string>
+    <string name="settings_time_format_system">Как в системе</string>
+    <string name="settings_time_format_12">12-часовой формат</string>
+    <string name="settings_time_format_24">24-часовой формат</string>
+    <string name="settings_path_location_colours">Цвета пути и мест</string>
+    <string name="settings_path_location_colours_sub">Выбрать палитру и способ окрашивания мест.\n%1$s · %2$s</string>
+    <string name="settings_timeline_color_palette">Цвета хронологии</string>
+    <string name="settings_timeline_palette_classic">Классическая</string>
+    <string name="settings_timeline_palette_arc">Дуговая хронология</string>
+    <string name="settings_timeline_visit_time">Показывать время посещения</string>
+    <string name="settings_timeline_visit_time_sub">Показывать время прибытия рядом с местами.</string>
+    <string name="settings_timeline_day_summary">Показывать сводку за день</string>
+    <string name="settings_timeline_day_summary_sub">Показывать расстояние за день, время в пути и время, проведённое в местах.</string>
+    <string name="settings_timeline_pause_icon">Показывать значок паузы</string>
+    <string name="settings_timeline_pause_icon_sub">Отмечать короткие остановки, где соседние поездки можно объединить.</string>
+    <string name="settings_timeline_location_colors">Цвет мест</string>
+    <string name="settings_timeline_location_colors_category">Категория места</string>
+    <string name="settings_timeline_location_colors_trip">Тип последней поездки</string>
+    <string name="settings_timeline_layout">Вид хронологии</string>
+    <string name="settings_timeline_layout_description">Выберите, как устроена вкладка «Хронология».</string>
+    <string name="settings_timeline_layout_modern">Современный</string>
+    <string name="settings_timeline_layout_modern_sub">Карта с хронологией дня на перетаскиваемой панели</string>
+    <string name="settings_timeline_layout_classic">Классический</string>
+    <string name="settings_timeline_layout_classic_sub">Все дни списком и отдельный вид карты</string>
+    <string name="settings_timeline_layout_preview">Предпросмотр</string>
+    <string name="settings_timeline_layout_sample_home">Дом</string>
+    <string name="settings_timeline_layout_sample_shopping_mall">Торговый центр</string>
     <string name="settings_app_lock">Блокировка приложения</string>
     <string name="settings_online_services">Онлайн-сервисы</string>
     <plurals name="settings_recently_deleted_sub">

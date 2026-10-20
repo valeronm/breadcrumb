@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -47,6 +48,13 @@ import org.maplibre.android.offline.OfflineManager
 
 /** Measured to what the eye sees of a control, not to its touch target ([touchHalo]). */
 internal val MapInset = 12.dp
+
+/** No camera correction when the drawer leaves too little map for both selection margins. */
+internal fun mapSelectionTarget(point: Offset, widthPx: Int, heightPx: Int, bottomPaddingPx: Int): Offset? {
+    val visibleHeight = heightPx - bottomPaddingPx
+    if (widthPx < 80 || visibleHeight < 80) return null
+    return Offset(point.x.coerceIn(40f, widthPx - 40f), point.y.coerceIn(40f, visibleHeight - 40f))
+}
 
 /**
  * Shared host for the map composables: owns the [MapView], loads the Protomaps style once, routes

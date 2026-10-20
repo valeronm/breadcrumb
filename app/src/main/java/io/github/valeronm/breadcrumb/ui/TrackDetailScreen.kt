@@ -10,13 +10,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Edit
@@ -28,12 +31,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -105,6 +111,16 @@ internal fun TrackDetailScreen(
      * the reason [onSplit] is.
      */
     onEditTrip: ((TripDraft) -> Unit)?,
+    embeddedPanel: Boolean = false,
+    externalTrackPoints: TrackPoints? = null,
+    useExternalTrackPoints: Boolean = false,
+    externalShowNoisy: Boolean? = null,
+    onShowNoisyChanged: (Boolean) -> Unit = {},
+    onSelectedPoint: (TrackPoint?) -> Unit = {},
+    externalColorMode: ColorMode? = null,
+    onColorModeChanged: (ColorMode) -> Unit = {},
+    onTrackColoringChanged: (TrackColoring?, TrackQuality.Seams?) -> Unit = { _, _ -> },
+    headerDragModifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     // One load of everything the screen draws (null = still reading), keyed on the row as well as
@@ -115,9 +131,10 @@ internal fun TrackDetailScreen(
     // summary flow while the line and grayed edges kept the pre-retype shape until reopen. A retype
     // that moves nothing re-reads for nothing — a rare tap, invisible because produceState keeps
     // what it has while the new query runs.
-    val trackPoints by produceState<TrackPoints?>(initialValue = null, trackId, summary) {
-        value = viewModel.getTrackPoints(trackId)
+    val loadedTrackPoints by produceState<TrackPoints?>(initialValue = null, trackId, summary) {
+        if (!useExternalTrackPoints) value = viewModel.getTrackPoints(trackId)
     }
+    val trackPoints = if (useExternalTrackPoints) externalTrackPoints else loadedTrackPoints
     // The clocks this track's two ends ran on, so opening a row does not change the times it showed.
     // Seeded with the reader's until the derivation answers — a track that never left home is
     // already right, and one that did corrects itself in the time the query takes.
@@ -128,7 +145,6 @@ internal fun TrackDetailScreen(
     val startZone = zones.start
     val endZone = zones.end
     val points = trackPoints?.good
-    val noisyPoints = trackPoints?.noisy
     val stayPoints = trackPoints?.edgeStay.orEmpty()
     // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
     val dwells by produceState(initialValue = emptyList(), points) {
@@ -175,12 +191,13 @@ internal fun TrackDetailScreen(
     var selectedMode by remember { mutableStateOf(ColorMode.SPEED) }
     // The points arrive after the first composition, so a mode can be selected and then turn out to
     // have nothing behind it — on a track opened from a metric the last one had.
-    val colorMode = if (selectedMode in colorModes) selectedMode else colorModes.firstOrNull() ?: ColorMode.SPEED
+    val requestedMode = externalColorMode ?: selectedMode
+    val colorMode = if (requestedMode in colorModes) requestedMode else colorModes.firstOrNull() ?: ColorMode.SPEED
     // Noisy (ignored) fixes are hidden by default, behind the map's own chip.
     // A track with no drawable line is the exception — its noisy fixes are all there is to see, so
     // the default follows the points once they load, until the user says otherwise.
     var showNoisyOverride by remember(trackId) { mutableStateOf<Boolean?>(null) }
-    val showNoisy = showNoisyOverride ?: (points?.let { it.size < KeepRule.MIN_LINE_POINTS } == true)
+    val showNoisy = externalShowNoisy ?: showNoisyTrackPoints(points?.size, showNoisyOverride)
     // Point picked on the metric graph, highlighted on the map. An index into the list above, so it
     // is keyed on that list: one kept across a reload names a different fix than the user tapped.
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
@@ -190,16 +207,45 @@ internal fun TrackDetailScreen(
     // finished, since a still-recording one's last edge is still moving.
     val splittable = onSplit != null && summary?.endedAt != null
     Scaffold(
+        contentWindowInsets = if (embeddedPanel) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
         topBar = {
             TopAppBar(
+                modifier = headerDragModifier,
                 colors = canvasTopBarColors(),
-                // The bar carries what the track *is*; when it happened is a line of its own below,
-                // where it reads at body size instead of as a caption under a title.
+                windowInsets = if (embeddedPanel) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                 title = {
-                    Text(
-                        summary?.let { activityLabel(LocalContext.current, it.activityType) }
-                            ?: stringResource(R.string.track_title),
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            summary?.let { activityLabel(LocalContext.current, it.activityType) }
+                                ?: stringResource(R.string.track_title),
+                        )
+                        if (embeddedPanel && summary != null) {
+                            val shiftColor = zoneShiftColor
+                            val readerClock = LocalReaderClock.current
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    buildAnnotatedString {
+                                        appendDateTime(
+                                            summary.startedAt, startZone, reader, shiftColor, readerClock,
+                                        )
+                                        summary.endedAt?.let { endedAt ->
+                                            append(" – ")
+                                            appendTime(endedAt, endZone, reader, shiftColor, readerClock)
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                                OriginCaption(source?.mark)
+                            }
+                        }
+                    }
                 },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
@@ -253,34 +299,38 @@ internal fun TrackDetailScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 else -> Column(
-                    Modifier.fillMaxSize().padding(horizontal = 12.dp).padding(bottom = 12.dp),
+                    Modifier.fillMaxSize()
+                        .then(if (embeddedPanel) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+                        .padding(horizontal = 12.dp).padding(bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (summary != null) {
                         // Each end on its own clock, marked where it differs from the reader's — a
                         // track can cross a border, and the row this screen opened from says so.
-                        val shiftColor = zoneShiftColor
-                        val readerClock = LocalReaderClock.current
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                buildAnnotatedString {
-                                    appendDateTime(
-                                        summary.startedAt, startZone, reader, shiftColor, readerClock,
-                                    )
-                                    summary.endedAt?.let { endedAt ->
-                                        append(" – ")
-                                        appendTime(endedAt, endZone, reader, shiftColor, readerClock)
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            OriginCaption(source?.mark)
+                        if (!embeddedPanel) {
+                            val shiftColor = zoneShiftColor
+                            val readerClock = LocalReaderClock.current
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    buildAnnotatedString {
+                                        appendDateTime(
+                                            summary.startedAt, startZone, reader, shiftColor, readerClock,
+                                        )
+                                        summary.endedAt?.let { endedAt ->
+                                            append(" – ")
+                                            appendTime(endedAt, endZone, reader, shiftColor, readerClock)
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                OriginCaption(source?.mark)
+                            }
                         }
                         Card(Modifier.fillMaxWidth()) { TrackStatsHeader(summary) }
                     }
@@ -300,70 +350,99 @@ internal fun TrackDetailScreen(
                     val solidLine = remember(load.good, lineArgb, colorModes) {
                         if (colorModes.isEmpty()) solidColoring(load.good.size, lineArgb) else null
                     }
+                    SideEffect { onTrackColoringChanged(graph?.coloring ?: solidLine, seams) }
                     // The chips carry no surface of their own: they are the control for the map
                     // below, not a block of content beside it, and a card around a row of chips
                     // reads as a third thing to look at.
                     if (colorModes.isNotEmpty()) {
-                        ColorModeSelector(colorMode, colorModes) { selectedMode = it }
+                        ColorModeSelector(colorMode, colorModes) {
+                            selectedMode = it
+                            onColorModeChanged(it)
+                        }
                     }
-                    // Map and scrubber read as one group: small gaps, small corners between them.
-                    Column(
-                        Modifier.weight(1f).fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        val blocks = if (graph != null) 2 else 1
-                        // The map card takes the stretch.
-                        Card(Modifier.weight(1f).fillMaxWidth(), shape = groupedRowShape(0, blocks)) {
-                            Box(Modifier.fillMaxSize().clipToBounds()) {
-                                MapLibreTrackMap(
-                                    points = load.good,
-                                    noisyPoints = if (showNoisy) load.noisy else emptyList(),
-                                    activity = activity,
-                                    colorMode = colorMode,
-                                    showLegend = true,
-                                    selectedPoint = selectedIndex?.let { load.good.getOrNull(it) },
-                                    dwells = dwells,
-                                    overruns = overruns,
-                                    endPlaces = endPlaces,
-                                    precomputedColoring = graph?.coloring ?: solidLine,
-                                    precomputedSeams = seams,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                                if (showNoisy) {
-                                    // Top-right, clear of the color-metric legend (bottom-right).
-                                    NoisyLegend(load.noisy, Modifier.align(Alignment.TopEnd).padding(MapInset))
-                                }
-                                if (!noisyPoints.isNullOrEmpty()) {
-                                    // On the map rather than in the bar: it shows and hides marks
-                                    // drawn here.
-                                    MapFilterChips {
-                                        MapFilterChip(
-                                            selected = showNoisy,
-                                            label = stringResource(R.string.track_filter_noisy),
-                                        ) {
-                                            showNoisyOverride = !showNoisy
-                                        }
-                                    }
-                                }
+                    // In the modern Timeline panel the selected track is the map above the
+                    // drawer. Keep the same graph and metric state here, without a second map.
+                    if (embeddedPanel) {
+                        if (load.noisy.isNotEmpty()) {
+                            MapFilterChip(selected = showNoisy, label = stringResource(R.string.track_filter_noisy)) {
+                                onShowNoisyChanged(!showNoisy)
                             }
                         }
                         if (graph != null) {
-                            Card(Modifier.fillMaxWidth(), shape = groupedRowShape(1, blocks)) {
+                            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                                 MetricGraph(
                                     graph = graph,
                                     zone = startZone,
                                     selectedIndex = selectedIndex,
-                                    onSelect = { selectedIndex = it },
-                                    // The cut is offered on the scrubber, beside the fix it would
-                                    // cut at. Null where splitting doesn't apply at all.
+                                    onSelect = { index ->
+                                        selectedIndex = index
+                                        onSelectedPoint(index?.let(load.good::getOrNull))
+                                    },
                                     onSplitRequested = { showSplitDialog = true }.takeIf { splittable },
-                                    // Both halves of "can this be cut" stay here, with the track
-                                    // they are about: the plot renders the offer it is handed.
                                     canCutAt = { index ->
                                         TrackSplit.isLegalCut(index, (points?.size ?: 0) - index)
                                     },
                                     modifier = Modifier.fillMaxWidth().height(130.dp),
                                 )
+                            }
+                        }
+                    } else {
+                        Column(
+                            Modifier.weight(1f).fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            val blocks = if (graph != null) 2 else 1
+                            // The map card takes the stretch.
+                            Card(Modifier.weight(1f).fillMaxWidth(), shape = groupedRowShape(0, blocks)) {
+                                Box(Modifier.fillMaxSize().clipToBounds()) {
+                                    MapLibreTrackMap(
+                                        points = load.good,
+                                        noisyPoints = if (showNoisy) load.noisy else emptyList(),
+                                        activity = activity,
+                                        colorMode = colorMode,
+                                        showLegend = true,
+                                        selectedPoint = selectedIndex?.let { load.good.getOrNull(it) },
+                                        dwells = dwells,
+                                        overruns = overruns,
+                                        endPlaces = endPlaces,
+                                        precomputedColoring = graph?.coloring ?: solidLine,
+                                        precomputedSeams = seams,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                    if (showNoisy) {
+                                        // Top-right, clear of the color-metric legend (bottom-right).
+                                        NoisyLegend(load.noisy, Modifier.align(Alignment.TopEnd).padding(MapInset))
+                                    }
+                                    if (load.noisy.isNotEmpty()) {
+                                        MapFilterChips {
+                                            MapFilterChip(
+                                                selected = showNoisy,
+                                                label = stringResource(R.string.track_filter_noisy),
+                                            ) {
+                                                showNoisyOverride = !showNoisy
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (graph != null) {
+                                Card(Modifier.fillMaxWidth(), shape = groupedRowShape(1, blocks)) {
+                                    MetricGraph(
+                                        graph = graph,
+                                        zone = startZone,
+                                        selectedIndex = selectedIndex,
+                                        onSelect = { selectedIndex = it },
+                                        // The cut is offered on the scrubber, beside the fix it would
+                                        // cut at. Null where splitting doesn't apply at all.
+                                        onSplitRequested = { showSplitDialog = true }.takeIf { splittable },
+                                        // Both halves of "can this be cut" stay here, with the track
+                                        // they are about: the plot renders the offer it is handed.
+                                        canCutAt = { index ->
+                                            TrackSplit.isLegalCut(index, (points?.size ?: 0) - index)
+                                        },
+                                        modifier = Modifier.fillMaxWidth().height(130.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -850,6 +929,9 @@ private fun MetricGraph(
     }
 }
 
+internal fun showNoisyTrackPoints(goodPointCount: Int?, override: Boolean?): Boolean =
+    override ?: (goodPointCount != null && goodPointCount < KeepRule.MIN_LINE_POINTS)
+
 // Chip colors match the marker drawables (ic_marker_noisy / _jump / _gnss) and so stay literal —
 // they answer to those files, not to the theme. Only the wording is a resource.
 private fun noisyLegendEntry(reason: IgnoreReason?): Pair<Int, Color> = when (reason) {
@@ -863,7 +945,7 @@ private fun noisyLegendEntry(reason: IgnoreReason?): Pair<Int, Color> = when (re
 
 /** Legend for the noisy-fix markers: one row per rejection reason present in [noisyPoints]. */
 @Composable
-private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
+internal fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
     val entries = remember(noisyPoints) {
         noisyPoints.map { noisyLegendEntry(IgnoreReason.fromCode(it.ignoreReason)) }.distinct()
     }

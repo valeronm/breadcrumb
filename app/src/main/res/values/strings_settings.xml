@@ -3,6 +3,7 @@
 <resources>
     <!-- Hub -->
     <string name="settings_title">Settings</string>
+    <string name="settings_auto_recording">Auto recording</string>
     <string name="settings_group_recording">Recording</string>
     <string name="settings_group_display">Display</string>
     <string name="settings_group_privacy">Privacy</string>
@@ -16,6 +17,8 @@
     <string name="settings_trip_continuation">Continuing a trip</string>
     <string name="settings_track_filtering">Trip filtering</string>
     <string name="settings_units">Units</string>
+    <string name="settings_distance_units">Distance units</string>
+    <string name="settings_timeline_section">Timeline</string>
     <!-- The unit-system choices. "Automatic" reads the device country, not the language. -->
     <string name="units_choice_automatic">Automatic</string>
     <string name="units_choice_metric">Kilometers</string>
@@ -25,6 +28,33 @@
     <string name="settings_map_shade_theme">Automatic</string>
     <string name="settings_map_shade_light">Light</string>
     <string name="settings_map_shade_dark">Dark</string>
+    <string name="settings_time_format">Time</string>
+    <string name="settings_time_format_system">System</string>
+    <string name="settings_time_format_12">12-hour</string>
+    <string name="settings_time_format_24">24-hour</string>
+    <string name="settings_path_location_colours">Path and location colours</string>
+    <string name="settings_path_location_colours_sub">Choose a palette and how places get their colours.\n%1$s · %2$s</string>
+    <string name="settings_timeline_color_palette">Timeline colours</string>
+    <string name="settings_timeline_palette_classic">Classic</string>
+    <string name="settings_timeline_palette_arc">Arc timeline</string>
+    <string name="settings_timeline_visit_time">Show visit times</string>
+    <string name="settings_timeline_visit_time_sub">Show arrival times next to places.</string>
+    <string name="settings_timeline_day_summary">Show day summary</string>
+    <string name="settings_timeline_day_summary_sub">Show daily distance, travel time and time spent at places.</string>
+    <string name="settings_timeline_pause_icon">Show pause icon</string>
+    <string name="settings_timeline_pause_icon_sub">Mark short stops where the adjacent trips can be merged.</string>
+    <string name="settings_timeline_location_colors">Location colours</string>
+    <string name="settings_timeline_location_colors_category">Place category</string>
+    <string name="settings_timeline_location_colors_trip">Last trip type</string>
+    <string name="settings_timeline_layout">Timeline layout</string>
+    <string name="settings_timeline_layout_description">Choose how the Timeline tab is arranged.</string>
+    <string name="settings_timeline_layout_modern">Modern</string>
+    <string name="settings_timeline_layout_modern_sub">A map with the day timeline in a panel you can drag</string>
+    <string name="settings_timeline_layout_classic">Classic</string>
+    <string name="settings_timeline_layout_classic_sub">All days in a list, with a separate map view</string>
+    <string name="settings_timeline_layout_preview">Preview</string>
+    <string name="settings_timeline_layout_sample_home">Home</string>
+    <string name="settings_timeline_layout_sample_shopping_mall">Shopping mall</string>
     <string name="settings_app_lock">App lock</string>
     <string name="settings_online_services">Online services</string>
     <plurals name="settings_recently_deleted_sub">

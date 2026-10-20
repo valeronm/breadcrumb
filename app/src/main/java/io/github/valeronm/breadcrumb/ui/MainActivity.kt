@@ -23,13 +23,14 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Settings
@@ -39,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -110,6 +112,9 @@ class MainActivity : FragmentActivity() {
             AppTheme {
                 var unitChoice by remember { mutableStateOf(storedUnitChoice(this)) }
                 var mapShade by remember { mutableStateOf(MapShade.of(AppSettings.mapDark(this))) }
+                var clockTimeFormat by remember { mutableStateOf(AppSettings.clockTimeFormat(this)) }
+                var timelineColorPalette by remember { mutableStateOf(AppSettings.timelineColorPalette(this)) }
+                var timelineDisplayOptions by remember { mutableStateOf(AppSettings.timelineDisplayOptions(this)) }
                 // FLAG_SECURE covers screenshots and the recents thumbnail together — the window
                 // either holds still-sensitive content or it doesn't, and the system draws no
                 // distinction between who is capturing it.
@@ -133,7 +138,7 @@ class MainActivity : FragmentActivity() {
                 // two choices that resolve alike (Automatic and Metric here) must not redo that walk.
                 // The symbols need no key — they resolve each string from the context as it is asked.
                 val measures = remember(context, system) { measuresOf(context, system) }
-                val readerClock = rememberReaderClock()
+                val readerClock = rememberReaderClock(clockTimeFormat)
                 CompositionLocalProvider(
                     LocalMeasures provides measures,
                     LocalDurationSymbols provides durations,
@@ -152,6 +157,20 @@ class MainActivity : FragmentActivity() {
                             onMapShade = {
                                 mapShade = it
                                 AppSettings.setMapDark(this, it.dark)
+                            },
+                            onClockTimeFormat = {
+                                clockTimeFormat = it
+                                AppSettings.setClockTimeFormat(this, it)
+                            },
+                            timelineColorPalette = timelineColorPalette,
+                            onTimelineColorPalette = {
+                                timelineColorPalette = it
+                                AppSettings.setTimelineColorPalette(this, it)
+                            },
+                            timelineDisplayOptions = timelineDisplayOptions,
+                            onTimelineDisplayOptions = {
+                                timelineDisplayOptions = it
+                                AppSettings.setTimelineDisplayOptions(this, it)
                             },
                         )
                     }
@@ -189,17 +208,15 @@ private enum class HomeTab(
      */
     @StringRes val titleRes: Int = labelRes,
 ) {
-    // The Record tab heads the app rather than itself, so its title is the product's name.
-    RECORD(R.string.nav_record, Icons.Filled.MyLocation, titleRes = R.string.title_record),
     TIMELINE(R.string.nav_timeline, Icons.Filled.Route),
     PLACES(R.string.nav_places, Icons.Filled.Place),
     INSIGHTS(R.string.nav_insights, Icons.Filled.Insights),
+    SETTINGS(R.string.action_settings, Icons.Filled.Settings, titleRes = R.string.settings_title),
 }
 
-/** Track detail or the Settings hub: the full-screen destinations a tab opens directly onto. */
+/** Track detail: the full-screen destination a tab opens directly onto. */
 private sealed interface MainDestination {
     data class TrackDetail(val id: Long) : MainDestination
-    data object Settings : MainDestination
 }
 
 @Composable
@@ -209,6 +226,11 @@ private fun MainScreen(
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
+    onClockTimeFormat: (AppSettings.ClockTimeFormat) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+    onTimelineColorPalette: (AppSettings.TimelineColorPalette) -> Unit,
+    timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
+    onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
 ) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
@@ -237,7 +259,7 @@ private fun MainScreen(
     // Everything recording needs from Android, and the toggle that asks for it — see [RecorderSetup].
     val setup = rememberRecorderSetup()
     var mainDestination by remember { mutableStateOf<MainDestination?>(null) }
-    var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
+    var selectedTab by remember { mutableStateOf(HomeTab.TIMELINE) }
     // A tab switch replaces the tab's whole composition, but disposing a focused search field is
     // not a reliable keyboard dismissal — drop the focus with the tab that owned it.
     val tabFocusManager = LocalFocusManager.current
@@ -246,9 +268,9 @@ private fun MainScreen(
     // Full-screen destinations stack above the tabs as overlay layers, each animated in on open and
     // scaled/shifted by the predictive back gesture (Android 14+), previewing what's underneath.
 
-    // The detail (map) screen or Settings — previews the tabs underneath. Its back handler yields
-    // while a layer is stacked above it.
+    // Track details preview the tabs underneath. Its back handler yields while a layer is stacked above it.
     var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
+    var settingsSubPage by remember { mutableStateOf<SettingsPage?>(null) }
     // A deleted track's full detail, stacked above the Recently deleted list.
     var discardedTrackId by remember { mutableStateOf<Long?>(null) }
     // Place detail is opened from the Places list or a timeline stay — back lands wherever it was
@@ -258,6 +280,10 @@ private fun MainScreen(
     // The last summary the key resolved to: keeps the screen stable between re-derivations and
     // re-finds a just-named cluster by centroid (naming moves its key from cluster: to place:).
     var placeDetailSnapshot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
+    // A place opened inside the modern Timeline drawer can launch the existing editor/merge
+    // overlays without creating a second full-screen place-detail layer underneath them.
+    var modernPlaceActionKey by remember { mutableStateOf<String?>(null) }
+    var modernPlaceActionSnapshot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
     // Whether that place's capture area is being tuned, stacked above its detail. Its own layer
     // because its map wants the whole screen where the detail's is a card — see PlaceEditScreen.
     // A flag rather than a second key: it can only ever be the place the detail below is showing,
@@ -298,11 +324,20 @@ private fun MainScreen(
         over = tabsLayer,
         dismiss = { mainDestination = null },
     )
-    // Back from a Settings page previews the hub rather than the tabs.
+    // A Settings page previews the tab it was opened from.
     val settingsLayer = rememberOverlayLayer(
         content = settingsPage,
-        over = mainLayer,
-        dismiss = { settingsPage = null },
+        over = tabsLayer,
+        dismiss = {
+            settingsSubPage = null
+            settingsPage = null
+        },
+    )
+    // A Display sub-screen (Timeline layout): back returns to Display, previewing it under the gesture.
+    val settingsSubLayer = rememberOverlayLayer(
+        content = settingsSubPage,
+        over = settingsLayer,
+        dismiss = { settingsSubPage = null },
     )
     // Deleted-track detail: back returns to the Recently deleted list, previewing it under the gesture.
     val discardedLayer = rememberOverlayLayer(
@@ -336,18 +371,26 @@ private fun MainScreen(
     // detail's own key, so the two cannot drift apart or outlive one another, unless it is naming a
     // new spot, where the detail layer is empty and back returns to the tabs.
     val placeEditLayer = rememberOverlayLayer(
-        content = placeDetailKey?.takeIf { editingArea } ?: newPlaceSpot?.key,
+        content = placeDetailKey?.takeIf { editingArea }
+            ?: modernPlaceActionKey?.takeIf { editingArea }
+            ?: newPlaceSpot?.key,
         over = placeLayer,
         dismiss = {
             editingArea = false
             newPlaceSpot = null
+            modernPlaceActionKey = null
+            modernPlaceActionSnapshot = null
         },
     )
     // Back from a merge returns to the place detail with nothing written.
     val mergeLayer = rememberOverlayLayer(
-        content = placeDetailKey?.takeIf { mergingPlaces },
+        content = placeDetailKey?.takeIf { mergingPlaces } ?: modernPlaceActionKey?.takeIf { mergingPlaces },
         over = placeLayer,
-        dismiss = { mergingPlaces = false },
+        dismiss = {
+            mergingPlaces = false
+            modernPlaceActionKey = null
+            modernPlaceActionSnapshot = null
+        },
     )
     // The trip form: back discards the half-entered trip by construction, nothing having been
     // written until its check mark. Stacked on the track detail rather than on the tabs, because a
@@ -384,6 +427,7 @@ private fun MainScreen(
     // Resolved here: the callback below runs outside the composition.
     val placeDeleted = stringResource(R.string.places_deleted)
     val unnamedPlaceDeleted = stringResource(R.string.places_deleted_unnamed)
+    val splitTrackUndoMessage = stringResource(R.string.undo_track_split)
     val removePlace: (Place) -> Unit = { place ->
         viewModel.deletePlace(place)
         val message = place.label?.let { placeDeleted.format(it) } ?: unnamedPlaceDeleted
@@ -395,7 +439,12 @@ private fun MainScreen(
             viewModel.unmergePlaces(keep)
         }
         mergingPlaces = false
-        placeDetailKey = PlaceResolver.keyOf(keep.id)
+        if (modernPlaceActionKey != null) {
+            modernPlaceActionKey = null
+            modernPlaceActionSnapshot = null
+        } else {
+            placeDetailKey = PlaceResolver.keyOf(keep.id)
+        }
     }
 
     // A map covered by another layer keeps its shade until it is uncovered, rather than rebuilding
@@ -412,63 +461,71 @@ private fun MainScreen(
         CompositionLocalProvider(LocalMapShade provides tabsMapShade.value) {
             Scaffold(
                 modifier = Modifier.blurredBy { tabsLayer.blurDp },
+                contentWindowInsets = if (
+                    selectedTab == HomeTab.TIMELINE && timelineDisplayOptions.modernTimelineLayout
+                ) {
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+                } else {
+                    ScaffoldDefaults.contentWindowInsets
+                },
                 topBar = {
-                    TopAppBar(
-                        colors = canvasTopBarColors(),
-                        title = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(stringResource(selectedTab.titleRes))
-                                // What it says is the variant, named in one place; whether to draw one
-                                // at all is a decision of its own, off on release and on demo so that
-                                // neither a shipped screen nor a screenshot carries a badge.
-                                val badge = BuildIdentity.variant?.takeIf { BuildConfig.SHOW_BUILD_BADGE }
-                                if (badge != null) {
-                                    Spacer(Modifier.width(8.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                                    ) {
-                                        Text(
-                                            badge,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    if (selectedTab != HomeTab.TIMELINE || !timelineDisplayOptions.modernTimelineLayout) {
+                        TopAppBar(
+                            colors = canvasTopBarColors(),
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(stringResource(selectedTab.titleRes))
+                                    // What it says is the variant, named in one place; whether to draw one
+                                    // at all is a decision of its own, off on release and on demo so that
+                                    // neither a shipped screen nor a screenshot carries a badge.
+                                    val badge = BuildIdentity.variant?.takeIf { BuildConfig.SHOW_BUILD_BADGE }
+                                    if (badge != null) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                                        ) {
+                                            Text(
+                                                badge,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            actions = {
+                                // Only where the trip would land: the Timeline is the one tab that shows
+                                // what a manual entry changes.
+                                if (selectedTab == HomeTab.TIMELINE) {
+                                    IconButton(onClick = {
+                                        tripDraft = TripDraft(day = timelineViewedDay.read())
+                                    }) {
+                                        Icon(
+                                            Icons.Filled.Add,
+                                            contentDescription = stringResource(R.string.action_add_missing_trip),
                                         )
                                     }
                                 }
-                            }
-                        },
-                        actions = {
-                            // Only where the trip would land: the Timeline is the one tab that shows
-                            // what a manual entry changes.
-                            if (selectedTab == HomeTab.TIMELINE) {
-                                IconButton(onClick = {
-                                    tripDraft = TripDraft(day = timelineViewedDay.read())
-                                }) {
-                                    Icon(
-                                        Icons.Filled.Add,
-                                        contentDescription = stringResource(R.string.action_add_missing_trip),
-                                    )
+                                if (selectedTab == HomeTab.PLACES) {
+                                    IconButton(onClick = {
+                                        newPlacePick = NewPlacePick(placesMapCamera.camera?.position())
+                                    }) {
+                                        Icon(
+                                            Icons.Filled.Add,
+                                            contentDescription = stringResource(R.string.places_new_place),
+                                        )
+                                    }
                                 }
-                            }
-                            if (selectedTab == HomeTab.PLACES) {
-                                IconButton(onClick = {
-                                    newPlacePick = NewPlacePick(placesMapCamera.camera?.position())
-                                }) {
-                                    Icon(
-                                        Icons.Filled.Add,
-                                        contentDescription = stringResource(R.string.places_new_place),
-                                    )
+                                if (selectedTab == HomeTab.SETTINGS) {
+                                    IconButton(onClick = { settingsPage = SettingsPage.About }) {
+                                        Icon(Icons.Filled.Info, contentDescription = stringResource(R.string.settings_about))
+                                    }
                                 }
-                            }
-                            IconButton(onClick = { mainDestination = MainDestination.Settings }) {
-                                Icon(
-                                    Icons.Filled.Settings,
-                                    contentDescription = stringResource(R.string.action_settings),
-                                )
-                            }
-                        },
-                    )
+                            },
+                        )
+                    }
                 },
                 bottomBar = {
                     // One container step below the canvas: the default surfaceContainer became the
@@ -503,20 +560,6 @@ private fun MainScreen(
             ) { inner ->
                 Box(modifier = Modifier.fillMaxSize().padding(inner)) {
                     when (selectedTab) {
-                        HomeTab.RECORD -> RecordTab(
-                            setup = setup.state,
-                            autoOn = setup.autoOn,
-                            charging = charging,
-                            keepScreenOn = keepScreenOn,
-                            onToggleKeepScreenOn = { enabled ->
-                                keepScreenOn = enabled
-                                AppSettings.setKeepScreenOnCharging(context, enabled)
-                            },
-                            viewModel = viewModel,
-                            onGrantSetupStep = setup::grant,
-                            onToggleAuto = setup::toggleAuto,
-                        )
-
                         HomeTab.TIMELINE -> TimelineTab(
                             items = timeline,
                             viewModel = viewModel,
@@ -530,10 +573,40 @@ private fun MainScreen(
                             onAddTrip = { tripDraft = it },
                             onReplay = { track ->
                                 TrackReplayer.start(context, track.id)
-                                selectedTab = HomeTab.RECORD
+                                settingsPage = SettingsPage.Record
+                                selectedTab = HomeTab.SETTINGS
                             },
-                            onOpenRecording = { selectedTab = HomeTab.RECORD },
+                            onOpenRecording = {
+                                settingsPage = SettingsPage.Record
+                                selectedTab = HomeTab.SETTINGS
+                            },
                             onOpenData = { settingsPage = SettingsPage.Data },
+                            onModernAdjustPlace = { summary ->
+                                modernPlaceActionKey = summary.key
+                                modernPlaceActionSnapshot = summary
+                                editingArea = true
+                            },
+                            onModernRemovePlace = removePlace,
+                            onModernMergePlace = { summary ->
+                                modernPlaceActionKey = summary.key
+                                modernPlaceActionSnapshot = summary
+                                mergingPlaces = true
+                            },
+                            onModernVisit = { stay ->
+                                timelineJump = TimelineJump.Visit(stay)
+                                landOnTimeline()
+                            },
+                            onModernGap = { gap ->
+                                timelineJump = TimelineJump.Gap(gap)
+                                landOnTimeline()
+                            },
+                            onModernSplitTrack = { trackId, atTs ->
+                                viewModel.splitTrack(trackId, atTs) { split ->
+                                    undo.show(splitTrackUndoMessage) { viewModel.unsplitTracks(trackId, split) }
+                                }
+                            },
+                            timelineColorPalette = timelineColorPalette,
+                            displayOptions = timelineDisplayOptions,
                         )
 
                         HomeTab.PLACES -> PlacesTab(
@@ -548,6 +621,11 @@ private fun MainScreen(
                             onOpenJourney = { journeyKey = it.travel.firstNightAt },
                             onOpenData = { settingsPage = SettingsPage.Data },
                         )
+
+                        HomeTab.SETTINGS -> SettingsScreen(
+                            say = viewModel::say,
+                            onOpenPage = { settingsPage = it },
+                        )
                     }
                 }
             }
@@ -559,7 +637,6 @@ private fun MainScreen(
             layer = mainLayer,
             viewModel = viewModel,
             undo = undo,
-            onOpenSettingsPage = { settingsPage = it },
             onEditTrip = { tripDraft = it },
         )
 
@@ -610,7 +687,7 @@ private fun MainScreen(
         PlaceEditOverlay(
             layer = placeEditLayer,
             viewModel = viewModel,
-            snapshot = newPlaceSpot ?: placeDetailSnapshot,
+            snapshot = newPlaceSpot ?: modernPlaceActionSnapshot ?: placeDetailSnapshot,
             snackbarHostState = snackbarHostState,
             // A named spot opens its detail as a create from a stop leaves one, and [onCreated]
             // re-keys it onto the row.
@@ -619,6 +696,8 @@ private fun MainScreen(
                     placeDetailSnapshot = spot
                     placeDetailKey = spot.key
                 }
+                modernPlaceActionKey = null
+                modernPlaceActionSnapshot = null
                 placeEditLayer.dismiss()
             },
             // The row's id is the only thing that identifies a just-created place until a derivation
@@ -628,8 +707,12 @@ private fun MainScreen(
             // Both layers go with it: the editor and the detail underneath are both about a row that
             // no longer exists, and the detail's key (`place:<id>`) would resolve against nothing.
             onRemove = { place ->
-                placeLayer.dismissAbove()
-                placeLayer.dismiss()
+                if (modernPlaceActionKey != null) {
+                    placeEditLayer.dismiss()
+                } else {
+                    placeLayer.dismissAbove()
+                    placeLayer.dismiss()
+                }
                 removePlace(place)
             },
         )
@@ -637,17 +720,41 @@ private fun MainScreen(
         MergePlacesOverlay(
             layer = mergeLayer,
             viewModel = viewModel,
-            snapshot = placeDetailSnapshot,
+            snapshot = modernPlaceActionSnapshot ?: placeDetailSnapshot,
             onMerge = mergePlaces,
         )
 
         SettingsPagesOverlay(
             layer = settingsLayer,
             viewModel = viewModel,
+            setup = setup.state,
+            autoOn = setup.autoOn,
+            charging = charging,
+            keepScreenOn = keepScreenOn,
+            onToggleKeepScreenOn = { enabled ->
+                keepScreenOn = enabled
+                AppSettings.setKeepScreenOnCharging(context, enabled)
+            },
+            onGrantSetupStep = setup::grant,
+            onToggleAuto = setup::toggleAuto,
             unitChoice = unitChoice,
             onUnitChoice = onUnitChoice,
             onMapShade = onMapShade,
+            onClockTimeFormat = onClockTimeFormat,
+            timelineColorPalette = timelineColorPalette,
+            timelineDisplayOptions = timelineDisplayOptions,
+            onTimelineDisplayOptions = onTimelineDisplayOptions,
+            onOpenTimelineLayout = { settingsSubPage = SettingsPage.TimelineLayout },
+            onOpenPathLocationColours = { settingsSubPage = SettingsPage.PathLocationColours },
             onOpenTrack = { discardedTrackId = it },
+        )
+
+        SettingsSubPageOverlay(
+            layer = settingsSubLayer,
+            timelineDisplayOptions = timelineDisplayOptions,
+            onTimelineDisplayOptions = onTimelineDisplayOptions,
+            timelineColorPalette = timelineColorPalette,
+            onTimelineColorPalette = onTimelineColorPalette,
         )
 
         DiscardedTrackOverlay(
@@ -763,7 +870,6 @@ private fun MainDestinationOverlay(
     layer: OverlayLayerState<MainDestination>,
     viewModel: TrackListViewModel,
     undo: UndoSnackbar,
-    onOpenSettingsPage: (SettingsPage) -> Unit,
     onEditTrip: (TripDraft) -> Unit,
 ) {
     // Resolved here rather than in the callback below, which is not a composable scope.
@@ -791,8 +897,6 @@ private fun MainDestinationOverlay(
                     onEditTrip = onEditTrip,
                 )
             }
-
-            MainDestination.Settings -> SettingsScreen(viewModel::say, onBack = layer.dismiss, onOpenPage = onOpenSettingsPage)
         }
     }
 }
@@ -990,7 +1094,7 @@ private class HeldMergeSources {
  * [pending] dresses the answer too, since [snapshot] is in no list it dresses.
  */
 @Composable
-private fun rememberPlaceSummary(
+internal fun rememberPlaceSummary(
     summaries: List<PlaceResolver.PlaceSummary>?,
     key: String?,
     snapshot: PlaceResolver.PlaceSummary?,
@@ -1004,16 +1108,53 @@ private fun rememberPlaceSummary(
 private fun SettingsPagesOverlay(
     layer: OverlayLayerState<SettingsPage>,
     viewModel: TrackListViewModel,
+    setup: SetupState,
+    autoOn: Boolean,
+    charging: Boolean,
+    keepScreenOn: Boolean,
+    onToggleKeepScreenOn: (Boolean) -> Unit,
+    onGrantSetupStep: (SetupStep) -> Unit,
+    onToggleAuto: (Boolean) -> Unit,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
+    onClockTimeFormat: (AppSettings.ClockTimeFormat) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+    timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
+    onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
+    onOpenTimelineLayout: () -> Unit,
+    onOpenPathLocationColours: () -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
     OverlayFrame(layer) { rendered ->
         when (rendered) {
+            SettingsPage.Record -> RecordSettingsScreen(
+                onBack = layer.dismiss,
+                setup = setup,
+                autoOn = autoOn,
+                charging = charging,
+                keepScreenOn = keepScreenOn,
+                onToggleKeepScreenOn = onToggleKeepScreenOn,
+                viewModel = viewModel,
+                onGrantSetupStep = onGrantSetupStep,
+                onToggleAuto = onToggleAuto,
+            )
             SettingsPage.Recording -> RecordingSettingsScreen(layer.dismiss)
             SettingsPage.Trips -> TripsSettingsScreen(layer.dismiss)
-            SettingsPage.Display -> DisplaySettingsScreen(layer.dismiss, unitChoice, onUnitChoice, onMapShade)
+            SettingsPage.Display -> DisplaySettingsScreen(
+                layer.dismiss,
+                onOpenTimelineLayout,
+                onOpenPathLocationColours,
+                unitChoice,
+                onUnitChoice,
+                onMapShade,
+                onClockTimeFormat,
+                timelineColorPalette,
+                timelineDisplayOptions,
+                onTimelineDisplayOptions,
+            )
+            SettingsPage.TimelineLayout -> Unit
+            SettingsPage.PathLocationColours -> Unit
             SettingsPage.Privacy -> PrivacySettingsScreen(layer.dismiss)
             SettingsPage.Data -> DataSettingsScreen(layer.dismiss, viewModel)
             SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
@@ -1023,6 +1164,34 @@ private fun SettingsPagesOverlay(
             )
             SettingsPage.Logs -> LogsScreen(onBack = layer.dismiss)
             SettingsPage.About -> AboutSettingsScreen(viewModel::say, layer.dismiss)
+        }
+    }
+}
+
+@Composable
+private fun SettingsSubPageOverlay(
+    layer: OverlayLayerState<SettingsPage>,
+    timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
+    onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+    onTimelineColorPalette: (AppSettings.TimelineColorPalette) -> Unit,
+) {
+    OverlayFrame(layer) { rendered ->
+        when (rendered) {
+            SettingsPage.TimelineLayout -> TimelineLayoutSettingsScreen(
+                onBack = layer.dismiss,
+                timelineDisplayOptions = timelineDisplayOptions,
+                onTimelineDisplayOptions = onTimelineDisplayOptions,
+                timelineColorPalette = timelineColorPalette,
+            )
+            SettingsPage.PathLocationColours -> PathLocationColoursSettingsScreen(
+                onBack = layer.dismiss,
+                timelineDisplayOptions = timelineDisplayOptions,
+                onTimelineDisplayOptions = onTimelineDisplayOptions,
+                timelineColorPalette = timelineColorPalette,
+                onTimelineColorPalette = onTimelineColorPalette,
+            )
+            else -> Unit
         }
     }
 }

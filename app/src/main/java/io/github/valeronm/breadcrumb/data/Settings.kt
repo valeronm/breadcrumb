@@ -7,6 +7,18 @@ import androidx.core.content.edit
 /** Tiny SharedPreferences-backed store for the app's persisted settings. */
 object Settings {
 
+    enum class ClockTimeFormat { SYSTEM, HOUR_12, HOUR_24 }
+    enum class TimelineColorPalette { CLASSIC, ARC_TIMELINE }
+    enum class TimelineLocationColorMode { LOCATION_COLORS, LAST_TRIP_TYPE }
+
+    data class TimelineDisplayOptions(
+        val showVisitTime: Boolean = true,
+        val showDaySummary: Boolean = true,
+        val locationColorMode: TimelineLocationColorMode = TimelineLocationColorMode.LAST_TRIP_TYPE,
+        val modernTimelineLayout: Boolean = true,
+        val showPauseIcon: Boolean = true,
+    )
+
     private const val FILE = "settings"
     private const val KEY_AUTO_RECORD = "auto_record"
 
@@ -29,6 +41,13 @@ object Settings {
     // Renaming this key drops every pick already saved under it.
     private const val KEY_MAP_DARK = "places_map_dark"
     private const val KEY_TIMELINE_VIEW_MAP = "timeline_view_map"
+    private const val KEY_CLOCK_TIME_FORMAT = "clock_time_format"
+    private const val KEY_TIMELINE_COLOR_PALETTE = "timeline_color_palette"
+    private const val KEY_TIMELINE_SHOW_VISIT_TIME = "timeline_show_visit_time"
+    private const val KEY_TIMELINE_SHOW_PAUSE_ICON = "timeline_show_pause_icon"
+    private const val KEY_TIMELINE_SHOW_DAY_SUMMARY = "timeline_show_day_summary"
+    private const val KEY_TIMELINE_LOCATION_COLOR_MODE = "timeline_location_color_mode"
+    private const val KEY_MODERN_TIMELINE_LAYOUT = "modern_timeline_layout"
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_UNIT_CHOICE = "unit_choice"
@@ -393,6 +412,47 @@ object Settings {
      *  list, the timeline's denser reading. */
     fun timelineViewMap(context: Context): Boolean =
         prefs(context).getBoolean(KEY_TIMELINE_VIEW_MAP, false)
+
+    fun clockTimeFormat(context: Context): ClockTimeFormat =
+        prefs(context).getString(KEY_CLOCK_TIME_FORMAT, null)
+            ?.let { runCatching { ClockTimeFormat.valueOf(it) }.getOrNull() }
+            ?: ClockTimeFormat.SYSTEM
+
+    fun setClockTimeFormat(context: Context, format: ClockTimeFormat) {
+        prefs(context).edit { putString(KEY_CLOCK_TIME_FORMAT, format.name) }
+    }
+
+    fun timelineColorPalette(context: Context): TimelineColorPalette =
+        prefs(context).getString(KEY_TIMELINE_COLOR_PALETTE, null)
+            ?.let { runCatching { TimelineColorPalette.valueOf(it) }.getOrNull() }
+            ?: TimelineColorPalette.CLASSIC
+
+    fun setTimelineColorPalette(context: Context, palette: TimelineColorPalette) {
+        prefs(context).edit { putString(KEY_TIMELINE_COLOR_PALETTE, palette.name) }
+    }
+
+    fun timelineDisplayOptions(context: Context): TimelineDisplayOptions {
+        val preferences = prefs(context)
+        return TimelineDisplayOptions(
+            showVisitTime = preferences.getBoolean(KEY_TIMELINE_SHOW_VISIT_TIME, true),
+            showPauseIcon = preferences.getBoolean(KEY_TIMELINE_SHOW_PAUSE_ICON, true),
+            showDaySummary = preferences.getBoolean(KEY_TIMELINE_SHOW_DAY_SUMMARY, true),
+            locationColorMode = preferences.getString(KEY_TIMELINE_LOCATION_COLOR_MODE, null)
+                ?.let { runCatching { TimelineLocationColorMode.valueOf(it) }.getOrNull() }
+                ?: TimelineLocationColorMode.LAST_TRIP_TYPE,
+            modernTimelineLayout = preferences.getBoolean(KEY_MODERN_TIMELINE_LAYOUT, true),
+        )
+    }
+
+    fun setTimelineDisplayOptions(context: Context, options: TimelineDisplayOptions) {
+        prefs(context).edit {
+            putBoolean(KEY_TIMELINE_SHOW_VISIT_TIME, options.showVisitTime)
+            putBoolean(KEY_TIMELINE_SHOW_PAUSE_ICON, options.showPauseIcon)
+            putBoolean(KEY_TIMELINE_SHOW_DAY_SUMMARY, options.showDaySummary)
+            putString(KEY_TIMELINE_LOCATION_COLOR_MODE, options.locationColorMode.name)
+            putBoolean(KEY_MODERN_TIMELINE_LAYOUT, options.modernTimelineLayout)
+        }
+    }
 
     fun setTimelineViewMap(context: Context, map: Boolean) {
         prefs(context).edit { putBoolean(KEY_TIMELINE_VIEW_MAP, map) }

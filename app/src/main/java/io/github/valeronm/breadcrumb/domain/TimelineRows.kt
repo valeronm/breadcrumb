@@ -267,6 +267,8 @@ sealed interface TimelineItem {
          */
         val holdsStart: Boolean = true,
         val holdsEnd: Boolean = true,
+        /** Arrival before the stay was split into calendar days. */
+        val originalArrivalAt: Long = stay.start,
     ) : TimelineItem {
         override val startedAt get() = stay.start
 

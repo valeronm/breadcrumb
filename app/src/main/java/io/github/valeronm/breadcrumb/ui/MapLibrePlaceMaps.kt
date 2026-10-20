@@ -299,6 +299,47 @@ private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent,
     )
 }
 
+/** Adds the single-place layers used by modern Timeline's shared map host. */
+internal fun addModernTimelinePlaceLayers(
+    ctx: Context,
+    style: Style,
+    marker: PlaceMarker,
+    radiusM: Double,
+    dark: Boolean,
+) {
+    addPlaceLayers(
+        ctx,
+        style,
+        PlaceMapContent(
+            center = marker,
+            radiusM = radiusM,
+            markers = PlaceMarkers(emptyList(), emptyList(), null),
+            rivalAreas = emptyList(),
+        ),
+        dark,
+    )
+}
+
+/** Updates only the selected place's circle and pin in the shared modern Timeline style. */
+internal fun updateModernTimelinePlaceLayers(style: Style, marker: PlaceMarker, radiusM: Double) {
+    style.getSourceAs<GeoJsonSource>(PLACE_CIRCLE_SOURCE)
+        ?.setGeoJson(circleFeature(marker.location, radiusM))
+    val content = PlaceMapContent(
+        center = marker,
+        radiusM = radiusM,
+        markers = PlaceMarkers(emptyList(), emptyList(), null),
+        rivalAreas = emptyList(),
+    )
+    style.getSourceAs<GeoJsonSource>(PLACE_MARKER_SOURCE)?.setGeoJson(placeMarkerCollection(content))
+    style.getLayer(PLACE_MARKER_LAYER)?.setProperties(markerIconProperty(radiusM))
+}
+
+internal fun setModernTimelinePlaceLayersVisible(style: Style, visible: Boolean) {
+    val value = if (visible) Property.VISIBLE else Property.NONE
+    listOf(PLACE_RIVAL_FILL, PLACE_RIVAL_LINE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE, PLACE_MARKER_LAYER)
+        .forEach { style.getLayer(it)?.setProperties(PropertyFactory.visibility(value)) }
+}
+
 /**
  * Neighbor context first (visually underneath), then the place's own endpoint dots, then the
  * pin marker last so it draws on top.
@@ -858,6 +899,12 @@ private fun sizeByMarker(pin: Float, dot: Float): Expression =
  *  map showing the field rebuilds its collection the same way. */
 internal fun updateOverviewSource(style: Style, places: List<OverviewPlace>) {
     style.getSourceAs<GeoJsonSource>(OVERVIEW_SOURCE)?.setGeoJson(overviewCollection(places))
+}
+
+internal fun setModernTimelineOverviewPlacesVisible(style: Style, visible: Boolean) {
+    style.getLayer(OVERVIEW_LAYER)?.setProperties(
+        PropertyFactory.visibility(if (visible) Property.VISIBLE else Property.NONE),
+    )
 }
 
 private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =

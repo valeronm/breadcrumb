@@ -23,6 +23,8 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 | insights | Insights | The tab where the timeline is read in aggregate rather than day by day. Deliberately named after what the reader gets and not after any one of the things listed there — journeys were what it held first, and a name taken from them would have had to change the moment a second reading sat beside them, which is what *statistics* now is. |
 | journey | journey | A run of nights away from home (Insights). The Insights concept and nothing else: a ferry crossing or a bus ride is a **trip**, however long it takes. |
 | statistics | Statistics | Insights' other page: one month's figures read against the twelve behind it. Named for the reading rather than for the month, which is only how it is cut. **A language whose word for *insights* is already this one must find another** — the page cannot be named after the tab containing it. |
+| timeline-layout | Timeline layout | How the Timeline tab is arranged: *Modern* is a map with the day timeline in a draggable panel; *Classic* is all days in a list with a separate map view. Distinct from the timeline *colour palette*'s *Classic*, which names a colour scheme. |
+| path-location-colours | Path and location colours | The Display page for how a timeline row is coloured: *location colours* (a stay's category, or the colour of the trip that arrived) and *timeline colours* (the palette a trip's path wears). |
 
 ### A trip
 

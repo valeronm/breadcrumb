@@ -91,17 +91,23 @@ internal fun NavRow(
     subtitle: String? = null,
     enabled: Boolean = true,
     icon: ImageVector? = null,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
-) = TappableRow(label, subtitle, enabled, icon, Icons.AutoMirrored.Filled.KeyboardArrowRight, onClick)
+) = TappableRow(label, subtitle, enabled, icon, Icons.AutoMirrored.Filled.KeyboardArrowRight, modifier, onClick)
 
 /** Marked apart from [NavRow] so a link out of the app is not mistaken for a screen. */
 @Composable
 internal fun LinkRow(label: String, url: String, say: (String) -> Unit, subtitle: String? = null) {
     val context = LocalContext.current
     val noBrowser = stringResource(R.string.browser_no_app)
-    TappableRow(label, subtitle, enabled = true, leading = null, Icons.AutoMirrored.Filled.OpenInNew) {
-        context.openInBrowser(url) { say(noBrowser) }
-    }
+    TappableRow(
+        label,
+        subtitle,
+        enabled = true,
+        leading = null,
+        trailing = Icons.AutoMirrored.Filled.OpenInNew,
+        onClick = { context.openInBrowser(url) { say(noBrowser) } },
+    )
 }
 
 @Composable
@@ -122,11 +128,12 @@ private fun TappableRow(
     enabled: Boolean,
     leading: ImageVector?,
     trailing: ImageVector,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     // No vertical padding of its own: the GroupedRows card already pads the row.
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onClick)
             .alpha(if (enabled) 1f else 0.5f),

@@ -249,7 +249,7 @@ internal fun offsetMeters(e: Coordinate, northM: Double, eastM: Double): Coordin
 )
 
 /** Fits the camera to the capture circle [radiusM] around [center] — the ring is the subject. */
-internal fun framePlace(map: MapLibreMap, center: Coordinate, radiusM: Double) {
+internal fun framePlace(map: MapLibreMap, center: Coordinate, radiusM: Double, bottomPaddingPx: Int = 0) {
     val north = offsetMeters(center, radiusM, 0.0).lat
     val south = offsetMeters(center, -radiusM, 0.0).lat
     val east = offsetMeters(center, 0.0, radiusM).lon
@@ -258,7 +258,7 @@ internal fun framePlace(map: MapLibreMap, center: Coordinate, radiusM: Double) {
         .include(LatLng(north, east))
         .include(LatLng(south, west))
         .build()
-    map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 64))
+    map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 64, 64, 64, 64 + bottomPaddingPx))
 }
 
 /** One width for every line drawn as a trip's path, so a preview and the saved track match. */

@@ -15,11 +15,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import io.github.valeronm.breadcrumb.data.Settings.ClockTimeFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import android.provider.Settings as SystemSettings
+import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /**
  * How a reader's own device writes a clock time — **the app's only clock format**, so a change to it
@@ -73,10 +75,13 @@ internal class ReaderClock(
  * configurations. A composition asks [rememberReaderClock] instead, which takes the locale from the
  * configuration composition itself observes.
  */
-internal fun readerClockOf(context: Context): ReaderClock =
+internal fun readerClockOf(
+    context: Context,
+    timeFormat: ClockTimeFormat = AppSettings.clockTimeFormat(context),
+): ReaderClock =
     ReaderClock(
         context.resources.configuration.locales[0],
-        DateFormat.is24HourFormat(context),
+        timeFormat.is24Hour(context),
         // The duration ladder's symbol on purpose — the shift is a span, and two spellings of
         // "hour" on one screen would read as two units.
         durationSymbols(context).hour,
@@ -97,7 +102,7 @@ internal fun readerClockOf(context: Context): ReaderClock =
  * recomposition would recompose everything under the provider.
  */
 @Composable
-internal fun rememberReaderClock(): ReaderClock {
+internal fun rememberReaderClock(timeFormat: ClockTimeFormat = ClockTimeFormat.SYSTEM): ReaderClock {
     val context = LocalContext.current
     var hour24 by remember(context) { mutableStateOf(DateFormat.is24HourFormat(context)) }
     DisposableEffect(context) {
@@ -114,7 +119,20 @@ internal fun rememberReaderClock(): ReaderClock {
         onDispose { context.contentResolver.unregisterContentObserver(observer) }
     }
     val locale = LocalConfiguration.current.locales[0]
-    return remember(locale, hour24) { readerClockOf(context) }
+    val effectiveHour24 = when (timeFormat) {
+        ClockTimeFormat.SYSTEM -> hour24
+        ClockTimeFormat.HOUR_12 -> false
+        ClockTimeFormat.HOUR_24 -> true
+    }
+    return remember(locale, effectiveHour24) {
+        ReaderClock(locale, effectiveHour24, durationSymbols(context).hour)
+    }
+}
+
+private fun ClockTimeFormat.is24Hour(context: Context): Boolean = when (this) {
+    ClockTimeFormat.SYSTEM -> DateFormat.is24HourFormat(context)
+    ClockTimeFormat.HOUR_12 -> false
+    ClockTimeFormat.HOUR_24 -> true
 }
 
 /**

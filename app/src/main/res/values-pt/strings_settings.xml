@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_title">Definições</string>
+    <string name="settings_auto_recording">Gravação automática</string>
     <string name="settings_group_recording">Gravação</string>
     <string name="settings_group_display">Apresentação</string>
     <string name="settings_group_privacy">Privacidade</string>
@@ -13,6 +14,8 @@
     <string name="settings_trip_continuation">Continuação de uma viagem</string>
     <string name="settings_track_filtering">Filtragem de viagens</string>
     <string name="settings_units">Unidades</string>
+    <string name="settings_distance_units">Unidades de distância</string>
+    <string name="settings_timeline_section">Linha temporal</string>
     <string name="units_choice_automatic">Automático</string>
     <string name="units_choice_metric">Quilómetros</string>
     <string name="units_choice_imperial">Milhas</string>
@@ -21,6 +24,33 @@
     <string name="settings_map_shade_theme">Automático</string>
     <string name="settings_map_shade_light">Claro</string>
     <string name="settings_map_shade_dark">Escuro</string>
+    <string name="settings_time_format">Hora</string>
+    <string name="settings_time_format_system">Sistema</string>
+    <string name="settings_time_format_12">12 horas</string>
+    <string name="settings_time_format_24">24 horas</string>
+    <string name="settings_path_location_colours">Cores do percurso e dos locais</string>
+    <string name="settings_path_location_colours_sub">Escolher uma paleta e como os locais recebem as suas cores.\n%1$s · %2$s</string>
+    <string name="settings_timeline_color_palette">Cores da linha temporal</string>
+    <string name="settings_timeline_palette_classic">Clássica</string>
+    <string name="settings_timeline_palette_arc">Linha temporal em arco</string>
+    <string name="settings_timeline_visit_time">Mostrar horas das visitas</string>
+    <string name="settings_timeline_visit_time_sub">Mostrar as horas de chegada junto aos locais.</string>
+    <string name="settings_timeline_day_summary">Mostrar resumo do dia</string>
+    <string name="settings_timeline_day_summary_sub">Mostrar a distância diária, o tempo de viagem e o tempo passado nos locais.</string>
+    <string name="settings_timeline_pause_icon">Mostrar ícone de pausa</string>
+    <string name="settings_timeline_pause_icon_sub">Assinalar paragens curtas onde as viagens adjacentes podem ser unidas.</string>
+    <string name="settings_timeline_location_colors">Cores dos locais</string>
+    <string name="settings_timeline_location_colors_category">Categoria do local</string>
+    <string name="settings_timeline_location_colors_trip">Tipo da última viagem</string>
+    <string name="settings_timeline_layout">Layout da cronologia</string>
+    <string name="settings_timeline_layout_description">Escolha como o separador Cronologia está organizado.</string>
+    <string name="settings_timeline_layout_modern">Moderno</string>
+    <string name="settings_timeline_layout_modern_sub">Um mapa com a cronologia do dia num painel que pode arrastar</string>
+    <string name="settings_timeline_layout_classic">Clássico</string>
+    <string name="settings_timeline_layout_classic_sub">Todos os dias numa lista, com mapa à parte</string>
+    <string name="settings_timeline_layout_preview">Pré-visualização</string>
+    <string name="settings_timeline_layout_sample_home">Casa</string>
+    <string name="settings_timeline_layout_sample_shopping_mall">Centro comercial</string>
     <string name="settings_app_lock">Bloqueio da aplicação</string>
     <string name="settings_online_services">Serviços online</string>
     <plurals name="settings_recently_deleted_sub">

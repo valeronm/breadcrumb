@@ -8,9 +8,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -110,7 +112,11 @@ internal fun MapLibreTrackMap(
                 // scrubber's selection alone draws over it — that one is under the user's thumb.
                 addEndPlacePins(ctx, style, endPlaces, dark)
                 addSelectionLayer(ctx, style, selectedPoint)
-                frameTo(map, framePositions(points, noisyPoints, greatCircleLegs), singlePointZoom = 15.0)
+                frameTo(
+                    map,
+                    framePositions(points, noisyPoints, greatCircleLegs),
+                    singlePointZoom = 15.0,
+                )
                 // Stamped here as well as drawn: otherwise the first update sees no applied input
                 // and rebuilds every source the load just built.
                 applied.points = points
@@ -156,6 +162,16 @@ internal fun MapLibreTrackMap(
                 if (applied.selection !== selectedPoint) {
                     applied.selection = selectedPoint
                     style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(selectedPoint))
+                    selectedPoint?.let { point ->
+                        val screen = map.projection.toScreenLocation(LatLng(point.latitude, point.longitude))
+                        val target = mapSelectionTarget(
+                            Offset(screen.x, screen.y), map.width.toInt(), map.height.toInt(), 0,
+                        ) ?: return@let
+                        if (screen.x != target.x || screen.y != target.y) {
+                            // scrollBy moves the map under the marker; the zoom level is unchanged.
+                            map.scrollBy(screen.x - target.x, screen.y - target.y, 180)
+                        }
+                    }
                 }
                 if (applied.dwells !== dwells) {
                     applied.dwells = dwells
@@ -179,14 +195,22 @@ internal fun MapLibreTrackMap(
                         ?.setGeoJson(endPlaceCollection(endPlaces))
                 }
                 if (!applied.framed) {
-                    frameTo(map, framePositions(points, noisyPoints, greatCircleLegs), singlePointZoom = 15.0)
+                    frameTo(
+                        map,
+                        framePositions(points, noisyPoints, greatCircleLegs),
+                        singlePointZoom = 15.0,
+                    )
                     applied.framed = true
                 }
             },
         )
         if (showLegend) {
             // Bottom-right: MapLibre's logo + attribution live bottom-left.
-            TrackLegend(coloring.legend, Modifier.align(Alignment.BottomEnd).padding(MapInset))
+            TrackLegend(
+                coloring.legend,
+                Modifier.align(Alignment.BottomEnd)
+                    .padding(end = MapInset, bottom = MapInset),
+            )
         }
     }
 }
@@ -217,6 +241,8 @@ private class AppliedTrackInputs {
 
 private const val TRACK_SOURCE = "track-src"
 private const val TRACK_LAYER = "track-layer"
+private const val CONTEXT_TRACK_SOURCE = "context-track-src"
+private const val CONTEXT_TRACK_LAYER = "context-track-layer"
 private const val MARKER_SOURCE = "marker-src"
 private const val MARKER_LAYER = "marker-layer"
 private const val IMG_START = "marker-start"
@@ -244,6 +270,245 @@ private const val END_PLACE_AREA_FILL = "end-place-area-fill"
 private const val END_PLACE_AREA_LINE = "end-place-area-line"
 private const val END_PLACE_SOURCE = "end-place-src"
 private const val END_PLACE_LAYER = "end-place-layer"
+
+/**
+ * One style and MapView for modern Timeline's day overview and its in-drawer place/track details.
+ * All three layer families are installed once; switching the active target only updates sources,
+ * layer visibility and camera. Other map surfaces continue to use their dedicated hosts.
+ */
+@Composable
+internal fun MapLibreModernTimelineMap(
+    state: ModernTimelineMapState,
+    onOpenPlace: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val mapDark = isMapDark()
+    val context = LocalContext.current
+    val overview = state as? ModernTimelineMapState.Overview
+    val track = state as? ModernTimelineMapState.Track
+    val place = state as? ModernTimelineMapState.PlaceTarget
+    val lines = overview?.lines.orEmpty()
+    val places = overview?.places.orEmpty()
+    val colorByType = remember(lines, mapDark, overview?.colorPalette) {
+        lines.map { it.activityType }.distinct().associateWith {
+            mapActivityArgb(ActivityType.ofName(it), mapDark, overview?.colorPalette ?: io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette.CLASSIC)
+        }
+    }
+    val overviewCollection = remember(lines, colorByType) { journeyCollection(lines, colorByType) }
+    val seams = remember(track?.seams, track?.points) {
+        track?.seams ?: TrackQuality.seams(track?.points.orEmpty())
+    }
+    val measures = LocalMeasures.current
+    val coloring = remember(track?.coloring, seams, track?.colorMode, track?.activity, mapDark, measures) {
+        track?.coloring?.inShade(mapDark)
+            ?: trackColoring(seams, track?.colorMode ?: ColorMode.SPEED, track?.activity, mapDark, measures)
+    }
+    val colors = coloring.colors
+    val latestState = remember { ModernTimelineMapCallbacks() }
+    latestState.state = state
+    latestState.onOpenPlace = onOpenPlace
+    val applied = remember { ModernTimelineMapApplied() }
+
+    Box(modifier) {
+        MapLibreStyledMap(
+            modifier = Modifier.fillMaxSize(),
+            onMapReady = { map ->
+                map.addOnMapClickListener { at ->
+                    if (latestState.state !is ModernTimelineMapState.Overview) return@addOnMapClickListener false
+                    overviewPlaceKeyNear(map, at)?.also(latestState.onOpenPlace) != null
+                }
+            },
+            onStyleLoaded = { ctx, map, style, dark ->
+                style.addSource(GeoJsonSource(JOURNEY_SOURCE, overviewCollection))
+                style.addLayer(
+                    LineLayer(JOURNEY_LAYER, JOURNEY_SOURCE).withProperties(
+                        PropertyFactory.lineWidth(3f),
+                        PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                        PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                        PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
+                    ),
+                )
+                // Place pins and labels sit above the day's routes, as on the standalone journey map.
+                addOverviewLayers(ctx, style, places, dark, fullSize = true)
+                addEndPlaceAreas(style, track?.endPlaces.orEmpty())
+                addDwellLayers(style, track?.dwells.orEmpty())
+                addContextTrackLines(style, track?.contextLines.orEmpty(), dark, track?.showContextLines == true)
+                addTrackLine(style, track?.points.orEmpty(), colors, GreatCircle.drawsPath(track?.points?.size ?: 0, track?.activity))
+                addEdgeStayLayer(style, track?.overruns.orEmpty(), dark)
+                addMarkers(ctx, style, track?.points.orEmpty(), track?.visibleNoisyPoints.orEmpty(), false)
+                addEndPlacePins(ctx, style, track?.endPlaces.orEmpty(), dark)
+                addSelectionLayer(ctx, style, track?.selectedPoint)
+                val placeMarker = place?.marker ?: PlaceMarker(Coordinate(0.0, 0.0))
+                addModernTimelinePlaceLayers(ctx, style, placeMarker, place?.radiusM ?: 1.0, dark)
+                setModernTimelineLayers(style, state)
+                frameModernTimelineState(map, state)
+                applied.state = state
+                applied.overviewPlaces = places
+                applied.overviewCollection = overviewCollection
+                applied.track = track
+                applied.trackColors = colors
+                applied.selectedPoint = track?.selectedPoint
+                applied.place = place
+                applied.bottomPaddingPx = state.bottomPaddingPx
+            },
+            onUpdate = { map, style ->
+                val oldState = applied.state
+                val previousTrack = applied.track
+                if (applied.overviewCollection !== overviewCollection) {
+                    applied.overviewCollection = overviewCollection
+                    style.getSourceAs<GeoJsonSource>(JOURNEY_SOURCE)?.setGeoJson(overviewCollection)
+                }
+                if (applied.overviewPlaces !== places) {
+                    applied.overviewPlaces = places
+                    updateOverviewSource(style, places)
+                }
+
+                val trackGeometryChanged =
+                    previousTrack?.id != track?.id ||
+                        previousTrack?.activity != track?.activity ||
+                        previousTrack?.points !== track?.points ||
+                        applied.trackColors !== colors
+                if (trackGeometryChanged) {
+                    applied.trackColors = colors
+                    style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)?.setGeoJson(
+                        trackLineFeature(
+                            track?.points.orEmpty(), colors,
+                            GreatCircle.drawsPath(track?.points?.size ?: 0, track?.activity),
+                        ),
+                    )
+                }
+                val markerPointsChanged = previousTrack?.points !== track?.points || previousTrack?.id != track?.id
+                if (markerPointsChanged || previousTrack?.noisyPoints !== track?.noisyPoints || previousTrack?.showNoisy != track?.showNoisy) {
+                    style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(
+                        markerCollection(track?.points.orEmpty(), track?.visibleNoisyPoints.orEmpty(), false),
+                    )
+                }
+                if (
+                    previousTrack?.contextLines !== track?.contextLines ||
+                    previousTrack?.showContextLines != track?.showContextLines ||
+                    previousTrack?.id != track?.id
+                ) {
+                    style.getSourceAs<GeoJsonSource>(CONTEXT_TRACK_SOURCE)?.setGeoJson(
+                        contextTrackFeature(track?.contextLines.orEmpty(), track?.showContextLines == true),
+                    )
+                }
+                if (previousTrack?.dwells !== track?.dwells || previousTrack?.id != track?.id) {
+                    style.getSourceAs<GeoJsonSource>(DWELL_SOURCE)?.setGeoJson(dwellCollection(track?.dwells.orEmpty()))
+                }
+                if (previousTrack?.overruns !== track?.overruns || previousTrack?.id != track?.id) {
+                    style.getSourceAs<GeoJsonSource>(EDGE_STAY_SOURCE)?.setGeoJson(edgeStayFeature(track?.overruns.orEmpty()))
+                }
+                if (previousTrack?.endPlaces !== track?.endPlaces || previousTrack?.id != track?.id) {
+                    addEndPlacePinImages(context, style, track?.endPlaces.orEmpty())
+                    style.getSourceAs<GeoJsonSource>(END_PLACE_AREA_SOURCE)
+                        ?.setGeoJson(captureAreaCollection(PlaceClusterer.seedsOf(track?.endPlaces.orEmpty())))
+                    style.getSourceAs<GeoJsonSource>(END_PLACE_SOURCE)
+                        ?.setGeoJson(endPlaceCollection(track?.endPlaces.orEmpty()))
+                }
+                if (applied.selectedPoint !== track?.selectedPoint) {
+                    applied.selectedPoint = track?.selectedPoint
+                    style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(track?.selectedPoint))
+                    track?.selectedPoint?.let { point ->
+                        val screen = map.projection.toScreenLocation(LatLng(point.latitude, point.longitude))
+                        val target = mapSelectionTarget(
+                            Offset(screen.x, screen.y), map.width.toInt(), map.height.toInt(), state.bottomPaddingPx,
+                        ) ?: return@let
+                        if (screen.x != target.x || screen.y != target.y) map.scrollBy(screen.x - target.x, screen.y - target.y, 180)
+                    }
+                }
+                if (
+                    applied.place?.key != place?.key ||
+                    applied.place?.marker != place?.marker ||
+                    applied.place?.radiusM != place?.radiusM
+                ) {
+                    applied.place = place
+                    if (place != null) {
+                        updateModernTimelinePlaceLayers(style, place.marker, place.radiusM)
+                    } else {
+                        updateModernTimelinePlaceLayers(style, PlaceMarker(Coordinate(0.0, 0.0)), 1.0)
+                    }
+                }
+                val shouldReframe = modernTimelineMapNeedsReframe(oldState, state, applied.bottomPaddingPx != state.bottomPaddingPx)
+                val modeChanged = modernTimelineModeKey(oldState) != modernTimelineModeKey(state)
+                if (modeChanged) setModernTimelineLayers(style, state)
+                if (shouldReframe) frameModernTimelineState(map, state)
+                applied.state = state
+                applied.track = track
+                applied.bottomPaddingPx = state.bottomPaddingPx
+            },
+        )
+        if (track?.showLegend == true) {
+            TrackLegend(coloring.legend, Modifier.align(Alignment.BottomEnd).padding(end = MapInset, bottom = MapInset + track.legendBottomPadding))
+        }
+        if (track?.showNoisy == true && track.noisyPoints.isNotEmpty()) {
+            NoisyLegend(track.noisyPoints, Modifier.align(Alignment.TopEnd).padding(MapInset))
+        }
+    }
+}
+
+private class ModernTimelineMapCallbacks {
+    var state: ModernTimelineMapState = ModernTimelineMapState.Loading(0)
+    var onOpenPlace: (String) -> Unit = {}
+}
+
+private class ModernTimelineMapApplied {
+    var state: ModernTimelineMapState = ModernTimelineMapState.Loading(0)
+    var overviewPlaces: List<OverviewPlace>? = null
+    var overviewCollection: FeatureCollection? = null
+    var track: ModernTimelineMapState.Track? = null
+    var trackColors: IntArray? = null
+    var selectedPoint: TrackPoint? = null
+    var place: ModernTimelineMapState.PlaceTarget? = null
+    var bottomPaddingPx = 0
+}
+
+internal fun modernTimelineModeKey(state: ModernTimelineMapState): Any = when (state) {
+    is ModernTimelineMapState.Overview -> "overview:${state.frameKey}"
+    is ModernTimelineMapState.Track -> "track:${state.id}"
+    is ModernTimelineMapState.PlaceTarget -> "place:${state.key}"
+    is ModernTimelineMapState.Loading -> "loading"
+}
+
+internal fun modernTimelineMapNeedsReframe(
+    previous: ModernTimelineMapState,
+    current: ModernTimelineMapState,
+    paddingChanged: Boolean,
+): Boolean {
+    if (paddingChanged || modernTimelineModeKey(previous) != modernTimelineModeKey(current)) return true
+    val oldOverview = previous as? ModernTimelineMapState.Overview ?: return false
+    val newOverview = current as? ModernTimelineMapState.Overview ?: return false
+    return newOverview.linesComplete != oldOverview.linesComplete ||
+        (oldOverview.lines.isEmpty() && newOverview.lines.isNotEmpty()) ||
+        (oldOverview.places.isEmpty() && newOverview.places.isNotEmpty())
+}
+
+private fun setModernTimelineLayers(style: Style, state: ModernTimelineMapState) {
+    val isOverview = state is ModernTimelineMapState.Overview
+    val isTrack = state is ModernTimelineMapState.Track
+    val isPlace = state is ModernTimelineMapState.PlaceTarget
+    setModernTimelineOverviewPlacesVisible(style, isOverview)
+    setModernTimelineOverviewLinesVisible(style, isOverview)
+    val visible = if (isTrack) Property.VISIBLE else Property.NONE
+    listOf(
+        TRACK_LAYER, CONTEXT_TRACK_LAYER, MARKER_LAYER, SELECT_LAYER, DWELL_FILL, DWELL_LINE,
+        EDGE_STAY_LAYER, END_PLACE_AREA_FILL, END_PLACE_AREA_LINE, END_PLACE_LAYER,
+    ).forEach { style.getLayer(it)?.setProperties(PropertyFactory.visibility(visible)) }
+    setModernTimelinePlaceLayersVisible(style, isPlace)
+}
+
+private fun frameModernTimelineState(map: org.maplibre.android.maps.MapLibreMap, state: ModernTimelineMapState) {
+    when (state) {
+        is ModernTimelineMapState.Overview -> frameModernTimelineOverview(map, state.lines, state.places, state.bottomPaddingPx)
+        is ModernTimelineMapState.Track -> frameTo(
+            map,
+            framePositions(state.points, state.visibleNoisyPoints, GreatCircle.drawsPath(state.points.size, state.activity)),
+            singlePointZoom = 15.0,
+            obscured = MapInsets(top = 0, bottom = state.bottomPaddingPx),
+        )
+        is ModernTimelineMapState.PlaceTarget -> framePlace(map, state.marker.location, state.radiusM, state.bottomPaddingPx)
+        is ModernTimelineMapState.Loading -> Unit
+    }
+}
 
 /**
  * The stretch at each track edge the recorder ran on through — fixes already off the path, each run
@@ -434,6 +699,33 @@ private fun trackLineFeature(
         lineFeature(points.subList(run.first, run.last + 1), props, greatCircleLegs)?.let(features::add)
     }
     return FeatureCollection.fromFeatures(features)
+}
+
+private fun contextTrackFeature(lines: List<JourneyLine>, visible: Boolean): FeatureCollection {
+    if (!visible) return FeatureCollection.fromFeatures(emptyList())
+    val features = lines.flatMap { line ->
+        line.segments.mapNotNull { coords ->
+            if (coords.size < 4) return@mapNotNull null
+            val points = (coords.indices step 2).map { index ->
+                Point.fromLngLat(coords[index], coords[index + 1])
+            }
+            Feature.fromGeometry(LineString.fromLngLats(points))
+        }
+    }
+    return FeatureCollection.fromFeatures(features)
+}
+
+private fun addContextTrackLines(style: Style, lines: List<JourneyLine>, dark: Boolean, visible: Boolean) {
+    style.addSource(GeoJsonSource(CONTEXT_TRACK_SOURCE, contextTrackFeature(lines, visible)))
+    style.addLayer(
+        LineLayer(CONTEXT_TRACK_LAYER, CONTEXT_TRACK_SOURCE).withProperties(
+            PropertyFactory.lineColor(if (dark) "#B6BEC8" else "#68727D"),
+            PropertyFactory.lineOpacity(0.42f),
+            PropertyFactory.lineWidth(2f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        ),
+    )
 }
 
 private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArray, greatCircleLegs: Boolean) {

@@ -791,6 +791,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun pointsFor(trackId: Long): List<TrackPoint> =
         SegmentBreaks.goodWithCarriedBreaks(dao.allPointsFor(trackId))
 
+    /** Every row, including ignored fixes — the live preview carries breaks across them. */
+    suspend fun allPointsFor(trackId: Long): List<TrackPoint> = dao.allPointsFor(trackId)
+
     /**
      * Every fix of several tracks, keyed by track — the backup export's read. Keyed rather than
      * flat so no caller has to know what the query's `ORDER BY` groups by, which also leaves this
@@ -804,6 +807,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     /** Usable points inserted after [afterId] — the live preview's incremental reload. */
     suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
         dao.pointsAfter(trackId, afterId)
+
+    /** Every point inserted after [afterId], including ignored rows that may carry path breaks. */
+    suspend fun allPointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
+        dao.allPointsAfter(trackId, afterId)
 
     /**
      * One load of a track's points, split rather than queried once per slice: the slices are disjoint
