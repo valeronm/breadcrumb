@@ -76,6 +76,8 @@ internal fun MapLibreStyledMap(
     obscured: () -> MapInsets = { MapInsets.NONE },
     /** What the screen floats over the part of the map [MapCredit] leaves showing. */
     controls: @Composable BoxScope.() -> Unit = {},
+    /** Drawn over the map's own pixels and under [controls], in the map view's coordinates. */
+    overMap: @Composable BoxScope.(MapLibreMap) -> Unit = {},
     onMapReady: (MapLibreMap) -> Unit = {},
     onStyleLoaded: (ctx: Context, map: MapLibreMap, style: Style, dark: Boolean) -> Unit,
     onUpdate: (MapLibreMap, Style) -> Unit,
@@ -135,6 +137,7 @@ internal fun MapLibreStyledMap(
                     }
                 },
             )
+            readyMap.value?.let { overMap(it) }
             MapOverlay(zoom, host.coverage, controls)
         }
     }

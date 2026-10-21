@@ -1,11 +1,19 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
@@ -23,6 +31,7 @@ import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.domain.pin
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.LineLayer
@@ -58,7 +67,8 @@ internal fun MapLibreTrackMap(
     activity: ActivityType? = null,
     colorMode: ColorMode = ColorMode.SPEED,
     showLegend: Boolean = false,
-    selectedPoint: TrackPoint? = null,
+    // Read only while drawing, so a new selection redraws the marker without recomposing the map.
+    selectedPoint: (() -> TrackPoint?)? = null,
     // Detected in-track stops, highlighted as place-style capture circles under the line.
     dwells: List<DwellDetector.Dwell> = emptyList(),
     // Stops the recording ran on through at either edge, as stored: one point run per edge,
@@ -103,6 +113,7 @@ internal fun MapLibreTrackMap(
         controls = {
             if (showLegend) TrackLegend(coloring.legend, Modifier.align(Alignment.BottomEnd).padding(MapInset))
         },
+        overMap = { map -> if (selectedPoint != null) SelectionMarker(map, selectedPoint) },
         onStyleLoaded = { ctx, map, style, dark ->
             // The end places are one input drawn at two depths — their areas under the line, their
             // pins over it so it can't cover them.
@@ -114,10 +125,8 @@ internal fun MapLibreTrackMap(
             addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
             addMarkers(ctx, style, points, noisyPoints, directionalEnd)
             // Over the recorder's own markers: at an end the two land within a capture radius of
-            // each other, and the place is the one that says where the journey went. The
-            // scrubber's selection alone draws over it — that one is under the user's thumb.
+            // each other, and the place states where the journey went.
             addEndPlacePins(ctx, style, endPlaces, dark)
-            addSelectionLayer(ctx, style, selectedPoint)
             frameTo(map, framePositions(points, noisyPoints, greatCircleLegs, endLinks), singlePointZoom = 15.0)
             // Stamped here as well as drawn: otherwise the first update sees no applied input
             // and rebuilds every source the load just built.
@@ -160,10 +169,6 @@ internal fun MapLibreTrackMap(
                     }
                 }
             }
-            if (applied.selection !== selectedPoint) {
-                applied.selection = selectedPoint
-                style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(selectedPoint))
-            }
             if (applied.dwells !== dwells) {
                 applied.dwells = dwells
                 style.getSourceAs<GeoJsonSource>(DWELL_SOURCE)?.setGeoJson(dwellCollection(dwells))
@@ -198,9 +203,9 @@ internal fun MapLibreTrackMap(
 }
 
 /**
- * What each source/layer of the track map was last fed, so unrelated recompositions (e.g. the
- * graph scrubber moving the selection) don't re-serialize the full track geometry into the
- * native map. Identity comparisons, matching the stability of the remembered inputs.
+ * What each source/layer of the track map was last fed, so unrelated recompositions don't
+ * re-serialize the full track geometry into the native map. Identity comparisons, matching the
+ * stability of the remembered inputs.
  */
 private class AppliedTrackInputs {
     var points: List<TrackPoint>? = null
@@ -208,7 +213,6 @@ private class AppliedTrackInputs {
 
     /** The line's colours: a metric switch rebuilds the source, the legs carrying their own. */
     var colors: IntArray? = null
-    var selection: TrackPoint? = null
     var dwells: List<DwellDetector.Dwell>? = null
     var overruns: List<TrackSettle.Overrun>? = null
 
@@ -232,9 +236,6 @@ private const val IMG_POINTER = "marker-pointer"
 private const val IMG_NOISY = "marker-noisy"
 private const val IMG_NOISY_JUMP = "marker-noisy-jump"
 private const val IMG_NOISY_GNSS = "marker-noisy-gnss"
-private const val SELECT_SOURCE = "select-src"
-private const val SELECT_LAYER = "select-layer"
-private const val IMG_SELECTED = "marker-selected"
 
 /** Feature property naming a leg's own color, read by the line layer. */
 private const val COLOR_KEY = "color"
@@ -530,29 +531,40 @@ private fun addMarkers(
     style.addLayer(iconSymbolLayer(MARKER_LAYER, MARKER_SOURCE))
 }
 
-/**
- * The graph-scrubber selection: its own source/layer so updates don't rebuild the marker set.
- * A droplet pointing along the fix's bearing where one was recorded, else the plain dot.
- */
-private fun selectionCollection(p: TrackPoint?): FeatureCollection =
-    FeatureCollection.fromFeatures(
-        listOfNotNull(
-            p?.let {
-                val bearing = it.bearing
-                if (bearing != null) {
-                    markerFeature(it, IMG_POINTER, bearing)
-                } else {
-                    markerFeature(it, IMG_SELECTED)
-                }
-            },
-        ),
-    )
-
-private fun addSelectionLayer(ctx: Context, style: Style, selected: TrackPoint?) {
-    style.addImage(IMG_SELECTED, shadowedBitmap(ctx, R.drawable.ic_marker_selected, MarkerShadow.SUBJECT_TURNING))
-    style.addImage(IMG_POINTER, shadowedBitmap(ctx, R.drawable.ic_marker_pointer, MarkerShadow.SUBJECT_TURNING))
-    style.addSource(GeoJsonSource(SELECT_SOURCE, selectionCollection(selected)))
-    style.addLayer(iconSymbolLayer(SELECT_LAYER, SELECT_SOURCE))
+// Not a map source: any change to one makes MapLibre redraw every layer, and the selection moves per
+// touch event.
+@Composable
+private fun SelectionMarker(map: MapLibreMap, selection: () -> TrackPoint?) {
+    val context = LocalContext.current
+    val pointer = remember(context) {
+        shadowedBitmap(context, R.drawable.ic_marker_pointer, MarkerShadow.SUBJECT_TURNING).asImageBitmap()
+    }
+    val dot = remember(context) {
+        shadowedBitmap(context, R.drawable.ic_marker_selected, MarkerShadow.SUBJECT_TURNING).asImageBitmap()
+    }
+    // Read only in the draw phase, so a camera move redraws the marker without recomposing it.
+    val cameraMoves = remember(map) { mutableIntStateOf(0) }
+    DisposableEffect(map) {
+        val listener = MapLibreMap.OnCameraMoveListener { cameraMoves.intValue++ }
+        map.addOnCameraMoveListener(listener)
+        onDispose { map.removeOnCameraMoveListener(listener) }
+    }
+    // Without a layer of its own, every redraw would re-record the map's controls with the marker.
+    Canvas(Modifier.fillMaxSize().graphicsLayer()) {
+        cameraMoves.intValue
+        val point = selection() ?: return@Canvas
+        val at = map.projection.toScreenLocation(LatLng(point.latitude, point.longitude))
+        val center = Offset(at.x, at.y)
+        val bearing = point.bearing
+        if (bearing == null) {
+            drawImage(dot, center - Offset(dot.width / 2f, dot.height / 2f))
+        } else {
+            // The bearing is from north, and the map turns north by the camera's bearing.
+            rotate(bearing - map.cameraPosition.bearing.toFloat(), pivot = center) {
+                drawImage(pointer, center - Offset(pointer.width / 2f, pointer.height / 2f))
+            }
+        }
+    }
 }
 
 private const val BEARING_KEY = "bearing"
@@ -566,7 +578,6 @@ private fun markerFeature(p: TrackPoint, icon: String, bearing: Float = 0f): Fea
         },
     )
 
-/** The track's marker and selection layers: markers that turn to face along the ground track. */
 private fun iconSymbolLayer(id: String, source: String): SymbolLayer =
     markerSymbolLayer(id, source).withProperties(
         // Rotate with the map so the droplet keeps pointing along the ground-track bearing.

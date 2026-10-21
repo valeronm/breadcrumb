@@ -334,7 +334,7 @@ internal fun TrackDetailScreen(
                                     activity = activity,
                                     colorMode = colorMode,
                                     showLegend = true,
-                                    selectedPoint = selectedIndex?.let { load.good.getOrNull(it) },
+                                    selectedPoint = { selectedIndex?.let { load.good.getOrNull(it) } },
                                     dwells = dwells,
                                     overruns = overruns,
                                     endPlaces = route.places,
