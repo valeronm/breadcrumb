@@ -6,8 +6,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * What a journey is named after, and what it counts towards — the half of naming that needs a
- * atlas and a places table, as against [TravelNamingTest]'s ranking of a map someone else built.
+ * What a journey is named after, and what it counts towards — the half of naming that needs the
+ * clusters' cities and a places table, as against [TravelNamingTest]'s ranking of a map someone else
+ * built.
  *
  * Fixtures put three towns east of the neutral origin, far enough apart that each names itself, and
  * drive a journey over them by hand: a [TravelDeriver.Travel] is built directly rather than derived,
@@ -61,7 +62,7 @@ class TravelSummaryTest {
         return TravelNaming.summarize(
             listOf(travel),
             TravelDeriver.Timeline(derivation, tracks),
-            TravelNaming.Atlas(atlas, places, flatDistance),
+            TravelNaming.ClusterNames(places) { atlas.naming(it.centroid.lat, it.centroid.lon, flatDistance) },
         ).single()
     }
 
@@ -193,6 +194,18 @@ class TravelSummaryTest {
 
         // Ten minutes of pauses plus the four in-window hours of a track that runs six past it.
         assertEquals(mapOf(spentCity(seaside) to (4 * hour + 10 * 60_000L)), summary.timeByCity)
+    }
+
+    @Test fun `a track's ends at the road are the road`() {
+        val places = listOf(place("Motorway services", hillTown, PlaceCategory.SERVICE_AREA))
+        val summary = summarize(
+            travel(mapOf(1 to 20 * hour)),
+            listOf(at(hillTown), at(seaside)),
+            places,
+            tracks = listOf(track(hillTown, hillTown, startedAt = hour, endedAt = 5 * hour)),
+        )
+
+        assertEquals(mapOf(spentCity(seaside) to 20 * hour), summary.timeByCity)
     }
 
     @Test fun `tracks outside the journey's own window are not its time`() {

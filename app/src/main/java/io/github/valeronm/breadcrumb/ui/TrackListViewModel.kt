@@ -130,20 +130,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             derivation.clusters.map { zoneOrDevice(cities[it.centroid]?.zoneId) }
         }
 
-        /**
-         * Every track endpoint is a cluster member. A coordinate two clusters share maps to the
-         * later one; clusters that close share a clock.
-         */
-        private val clusterOfEndpoint: Map<Coordinate, Int> by lazy {
-            buildMap {
-                derivation.clusters.forEachIndexed { index, cluster ->
-                    for (member in cluster.members) put(member, index)
-                }
-            }
-        }
-
         private val zonesByTrack: Map<Long, Clocks> by lazy {
-            val zoneAt = { at: Coordinate? -> zoneOfCluster(at?.let(clusterOfEndpoint::get)) }
+            val zoneAt = { at: Coordinate? -> zoneOfCluster(at?.let(derivation.clusterOfEndpoint::get)) }
             tracks.associate { it.trackId to Clocks(zoneAt(it.start), zoneAt(it.end)) }
         }
 
@@ -359,12 +347,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             d.now,
             AndroidDistance,
         )
-        // The atlas is 4 MB of heap.
-        if (travels.isEmpty()) return@map emptyList()
         TravelNaming.summarize(
             travels,
             timeline,
-            TravelNaming.Atlas(Cities.atlas(getApplication(), d.language), d.places, AndroidDistance),
+            TravelNaming.ClusterNames(d.places) { cluster -> d.cities[cluster.centroid] },
         )
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

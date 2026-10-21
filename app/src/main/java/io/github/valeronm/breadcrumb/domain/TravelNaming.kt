@@ -15,7 +15,7 @@ sealed interface TravelLabel {
 
 /**
  * Turns the places a journey was spent in into what to call it. Separate from [TravelDeriver]
- * because naming needs the atlas and the places table, and the rule about nights must know
+ * because naming needs the clusters' cities and the places table, and the rule about nights must know
  * neither; separate from the screen because which names survive is a decision, not a layout.
  *
  * **A journey through three cities is a journey through three cities.** Picking the one with the
@@ -75,32 +75,16 @@ object TravelNaming {
             .sortedByDescending { section -> section.cities.sumOf { it.second } }
 
     /**
-     * The atlas with a places table beside it, answering "what is this coordinate called" once
-     * per coordinate. Every journey asks about the same hotels and the same track ends, and each
-     * answer is several walks of a 160,000-row table; one of these serves a whole pass.
-     *
-     * Holds the [DistanceFn] because both questions it answers are geometric — this is the seam
-     * through which the platform's own distance reaches an otherwise pure rule.
+     * Everything a journey is credited with, its stays and its tracks' ends, is a cluster; [cities]
+     * supplies each one's city.
      */
-    class Atlas(
-        private val atlas: CityAtlas,
+    class ClusterNames(
         private val places: List<Place>,
-        private val distance: DistanceFn,
+        private val cities: (PlaceClusterer.Cluster) -> CityAtlas.City?,
     ) {
-        private val seeds = PlaceClusterer.SeedIndex(PlaceClusterer.seedsOf(places))
-        private val cities = HashMap<Coordinate, CityAtlas.City?>()
-        private val pins = HashMap<Coordinate, Place?>()
+        fun cityOf(cluster: PlaceClusterer.Cluster): CityAtlas.City? = cities(cluster)
 
-        fun cityAt(at: Coordinate): CityAtlas.City? =
-            cities.getOrPut(at) { atlas.naming(at.lat, at.lon, distance) }
-
-        /** The place whose capture area holds [at], if any. */
-        fun pinAt(at: Coordinate): Place? =
-            pins.getOrPut(at) {
-                seeds.nearest(at.lat, at.lon, distance)?.let(places::getOrNull)
-            }
-
-        /** The place a cluster grew from, which is the pin that seeded it rather than a search. */
+        /** The place a cluster grew from, which is the pin that seeded it. */
         fun placeOf(cluster: PlaceClusterer.Cluster): Place? =
             cluster.seedIndex?.let(places::getOrNull)
     }
@@ -109,8 +93,8 @@ object TravelNaming {
     fun summarize(
         travels: List<TravelDeriver.Travel>,
         timeline: TravelDeriver.Timeline,
-        atlas: Atlas,
-    ): List<Summary> = travels.map { summarize(it, timeline, atlas) }
+        names: ClusterNames,
+    ): List<Summary> = travels.map { summarize(it, timeline, names) }
 
     /**
      * Everywhere one journey was spent, ranked — every place that earned a share of it, not the one
@@ -120,9 +104,9 @@ object TravelNaming {
     private fun summarize(
         travel: TravelDeriver.Travel,
         timeline: TravelDeriver.Timeline,
-        atlas: Atlas,
+        names: ClusterNames,
     ): Summary {
-        val spent = spent(travel, timeline, atlas)
+        val spent = spent(travel, timeline, names)
         return Summary(travel, ranked(spent.timeByName), spent.cities, spent.countries, spent.timeByCity)
     }
 
@@ -141,14 +125,13 @@ object TravelNaming {
     private fun spent(
         travel: TravelDeriver.Travel,
         timeline: TravelDeriver.Timeline,
-        atlas: Atlas,
+        names: ClusterNames,
     ): Spent {
         val spent = Spent()
         for ((clusterId, ms) in travel.clusterStayMs) {
             val cluster = timeline.derivation.clusters.getOrNull(clusterId) ?: continue
-            val at = cluster.endpointMean ?: cluster.anchor
-            val city = atlas.cityAt(at)
-            val place = atlas.placeOf(cluster)
+            val city = names.cityOf(cluster)
+            val place = names.placeOf(cluster)
             // A country crossed is a country visited even when the only stop in it was for fuel, so
             // countries are counted from every cluster; a city is not visited by refuelling in it.
             city?.let { spent.countries += it.country }
@@ -161,10 +144,10 @@ object TravelNaming {
                 val key = SpentCity(it.name, it.country)
                 spent.timeByCity[key] = (spent.timeByCity[key] ?: 0L) + ms
             }
-            val name = nameOf(place) { city?.name } ?: continue
+            val name = nameOf(place, city?.name) ?: continue
             spent.timeByName[name] = (spent.timeByName[name] ?: 0L) + ms
         }
-        addTimeMoving(travel, timeline.tracks, atlas, spent)
+        addTimeMoving(travel, timeline, names, spent)
         return spent
     }
 
@@ -182,19 +165,22 @@ object TravelNaming {
      */
     private fun addTimeMoving(
         travel: TravelDeriver.Travel,
-        tracks: List<StayDeriver.TrackEnd>,
-        atlas: Atlas,
+        timeline: TravelDeriver.Timeline,
+        names: ClusterNames,
         spent: Spent,
     ) {
-        // One resolution per endpoint, both readings behind one pin gate: a track between two
-        // service areas is the road however it is keyed. Past the gate they diverge as the maps
-        // do — resolved name against city.
+        val tracks = timeline.tracks
+        val derivation = timeline.derivation
+
+        // A track end is credited as a stay at its cluster would be. An end at a place that isn't
+        // visited is the road, for the name and the city tally alike.
         fun spentAt(at: Coordinate?): Pair<String?, SpentCity?> {
-            if (at == null) return null to null
-            val place = atlas.pinAt(at)
+            val cluster = at?.let(derivation.clusterOfEndpoint::get)?.let(derivation.clusters::getOrNull)
+                ?: return null to null
+            val place = names.placeOf(cluster)
             if (place?.placeCategory?.visited == false) return null to null
-            val city = atlas.cityAt(at)
-            return nameOf(place) { city?.name } to city?.let { SpentCity(it.name, it.country) }
+            val city = names.cityOf(cluster)
+            return nameOf(place, city?.name) to city?.let { SpentCity(it.name, it.country) }
         }
         fun <K : Any> credit(into: MutableMap<K, Long>, start: K?, end: K?, ms: Long) {
             if (start == null || start != end) return
@@ -232,11 +218,9 @@ object TravelNaming {
      * on foot scatters that one label into many small clusters with no big named place left to carry
      * a journey's name, while the city it is in stays the city it is in.
      */
-    private inline fun nameOf(place: Place?, city: () -> String?): String? {
-        // The city is asked for only when it can win — a person's place answers without one, and
-        // resolving a coordinate is several walks of the atlas.
+    private fun nameOf(place: Place?, city: String?): String? {
         if (place?.placeCategory?.group == PlaceCategoryGroup.HOME_PEOPLE) return place.label
-        return city() ?: place?.label
+        return city ?: place?.label
     }
 
     /**

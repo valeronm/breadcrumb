@@ -158,7 +158,16 @@ object StayDeriver {
         /** Clusters over every track endpoint — one per place pin first (in pin order,
          *  possibly memberless), then organic clusters chronologically; see [Stay.clusterId]. */
         val clusters: List<PlaceClusterer.Cluster>,
-    )
+    ) {
+        /** A coordinate two clusters share maps to the later one. */
+        val clusterOfEndpoint: Map<Coordinate, Int> by lazy {
+            buildMap {
+                clusters.forEachIndexed { index, cluster ->
+                    for (member in cluster.members) put(member, index)
+                }
+            }
+        }
+    }
 
     /**
      * Every interval **between two finished tracks**, and no other. The one that follows the newest
