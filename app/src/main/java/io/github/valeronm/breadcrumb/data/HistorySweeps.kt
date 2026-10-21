@@ -38,9 +38,9 @@ internal class HistorySweeps(
      * times, while one transaction for the lot would hold every rewritten point row in the journal
      * at once.
      */
-    suspend fun resettle() {
+    suspend fun resettle(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }) {
         val tracks = dao.exportTracks()
-        val changed = sweep(tracks) { resettleTrack(it) }
+        val changed = sweep(tracks, onProgress) { resettleTrack(it) }
         DebugLog.i(
             TAG,
             "settle sweep (rule v${TrackSettle.RULE_VERSION}) over ${tracks.size} " +
@@ -64,9 +64,9 @@ internal class HistorySweeps(
      * stored columns already agree is left alone: `tracks` is observed, so a needless UPDATE per
      * track re-runs the timeline.
      */
-    suspend fun stats() {
+    suspend fun stats(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }) {
         val tracks = dao.finishedTracks()
-        val changed = sweep(tracks) { track ->
+        val changed = sweep(tracks, onProgress) { track ->
             val stats = TrackStats.of(dao.allPointsFor(track.id))
             if (stats.matches(track)) {
                 false
@@ -102,23 +102,19 @@ internal class HistorySweeps(
      */
     private suspend fun <T> sweep(
         items: List<T>,
+        onProgress: (done: Int, total: Int) -> Unit,
         rederive: suspend (T) -> Boolean,
     ): Int {
         var changed = 0
-        SweepStatus.start(items.size)
-        try {
-            for ((batch, chunk) in items.chunked(SWEEP_BATCH_TRACKS).withIndex()) {
-                db.withTransaction {
-                    for ((i, item) in chunk.withIndex()) {
-                        // Reported every 10 items: the point walk is the slow part, and a state
-                        // emission per item would recompose the banner faster than it can be read.
-                        if (i % 10 == 0) SweepStatus.advance(batch * SWEEP_BATCH_TRACKS + i)
-                        if (rederive(item)) changed++
-                    }
+        onProgress(0, items.size)
+        for ((batch, chunk) in items.chunked(SWEEP_BATCH_TRACKS).withIndex()) {
+            db.withTransaction {
+                for ((i, item) in chunk.withIndex()) {
+                    // Every 10 items: per item, the count would change faster than it can be read.
+                    if (i % 10 == 0) onProgress(batch * SWEEP_BATCH_TRACKS + i, items.size)
+                    if (rederive(item)) changed++
                 }
             }
-        } finally {
-            SweepStatus.finish()
         }
         return changed
     }

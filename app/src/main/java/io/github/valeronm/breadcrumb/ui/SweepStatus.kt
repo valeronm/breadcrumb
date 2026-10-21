@@ -1,4 +1,4 @@
-package io.github.valeronm.breadcrumb.data
+package io.github.valeronm.breadcrumb.ui
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,15 +21,12 @@ object SweepStatus {
     /** Non-null only while a sweep is running. */
     val state: StateFlow<Progress?> = _state
 
-    fun start(total: Int) {
-        _state.value = Progress(0, total)
-    }
-
-    fun advance(done: Int) {
-        _state.value = _state.value?.copy(done = done)
-    }
-
-    fun finish() {
-        _state.value = null
+    /** Shows [sweep]'s progress for as long as it runs, failure included. */
+    suspend fun during(sweep: suspend (onProgress: (done: Int, total: Int) -> Unit) -> Unit) {
+        try {
+            sweep { done, total -> _state.value = Progress(done, total) }
+        } finally {
+            _state.value = null
+        }
     }
 }

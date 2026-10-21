@@ -8,6 +8,7 @@ import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.TrackStats
 import io.github.valeronm.breadcrumb.domain.TrackSettle
+import io.github.valeronm.breadcrumb.ui.SweepStatus
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -63,11 +64,11 @@ class App : Application() {
             val derivedLogicMoved = Settings.derivedLogicVersion(this@App) < DerivationStore.LOGIC_VERSION
             // The settle flags are verdicts of rules that keep moving, so they are re-derived
             // whenever the settle's version outruns the one they were computed with — not once.
-            if (settleRuleMoved) repository.sweeps.resettle()
+            if (settleRuleMoved) SweepStatus.during { repository.sweeps.resettle(it) }
             // The aggregates on a track row are the output of a walk that keeps moving too, and
             // they are re-derived the same way. It runs second: the settle sweep decides which
             // fixes are on the path, and this one totals whatever that leaves.
-            if (statsRuleMoved) repository.sweeps.stats()
+            if (statsRuleMoved) SweepStatus.during { repository.sweeps.stats(it) }
             // Last, and the order is load-bearing: both sweeps above rewrite a track's bounds and
             // its first and last good coordinates, which are the whole of what the derivation reads.
             // Deriving ahead of them would store a reading of values about to move, with nothing to

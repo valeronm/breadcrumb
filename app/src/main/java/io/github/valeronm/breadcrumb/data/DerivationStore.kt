@@ -127,59 +127,53 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * holding it far longer.
      */
     suspend fun rebuild() {
-        try {
-            db.withTransaction {
-                val trackEnds = tracks.endpointsOnce().map { it.toTrackEnd() }
-                SweepStatus.start(trackEnds.size)
-                val seeds = derived.seededClusters()
-                val named = places.namedIds().toHashSet()
-                val derivation = StayDeriver.derive(
-                    tracks = trackEnds,
-                    distance = AndroidDistance,
-                    placePins = seeds.map { it.toSeed(named) },
-                )
-                SweepStatus.advance(trackEnds.size)
+        db.withTransaction {
+            val trackEnds = tracks.endpointsOnce().map { it.toTrackEnd() }
+            val seeds = derived.seededClusters()
+            val named = places.namedIds().toHashSet()
+            val derivation = StayDeriver.derive(
+                tracks = trackEnds,
+                distance = AndroidDistance,
+                placePins = seeds.map { it.toSeed(named) },
+            )
 
-                derived.deleteAllIntervals()
-                derived.deleteAllMembers()
-                derived.deleteOrganicClusters()
+            derived.deleteAllIntervals()
+            derived.deleteAllMembers()
+            derived.deleteOrganicClusters()
 
-                // Seeded clusters come back in seed order, so a cluster's index into the derivation
-                // resolves to the row it was seeded from; the rest are new rows.
-                val clusterRowIds = derivation.clusters.map { cluster ->
-                    val sumLat = cluster.members.sumOf { it.lat }
-                    val sumLon = cluster.members.sumOf { it.lon }
-                    val seedIndex = cluster.seedIndex
-                    if (seedIndex == null) {
-                        derived.insertCluster(seedRow(cluster.seed, sumLat, sumLon, cluster.visitCount))
-                    } else {
-                        val id = seeds[seedIndex].id
-                        derived.setClusterMembership(id, sumLat, sumLon, cluster.visitCount)
-                        id
-                    }
+            // Seeded clusters come back in seed order, so a cluster's index into the derivation
+            // resolves to the row it was seeded from; the rest are new rows.
+            val clusterRowIds = derivation.clusters.map { cluster ->
+                val sumLat = cluster.members.sumOf { it.lat }
+                val sumLon = cluster.members.sumOf { it.lon }
+                val seedIndex = cluster.seedIndex
+                if (seedIndex == null) {
+                    derived.insertCluster(seedRow(cluster.seed, sumLat, sumLon, cluster.visitCount))
+                } else {
+                    val id = seeds[seedIndex].id
+                    derived.setClusterMembership(id, sumLat, sumLon, cluster.visitCount)
+                    id
                 }
-
-                // Indexed rather than searched: `memberIndices` index into this list by contract,
-                // and with no recording track passed above there is no index past its end.
-                val endpoints = StayDeriver.endpointsOf(trackEnds)
-                derived.insertMembers(
-                    derivation.clusters.flatMapIndexed { index, cluster ->
-                        cluster.memberIndices.map {
-                            endpoints[it].asMembership(clusterRowIds[index]).toRow()
-                        }
-                    },
-                )
-                derived.insertIntervals(
-                    derivation.intervals.map { it.asLedgerInterval(clusterRowIds).toRow() },
-                )
-                DebugLog.i(
-                    TAG,
-                    "derivation rebuild (logic v$LOGIC_VERSION) over ${trackEnds.size} tracks: " +
-                        "${derivation.clusters.size} clusters, ${derivation.intervals.size} intervals",
-                )
             }
-        } finally {
-            SweepStatus.finish()
+
+            // Indexed rather than searched: `memberIndices` index into this list by contract,
+            // and with no recording track passed above there is no index past its end.
+            val endpoints = StayDeriver.endpointsOf(trackEnds)
+            derived.insertMembers(
+                derivation.clusters.flatMapIndexed { index, cluster ->
+                    cluster.memberIndices.map {
+                        endpoints[it].asMembership(clusterRowIds[index]).toRow()
+                    }
+                },
+            )
+            derived.insertIntervals(
+                derivation.intervals.map { it.asLedgerInterval(clusterRowIds).toRow() },
+            )
+            DebugLog.i(
+                TAG,
+                "derivation rebuild (logic v$LOGIC_VERSION) over ${trackEnds.size} tracks: " +
+                    "${derivation.clusters.size} clusters, ${derivation.intervals.size} intervals",
+            )
         }
     }
 
