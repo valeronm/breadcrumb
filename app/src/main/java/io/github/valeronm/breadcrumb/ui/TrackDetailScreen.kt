@@ -147,7 +147,7 @@ internal fun TrackDetailScreen(
     val overruns = remember(points, stayPoints) {
         TrackSettle.overruns(points.orEmpty(), stayPoints)
     }
-    // The named places this journey set out from and arrived at. Off the stored rows rather than the
+    // The places this journey set out from and arrived at. Off the stored rows rather than the
     // derived summaries: a pin and its reach are all the rule and the map read, and neither has
     // anything to learn from a visit count worth waiting for the clustering over.
     //
@@ -156,8 +156,8 @@ internal fun TrackDetailScreen(
     // first composition means the pins are there when the style loads, instead of a source rebuilt a
     // frame later.
     val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
-    val endPlaces = remember(points, storedPlaces, summary?.startPlaceId, summary?.endPlaceId) {
-        RoutePlaces.ends(
+    val route = remember(points, storedPlaces, summary?.startPlaceId, summary?.endPlaceId) {
+        RoutePlaces.route(
             points.orEmpty(),
             storedPlaces,
             AndroidDistance,
@@ -337,7 +337,8 @@ internal fun TrackDetailScreen(
                                     selectedPoint = selectedIndex?.let { load.good.getOrNull(it) },
                                     dwells = dwells,
                                     overruns = overruns,
-                                    endPlaces = endPlaces,
+                                    endPlaces = route.places,
+                                    endLinks = route.links,
                                     precomputedColoring = graph?.coloring ?: solidLine,
                                     precomputedSeams = seams,
                                     modifier = Modifier.fillMaxSize(),

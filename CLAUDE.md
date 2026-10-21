@@ -790,12 +790,14 @@ selected metric (ramp luminance also shade-dependent),
 start/end and noisy-fix markers sit on a symbol layer, and switching the color metric rebuilds the
 line's source without moving the camera. Deliberately not a `line-gradient`: the banded ramp, the
 source's simplification tolerance and the layer's round caps are one mechanism serving that, and
-none survives being tidied alone — `trackLineFeature` says why. Three more layers ride on the same
-map — the detected in-track stops as place-style capture circles *under* the line, the recorder's
-overrun grayed off the track's ends, read back from the stored flags rather than re-detected, and
-the **named places at the path's two ends** (`RoutePlaces`), each a labeled pin over the capture
-area that claimed that end. The first two are **deliberately unlabelled** — their meaning is in
-where they sit and how they're drawn. A panel of times over the route says less than the shapes do
+none survives being tidied alone — `trackLineFeature` says why. More layers ride on the same map —
+the detected in-track stops as place-style capture circles *under* the line, the recorder's overrun
+grayed off the track's ends, read back from the stored flags rather than re-detected, and the
+**places at the path's two ends** (`RoutePlaces`), each a pin over the capture area that claimed
+that end, labeled where the place is named. An end stated to a place is that place's whatever it
+is called, and where the circle does not reach the end's fix a dashed connector joins the two —
+nothing else on the map would say they belong together. The stops, the overrun and the connector
+are **deliberately unlabelled** — their meaning is in where they sit and how they're drawn. A panel of times over the route says less than the shapes do
 and covers the map saying it, so labelling them is a decision to take, not an oversight to fix.
 
 ## Site

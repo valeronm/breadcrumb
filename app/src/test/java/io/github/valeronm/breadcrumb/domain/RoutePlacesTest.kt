@@ -46,8 +46,14 @@ class RoutePlacesTest {
      */
     private fun path(fromM: Double, toM: Double) = listOf(pt(fromM), pt(toM))
 
-    private fun ends(points: List<TrackPoint>, vararg places: Place) =
-        RoutePlaces.ends(points, places.toList(), flatDistance).map { it.id }
+    private fun route(
+        points: List<TrackPoint>,
+        places: List<Place>,
+        startPlaceId: Long? = null,
+        endPlaceId: Long? = null,
+    ) = RoutePlaces.route(points, places, flatDistance, startPlaceId, endPlaceId)
+
+    private fun ends(points: List<TrackPoint>, vararg places: Place) = route(points, places.toList()).places.map { it.id }
 
     @Test
     fun `the places holding each end come back, start first`() {
@@ -130,36 +136,63 @@ class RoutePlacesTest {
     fun `an end stated to a place is held by it over a nearer one`() {
         assertEquals(
             listOf(7L, 3L),
-            RoutePlaces.ends(
+            route(
                 path(0.0, 5_000.0),
                 listOf(place(3, east = 5_000.0), place(7, east = 0.0), place(9, east = 9_000.0)),
-                flatDistance,
                 endPlaceId = 3,
-            ).map { it.id },
+            ).places.map { it.id },
         )
         assertEquals(
             listOf(7L, 9L),
-            RoutePlaces.ends(
+            route(
                 path(0.0, 5_000.0),
                 listOf(place(3, east = 5_000.0), place(7, east = 0.0), place(9, east = 9_000.0)),
-                flatDistance,
                 endPlaceId = 9,
-            ).map { it.id },
+            ).places.map { it.id },
         )
     }
 
     @Test
-    fun `an unnamed row holding an end names nothing there`() {
+    fun `an unnamed row holding an end by its radius names nothing there`() {
         val unnamed = place(3, east = 5_000.0).copy(label = null)
         assertEquals(listOf(7L), ends(path(0.0, 5_000.0), unnamed, place(7, east = 0.0)))
+    }
+
+    @Test
+    fun `an end stated to an unnamed row is held by it`() {
+        val unnamed = place(3, east = 5_000.0).copy(label = null)
         assertEquals(
-            listOf(7L),
-            RoutePlaces.ends(
+            listOf(7L, 3L),
+            route(
                 path(0.0, 5_000.0),
                 listOf(unnamed, place(7, east = 0.0), place(9, east = 5_010.0)),
-                flatDistance,
                 endPlaceId = 3,
-            ).map { it.id },
+            ).places.map { it.id },
+        )
+    }
+
+    @Test
+    fun `a stated end outside its place's radius is linked to the pin`() {
+        val far = place(3, east = 9_000.0)
+        assertEquals(
+            listOf(RoutePlaces.Link(Coordinate(ORIGIN_LAT, lonAt(5_000.0)), far.pin)),
+            route(path(0.0, 5_000.0), listOf(far), endPlaceId = 3).links,
+        )
+    }
+
+    @Test
+    fun `a stated end inside its place's radius needs no link`() {
+        assertEquals(
+            emptyList<RoutePlaces.Link>(),
+            route(path(0.0, 5_000.0), listOf(place(3, east = 5_010.0)), endPlaceId = 3).links,
+        )
+    }
+
+    @Test
+    fun `an end held by a radius alone is never linked`() {
+        assertEquals(
+            emptyList<RoutePlaces.Link>(),
+            route(path(0.0, 5_000.0), listOf(place(3, east = 5_010.0))).links,
         )
     }
 }

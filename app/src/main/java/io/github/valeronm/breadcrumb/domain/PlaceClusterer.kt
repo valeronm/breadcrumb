@@ -32,7 +32,10 @@ object PlaceClusterer {
         val placeId: Long? = null,
         /** Whether the place has a name: a named seed outranks every unnamed anchor covering a point. */
         val named: Boolean = false,
-    )
+    ) {
+        /** Inclusive at the edge: a point exactly [radiusM] from the anchor is inside. */
+        fun covers(meters: Double): Boolean = meters <= radiusM
+    }
 
     /**
      * What clustering reads off a stored place: where it sits, how far it reaches, which row it is,
@@ -88,7 +91,7 @@ object PlaceClusterer {
             val seed = seeds[i]
             if (reach.outOfReach(seed.anchor.lat, seed.anchor.lon, seed.radiusM)) continue
             val meters = distance.meters(seed.anchor.lat, seed.anchor.lon, lat, lon)
-            if (meters <= seed.radiusM && outranks(seed.named, meters, nearestNamed, nearestM)) {
+            if (seed.covers(meters) && outranks(seed.named, meters, nearestNamed, nearestM)) {
                 nearest = i
                 nearestM = meters
                 nearestNamed = seed.named
@@ -129,7 +132,7 @@ object PlaceClusterer {
                 val seed = seeds[i]
                 if (reach.outOfReach(seed.anchor.lat, seed.anchor.lon, seed.radiusM)) continue
                 val meters = distance.meters(seed.anchor.lat, seed.anchor.lon, lat, lon)
-                if (meters > seed.radiusM) continue
+                if (!seed.covers(meters)) continue
                 // The band is walked out of index order, so a tie goes to the lower index as the
                 // plain scan's strict comparison leaves it.
                 val tie = seed.named == nearestNamed && meters == nearestM

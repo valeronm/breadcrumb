@@ -100,6 +100,23 @@ internal fun addMergingCircleLayers(
     lineLayerId: String,
 ) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.MERGING)
 
+/**
+ * A line in a context circle's own ink and dash, for a link that belongs to a place without being on
+ * any path, so it reads as the place reaching out rather than as more track.
+ */
+internal fun addConnectorLayer(style: Style, dark: Boolean, layerId: String, sourceId: String) {
+    val look = CircleLook.context(dark)
+    style.addLayer(
+        LineLayer(layerId, sourceId).withProperties(
+            PropertyFactory.lineColor(CIRCLE_LINE),
+            PropertyFactory.lineWidth(1.5f),
+            PropertyFactory.lineDasharray(look.dash),
+            PropertyFactory.lineCap(look.cap),
+            PropertyFactory.lineOpacity(look.opacity),
+        ),
+    )
+}
+
 /** [dash] is in line widths. */
 private class CircleLook(val opacity: Float, val dash: Array<Float>, val cap: String) {
     companion object {

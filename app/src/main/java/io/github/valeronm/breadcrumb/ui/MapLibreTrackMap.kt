@@ -18,6 +18,7 @@ import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.RoutePlaces
 import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.domain.pin
 import io.github.valeronm.breadcrumb.domain.placeCategory
@@ -39,9 +40,11 @@ import org.maplibre.geojson.Point
 /**
  * Renders a track on a Protomaps vector basemap (MapLibre GL Native), dark or light flavor per
  * [isMapDark]. The line is drawn as one feature per run of same-colored fixes ([TrackColoring], the metric
- * picked by [colorMode]); start/end and noisy-fix markers ride a symbol layer; the named places at
- * the path's two ends are drawn as labeled pins with their capture areas; the camera fits the
- * track once on open — the places never move it, a route being the subject and them the annotation.
+ * picked by [colorMode]); start/end and noisy-fix markers ride a symbol layer; the places at the
+ * path's two ends are drawn as pins with their capture areas, labeled where named, and an end stated
+ * to a place its circle does not reach is joined to the pin by a dashed connector; the camera fits
+ * the track and any connector's pin once on open — the places never move it otherwise, a route being
+ * the subject and them the annotation.
  * A color-mode switch rebuilds the line's source, camera untouched, and the
  * source refreshes as the point list grows
  * (the live "current track" preview), re-framing only when the position nears the viewport edge —
@@ -61,9 +64,12 @@ internal fun MapLibreTrackMap(
     // Stops the recording ran on through at either edge, as stored: one point run per edge,
     // drawn grayed off the end of the track line.
     overruns: List<TrackSettle.Overrun> = emptyList(),
-    // The named places at the path's two ends (see RoutePlaces) — a labeled pin over the capture
-    // area that claimed that end. One entry where a round trip began and ended in the same place.
+    // The places at the path's two ends (see RoutePlaces) — a pin over the capture area that claimed
+    // that end, labeled where the place is named. One entry where a round trip began and ended in the
+    // same place.
     endPlaces: List<Place> = emptyList(),
+    // A dashed connector from an end to the pin of a place it is stated to but lies outside of.
+    endLinks: List<RoutePlaces.Link> = emptyList(),
     // Live preview: the last point is the current position — a droplet rotated to the movement
     // bearing instead of the finished-track end dot.
     directionalEnd: Boolean = false,
@@ -101,6 +107,8 @@ internal fun MapLibreTrackMap(
             // The end places are one input drawn at two depths — their areas under the line, their
             // pins over it so it can't cover them.
             addEndPlaceAreas(style, endPlaces, dark)
+            style.addSource(GeoJsonSource(END_LINK_SOURCE, endLinkCollection(endLinks)))
+            addConnectorLayer(style, dark, END_LINK_LAYER, END_LINK_SOURCE)
             addDwellLayers(style, dwells)
             addTrackLine(style, points, colors, greatCircleLegs)
             addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
@@ -110,13 +118,14 @@ internal fun MapLibreTrackMap(
             // scrubber's selection alone draws over it — that one is under the user's thumb.
             addEndPlacePins(ctx, style, endPlaces, dark)
             addSelectionLayer(ctx, style, selectedPoint)
-            frameTo(map, framePositions(points, noisyPoints, greatCircleLegs), singlePointZoom = 15.0)
+            frameTo(map, framePositions(points, noisyPoints, greatCircleLegs, endLinks), singlePointZoom = 15.0)
             // Stamped here as well as drawn: otherwise the first update sees no applied input
             // and rebuilds every source the load just built.
             applied.points = points
             applied.noisy = noisyPoints
             applied.colors = colors
             applied.endPlaces = endPlaces
+            applied.endLinks = endLinks
             applied.framed = true
         },
         onUpdate = { map, style ->
@@ -176,8 +185,12 @@ internal fun MapLibreTrackMap(
                 style.getSourceAs<GeoJsonSource>(END_PLACE_SOURCE)
                     ?.setGeoJson(endPlaceCollection(endPlaces))
             }
+            if (applied.endLinks !== endLinks) {
+                applied.endLinks = endLinks
+                style.getSourceAs<GeoJsonSource>(END_LINK_SOURCE)?.setGeoJson(endLinkCollection(endLinks))
+            }
             if (!applied.framed) {
-                frameTo(map, framePositions(points, noisyPoints, greatCircleLegs), singlePointZoom = 15.0)
+                frameTo(map, framePositions(points, noisyPoints, greatCircleLegs, endLinks), singlePointZoom = 15.0)
                 applied.framed = true
             }
         },
@@ -199,9 +212,10 @@ private class AppliedTrackInputs {
     var dwells: List<DwellDetector.Dwell>? = null
     var overruns: List<TrackSettle.Overrun>? = null
 
-    /** The named places at the path's ends — identity, the resolution handing back a fresh list only
+    /** The places at the path's ends — identity, the resolution handing back a fresh list only
      *  when the path or the places table changed. */
     var endPlaces: List<Place>? = null
+    var endLinks: List<RoutePlaces.Link>? = null
 
     /** Frame once per map; later updates must not move the camera (the live preview re-frames
      *  only when the current position nears the viewport edge). */
@@ -237,6 +251,8 @@ private const val END_PLACE_AREA_FILL = "end-place-area-fill"
 private const val END_PLACE_AREA_LINE = "end-place-area-line"
 private const val END_PLACE_SOURCE = "end-place-src"
 private const val END_PLACE_LAYER = "end-place-layer"
+private const val END_LINK_SOURCE = "end-link-src"
+private const val END_LINK_LAYER = "end-link-layer"
 
 /**
  * The stretch at each track edge the recorder ran on through — fixes already off the path, each run
@@ -296,6 +312,11 @@ private fun endPlaceCollection(places: List<Place>): FeatureCollection =
         },
     )
 
+private fun endLinkCollection(links: List<RoutePlaces.Link>): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        links.map { Feature.fromGeometry(LineString.fromLngLats(listOf(it.from.toPoint(), it.to.toPoint()))) },
+    )
+
 private fun addEndPlacePins(ctx: Context, style: Style, places: List<Place>, dark: Boolean) {
     addEndPlacePinImages(ctx, style, places)
     style.addSource(GeoJsonSource(END_PLACE_SOURCE, endPlaceCollection(places)))
@@ -318,18 +339,22 @@ private fun addEndPlacePinImages(ctx: Context, style: Style, places: List<Place>
 /**
  * What the once-per-map fit frames: the track line's positions — the drawn ones, so a great-circle
  * leg's poleward bow stays in frame — or, when there's no drawable line, whatever markers there
- * are (noisy fixes included), so a bad-points-only track doesn't open on a world view.
+ * are (noisy fixes included), so a bad-points-only track doesn't open on a world view. [links]' pins
+ * are framed too: one can lie far off the path.
  */
 private fun framePositions(
     points: List<TrackPoint>,
     noisyPoints: List<TrackPoint>,
     greatCircleLegs: Boolean,
-): List<LatLng> =
-    if (points.size >= 2) {
+    links: List<RoutePlaces.Link>,
+): List<LatLng> {
+    val path = if (points.size >= 2) {
         linePositions(points, greatCircleLegs).map { LatLng(it.latitude(), it.longitude()) }
     } else {
         (points + noisyPoints).map { LatLng(it.latitude, it.longitude) }
     }
+    return path + links.map { LatLng(it.to.lat, it.to.lon) }
+}
 
 /**
  * The positions a run of fixes is drawn through: the fixes themselves, or with [greatCircleLegs]
