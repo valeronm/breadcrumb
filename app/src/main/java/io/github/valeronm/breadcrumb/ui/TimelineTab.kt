@@ -1,12 +1,11 @@
 package io.github.valeronm.breadcrumb.ui
 
 import androidx.annotation.StringRes
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +37,6 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -392,7 +390,7 @@ private fun TimelineListPage(
     DisposableEffect(viewedDay) {
         onDispose { viewedDay.read = { null } }
     }
-    // The just-landed-on stay's row key: its card tints briefly so the eye finds it, then fades.
+    // The just-landed-on row's key: its card tints briefly so the eye finds it, then fades.
     // Watched through [snapshotFlow] rather than held as an effect's key, which would read it in
     // this function's own restart scope — the one the lazy list's intervals are built in, so a
     // highlight arriving and again fading would rebuild every day in the history. [collectLatest]
@@ -424,13 +422,17 @@ private fun TimelineListPage(
             }
             is TimelineJump.Row -> {
                 val hit = groups.indices.firstNotNullOfOrNull { g ->
-                    val i = groups[g].items.indexOfFirst(jump::matches)
-                    if (i >= 0) (dayAnchors[g].itemIndex + 1 + i) to groups[g].items[i] else null
+                    groups[g].items.indexOfFirst(jump::matches).takeIf { it >= 0 }?.let { g to it }
                 }
                 if (hit != null) {
-                    // One row above the target so it sits below the sticky day header.
-                    listState.scrollToItem(hit.first - 1)
-                    highlightKey = hit.second.rowKey()
+                    val (g, i) = hit
+                    val heading = dayAnchors[g].itemIndex
+                    // The pinned heading covers the target, and a journey day's runs to several rows.
+                    // scrollToItem lays the list out before returning.
+                    listState.scrollToItem(heading + 1 + i)
+                    listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == heading }
+                        ?.let { listState.scrollBy(-it.size.toFloat()) }
+                    highlightKey = groups[g].items[i].rowKey()
                 } else {
                     // By instant, not by date: the target arrives from a place screen carrying no
                     // zone, and dating it on the device's clock would miss the day a foreign stay
@@ -504,6 +506,7 @@ private fun TimelineListPage(
                     }
                     itemsIndexed(dayItems, key = { _, item -> item.rowKey() }) { index, item ->
                         val shape = groupedRowShape(index, dayItems.size)
+                        val highlighted = item.rowKey() == highlightKey
                         when (item) {
                             is TimelineItem.TrackItem -> TrackRow(
                                 track = item.summary,
@@ -528,14 +531,21 @@ private fun TimelineListPage(
                                 item = item,
                                 shape = shape,
                                 zone = item.clock,
-                                highlighted = item.rowKey() == highlightKey,
+                                highlighted = highlighted,
                                 onMerge = onMerge,
                                 onClick = {
                                     item.place?.let { onOpenPlace(it.key) }
                                 },
                             )
                             is TimelineItem.GapItem ->
-                                GapRow(item, shape, onOpenPlace, onMerge, onAddTrip)
+                                GapRow(
+                                    item = item,
+                                    shape = shape,
+                                    highlighted = highlighted,
+                                    onOpenPlace = onOpenPlace,
+                                    onMerge = onMerge,
+                                    onAddTrip = onAddTrip,
+                                )
                         }
                     }
                 }
@@ -1180,16 +1190,6 @@ internal fun StayCard(
 ) {
     val stay = item.stay
     val place = item.place
-    // Appears already tinted when a place-visit jump lands on this row, then fades to normal.
-    val containerColor by animateColorAsState(
-        targetValue = if (highlighted) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            CardDefaults.cardColors().containerColor
-        },
-        animationSpec = tween(durationMillis = 600),
-        label = "stayHighlight",
-    )
     // A merge-eligible short stop is marked in tertiary (matching the swipe-to-merge hint) as a
     // *badge* on the disc's corner rather than as its glyph: being mergeable is a fact about the
     // stay, while the glyph answers where the user was, and neither should cost the other.
@@ -1238,7 +1238,7 @@ internal fun StayCard(
     ListRowCard(
         shape = shape,
         onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = containerColor),
+        highlighted = highlighted,
         icon = category.discIcon,
         disc = disc,
         iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
@@ -1270,6 +1270,7 @@ internal fun StayCard(
 private fun GapRow(
     item: TimelineItem.GapItem,
     shape: RoundedCornerShape,
+    highlighted: Boolean,
     onOpenPlace: (String) -> Unit,
     onMerge: (TrackMerge.Plan) -> Unit,
     onAddTrip: (TripDraft) -> Unit,
@@ -1278,7 +1279,7 @@ private fun GapRow(
     // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
     // absences and aren't swipeable.
     MergeSwipeable(item.merge, shape, onMerge) {
-        GapCard(item, shape, onOpenPlace, onAddTrip, mergeable = item.merge != null)
+        GapCard(item, shape, onOpenPlace, onAddTrip, mergeable = item.merge != null, highlighted = highlighted)
     }
 }
 
@@ -1313,6 +1314,7 @@ internal fun GapCard(
     onAddTrip: (TripDraft) -> Unit,
     /** Whether the host offers this gap's merge, which the connector's accent advertises. */
     mergeable: Boolean = false,
+    highlighted: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val gap = item.gap
@@ -1362,7 +1364,7 @@ internal fun GapCard(
         )
     }
     val both = bounds as? GapBounds.Both
-    MissingRecordingCard(shape, onClick) {
+    MissingRecordingCard(shape, onClick, highlighted) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
             GapPlaceLine(arrival, both?.let { arrivalAt(it.end) }, onOpenPlace)
             Row(

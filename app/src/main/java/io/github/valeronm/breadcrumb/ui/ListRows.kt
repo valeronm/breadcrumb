@@ -1,5 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -96,7 +98,7 @@ internal fun ListRowCard(
     badgeContentColor: Color = MaterialTheme.colorScheme.onTertiary,
     /** Drawn at the top-right corner, beside the title. */
     mark: OriginMark? = null,
-    colors: CardColors? = null,
+    highlighted: Boolean = false,
     outlined: Boolean = false,
     onClick: (() -> Unit)? = null,
     /** Drawn at the end of the row, centered beside the text. */
@@ -137,7 +139,7 @@ internal fun ListRowCard(
             }
         }
     }
-    RowCard(shape, onClick, modifier, outlined, colors, rowContent)
+    RowCard(shape, onClick, modifier, outlined, highlighted, rowContent)
 }
 
 /** A missing recording's card, hollow where a recorded row's is filled: what it holds is what the
@@ -146,20 +148,27 @@ internal fun ListRowCard(
 internal fun MissingRecordingCard(
     shape: Shape,
     onClick: (() -> Unit)?,
+    highlighted: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
-) = RowCard(shape, onClick, outlined = true, content = content)
+) = RowCard(shape, onClick, outlined = true, highlighted = highlighted, content = content)
 
-/** [colors], where given, replaces [outlined]'s fill; the border still follows [outlined]. */
+/** [highlighted] tints the card's fill, which fades back to rest once it clears. */
 @Composable
 private fun RowCard(
     shape: Shape,
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     outlined: Boolean = false,
-    colors: CardColors? = null,
+    highlighted: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val cardColors = colors ?: rowCardColors(outlined)
+    val resting = rowCardColors(outlined)
+    val fill by animateColorAsState(
+        targetValue = if (highlighted) MaterialTheme.colorScheme.primaryContainer else resting.containerColor,
+        animationSpec = tween(durationMillis = 600),
+        label = "rowHighlight",
+    )
+    val cardColors = resting.copy(containerColor = fill)
     val border = rowCardBorder(outlined)
     if (onClick != null) {
         Card(
