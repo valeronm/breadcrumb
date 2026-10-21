@@ -44,7 +44,9 @@
     <string name="timeline_share_day">Partilhar os trajetos de %1$s</string>
     <string name="timeline_scroll_to_day">Ir para um dia</string>
     <string name="timeline_merge">Juntar viagens</string>
+    <string name="timeline_dissolve_stop">Remover paragem</string>
     <string name="timeline_undo_merged">Viagens juntadas</string>
+    <string name="timeline_undo_dissolved">Paragem removida</string>
     <string name="timeline_undo_deleted">Viagem eliminada</string>
 
     <string name="timeline_all_day">Todo o dia</string>

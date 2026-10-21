@@ -575,6 +575,7 @@ class StayDeriverTest {
 
         assertTrue(bare.isBareSeam)
         assertFalse(bare.copy(merge = TrackMerge.Plan(earlierId = 1, laterId = 2)).isBareSeam)
+        assertFalse(bare.copy(dissolve = StaySuppress.Plan(afterTrackId = 1, laterTrackId = 2)).isBareSeam)
         // A stop of any length is a stop, offer or no offer.
         assertFalse(TimelineItem.StayItem(seam.copy(end = 121 * MIN)).isBareSeam)
         // Nor is the ongoing stay one: it has no end, which is not the same as ending where it began.

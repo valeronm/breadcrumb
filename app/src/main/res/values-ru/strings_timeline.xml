@@ -48,7 +48,9 @@
     <string name="timeline_share_day">Поделиться маршрутами за %1$s</string>
     <string name="timeline_scroll_to_day">Перейти к дню</string>
     <string name="timeline_merge">Объединить поездки</string>
+    <string name="timeline_dissolve_stop">Убрать остановку</string>
     <string name="timeline_undo_merged">Поездки объединены</string>
+    <string name="timeline_undo_dissolved">Остановка убрана</string>
     <string name="timeline_undo_deleted">Поездка удалена</string>
 
     <string name="timeline_all_day">Весь день</string>

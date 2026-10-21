@@ -529,3 +529,18 @@ assert.equal(
 }
 
 console.log("all stay tests passed");
+
+// Optional v2 hidden pairs: no date, snapshot or bin state is required.
+{
+  const { BackupParser } = await import("../js/backup-parse.js");
+  for (const includeHidden of [false, true]) {
+    let hidden = [];
+    const parser = new BackupParser({ onDeletedStays: (pairs) => { hidden = pairs; } });
+    const pairs = [{ beforeTrackId: 1, afterTrackId: 2 }];
+    const text = JSON.stringify({ format: "breadcrumb-export", version: 2, pointFields: [], tracks: [],
+      ...(includeHidden ? { deletedStays: pairs } : {}) });
+    for (const char of text) parser.push(char);
+    parser.finish();
+    assert.deepEqual(hidden, includeHidden ? pairs : []);
+  }
+}

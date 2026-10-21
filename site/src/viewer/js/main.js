@@ -111,7 +111,7 @@ async function refresh() {
   $("timeline").hidden = !meta;
   tracks = (await getAllTracks(db)).sort((a, b) => b.startedAt - a.startedAt);
   nowMs = derivationInstant(meta?.exportedAt, tracks);
-  const stays = buildTimeline(meta?.places ?? []);
+  const stays = buildTimeline(meta?.places ?? [], meta?.deletedStays ?? []);
   if (meta) {
     $("summary").textContent = `${meta.trackCount.toLocaleString()} trips · ${stays.toLocaleString()} stays`;
     $("exported").textContent = `Exported ${formatDate(meta.exportedAt)}`;
@@ -143,9 +143,9 @@ function paintPlaceLayer() {
  * per-day slicing, which would count a three-day stay three times). Places seed the clustering in
  * their export order, so a cluster's seedIndex indexes straight back into this list — the same
  * contract the app relies on. */
-function buildTimeline(places) {
+function buildTimeline(places, hidden) {
   const ascending = tracks.slice().reverse();
-  const { intervals, clusters } = deriveStays({
+  const { intervals: rawIntervals, clusters } = deriveStays({
     tracks: ascending.map(toTrackEnd),
     nowMs,
     placePins: places.map((p) => ({
@@ -155,6 +155,10 @@ function buildTimeline(places) {
       named: p.label != null,
     })),
   });
+  const successors = new Map(ascending.slice(0, -1).map((t, i) => [t.id, ascending[i + 1].id]));
+  const deleted = new Set(hidden.map((p) => `${p.beforeTrackId}:${p.afterTrackId}`));
+  const intervals = rawIntervals.filter((i) => i.kind !== "stay" ||
+    !deleted.has(`${i.afterTrackId}:${successors.get(i.afterTrackId)}`));
   // Resolve over the UNSLICED stays: after slicing, a 3-day stay would count as 3 visits.
   const stays = intervals.filter((i) => i.kind === "stay");
   clusterPlaces = resolveClusters(stays, clusters, places);

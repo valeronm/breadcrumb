@@ -4,14 +4,14 @@
     <string name="discarded_title_count">Eliminadas recentemente (%1$d)</string>
     <string name="discarded_clear_all">Limpar tudo</string>
     <plurals name="discarded_empty">
-        <item quantity="one">Sem viagens eliminadas. Aparecem aqui quando elimina uma ou quando uma regra a descarta, e ficam recuperáveis durante %1$d dia.</item>
-        <item quantity="many">Sem viagens eliminadas. Aparecem aqui quando elimina uma ou quando uma regra a descarta, e ficam recuperáveis durante %1$d dias.</item>
-        <item quantity="other">Sem viagens eliminadas. Aparecem aqui quando elimina uma ou quando uma regra a descarta, e ficam recuperáveis durante %1$d dias.</item>
+        <item quantity="one">Não há trajetos ou paragens eliminados. Os itens podem ser restaurados durante %1$d dia.</item>
+        <item quantity="many">Não há trajetos ou paragens eliminados. Os itens podem ser restaurados durante %1$d dias.</item>
+        <item quantity="other">Não há trajetos ou paragens eliminados. Os itens podem ser restaurados durante %1$d dias.</item>
     </plurals>
     <plurals name="discarded_retention">
-        <item quantity="one">As viagens ficam aqui %1$d dia e depois são eliminadas definitivamente</item>
-        <item quantity="many">As viagens ficam aqui %1$d dias e depois são eliminadas definitivamente</item>
-        <item quantity="other">As viagens ficam aqui %1$d dias e depois são eliminadas definitivamente</item>
+        <item quantity="one">Os itens podem ser restaurados durante %1$d dia. Depois, os trajetos são eliminados definitivamente e as paragens eliminadas continuam ocultas.</item>
+        <item quantity="many">Os itens podem ser restaurados durante %1$d dias. Depois, os trajetos são eliminados definitivamente e as paragens eliminadas continuam ocultas.</item>
+        <item quantity="other">Os itens podem ser restaurados durante %1$d dias. Depois, os trajetos são eliminados definitivamente e as paragens eliminadas continuam ocultas.</item>
     </plurals>
     <string name="discarded_restore">Recuperar a viagem</string>
     <string name="discarded_restore_overlaps">Não foi recuperada: sobrepõe-se a uma viagem na cronologia</string>
@@ -19,7 +19,7 @@
     <string name="discarded_filter_all">Todas</string>
     <string name="discarded_filter_you">Por si</string>
     <string name="discarded_filter_automatic">Automáticas</string>
-    <string name="discarded_none_of_source">Nenhuma viagem aqui corresponde a este filtro.</string>
+    <string name="discarded_none_of_source">Nenhum item corresponde a este filtro.</string>
     <plurals name="discarded_excluded">
         <item quantity="one">%d excluído</item>
         <item quantity="many">%d excluídos</item>
@@ -31,9 +31,9 @@
       singular, so this form has to answer for both and cannot spell the quantity out in words.
     -->
     <plurals name="discarded_clear_confirm_body">
-        <item quantity="one">%d viagem será eliminada definitivamente. Não é possível anular.</item>
-        <item quantity="many">Todas as %d viagens serão eliminadas definitivamente. Não é possível anular.</item>
-        <item quantity="other">Todas as %d viagens serão eliminadas definitivamente. Não é possível anular.</item>
+        <item quantity="one">Remover definitivamente %d itens dos eliminados recentemente? Os trajetos serão apagados e as paragens eliminadas continuarão ocultas. Esta ação não pode ser anulada.</item>
+        <item quantity="many">Remover definitivamente %d itens dos eliminados recentemente? Os trajetos serão apagados e as paragens eliminadas continuarão ocultas. Esta ação não pode ser anulada.</item>
+        <item quantity="other">Remover definitivamente %d itens dos eliminados recentemente? Os trajetos serão apagados e as paragens eliminadas continuarão ocultas. Esta ação não pode ser anulada.</item>
     </plurals>
     <string name="discarded_delete_all">Eliminar tudo</string>
 
@@ -47,4 +47,6 @@
         <item quantity="other">faltam %d dias</item>
     </plurals>
     <string name="discarded_removal_due">eliminação pendente</string>
+    <string name="discarded_stop">Paragem eliminada</string>
+    <string name="discarded_restore_stop">Restaurar paragem</string>
 </resources>

@@ -24,6 +24,7 @@ async function importFile(file) {
   let fields = null;
   let header = null;
   let places = [];
+  let deletedStays = [];
   let tracksDone = 0;
   let pointsTotal = 0;
   let trackBatch = [];
@@ -63,6 +64,7 @@ async function importFile(file) {
       if (trackBatch.length >= BATCH) flushBatch();
     },
     onPlaces: (p) => { places = p; },
+    onDeletedStays: (p) => { deletedStays = p; },
   });
 
   const stream = file.stream()
@@ -83,6 +85,7 @@ async function importFile(file) {
     trackCount: tracksDone,
     pointCount: pointsTotal,
     places,
+    deletedStays,
   });
   return { tracks: tracksDone, points: pointsTotal, places: places.length };
 }

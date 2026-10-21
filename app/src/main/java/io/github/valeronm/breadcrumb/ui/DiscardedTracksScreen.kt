@@ -13,10 +13,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -44,6 +46,7 @@ import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DiscardReason
+import io.github.valeronm.breadcrumb.domain.StaySuppress
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -82,27 +85,32 @@ internal fun DiscardedTracksScreen(
     onOpenTrack: (Long) -> Unit,
 ) {
     val tracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
+    val stays by viewModel.deletedStays.collectAsStateWithLifecycle()
+    val count = tracks.size + stays.size
     val nowMs = remember { System.currentTimeMillis() }
-    var showClearDialog by remember { mutableStateOf(false) }
+    var clearThrough by remember { mutableStateOf<Long?>(null) }
     var filter by rememberSaveable { mutableStateOf(DiscardFilter.ALL) }
     val shown = remember(tracks, filter) { tracks.filter(filter::holds) }
+    val shownStays = if (filter == DiscardFilter.AUTOMATIC) emptyList() else stays
     Scaffold(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
                 title = {
                     Text(
-                        if (shown.isEmpty()) {
+                        if (shown.isEmpty() && shownStays.isEmpty()) {
                             stringResource(R.string.discarded_title)
                         } else {
-                            stringResource(R.string.discarded_title_count, shown.size)
+                            stringResource(R.string.discarded_title_count, shown.size + shownStays.size)
                         },
                     )
                 },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
-                    if (tracks.isNotEmpty()) {
-                        IconButton(onClick = { showClearDialog = true }) {
+                    if (count > 0) {
+                        IconButton(onClick = {
+                            clearThrough = (tracks.map { it.discardedAt } + stays.map { it.deleted.deletedAt }).maxOrNull()
+                        }) {
                             Icon(
                                 Icons.Filled.DeleteForever,
                                 contentDescription = stringResource(R.string.discarded_clear_all),
@@ -113,7 +121,7 @@ internal fun DiscardedTracksScreen(
             )
         },
     ) { inner ->
-        if (tracks.isEmpty()) {
+        if (count == 0) {
             EmptyState(
                 pluralStringResource(R.plurals.discarded_empty, DISCARDED_RETENTION_DAYS, DISCARDED_RETENTION_DAYS),
                 Modifier.padding(inner).fillMaxSize().padding(horizontal = 24.dp),
@@ -134,7 +142,7 @@ internal fun DiscardedTracksScreen(
                         ) { filter = option }
                     }
                 }
-                if (shown.isEmpty()) {
+                if (shown.isEmpty() && shownStays.isEmpty()) {
                     // The chip emptied the list, not the retention purge.
                     EmptyState(
                         stringResource(R.string.discarded_none_of_source),
@@ -143,6 +151,8 @@ internal fun DiscardedTracksScreen(
                 } else {
                     DiscardedList(
                         rows = shown,
+                        stays = shownStays,
+                        onRestoreStay = viewModel::restoreStay,
                         nowMs = nowMs,
                         onOpenTrack = onOpenTrack,
                         onRestore = viewModel::restoreTrack,
@@ -152,21 +162,21 @@ internal fun DiscardedTracksScreen(
         }
     }
 
-    if (showClearDialog) {
+    if (clearThrough != null) {
         ConfirmDialog(
             icon = Icons.Filled.DeleteForever,
             title = stringResource(R.string.discarded_clear_confirm_title),
             text = pluralStringResource(
                 R.plurals.discarded_clear_confirm_body,
-                tracks.size,
-                tracks.size,
+                count,
+                count,
             ),
             confirmLabel = stringResource(R.string.discarded_delete_all),
             onConfirm = {
-                tracks.maxOfOrNull { it.discardedAt }?.let(viewModel::purgeDiscarded)
-                showClearDialog = false
+                clearThrough?.let(viewModel::purgeDiscarded)
+                clearThrough = null
             },
-            onDismiss = { showClearDialog = false },
+            onDismiss = { clearThrough = null },
         )
     }
 }
@@ -174,6 +184,8 @@ internal fun DiscardedTracksScreen(
 @Composable
 private fun DiscardedList(
     rows: List<DiscardedSummary>,
+    stays: List<TrackListViewModel.DeletedStay>,
+    onRestoreStay: (StaySuppress.Deleted) -> Unit,
     nowMs: Long,
     onOpenTrack: (Long) -> Unit,
     onRestore: (Long) -> Unit,
@@ -181,7 +193,9 @@ private fun DiscardedList(
     val zone = timelineZone()
     // Dates partition here where the timeline's can repeat, every row being read on one clock.
     // Rows arrive newest first, and groupBy keeps that order.
-    val days = remember(rows, zone) { rows.groupBy { it.track.startedAt.toLocalDate(zone) } }
+    val tripsByDay = remember(rows, zone) { rows.groupBy { it.track.startedAt.toLocalDate(zone) } }
+    val staysByDay = remember(stays, zone) { stays.groupBy { it.item.stay.start.toLocalDate(zone) } }
+    val days = (tripsByDay.keys + staysByDay.keys).sortedDescending()
     val today = remember(zone) { LocalDate.now(zone) }
     val todayText = stringResource(R.string.relative_today).standaloneCase()
     val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
@@ -194,13 +208,31 @@ private fun DiscardedList(
                 modifier = Modifier.padding(vertical = 12.dp),
             )
         }
-        days.forEach { (date, dayRows) ->
+        days.forEach { date ->
+            val dayRows = tripsByDay[date].orEmpty()
             stickyHeading(key = "header:$date") {
                 Text(
                     dayLabel(date, today, todayText, yesterdayText),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
+            }
+            items(staysByDay[date].orEmpty(), key = { "stay:${it.deleted.plan}" }) { row ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Place, contentDescription = null, modifier = Modifier.width(40.dp))
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(row.item.place?.name ?: stringResource(R.string.discarded_stop))
+                        Text(
+                            timeText(row.item.stay.start, row.item.zone ?: zone) + " · " +
+                                durationText(row.item.stay.start, row.item.stay.end),
+                        )
+                        Text(purgeCountdown(row.deleted.deletedAt, nowMs), style = MaterialTheme.typography.bodySmall)
+                    }
+                    IconButton(onClick = { onRestoreStay(row.deleted) }) {
+                        Icon(Icons.Filled.RestoreFromTrash, contentDescription = stringResource(R.string.discarded_restore_stop))
+                    }
+                }
             }
             itemsIndexed(dayRows, key = { _, row -> row.track.id }) { index, row ->
                 DiscardedRow(

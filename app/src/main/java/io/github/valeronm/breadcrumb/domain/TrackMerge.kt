@@ -12,16 +12,17 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
  */
 object TrackMerge {
 
-    /** An interval this short (or shorter) between same-activity tracks is a candidate for merging. */
-    const val MAX_INTERVAL_MS = 5 * 60_000L
+    /** A gap this long (or longer) between same-activity tracks is too real to merge across. Stays
+     *  have no duration ceiling — a long stop between two walks still closes by merging them. */
+    const val MAX_GAP_MS = 5 * 60_000L
 
     /** Merge the two tracks bracketing the interval into a new track; [earlierId] precedes [laterId]. */
     data class Plan(val earlierId: Long, val laterId: Long)
 
     /**
      * A plan to merge across the interval between [before] (ends into it) and [after] (starts out
-     * of it), or null if the interval is too long, still ongoing, or the tracks aren't the same
-     * activity or from the same writer. Refusing across writers is what keeps [TrackSummary.source]
+     * of it), or null if the interval is still ongoing, the tracks aren't the same activity or from
+     * the same writer, or a [StayDeriver.Gap] outlasts [MAX_GAP_MS]. Refusing across writers is what keeps [TrackSummary.source]
      * true of every row: a merge fuses two tracks' fixes into one, so a recorded track joined to an
      * imported one would leave a row no single source describes — and no "mixed" code could rescue
      * it, since a split of that row would stamp both halves mixed and the rule that fills rows
@@ -34,10 +35,11 @@ object TrackMerge {
     fun plan(
         before: TrackSummary,
         after: TrackSummary,
-        intervalStart: Long,
-        intervalEnd: Long?,
+        interval: StayDeriver.Interval,
     ): Plan? {
-        if (intervalEnd == null || intervalEnd - intervalStart > MAX_INTERVAL_MS) return null
+        val intervalEnd = interval.end
+        if (intervalEnd == null) return null
+        if (interval is StayDeriver.Gap && intervalEnd - interval.start > MAX_GAP_MS) return null
         if (before.activityType != after.activityType) return null
         if (before.source != after.source) return null
         return Plan(earlierId = before.id, laterId = after.id)
@@ -62,7 +64,7 @@ object TrackMerge {
         for (interval in intervals) {
             val anchor = interval.afterTrackId
             val n = neighbors[anchor] ?: continue
-            plan(n.before, n.after, interval.start, interval.end)?.let { put(anchor, it) }
+            plan(n.before, n.after, interval)?.let { put(anchor, it) }
         }
     }
 

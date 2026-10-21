@@ -90,8 +90,8 @@ internal fun PlacesTab(
     val context = LocalContext.current
     val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
     val places = derivedPlaces.orEmpty()
-    // For the map's orange dots: stays the Timeline offers to merge away (TrackMerge's rules —
-    // short, finished, same activity on both sides). A place that is only such an artifact is
+    // For the map's orange dots: stays the Timeline offers to merge away ([TrackMerge]'s rules —
+    // finished, same activity and writer on both sides). A place that is only such an artifact is
     // marked rather than re-deciding eligibility here. Named places are exempt at the dot, not
     // here: the merge rule doesn't spare them, but a label still says the place is meant.
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
@@ -139,8 +139,8 @@ internal fun PlacesTab(
     }
     // Derived here rather than in the map view, which is disposed on switching away — there, this
     // history-wide walk would re-run on every return to the map. Stay identity (afterTrackId +
-    // start) survives the timeline's per-day slicing — a mergeable stay is short, so its first
-    // slice is the whole stay.
+    // start) survives the timeline's per-day slicing; merge plans are judged on the whole stay, so
+    // every slice shares the same offer keyed by that pair.
     val mergeableStays = remember(timeline) {
         timeline.orEmpty().filterIsInstance<TimelineItem.StayItem>()
             .filter { it.merge != null }

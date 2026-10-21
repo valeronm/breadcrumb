@@ -54,7 +54,9 @@
     <string name="timeline_share_day">Share %1$s tracks</string>
     <string name="timeline_scroll_to_day">Scroll to a day</string>
     <string name="timeline_merge">Merge trips</string>
+    <string name="timeline_dissolve_stop">Remove stop</string>
     <string name="timeline_undo_merged">Trips merged</string>
+    <string name="timeline_undo_dissolved">Stop removed</string>
     <string name="timeline_undo_deleted">Trip deleted</string>
 
     <!--

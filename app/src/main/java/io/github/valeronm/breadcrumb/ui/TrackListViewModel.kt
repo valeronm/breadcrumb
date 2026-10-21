@@ -31,6 +31,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.StaySuppress
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TimelineRows
 import io.github.valeronm.breadcrumb.domain.TrackMerge
@@ -115,7 +116,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * cluster to a place by position (`seedIndex`), so after a place is deleted a later list
      * resolves every cluster after it to its neighbor.
      */
-    private class Derived(
+    private data class Derived(
         val derivation: StayDeriver.Derivation,
         val places: List<Place>,
         val now: Long,
@@ -203,7 +204,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * **The armed flag only triggers a re-read**: the trailing stay closes at the disarm time read
      * from Settings, which `handleStart` and `handleStop` write before they flip [TrackingStatus].
      */
-    private val derived: Flow<Derived> = combine(
+    private val rawDerived: Flow<Derived> = combine(
         derivationStore.observeStored(),
         TrackingStatus.state
             .map { it.tracking to it.openTrack?.startedAt }
@@ -268,57 +269,86 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     val pendingPlaceRow: StateFlow<PendingPlace?> = pendingPlace
 
+    private val suppressedStays = Settings.observeSuppressedStays(getApplication())
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    private val derived = combine(rawDerived, suppressedStays) { d, deleted ->
+        val successors = d.tracks.zipWithNext().associate { (a, b) -> a.trackId to b.trackId }
+        d.copy(
+            derivation = d.derivation.copy(
+                intervals = StaySuppress.visibleIntervals(
+                    d.derivation.intervals, successors, deleted.mapTo(HashSet()) { it.plan },
+                ),
+            ),
+        )
+    }.flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    internal data class DeletedStay(val item: TimelineItem.StayItem, val deleted: StaySuppress.Deleted)
+
+    internal val deletedStays = combine(rawDerived, suppressedStays) { d, entries ->
+        val deleted = entries.filter { it.recoverable(System.currentTimeMillis()) }.associateBy { it.plan }
+        val successors = d.tracks.zipWithNext().associate { (a, b) -> a.trackId to b.trackId }
+        val places = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
+        d.stays.asReversed().mapNotNull { stay ->
+            val next = successors[stay.afterTrackId] ?: return@mapNotNull null
+            val entry = deleted[StaySuppress.Plan(stay.afterTrackId, next)] ?: return@mapNotNull null
+            DeletedStay(TimelineItem.StayItem(stay, places.getOrNull(stay.clusterId), zone = d.zoneOfCluster(stay.clusterId)), entry)
+        }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /**
      * Shared, so a change to [pendingPlace] costs a map over these rows rather than a walk of the
      * history.
      */
-    private val resolvedTimeline: Flow<List<TimelineItem>> = combine(trackRows, derived) { summaries, d ->
-        // Over the unsliced stays: after slicePerDay a three-day stay counts as three visits.
-        // Slicing keeps cluster ids, so the sliced items look these up directly.
-        val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
-        // observeSummaries returns newest first, so a reversed view is chronological without a
-        // sort.
-        val neighbors = summaries.asReversed().zipWithNext()
-            .associate { (a, b) -> a.id to TrackMerge.Neighbors(a, b) }
-
-        // Decided over the intervals: the rows below are per-day slices, bounded by the display.
-        val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
-        // A gap carries a clock per end, so the slicer cuts a crossing into the day it left and the
-        // day it landed.
-        val zoneOfCluster = { id: Int? -> d.zoneOfCluster(id) }
-        val zonesOfInterval = { interval: StayDeriver.Interval ->
-            when (interval) {
-                is StayDeriver.Stay -> Clocks.both(zoneOfCluster(interval.clusterId))
-                is StayDeriver.Gap ->
-                    Clocks(zoneOfCluster(interval.fromClusterId), zoneOfCluster(interval.toClusterId))
-            }
-        }
-        TimelineRows.interleave(
-            summaries,
-            TimelineRows.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
-        ).mapNotNull { item ->
-            when (item) {
-                is TimelineItem.TrackItem -> d.zonesOfTrack(item.summary.id).let {
-                    item.copy(zone = it.start, endZone = it.end)
+    private val resolvedTimeline: Flow<List<TimelineItem>> =
+        combine(trackRows, derived) { summaries, d ->
+            // Over the unsliced stays: after slicePerDay a three-day stay counts as three visits.
+            // Slicing keeps cluster ids, so the sliced items look these up directly.
+            val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
+            // observeSummaries returns newest first, so a reversed view is chronological without a
+            // sort.
+            // Decided over the intervals: the rows below are per-day slices, bounded by the display.
+            val mergePlans = mergePlansByAnchor(summaries, d)
+            val dissolvePlans = dissolvePlansByAnchor(summaries, d, mergePlans)
+            val visibleIntervals = d.derivation.intervals
+            // A gap carries a clock per end, so the slicer cuts a crossing into the day it left and the
+            // day it landed.
+            val zoneOfCluster = { id: Int? -> d.zoneOfCluster(id) }
+            val zonesOfInterval = { interval: StayDeriver.Interval ->
+                when (interval) {
+                    is StayDeriver.Stay -> Clocks.both(zoneOfCluster(interval.clusterId))
+                    is StayDeriver.Gap ->
+                        Clocks(zoneOfCluster(interval.fromClusterId), zoneOfCluster(interval.toClusterId))
                 }
-                is TimelineItem.RecordingItem -> item
-                // The slice already carries the zones.
-                is TimelineItem.GapItem -> item.copy(
-                    fromPlace = item.gap.fromClusterId?.let(clusterPlaces::getOrNull),
-                    toPlace = item.gap.toClusterId?.let(clusterPlaces::getOrNull),
-                    merge = mergePlans[item.gap.afterTrackId],
-                )
-                // Filtered after `merge` is attached, since [TimelineItem.StayItem.isBareSeam]
-                // reads it.
-                is TimelineItem.StayItem -> item.copy(
-                    place = clusterPlaces.getOrNull(item.stay.clusterId),
-                    merge = mergePlans[item.stay.afterTrackId],
-                ).takeUnless { it.isBareSeam }
             }
-        }
-    }.flowOn(Dispatchers.Default)
-        // No stop timeout: the downstream stateIns keep five seconds, and one here would add to it.
-        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
+            TimelineRows.interleave(
+                summaries,
+                TimelineRows.slicePerDay(visibleIntervals, zonesOfInterval, d.now),
+            ).mapNotNull { item ->
+                when (item) {
+                    is TimelineItem.TrackItem -> d.zonesOfTrack(item.summary.id).let {
+                        item.copy(zone = it.start, endZone = it.end)
+                    }
+                    is TimelineItem.RecordingItem -> item
+                    // The slice already carries the zones.
+                    is TimelineItem.GapItem -> item.copy(
+                        fromPlace = item.gap.fromClusterId?.let(clusterPlaces::getOrNull),
+                        toPlace = item.gap.toClusterId?.let(clusterPlaces::getOrNull),
+                        merge = mergePlans[item.gap.afterTrackId],
+                    )
+                    // Filtered after `merge` is attached, since [TimelineItem.StayItem.isBareSeam]
+                    // reads it.
+                    is TimelineItem.StayItem -> item.copy(
+                        place = clusterPlaces.getOrNull(item.stay.clusterId),
+                        merge = mergePlans[item.stay.afterTrackId],
+                        dissolve = dissolvePlans[item.stay.afterTrackId],
+                    ).takeUnless { it.isBareSeam }
+                }
+            }
+        }.flowOn(Dispatchers.Default)
+            // No stop timeout: the downstream stateIns keep five seconds, and one here would add to it.
+            .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
     val recordingRow: StateFlow<TimelineItem.RecordingItem?> = TrackingStatus.state
         .map { it.openTrack }
@@ -402,10 +432,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         return lastMonths
     }
 
-    private val placeSummaries: Flow<List<PlaceResolver.PlaceSummary>> = derived.map { d ->
-        PlaceResolver.summarize(d.derivation, d.places, d.now, d.cities)
-    }.flowOn(Dispatchers.Default)
-        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
+    private val placeSummaries: Flow<List<PlaceResolver.PlaceSummary>> =
+        derived.map { d -> PlaceResolver.summarize(d.derivation, d.places, d.now, d.cities) }.flowOn(Dispatchers.Default)
+            .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
     /**
      * Every cluster's summary, including clusters with no visits, which a gap's ends still open a
@@ -591,6 +620,40 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private fun mergePlansByAnchor(summaries: List<TrackSummary>, d: Derived): Map<Long, TrackMerge.Plan> {
+        val neighbors = trackNeighbors(summaries)
+        return TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
+    }
+
+    private fun dissolvePlansByAnchor(
+        summaries: List<TrackSummary>,
+        d: Derived,
+        mergePlans: Map<Long, TrackMerge.Plan>,
+    ): Map<Long, StaySuppress.Plan> {
+        val neighbors = trackNeighbors(summaries)
+        return StaySuppress.plansByAnchor(d.derivation.intervals, neighbors, mergePlans)
+    }
+
+    private fun trackNeighbors(summaries: List<TrackSummary>): Map<Long, TrackMerge.Neighbors> =
+        summaries.asReversed().zipWithNext()
+            .associate { (a, b) -> a.id to TrackMerge.Neighbors(a, b) }
+
+    fun dissolveStay(plan: StaySuppress.Plan, onDeleted: (StaySuppress.Deleted) -> Unit) {
+        if (importExport.refuseIfBusy()) return
+        viewModelScope.launch {
+            val d = rawDerived.first()
+            val pairExists = d.tracks.zipWithNext().any { (a, b) -> a.trackId == plan.afterTrackId && b.trackId == plan.laterTrackId }
+            if (!pairExists || d.stays.none { it.afterTrackId == plan.afterTrackId && it.end != null }) return@launch
+            val deleted = StaySuppress.Deleted(plan, System.currentTimeMillis())
+            Settings.suppressStay(getApplication(), plan, deleted.deletedAt)
+            onDeleted(deleted)
+        }
+    }
+
+    fun restoreStay(deleted: StaySuppress.Deleted) {
+        Settings.unsuppressStay(getApplication(), deleted)
+    }
+
     /** What [splitTrack] at [atTs] would leave, for its confirmation to show; [points] are the
      *  track's, good and ignored, as the screen already holds them. */
     suspend fun previewSplit(trackId: Long, atTs: Long, points: List<TrackPoint>): TrackRepository.SplitPreview? =
@@ -633,7 +696,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun purgeDiscarded(through: Long) {
-        viewModelScope.launch { repository.purgeDiscarded(through) }
+        viewModelScope.launch {
+            repository.purgeDiscarded(through)
+            Settings.clearStayBin(getApplication(), through)
+        }
     }
 
     fun setTrackActivity(trackId: Long, activityType: ActivityType) {

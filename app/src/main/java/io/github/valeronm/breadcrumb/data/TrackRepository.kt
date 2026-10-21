@@ -66,6 +66,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     private val appContext = context.applicationContext
     private val dao = db.trackDao()
 
+    internal suspend fun <T> backupTransaction(block: suspend () -> T): T = db.withTransaction { block() }
+
     // What every writer of a track's points owes its row — see [TrackSettler]; the writers below
     // decide only whether they owe the derivation a repair as well.
     private val settler = TrackSettler(dao)
@@ -336,8 +338,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * thousands. No keep thresholds and no duplicate check: a restore targets an empty app (the UI
      * only offers it there), and the Google Timeline import decides both before it calls this.
      */
-    suspend fun insertBackupTracks(batch: List<Pair<Track, List<TrackPoint>>>) {
+    suspend fun insertBackupTracks(batch: List<Pair<Track, List<TrackPoint>>>): Map<Long, Long> =
         db.withTransaction {
+            val ids = mutableMapOf<Long, Long>()
             for ((track, points) in batch) {
                 // Which fixes are the recorder's overrun, and where the clock sits over what
                 // remains, are this code's verdicts rather than properties of the track — the rules
@@ -360,9 +363,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 // trust the file where nothing had moved, which the export's rounding made false.
                 settler.refreshStats(id, settled.points)
                 dao.insertPoints(settled.points.map { it.copy(id = 0, trackId = id) })
+                if (track.id > 0) ids[track.id] = id
             }
+            ids
         }
-    }
 
     /**
      * Reassign a finished track's activity (misdetected, or an imported GPX without a type). The
@@ -559,7 +563,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     fun observeAnyRows(): Flow<Boolean> = dao.observeAnyRows()
 
-    suspend fun clearHistory() = withContext(Dispatchers.IO) { db.clearHistory() }
+    suspend fun clearHistory() = withContext(Dispatchers.IO) {
+        db.clearHistory()
+        Settings.clearSuppressedStays(appContext)
+    }
 
     /** Hard-delete what sits in Recently deleted, up to and including the row discarded at
      *  [through] — the bound the caller measured, rows being discarded while it decides. */
@@ -854,6 +861,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     /** Finished, kept tracks oldest-first — the backup export's track set. */
     suspend fun exportTracks(): List<Track> = dao.exportTracks()
+
+    internal fun importHiddenStays(plans: List<io.github.valeronm.breadcrumb.domain.StaySuppress.Plan>) {
+        Settings.importHiddenStays(appContext, plans)
+    }
 
     /**
      * A track's path: the good fixes, with any segment break stranded on an ignored one carried

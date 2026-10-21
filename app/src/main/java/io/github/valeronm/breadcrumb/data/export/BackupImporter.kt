@@ -8,6 +8,7 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
+import io.github.valeronm.breadcrumb.domain.StaySuppress
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import java.io.Reader
 import java.util.zip.GZIPInputStream
@@ -55,18 +56,20 @@ object BackupImporter {
         reader: Reader,
         repositories: BackupRepositories,
         onProgress: (tracksDone: Int, tracksTotal: Int?) -> Unit = { _, _ -> },
-    ): Summary {
+    ): Summary = repositories.tracks.backupTransaction {
         var tracks = 0
         var points = 0
         var places = 0
         var total: Int? = null
         val placeIds = HashMap<Long, Long>()
+        val trackIds = HashMap<Long, Long>()
+        var hidden = emptyList<StaySuppress.Plan>()
         fun restoredPlace(fileId: Long) =
             requireNotNull(placeIds[fileId]) { "a track names place $fileId, which the file does not hold before it" }
         val batch = mutableListOf<Pair<Track, List<TrackPoint>>>()
         suspend fun flush() {
             if (batch.isEmpty()) return
-            repositories.tracks.insertBackupTracks(batch)
+            trackIds.putAll(repositories.tracks.insertBackupTracks(batch))
             tracks += batch.size
             points += batch.sumOf { it.second.size }
             batch.clear()
@@ -90,13 +93,22 @@ object BackupImporter {
                 read.zip(ids) { restored, id -> placeIds[restored.place.id] = id }
                 places = read.size
             },
+            onDeletedStays = { hidden = it },
         )
         flush()
         // Once, at the end: the restored places become the seeds, and the derivation over every
         // track the file carried is one pass rather than a repair per batch — the tracks arrive in
         // the file's order, which a repair around one of them has no way to assume anything about.
         repositories.derivation.reconcile(stale = true)
-        return Summary(tracks, points, places)
+        repositories.tracks.importHiddenStays(
+            hidden.map { plan ->
+                StaySuppress.Plan(
+                    requireNotNull(trackIds[plan.afterTrackId]) { "hidden stay names a missing track" },
+                    requireNotNull(trackIds[plan.laterTrackId]) { "hidden stay names a missing track" },
+                )
+            },
+        )
+        Summary(tracks, points, places)
     }
 
     /**
@@ -109,6 +121,7 @@ object BackupImporter {
         reader: Reader,
         onTrack: suspend (Track, List<TrackPoint>, tracksTotal: Int?) -> Unit,
         onPlaces: suspend (List<RestoredPlace>) -> Unit,
+        onDeletedStays: suspend (List<StaySuppress.Plan>) -> Unit = {},
     ) {
         val json = JsonPullReader(reader)
         var formatSeen = false
@@ -145,6 +158,13 @@ object BackupImporter {
                     }
                     json.endArray()
                 }
+                "deletedStays" -> {
+                    val plans = mutableListOf<StaySuppress.Plan>()
+                    json.beginArray()
+                    while (json.hasNext()) plans += readHiddenStay(json)
+                    json.endArray()
+                    onDeletedStays(plans)
+                }
                 "places" -> {
                     val places = mutableListOf<RestoredPlace>()
                     json.beginArray()
@@ -158,6 +178,21 @@ object BackupImporter {
         json.endObject()
         json.expectEnd()
         require(formatSeen) { "not a Breadcrumb export" }
+    }
+
+    private fun readHiddenStay(json: JsonPullReader): StaySuppress.Plan {
+        var before: Long? = null
+        var after: Long? = null
+        json.beginObject()
+        while (json.hasNext()) {
+            when (json.nextName()) {
+                "beforeTrackId" -> before = json.nextNumber().toLong()
+                "afterTrackId" -> after = json.nextNumber().toLong()
+                else -> json.skipValue()
+            }
+        }
+        json.endObject()
+        return StaySuppress.Plan(requireNotNull(before), requireNotNull(after))
     }
 
     /** The file's `pointFields` header resolved to positions once — not a map lookup per point. */

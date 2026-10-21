@@ -397,7 +397,6 @@ private fun MainScreen(
         mergingPlaces = false
         placeDetailKey = PlaceResolver.keyOf(keep.id)
     }
-
     // A map covered by another layer keeps its shade until it is uncovered, rather than rebuilding
     // unseen.
     val mapShade = LocalMapShade.current

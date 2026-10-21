@@ -14,12 +14,15 @@ import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
+import io.github.valeronm.breadcrumb.domain.StaySuppress
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -48,6 +51,7 @@ class BackupRestoreTest {
     @After fun tearDown() {
         source.close()
         target.close()
+        Settings.clearSuppressedStays(context)
     }
 
     /**
@@ -90,6 +94,35 @@ class BackupRestoreTest {
                 derivation = DerivationStore(context, target.db),
             ),
         )
+    }
+
+    @Test fun `v2 restores hidden pairs under new ids without copying the local bin`() = runTest {
+        val before = source.walk(TEST_START, 0, 5)
+        val after = source.walk(TEST_START + 3_600_000L, 5, 10)
+        val plan = StaySuppress.Plan(before, after)
+        Settings.suppressStay(context, plan, System.currentTimeMillis())
+        val json = java.io.StringWriter()
+        BackupExporter.writeJson(
+            json, TEST_START,
+            BackupExporter.Content(
+                source.repository.exportTracks(), source.repository::pointsForTracks, emptyList(), deletedStays = listOf(plan),
+            ),
+        )
+        assertTrue(json.toString().contains("\"version\":2"))
+        assertFalse(json.toString().contains("deletedAt"))
+        target.walk(TEST_START - 100_000, 0, 5)
+        target.repository.clearHistory() // A fresh target, with IDs already used up.
+        BackupImporter.restore(
+            java.io.StringReader(json.toString()),
+            BackupRepositories(
+                target.repository, PlaceRepository(context, target.db), DerivationStore(context, target.db),
+            ),
+        )
+        val restored = target.repository.exportTracks()
+        val hidden = Settings.suppressedStays(context).single()
+        assertEquals(StaySuppress.Plan(restored[0].id, restored[1].id), hidden.plan)
+        assertFalse(hidden.recoverable(System.currentTimeMillis()))
+        assertNotEquals(plan, hidden.plan)
     }
 
     @Test fun `a restored database matches the exported one, ids aside`() = runTest {

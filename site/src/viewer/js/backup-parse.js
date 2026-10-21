@@ -200,6 +200,7 @@ export class BackupParser {
 
   takeValue(key, value) {
     if (key === "places") this.cb.onPlaces?.(value);
+    else if (key === "deletedStays") this.cb.onDeletedStays?.(value);
     // "liveness": retired from the format; an older file's array is parsed and dropped rather
     // than kept in the header, where it would bloat the stored meta for nothing that reads it.
     else if (key === "liveness") { /* skip */ }

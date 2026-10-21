@@ -5,12 +5,12 @@
     <string name="discarded_title_count">Recently deleted (%1$d)</string>
     <string name="discarded_clear_all">Clear all</string>
     <plurals name="discarded_empty">
-        <item quantity="one">No deleted trips. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d day.</item>
-        <item quantity="other">No deleted trips. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d days.</item>
+        <item quantity="one">No deleted trips or stops. Items can be restored here for %1$d day.</item>
+        <item quantity="other">No deleted trips or stops. Items can be restored here for %1$d days.</item>
     </plurals>
     <plurals name="discarded_retention">
-        <item quantity="one">Trips stay here for %1$d day, then are deleted forever</item>
-        <item quantity="other">Trips stay here for %1$d days, then are deleted forever</item>
+        <item quantity="one">Items can be restored for %1$d day. After that, trips are permanently erased and deleted stops remain hidden.</item>
+        <item quantity="other">Items can be restored for %1$d days. After that, trips are permanently erased and deleted stops remain hidden.</item>
     </plurals>
     <string name="discarded_restore">Restore trip</string>
     <string name="discarded_restore_overlaps">Not restored: it overlaps a trip on the timeline</string>
@@ -20,7 +20,7 @@
     <string name="discarded_filter_all">All</string>
     <string name="discarded_filter_you">By you</string>
     <string name="discarded_filter_automatic">Automatic</string>
-    <string name="discarded_none_of_source">No trips here match this filter.</string>
+    <string name="discarded_none_of_source">No items here match this filter.</string>
     <!--
       "excluded", not "noisy": the count covers both species — bad fixes and the recorder's overrun
       at the edges — and what they have in common is being left out of the path.
@@ -31,8 +31,8 @@
     </plurals>
     <string name="discarded_clear_confirm_title">Clear Recently deleted?</string>
     <plurals name="discarded_clear_confirm_body">
-        <item quantity="one">The one trip will be permanently deleted. This can\'t be undone.</item>
-        <item quantity="other">All %d trips will be permanently deleted. This can\'t be undone.</item>
+        <item quantity="one">Permanently remove %d items from Recently deleted? Trips will be erased and deleted stops will remain hidden. This cannot be undone.</item>
+        <item quantity="other">Permanently remove %d items from Recently deleted? Trips will be erased and deleted stops will remain hidden. This cannot be undone.</item>
     </plurals>
     <string name="discarded_delete_all">Delete all</string>
 
@@ -46,4 +46,6 @@
         <item quantity="other">%d days left</item>
     </plurals>
     <string name="discarded_removal_due">deletion due</string>
+    <string name="discarded_stop">Deleted stop</string>
+    <string name="discarded_restore_stop">Restore stop</string>
 </resources>

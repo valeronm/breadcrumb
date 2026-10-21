@@ -3,6 +3,9 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import io.github.valeronm.breadcrumb.domain.StaySuppress
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.callbackFlow
 
 /** Tiny SharedPreferences-backed store for the app's persisted settings. */
 object Settings {
@@ -44,6 +47,7 @@ object Settings {
     private const val KEY_DEPARTURE_CONTINUOUS = "departure_continuous"
     private const val KEY_DEPARTURE_WIFI = "departure_wifi"
     private const val KEY_ASKED_PERMISSIONS = "asked_permissions"
+    private const val KEY_SUPPRESSED_STAYS = "suppressed_stay_keys"
 
     // The key string doesn't match the constant's name and must stay that way: a renamed key reads
     // back 0 on every installed device and re-walks the whole history for nothing.
@@ -143,6 +147,61 @@ object Settings {
         // mutating it leaves the stored value and the in-memory cache disagreeing.
         val merged = askedPermissions(context) + permissions
         prefs(context).edit { putStringSet(KEY_ASKED_PERMISSIONS, merged) }
+    }
+
+    /** Compact local state: before-track ID, later-track ID, deletion date (0 = no recovery). */
+    fun suppressedStays(context: Context): List<StaySuppress.Deleted> =
+        prefs(context).getStringSet(KEY_SUPPRESSED_STAYS, emptySet()).orEmpty().mapNotNull { encoded ->
+            val parts = encoded.split(':').map { it.toLongOrNull() }
+            if (parts.size != 3 || parts.any { it == null }) return@mapNotNull null
+            StaySuppress.Deleted(StaySuppress.Plan(parts[0]!!, parts[1]!!), parts[2]!!)
+        }
+
+    fun observeSuppressedStays(context: Context) = callbackFlow {
+        val preferences = prefs(context)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_SUPPRESSED_STAYS) trySend(suppressedStays(context))
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        trySend(suppressedStays(context))
+        awaitClose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    @Synchronized
+    fun suppressStay(context: Context, plan: StaySuppress.Plan, deletedAt: Long = System.currentTimeMillis()) {
+        writeSuppressedStays(context, suppressedStays(context).filterNot { it.plan == plan } + StaySuppress.Deleted(plan, deletedAt))
+    }
+
+    @Synchronized
+    fun unsuppressStay(context: Context, deleted: StaySuppress.Deleted, now: Long = System.currentTimeMillis()) {
+        if (deleted.recoverable(now)) writeSuppressedStays(context, suppressedStays(context) - deleted)
+    }
+
+    @Synchronized
+    fun clearStayBin(context: Context, through: Long) {
+        writeSuppressedStays(
+            context,
+            suppressedStays(context).map {
+                if (it.deletedAt <= through) it.copy(deletedAt = 0) else it
+            },
+        )
+    }
+
+    @Synchronized
+    internal fun importHiddenStays(context: Context, plans: List<StaySuppress.Plan>) {
+        val hidden = plans.toSet()
+        writeSuppressedStays(
+            context,
+            suppressedStays(context).filterNot { it.plan in hidden } +
+                hidden.map { StaySuppress.Deleted(it, 0) },
+        )
+    }
+
+    internal fun clearSuppressedStays(context: Context) = writeSuppressedStays(context, emptyList())
+
+    private fun writeSuppressedStays(context: Context, rows: List<StaySuppress.Deleted>) {
+        val encoded = rows.mapTo(HashSet()) { "${it.plan.afterTrackId}:${it.plan.laterTrackId}:${it.deletedAt}" }
+        prefs(context).edit { putStringSet(KEY_SUPPRESSED_STAYS, encoded) }
     }
 
     /** Whether the user has armed automatic, activity-driven recording. */

@@ -2,11 +2,13 @@ package io.github.valeronm.breadcrumb.data.export
 
 import android.content.Context
 import android.net.Uri
+import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.StaySuppress
 import io.github.valeronm.breadcrumb.util.DebugLog
 import java.io.BufferedOutputStream
 import java.io.OutputStream
@@ -97,6 +99,7 @@ object BackupExporter {
         val pointsFor: suspend (List<Long>) -> Map<Long, List<TrackPoint>>,
         val places: List<Place>,
         val identities: List<PlaceIdentity> = emptyList(),
+        val deletedStays: List<StaySuppress.Plan> = emptyList(),
     )
 
     /**
@@ -111,6 +114,10 @@ object BackupExporter {
         onProgress: (tracksDone: Int, tracksTotal: Int) -> Unit,
     ): Int? {
         val tracks = repositories.tracks.exportTracks()
+        val kept = tracks.mapTo(HashSet()) { it.id }
+        val deletedStays = Settings.suppressedStays(context).map { it.plan }.filter {
+            it.afterTrackId in kept && it.laterTrackId in kept
+        }
         val out = context.contentResolver.openOutputStream(uri) ?: return null
         // An export costs two things that move independently — pulling the fixes out of Room, and
         // turning them into compressed bytes — and from outside only their sum is visible. The read
@@ -140,6 +147,7 @@ object BackupExporter {
                         },
                         places = repositories.places.allPlaces(),
                         identities = repositories.places.allIdentities(),
+                        deletedStays = deletedStays,
                     ),
                     onTrackWritten = { done -> onProgress(done, tracks.size) },
                 )
@@ -175,6 +183,15 @@ object BackupExporter {
         }
         cells.char(']')
 
+        // v2's optional field carries only hiding; the recovery bin is local.
+        if (content.deletedStays.isNotEmpty()) {
+            cells.text(""","deletedStays":[""")
+            content.deletedStays.forEachIndexed { index, plan ->
+                if (index > 0) cells.char(',')
+                cells.text("""{"beforeTrackId":${plan.afterTrackId},"afterTrackId":${plan.laterTrackId}}""")
+            }
+            cells.char(']')
+        }
         cells.text(""","tracks":[""")
         var written = 0
         // Read a batch, then write the tracks it holds — by id, since an imported track carries a
