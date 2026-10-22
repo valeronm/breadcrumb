@@ -32,7 +32,6 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.GraphBreaks
 import io.github.valeronm.breadcrumb.domain.MetricSmoother
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.util.FixUnit
@@ -142,9 +141,8 @@ internal fun mapActivityArgb(activity: ActivityType?, dark: Boolean): Int =
 private fun noDataArgb(dark: Boolean) = mapNeutral(dark).toArgb()
 
 /**
- * A stretch drawn beside the measured path rather than on it — a track's overrun on the map, a stop
- * with no fixes on the graph. The dark basemap needs a darker gray than the track to read as
- * receding, the light basemap a lighter one.
+ * A track's overrun, drawn beside the measured path rather than on it. The dark basemap needs a
+ * darker gray than the track to read as receding, the light basemap a lighter one.
  */
 internal fun offPathArgb(dark: Boolean): Int = if (dark) OFF_PATH_DARK else OFF_PATH_LIGHT
 
@@ -291,11 +289,12 @@ private fun metricSeries(
 
 /**
  * [metricSeries] as everything that *shows* it reads it — the graph's line and readout, and the
- * colors the line and the map are drawn in. Speed alone is smoothed, and the reason is the line
- * above that computes it: it is the one metric derived per fix rather than reported about one — the
- * receiver's own figure where it gives one, the seam's where it doesn't — so it jitters by several
- * km/h between neighbours taken at one steady pace. The other four are what the receiver said about
- * that single moment, and a moment is what is being asked for when they are on screen.
+ * colors the line and the map are drawn in. Speed is smoothed because it is derived per fix rather
+ * than reported about one — the receiver's own figure where it gives one, the seam's where it
+ * doesn't — so it jitters by several km/h between neighbors taken at one steady pace. Elevation is
+ * smoothed because a GNSS altitude wanders by meters between neighbors on level ground. The rest
+ * are what the receiver said about that single moment, and a moment is what is being asked for
+ * when they are on screen.
  *
  * Exhaustive on purpose: a metric added later has to answer this, as it must answer for its series,
  * its ramp and its label.
@@ -305,17 +304,8 @@ private fun plottedSeries(
     mode: ColorMode,
     values: List<Float?>,
 ): List<Float?> = when (mode) {
-    ColorMode.SPEED -> MetricSmoother.timeAveraged(seams.points, values, seams.graphBreaks)
-    ColorMode.ELEVATION, ColorMode.ACCURACY, ColorMode.SATELLITES, ColorMode.CN0 -> values
-}
-
-/**
- * What [GraphBreaks.stopsBefore] gaps read as on the graph: a stop is a speed of zero, and says
- * nothing about the receiver's other readings. Exhaustive for the same reason as [plottedSeries].
- */
-internal fun ColorMode.stopReading(): Float? = when (this) {
-    ColorMode.SPEED -> 0f
-    ColorMode.ELEVATION, ColorMode.ACCURACY, ColorMode.SATELLITES, ColorMode.CN0 -> null
+    ColorMode.SPEED, ColorMode.ELEVATION -> MetricSmoother.timeAveraged(seams.points, values, seams.graphBreaks)
+    ColorMode.ACCURACY, ColorMode.SATELLITES, ColorMode.CN0 -> values
 }
 
 /**

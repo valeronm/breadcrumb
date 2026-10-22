@@ -22,7 +22,7 @@ class GraphBreaksTest {
     private fun breaks(times: List<Long>, meters: List<Double>, segmentStarts: Set<Int> = emptySet()): List<Int> {
         val points = times.mapIndexed { i, t -> pt(t, segmentStart = i in segmentStarts) }
         val metersBefore = DoubleArray(times.size) { if (it == 0) 0.0 else meters[it - 1] }
-        return GraphBreaks.of(points, GraphBreaks.stopsBefore(points, metersBefore))
+        return GraphBreaks.of(points, metersBefore)
             .withIndex().filter { it.value }.map { it.index }
     }
 
@@ -45,10 +45,17 @@ class GraphBreaksTest {
     }
 
     @Test
-    fun `a pause within the averaging window stays joined`() {
+    fun `a pause shorter than a thinned stop stays joined`() {
         val (before, beforeM) = everySecond(0, 20)
-        val (after, afterM) = everySecond(29_000, 20)
+        val (after, afterM) = everySecond(19_000 + StationaryRuns.MIN_SPAN_MS - 1_000, 20)
         assertEquals(emptyList<Int>(), breaks(before + after, beforeM.drop(1) + 0.5 + afterM))
+    }
+
+    @Test
+    fun `the shortest stop StationaryRuns thins is a break`() {
+        val (before, beforeM) = everySecond(0, 20)
+        val (after, afterM) = everySecond(19_000 + StationaryRuns.MIN_SPAN_MS, 20)
+        assertEquals(listOf(20), breaks(before + after, beforeM.drop(1) + StationaryRuns.RADIUS_M + afterM))
     }
 
     @Test
@@ -78,14 +85,6 @@ class GraphBreaksTest {
             listOf(20),
             breaks(before + after, beforeM.drop(1) + 5_000.0 + afterM, segmentStarts = setOf(20)),
         )
-    }
-
-    @Test
-    fun `a segment start is a break but not a stop`() {
-        val points = listOf(pt(0), pt(600_000, segmentStart = true))
-        val stops = GraphBreaks.stopsBefore(points, doubleArrayOf(0.0, 1.0))
-        assertEquals(listOf(false, false), stops.toList())
-        assertEquals(listOf(false, true), GraphBreaks.of(points, stops).toList())
     }
 
     @Test

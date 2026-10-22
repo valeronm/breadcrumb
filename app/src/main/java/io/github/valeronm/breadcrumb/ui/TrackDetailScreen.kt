@@ -36,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -541,16 +542,10 @@ internal class MetricGraphData(
     val seams: TrackQuality.Seams,
     /** Shared with the map (via `precomputedColoring`) so the O(points) pass runs once. */
     val coloring: TrackColoring,
-    /** What a stop with no fixes is drawn at ([stopReading]); null leaves it blank. */
-    val stopValue: Float?,
-    /** Drawn across a stop's [stopValue]: the shade of the overrun the map grays off a track's ends. */
-    val offPathColor: Int,
 ) {
     val points: List<TrackPoint> get() = seams.points
-
-    /** Whether the line is drawn across a stop at [stopValue] rather than left blank there. */
-    val drawsStops: Boolean = stopValue != null && seams.stopsBefore.any { it }
-    val stopColor: Int? = stopValue?.let(coloring::colorOf)
+    val t0: Long = points.first().timestamp
+    val tSpan: Float = (points.last().timestamp - t0).coerceAtLeast(1L).toFloat()
     val values: List<Float?> get() = coloring.values
     val colors: IntArray get() = coloring.colors
 
@@ -569,10 +564,16 @@ internal fun metricGraphData(
     val coloring = trackColoring(seams, mode, activity, dark, measures)
     // The ramp already reached this verdict when it found nothing to scale.
     if (coloring.legend is Legend.None) return null
-    return MetricGraphData(seams, coloring, mode.stopReading(), offPathArgb(dark))
+    return MetricGraphData(seams, coloring)
 }
 
 private const val PLOT_RANGE_ALPHA = 0.35f
+
+private fun MetricGraphData.columns(widthPx: Float): List<PlotColumn> = plotColumns(
+    values,
+    xOf = { (points[it].timestamp - t0) / tSpan * widthPx },
+    breaksBefore = { seams.graphBreaks[it] },
+)
 
 /**
  * The metric polyline alone, rasterized once per (graph, size) into a bitmap blitted per frame:
@@ -585,8 +586,6 @@ private fun MetricPlot(
     graph: MetricGraphData,
     minV: Float,
     span: Float,
-    t0: Long,
-    tSpan: Float,
     modifier: Modifier,
 ) {
     val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
@@ -597,11 +596,7 @@ private fun MetricPlot(
             CanvasDrawScope().draw(this, layoutDirection, ComposeCanvas(bitmap), size) {
                 val h = size.height - 2 * padPx
                 fun yOf(value: Float) = padPx + h - ((value - minV) / span) * h
-                val columns = plotColumns(
-                    graph.values,
-                    xOf = { (graph.points[it].timestamp - t0) / tSpan * size.width },
-                    breaksBefore = { graph.seams.graphBreaks[it] },
-                )
+                val columns = graph.columns(size.width)
                 // The axis labels and the scrub readout state raw values, which a line through the
                 // means alone never reaches.
                 for (column in columns) {
@@ -617,17 +612,9 @@ private fun MetricPlot(
                 fun at(column: PlotColumn) = Offset(column.x, yOf(column.mean))
                 for (k in 1 until columns.size) {
                     val column = columns[k]
-                    val arrival = Color(graph.colors[column.nearestMean])
                     if (!column.startsSegment) {
+                        val arrival = Color(graph.colors[column.nearestMean])
                         drawLine(arrival, at(columns[k - 1]), at(column), strokeWidth = strokePx)
-                    } else if (graph.drawsStops && graph.seams.stopsBefore[column.first]) {
-                        val stopY = yOf(checkNotNull(graph.stopValue))
-                        val stop = Color(checkNotNull(graph.stopColor))
-                        val left = Offset(columns[k - 1].x, stopY)
-                        val right = Offset(column.x, stopY)
-                        drawLine(stop, at(columns[k - 1]), left, strokeWidth = strokePx)
-                        drawLine(Color(graph.offPathColor), left, right, strokeWidth = strokePx)
-                        drawLine(arrival, right, at(column), strokeWidth = strokePx)
                     }
                 }
             }
@@ -695,9 +682,9 @@ private fun CutOffer(reading: AnnotatedString, state: CutState?, onCut: () -> Un
 
 /**
  * The selected color metric over the track's time span, stroked in the map line's colors one pixel
- * column at a time, with a time axis; missing values and [GraphBreaks] break the line. Tap/drag picks the
- * nearest point ([onSelect]), drawn as a cursor with a value/time readout; the caller highlights
- * the same point on the map.
+ * column at a time, with a time axis; missing values and [GraphBreaks] break the line. Tap/drag
+ * picks the nearest point the line is drawn through ([onSelect]), drawn as a cursor with a
+ * value/time readout; the caller highlights the same point on the map.
  */
 @Composable
 private fun MetricGraph(
@@ -720,21 +707,42 @@ private fun MetricGraph(
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
     val readerClock = LocalReaderClock.current
-    // Remembered: MetricGraph recomposes per touch event while scrubbing, and the min/max scan
-    // is O(points) — the series is immutable per graph instance.
-    val (minV, maxV) = remember(graph) {
-        val present = graph.values.filterNotNull()
-        val drawnStop = graph.stopValue?.takeIf { graph.drawsStops } ?: present.min()
-        minOf(present.min(), drawnStop) to maxOf(present.max(), drawnStop)
+    // Read back off the layout rather than asked for with BoxWithConstraints, whose
+    // subcomposition would run over the whole plot on every measure, and the plot remeasures per
+    // touch event. Zero until the first measure.
+    var plotWidthPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val plotWidth = with(density) { plotWidthPx.toDp() }
+    val drawn = remember(graph, plotWidthPx) {
+        if (plotWidthPx == 0) null else drawnMembers(graph.values, graph.columns(plotWidthPx.toFloat()))
     }
-    val maxLabel = remember(graph) { graph.label(maxV) }
-    val minLabel = remember(graph) { graph.label(minV) }
-    val span = (maxV - minV).let { if (it < 1e-3f) 1f else it }
-    val t0 = graph.points.first().timestamp
-    val tSpan = (graph.points.last().timestamp - t0).coerceAtLeast(1L).toFloat()
+    fun selectable(i: Int) = drawn?.get(i) ?: (graph.values[i] != null)
 
-    // x (0..width) -> index of the nearest point that actually has a value. Runs per drag event
-    // while scrubbing, so it binary-searches the (sorted) timestamps instead of scanning them all.
+    // Remembered: MetricGraph recomposes per touch event while scrubbing, and the min/max scan
+    // is O(points) — the series is immutable per graph instance. A value nothing is drawn through
+    // would stretch the axis to a reading the line never shows.
+    val (minV, maxV) = remember(graph, drawn) {
+        fun rangeOf(include: (Int) -> Boolean): Pair<Float, Float> {
+            var lo = Float.POSITIVE_INFINITY
+            var hi = Float.NEGATIVE_INFINITY
+            for (i in graph.values.indices) {
+                val v = graph.values[i] ?: continue
+                if (!include(i)) continue
+                lo = minOf(lo, v)
+                hi = maxOf(hi, v)
+            }
+            return lo to hi
+        }
+        rangeOf(::selectable).takeIf { it.first <= it.second } ?: rangeOf { true }
+    }
+    val maxLabel = remember(graph, maxV) { graph.label(maxV) }
+    val minLabel = remember(graph, minV) { graph.label(minV) }
+    val span = (maxV - minV).let { if (it < 1e-3f) 1f else it }
+    val t0 = graph.t0
+    val tSpan = graph.tSpan
+
+    // Runs per drag event while scrubbing, so it binary-searches the (sorted) timestamps instead of
+    // scanning them all.
     fun indexAt(x: Float, width: Float): Int? {
         if (width <= 0f) return null
         // Keep the epoch-millis math in Long: t0 (~1.8e12) + Float promotes to Float, whose
@@ -747,11 +755,11 @@ private fun MetricGraph(
             val mid = (lo + hi) / 2
             if (graph.points[mid].timestamp < target) lo = mid + 1 else hi = mid
         }
-        // Nearest valued point on each side of the boundary; distances only grow further out.
+        // Nearest selectable point on each side of the boundary; distances only grow further out.
         var left = lo - 1
-        while (left >= 0 && graph.values[left] == null) left--
+        while (left >= 0 && !selectable(left)) left--
         var right = lo
-        while (right <= graph.points.lastIndex && graph.values[right] == null) right++
+        while (right <= graph.points.lastIndex && !selectable(right)) right++
         val leftDist = if (left >= 0) target - graph.points[left].timestamp else Long.MAX_VALUE
         val rightDist = if (right <= graph.points.lastIndex) {
             kotlin.math.abs(graph.points[right].timestamp - target)
@@ -791,21 +799,17 @@ private fun MetricGraph(
             // cursor line and the offer beside it cannot land in different places.
             fun xFraction(index: Int) =
                 ((graph.points[index].timestamp - t0) / tSpan).coerceIn(0f, 1f)
-            // The plot's own width, for placing the cut offer beside the cursor. Read back off the
-            // layout rather than asked for with BoxWithConstraints, whose subcomposition would run
-            // over the whole plot on every measure — and the plot remeasures per touch event.
-            var plotWidth by remember { mutableStateOf(0.dp) }
-            val density = LocalDensity.current
             Box(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .onSizeChanged { with(density) { plotWidth = it.width.toDp() } },
+                    .onSizeChanged { plotWidthPx = it.width },
             ) {
                 // Static plot in its own skippable composable: scrubbing recomposes MetricGraph per
                 // touch event, and redrawing the full multi-thousand-segment polyline each time
                 // makes long tracks feel laggy. Only the cursor overlay below redraws.
-                MetricPlot(graph, minV, span, t0, tSpan, Modifier.fillMaxSize())
+                // Before the first measure, the axis range still counts fixes the line will not draw.
+                if (drawn != null) MetricPlot(graph, minV, span, Modifier.fillMaxSize())
                 Canvas(
                     Modifier
                         .fillMaxSize()
@@ -839,18 +843,20 @@ private fun MetricGraph(
                         drawCircle(cursorColor, radius = strokePx * 2, center = Offset(x, y))
                     }
                 }
-                Text(
-                    maxLabel,
-                    modifier = Modifier.align(Alignment.TopStart).padding(horizontal = 8.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = labelColor,
-                )
-                Text(
-                    minLabel,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 8.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = labelColor,
-                )
+                if (drawn != null) {
+                    Text(
+                        maxLabel,
+                        modifier = Modifier.align(Alignment.TopStart).padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = labelColor,
+                    )
+                    Text(
+                        minLabel,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = labelColor,
+                    )
+                }
                 if (sel != null && selValue != null) {
                     val reading = buildAnnotatedString {
                         append(graph.label(selValue))

@@ -55,4 +55,24 @@ class PlotColumnTest {
     @Test fun `a series with no values has no columns`() {
         assertEquals(emptyList<PlotColumn>(), columns(listOf(null, null), pixelsPerValue = 1f))
     }
+
+    private fun drawnAt(values: List<Float?>, pixelsPerValue: Float, breakAt: Set<Int> = emptySet()) =
+        drawnMembers(values, columns(values, pixelsPerValue, breakAt)).withIndex().filter { it.value }.map { it.index }
+
+    @Test fun `every value on a joined line is drawn`() {
+        assertEquals(listOf(0, 1, 2), drawnAt(listOf(3f, 5f, 4f), pixelsPerValue = 2f))
+    }
+
+    @Test fun `a stretch broken off on both sides inside one pixel is not drawn`() {
+        val got = drawnAt(List(20) { 5f }, pixelsPerValue = 0.3f, breakAt = setOf(7, 10))
+        assertEquals((0..19).toList() - (7..9).toSet(), got)
+    }
+
+    @Test fun `the same stretch spread across pixels is drawn`() {
+        assertEquals((0..19).toList(), drawnAt(List(20) { 5f }, pixelsPerValue = 2f, breakAt = setOf(7, 10)))
+    }
+
+    @Test fun `a lone value between nulls is not drawn`() {
+        assertEquals(listOf(0, 1, 5, 6), drawnAt(listOf(1f, 2f, null, 3f, null, 4f, 5f), pixelsPerValue = 2f))
+    }
 }

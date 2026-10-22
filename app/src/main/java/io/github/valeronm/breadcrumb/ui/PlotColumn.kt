@@ -77,3 +77,18 @@ private fun plotColumn(
     }
     return PlotColumn(first, (xSum / count).toFloat(), min, max, mean, nearest, startsSegment)
 }
+
+/**
+ * Index for index with [values]: true where the value belongs to a column a line is drawn to or
+ * from.
+ */
+internal fun drawnMembers(values: List<Float?>, columns: List<PlotColumn>): BooleanArray {
+    val drawn = BooleanArray(values.size)
+    for (k in columns.indices) {
+        val joined = !columns[k].startsSegment || (k + 1 < columns.size && !columns[k + 1].startsSegment)
+        if (!joined) continue
+        val end = if (k + 1 < columns.size) columns[k + 1].first else values.size
+        for (i in columns[k].first until end) drawn[i] = values[i] != null
+    }
+    return drawn
+}

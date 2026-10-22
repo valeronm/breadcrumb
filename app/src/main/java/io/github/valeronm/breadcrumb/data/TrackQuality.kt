@@ -134,8 +134,7 @@ object TrackQuality {
      * clothes, and its one use as a Compose `remember` key wants identity anyway.
      */
     class Seams(val points: List<TrackPoint>, val meters: DoubleArray) {
-        val stopsBefore: BooleanArray by lazy { GraphBreaks.stopsBefore(points, meters) }
-        val graphBreaks: BooleanArray by lazy { GraphBreaks.of(points, stopsBefore) }
+        val graphBreaks: BooleanArray by lazy { GraphBreaks.of(points, meters) }
     }
 
     /** Walks [points] into [Seams]; [distance] is injectable so the derivation is host-testable. */
