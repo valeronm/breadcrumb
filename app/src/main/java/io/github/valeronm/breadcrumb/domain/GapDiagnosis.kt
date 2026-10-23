@@ -25,7 +25,7 @@ object GapDiagnosis {
         /** Every other applicable fix, in [Fix] order. */
         val others: List<Fix>,
         val merge: TrackMerge.Plan?,
-        /** Straight line between the two fixes; null where a side has no fix. */
+        /** [StayDeriver.Gap.apartMeters]. */
         val apartMeters: Double?,
         /** [apartMeters] over the gap's length, a floor on the real speed; null where a side has no fix or the gap has no length. */
         val atLeastMps: Double?,
@@ -37,9 +37,7 @@ object GapDiagnosis {
         after: TrackSummary,
         distance: DistanceFn,
     ): Verdict {
-        val from = gap.from
-        val to = gap.to
-        val apart = if (from == null || to == null) null else distance.meters(from.lat, from.lon, to.lat, to.lon)
+        val apart = gap.apartMeters(distance)
         val seconds = (gap.end - gap.start) / 1000.0
         val speed = apart?.takeIf { seconds > 0 }?.let { it / seconds }
         val merge = TrackMerge.compatible(before, after)

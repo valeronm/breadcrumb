@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.data.db.DerivedInterval
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -82,6 +83,17 @@ class DerivedReadModelTest {
             assertEquals(cluster.centroid.lon, read.clusters[i].centroid.lon, 1e-9)
             assertEquals(cluster.members.toSet(), read.clusters[i].members.toSet())
         }
+    }
+
+    @Test fun `a gap naming a cluster that is gone is dropped`() = runTest {
+        track(TEST_START)
+        track(TEST_START + 3 * 60 * 60_000L)
+        store.rebuild()
+        val stored = derived.intervalsOnce().single()
+        assertEquals(DerivedInterval.TYPE_GAP, stored.type)
+        db.openHelper.writableDatabase.execSQL("DELETE FROM derived_clusters WHERE id = ${stored.fromClusterId}")
+
+        assertTrue(read().intervals.none { it.afterTrackId == stored.afterTrackId })
     }
 
     @Test fun `the trailing stay is synthesized, not stored`() = runTest {

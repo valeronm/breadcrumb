@@ -90,14 +90,14 @@ class StayDeriverTest {
         val gap = derivation.intervals.first { it is Gap } as Gap
         // The disagreement that made this a gap: the sides sit in different clusters,
         // and each id indexes a real cluster containing its endpoint.
-        assertNotEquals(gap.fromClusterId, gap.toClusterId)
-        assertTrue(derivation.clusters[gap.fromClusterId!!].members.contains(home))
-        assertTrue(derivation.clusters[gap.toClusterId!!].members.contains(office))
+        assertNotEquals(gap.from?.clusterId, gap.to?.clusterId)
+        assertTrue(derivation.clusters[gap.from!!.clusterId].members.contains(home))
+        assertTrue(derivation.clusters[gap.to!!.clusterId].members.contains(office))
         // And the coordinates themselves, beside the clusters they fell into: the gap runs from
         // where the recording stopped to where it started again, which is what a trip entered to
         // fill it runs between.
-        assertEquals(home, gap.from)
-        assertEquals(office, gap.to)
+        assertEquals(home, gap.from.at)
+        assertEquals(office, gap.to.at)
     }
 
     @Test fun `a side the recorder never fixed has no position either`() {
@@ -110,7 +110,7 @@ class StayDeriverTest {
         val gap = derive(tracks).filterIsInstance<Gap>().single()
 
         assertNull(gap.from)
-        assertEquals(office, gap.to)
+        assertEquals(office, gap.to?.at)
     }
 
     @Test fun `endpoints exactly at the agreement radius still count as a stay`() {
@@ -190,8 +190,8 @@ class StayDeriverTest {
 
     @Test fun `an unknown-endpoint gap still carries the known side`() {
         val gap = derive(homePair(to = null)).first { it is Gap } as Gap
-        assertNull(gap.fromClusterId)
-        assertNotNull(gap.toClusterId)
+        assertNull(gap.from)
+        assertNotNull(gap.to)
     }
 
     @Test fun `the later track's missing start reads the same way round`() {
@@ -199,8 +199,8 @@ class StayDeriverTest {
         // which cluster id the gap can carry, so a rule written for one end is half a rule.
         val gap = derive(homePair(from = null)).first { it is Gap } as Gap
         assertEquals(GapReason.UNKNOWN_ENDPOINT, gap.reason)
-        assertNotNull(gap.fromClusterId)
-        assertNull(gap.toClusterId)
+        assertNotNull(gap.from)
+        assertNull(gap.to)
     }
 
     @Test fun `no pin near the earlier endpoint leaves the pair a gap`() {
@@ -368,7 +368,7 @@ class StayDeriverTest {
 
     /** A gap's halves answer the same question the same way — one encoding for both kinds. */
     @Test fun `a gap's halves say which of its bounds are its own`() {
-        val gap = Gap(20 * 60 * MIN, DAY + 3 * 60 * MIN, GapReason.MOVED_UNRECORDED, afterTrackId = 1)
+        val gap = Gap(20 * 60 * MIN, DAY + 3 * 60 * MIN, afterTrackId = 1)
         val halves = TimelineRows.slicePerDay(listOf(gap), { Clocks.both(utc) }, 2 * DAY)
 
         assertEquals(listOf(true, false), halves.map { it.holdsStart })
@@ -405,7 +405,7 @@ class StayDeriverTest {
     @Test fun `a gap crossing one midnight is cut there, as the same stay is`() {
         val start = 20 * 60 * MIN
         val end = DAY + 3 * 60 * MIN
-        val gap = Gap(start, end, GapReason.UNKNOWN_ENDPOINT, afterTrackId = 1)
+        val gap = Gap(start, end, afterTrackId = 1)
         val stay = Stay(start, end, afterTrackId = 1, clusterId = 0)
 
         assertEquals(2, sliced(listOf(stay), { Clocks.both(utc) }, 2 * DAY).size)
@@ -466,7 +466,7 @@ class StayDeriverTest {
             .plusHours(21).toInstant().toEpochMilli()
         val crossing = Gap(
             start = lisbonEvening, end = lisbonEvening + 26 * 60 * MIN,
-            reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
+            afterTrackId = 1,
         )
 
         val halves =
@@ -503,7 +503,7 @@ class StayDeriverTest {
             .plusHours(12).toInstant().toEpochMilli()
         val hop = Gap(
             start = noon, end = noon + 3 * 60 * MIN,
-            reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
+            afterTrackId = 1,
         )
 
         val slices = TimelineRows.slicePerDay(listOf(hop), { Clocks(newYork, chicago) }, noon + DAY)
@@ -520,7 +520,7 @@ class StayDeriverTest {
         // is the count whatever the span — the same shape a crossing takes, for the same reason.
         val gap = Gap(
             start = 20 * 60 * MIN, end = 3 * DAY + 3 * 60 * MIN,
-            reason = GapReason.MOVED_UNRECORDED, afterTrackId = 1,
+            afterTrackId = 1,
         )
 
         val halves = TimelineRows.slicePerDay(listOf(gap), { Clocks.both(utc) }, 4 * DAY)
@@ -586,7 +586,7 @@ class StayDeriverTest {
         // whose oldest thing is a stay. Dropping the remainder would silently truncate the bottom of
         // the timeline — the end a reader scrolls to.
         val summaries = listOf(summary(2, startedAt = 240 * MIN))
-        val gap = Gap(120 * MIN, 180 * MIN, GapReason.MOVED_UNRECORDED, afterTrackId = 1)
+        val gap = Gap(120 * MIN, 180 * MIN, afterTrackId = 1)
 
         val items = TimelineRows.interleave(summaries, oneClock(gap))
 
@@ -601,8 +601,8 @@ class StayDeriverTest {
             summary(2, startedAt = 200 * MIN),
             summary(1, startedAt = 100 * MIN),
         )
-        val older = Gap(110 * MIN, 200 * MIN, GapReason.MOVED_UNRECORDED, afterTrackId = 1)
-        val newer = Gap(210 * MIN, 300 * MIN, GapReason.MOVED_UNRECORDED, afterTrackId = 2)
+        val older = Gap(110 * MIN, 200 * MIN, afterTrackId = 1)
+        val newer = Gap(210 * MIN, 300 * MIN, afterTrackId = 2)
 
         val gaps = TimelineRows.interleave(summaries, oneClock(older, newer))
             .filterIsInstance<TimelineItem.GapItem>()
@@ -650,7 +650,7 @@ class StayDeriverTest {
         // A and B disagree, and 120 m is past the agreement radius: a gap, from A to B.
         val first = derive(tracks).first { it.afterTrackId == 1L }
         assertTrue(first is Gap)
-        assertNotEquals((first as Gap).fromClusterId, first.toClusterId)
+        assertNotEquals((first as Gap).from?.clusterId, first.to?.clusterId)
     }
 
     // --- Stated ends -------------------------------------------------------
@@ -677,7 +677,7 @@ class StayDeriverTest {
             placePins = listOf(pin(0.0, placeId = 1), pin(300.0, placeId = 2)),
         )
         val gap = derivation.intervals.single() as Gap
-        assertEquals(1, derivation.clusters[checkNotNull(gap.fromClusterId)].seedIndex)
+        assertEquals(1, derivation.clusters[gap.from!!.clusterId].seedIndex)
     }
 
     @Test fun `ends stated to different places are a gap however close`() {

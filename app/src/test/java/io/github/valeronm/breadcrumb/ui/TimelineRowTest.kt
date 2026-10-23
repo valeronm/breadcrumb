@@ -305,7 +305,6 @@ class TimelineRowTest {
         gap = StayDeriver.Gap(
             start = start,
             end = end,
-            reason = StayDeriver.GapReason.MOVED_UNRECORDED,
             afterTrackId = 1,
         ),
         departureZone = zone,
@@ -348,7 +347,7 @@ class TimelineRowTest {
     fun `a gap with a fix on both sides states how far apart they are`() {
         val to = Coordinate(lat = ORIGIN.lat + 0.05, lon = ORIGIN.lon)
         val item = gapItem(start = noon, end = noon + HOUR)
-        gapRow(item.copy(gap = item.gap.copy(from = ORIGIN, to = to)))
+        gapRow(item.copy(gap = item.gap.copy(from = StayDeriver.Gap.Side(ORIGIN, clusterId = 0), to = StayDeriver.Gap.Side(to, clusterId = 1))))
 
         val apart = measures().distance(AndroidDistance.meters(ORIGIN.lat, ORIGIN.lon, to.lat, to.lon))
         compose.onNodeWithText("${durationOf(HOUR)} · $apart").assertIsDisplayed()

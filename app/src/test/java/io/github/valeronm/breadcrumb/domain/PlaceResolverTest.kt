@@ -255,9 +255,8 @@ class PlaceResolverTest {
     // --- gaps ----------------------------------------------------------------
 
     private fun gapBetween(from: Int?, to: Int?, start: Long = 5_000L, end: Long = 9_000L) = StayDeriver.Gap(
-        start = start, end = end,
-        reason = if (from == null || to == null) StayDeriver.GapReason.UNKNOWN_ENDPOINT else StayDeriver.GapReason.MOVED_UNRECORDED,
-        afterTrackId = ++nextTrackId, fromClusterId = from, toClusterId = to,
+        start = start, end = end, afterTrackId = ++nextTrackId,
+        from = from?.let { StayDeriver.Gap.Side(at(0.0), it) }, to = to?.let { StayDeriver.Gap.Side(at(0.0), it) },
     )
 
     private fun List<PlaceClusterer.Cluster>.seededBy(placeIndex: Int) = indexOfFirst { it.seedIndex == placeIndex }

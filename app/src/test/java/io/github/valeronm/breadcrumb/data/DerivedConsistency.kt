@@ -229,12 +229,9 @@ internal object DerivedConsistency {
                 is StayDeriver.Verdict.Moved -> StayDeriver.Gap(
                     start = before.endedAt,
                     end = after.startedAt,
-                    reason = verdict.reason,
                     afterTrackId = before.trackId,
-                    fromClusterId = from,
-                    toClusterId = to,
-                    from = before.end,
-                    to = after.start,
+                    from = before.end?.let { StayDeriver.Gap.Side(it, checkNotNull(from)) },
+                    to = after.start?.let { StayDeriver.Gap.Side(it, checkNotNull(to)) },
                 )
             }
         }
@@ -255,7 +252,7 @@ internal object DerivedConsistency {
             is StayDeriver.Stay ->
                 listOf("stay", start, end, afterTrackId, anchor(clusterId), null, null, null)
             is StayDeriver.Gap ->
-                listOf("gap", start, end, reason, afterTrackId, anchor(fromClusterId), anchor(toClusterId), from, to)
+                listOf("gap", start, end, reason, afterTrackId, anchor(from?.clusterId), anchor(to?.clusterId), from?.at, to?.at)
         }
     }
 

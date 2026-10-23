@@ -125,8 +125,7 @@ class DayCategoryTotalsTest {
     @Test fun `non-stay items are ignored`() {
         val gap = TimelineItem.GapItem(
             StayDeriver.Gap(
-                start = 1 * MIN, end = 2 * MIN, reason = StayDeriver.GapReason.MOVED_UNRECORDED,
-                afterTrackId = 99, fromClusterId = null, toClusterId = null,
+                start = 1 * MIN, end = 2 * MIN, afterTrackId = 99,
             ),
         )
         assertEquals(

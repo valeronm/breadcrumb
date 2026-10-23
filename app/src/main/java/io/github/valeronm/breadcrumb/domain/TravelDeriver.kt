@@ -248,15 +248,10 @@ object TravelDeriver {
          * agree about is placed there, and one they disagree about cannot be placed at all — the move
          * happened somewhere inside, and guessing where would invent the very thing the gap records
          * as missing.
-         *
-         * [StayDeriver.GapReason] is deliberately not consulted: an UNKNOWN_ENDPOINT gap is one whose
-         * endpoint had no coordinates, so that side carries no cluster either and falls out as
-         * [NightPlace.UNKNOWN] on its own. Reading the reason would encode a second time what the ids
-         * already say.
          */
         private fun acrossGap(date: LocalDate, at: Long, gap: StayDeriver.Gap): Sample {
-            val from = placeOf(gap.fromClusterId)
-            val to = placeOf(gap.toClusterId)
+            val from = placeOf(gap.from?.clusterId)
+            val to = placeOf(gap.to?.clusterId)
             return Sample(date, at, if (from == to) from else NightPlace.UNKNOWN)
         }
 

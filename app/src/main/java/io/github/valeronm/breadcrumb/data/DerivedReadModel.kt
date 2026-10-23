@@ -109,9 +109,9 @@ internal object DerivedReadModel {
 
     /**
      * Null where this build cannot read the row: a `type` its vocabulary predates — the
-     * forward-compatible case, and the only expected one — or a stay whose cluster is missing,
-     * which is a broken reference and says so in the log rather than quietly shortening the
-     * timeline.
+     * forward-compatible case, and the only expected one — or a broken row, logged rather than
+     * quietly shortening the timeline: a stay whose cluster is missing, or a gap side holding a
+     * position without a cluster or a cluster without a position.
      */
     private fun DerivedInterval.toInterval(indexOfRow: Map<Long, Int>): StayDeriver.Interval? =
         when (type) {
@@ -129,27 +129,31 @@ internal object DerivedReadModel {
                     )
                 }
             }
-            DerivedInterval.TYPE_GAP -> StayDeriver.Gap(
-                start = start,
-                end = endedAt,
-                reason = reasonOf(reason),
-                afterTrackId = afterTrackId,
-                fromClusterId = fromClusterId?.let(indexOfRow::get),
-                toClusterId = toClusterId?.let(indexOfRow::get),
-                from = coordinateOf(fromLat, fromLon),
-                to = coordinateOf(toLat, toLon),
-            )
+            DerivedInterval.TYPE_GAP -> {
+                val from = storedSide(fromLat, fromLon, fromClusterId, indexOfRow)
+                val to = storedSide(toLat, toLon, toClusterId, indexOfRow)
+                if (from == null || to == null) {
+                    DebugLog.w(TAG, "gap after track $afterTrackId has a side whose position and cluster disagree; dropped")
+                    null
+                } else {
+                    StayDeriver.Gap(start, endedAt, afterTrackId, from = from.side, to = to.side)
+                }
+            }
             else -> null
         }
 
-    /** A stored code this build doesn't know reads as the *unknown* value of its vocabulary, and
-     *  says so — claiming less than the writer meant is the harmless direction. */
-    private fun reasonOf(code: String?): StayDeriver.GapReason = when (code) {
-        DerivedInterval.REASON_MOVED_UNRECORDED -> StayDeriver.GapReason.MOVED_UNRECORDED
-        DerivedInterval.REASON_UNKNOWN_ENDPOINT -> StayDeriver.GapReason.UNKNOWN_ENDPOINT
-        else -> {
-            DebugLog.w(TAG, "unreadable gap reason '$code'; read as unknown endpoint")
-            StayDeriver.GapReason.UNKNOWN_ENDPOINT
+    private class StoredSide(val side: StayDeriver.Gap.Side?)
+
+    private val ABSENT = StoredSide(null)
+
+    /** Null where the row holds one of a side's position and cluster without the other. */
+    private fun storedSide(lat: Double?, lon: Double?, clusterId: Long?, indexOfRow: Map<Long, Int>): StoredSide? {
+        val at = coordinateOf(lat, lon)
+        val cluster = clusterId?.let(indexOfRow::get)
+        return when {
+            at == null && cluster == null -> ABSENT
+            at != null && cluster != null -> StoredSide(StayDeriver.Gap.Side(at, cluster))
+            else -> null
         }
     }
 

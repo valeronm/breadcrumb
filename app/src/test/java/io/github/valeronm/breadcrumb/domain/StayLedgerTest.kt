@@ -94,7 +94,7 @@ class StayLedgerTest {
         )
         is Gap -> describe(
             StayDeriver.Verdict.Moved(reason), start, end, afterTrackId,
-            fromClusterId?.let { clusters[it].anchor }, toClusterId?.let { clusters[it].anchor },
+            from?.let { clusters[it.clusterId].anchor }, to?.let { clusters[it.clusterId].anchor },
         )
     }
 

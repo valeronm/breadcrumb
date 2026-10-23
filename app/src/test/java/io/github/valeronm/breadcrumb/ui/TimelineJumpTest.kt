@@ -26,7 +26,6 @@ class TimelineJumpTest {
     private fun gap(start: Long, end: Long) = StayDeriver.Gap(
         start = start,
         end = end,
-        reason = StayDeriver.GapReason.MOVED_UNRECORDED,
         afterTrackId = 7,
     )
 

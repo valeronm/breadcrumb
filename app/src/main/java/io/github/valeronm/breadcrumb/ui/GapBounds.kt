@@ -31,16 +31,12 @@ internal fun gapBounds(
     holdsArrival: Boolean,
     distance: DistanceFn,
 ): GapBounds = when {
-    holdsDeparture && holdsArrival -> {
-        val a = gap.from
-        val b = gap.to
-        GapBounds.Both(
-            start = gap.start,
-            end = gap.end,
-            lastingMs = StayDeriver.reportable(gap.end - gap.start),
-            apartMeters = if (a == null || b == null) null else distance.meters(a.lat, a.lon, b.lat, b.lon),
-        )
-    }
+    holdsDeparture && holdsArrival -> GapBounds.Both(
+        start = gap.start,
+        end = gap.end,
+        lastingMs = StayDeriver.reportable(gap.end - gap.start),
+        apartMeters = gap.apartMeters(distance),
+    )
     holdsDeparture -> GapBounds.From(gap.start)
     holdsArrival -> GapBounds.Until(gap.end)
     else -> error("a gap row holds at least one end; this one was stamped with neither")

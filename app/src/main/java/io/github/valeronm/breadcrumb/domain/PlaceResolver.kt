@@ -464,8 +464,8 @@ object PlaceResolver {
             byKey.getOrPut(key) { mutableListOf() } += PlaceGap(gap, fromHere, farKey = far?.let(keyOfCluster::get))
         }
         for (gap in gaps) {
-            file(gap, here = gap.fromClusterId, far = gap.toClusterId, fromHere = true)
-            file(gap, here = gap.toClusterId, far = gap.fromClusterId, fromHere = false)
+            file(gap, here = gap.from?.clusterId, far = gap.to?.clusterId, fromHere = true)
+            file(gap, here = gap.to?.clusterId, far = gap.from?.clusterId, fromHere = false)
         }
         return summaries.map { summary ->
             byKey[summary.key]?.let { summary.copy(gaps = it.sortedByDescending { g -> g.atMs }) } ?: summary

@@ -3,7 +3,6 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Derivation
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Gap
-import io.github.valeronm.breadcrumb.domain.StayDeriver.GapReason
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Interval
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
 import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
@@ -66,13 +65,8 @@ class TravelDeriverTest {
     )
 
     private fun gap(from: Long, until: Long, fromCluster: Int?, toCluster: Int?) = Gap(
-        start = from, end = until,
-        reason = if (fromCluster == null || toCluster == null) {
-            GapReason.UNKNOWN_ENDPOINT
-        } else {
-            GapReason.MOVED_UNRECORDED
-        },
-        afterTrackId = ++nextTrackId, fromClusterId = fromCluster, toClusterId = toCluster,
+        start = from, end = until, afterTrackId = ++nextTrackId,
+        from = fromCluster?.let { Gap.Side(at(0.0), it) }, to = toCluster?.let { Gap.Side(at(0.0), it) },
     )
 
     private fun track(from: Coordinate?, to: Coordinate?, start: Long, end: Long) =

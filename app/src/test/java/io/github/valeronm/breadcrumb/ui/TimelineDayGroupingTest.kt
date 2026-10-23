@@ -102,8 +102,7 @@ class TimelineDayGroupingTest {
         holdsArrival: Boolean = true,
     ) = TimelineItem.GapItem(
         gap = StayDeriver.Gap(
-            start = from, end = to,
-            reason = StayDeriver.GapReason.MOVED_UNRECORDED, afterTrackId = 1,
+            start = from, end = to, afterTrackId = 1,
         ),
         departureZone = departureZone,
         arrivalZone = arrivalZone,

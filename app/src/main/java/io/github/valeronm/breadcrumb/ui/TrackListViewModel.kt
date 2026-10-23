@@ -278,7 +278,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             when (interval) {
                 is StayDeriver.Stay -> Clocks.both(zoneOfCluster(interval.clusterId))
                 is StayDeriver.Gap ->
-                    Clocks(zoneOfCluster(interval.fromClusterId), zoneOfCluster(interval.toClusterId))
+                    Clocks(zoneOfCluster(interval.from?.clusterId), zoneOfCluster(interval.to?.clusterId))
             }
         }
         TimelineRows.interleave(
@@ -292,8 +292,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 is TimelineItem.RecordingItem -> item
                 // The slice already carries the zones.
                 is TimelineItem.GapItem -> item.copy(
-                    fromPlace = item.gap.fromClusterId?.let(clusterPlaces::getOrNull),
-                    toPlace = item.gap.toClusterId?.let(clusterPlaces::getOrNull),
+                    fromPlace = item.gap.from?.clusterId?.let(clusterPlaces::getOrNull),
+                    toPlace = item.gap.to?.clusterId?.let(clusterPlaces::getOrNull),
                     merge = mergePlans[item.gap.afterTrackId],
                 )
                 // Filtered after `merge` is attached, since [TimelineItem.StayItem.isBareSeam]

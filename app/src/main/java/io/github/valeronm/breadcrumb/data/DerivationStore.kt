@@ -473,7 +473,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
                 start = start,
                 end = end,
                 afterTrackId = afterTrackId,
-                ends = StayLedger.Ends(fromClusterId?.let(::ref), toClusterId?.let(::ref), from, to),
+                ends = StayLedger.Ends(from?.clusterId?.let(::ref), to?.clusterId?.let(::ref), from?.at, to?.at),
             )
         }
     }

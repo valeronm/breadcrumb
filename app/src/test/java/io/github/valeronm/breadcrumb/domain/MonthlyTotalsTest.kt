@@ -151,7 +151,6 @@ class MonthlyTotalsTest {
                 gap = StayDeriver.Gap(
                     start = at(utc, LocalDate.of(2026, 5, 3), 9),
                     end = at(utc, LocalDate.of(2026, 5, 4), 9),
-                    reason = StayDeriver.GapReason.MOVED_UNRECORDED,
                     afterTrackId = 1,
                 ),
                 departureZone = utc,

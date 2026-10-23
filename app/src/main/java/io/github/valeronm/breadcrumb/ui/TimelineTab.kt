@@ -1335,8 +1335,8 @@ internal fun GapCard(
     val draft = remember(item) {
         TripDraft(
             day = item.filedOn,
-            origin = if (holdsDeparture) draftEndOf(departure, gap.from, gap.start) else null,
-            destination = if (holdsArrival) draftEndOf(arrival, gap.to, gap.end) else null,
+            origin = if (holdsDeparture) draftEndOf(departure, gap.from?.at, gap.start) else null,
+            destination = if (holdsArrival) draftEndOf(arrival, gap.to?.at, gap.end) else null,
             trackBefore = gap.afterTrackId,
             trackAfter = item.nextTrackId,
         )

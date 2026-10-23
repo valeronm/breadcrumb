@@ -16,10 +16,9 @@ class GapDiagnosisTest {
     private fun gap(apartM: Double?, minutes: Long = 60, fromKnown: Boolean = true) = StayDeriver.Gap(
         start = 10 * MIN,
         end = 10 * MIN + minutes * MIN,
-        reason = if (apartM == null || !fromKnown) StayDeriver.GapReason.UNKNOWN_ENDPOINT else StayDeriver.GapReason.MOVED_UNRECORDED,
         afterTrackId = 1,
-        from = if (fromKnown) at(0.0) else null,
-        to = apartM?.let(::at),
+        from = if (fromKnown) StayDeriver.Gap.Side(at(0.0), clusterId = 0) else null,
+        to = apartM?.let { StayDeriver.Gap.Side(at(it), clusterId = 1) },
     )
 
     private fun diagnose(

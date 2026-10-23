@@ -13,10 +13,9 @@ class GapBoundsTest {
     private fun gap(start: Long, end: Long, from: Coordinate? = FROM, to: Coordinate? = TO) = StayDeriver.Gap(
         start = start,
         end = end,
-        reason = StayDeriver.GapReason.MOVED_UNRECORDED,
         afterTrackId = 1,
-        from = from,
-        to = to,
+        from = from?.let { StayDeriver.Gap.Side(it, clusterId = 0) },
+        to = to?.let { StayDeriver.Gap.Side(it, clusterId = 1) },
     )
 
     private fun both(gap: StayDeriver.Gap) = gapBounds(gap, holdsDeparture = true, holdsArrival = true, flat)

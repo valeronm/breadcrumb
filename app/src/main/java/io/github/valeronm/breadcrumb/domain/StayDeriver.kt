@@ -131,25 +131,30 @@ object StayDeriver {
     data class Gap(
         override val start: Long,
         override val end: Long,
-        val reason: GapReason,
         override val afterTrackId: Long,
-        /** Index into [Derivation.clusters] for each side (null = that endpoint is unknown) —
-         *  most gaps are really one place misclustered as two, so the UI links each side to
-         *  its place for fixing. */
-        val fromClusterId: Int? = null,
-        val toClusterId: Int? = null,
-        /**
-         * The two positions whose disagreement *is* this gap: where the recording left off and where
-         * it picked up again, null on a side no fix was had for. The same coordinates the cluster
-         * ids above were taken from, kept beside them rather than in their place — a cluster answers
-         * "which place is this", these answer "where exactly was the phone at [start] and [end]",
-         * and a trip entered by hand to fill the gap wants the second question: its two times are
-         * these two instants, so these are where its ends were.
-         */
-        val from: Coordinate? = null,
-        val to: Coordinate? = null,
+        /** Where the recording left off; null where no fix was had. */
+        val from: Side? = null,
+        /** Where the recording picked up again; null where no fix was had. */
+        val to: Side? = null,
     ) : Interval {
+        data class Side(
+            /** The phone's own fix at the gap's bound on this side, not its cluster's position. */
+            val at: Coordinate,
+            /** Index into [Derivation.clusters]. */
+            val clusterId: Int,
+        )
+
+        val reason: GapReason
+            get() = if (from == null || to == null) GapReason.UNKNOWN_ENDPOINT else GapReason.MOVED_UNRECORDED
+
         fun boundAt(departure: Boolean): Long = if (departure) start else end
+
+        /** Straight line between the two sides' fixes; null where a side has no fix. */
+        fun apartMeters(distance: DistanceFn): Double? {
+            val a = from?.at ?: return null
+            val b = to?.at ?: return null
+            return distance.meters(a.lat, a.lon, b.lat, b.lon)
+        }
     }
 
     /** Derivation output: the timeline intervals plus the endpoint clusters stays index into. */
@@ -192,26 +197,17 @@ object StayDeriver {
         for (i in 0 until tracks.size - 1) {
             val prev = tracks[i]
             val next = tracks[i + 1]
-            val a = prev.end
-            val b = next.start
-            val aCluster = if (a != null) clusterOf.getValue(Endpoint(prev.trackId, isStart = false)) else null
-            val bCluster = if (b != null) clusterOf.getValue(Endpoint(next.trackId, isStart = true)) else null
-            val sameCluster = aCluster != null && aCluster == bCluster
-            when (val verdict = verdictBetween(prev, next, sameCluster, agreement)) {
+            val from = prev.end?.let { Gap.Side(it, clusterOf.getValue(Endpoint(prev.trackId, isStart = false))) }
+            val to = next.start?.let { Gap.Side(it, clusterOf.getValue(Endpoint(next.trackId, isStart = true))) }
+            val sameCluster = from != null && from.clusterId == to?.clusterId
+            when (verdictBetween(prev, next, sameCluster, agreement)) {
                 Verdict.None -> Unit
-                is Verdict.Moved -> out += Gap(
-                    prev.endedAt, next.startedAt, verdict.reason,
-                    afterTrackId = prev.trackId,
-                    fromClusterId = aCluster,
-                    toClusterId = bCluster,
-                    from = a,
-                    to = b,
-                )
+                is Verdict.Moved -> out += Gap(prev.endedAt, next.startedAt, afterTrackId = prev.trackId, from = from, to = to)
                 Verdict.Stayed -> out += Stay(
                     start = prev.endedAt,
                     end = next.startedAt,
                     afterTrackId = prev.trackId,
-                    clusterId = checkNotNull(aCluster) { "an agreeing pair has both ends" },
+                    clusterId = checkNotNull(from) { "an agreeing pair has both ends" }.clusterId,
                 )
             }
         }
