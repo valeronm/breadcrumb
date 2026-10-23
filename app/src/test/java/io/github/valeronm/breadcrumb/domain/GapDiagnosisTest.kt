@@ -25,10 +25,12 @@ class GapDiagnosisTest {
         gap: StayDeriver.Gap,
         b: TrackSummary = before,
         a: TrackSummary = after,
-    ) = GapDiagnosis.diagnose(gap, b, a, flatDistance)
+        fromNamed: Boolean = false,
+        toNamed: Boolean = false,
+    ) = GapDiagnosis.diagnose(gap, TrackMerge.Neighbors(b, a), fromNamed, toNamed, flatDistance)
 
-    @Test fun `ends within the stayed-here distance suggest a stay`() {
-        val v = diagnose(gap(apartM = 150.0))
+    @Test fun `ends within the stayed-here distance at a named place suggest a stay`() {
+        val v = diagnose(gap(apartM = 150.0), fromNamed = true)
         assertEquals(Fix.STAYED_HERE, v.suggested)
         assertEquals(Reason.ENDS_CLOSE, v.reason)
         assertEquals(listOf(Fix.MISSED_START, Fix.ADD_TRIP, Fix.MERGE), v.others)
@@ -37,7 +39,7 @@ class GapDiagnosisTest {
     @Test fun `the stayed-here distance is inclusive`() {
         // flatDistance rounds 200 m to a hair over 200, which would test the float, not the bound.
         val exact = DistanceFn { _, _, _, _ -> 200.0 }
-        assertEquals(Fix.STAYED_HERE, GapDiagnosis.diagnose(gap(apartM = 200.0), before, after, exact).suggested)
+        assertEquals(Fix.STAYED_HERE, GapDiagnosis.diagnose(gap(apartM = 200.0), TrackMerge.Neighbors(before, after), fromNamed = true, toNamed = false, distance = exact).suggested)
     }
 
     @Test fun `a slow gap before a movement suggests the missed start`() {
@@ -92,5 +94,36 @@ class GapDiagnosisTest {
         val v = diagnose(gap(apartM = 450.0, minutes = 0))
         assertNull(v.atLeastMps)
         assertFalse(v.suggested == Fix.MISSED_START)
+    }
+
+    @Test fun `close ends between unnamed places offer no stay`() {
+        val v = diagnose(gap(apartM = 150.0))
+        assertEquals(Fix.MISSED_START, v.suggested)
+        assertFalse(Fix.STAYED_HERE in v.others)
+    }
+
+    @Test fun `a slow gap at a named place also offers a stay`() {
+        val v = diagnose(gap(apartM = 450.0), fromNamed = true)
+        assertEquals(Fix.MISSED_START, v.suggested)
+        assertEquals(listOf(Fix.ADD_TRIP, Fix.STAYED_HERE, Fix.MERGE), v.others)
+    }
+
+    @Test fun `a slow gap between unnamed places offers no stay`() {
+        assertFalse(Fix.STAYED_HERE in diagnose(gap(apartM = 450.0)).others)
+    }
+
+    @Test fun `a fast gap at a named place offers no stay`() {
+        assertFalse(Fix.STAYED_HERE in diagnose(gap(apartM = 450.0, minutes = 1), fromNamed = true).others)
+    }
+
+    @Test fun `a slow gap before a track starting at a named place suggests the whole trip`() {
+        val v = diagnose(gap(apartM = 450.0), toNamed = true)
+        assertEquals(Fix.ADD_TRIP, v.suggested)
+        assertEquals(Reason.NEXT_AT_NAMED_PLACE, v.reason)
+        assertEquals(listOf(Fix.MISSED_START, Fix.STAYED_HERE, Fix.MERGE), v.others)
+    }
+
+    @Test fun `a slow gap from a named place to an unnamed one still suggests the missed start`() {
+        assertEquals(Fix.MISSED_START, diagnose(gap(apartM = 450.0), fromNamed = true).suggested)
     }
 }

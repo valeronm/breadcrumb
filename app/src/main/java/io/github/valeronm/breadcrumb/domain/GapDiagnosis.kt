@@ -1,7 +1,5 @@
 package io.github.valeronm.breadcrumb.domain
 
-import io.github.valeronm.breadcrumb.data.db.TrackSummary
-
 object GapDiagnosis {
 
     enum class Fix {
@@ -12,7 +10,7 @@ object GapDiagnosis {
         MERGE,
     }
 
-    enum class Reason { NO_POSITION, ENDS_CLOSE, PARKED_THEN_LEFT, DROPOUT, TRAVELLED }
+    enum class Reason { NO_POSITION, ENDS_CLOSE, PARKED_THEN_LEFT, NEXT_AT_NAMED_PLACE, DROPOUT, TRAVELLED }
 
     // Set against the recorded history, where most gaps' ends lie 200 m–1 km apart at an implied
     // ~1 km/h, the time parked included.
@@ -33,27 +31,34 @@ object GapDiagnosis {
 
     fun diagnose(
         gap: StayDeriver.Gap,
-        before: TrackSummary,
-        after: TrackSummary,
+        neighbors: TrackMerge.Neighbors,
+        fromNamed: Boolean,
+        toNamed: Boolean,
         distance: DistanceFn,
     ): Verdict {
         val apart = gap.apartMeters(distance)
         val seconds = (gap.end - gap.start) / 1000.0
         val speed = apart?.takeIf { seconds > 0 }?.let { it / seconds }
-        val merge = TrackMerge.compatible(before, after)
-        val leaves = ActivityType.ofName(after.activityType)?.recording == true
+        val merge = TrackMerge.compatible(neighbors.before, neighbors.after)
+        val leaves = ActivityType.ofName(neighbors.after.activityType)?.recording == true
         val close = apart != null && apart <= STAYED_HERE_WITHIN_M
         val parked = speed != null && speed <= PARKED_BELOW_MPS
+        val atNamedPlace = fromNamed || toNamed
 
         val applicable = buildSet {
             add(Fix.ADD_TRIP)
             if (merge != null) add(Fix.MERGE)
-            if (close) add(Fix.STAYED_HERE)
+            // A named place is the user's word that this is somewhere people stop, and the only kind a
+            // stay is linked to.
+            if (atNamedPlace && (close || parked)) add(Fix.STAYED_HERE)
             if (leaves && (close || parked)) add(Fix.MISSED_START)
         }
         val (suggested, reason) = when {
             apart == null -> (if (merge != null) Fix.MERGE else Fix.ADD_TRIP) to Reason.NO_POSITION
-            close -> Fix.STAYED_HERE to Reason.ENDS_CLOSE
+            close && atNamedPlace -> Fix.STAYED_HERE to Reason.ENDS_CLOSE
+            // Trips entered by hand into such gaps mostly ran the whole way to the named place and
+            // stayed there, where the next track starting somewhere unnamed is nearly always a missed start.
+            parked && leaves && toNamed -> Fix.ADD_TRIP to Reason.NEXT_AT_NAMED_PLACE
             parked && leaves -> Fix.MISSED_START to Reason.PARKED_THEN_LEFT
             merge != null -> Fix.MERGE to Reason.DROPOUT
             else -> Fix.ADD_TRIP to Reason.TRAVELLED
