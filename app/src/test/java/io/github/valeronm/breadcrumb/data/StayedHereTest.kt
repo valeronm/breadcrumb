@@ -70,13 +70,26 @@ class StayedHereTest {
         DerivedConsistency.assertMatchesFreshDerive(test.db, now)
     }
 
-    @Test fun `a stay over ends already on one place writes nothing`() = runTest {
+    @Test fun `a stay over ends already linked to that place writes nothing`() = runTest {
         val (first, second) = twoTracksAroundAGap()
         val placeId = places.create(test.place("A", 1.0, -2.0))
         places.stayedHere(first, second, placeId)
 
-        assertNull(places.stayedHere(first, second, places.create(test.place("B", 1.0, -1.99))))
-        assertEquals(placeId, test.dao.track(first)!!.endPlaceId)
+        assertNull(places.stayedHere(first, second, placeId))
+    }
+
+    @Test fun `a stay moves ends already linked to another place`() = runTest {
+        val (first, second) = twoTracksAroundAGap()
+        val linked = places.create(test.place("A", 1.0, -2.0))
+        val other = places.create(test.place("B", 1.0, -1.99))
+        places.stayedHere(first, second, linked)
+
+        val done = places.stayedHere(first, second, other)!!
+
+        assertEquals(linked, done.previousEnd)
+        assertEquals(other, test.dao.track(first)!!.endPlaceId)
+        assertEquals(other, test.dao.track(second)!!.startPlaceId)
+        DerivedConsistency.assertMatchesFreshDerive(test.db, now)
     }
 
     @Test fun `a stay at a place that is gone writes nothing`() = runTest {

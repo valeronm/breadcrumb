@@ -150,13 +150,13 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
     /**
      * Links the end of [beforeId] and the start of [afterId] to [placeId], so the interval between
      * them is a stay there whatever their distance. Null, writing nothing, where the place is gone or
-     * the two ends already link to one place.
+     * both ends already link to it.
      */
     suspend fun stayedHere(beforeId: Long, afterId: Long, placeId: Long): StayedHere? = db.withTransaction {
         dao.place(placeId) ?: return@withTransaction null
         val previousEnd = tracks.track(beforeId)?.endPlaceId
         val previousStart = tracks.track(afterId)?.startPlaceId
-        if (previousEnd != null && previousEnd == previousStart) return@withTransaction null
+        if (previousEnd == placeId && previousStart == placeId) return@withTransaction null
         link(beforeId, afterId, placeId, placeId)
         StayedHere(beforeId, afterId, previousEnd, previousStart)
     }
