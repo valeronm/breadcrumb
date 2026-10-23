@@ -21,15 +21,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 
-/** The Timeline's gap rows and nothing else, under the same day headings: an absence crossing
- *  midnight is two rows, one under each day holding an end. */
+/** Every missing recording as one card holding both its ends in time order, under the day it began. */
 @Composable
 internal fun MissingRecordingsScreen(
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
-    onOpen: (TimelineItem.GapItem) -> Unit,
-    onOpenPlace: (String) -> Unit,
-    onAddTrip: (TripDraft) -> Unit,
+    onOpen: (afterTrackId: Long) -> Unit,
 ) {
     val missing by viewModel.missingRecordings.collectAsStateWithLifecycle()
     Scaffold(
@@ -57,7 +54,7 @@ internal fun MissingRecordingsScreen(
                 Modifier.padding(inner).fillMaxSize().padding(horizontal = 24.dp),
             )
         } else {
-            MissingRecordingList(days, Modifier.padding(inner), onOpen, onOpenPlace, onAddTrip)
+            MissingRecordingList(days, Modifier.padding(inner), onOpen)
         }
     }
 }
@@ -66,9 +63,7 @@ internal fun MissingRecordingsScreen(
 private fun MissingRecordingList(
     days: List<DayGroup<TimelineItem.GapItem>>,
     modifier: Modifier,
-    onOpen: (TimelineItem.GapItem) -> Unit,
-    onOpenPlace: (String) -> Unit,
-    onAddTrip: (TripDraft) -> Unit,
+    onOpen: (afterTrackId: Long) -> Unit,
 ) {
     val dayLabelOf = rememberDayLabel()
     val listState = rememberLazyListState()
@@ -89,9 +84,8 @@ private fun MissingRecordingList(
                     GapCard(
                         item = row,
                         shape = groupedRowShape(index, rows.size),
-                        onOpenPlace = onOpenPlace,
-                        onAddTrip = onAddTrip,
-                        onClick = { onOpen(row) },
+                        chronological = true,
+                        onClick = { onOpen(row.gap.afterTrackId) },
                     )
                 }
             }

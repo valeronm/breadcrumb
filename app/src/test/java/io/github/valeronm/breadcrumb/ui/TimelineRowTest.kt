@@ -145,7 +145,7 @@ class TimelineRowTest {
             afterTrackId = 1,
             clusterId = 0,
         ),
-        place = PlaceResolver.ResolvedStay(place = place, visitCount = 1, centroid = ORIGIN),
+        place = PlaceResolver.ResolvedStay(place = place, visitCount = 1, centroid = ORIGIN, radiusM = 150.0),
         merge = if (merge) MERGE_PLAN else null,
         holdsStart = holdsStart,
         holdsEnd = holdsEnd,
@@ -317,14 +317,13 @@ class TimelineRowTest {
         GapCard(
             item = item,
             shape = SHAPE,
-            onOpenPlace = {},
-            onAddTrip = {},
+            onClick = {},
         )
     }
 
     @Test
     fun `a gap arriving at a place an import made names its origin aloud`() {
-        val resolved = PlaceResolver.ResolvedStay(place = importedPlace(label = null), visitCount = 1, centroid = ORIGIN)
+        val resolved = PlaceResolver.ResolvedStay(place = importedPlace(label = null), visitCount = 1, centroid = ORIGIN, radiusM = 150.0)
         gapRow(gapItem(start = noon, end = noon + HOUR).copy(toPlace = resolved))
 
         compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline))
@@ -332,7 +331,7 @@ class TimelineRowTest {
     }
 
     private fun resolved(label: String) =
-        PlaceResolver.ResolvedStay(place = place(label), visitCount = 1, centroid = ORIGIN)
+        PlaceResolver.ResolvedStay(place = place(label), visitCount = 1, centroid = ORIGIN, radiusM = 150.0)
 
     @Test
     fun `a gap holding both ends states how long it ran, each time beside its place`() {

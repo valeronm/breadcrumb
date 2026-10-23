@@ -14,12 +14,15 @@ import java.time.LocalDate
  * between them, in the wrong order — so a repeat has to be allowed to stand as two days, because
  * that is what it was.
  */
-internal fun <T : TimelineItem> groupTimelineByDay(items: List<T>): List<DayGroup<T>> {
+internal fun <T : TimelineItem> groupTimelineByDay(
+    items: List<T>,
+    dateOf: (T) -> LocalDate = { it.filedOn },
+): List<DayGroup<T>> {
     val groups = mutableListOf<DayGroup<T>>()
     var run = mutableListOf<T>()
     var date: LocalDate? = null
     for (item in items) {
-        val itemDate = item.filedOn
+        val itemDate = dateOf(item)
         if (itemDate != date) {
             date?.let { groups += DayGroup(it, run) }
             run = mutableListOf()

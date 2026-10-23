@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.TrackMerge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -106,6 +107,11 @@ internal class UndoSnackbar(
  *  is refused. */
 internal fun UndoSnackbar.deleteTrack(viewModel: TrackListViewModel, trackId: Long, message: String) =
     viewModel.delete(trackId) { show(message) { viewModel.restoreTrack(trackId) } }
+
+/** Merges two tracks and offers the split back under [message]; nothing shows when the merge is
+ *  refused. */
+internal fun UndoSnackbar.mergeTracks(viewModel: TrackListViewModel, plan: TrackMerge.Plan, message: String) =
+    viewModel.mergeTracks(plan) { mergedId -> show(message) { viewModel.unmergeTracks(mergedId, plan) } }
 
 @Composable
 internal fun rememberUndoSnackbar(host: SnackbarHostState): UndoSnackbar {
@@ -201,9 +207,8 @@ internal fun ActivityTypeDialog(
 }
 
 /**
- * A single-choice option in a dialog: glyph, label, and the tick marking the current choice. Shared
- * by both option dialogs — the track-type and place-category pickers — so the corner radius,
- * paddings and tick affordance are stated once, not copied.
+ * A single-choice option: glyph, label, and the tick marking the current choice. Shared by every
+ * option picker, so the corner radius, paddings and tick affordance are stated once, not copied.
  *
  * `selectable` rather than `clickable`: the row is one option out of a set, so which one is current
  * is state the row carries and a screen reader states with it. The tick is then the sighted reading

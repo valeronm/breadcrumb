@@ -613,10 +613,7 @@ internal fun MapLibrePlacesMap(
         onStyleLoaded = { ctx, map, style, dark ->
             applied.places = places
             applied.frameKey = frameKey
-            // Before the markers, so the pins keep the top: a ring is the ground a place claims and
-            // the marker is the place. Layers draw in the order they are added.
-            style.addSource(GeoJsonSource(OVERVIEW_CIRCLE_SOURCE, overviewCircles(places)))
-            addContextCircleLayers(style, dark, OVERVIEW_CIRCLE_SOURCE, OVERVIEW_CIRCLE_FILL, OVERVIEW_CIRCLE_LINE)
+            addOverviewCircles(style, dark, places)
             style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             addOverviewLayers(ctx, style, places, dark)
@@ -640,8 +637,7 @@ internal fun MapLibrePlacesMap(
             if (applied.places !== places) {
                 applied.places = places
                 updateOverviewSource(style, places)
-                style.getSourceAs<GeoJsonSource>(OVERVIEW_CIRCLE_SOURCE)
-                    ?.setGeoJson(overviewCircles(places))
+                updateOverviewCircles(style, places)
             }
             if (applied.frameKey != frameKey) {
                 applied.frameKey = frameKey
@@ -665,6 +661,17 @@ private fun frameAllPlaces(map: MapLibreMap, places: List<OverviewPlace>) =
  */
 private const val OVERVIEW_CIRCLE_ZOOM = 12f
 
+/** Added before [addOverviewLayers]: layers draw in the order they are added, and a ring is only the
+ *  ground the place on top of it claims. */
+private fun addOverviewCircles(style: Style, dark: Boolean, places: List<OverviewPlace>) {
+    style.addSource(GeoJsonSource(OVERVIEW_CIRCLE_SOURCE, overviewCircles(places)))
+    addContextCircleLayers(style, dark, OVERVIEW_CIRCLE_SOURCE, OVERVIEW_CIRCLE_FILL, OVERVIEW_CIRCLE_LINE)
+}
+
+private fun updateOverviewCircles(style: Style, places: List<OverviewPlace>) {
+    style.getSourceAs<GeoJsonSource>(OVERVIEW_CIRCLE_SOURCE)?.setGeoJson(overviewCircles(places))
+}
+
 /** The reach of every place that claims one; the rest of the field contributes nothing. */
 private fun overviewCircles(places: List<OverviewPlace>): FeatureCollection =
     FeatureCollection.fromFeatures(
@@ -681,8 +688,10 @@ internal fun overviewPlaceKeyNear(map: MapLibreMap, latLng: LatLng): String? =
 
 /** A marker hidden here is out of [featureNear]'s reach too. */
 private fun showOverview(style: Style, shown: Boolean) {
-    style.getLayer(OVERVIEW_LAYER)
-        ?.setProperties(PropertyFactory.visibility(if (shown) Property.VISIBLE else Property.NONE))
+    val visibility = PropertyFactory.visibility(if (shown) Property.VISIBLE else Property.NONE)
+    for (layer in listOf(OVERVIEW_LAYER, OVERVIEW_CIRCLE_FILL, OVERVIEW_CIRCLE_LINE)) {
+        style.getLayer(layer)?.setProperties(visibility)
+    }
 }
 
 /** The topmost feature of [layer] within a finger's reach of [latLng], or null — the one tap
@@ -1102,6 +1111,7 @@ internal fun MapLibreTripMap(
             applied.frameKey = frameKey
             // The overview map's own layers, ids and all — a style belongs to one MapView, so the
             // names can't collide, and the places here are exactly that map's field of pins.
+            addOverviewCircles(style, dark, places)
             addOverviewLayers(ctx, style, places, dark)
             addSpotPinImage(ctx, style)
             applied.showPlaces = showPlaces
@@ -1170,6 +1180,7 @@ internal fun MapLibreTripMap(
             if (applied.places !== places) {
                 applied.places = places
                 updateOverviewSource(style, places)
+                updateOverviewCircles(style, places)
             }
             if (applied.showPlaces != showPlaces) {
                 applied.showPlaces = showPlaces
@@ -1271,5 +1282,6 @@ private fun frameTripMap(
     }
     if (!force && showsWell(map, positions)) return
     val framed = trip.singleOrNull()?.let { squareAround(it, LONE_END_REACH_M) } ?: positions
-    frameTo(map, framed, singlePointZoom = 9.0)
+    val reaches = places.flatMap { place -> place.radiusM?.let { squareAround(place.marker.location, it) }.orEmpty() }
+    frameTo(map, framed + reaches, singlePointZoom = 9.0)
 }

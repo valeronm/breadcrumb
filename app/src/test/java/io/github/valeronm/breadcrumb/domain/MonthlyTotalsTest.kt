@@ -64,6 +64,7 @@ class MonthlyTotalsTest {
             ),
             visitCount = 1,
             centroid = Coordinate(1.0, -2.0),
+            radiusM = 150.0,
         ),
         zone = zone,
     )

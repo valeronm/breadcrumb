@@ -595,21 +595,6 @@ class StayDeriverTest {
         assertTrue("a gap renders as a gap, not a stay", items[1] is TimelineItem.GapItem)
     }
 
-    @Test fun `a gap row names the track it ends at`() {
-        val summaries = listOf(
-            summary(3, startedAt = 300 * MIN),
-            summary(2, startedAt = 200 * MIN),
-            summary(1, startedAt = 100 * MIN),
-        )
-        val older = Gap(110 * MIN, 200 * MIN, afterTrackId = 1)
-        val newer = Gap(210 * MIN, 300 * MIN, afterTrackId = 2)
-
-        val gaps = TimelineRows.interleave(summaries, oneClock(older, newer))
-            .filterIsInstance<TimelineItem.GapItem>()
-
-        assertEquals(listOf(3L, 2L), gaps.map { it.nextTrackId })
-    }
-
     private fun summary(id: Long, startedAt: Long) = TrackSummary(
         id = id, activityType = "WALKING", startedAt = startedAt,
         endedAt = startedAt + 10 * MIN, distanceMeters = 1000.0, pointCount = 100, ignoredCount = 0,

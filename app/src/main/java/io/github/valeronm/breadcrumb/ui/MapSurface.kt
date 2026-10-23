@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
@@ -54,6 +55,7 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.offline.OfflineManager
 import java.util.WeakHashMap
+import kotlin.math.roundToInt
 
 /**
  * The map every screen draws on, and nothing drawn on it: the [MapView] and its lifecycle, the
@@ -428,3 +430,18 @@ private fun styleFlavor(ctx: Context, dark: Boolean): StyleFlavor =
             ?: android.graphics.Color.DKGRAY
         StyleFlavor(json, background)
     }
+
+/** Where the controls floating over the map and the sheet's top edge sit, in window pixels. */
+internal class MapCover {
+    var mapTop by mutableFloatStateOf(0f)
+    var mapBottom by mutableFloatStateOf(0f)
+    var headerBottom by mutableFloatStateOf(0f)
+
+    /** Unset until the sheet is first laid out, when nothing is known to cover the map. */
+    var sheetTop by mutableFloatStateOf(Float.NaN)
+
+    fun insets(): MapInsets = MapInsets(
+        top = (headerBottom - mapTop).roundToInt().coerceAtLeast(0),
+        bottom = if (sheetTop.isNaN()) 0 else (mapBottom - sheetTop).roundToInt().coerceAtLeast(0),
+    )
+}

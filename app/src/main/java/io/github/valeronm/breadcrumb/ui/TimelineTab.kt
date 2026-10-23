@@ -30,7 +30,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Pause
@@ -79,7 +78,6 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -181,8 +179,7 @@ internal fun TimelineTab(
     onOpenPlace: (String) -> Unit,
     /** Open the journey detail — the band over a day inside one is the way in from here. */
     onOpenJourney: (TravelNaming.Summary) -> Unit,
-    /** Open the add-trip form on an absence, holding whatever the gap row it came from knows. */
-    onAddTrip: (TripDraft) -> Unit,
+    onOpenGap: (afterTrackId: Long) -> Unit,
     onReplay: (TrackSummary) -> Unit,
     /** Open the Record tab — the recording row's tap, that being where the recording draws live. */
     onOpenRecording: () -> Unit,
@@ -327,7 +324,7 @@ internal fun TimelineTab(
                     onOpen = onOpen,
                     onOpenPlace = onOpenPlace,
                     onOpenJourney = onOpenJourney,
-                    onAddTrip = onAddTrip,
+                    onOpenGap = onOpenGap,
                     onReplay = onReplay,
                     onOpenRecording = onOpenRecording,
                     awayDays = awayDays,
@@ -360,7 +357,7 @@ private fun TimelineListPage(
     onOpen: (Long) -> Unit,
     onOpenPlace: (String) -> Unit,
     onOpenJourney: (TravelNaming.Summary) -> Unit,
-    onAddTrip: (TripDraft) -> Unit,
+    onOpenGap: (afterTrackId: Long) -> Unit,
     onReplay: (TrackSummary) -> Unit,
     onOpenRecording: () -> Unit,
     /** Open the map page on this day — a day header's date is the way in from here. */
@@ -463,11 +460,7 @@ private fun TimelineListPage(
     // the composition.
     val mergedMessage = stringResource(R.string.timeline_undo_merged)
     val deletedMessage = stringResource(R.string.timeline_undo_deleted)
-    val onMerge = { plan: TrackMerge.Plan ->
-        viewModel.mergeTracks(plan) { mergedId ->
-            undo.show(mergedMessage) { viewModel.unmergeTracks(mergedId, plan) }
-        }
-    }
+    val onMerge = { plan: TrackMerge.Plan -> undo.mergeTracks(viewModel, plan, mergedMessage) }
     Box(Modifier.fillMaxSize()) {
         // Above the list, not inside it: dayAnchors counts lazy indices from zero, so a leading
         // item would put the fast scroller and the visit jump one row out for the sweep's
@@ -541,9 +534,8 @@ private fun TimelineListPage(
                                     item = item,
                                     shape = shape,
                                     highlighted = highlighted,
-                                    onOpenPlace = onOpenPlace,
                                     onMerge = onMerge,
-                                    onAddTrip = onAddTrip,
+                                    onOpen = { onOpenGap(item.gap.afterTrackId) },
                                 )
                         }
                     }
@@ -1270,25 +1262,23 @@ private fun GapRow(
     item: TimelineItem.GapItem,
     shape: RoundedCornerShape,
     highlighted: Boolean,
-    onOpenPlace: (String) -> Unit,
     onMerge: (TrackMerge.Plan) -> Unit,
-    onAddTrip: (TripDraft) -> Unit,
+    onOpen: () -> Unit,
 ) {
     // A gap short enough to be one outing the recorder split swipes away exactly as a short stop
     // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
     // absences and aren't swipeable.
     MergeSwipeable(item.merge, shape, onMerge) {
-        GapCard(item, shape, onOpenPlace, onAddTrip, mergeable = item.merge != null, highlighted = highlighted)
+        GapCard(item, shape, mergeable = item.merge != null, highlighted = highlighted, onClick = onOpen)
     }
 }
 
 /**
- * Movement the recorder missed: neighboring track endpoints disagree. Deliberately subdued — most
- * such gaps are one place misclustered as two, so the card names each side it holds as a full-width
- * tappable line (the app's row-tap language, not inline links) opening that place, where a re-pin or
- * wider radius fixes the split. Two pins joined by a dashed connector in the icon column draw the
- * unrecorded leg as a map would. Newest-first timeline: the destination sits above (adjacent to
- * the later track), the source below.
+ * Movement the recorder missed: neighboring track endpoints disagree. Deliberately subdued, and one
+ * tap target as a whole: the gap's page holds its places and every way to fill it. Two pins joined
+ * by a dashed connector in the icon column draw the unrecorded leg as a map would. On the
+ * newest-first timeline the destination sits above (adjacent to the later track) and the source
+ * below; [chronological] turns that round for a list of gaps on their own.
  *
  * **An absence is cut once, at the midnight opening the day it ended** — never per day the way a
  * stay is. A stay reports something true about each day it covers; an absence reports nothing about
@@ -1301,20 +1291,16 @@ private fun GapRow(
  *
  * A crossing takes the same single cut for a second reason: its ends ran on different clocks, and
  * cutting it at either end's midnights throughout would file one absence under two calendars.
- *
- * The other way to close a gap is to say what happened in it, so the card offers the add-trip form
- * pre-filled with the ends it holds.
  */
 @Composable
 internal fun GapCard(
     item: TimelineItem.GapItem,
     shape: RoundedCornerShape,
-    onOpenPlace: (String) -> Unit,
-    onAddTrip: (TripDraft) -> Unit,
     /** Whether the host offers this gap's merge, which the connector's accent advertises. */
     mergeable: Boolean = false,
     highlighted: Boolean = false,
-    onClick: (() -> Unit)? = null,
+    chronological: Boolean = false,
+    onClick: () -> Unit,
 ) {
     val gap = item.gap
     // The whole card is drawn from the two questions the slicer answered when it cut — see
@@ -1325,22 +1311,6 @@ internal fun GapCard(
     val holdsArrival = item.holdsArrival
     val arrival = if (holdsArrival) item.toPlace else null
     val departure = if (holdsDeparture) item.fromPlace else null
-    // The trip this absence is missing, as far as this row can state it — the same two questions
-    // again, so an end the card doesn't name is an end the form isn't handed: the far side of an
-    // absence cut at midnight is a fact about the other day's row, and would go into the form as
-    // fact and be committed unread.
-    // Built once per row rather than per composition — the ripple invalidates this card on every
-    // press, and nothing here is read until the "+" is tapped. The row's own data decides all of it,
-    // so it is the whole key.
-    val draft = remember(item) {
-        TripDraft(
-            day = item.filedOn,
-            origin = if (holdsDeparture) draftEndOf(departure, gap.from?.at, gap.start) else null,
-            destination = if (holdsArrival) draftEndOf(arrival, gap.to?.at, gap.end) else null,
-            trackBefore = gap.afterTrackId,
-            trackAfter = item.nextTrackId,
-        )
-    }
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
     val readerClock = LocalReaderClock.current
@@ -1365,7 +1335,9 @@ internal fun GapCard(
     val both = bounds as? GapBounds.Both
     MissingRecordingCard(shape, onClick, highlighted) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
-            GapPlaceLine(arrival, both?.let { arrivalAt(it.end) }, onOpenPlace)
+            val departureLine = @Composable { GapPlaceLine(departure, both?.let { departureAt(it.start) }) }
+            val arrivalLine = @Composable { GapPlaceLine(arrival, both?.let { arrivalAt(it.end) }) }
+            if (chronological) departureLine() else arrivalLine()
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1378,19 +1350,8 @@ internal fun GapCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
-                // The card's one action, so it carries the card's only accent — the same glyph the
-                // Timeline's own top bar opens the form with. Offered on every gap row, because
-                // every gap row now speaks for at least one end: the rows that could offer nothing
-                // were the per-day middles, and those are no longer cut.
-                IconButton(onClick = { onAddTrip(draft) }) {
-                    Icon(
-                        imageVector = Icons.Filled.Add,
-                        contentDescription = stringResource(R.string.action_add_missing_trip),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
             }
-            GapPlaceLine(departure, both?.let { departureAt(it.start) }, onOpenPlace)
+            if (chronological) arrivalLine() else departureLine()
         }
     }
 }
@@ -1422,26 +1383,8 @@ private fun GapConnector(mergeable: Boolean) {
 }
 
 /**
- * One end of an absence as the add-trip form takes it, under the name the user gave that spot if any.
- *
- * **[at] is where the recording itself was**, not where the place holding it is pinned: this end is
- * timed at the instant the neighbouring track began or ended, and that track's own first or last fix
- * is where the phone demonstrably was then. A place's pin is the middle of a label — it can sit a
- * street from the car park the recording stopped in — so drawing the entered leg from there would
- * leave a jump between it and the path it is filling in. Falls back to the pin where the recorder
- * had no fix at all, and to nothing where neither exists; the form asks the map for the rest.
- */
-private fun draftEndOf(
-    place: PlaceResolver.ResolvedStay?,
-    at: Coordinate?,
-    atMs: Long,
-) = TripDraftEnd(at = at ?: place?.pin, placeName = place?.label, timeMs = atMs)
-
-/**
- * One side of a gap: a full-width line (category disc + place name, ripple across the row like every
- * other tappable row) opening the place's detail — stay-less clusters have zero-visit rows
- * (summarize emits every cluster), so every known side opens. An unknown side renders nothing, its
- * time included; its position tells the story.
+ * One side of a gap: category disc and place name. An unknown side renders nothing, its time
+ * included; its position tells the story.
  *
  * [at] trails the name rather than leading it: which two places the absence lies between is what the
  * row is for, and the times qualify them.
@@ -1450,16 +1393,13 @@ private fun draftEndOf(
 private fun GapPlaceLine(
     place: PlaceResolver.ResolvedStay?,
     at: AnnotatedString?,
-    onOpenPlace: (String) -> Unit,
 ) {
     if (place == null) return
     val category = place.category
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onOpenPlace(place.key) }
-            // A floor rather than more padding, which would loosen the connector this row sits
-            // against: the 36.dp disc and 4.dp either side leave the row short of a finger.
+            // A floor rather than more padding, which would loosen the connector this row sits against.
             .heightIn(min = 48.dp)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,

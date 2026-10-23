@@ -132,6 +132,7 @@ object PlaceResolver {
         val visitCount: Int,
         /** Cluster centroid — where a new place would be pinned when the user names this stay. */
         val centroid: Coordinate,
+        val radiusM: Double,
         /**
          * Where on earth this cluster sits, as the atlas has it — the row itself rather than a
          * copy per attribute, following [place]: what a spot is called and which clock it runs on
@@ -186,7 +187,7 @@ object PlaceResolver {
          * captures and stand until it replaces the row.
          */
         fun withPlace(named: Place): ResolvedStay =
-            if (saysSameAs(place, named)) this else copy(place = named, keptKey = key)
+            if (saysSameAs(place, named)) this else copy(place = named, radiusM = named.radiusM, keptKey = key)
     }
 
     /**
@@ -360,6 +361,7 @@ object PlaceResolver {
                 place = matchedPlace(cluster, places),
                 visitCount = visitsByCluster[clusterId] ?: 0,
                 centroid = cluster.centroid,
+                radiusM = cluster.radiusM,
                 locality = cities[cluster.centroid],
             )
         }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gap_title">Нет записи</string>
+    <string name="gap_at_least_speed">не менее %1$s</string>
+    <string name="gap_other_fixes">Другие способы заполнить</string>
+    <string name="gap_show_both_ends">Показать обе точки</string>
+    <string name="gap_show_on_timeline">Показать в истории</string>
+
+    <string name="gap_fix_missed_start">Добавить начало следующей поездки</string>
+    <string name="gap_fix_add_trip">Добавить недостающую поездку</string>
+    <string name="gap_fix_stayed_here">Сделать посещением</string>
+    <string name="gap_fix_merge">Объединить поездки</string>
+
+    <string name="gap_stayed_where">Где вы были?</string>
+    <string name="gap_stayed_undo">Посещение добавлено</string>
+</resources>

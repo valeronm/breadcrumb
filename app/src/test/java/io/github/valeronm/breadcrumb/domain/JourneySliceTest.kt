@@ -20,6 +20,7 @@ class JourneySliceTest {
                     ),
                     visitCount = 1,
                     centroid = Coordinate(ORIGIN_LAT, ORIGIN_LON),
+                    radiusM = 400.0,
                 )
             },
         )

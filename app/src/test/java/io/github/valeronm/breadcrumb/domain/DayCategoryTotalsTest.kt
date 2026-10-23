@@ -23,6 +23,7 @@ class DayCategoryTotalsTest {
         ),
         visitCount = 1,
         centroid = Coordinate(1.0, -2.0),
+        radiusM = 150.0,
     )
 
     private var nextTrackId = 0L

@@ -23,6 +23,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.GapDiagnosis
 import io.github.valeronm.breadcrumb.domain.MonthTotals
 import io.github.valeronm.breadcrumb.domain.MonthlyTotals
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
@@ -125,6 +126,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         val stays: List<StayDeriver.Stay> = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
 
+        // Over the unsliced stays: after slicePerDay a three-day stay counts as three visits.
+        private val clusterPlaces by lazy { PlaceResolver.resolveClusters(stays, derivation.clusters, places, cities) }
+
         /** `ZoneId.of` parses and allocates on every call. */
         private val zoneByCluster: List<ZoneId> by lazy {
             derivation.clusters.map { zoneOrDevice(cities[it.centroid]?.zoneId) }
@@ -134,6 +138,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             val zoneAt = { at: Coordinate? -> zoneOfCluster(at?.let(derivation.clusterOfEndpoint::get)) }
             tracks.associate { it.trackId to Clocks(zoneAt(it.start), zoneAt(it.end)) }
         }
+
+        fun placeOfCluster(id: Int?): PlaceResolver.ResolvedStay? = id?.let(clusterPlaces::getOrNull)
 
         fun zoneOfCluster(id: Int?): ZoneId = id?.let(zoneByCluster::getOrNull) ?: timelineZone()
 
@@ -240,11 +246,19 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 val place = item.place?.let(::dress)
                 if (place === item.place) item else item.copy(place = place)
             }
-            is TimelineItem.GapItem -> {
-                val from = item.fromPlace?.let(::dress)
-                val to = item.toPlace?.let(::dress)
-                if (from === item.fromPlace && to === item.toPlace) item else item.copy(fromPlace = from, toPlace = to)
-            }
+            is TimelineItem.GapItem ->
+                dressSides(item.fromPlace, item.toPlace)?.let { (from, to) -> item.copy(fromPlace = from, toPlace = to) }
+                    ?: item
+        }
+
+        /** A gap's two sides dressed, or null where the row describes neither. */
+        internal fun dressSides(
+            from: PlaceResolver.ResolvedStay?,
+            to: PlaceResolver.ResolvedStay?,
+        ): Pair<PlaceResolver.ResolvedStay?, PlaceResolver.ResolvedStay?>? {
+            val dressedFrom = from?.let(::dress)
+            val dressedTo = to?.let(::dress)
+            return if (dressedFrom === from && dressedTo === to) null else dressedFrom to dressedTo
         }
     }
 
@@ -257,32 +271,82 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     val pendingPlaceRow: StateFlow<PendingPlace?> = pendingPlace
 
     /**
+     * The tracks and the derivation as one reading, with what several screens read off them worked
+     * out once.
+     */
+    private class Reading(val summaries: List<TrackSummary>, val d: Derived) {
+        val neighbors = neighborsByAnchor(summaries)
+
+        // Decided over the intervals: the timeline's rows are per-day slices, bounded by the display.
+        val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
+
+        /** Oldest first, as the derivation holds them. */
+        val gaps: List<ResolvedGap> = d.derivation.intervals.filterIsInstance<StayDeriver.Gap>().map { gap ->
+            ResolvedGap(
+                gap = gap,
+                fromPlace = d.placeOfCluster(gap.from?.clusterId),
+                toPlace = d.placeOfCluster(gap.to?.clusterId),
+                clocks = Clocks(d.zoneOfCluster(gap.from?.clusterId), d.zoneOfCluster(gap.to?.clusterId)),
+                merge = mergePlans[gap.afterTrackId],
+            )
+        }
+        val gapsByAnchor: Map<Long, ResolvedGap> = gaps.associateBy { it.gap.afterTrackId }
+    }
+
+    /** A whole gap with the place and clock at each end, and the merge its tracks allow. */
+    private data class ResolvedGap(
+        val gap: StayDeriver.Gap,
+        val fromPlace: PlaceResolver.ResolvedStay?,
+        val toPlace: PlaceResolver.ResolvedStay?,
+        val clocks: Clocks,
+        val merge: TrackMerge.Plan?,
+    ) {
+        fun item() = TimelineItem.GapItem(
+            gap = gap,
+            fromPlace = fromPlace,
+            toPlace = toPlace,
+            merge = merge,
+            departureZone = clocks.start,
+            arrivalZone = clocks.end,
+        )
+
+        /** A gap no side of which [pending] describes comes back as the same instance. */
+        fun dressedBy(pending: PendingPlace): ResolvedGap =
+            pending.dressSides(fromPlace, toPlace)?.let { (from, to) -> copy(fromPlace = from, toPlace = to) } ?: this
+    }
+
+    // No stop timeout: the downstream stateIns keep five seconds, and one here would add to it.
+    private val reading: Flow<Reading> = combine(trackRows, derived, ::Reading)
+        .flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
+
+    /** [Reading]'s gaps with a place just written drawn onto their sides, for the screens about gaps. */
+    private class GapReading(val reading: Reading, val gaps: List<ResolvedGap>) {
+        val byAnchor: Map<Long, ResolvedGap> =
+            if (gaps === reading.gaps) reading.gapsByAnchor else gaps.associateBy { it.gap.afterTrackId }
+    }
+
+    private val gapReading: Flow<GapReading> = combine(reading, pendingPlace) { r, pending ->
+        GapReading(r, if (pending == null) r.gaps else r.gaps.map { it.dressedBy(pending) })
+    }.flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
+
+    /**
      * Shared, so a change to [pendingPlace] costs a map over these rows rather than a walk of the
      * history.
      */
-    private val resolvedTimeline: Flow<List<TimelineItem>> = combine(trackRows, derived) { summaries, d ->
-        // Over the unsliced stays: after slicePerDay a three-day stay counts as three visits.
-        // Slicing keeps cluster ids, so the sliced items look these up directly.
-        val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
-        // observeSummaries returns newest first, so a reversed view is chronological without a
-        // sort.
-        val neighbors = summaries.asReversed().zipWithNext()
-            .associate { (a, b) -> a.id to TrackMerge.Neighbors(a, b) }
-
-        // Decided over the intervals: the rows below are per-day slices, bounded by the display.
-        val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
+    private val resolvedTimeline: Flow<List<TimelineItem>> = reading.map { r ->
+        val d = r.d
         // A gap carries a clock per end, so the slicer cuts a crossing into the day it left and the
         // day it landed.
-        val zoneOfCluster = { id: Int? -> d.zoneOfCluster(id) }
         val zonesOfInterval = { interval: StayDeriver.Interval ->
             when (interval) {
-                is StayDeriver.Stay -> Clocks.both(zoneOfCluster(interval.clusterId))
-                is StayDeriver.Gap ->
-                    Clocks(zoneOfCluster(interval.from?.clusterId), zoneOfCluster(interval.to?.clusterId))
+                is StayDeriver.Stay -> Clocks.both(d.zoneOfCluster(interval.clusterId))
+                is StayDeriver.Gap -> r.gapsByAnchor.getValue(interval.afterTrackId).clocks
             }
         }
         TimelineRows.interleave(
-            summaries,
+            r.summaries,
             TimelineRows.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
         ).mapNotNull { item ->
             when (item) {
@@ -291,22 +355,55 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 is TimelineItem.RecordingItem -> item
                 // The slice already carries the zones.
-                is TimelineItem.GapItem -> item.copy(
-                    fromPlace = item.gap.from?.clusterId?.let(clusterPlaces::getOrNull),
-                    toPlace = item.gap.to?.clusterId?.let(clusterPlaces::getOrNull),
-                    merge = mergePlans[item.gap.afterTrackId],
-                )
+                is TimelineItem.GapItem -> r.gapsByAnchor.getValue(item.gap.afterTrackId).let {
+                    item.copy(fromPlace = it.fromPlace, toPlace = it.toPlace, merge = it.merge)
+                }
                 // Filtered after `merge` is attached, since [TimelineItem.StayItem.isBareSeam]
                 // reads it.
                 is TimelineItem.StayItem -> item.copy(
-                    place = clusterPlaces.getOrNull(item.stay.clusterId),
-                    merge = mergePlans[item.stay.afterTrackId],
+                    place = d.placeOfCluster(item.stay.clusterId),
+                    merge = r.mergePlans[item.stay.afterTrackId],
                 ).takeUnless { it.isBareSeam }
             }
         }
     }.flowOn(Dispatchers.Default)
-        // No stop timeout: the downstream stateIns keep five seconds, and one here would add to it.
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
+
+    fun gapDetail(afterTrackId: Long): Flow<GapState> = gapReading.map { g ->
+        val resolved = g.byAnchor[afterTrackId] ?: return@map GapState.Gone
+        val neighbors = g.reading.neighbors[afterTrackId] ?: return@map GapState.Gone
+        GapDetail(
+            resolved.gap,
+            neighbors.before,
+            neighbors.after,
+            fromPlace = resolved.fromPlace,
+            toPlace = resolved.toPlace,
+            departureZone = resolved.clocks.start,
+            arrivalZone = resolved.clocks.end,
+            verdict = GapDiagnosis.diagnose(
+                resolved.gap, neighbors,
+                fromNamed = resolved.fromPlace?.holdsStays == true,
+                toNamed = resolved.toPlace?.holdsStays == true,
+                distance = AndroidDistance,
+            ),
+        )
+    }.flowOn(Dispatchers.Default).distinctUntilChanged()
+
+    fun stayedHere(
+        beforeId: Long,
+        afterId: Long,
+        side: PlaceResolver.ResolvedStay,
+        onDone: (PlaceRepository.StayedHere) -> Unit,
+    ) {
+        val placeId = side.place?.id ?: return
+        viewModelScope.launch {
+            placeRepository.stayedHere(beforeId, afterId, placeId)?.let(onDone)
+        }
+    }
+
+    fun undoStayedHere(done: PlaceRepository.StayedHere) {
+        viewModelScope.launch { placeRepository.undoStayedHere(done) }
+    }
 
     val recordingRow: StateFlow<TimelineItem.RecordingItem?> = TrackingStatus.state
         .map { it.openTrack }
@@ -403,25 +500,27 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }.flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** [timeline]'s gap rows under its own day headings, and how many absences they are. */
-    internal class MissingRecordings(val days: List<DayGroup<TimelineItem.GapItem>>, val count: Int)
+    /** Every gap whole, newest first under the day it began, and how many there are. */
+    internal class MissingRecordings(val days: List<DayGroup<TimelineItem.GapItem>>) {
+        val count: Int get() = days.sumOf { it.items.size }
+    }
 
-    /** Whether [timeline] holds any gap row; false until the first derivation lands. */
-    val hasMissingRecordings: StateFlow<Boolean> = timeline
-        .map { items -> items?.any { it is TimelineItem.GapItem } == true }
+    /** Whether the derivation holds any gap; false until the first one lands. */
+    val hasMissingRecordings: StateFlow<Boolean> = reading
+        .map { it.gaps.isNotEmpty() }
         .distinctUntilChanged()
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    /**
-     * **Null until the first derivation lands**, as on [timeline]. Counted by departure halves: one
-     * cut at midnight is two rows and still one absence ([TimelineItem.GapItem.holdsDeparture]).
-     */
-    internal val missingRecordings: StateFlow<MissingRecordings?> = timeline
-        // A change elsewhere in the history leaves the gap rows equal, and the page as it was.
-        .map { items -> items?.filterIsInstance<TimelineItem.GapItem>() }
+    /** **Null until the first derivation lands**, as on [timeline]. */
+    internal val missingRecordings: StateFlow<MissingRecordings?> = gapReading
+        .map { g -> g.gaps.asReversed() }
+        // A change elsewhere in the history leaves the gaps equal, and the page as it was.
         .distinctUntilChanged()
-        .map { gaps -> gaps?.let { MissingRecordings(groupTimelineByDay(it), it.count { gap -> gap.holdsDeparture }) } }
+        .map { gaps ->
+            val dayOf = gaps.associate { it.gap.afterTrackId to it.gap.start.toLocalDate(it.clocks.start) }
+            MissingRecordings(groupTimelineByDay(gaps.map { it.item() }) { dayOf.getValue(it.gap.afterTrackId) })
+        }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -721,3 +820,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         const val PENDING_PLACE_TIMEOUT_MS = 30_000L
     }
 }
+
+// observeSummaries returns newest first.
+private fun neighborsByAnchor(summaries: List<TrackSummary>): Map<Long, TrackMerge.Neighbors> =
+    summaries.asReversed().zipWithNext().associate { (a, b) -> a.id to TrackMerge.Neighbors(a, b) }

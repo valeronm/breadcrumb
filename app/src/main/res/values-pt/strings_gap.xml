@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gap_title">Gravação em falta</string>
+    <string name="gap_at_least_speed">pelo menos %1$s</string>
+    <string name="gap_other_fixes">Outras formas de a preencher</string>
+    <string name="gap_show_both_ends">Mostrar os dois pontos</string>
+    <string name="gap_show_on_timeline">Mostrar na cronologia</string>
+
+    <string name="gap_fix_missed_start">Adicionar o início da viagem seguinte</string>
+    <string name="gap_fix_add_trip">Adicionar a viagem em falta</string>
+    <string name="gap_fix_stayed_here">Transformar em permanência</string>
+    <string name="gap_fix_merge">Juntar as viagens</string>
+
+    <string name="gap_stayed_where">Onde ficou?</string>
+    <string name="gap_stayed_undo">Permanência adicionada</string>
+</resources>

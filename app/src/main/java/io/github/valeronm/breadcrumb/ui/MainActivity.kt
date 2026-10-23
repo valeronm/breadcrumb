@@ -84,7 +84,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOverlap
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.BuildIdentity
@@ -282,10 +282,11 @@ private fun MainScreen(
     // consumed.
     var placesHomeRequest by remember { mutableIntStateOf(0) }
     // The add-trip form's input, which is also the flag that it is open: the top bar opens it on
-    // the day the Timeline was showing, a gap row on the ends that row already knows. Everything
+    // the day the Timeline was showing, a gap's page on the ends that gap already knows. Everything
     // the form does with it stays local to the form until its check mark.
     var tripDraft by remember { mutableStateOf<TripDraft?>(null) }
     var missingRecordingsOpen by remember { mutableStateOf(false) }
+    var gapAfterTrackId by remember { mutableStateOf<Long?>(null) }
     // The day the Timeline showed when the form was opened — its pickers start there, a trip
     // added while looking at a day usually being a trip on it.
     val timelineViewedDay = remember { TimelineViewedDay() }
@@ -297,16 +298,22 @@ private fun MainScreen(
     // like any parent; without one, the layers over the tabs would restate wherever the tabs blur
     // a relation stated once here.
     val tabsLayer = remember { OverlayLayerState<Unit>() }
-    // The layers a gap row opens stack on this one, so back returns to the list; with the list closed
-    // it holds nothing and the tabs show through.
+    // With the list closed it holds nothing, and what stacks on it shows the tabs beneath.
     val missingRecordingsLayer = rememberOverlayLayer(
         content = Unit.takeIf { missingRecordingsOpen },
         over = tabsLayer,
         dismiss = { missingRecordingsOpen = false },
     )
+    // A gap's page sits on the list it may have been opened from; opened from the Timeline, the list
+    // holds nothing and the tabs show through.
+    val gapLayer = rememberOverlayLayer(
+        content = gapAfterTrackId,
+        over = missingRecordingsLayer,
+        dismiss = { gapAfterTrackId = null },
+    )
     val mainLayer = rememberOverlayLayer(
         content = mainDestination,
-        over = missingRecordingsLayer,
+        over = gapLayer,
         dismiss = { mainDestination = null },
     )
     // Back from a Settings page previews the hub rather than the tabs.
@@ -321,12 +328,12 @@ private fun MainScreen(
         over = settingsLayer,
         dismiss = { discardedTrackId = null },
     )
-    // Journey detail: reached from the Insights tab or a Timeline band. It sits on the missing-recordings
-    // layer, which holds nothing under a journey, so that the place detail stacked on this one draws
-    // above that list.
+    // Journey detail: reached from the Insights tab or a Timeline band. It sits on the gap layer,
+    // which holds nothing under a journey, so that the place detail stacked on this one draws above
+    // a gap's page and the list beneath it.
     val journeyLayer = rememberOverlayLayer(
         content = journeyKey,
-        over = missingRecordingsLayer,
+        over = gapLayer,
         dismiss = { journeyKey = null },
     )
     val newPlaceLayer = rememberOverlayLayer(
@@ -396,6 +403,8 @@ private fun MainScreen(
     // it back exactly as they were.
     // Resolved here: the callback below runs outside the composition.
     val placeDeleted = stringResource(R.string.places_deleted)
+    val stayedUndoMessage = stringResource(R.string.gap_stayed_undo)
+    val mergedUndoMessage = stringResource(R.string.timeline_undo_merged)
     val unnamedPlaceDeleted = stringResource(R.string.places_deleted_unnamed)
     val removePlace: (Place) -> Unit = { place ->
         viewModel.deletePlace(place)
@@ -548,7 +557,7 @@ private fun MainScreen(
                             onOpen = { mainDestination = MainDestination.TrackDetail(it) },
                             onOpenPlace = { placeDetailKey = it },
                             onOpenJourney = { journeyKey = it.travel.firstNightAt },
-                            onAddTrip = { tripDraft = it },
+                            onOpenGap = { gapAfterTrackId = it },
                             onReplay = { track ->
                                 TrackReplayer.start(context, track.id)
                                 selectedTab = HomeTab.RECORD
@@ -679,12 +688,24 @@ private fun MainScreen(
         MissingRecordingsOverlay(
             layer = missingRecordingsLayer,
             viewModel = viewModel,
-            onOpen = { row ->
-                timelineJump = TimelineJump.Gap(row.gap, atDeparture = row.holdsDeparture)
+            onOpen = { gapAfterTrackId = it },
+        )
+
+        GapDetailOverlay(
+            layer = gapLayer,
+            viewModel = viewModel,
+            onAddTrip = { tripDraft = it },
+            onStayedHere = { beforeId, afterId, side ->
+                viewModel.stayedHere(beforeId, afterId, side) { done ->
+                    undo.show(stayedUndoMessage) { viewModel.undoStayedHere(done) }
+                }
+            },
+            onMerge = { plan -> undo.mergeTracks(viewModel, plan, mergedUndoMessage) },
+            onShowOnTimeline = { gap ->
+                timelineJump = TimelineJump.Gap(gap, atDeparture = true)
                 landOnTimeline()
             },
             onOpenPlace = { placeDetailKey = it },
-            onAddTrip = { tripDraft = it },
         )
 
         AddTripOverlay(
@@ -749,17 +770,37 @@ private fun NewPlaceOverlay(
 private fun MissingRecordingsOverlay(
     layer: OverlayLayerState<Unit>,
     viewModel: TrackListViewModel,
-    onOpen: (TimelineItem.GapItem) -> Unit,
-    onOpenPlace: (String) -> Unit,
-    onAddTrip: (TripDraft) -> Unit,
+    onOpen: (afterTrackId: Long) -> Unit,
 ) {
     OverlayFrame(layer) {
         MissingRecordingsScreen(
             viewModel = viewModel,
             onBack = layer.dismiss,
             onOpen = onOpen,
-            onOpenPlace = onOpenPlace,
+        )
+    }
+}
+
+@Composable
+private fun GapDetailOverlay(
+    layer: OverlayLayerState<Long>,
+    viewModel: TrackListViewModel,
+    onAddTrip: (TripDraft) -> Unit,
+    onStayedHere: (beforeId: Long, afterId: Long, side: PlaceResolver.ResolvedStay) -> Unit,
+    onMerge: (TrackMerge.Plan) -> Unit,
+    onShowOnTimeline: (StayDeriver.Gap) -> Unit,
+    onOpenPlace: (String) -> Unit,
+) {
+    OverlayFrame(layer) { afterTrackId ->
+        GapDetailScreen(
+            afterTrackId = afterTrackId,
+            viewModel = viewModel,
+            onBack = layer.dismiss,
             onAddTrip = onAddTrip,
+            onStayedHere = onStayedHere,
+            onMerge = onMerge,
+            onShowOnTimeline = onShowOnTimeline,
+            onOpenPlace = onOpenPlace,
         )
     }
 }

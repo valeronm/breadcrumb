@@ -54,7 +54,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -103,7 +102,6 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
-import kotlin.math.roundToInt
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /** What the add-trip form offers: every movement type, carried transport first — a trip goes
@@ -131,11 +129,8 @@ private fun noonOf(day: LocalDate?, zone: ZoneId): ZonedDateTime =
     (day ?: LocalDate.now(zone)).atTime(12, 0).atZone(zone)
 
 /**
- * What the form opens holding. The Timeline's top bar knows only which day was on screen; a gap
- * row knows the places the absence lies between and when it ran, and hands over whichever of its
- * two ends that row itself speaks for — both where the absence sat inside one day, otherwise only
- * the end on its own side of the cut, since the other is a fact about a different day's row and
- * would arrive here as an unread guess.
+ * What the form opens holding. The Timeline's top bar knows only which day was on screen; a gap's
+ * page knows the places the absence lies between and when it ran.
  */
 internal class TripDraft(
     /** The day an end with no time of its own opens its pickers on. */
@@ -144,8 +139,7 @@ internal class TripDraft(
     val destination: TripDraftEnd? = null,
     /** Set where the form is restating a trip that already exists — see [EditedTrip]. */
     val editing: EditedTrip? = null,
-    /** The recorded tracks either side of the absence, which bound when the trip can have been
-     *  whichever of its ends this row holds. */
+    /** The recorded tracks either side of the absence, which bound when the trip can have been. */
     val trackBefore: Long? = null,
     val trackAfter: Long? = null,
 )
@@ -281,21 +275,6 @@ internal class TouchingTrack(
     val side get() = ManualPath.StaySide(boundMs, touching, placeId)
 }
 
-/** Where the controls floating over the map and the sheet's top edge sit, in window pixels. */
-private class MapCover {
-    var mapTop by mutableFloatStateOf(0f)
-    var mapBottom by mutableFloatStateOf(0f)
-    var headerBottom by mutableFloatStateOf(0f)
-
-    /** Unset until the sheet is first laid out, when nothing is known to cover the map. */
-    var sheetTop by mutableFloatStateOf(Float.NaN)
-
-    fun insets(): MapInsets = MapInsets(
-        top = (headerBottom - mapTop).roundToInt().coerceAtLeast(0),
-        bottom = if (sheetTop.isNaN()) 0 else (mapBottom - sheetTop).roundToInt().coerceAtLeast(0),
-    )
-}
-
 /**
  * Enter a trip nothing recorded — a flight, a leg with the phone dead — as two pins and two times,
  * inserted as a manual track, with a router's road shape between them where one was asked for. Each
@@ -303,8 +282,8 @@ private class MapCover {
  * end's card, never silently applied), so a past flight's times can be entered as the boarding pass
  * states them.
  * Everything is local until the check mark commits, so backing out discards by construction — the
- * [PlaceEditScreen] pattern.  What the form opens holding is [draft]'s — the ends a gap row could
- * already fill in, or nothing but the day the Timeline was showing. **It is also how a manual trip
+ * [PlaceEditScreen] pattern.  What the form opens holding is [draft]'s — the ends a gap's page
+ * could already fill in, or nothing but the day the Timeline was showing. **It is also how a manual trip
  * is edited** ([TripDraft.editing]): the same two pins, two times and road shape, rewritten onto the
  * row they came from, since what a hand-entered trip *is* and what the form asks for are the same
  * thing.

@@ -163,8 +163,6 @@ object TimelineRows {
                         arrivalZone = slice.arrivalZone,
                         holdsDeparture = slice.holdsStart,
                         holdsArrival = slice.holdsEnd,
-                        // Newest first, so the track after this absence is the last one placed.
-                        nextTrackId = summaries.getOrNull(t - 1)?.id,
                     )
                 }
             } else {
@@ -290,8 +288,7 @@ sealed interface TimelineItem {
 
     data class GapItem(
         val gap: StayDeriver.Gap,
-        /** Place resolution of each known side, attached after derivation — lets the row link
-         *  through to the places whose misclustering usually caused the gap. */
+        /** Place resolution of each known side, attached after derivation. */
         val fromPlace: PlaceResolver.ResolvedStay? = null,
         val toPlace: PlaceResolver.ResolvedStay? = null,
         /** Non-null when this short same-activity gap can be closed by merging its two tracks. */
@@ -320,9 +317,6 @@ sealed interface TimelineItem {
         val holdsDeparture: Boolean = true,
         /** See [holdsDeparture]. */
         val holdsArrival: Boolean = true,
-        /** The track the absence ends at, as [StayDeriver.Gap.afterTrackId] is the one it begins
-         *  after; null where none was recorded since. */
-        val nextTrackId: Long? = null,
     ) : TimelineItem {
         override val startedAt get() = gap.start
 

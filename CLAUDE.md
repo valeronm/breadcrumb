@@ -563,8 +563,9 @@ orders seeded clusters by their place's index and organic ones after them.
 end joins that place's cluster whatever its distance from the pin, founding no anchor; two ends both
 stated agree exactly when they name the same place (`StayDeriver.verdictBetween`). A statement is
 evidence the capture radii cannot weigh, so only a writer holding such evidence sets one — the Google
-import, from Google's own visit grouping — and the recorder never does. Merge and split hand the
-statements on with the ends they belong to, and a cut is stated to nothing.
+import, from Google's own visit grouping, and the user, by making a missing recording a stay at a
+named place — and the recorder never does. Merge and split hand the statements on with the ends they
+belong to, and a cut is stated to nothing.
 
 The vocabulary is a closed set of permanent codes stored raw and mapped in the domain
 (`Place.placeCategory`, following the `activityType` / `IgnoreReason.code` precedent), with untagged
@@ -664,13 +665,10 @@ one either — it is a reconciliation with no completion to record.
 with full-screen **overlay** layers on top: sealed `MainDestination` (`TrackDetail` | `Settings`) plus
 stacked layers for place detail, journey detail (reached from the Insights tab or a Timeline band,
 keyed by the journey's first night), the Settings pages (`SettingsPage`), discarded-track detail,
-and the add-trip form (`AddTripScreen`, opened from the Timeline tab's top-bar "+" or from a gap
-row) — each
+and the add-trip form (`AddTripScreen`) — each
 animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
 one layer at a time). **What that form opens holding is a `TripDraft`**, which is also the state
-saying it is open: a gap row hands over the ends *it* speaks for and no others — the same two
-questions its card is drawn from — so the far side of an absence cut at midnight never arrives as
-this row's fact. A gap is cut **once**, at the midnight opening the day it ended (`slicePerDay`), so
+saying it is open. A gap is cut **once**, at the midnight opening the day it ended (`slicePerDay`), so
 a row holds both ends or exactly one, and never neither. Each end carries an instant rather than
 a wall clock, because the zone follows from resolving the pin (which the form does after opening)
 and because a bound rounded to the pickers' minute would overlap the track it was taken from. Its
