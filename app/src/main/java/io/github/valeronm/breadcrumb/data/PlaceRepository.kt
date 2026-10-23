@@ -144,6 +144,35 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
         removal.endsOf.chunked(IDS_PER_STATEMENT).forEach { tracks.stateEnds(it, removal.place.id) }
     }
 
+    /** What a [stayedHere] replaced. */
+    class StayedHere(val beforeId: Long, val afterId: Long, val previousEnd: Long?, val previousStart: Long?)
+
+    /**
+     * Links the end of [beforeId] and the start of [afterId] to [placeId], so the interval between
+     * them is a stay there whatever their distance. Null, writing nothing, where the place is gone or
+     * the two ends already link to one place.
+     */
+    suspend fun stayedHere(beforeId: Long, afterId: Long, placeId: Long): StayedHere? = db.withTransaction {
+        dao.place(placeId) ?: return@withTransaction null
+        val previousEnd = tracks.track(beforeId)?.endPlaceId
+        val previousStart = tracks.track(afterId)?.startPlaceId
+        if (previousEnd != null && previousEnd == previousStart) return@withTransaction null
+        link(beforeId, afterId, placeId, placeId)
+        StayedHere(beforeId, afterId, previousEnd, previousStart)
+    }
+
+    suspend fun undoStayedHere(done: StayedHere) = db.withTransaction {
+        // Links to a place deleted since were cleared with it, and the foreign key refuses one back.
+        suspend fun ifStillThere(placeId: Long?) = placeId?.takeIf { dao.place(it) != null }
+        link(done.beforeId, done.afterId, ifStillThere(done.previousEnd), ifStillThere(done.previousStart))
+    }
+
+    private suspend fun link(beforeId: Long, afterId: Long, endPlaceId: Long?, startPlaceId: Long?) {
+        tracks.stateEnds(listOf(beforeId), endPlaceId)
+        tracks.stateStarts(listOf(afterId), startPlaceId)
+        derivation.reknit(listOf(beforeId, afterId))
+    }
+
     /**
      * One write to `places`, with the derivation's seeds brought back into agreement with it before
      * the transaction closes — so no reader can see a place whose circle the stored stays were not

@@ -313,10 +313,10 @@ interface TrackDao {
     suspend fun endsStatedTo(placeId: Long): List<Long>
 
     @Query("UPDATE tracks SET startPlaceId = :placeId WHERE id IN (:ids)")
-    suspend fun stateStarts(ids: List<Long>, placeId: Long)
+    suspend fun stateStarts(ids: List<Long>, placeId: Long?)
 
     @Query("UPDATE tracks SET endPlaceId = :placeId WHERE id IN (:ids)")
-    suspend fun stateEnds(ids: List<Long>, placeId: Long)
+    suspend fun stateEnds(ids: List<Long>, placeId: Long?)
 
     /** Kept tracks with an end stated to one of [placeIds]. */
     @RewriteQueriesToDropUnusedColumns
