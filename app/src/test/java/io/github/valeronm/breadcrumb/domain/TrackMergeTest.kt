@@ -68,6 +68,18 @@ class TrackMergeTest {
         assertNull(TrackMerge.plan(before, after, intervalStart = 0, intervalEnd = null))
     }
 
+    @Test fun `compatible tracks merge at any interval length`() {
+        assertEquals(TrackMerge.Plan(earlierId = 1, laterId = 2), TrackMerge.compatible(before, after))
+    }
+
+    @Test fun `compatible refuses different activities`() {
+        assertNull(TrackMerge.compatible(before, track(2, "RUNNING", 300_000)))
+    }
+
+    @Test fun `compatible refuses different writers`() {
+        assertNull(TrackMerge.compatible(before, track(2, "WALKING", 300_000, source = "imported")))
+    }
+
     // --- plansByAnchor: what the timeline actually asks -------------------------------
 
     private val neighbors = mapOf(before.id to TrackMerge.Neighbors(before, after))
