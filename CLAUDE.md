@@ -675,8 +675,7 @@ and because a bound rounded to the pickers' minute would overlap the track it wa
 position is the **recording's own** — `StayDeriver.Gap` carries the two fixes whose disagreement made
 it a gap, and an end timed at a neighbouring track's bound is placed where that track was at that
 instant, not at the pin of the place holding it, which can sit a street away and would leave the
-entered leg jumping off the path it fills. The trip type is deliberately *not* defaulted: it is the
-one thing neither end implies.
+entered leg jumping off the path it fills.
 
 **A permission is asked at the intention that needs it** — the platform's own "ask in context"
 guidance. Nothing is requested at launch and there is no onboarding page. Turning recording on is

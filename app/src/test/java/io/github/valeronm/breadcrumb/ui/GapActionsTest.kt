@@ -51,25 +51,19 @@ class GapActionsTest {
     // --- Dispatch --------------------------------------------------------------
 
     @Test
-    fun `the missed start opens the form untimed at its departure and arriving at the next track`() {
-        val d = detail(zone)
-
-        val action = gapAction(GapDiagnosis.Fix.MISSED_START, d) as GapAction.AddTrip
+    fun `the missed start opens the form on its own draft`() {
+        val action = gapAction(GapDiagnosis.Fix.MISSED_START, detail(zone)) as GapAction.AddTrip
 
         assertNull(action.draft.origin?.timeMs)
-        assertEquals(d.gap.end, action.draft.destination?.timeMs)
-        assertEquals(d.after.id, action.draft.trackAfter)
-        assertEquals(d.gap.start.toLocalDate(d.departureZone), action.draft.day)
     }
 
     @Test
-    fun `the whole gap opens the form timed at both ends`() {
+    fun `the whole gap opens the form on its own draft`() {
         val d = detail(zone)
 
         val action = gapAction(GapDiagnosis.Fix.ADD_TRIP, d) as GapAction.AddTrip
 
         assertEquals(d.gap.start, action.draft.origin?.timeMs)
-        assertEquals(d.gap.end, action.draft.destination?.timeMs)
     }
 
     @Test

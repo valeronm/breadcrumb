@@ -139,21 +139,16 @@ internal class TripDraft(
     val destination: TripDraftEnd? = null,
     /** Set where the form is restating a trip that already exists — see [EditedTrip]. */
     val editing: EditedTrip? = null,
-    /** The recorded tracks either side of the absence, which bound when the trip can have been. */
-    val trackBefore: Long? = null,
-    val trackAfter: Long? = null,
+    /** The recorded tracks either side of the absence, the one before first, which bound when the
+     *  trip can have been. */
+    val tracksAround: Pair<Long?, Long?> = null to null,
+    /** A type the trip is already known to have, which the form opens on where it offers it. */
+    val activity: ActivityType? = null,
 )
 
-/**
- * The manual track a form was opened on: its row is rewritten in place rather than a new one
- * inserted, and [activity] — what it currently says it was — is the type the form opens on. That is
- * the one exception to the form's rule that nothing preselects a type: an existing trip already
- * carries an answer, and offering it as unset would ask the user to re-state what they are not here
- * to change.
- */
+/** The manual track a form was opened on: its row is rewritten in place rather than a new one inserted. */
 internal class EditedTrip(
     val trackId: Long,
-    val activity: ActivityType?,
     /** The road shape stored between the trip's ends, or empty for a trip of its ends alone. */
     val path: List<Coordinate>,
 )
@@ -240,7 +235,7 @@ private class RoutedLeg(
 private fun TripDraft.storedRoute(): RoutedLeg? {
     val edited = editing ?: return null
     if (edited.path.isEmpty()) return null
-    val profile = edited.activity?.let(OnlineRouting.Profile::of) ?: return null
+    val profile = activity?.let(OnlineRouting.Profile::of) ?: return null
     val from = origin ?: return null
     val to = destination ?: return null
     val fromMs = from.timeMs ?: return null
@@ -299,10 +294,11 @@ internal fun AddTripScreen(
     // an unkeyed remember would hand it the ends the last one was filled with.
     val origin = remember(draft) { TripEnd(draft.origin) }
     val destination = remember(draft) { TripEnd(draft.destination) }
-    // Unset unless the trip already exists (see [EditedTrip]). How a missing leg was made is the one
-    // thing nothing here can work out — the two ends are known on the gap path and say nothing about
-    // it — so a default would be a guess the user commits without reading.
-    var activity by remember(draft) { mutableStateOf(draft.editing?.activity) }
+    // A default beyond the draft's would be a guess the user commits without reading: a missing
+    // leg's two ends say nothing about how it was made.
+    var activity by remember(draft) {
+        mutableStateOf(draft.activity?.takeIf { it in MANUAL_TRIP_TYPES })
+    }
     // The end being placed, if any — the one thing search, the saved places and a long-press act
     // on, so with both ends set none of them is offered until an end is chosen to move.
     var picking by remember(draft) { mutableStateOf(nextToPlace(origin, destination)) }
@@ -319,7 +315,7 @@ internal fun AddTripScreen(
     // a trip being edited sits between its neighbors on the timeline.
     val touching by produceState<Pair<TouchingTrack?, TouchingTrack?>>(null to null, draft) {
         val (before, after) = draft.editing?.let { viewModel.tracksAround(it.trackId) }
-            ?: (draft.trackBefore to draft.trackAfter)
+            ?: draft.tracksAround
         value = viewModel.touchingTracks(before, after)
     }
     val touchingBefore = touching.first?.takeIf { draft.editing != null || draft.origin != null }

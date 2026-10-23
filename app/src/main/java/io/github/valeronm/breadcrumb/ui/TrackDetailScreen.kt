@@ -955,7 +955,7 @@ private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
 
 /**
  * This manual track as the trip form's input: its first and last fixes and the bounds they were
- * stamped at, under whatever the user calls those spots, and the road shape between them.
+ * stamped at, under whatever the user calls those spots, the road shape between them, and its type.
  *
  * The times come from the *row*, not from the points, though a manual track has them equal by
  * construction — the row's bounds are the declaration, the points a restatement of it. A track still
@@ -981,9 +981,9 @@ private fun tripDraftOf(
         destination = summary.endedAt?.let { endAt(points?.lastOrNull(), it, summary.endPlaceId) },
         editing = EditedTrip(
             summary.id,
-            ActivityType.ofName(summary.activityType),
             path = ManualPath.shapeOf(points.orEmpty().map { Coordinate(it.latitude, it.longitude) }),
         ),
+        activity = ActivityType.ofName(summary.activityType),
     )
 }
 

@@ -31,16 +31,10 @@ internal sealed interface GapAction {
     data class Merge(val plan: TrackMerge.Plan) : GapAction
 }
 
-internal fun gapAction(fix: GapDiagnosis.Fix, detail: GapDetail): GapAction {
-    val gap = detail.gap
-    val day = gap.start.toLocalDate(detail.departureZone)
-    return when (fix) {
-        GapDiagnosis.Fix.MISSED_START ->
-            GapAction.AddTrip(GapDrafts.missedStart(gap, day, detail.fromPlace, detail.toPlace, detail.after.id))
-        GapDiagnosis.Fix.ADD_TRIP ->
-            GapAction.AddTrip(GapDrafts.wholeGap(gap, day, detail.fromPlace, detail.toPlace, detail.after.id))
-        GapDiagnosis.Fix.MERGE ->
-            GapAction.Merge(checkNotNull(detail.verdict.merge) { "merge offered without a plan" })
-        GapDiagnosis.Fix.STAYED_HERE -> stayedHereChoice(listOfNotNull(detail.fromPlace, detail.toPlace))
-    }
+internal fun gapAction(fix: GapDiagnosis.Fix, detail: GapDetail): GapAction = when (fix) {
+    GapDiagnosis.Fix.MISSED_START -> GapAction.AddTrip(GapDrafts.missedStart(detail))
+    GapDiagnosis.Fix.ADD_TRIP -> GapAction.AddTrip(GapDrafts.wholeGap(detail))
+    GapDiagnosis.Fix.MERGE ->
+        GapAction.Merge(checkNotNull(detail.verdict.merge) { "merge offered without a plan" })
+    GapDiagnosis.Fix.STAYED_HERE -> stayedHereChoice(listOfNotNull(detail.fromPlace, detail.toPlace))
 }

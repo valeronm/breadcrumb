@@ -1,32 +1,28 @@
 package io.github.valeronm.breadcrumb.ui
 
-import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.at
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
-import java.time.LocalDate
+import java.time.ZoneId
 
 class GapDraftsTest {
-    private val gap = StayDeriver.Gap(
-        start = 1_000_000L, end = 4_600_000L, afterTrackId = 7,
-        from = StayDeriver.Gap.Side(at(0.0), clusterId = 0), to = StayDeriver.Gap.Side(at(450.0), clusterId = 1),
-    )
-    private val day = LocalDate.of(2020, 1, 1)
+    private val detail = GapFixtures.detail(ZoneId.of("UTC"))
 
-    @Test fun `the whole gap holds both instants`() {
-        val d = GapDrafts.wholeGap(gap, day, null, null, nextTrackId = 8)
-        assertEquals(gap.start, d.origin!!.timeMs)
-        assertEquals(gap.end, d.destination!!.timeMs)
-        assertEquals(7L, d.trackBefore)
-        assertEquals(8L, d.trackAfter)
+    @Test fun `the whole gap holds both instants and leaves the type unset`() {
+        val d = GapDrafts.wholeGap(detail)
+        assertEquals(detail.gap.start, d.origin!!.timeMs)
+        assertEquals(detail.gap.end, d.destination!!.timeMs)
+        assertEquals(detail.before.id to detail.after.id, d.tracksAround)
+        assertNull(d.activity)
     }
 
-    @Test fun `the missed start arrives at the next track and leaves its departure untimed`() {
-        val d = GapDrafts.missedStart(gap, day, null, null, nextTrackId = 8)
-        assertEquals(gap.from?.at, d.origin!!.at)
+    @Test fun `the missed start arrives at the next track as its type and leaves its departure untimed`() {
+        val d = GapDrafts.missedStart(detail)
+        assertEquals(detail.gap.from?.at, d.origin!!.at)
         assertNull(d.origin.timeMs)
-        assertEquals(gap.to?.at, d.destination!!.at)
-        assertEquals(gap.end, d.destination.timeMs)
+        assertEquals(detail.gap.to?.at, d.destination!!.at)
+        assertEquals(detail.gap.end, d.destination.timeMs)
+        assertEquals(ActivityType.ofName(detail.after.activityType), d.activity)
     }
 }
