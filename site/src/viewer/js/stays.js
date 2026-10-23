@@ -196,14 +196,14 @@ export function deriveStays({
   // Keyed by which end of which track, never by coordinate: two endpoints at one spot can land in
   // different clusters, each joining the nearest anchor that reaches it.
   const endpoints = [];
-  for (const track of tracks) {
-    if (track.start) {
+  tracks.forEach((track, i) => {
+    if (track.start && !(i > 0 && joined(tracks[i - 1], track))) {
       endpoints.push({ key: endpointKey(track.trackId, true), at: track.start, placeId: track.startPlaceId });
     }
-    if (track.end) {
+    if (track.end && !(i + 1 < tracks.length && joined(track, tracks[i + 1]))) {
       endpoints.push({ key: endpointKey(track.trackId, false), at: track.end, placeId: track.endPlaceId });
     }
-  }
+  });
   const clusters = clusterEndpoints(
     endpoints.map((e) => e.at),
     p.placeRadiusM,
@@ -239,16 +239,13 @@ export function deriveStays({
     const next = tracks[i + 1];
     const gapStart = prev.endedAt;
     const gapEnd = next.startedAt;
-    // Negative gap (clock stepped backwards between tracks): emit nothing.
-    if (gapEnd < gapStart) continue;
+    // A clock that stepped backwards between tracks leaves nothing too.
+    if (gapEnd < gapStart || joined(prev, next)) continue;
     const a = prev.end;
     const b = next.start;
     const aCluster = a ? clusterOf.get(endpointKey(prev.trackId, false)) : null;
     const bCluster = b ? clusterOf.get(endpointKey(next.trackId, true)) : null;
     if (!a || !b || !samePlace(a, b, aCluster, bCluster, prev.endPlaceId, next.startPlaceId)) {
-      // A zero-length disagreement ("moved without recording, in zero time") is meaningless —
-      // whereas a zero-length *agreeing* gap below is a split seam, an edge-stay trim's cut.
-      if (gapEnd === gapStart) continue;
       out.push({
         kind: "gap",
         start: gapStart,
@@ -293,6 +290,13 @@ function tailStay(last, nowMs, clusterOf) {
   };
 }
 
+/** Two tracks sharing an instant — a trip entered by hand landing exactly on the edge of the
+ * recording it fills. The instant is a join, not a stop: nothing is recorded between the two, and
+ * their facing ends are not clustered. */
+function joined(before, after) {
+  return before.endedAt === after.startedAt;
+}
+
 /** The identity an endpoint's cluster is held under — see the map in [deriveStays]. */
 function endpointKey(trackId, isStart) {
   return `${trackId}:${isStart ? "start" : "end"}`;
@@ -302,16 +306,6 @@ function endpointKey(trackId, isStart) {
 export function reportableDurationMs(stay, nowMs) {
   const length = (stay.end ?? nowMs) - stay.start;
   return length >= REPORTABLE_DURATION_MS ? length : null;
-}
-
-/**
- * No time in it at all — the seam two tracks sharing an instant leave behind, which is a join
- * between them rather than a stop. The bare fact, owned here, because two readers turn it into
- * rules of their own: no visit is counted for one, and no row is drawn for one. An ongoing stay is
- * not one of these — no end is not an end equal to the start.
- */
-export function hasNoDuration(stay) {
-  return stay.end === stay.start;
 }
 
 // --- display helpers -----------------------------------------------------------------------------
@@ -391,8 +385,8 @@ export function slicePerDay(intervals, nowMs, clock = LOCAL_CLOCK) {
 
 /** Merges the DESC track list with derived intervals (ASC) into one DESC timeline of
  * {kind: "track"|"stay"|"gap"} items. On a start-time tie the interval sorts newer only when it is
- * open-ended: a closed one ended the instant the track began (a zero-length trim seam), so the
- * departing track is newer and the interval sorts between the pair. */
+ * open-ended: a closed one ended the instant the track began, so the departing track is newer and
+ * the interval sorts between the pair. */
 export function interleave(tracks, intervals) {
   const descIntervals = intervals.slice().reverse();
   const out = [];
@@ -435,10 +429,6 @@ export function mapVisiblePlaces(resolved, showRareStops) {
 export function resolveClusters(stays, clusters, places) {
   const visits = new Map();
   for (const stay of stays) {
-    // A stop of no duration is not a visit — that is a join between two tracks rather than time
-    // spent anywhere. Not a duration floor: however brief, a stop the endpoints agree on counts.
-    // The app drops the same interval in `PlaceResolver`, and for the same reason.
-    if (hasNoDuration(stay)) continue;
     visits.set(stay.clusterId, (visits.get(stay.clusterId) ?? 0) + 1);
   }
   return clusters.map((cluster, clusterId) => {

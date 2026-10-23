@@ -154,16 +154,20 @@ const gaps = (intervals) => intervals.filter((i) => i.kind === "gap");
   assert.equal(single[0].start, 120 * MIN);
 }
 
-// --- zero-length gaps (trim seams) -----------------------------------------------------------------
+// --- joined tracks ---------------------------------------------------------------------------------
 {
   const seamPair = (start = home) => [
     track(1, 60 * MIN, 120 * MIN, home, home),
     track(2, 120 * MIN, 130 * MIN, start, home),
   ];
-  const seam = stays(betweenTracks(seamPair()))[0];
-  assert.equal(seam.start, 120 * MIN, "a same-place zero gap is a zero-length stay — the trim seam");
-  assert.equal(seam.end, 120 * MIN);
+  assert.equal(betweenTracks(seamPair()).length, 0, "two tracks sharing an instant at one place leave nothing");
   assert.equal(betweenTracks(seamPair(office)).length, 0, "a zero gap at different places emits nothing");
+  const joined = [track(1, 60 * MIN, 120 * MIN, office, home), track(2, 120 * MIN, 130 * MIN, home, office)];
+  assert.deepEqual(
+    derive(joined).clusters.map((c) => c.memberIndices.length),
+    [2],
+    "the facing ends of joined tracks are not clustered",
+  );
   const overlapping = [track(1, 60 * MIN, 120 * MIN), track(2, 119 * MIN, 130 * MIN)];
   assert.equal(betweenTracks(overlapping).length, 0, "a negative gap still emits nothing");
 }
@@ -257,12 +261,15 @@ assert.equal(
   const ongoing = interleave([summary(1, 60 * MIN)], [{ kind: "stay", start: 60 * MIN, end: null }]);
   assert.deepEqual(ongoing.map((i) => i.kind), ["stay", "track"], "on a tie an open interval is newer");
 
-  // The seam ties with the departing track's start; being closed, it renders between the pair.
   const seam = interleave(
     [summary(2, 120 * MIN), summary(1, 60 * MIN)],
     [{ kind: "stay", start: 120 * MIN, end: 120 * MIN }],
   );
-  assert.deepEqual(seam.map((i) => i.kind), ["track", "stay", "track"]);
+  assert.deepEqual(
+    seam.map((i) => i.kind),
+    ["track", "stay", "track"],
+    "a closed interval tied with the departing track's start renders between the pair",
+  );
   assert.equal(seam[0].track.id, 2);
 }
 
@@ -285,22 +292,6 @@ assert.equal(
   assert.equal(resolved[stay.clusterId].placeId, 7);
   // Both the between-tracks stay and the tail stay sit at home.
   assert.equal(resolved[stay.clusterId].visitCount, 2);
-
-  // A stop of no duration is not a visit — the seam two tracks sharing an instant leave behind,
-  // which the app drops from its counts for the same reason. Not a duration floor: the
-  // one-millisecond stop beside it still counts.
-  const seam = { ...stay, start: 9_000, end: 9_000 };
-  const blink = { ...stay, start: 9_000, end: 9_001 };
-  assert.equal(
-    resolveClusters([...stays(intervals), seam], derived, places)[stay.clusterId].visitCount,
-    2,
-    "a seam adds nothing",
-  );
-  assert.equal(
-    resolveClusters([...stays(intervals), blink], derived, places)[stay.clusterId].visitCount,
-    3,
-    "however brief, a real stop counts",
-  );
 }
 
 // --- what a place is for -------------------------------------------------------------------------

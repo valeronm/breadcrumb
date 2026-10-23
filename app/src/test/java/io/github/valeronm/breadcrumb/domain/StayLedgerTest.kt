@@ -36,7 +36,7 @@ class StayLedgerTest {
         val derivation = StayDeriver.derive(
             tracks, StayDeriver.Params(), flatDistance, emptyList(),
         )
-        val endpoints = StayDeriver.endpointsOf(tracks)
+        val endpoints = StayDeriver.clusteredEndpointsOf(tracks)
         val clusters = derivation.clusters.mapIndexed { index, cluster ->
             StayLedger.ClusterRow(
                 id = index + 1L,
@@ -241,6 +241,43 @@ class StayLedgerTest {
         assertEquals("the cluster it used to be in is left empty", listOf(2L), mutations.removed.emptiedClusters)
     }
 
+    // --- A track joined to its neighbor ---------------------------------------
+
+    private val before = track(1, 60 * MIN, 120 * MIN)
+    private val entered = track(2, 180 * MIN, 240 * MIN, from = home, to = office)
+    private val recorded = track(3, 240 * MIN, 300 * MIN, from = office, to = office)
+
+    @Test fun `a track entered against the next one takes that track's start out of its cluster`() {
+        val stored = store(listOf(before, recorded))
+
+        val mutations = reknit(stored, prev = before, added = listOf(entered), next = recorded)
+
+        assertEquals(
+            derived(listOf(before, entered, recorded)),
+            mutations.intervals.map { it.described(stored, mutations) },
+        )
+        assertEquals(
+            listOf(StayDeriver.Endpoint(2, isStart = true)),
+            mutations.memberships.map { StayDeriver.Endpoint(it.trackId, it.isStart) },
+        )
+        assertEquals(listOf(StayDeriver.Endpoint(3, isStart = true)), mutations.removed.membershipsOfEnds)
+        assertTrue(3L !in mutations.removed.membershipsOfTracks)
+        val office = stored.members.first { it.trackId == 3L }.cluster
+        assertEquals(-1, mutations.deltas.single { it.cluster == office }.count)
+    }
+
+    @Test fun `deleting the entered track puts the next one's start back in a cluster`() {
+        val stored = store(listOf(before, entered, recorded))
+
+        val mutations = reknit(stored, prev = before, removed = listOf(entered), next = recorded)
+
+        assertEquals(derived(listOf(before, recorded)), mutations.intervals.map { it.described(stored, mutations) })
+        assertEquals(
+            listOf(StayDeriver.Endpoint(3, isStart = true)),
+            mutations.memberships.map { StayDeriver.Endpoint(it.trackId, it.isStart) },
+        )
+    }
+
     @Test fun `no interval is left after the newest track, that one being the open stay`() {
         val first = track(1, 60 * MIN, 120 * MIN)
         val stored = store(listOf(first))
@@ -279,7 +316,7 @@ class StayLedgerTest {
             clusters = listOf(
                 StayLedger.ClusterRow(1L, PlaceClusterer.Seed(home, 500.0, placeId = 1L), memberCount = 2),
             ),
-            members = StayDeriver.endpointsOf(listOf(first)).map {
+            members = StayDeriver.clusteredEndpointsOf(listOf(first)).map {
                 StayLedger.Membership(it.trackId, it.isStart, it.at, it.atMs, StayLedger.ClusterRef.Stored(1L))
             },
         )

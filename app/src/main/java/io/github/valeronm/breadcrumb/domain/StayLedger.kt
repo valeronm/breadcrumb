@@ -102,6 +102,8 @@ object StayLedger {
         val intervalsAfterTracks: List<Long>,
         /** Memberships, by the track whose endpoints they are. */
         val membershipsOfTracks: List<Long>,
+        /** Memberships of single endpoints, on tracks whose other end stays where it is. */
+        val membershipsOfEnds: List<StayDeriver.Endpoint>,
         /** Organic clusters left holding nothing, which is what ends one. A seeded cluster stays:
          *  its place outlives its visits, and its emptiness is a fact about the history rather than
          *  a mistake. */
@@ -186,19 +188,42 @@ object StayLedger {
             }
         }
 
-        // What arrives: each endpoint joins the nearest cluster that reaches it, or founds one.
-        val memberships = mutableListOf<Membership>()
+        // A neighbor's end facing the change may have been joined or parted by it; its other end
+        // stands as stored.
         val clusterOf = HashMap<StayDeriver.Endpoint, ClusterRef>()
-        for (endpoint in StayDeriver.endpointsOf(seam.added)) {
+        for (id in listOfNotNull(seam.prev?.trackId, seam.next?.trackId)) {
+            for (member in stored.membershipOf[id].orEmpty()) {
+                clusterOf[StayDeriver.Endpoint(id, member.isStart)] = member.cluster
+            }
+        }
+        val facing = setOfNotNull(
+            seam.prev?.let { StayDeriver.Endpoint(it.trackId, isStart = false) },
+            seam.next?.let { StayDeriver.Endpoint(it.trackId, isStart = true) },
+        )
+
+        // What arrives: an added track's endpoints, and a facing end the change parted from its
+        // neighbor. Each joins the nearest cluster that reaches it, or founds one.
+        val addedIds = seam.added.mapTo(HashSet()) { it.trackId }
+        val memberships = mutableListOf<Membership>()
+        val counted = StayDeriver.clusteredEndpointsOf(seam.chain)
+        for (endpoint in counted) {
+            val arrives = endpoint.trackId in addedIds || (endpoint.key in facing && endpoint.key !in clusterOf)
+            if (!arrives) continue
             val ref = anchors.claim(endpoint.at, endpoint.placeId)
             memberships += Membership(endpoint.trackId, endpoint.isStart, endpoint.at, endpoint.atMs, ref)
             clusterOf[endpoint.key] = ref
             shift(ref, endpoint.at, +1)
         }
-        for (id in listOfNotNull(seam.prev?.trackId, seam.next?.trackId)) {
-            for (member in stored.membershipOf[id].orEmpty()) {
-                clusterOf[StayDeriver.Endpoint(id, member.isStart)] = member.cluster
-            }
+
+        // A facing end newly joined leaves its cluster.
+        val countedKeys = counted.mapTo(HashSet()) { it.key }
+        val leavingEnds = mutableListOf<StayDeriver.Endpoint>()
+        for (end in facing) {
+            if (end in countedKeys) continue
+            val member = stored.membershipOf[end.trackId].orEmpty().firstOrNull { it.isStart == end.isStart } ?: continue
+            shift(member.cluster, member.at, -1)
+            clusterOf.remove(end)
+            leavingEnds += end
         }
 
         // The intervals over the repaired stretch — the pairs the change can have altered, and no
@@ -213,6 +238,7 @@ object StayLedger {
                 intervalsAfterTracks = (listOfNotNull(seam.prev) + seam.added).map { it.trackId } +
                     seam.removed,
                 membershipsOfTracks = seam.added.map { it.trackId } + seam.removed,
+                membershipsOfEnds = leavingEnds,
                 emptiedClusters = stored.clusters
                     .filterNot { it.seeded }
                     .filter { it.memberCount + (deltas[ClusterRef.Stored(it.id)]?.count ?: 0) <= 0 }
@@ -228,8 +254,8 @@ object StayLedger {
     /**
      * The interval between two adjacent kept tracks, by the same rules [StayDeriver.derive] applies
      * between any other pair: endpoints that agree leave a stay at the cluster the earlier one is
-     * in, endpoints that disagree leave a gap carrying both positions, and a disagreement with no
-     * time in it leaves nothing at all.
+     * in, endpoints that disagree leave a gap carrying both positions, and a pair with no time
+     * between them leaves nothing at all.
      */
     private fun intervalBetween(
         before: StayDeriver.TrackEnd,

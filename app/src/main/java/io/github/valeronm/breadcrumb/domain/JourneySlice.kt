@@ -39,7 +39,7 @@ object JourneySlice {
                 is TimelineItem.GapItem -> item.gap.end
             }
             if (end <= windowStart) break
-            // A zero-length row — a split's seam — overlaps nothing and would still count a visit.
+            // A row with no time in it overlaps nothing and would still count a visit.
             if (end <= item.startedAt) continue
             within += if (item is TimelineItem.StayItem) clamped(item, end, windowStart, windowEnd) else item
         }

@@ -66,6 +66,9 @@ interface DerivedDao {
     @Query("DELETE FROM cluster_members WHERE trackId IN (:trackIds)")
     suspend fun deleteMembersOf(trackIds: List<Long>)
 
+    @Query("DELETE FROM cluster_members WHERE trackId = :trackId AND isStart = :isStart")
+    suspend fun deleteMember(trackId: Long, isStart: Boolean)
+
     @Query("DELETE FROM derived_clusters WHERE id IN (:ids)")
     suspend fun deleteClusters(ids: List<Long>)
 

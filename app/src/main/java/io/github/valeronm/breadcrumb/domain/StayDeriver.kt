@@ -115,17 +115,6 @@ object StayDeriver {
         /** This stay's length when its own bounds are worth reporting as one, else null;
          *  [nowMs] measures an ongoing stay. See [REPORTABLE_DURATION_MS]. */
         fun reportableDurationMs(nowMs: Long): Long? = reportable((end ?: nowMs) - start)
-
-        /**
-         * No time in it at all — the seam two tracks sharing an instant leave behind, which is a
-         * join between them rather than a stop. **The bare fact, owned here**, because more than one
-         * reader turns it into a rule and each asks something slightly different of it: whether a
-         * row is worth drawing ([TimelineItem.StayItem.isBareSeam]) or whether a visit happened
-         * ([PlaceResolver]). Those questions may diverge; what "no duration" means may not.
-         *
-         * An ongoing stay is not one of these: no end is not an end equal to the start.
-         */
-        val hasNoDuration: Boolean get() = end == start
     }
 
     data class Gap(
@@ -160,7 +149,7 @@ object StayDeriver {
     /** Derivation output: the timeline intervals plus the endpoint clusters stays index into. */
     data class Derivation(
         val intervals: List<Interval>,
-        /** Clusters over every track endpoint — one per place pin first (in pin order,
+        /** Clusters over [clusteredEndpointsOf] — one per place pin first (in pin order,
          *  possibly memberless), then organic clusters chronologically; see [Stay.clusterId]. */
         val clusters: List<PlaceClusterer.Cluster>,
     ) {
@@ -197,6 +186,8 @@ object StayDeriver {
         for (i in 0 until tracks.size - 1) {
             val prev = tracks[i]
             val next = tracks[i + 1]
+            // Their facing ends have no cluster to look up.
+            if (joined(prev, next)) continue
             val from = prev.end?.let { Gap.Side(it, clusterOf.getValue(Endpoint(prev.trackId, isStart = false))) }
             val to = next.start?.let { Gap.Side(it, clusterOf.getValue(Endpoint(next.trackId, isStart = true))) }
             val sameCluster = from != null && from.clusterId == to?.clusterId
@@ -256,9 +247,8 @@ object StayDeriver {
      * one term the two passes that ask this represent differently: a derivation names a cluster by
      * its position in its own list, a repair by a row id or a row it is about to insert.
      *
-     * Everything else about the decision lives here rather than in each of them: that a pair whose
-     * clocks run backwards leaves nothing, that a *disagreeing* pair with no time in it is
-     * meaningless and also leaves nothing, and which kind of gap a missing endpoint makes.
+     * Everything else about the decision lives here rather than in each of them: that a pair with
+     * no time between them leaves nothing, and which kind of gap a missing endpoint makes.
      */
     sealed interface Verdict {
         /** Nothing to record between these two tracks. */
@@ -280,17 +270,11 @@ object StayDeriver {
         sameCluster: Boolean,
         agreement: Agreement,
     ): Verdict {
-        val start = before.endedAt
-        val end = after.startedAt
-        // Negative gap (clock stepped backwards between tracks): emit nothing.
-        if (end < start) return Verdict.None
+        // A clock that stepped backwards between tracks leaves nothing too.
+        if (after.startedAt < before.endedAt || joined(before, after)) return Verdict.None
         val a = before.end
         val b = after.start
         if (a == null || b == null || !agreement.samePlace(a, b, sameCluster, before.endPlaceId, after.startPlaceId)) {
-            // A zero-length disagreement ("moved without recording, in zero time") is meaningless —
-            // whereas a zero-length *agreeing* pair is a split seam (an edge-stay trim's cut), and
-            // its stay carries the merge-back offer.
-            if (end == start) return Verdict.None
             return Verdict.Moved(
                 if (a == null || b == null) GapReason.UNKNOWN_ENDPOINT else GapReason.MOVED_UNRECORDED,
             )
@@ -306,6 +290,13 @@ object StayDeriver {
      */
     data class Endpoint(val trackId: Long, val isStart: Boolean)
 
+    /**
+     * Two tracks sharing an instant — a trip entered by hand landing exactly on the edge of the
+     * recording it fills. The instant is a join, not a stop: nothing is recorded between the two, and
+     * their facing ends are not clustered ([clusteredEndpointsOf]).
+     */
+    fun joined(before: TrackEnd, after: TrackEnd): Boolean = before.endedAt == after.startedAt
+
     /** One endpoint the clustering reads: which track's, which of its two ends, when and where. */
     data class EndpointRef(
         val trackId: Long,
@@ -319,8 +310,10 @@ object StayDeriver {
     }
 
     /**
-     * Every endpoint of [tracks], in the order the clustering reads them — each track's start then
-     * its end, skipping an end the recorder never fixed.
+     * The endpoints of [tracks] the clustering reads, in its order — each track's start then its
+     * end, skipping an end the recorder never fixed and an end [joined] to its neighbor's.
+     * [tracks] is a stretch of the kept history with nothing left out between them, since a
+     * neighbor outside it cannot be seen to be joined.
      *
      * **The order is the contract**, and it is total. [PlaceClusterer.Cluster.memberIndices] index
      * into exactly this list, so a caller that wants to know *which* endpoints a cluster holds reads
@@ -328,15 +321,21 @@ object StayDeriver {
      * a derivation produces is explained by an entry here, there being nothing else in what it
      * clusters.
      */
-    fun endpointsOf(tracks: List<TrackEnd>): List<EndpointRef> = buildList {
-        for (track in tracks) {
-            track.start?.let { add(EndpointRef(track.trackId, true, track.startedAt, it, track.startPlaceId)) }
-            track.end?.let { add(EndpointRef(track.trackId, false, track.endedAt, it, track.endPlaceId)) }
+    fun clusteredEndpointsOf(tracks: List<TrackEnd>): List<EndpointRef> = buildList {
+        tracks.forEachIndexed { index, track ->
+            val joinedBefore = tracks.getOrNull(index - 1)?.let { joined(it, track) } == true
+            val joinedAfter = tracks.getOrNull(index + 1)?.let { joined(track, it) } == true
+            if (!joinedBefore) {
+                track.start?.let { add(EndpointRef(track.trackId, true, track.startedAt, it, track.startPlaceId)) }
+            }
+            if (!joinedAfter) {
+                track.end?.let { add(EndpointRef(track.trackId, false, track.endedAt, it, track.endPlaceId)) }
+            }
         }
     }
 
     /**
-     * Clusters every track endpoint (chronological: each track's start then end) so anchors stay
+     * Clusters [clusteredEndpointsOf], chronologically, so anchors stay
      * stable as history grows; pin seeds put endpoints near a place in its cluster. The map
      * answers by [Endpoint], the clustering's own member indices carried back to the endpoints they
      * were taken from.
@@ -347,7 +346,7 @@ object StayDeriver {
         params: Params,
         distance: DistanceFn,
     ): Pair<List<PlaceClusterer.Cluster>, Map<Endpoint, Int>> {
-        val endpoints = endpointsOf(tracks)
+        val endpoints = clusteredEndpointsOf(tracks)
         val clusters = PlaceClusterer.cluster(
             endpoints.map { it.at },
             params.placeRadiusM,
@@ -387,7 +386,8 @@ object StayDeriver {
      *
      * [disarmedSince] is when the recorder was last turned off with nothing since, or null while
      * armed: the app can attest nothing past a disarm, so the stay closes there rather than
-     * stretching to the clock.
+     * stretching to the clock, and there is none when the last track ends at or past it — a track
+     * entered by hand or imported after a disarm.
      */
     internal fun tail(
         anchor: TailAnchor,
@@ -401,7 +401,8 @@ object StayDeriver {
             activeStartedAt
         } else {
             if (start > nowMs) return null
-            disarmedSince?.coerceAtLeast(start)
+            if (disarmedSince != null && disarmedSince <= start) return null
+            disarmedSince
         }
         return Stay(
             start = start,

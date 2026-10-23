@@ -20,13 +20,11 @@ import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
-import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.StitchRule
 import io.github.valeronm.breadcrumb.domain.TrackBounds
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.domain.TrackSplit
-import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -628,12 +626,16 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val wanted = elsewhere.toHashSet()
         val atHere = mutableListOf<Coordinate>()
         val atElsewhere = mutableListOf<Coordinate>()
-        for (end in StayDeriver.endpointsOf(rows.values.map { it.toTrackEnd() })) {
-            when (end.placeId) {
-                null -> Unit
-                here -> atHere += end.at
-                in wanted -> atElsewhere += end.at
+        fun file(placeId: Long?, lat: Double?, lon: Double?) {
+            if (lat == null || lon == null) return
+            when (placeId) {
+                here -> atHere += Coordinate(lat, lon)
+                in wanted -> atElsewhere += Coordinate(lat, lon)
             }
+        }
+        for (track in rows.values) {
+            file(track.startPlaceId, track.startLat, track.startLon)
+            file(track.endPlaceId, track.endLat, track.endLon)
         }
         return PlaceClusterer.Stated(atHere, atElsewhere)
     }

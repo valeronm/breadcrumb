@@ -158,7 +158,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
 
             // Indexed rather than searched: `memberIndices` index into this list by contract,
             // and with no recording track passed above there is no index past its end.
-            val endpoints = StayDeriver.endpointsOf(trackEnds)
+            val endpoints = StayDeriver.clusteredEndpointsOf(trackEnds)
             derived.insertMembers(
                 derivation.clusters.flatMapIndexed { index, cluster ->
                     cluster.memberIndices.map {
@@ -314,6 +314,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
     private suspend fun apply(mutations: StayLedger.Mutations) {
         derived.deleteIntervalsAfter(mutations.removed.intervalsAfterTracks)
         derived.deleteMembersOf(mutations.removed.membershipsOfTracks)
+        for (end in mutations.removed.membershipsOfEnds) derived.deleteMember(end.trackId, end.isStart)
         val founded = mutations.founded.map { derived.insertCluster(seedRow(it)) }
         derived.insertMembers(mutations.memberships.map { it.toRow(founded) })
         for (delta in mutations.deltas) {
@@ -484,7 +485,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
          * next launch, which is the lever for a rule change here or in the deriver — and the repair
          * for rows nobody trusts.
          */
-        const val LOGIC_VERSION = 3
+        const val LOGIC_VERSION = 4
 
         /** The tables this class writes — the ones [observeStored] carries over when a write
          *  reached none of them. Named apart from `places`, which is the writing the user does. */

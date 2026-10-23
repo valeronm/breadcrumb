@@ -71,7 +71,7 @@ internal object DerivedConsistency {
             // other way would be answering a different question.
             placePins = db.placeDao().namedIds().toHashSet().let { named -> seeds.map { it.toSeed(named) } },
         )
-        val endpoints = StayDeriver.endpointsOf(tracks)
+        val endpoints = StayDeriver.clusteredEndpointsOf(tracks)
         val membersOf = stored.members.groupBy { it.clusterId }
         val rowOf = bijection(fresh.clusters, stored.clusters, seeds)
 

@@ -6,7 +6,6 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver.GapReason
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
 import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -54,7 +53,7 @@ class StayDeriverTest {
         track(2, start = 240 * MIN, end = 300 * MIN, from = from),
     )
 
-    /** A trim seam: two same-place tracks sharing the boundary instant (0 ms gap). */
+    /** Two tracks sharing the boundary instant (0 ms gap). */
     private fun seamPair(from: Coordinate? = home) = listOf(
         track(1, start = 60 * MIN, end = 120 * MIN, to = home),
         track(2, start = 120 * MIN, end = 130 * MIN, from = from),
@@ -299,16 +298,12 @@ class StayDeriverTest {
 
     @Test fun `a disarm closes the ongoing stay at the disarm time`() {
         assertEquals(200 * MIN, tail(disarmedSince = 200 * MIN)?.end)
-    }
-
-    @Test fun `a disarm bounds the ongoing stay even when short`() {
         assertEquals(121 * MIN, tail(disarmedSince = 121 * MIN)?.end)
     }
 
-    @Test fun `a disarm before the anchor cannot close the stay before it begins`() {
-        // A disarm older than the newest track's end (the recorder was off, then a track was
-        // imported or entered by hand past it): the stay still starts at its own anchor.
-        assertEquals(120 * MIN, tail(disarmedSince = 60 * MIN)?.end)
+    @Test fun `a disarm at or before the newest track's end leaves no tail stay`() {
+        assertNull(tail(disarmedSince = 60 * MIN))
+        assertNull(tail(disarmedSince = 120 * MIN))
     }
 
     @Test fun `a track ending in the future emits no tail stay`() {
@@ -554,9 +549,7 @@ class StayDeriverTest {
         assertTrue(items[1] is TimelineItem.TrackItem)
     }
 
-    @Test fun `a zero-length seam stay sorts between the two tracks it separates`() {
-        // The seam ties with the departing track's start; being closed, it must render
-        // below that track — between the pair — not above it.
+    @Test fun `a closed stay tied with a track's start sorts between the two tracks`() {
         val summaries = listOf(summary(2, startedAt = 120 * MIN), summary(1, startedAt = 60 * MIN))
         val seam = Stay(120 * MIN, 120 * MIN, 1, clusterId = 0)
         val items = TimelineRows.interleave(summaries, oneClock(seam))
@@ -564,21 +557,6 @@ class StayDeriverTest {
         assertTrue(items[1] is TimelineItem.StayItem)
         assertTrue(items[2] is TimelineItem.TrackItem)
         assertEquals(2L, (items[0] as TimelineItem.TrackItem).summary.id)
-    }
-
-    @Test fun `a seam is a row only while it carries the offer to undo the join`() {
-        // Two tracks sharing an instant leave a stay of no duration between them. It says nothing
-        // about where anyone was, so what it is worth is whatever it offers: with a merge plan it
-        // is the way back from the join, and with none it is a row about nothing.
-        val seam = Stay(120 * MIN, 120 * MIN, 1, clusterId = 0)
-        val bare = TimelineItem.StayItem(seam)
-
-        assertTrue(bare.isBareSeam)
-        assertFalse(bare.copy(merge = TrackMerge.Plan(earlierId = 1, laterId = 2)).isBareSeam)
-        // A stop of any length is a stop, offer or no offer.
-        assertFalse(TimelineItem.StayItem(seam.copy(end = 121 * MIN)).isBareSeam)
-        // Nor is the ongoing stay one: it has no end, which is not the same as ending where it began.
-        assertFalse(TimelineItem.StayItem(seam.copy(end = null)).isBareSeam)
     }
 
     @Test fun `intervals older than every track still reach the timeline`() {
@@ -601,13 +579,25 @@ class StayDeriverTest {
         source = null, startPlaceId = null, endPlaceId = null,
     )
 
-    // --- Zero-length gaps (trim seams) -------------------------------------
+    // --- Joined tracks -----------------------------------------------------
 
-    @Test fun `a same-activity same-place zero gap is a zero-length stay - the trim seam`() {
-        val stay = derive(seamPair()).filterIsInstance<Stay>().single()
-        assertEquals(120 * MIN, stay.start)
-        assertEquals(120 * MIN, stay.end)
-        assertEquals(1L, stay.afterTrackId)
+    @Test fun `two tracks sharing an instant at one place leave nothing between them`() {
+        assertTrue(derive(seamPair()).isEmpty())
+    }
+
+    @Test fun `the facing ends of joined tracks are not clustered`() {
+        val tracks = listOf(
+            track(1, start = 60 * MIN, end = 120 * MIN, from = office, to = home),
+            track(2, start = 120 * MIN, end = 130 * MIN, from = home, to = office),
+        )
+        assertEquals(
+            listOf(StayDeriver.Endpoint(1, isStart = true), StayDeriver.Endpoint(2, isStart = false)),
+            StayDeriver.clusteredEndpointsOf(tracks).map { it.key },
+        )
+        assertEquals(
+            listOf(listOf(office, office)),
+            StayDeriver.derive(tracks, StayDeriver.Params(), flatDistance).clusters.map { it.members },
+        )
     }
 
     @Test fun `a zero gap at different places emits nothing, not a gap`() {

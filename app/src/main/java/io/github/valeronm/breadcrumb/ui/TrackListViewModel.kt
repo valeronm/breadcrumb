@@ -135,13 +135,17 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         private val zonesByTrack: Map<Long, Clocks> by lazy {
-            val zoneAt = { at: Coordinate? -> zoneOfCluster(at?.let(derivation.clusterOfEndpoint::get)) }
-            tracks.associate { it.trackId to Clocks(zoneAt(it.start), zoneAt(it.end)) }
+            fun zoneOf(end: Coordinate?) = end?.let(::zoneAt) ?: timelineZone()
+            tracks.associate { it.trackId to Clocks(zoneOf(it.start), zoneOf(it.end)) }
         }
 
         fun placeOfCluster(id: Int?): PlaceResolver.ResolvedStay? = id?.let(clusterPlaces::getOrNull)
 
         fun zoneOfCluster(id: Int?): ZoneId = id?.let(zoneByCluster::getOrNull) ?: timelineZone()
+
+        /** An end in no cluster is resolved in the atlas on its own ([unclusteredEnds]). */
+        private fun zoneAt(end: Coordinate): ZoneId =
+            derivation.clusterOfEndpoint[end]?.let(::zoneOfCluster) ?: zoneOrDevice(cities[end]?.zoneId)
 
         fun zonesOfTrack(trackId: Long): Clocks =
             zonesByTrack[trackId] ?: Clocks.both(timelineZone())
@@ -185,6 +189,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         return found
     }
 
+    private fun unclusteredEnds(derivation: StayDeriver.Derivation, tracks: List<StayDeriver.TrackEnd>) =
+        buildList {
+            for (track in tracks) {
+                track.start?.takeUnless(derivation.clusterOfEndpoint::containsKey)?.let(::add)
+                track.end?.takeUnless(derivation.clusterOfEndpoint::containsKey)?.let(::add)
+            }
+        }
+
     private fun cityOf(at: Coordinate, language: String): CityAtlas.City? =
         Cities.atlas(getApplication(), language).naming(at.lat, at.lon, AndroidDistance)
 
@@ -218,7 +230,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             trackEnds,
             // Here rather than where the rows are built, which re-runs on writes that move no
             // cluster.
-            citiesOf(derivation.clusters.map { it.centroid }, language),
+            citiesOf(derivation.clusters.map { it.centroid } + unclusteredEnds(derivation, trackEnds), language),
             language,
         )
     }
@@ -348,7 +360,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         TimelineRows.interleave(
             r.summaries,
             TimelineRows.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
-        ).mapNotNull { item ->
+        ).map { item ->
             when (item) {
                 is TimelineItem.TrackItem -> d.zonesOfTrack(item.summary.id).let {
                     item.copy(zone = it.start, endZone = it.end)
@@ -358,12 +370,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 is TimelineItem.GapItem -> r.gapsByAnchor.getValue(item.gap.afterTrackId).let {
                     item.copy(fromPlace = it.fromPlace, toPlace = it.toPlace, merge = it.merge)
                 }
-                // Filtered after `merge` is attached, since [TimelineItem.StayItem.isBareSeam]
-                // reads it.
                 is TimelineItem.StayItem -> item.copy(
                     place = d.placeOfCluster(item.stay.clusterId),
                     merge = r.mergePlans[item.stay.afterTrackId],
-                ).takeUnless { it.isBareSeam }
+                )
             }
         }
     }.flowOn(Dispatchers.Default)

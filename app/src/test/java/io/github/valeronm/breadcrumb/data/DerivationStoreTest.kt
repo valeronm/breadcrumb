@@ -2,9 +2,12 @@ package io.github.valeronm.breadcrumb.data
 
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -49,6 +52,32 @@ class DerivationStoreTest {
     private suspend fun twoTracks() {
         track(0, 5, TEST_START)
         track(0, 5, TEST_START + 3 * 60 * 60_000L)
+    }
+
+    @Test fun `a trip entered against the next recording is joined to it, and deleting it parts them`() = runTest {
+        val first = track(0, 5, TEST_START)
+        val recorded = track(5, 10, TEST_START + 3 * 60 * 60_000L)
+        val ends = db.trackDao().endpointsOnce().associateBy { it.id }
+        val parked = ends.getValue(first)
+        val departure = ends.getValue(recorded)
+        val entered = (
+            test.repository.insertManualTrack(
+                ActivityType.DRIVING,
+                TrackRepository.ManualEnd(Coordinate(parked.endLat!!, parked.endLon!!), parked.endedAt + 60 * 60_000L),
+                TrackRepository.ManualEnd(Coordinate(departure.startLat!!, departure.startLon!!), departure.startedAt),
+            ) as TrackRepository.ManualTrackResult.Saved
+            ).trackId
+
+        assertTrue(derived.intervalsOnce().none { it.afterTrackId == entered })
+        val members = derived.membersForTracks(listOf(entered, recorded)).map { it.trackId to it.isStart }
+        assertFalse((entered to false) in members)
+        assertFalse((recorded to true) in members)
+        assertDerivedMatchesFreshDerive()
+
+        test.repository.deleteTrack(entered)
+
+        assertTrue((recorded to true) in derived.membersForTracks(listOf(recorded)).map { it.trackId to it.isStart })
+        DerivedConsistency.assertInternallyConsistent(db, now)
     }
 
     @Test fun `a rebuild stores what the deriver derives`() = runTest {

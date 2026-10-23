@@ -101,25 +101,6 @@ object PlaceResolver {
     private fun pinOf(place: Place?, whileUnnamed: Coordinate): Coordinate =
         place?.takeIf { it.isNamed }?.pin ?: whileUnnamed
 
-    /**
-     * The stays that are visits. **A stop of no duration is not one**: two tracks sharing an instant
-     * leave a stay with no time in it — a split's cut, or a trip entered by hand landing exactly on
-     * the absence it fills — and that describes a join between two tracks rather than time spent
-     * anywhere. Left in the derivation and dropped here, where visits are counted, for the reason
-     * [StayDeriver] gives: every threshold lives with the reader that wants one.
-     *
-     * Not a duration floor, and the distinction matters — a floor is what that same KDoc warns
-     * against, and it would empty the three readers keeping their own. However brief, a stop the
-     * endpoints agree on is a visit; only the interval with no duration at all goes.
-     *
-     * Deliberately *not* the question [TimelineItem.StayItem.isBareSeam] asks, which also wants to
-     * know whether the row carries a merge offer. That decides whether a **row** is worth drawing;
-     * this decides whether a **visit** happened, and a seam the user could merge away is no more a
-     * visit than one they can't.
-     */
-    private fun visitsAmong(stays: List<StayDeriver.Stay>): List<StayDeriver.Stay> =
-        stays.filterNot { it.hasNoDuration }
-
     data class ResolvedStay(
         /**
          * The place row seeding this cluster, or null for an organic one — the row itself rather
@@ -355,7 +336,7 @@ object PlaceResolver {
         places: List<Place>,
         cities: Map<Coordinate, CityAtlas.City> = emptyMap(),
     ): List<ResolvedStay> {
-        val visitsByCluster = visitsAmong(stays).groupingBy { it.clusterId }.eachCount()
+        val visitsByCluster = stays.groupingBy { it.clusterId }.eachCount()
         return clusters.mapIndexed { clusterId, cluster ->
             ResolvedStay(
                 place = matchedPlace(cluster, places),
@@ -389,7 +370,7 @@ object PlaceResolver {
         cities: Map<Coordinate, CityAtlas.City> = emptyMap(),
     ): List<PlaceSummary> {
         val clusters = derivation.clusters
-        val staysByCluster = visitsAmong(derivation.intervals.filterIsInstance<StayDeriver.Stay>())
+        val staysByCluster = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
             .groupBy { it.clusterId }
         val namedAgg = HashMap<Long, Agg>()   // placeId -> aggregate over its matching clusters
         val unnamed = mutableListOf<PlaceSummary>()

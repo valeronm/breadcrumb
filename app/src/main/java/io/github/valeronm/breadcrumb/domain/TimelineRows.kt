@@ -142,8 +142,8 @@ object TimelineRows {
                 track == null -> true
                 interval.start != track.startedAt -> interval.start > track.startedAt
                 // Start-time tie: an ongoing interval is the newest thing on the timeline, but a
-                // closed one ended the instant this track began (a zero-length trim seam), so the
-                // departing track is newer and the interval sorts between the two tracks.
+                // closed one ended the instant this track began, so the departing track is newer
+                // and the interval sorts between the two tracks.
                 else -> interval.end == null
             }
             if (takeInterval) {
@@ -267,23 +267,6 @@ sealed interface TimelineItem {
         val holdsEnd: Boolean = true,
     ) : TimelineItem {
         override val startedAt get() = stay.start
-
-        /**
-         * A row about a *join* rather than about being anywhere: two tracks sharing an instant leave
-         * a stay of no duration between them — a split's cut, or a hand-entered trip landing exactly
-         * on the absence it fills — and this one has nothing to say about it.
-         *
-         * Such a seam earns its row only while it carries the offer to undo the join, which is why
-         * this asks after [merge] rather than after the writers either side: refusing across writers
-         * is one of three things [TrackMerge.plan] refuses on, and a seam whose offer was refused for
-         * either of the others says exactly as little.
-         *
-         * The derivation still emits every seam — this is the timeline deciding what to draw, and
-         * the readers below it decide separately. [PlaceResolver] asks its own, narrower question of
-         * the same intervals (was anyone anywhere, rather than is this row worth a line), so a seam
-         * counts as no visit there whether or not a merge is offered here.
-         */
-        val isBareSeam: Boolean get() = merge == null && stay.hasNoDuration
     }
 
     data class GapItem(
