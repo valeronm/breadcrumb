@@ -179,7 +179,8 @@ internal class TripDraftEnd(
     val at: Coordinate?,
     /** The user's own name for the spot, never a derived one — see [TripEnd.placeName]. */
     val placeName: String?,
-    val timeMs: Long,
+    /** Null where the caller knows where but not when. */
+    val timeMs: Long?,
 )
 
 /** One end of the trip being entered — a pin and a time, each settable in any order, and either of
@@ -193,7 +194,7 @@ private class TripEnd(drafted: TripDraftEnd?) {
     var placeName by mutableStateOf(drafted?.placeName)
 
     /** What this end holds of its own, the bound it was drafted with to begin with. */
-    var own by mutableStateOf(drafted?.let { EndTime.Held(it.timeMs) } ?: EndTime.None)
+    var own by mutableStateOf(drafted?.timeMs?.let { EndTime.Held(it) } ?: EndTime.None)
         private set
 
     /** Placed from the other end by a road's duration; held apart from [own] because a lifted
@@ -248,7 +249,9 @@ private fun TripDraft.storedRoute(): RoutedLeg? {
     val profile = edited.activity?.let(OnlineRouting.Profile::of) ?: return null
     val from = origin ?: return null
     val to = destination ?: return null
-    return RoutedLeg(profile, from.at ?: return null, to.at ?: return null, edited.path, to.timeMs - from.timeMs)
+    val fromMs = from.timeMs ?: return null
+    val toMs = to.timeMs ?: return null
+    return RoutedLeg(profile, from.at ?: return null, to.at ?: return null, edited.path, toMs - fromMs)
 }
 
 /** One end's date or time being edited: which end, on whose clock, and where the picker opens
