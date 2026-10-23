@@ -1,0 +1,72 @@
+package io.github.valeronm.breadcrumb.domain
+
+import io.github.valeronm.breadcrumb.data.db.TrackSummary
+
+object GapDiagnosis {
+
+    enum class Fix {
+        /** Trips entered by hand into gaps mostly start at the previous track's end fix and end where the next track starts. */
+        MISSED_START,
+        ADD_TRIP,
+        STAYED_HERE,
+        MERGE,
+    }
+
+    enum class Reason { NO_POSITION, ENDS_CLOSE, PARKED_THEN_LEFT, DROPOUT, TRAVELLED }
+
+    // Set against the recorded history, where most gaps' ends lie 200 m–1 km apart at an implied
+    // ~1 km/h, the time parked included.
+    private const val STAYED_HERE_WITHIN_M = 200.0
+    private val PARKED_BELOW_MPS = Speed.kmh(5.0).mps
+
+    data class Verdict(
+        val suggested: Fix,
+        val reason: Reason,
+        /** Every other applicable fix, in [Fix] order. */
+        val others: List<Fix>,
+        val merge: TrackMerge.Plan?,
+        /** Straight line between the two fixes; null where a side has no fix. */
+        val apartMeters: Double?,
+        /** [apartMeters] over the gap's length, a floor on the real speed; null where a side has no fix or the gap has no length. */
+        val atLeastMps: Double?,
+    )
+
+    fun diagnose(
+        gap: StayDeriver.Gap,
+        before: TrackSummary,
+        after: TrackSummary,
+        distance: DistanceFn,
+    ): Verdict {
+        val from = gap.from
+        val to = gap.to
+        val apart = if (from == null || to == null) null else distance.meters(from.lat, from.lon, to.lat, to.lon)
+        val seconds = (gap.end - gap.start) / 1000.0
+        val speed = apart?.takeIf { seconds > 0 }?.let { it / seconds }
+        val merge = TrackMerge.compatible(before, after)
+        val leaves = ActivityType.ofName(after.activityType)?.recording == true
+        val close = apart != null && apart <= STAYED_HERE_WITHIN_M
+        val parked = speed != null && speed <= PARKED_BELOW_MPS
+
+        val applicable = buildSet {
+            add(Fix.ADD_TRIP)
+            if (merge != null) add(Fix.MERGE)
+            if (close) add(Fix.STAYED_HERE)
+            if (leaves && (close || parked)) add(Fix.MISSED_START)
+        }
+        val (suggested, reason) = when {
+            apart == null -> (if (merge != null) Fix.MERGE else Fix.ADD_TRIP) to Reason.NO_POSITION
+            close -> Fix.STAYED_HERE to Reason.ENDS_CLOSE
+            parked && leaves -> Fix.MISSED_START to Reason.PARKED_THEN_LEFT
+            merge != null -> Fix.MERGE to Reason.DROPOUT
+            else -> Fix.ADD_TRIP to Reason.TRAVELLED
+        }
+        return Verdict(
+            suggested = suggested,
+            reason = reason,
+            others = Fix.entries.filter { it in applicable && it != suggested },
+            merge = merge,
+            apartMeters = apart,
+            atLeastMps = speed,
+        )
+    }
+}
