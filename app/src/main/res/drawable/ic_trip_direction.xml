@@ -1,13 +1,24 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="8dp"
-    android:height="8dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <!-- Points along +x, the way a line-placed symbol faces along its line. -->
-    <path
-        android:pathData="M8,3.5 L16.5,12 L8,20.5"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="6.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
+    android:width="9.33dp"
+    android:height="9.33dp"
+    android:viewportWidth="28"
+    android:viewportHeight="28">
+    <!-- Points along +x, the way a line-placed symbol faces along its line. The outline keeps the
+         chevron readable where it overhangs a line narrower than itself. -->
+    <group
+        android:translateX="2"
+        android:translateY="2">
+        <path
+            android:pathData="M8,3.5 L16.5,12 L8,20.5"
+            android:strokeColor="#B3000000"
+            android:strokeWidth="9.5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M8,3.5 L16.5,12 L8,20.5"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="6.5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
 </vector>

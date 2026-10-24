@@ -925,8 +925,6 @@ private const val TRIP_DIRECTION_LAYER = "trip-direction-layer"
 /** Pixels between the chevrons along the trip's line. */
 private const val TRIP_DIRECTION_SPACING = 60f
 
-/** Wide enough to carry its chevrons. */
-private const val TRIP_LINE_WIDTH = 6f
 private const val TRIP_LINE_SOURCE = "trip-line-src"
 private const val TRIP_LINE_LAYER = "trip-line-layer"
 
@@ -1131,7 +1129,7 @@ internal fun MapLibreTripMap(
             style.addLayer(
                 LineLayer(TRIP_LINE_LAYER, TRIP_LINE_SOURCE).withProperties(
                     PropertyFactory.lineColor(lineArgb),
-                    PropertyFactory.lineWidth(TRIP_LINE_WIDTH),
+                    PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                 ).dashedAsUnmeasured(),
             )
