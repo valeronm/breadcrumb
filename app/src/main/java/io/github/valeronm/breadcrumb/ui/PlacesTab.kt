@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
@@ -84,7 +83,7 @@ internal fun PlacesTab(
     homeRequest: Int,
     onOpenPlace: (String) -> Unit,
     /** Holds the map view's camera while that view is showing. */
-    mapCamera: CameraSlot,
+    mapCamera: CameraCarry,
     onOpenData: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -265,15 +264,10 @@ private fun PlacesMapPage(
     emptiedBy: PlacesMapFilter.Emptied?,
     homeRequest: Int,
     onOpenPlace: (String) -> Unit,
-    mapCamera: CameraSlot,
+    mapCamera: CameraCarry,
     say: (String) -> Unit,
     filters: @Composable ColumnScope.() -> Unit,
 ) {
-    val camera = remember { CameraCarry() }
-    DisposableEffect(camera) {
-        mapCamera.camera = camera
-        onDispose { mapCamera.camera = null }
-    }
     val myLocation = rememberMyLocation(say)
     // Card padding keeps the texture-mode map off the back-gesture edge strips.
     Card(
@@ -299,7 +293,7 @@ private fun PlacesMapPage(
                     places = mapPlaces,
                     frameKey = homeRequest,
                     onOpen = onOpenPlace,
-                    camera = camera,
+                    camera = mapCamera,
                     modifier = Modifier.fillMaxSize(),
                     goTo = myLocation.goTo,
                     controls = { MyLocationControl(myLocation) },

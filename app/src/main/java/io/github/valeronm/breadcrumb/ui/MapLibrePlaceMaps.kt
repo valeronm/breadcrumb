@@ -715,7 +715,8 @@ internal class CameraCarry(private var carried: CameraPosition? = null) {
 
     /** Must run before the map is destroyed, while its camera can still be read. */
     fun detach() {
-        carried = map?.cameraPosition
+        // A map torn down before it opened has no camera to replace the one carried for it.
+        map?.let { carried = it.cameraPosition }
         map = null
     }
 
@@ -730,11 +731,6 @@ internal class CameraCarry(private var carried: CameraPosition? = null) {
     }
 
     fun position(): CameraPosition? = map?.cameraPosition
-}
-
-/** Read it from a callback, never during composition: it is a plain field, not snapshot state. */
-internal class CameraSlot {
-    var camera: CameraCarry? = null
 }
 
 /** Last-applied input of the all-places overview map. */

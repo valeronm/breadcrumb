@@ -279,7 +279,8 @@ private fun MainScreen(
     // place yet for a detail to be about.
     var newPlaceSpot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
     var newPlacePick by remember { mutableStateOf<NewPlacePick?>(null) }
-    val placesMapCamera = remember { CameraSlot() }
+    // Held here: a tab or the list/map toggle leaving composition drops the map page's own remember.
+    val placesMapCamera = remember { CameraCarry() }
     // A journey opened from Insights or a Timeline band, keyed by its first night's sample
     // instant — the same key its list row uses, and the only identity a derived journey has.
     var journeyKey by remember { mutableStateOf<Long?>(null) }
@@ -491,7 +492,7 @@ private fun MainScreen(
                             }
                             if (selectedTab == HomeTab.PLACES) {
                                 IconButton(onClick = {
-                                    newPlacePick = NewPlacePick(placesMapCamera.camera?.position())
+                                    newPlacePick = NewPlacePick(placesMapCamera.position())
                                 }) {
                                     Icon(
                                         Icons.Filled.Add,
