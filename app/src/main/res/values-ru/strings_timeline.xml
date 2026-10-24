@@ -69,4 +69,7 @@
         <item quantity="many">%d посещений</item>
         <item quantity="other">%d посещения</item>
     </plurals>
+
+    <string name="timeline_show_parts">Показать части</string>
+    <string name="timeline_hide_parts">Скрыть части</string>
 </resources>

@@ -238,6 +238,8 @@ sealed interface TimelineItem {
          * down, where null means the row does not speak for that end at all.
          */
         val endZone: ZoneId? = null,
+        /** Each of [trip]'s parts' clocks, in order; empty while unattached, as [zone] is null. */
+        val partClocks: List<Clocks> = emptyList(),
     ) : TimelineItem {
         constructor(summary: TrackSummary) : this(Trip(summary))
 

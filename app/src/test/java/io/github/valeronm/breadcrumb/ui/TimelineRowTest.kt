@@ -7,10 +7,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
@@ -29,6 +32,7 @@ import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Rule
 import org.junit.Test
@@ -241,6 +245,7 @@ class TimelineRowTest {
             shape = SHAPE,
             zone = zone,
             endZone = null,
+            partClocks = emptyList(),
             onOpen = {},
             onOpenTrip = {},
             onDelete = {},
@@ -263,33 +268,50 @@ class TimelineRowTest {
             .assertIsDisplayed()
     }
 
-    @Test
-    fun `a trip with a start entered by hand names both origins aloud`() {
-        fun part(id: Long, start: Long, end: Long, source: TrackOrigin) = TrackSummary(
-            id = id, activityType = ActivityType.DRIVING.name, startedAt = start, endedAt = end,
-            distanceMeters = 1_000.0, pointCount = 2, ignoredCount = 0, source = source.code,
-            startPlaceId = null, endPlaceId = null,
-        )
-        row {
-            TrackRow(
-                trip = Trip(
-                    listOf(
-                        part(1, noon, noon + HOUR / 4, TrackOrigin.MANUAL),
-                        part(2, noon + HOUR / 4, noon + HOUR, TrackOrigin.GOOGLE_TIMELINE),
-                    ),
+    private fun drivePart(id: Long, start: Long, end: Long, source: TrackOrigin) = TrackSummary(
+        id = id, activityType = ActivityType.DRIVING.name, startedAt = start, endedAt = end,
+        distanceMeters = 1_000.0, pointCount = 2, ignoredCount = 0, source = source.code,
+        startPlaceId = null, endPlaceId = null,
+    )
+
+    private fun chainedRow(onOpen: (Long) -> Unit = {}) = row {
+        TrackRow(
+            trip = Trip(
+                listOf(
+                    drivePart(1, noon, noon + HOUR / 4, TrackOrigin.MANUAL),
+                    drivePart(2, noon + HOUR / 4, noon + HOUR, TrackOrigin.GOOGLE_TIMELINE),
                 ),
-                shape = SHAPE,
-                zone = zone,
-                endZone = null,
-                onOpen = {},
-                onOpenTrip = {},
-                onDelete = {},
-            )
-        }
-        compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline))
-            .assertIsDisplayed()
-        compose.onNodeWithContentDescription(context.getString(R.string.common_origin_entered_by_hand))
-            .assertIsDisplayed()
+            ),
+            shape = SHAPE,
+            zone = zone,
+            endZone = null,
+            partClocks = emptyList(),
+            onOpen = onOpen,
+            onOpenTrip = {},
+            onDelete = {},
+        )
+    }
+
+    @Test
+    fun `a trip of several parts names each part's origin aloud only once they unfold`() {
+        chainedRow()
+        val imported = context.getString(R.string.common_origin_google_timeline)
+        val entered = context.getString(R.string.common_origin_entered_by_hand)
+        compose.onAllNodesWithContentDescription(imported).assertCountEquals(0)
+        compose.onAllNodesWithContentDescription(entered).assertCountEquals(0)
+        compose.onNodeWithContentDescription(context.getString(R.string.timeline_show_parts)).performClick()
+        compose.onNodeWithContentDescription(imported).assertIsDisplayed()
+        compose.onNodeWithContentDescription(entered).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a trip of several parts unfolds them under its chevron, each opening as its own track`() {
+        var opened: Long? = null
+        chainedRow(onOpen = { opened = it })
+        compose.onNodeWithContentDescription(context.getString(R.string.timeline_show_parts)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.timeline_hide_parts)).assertIsDisplayed()
+        compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline)).performClick()
+        assertEquals(2L, opened)
     }
 
     @Test

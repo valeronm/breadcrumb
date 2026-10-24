@@ -16,6 +16,9 @@ data class Trip(val parts: List<TrackSummary>) {
     /** The part the trip is *of*: the first one not entered by hand, or the first when all were. */
     val main: TrackSummary = parts.firstOrNull { TrackOrigin.fromCode(it.source) != TrackOrigin.MANUAL } ?: parts.first()
 
+    /** Whether the trip is several tracks rather than one. */
+    val chained: Boolean get() = parts.size > 1
+
     val startedAt: Long get() = parts.first().startedAt
 
     /** Null while the newest part is still open. */

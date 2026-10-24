@@ -64,4 +64,7 @@
         <item quantity="many">%d visitas</item>
         <item quantity="other">%d visitas</item>
     </plurals>
+
+    <string name="timeline_show_parts">Mostrar partes</string>
+    <string name="timeline_hide_parts">Ocultar partes</string>
 </resources>

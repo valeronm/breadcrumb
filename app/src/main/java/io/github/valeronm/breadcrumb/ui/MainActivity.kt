@@ -916,7 +916,7 @@ private fun MainDestinationOverlay(
             is MainDestination.TripDetail -> {
                 val tracks by viewModel.tracks.collectAsStateWithLifecycle()
                 val trip = remember(tracks, rendered.mainId) {
-                    TripChains.tripOf(tracks, rendered.mainId)?.takeIf { it.parts.size > 1 }
+                    TripChains.tripOf(tracks, rendered.mainId)?.takeIf { it.chained }
                 }
                 // A trip left with one part is that track.
                 if (trip == null) {

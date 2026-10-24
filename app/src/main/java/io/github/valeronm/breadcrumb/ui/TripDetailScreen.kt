@@ -144,12 +144,8 @@ internal fun TripPartItems(trip: Trip, onOpenPart: (Long) -> Unit) {
             // By length rather than clock: the parts run in order, and a join's instant has no
             // clock of its own to be read on.
             text = { Text(distanceText(part.distanceMeters) + " · " + durationText(part.startedAt, part.endedAt)) },
-            trailingIcon = TrackOrigin.fromCode(part.source)?.mark?.let { { OriginGlyph(it) } },
+            trailingIcon = part.mark?.let { { OriginGlyph(it) } },
             onClick = { onOpenPart(part.id) },
         )
     }
 }
-
-/** Each writer's mark among [trip]'s parts once, the main part's first. */
-internal fun tripMarks(trip: Trip): List<OriginMark> =
-    (listOf(trip.main) + trip.parts).mapNotNull { TrackOrigin.fromCode(it.source)?.mark }.distinct()

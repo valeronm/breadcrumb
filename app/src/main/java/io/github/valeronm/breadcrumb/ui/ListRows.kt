@@ -5,10 +5,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -25,6 +28,7 @@ import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxDefaults
@@ -103,10 +107,12 @@ internal fun ListRowCard(
     onClick: (() -> Unit)? = null,
     /** Drawn at the end of the row, centered beside the text. */
     trailing: (@Composable () -> Unit)? = null,
+    /** Drawn inside the card, under the row. */
+    below: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val rowContent: @Composable ColumnScope.() -> Unit = {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = ROW_PADDING, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconDisc(
@@ -118,7 +124,7 @@ internal fun ListRowCard(
                 badgeColor = badgeColor,
                 badgeContentColor = badgeContentColor,
             )
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(DISC_GAP))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor)
                 if (subtitle != null) {
@@ -129,17 +135,43 @@ internal fun ListRowCard(
                     )
                 }
             }
-            for (mark in marks) {
+            if (marks.isNotEmpty()) {
                 Spacer(Modifier.width(8.dp))
-                OriginGlyph(mark, Modifier.align(Alignment.Top))
+                ListRowEndColumn(Modifier.align(Alignment.Top)) {
+                    for (mark in marks) OriginGlyph(mark)
+                }
             }
             if (trailing != null) {
                 Spacer(Modifier.width(8.dp))
                 trailing()
             }
         }
+        below?.invoke(this)
     }
     RowCard(shape, onClick, modifier, outlined, highlighted, rowContent)
+}
+
+private val ROW_PADDING = 16.dp
+private val DISC_SIZE = 36.dp
+private val DISC_GAP = 16.dp
+
+/** Where a [ListRowCard]'s text starts. */
+internal val LIST_ROW_TEXT_INDENT = ROW_PADDING + DISC_SIZE + DISC_GAP
+
+/** Between a [ListRowCard]'s edge and whatever ends its row. */
+internal val LIST_ROW_END_PADDING = ROW_PADDING
+
+/**
+ * The column ending a row, as wide as an icon button's touch target with its content centered, so
+ * a mark lines up with a button ending the rows around it.
+ */
+@Composable
+internal fun ListRowEndColumn(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    Row(
+        modifier.widthIn(min = LocalMinimumInteractiveComponentSize.current),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        content = content,
+    )
 }
 
 /** A missing recording's card, hollow where a recorded row's is filled: what it holds is what the
@@ -216,7 +248,7 @@ internal fun IconDisc(
     icon: ImageVector,
     style: DiscStyle,
     contentDescription: String?,
-    size: Dp = 36.dp,
+    size: Dp = DISC_SIZE,
     iconSize: Dp = 20.dp,
     badge: ImageVector? = null,
     badgeDescription: String? = null,

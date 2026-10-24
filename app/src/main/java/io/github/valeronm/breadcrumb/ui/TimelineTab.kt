@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.scrollBy
@@ -31,13 +32,14 @@ import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -80,6 +83,7 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -510,6 +514,7 @@ private fun TimelineListPage(
                                 shape = shape,
                                 zone = item.clock,
                                 endZone = item.endZone,
+                                partClocks = item.partClocks,
                                 onOpen = onOpen,
                                 onOpenTrip = onOpenTrip,
                                 onDelete = { undo.deleteTracks(viewModel, item.trip.parts.map { it.id }, deletedMessage) },
@@ -1004,10 +1009,7 @@ internal fun RecordingRow(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
-/**
- * One [Trip], marked with each source its parts came from, the main part's first. A chained trip's
- * long-press lists every part, a tap opening only the main one.
- */
+/** One [Trip], marked with its source; a trip of several parts marks each on its own line instead. */
 @Composable
 internal fun TrackRow(
     trip: Trip,
@@ -1015,6 +1017,8 @@ internal fun TrackRow(
     zone: ZoneId,
     /** Where it arrived, when that is a different clock — see [TimelineItem.TrackItem.endZone]. */
     endZone: ZoneId?,
+    /** See [TimelineItem.TrackItem.partClocks]; a part without one reads on [zone]. */
+    partClocks: List<Clocks>,
     onOpen: (trackId: Long) -> Unit,
     /** Opens a trip of several parts; [onOpen] opens a part of it, or a trip that is one track. */
     onOpenTrip: (mainId: Long) -> Unit,
@@ -1023,11 +1027,8 @@ internal fun TrackRow(
     onReplay: ((TrackSummary) -> Unit)? = null,
 ) {
     val main = trip.main
-    val chained = trip.parts.size > 1
-    val marks = remember(trip) {
-        tripMarks(trip)
-    }
-    var menuOpen by remember { mutableStateOf(false) }
+    val chained = trip.chained
+    var expanded by rememberSaveable(main.id) { mutableStateOf(false) }
     // Swipe right-to-left to delete — a soft delete, undoable from the snackbar and, after that,
     // from Recently deleted.
     SwipeActionRow(
@@ -1040,56 +1041,93 @@ internal fun TrackRow(
     ) {
         val activity = ActivityType.ofName(main.activityType)
         val activityName = activityLabel(LocalContext.current, main.activityType)
-        Box {
-            ListRowCard(
-                modifier = Modifier.combinedClickable(
-                    onClick = { if (chained) onOpenTrip(main.id) else onOpen(main.id) },
-                    onLongClick = if (chained) {
-                        { menuOpen = true }
-                    } else {
-                        onReplay?.let { replay -> { replay(main) } }
-                    },
-                ),
-                shape = shape,
-                icon = activityIcon(activity),
-                disc = activityDiscStyle(activity),
-                iconDescription = activityName,
-                marks = marks,
-                // What happened leads; when it happened is the metadata line.
-                title = trackRowTitle(activityName, trip.distanceMeters),
-                titleColor = MaterialTheme.colorScheme.onSurface,
-                // Each end on its own clock where they differ — a track is the one recorded row that can
-                // cross a border, and flattening it onto the departure's clock hides the crossing. The two
-                // times then no longer span the duration beside them, which is why each carries its own
-                // offset: read together they say the drive lost an hour to the border, which is the truth.
-                subtitle = trackRowSpan(
-                    trip.startedAt,
-                    zone,
-                    trip.endedAt,
-                    endZone ?: zone,
-                    durationText(trip.startedAt, trip.endedAt),
-                ),
-            )
-            if (chained) {
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    TripPartItems(trip) { id ->
-                        menuOpen = false
-                        onOpen(id)
-                    }
-                    if (onReplay != null) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.timeline_replay)) },
-                            onClick = {
-                                menuOpen = false
-                                onReplay(main)
-                            },
-                        )
-                    }
-                }
+        ListRowCard(
+            modifier = Modifier.combinedClickable(
+                onClick = { if (chained) onOpenTrip(main.id) else onOpen(main.id) },
+                onLongClick = onReplay?.let { replay -> { replay(main) } },
+            ),
+            shape = shape,
+            icon = activityIcon(activity),
+            disc = activityDiscStyle(activity),
+            iconDescription = activityName,
+            marks = if (chained) emptyList() else listOfNotNull(main.mark),
+            // What happened leads; when it happened is the metadata line.
+            title = trackRowTitle(activityName, trip.distanceMeters),
+            titleColor = MaterialTheme.colorScheme.onSurface,
+            // Each end on its own clock where they differ — a track is the one recorded row that can
+            // cross a border, and flattening it onto the departure's clock hides the crossing. The two
+            // times then no longer span the duration beside them, which is why each carries its own
+            // offset: read together they say the drive lost an hour to the border, which is the truth.
+            subtitle = trackRowSpan(
+                trip.startedAt,
+                zone,
+                trip.endedAt,
+                endZone ?: zone,
+                durationText(trip.startedAt, trip.endedAt),
+            ),
+            trailing = if (chained) {
+                { PartsToggle(expanded) { expanded = !expanded } }
+            } else {
+                null
+            },
+            below = if (chained && expanded) {
+                { TripPartLines(trip, partClocks, zone, onOpen) }
+            } else {
+                null
+            },
+        )
+    }
+}
+
+@Composable
+private fun PartsToggle(expanded: Boolean, onToggle: () -> Unit) {
+    FilledTonalIconButton(onClick = onToggle) {
+        Icon(
+            Icons.Filled.ExpandMore,
+            contentDescription = stringResource(if (expanded) R.string.timeline_hide_parts else R.string.timeline_show_parts),
+            modifier = Modifier.rotate(if (expanded) 180f else 0f),
+        )
+    }
+}
+
+@Composable
+private fun TripPartLines(trip: Trip, partClocks: List<Clocks>, zone: ZoneId, onOpen: (Long) -> Unit) {
+    // A wash of the content color rather than another surface role: it reads a step off the card
+    // whatever the card's own tone, in either theme.
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = PART_BAND_ALPHA))
+            .padding(vertical = 4.dp),
+    ) {
+        trip.parts.forEachIndexed { i, part ->
+            if (i > 0) {
+                HorizontalDivider(
+                    Modifier.padding(start = LIST_ROW_TEXT_INDENT, end = LIST_ROW_END_PADDING),
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                )
+            }
+            val clocks = partClocks.getOrElse(i) { Clocks.both(zone) }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpen(part.id) }
+                    .padding(start = LIST_ROW_TEXT_INDENT, end = LIST_ROW_END_PADDING, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    trackRowSpan(part.startedAt, clocks.start, part.endedAt, clocks.end, distanceText(part.distanceMeters)),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ListRowEndColumn { part.mark?.let { OriginGlyph(it) } }
             }
         }
     }
 }
+
+private const val PART_BAND_ALPHA = 0.05f
 
 /** A track row's title: what moved, and how far where that is known. */
 @Composable

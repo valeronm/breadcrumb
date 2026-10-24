@@ -83,6 +83,6 @@
         <item quantity="other">%d visits</item>
     </plurals>
 
-    <!-- Developer builds only -->
-    <string name="timeline_replay" translatable="false">Replay</string>
+    <string name="timeline_show_parts">Show parts</string>
+    <string name="timeline_hide_parts">Hide parts</string>
 </resources>

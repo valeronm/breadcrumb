@@ -16,6 +16,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.placeOrigin
@@ -37,6 +38,8 @@ internal val TrackOrigin.mark: OriginMark?
     }
 
 /** Null for a place the user made or last edited, and for a source this build doesn't know. */
+internal val TrackSummary.mark: OriginMark? get() = TrackOrigin.fromCode(source)?.mark
+
 internal val Place.mark: OriginMark?
     get() = when (placeOrigin) {
         PlaceOrigin.GOOGLE_TIMELINE -> OriginMark.GOOGLE_TIMELINE

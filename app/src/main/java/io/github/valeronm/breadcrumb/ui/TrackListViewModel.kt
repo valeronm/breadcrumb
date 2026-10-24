@@ -364,10 +364,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             TimelineRows.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
         ).map { item ->
             when (item) {
-                is TimelineItem.TrackItem -> item.copy(
-                    zone = d.zonesOfTrack(item.trip.parts.first().id).start,
-                    endZone = d.zonesOfTrack(item.trip.parts.last().id).end,
-                )
+                is TimelineItem.TrackItem -> {
+                    val clocks = item.trip.parts.map { d.zonesOfTrack(it.id) }
+                    item.copy(zone = clocks.first().start, endZone = clocks.last().end, partClocks = clocks)
+                }
                 is TimelineItem.RecordingItem -> item
                 // The slice already carries the zones.
                 is TimelineItem.GapItem -> r.gapsByAnchor.getValue(item.gap.afterTrackId).let {

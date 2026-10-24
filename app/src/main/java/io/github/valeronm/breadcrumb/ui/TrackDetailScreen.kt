@@ -1002,6 +1002,10 @@ internal fun TripSpanRow(trip: Trip, zones: Clocks) {
     }
 }
 
+/** Each writer's mark among [trip]'s parts once, the main part's first. */
+private fun tripMarks(trip: Trip): List<OriginMark> =
+    (listOf(trip.main) + trip.parts).mapNotNull { it.mark }.distinct()
+
 @Composable
 internal fun TrackStatsHeader(trip: Trip) {
     val durationS = trip.endedAt?.let { (it - trip.startedAt) / 1000.0 } ?: 0.0
