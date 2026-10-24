@@ -55,6 +55,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -247,6 +248,7 @@ private fun MainScreen(
     var mainDestination by remember { mutableStateOf<MainDestination?>(null) }
     val openTrack: (Long) -> Unit = { mainDestination = MainDestination.TrackDetail(it) }
     var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
+    val tabStateHolder = rememberSaveableStateHolder()
     // A tab switch replaces the tab's whole composition, but disposing a focused search field is
     // not a reliable keyboard dismissal — drop the focus with the tab that owned it.
     val tabFocusManager = LocalFocusManager.current
@@ -538,53 +540,57 @@ private fun MainScreen(
                 },
             ) { inner ->
                 Box(modifier = Modifier.fillMaxSize().padding(inner)) {
-                    when (selectedTab) {
-                        HomeTab.RECORD -> RecordTab(
-                            setup = setup.state,
-                            autoOn = setup.autoOn,
-                            charging = charging,
-                            keepScreenOn = keepScreenOn,
-                            onToggleKeepScreenOn = { enabled ->
-                                keepScreenOn = enabled
-                                AppSettings.setKeepScreenOnCharging(context, enabled)
-                            },
-                            viewModel = viewModel,
-                            onGrantSetupStep = setup::grant,
-                            onToggleAuto = setup::toggleAuto,
-                        )
+                    // A tab leaves composition when another is picked, which discards its
+                    // rememberSaveable state, a list's scroll among it, unless a holder keeps it.
+                    tabStateHolder.SaveableStateProvider(selectedTab) {
+                        when (selectedTab) {
+                            HomeTab.RECORD -> RecordTab(
+                                setup = setup.state,
+                                autoOn = setup.autoOn,
+                                charging = charging,
+                                keepScreenOn = keepScreenOn,
+                                onToggleKeepScreenOn = { enabled ->
+                                    keepScreenOn = enabled
+                                    AppSettings.setKeepScreenOnCharging(context, enabled)
+                                },
+                                viewModel = viewModel,
+                                onGrantSetupStep = setup::grant,
+                                onToggleAuto = setup::toggleAuto,
+                            )
 
-                        HomeTab.TIMELINE -> TimelineTab(
-                            items = timeline,
-                            viewModel = viewModel,
-                            undo = undo,
-                            jump = timelineJump,
-                            onJumpShown = { timelineJump = null },
-                            viewedDay = timelineViewedDay,
-                            onOpen = openTrack,
-                            onOpenTrip = { mainDestination = MainDestination.TripDetail(it) },
-                            onOpenPlace = { placeDetailKey = it },
-                            onOpenJourney = { journeyKey = it.travel.firstNightAt },
-                            onOpenGap = { gapAfterTrackId = it },
-                            onReplay = { track ->
-                                TrackReplayer.start(context, track.id)
-                                selectedTab = HomeTab.RECORD
-                            },
-                            onOpenRecording = { selectedTab = HomeTab.RECORD },
-                            onOpenData = { settingsPage = SettingsPage.Data },
-                        )
+                            HomeTab.TIMELINE -> TimelineTab(
+                                items = timeline,
+                                viewModel = viewModel,
+                                undo = undo,
+                                jump = timelineJump,
+                                onJumpShown = { timelineJump = null },
+                                viewedDay = timelineViewedDay,
+                                onOpen = openTrack,
+                                onOpenTrip = { mainDestination = MainDestination.TripDetail(it) },
+                                onOpenPlace = { placeDetailKey = it },
+                                onOpenJourney = { journeyKey = it.travel.firstNightAt },
+                                onOpenGap = { gapAfterTrackId = it },
+                                onReplay = { track ->
+                                    TrackReplayer.start(context, track.id)
+                                    selectedTab = HomeTab.RECORD
+                                },
+                                onOpenRecording = { selectedTab = HomeTab.RECORD },
+                                onOpenData = { settingsPage = SettingsPage.Data },
+                            )
 
-                        HomeTab.PLACES -> PlacesTab(
-                            viewModel = viewModel,
-                            homeRequest = placesHomeRequest,
-                            onOpenPlace = { placeDetailKey = it },
-                            mapCamera = placesMapCamera,
-                            onOpenData = { settingsPage = SettingsPage.Data },
-                        )
-                        HomeTab.INSIGHTS -> InsightsTab(
-                            viewModel = viewModel,
-                            onOpenJourney = { journeyKey = it.travel.firstNightAt },
-                            onOpenData = { settingsPage = SettingsPage.Data },
-                        )
+                            HomeTab.PLACES -> PlacesTab(
+                                viewModel = viewModel,
+                                homeRequest = placesHomeRequest,
+                                onOpenPlace = { placeDetailKey = it },
+                                mapCamera = placesMapCamera,
+                                onOpenData = { settingsPage = SettingsPage.Data },
+                            )
+                            HomeTab.INSIGHTS -> InsightsTab(
+                                viewModel = viewModel,
+                                onOpenJourney = { journeyKey = it.travel.firstNightAt },
+                                onOpenData = { settingsPage = SettingsPage.Data },
+                            )
+                        }
                     }
                 }
             }
