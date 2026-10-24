@@ -3,15 +3,14 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import android.util.Log
 import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -30,11 +29,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -76,7 +73,7 @@ internal fun MapLibreStyledMap(
     camera: CameraCarry? = null,
     /** What the screen's own controls cover of the map right now, read on every frame of a drag. */
     obscured: () -> MapInsets = { MapInsets.NONE },
-    /** What the screen floats over the part of the map [MapCredit] leaves showing. */
+    /** What the screen floats over the map, lifted clear of what [obscured] covers. */
     controls: @Composable BoxScope.() -> Unit = {},
     /** Drawn over the map's own pixels and under [controls], in the map view's coordinates. */
     overMap: @Composable BoxScope.(MapLibreMap) -> Unit = {},
@@ -109,8 +106,7 @@ internal fun MapLibreStyledMap(
         host.onStyleLoaded = onStyleLoaded
         host.coverage.obscured = obscured
         val zoom = remember { mutableFloatStateOf(0f) }
-        // Clipped, so the credit's backing can hang below the map without reaching past it.
-        Box(modifier.clipToBounds()) {
+        Box(modifier) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { mapView },
@@ -152,26 +148,23 @@ private fun MapOverlay(
     coverage: Coverage,
     controls: @Composable BoxScope.() -> Unit,
 ) {
-    val color = mapOverlayColor
-    Column(
+    val insetPx = with(LocalDensity.current) { MapInset.roundToPx() }
+    Box(
         Modifier
             .fillMaxSize()
-            .offset { IntOffset(0, -coverage.obscured().bottom) }
-            // What covers the map below the credit shows the map only through its cutouts, such as a
-            // sheet's rounded corners. No cover is taller than the map, so a rect the map's height
-            // fills them without reading the cover while it is dragged.
-            .drawBehind { drawRect(color, Offset(0f, size.height), size) },
+            .offset { IntOffset(0, -coverage.obscured().bottom) },
     ) {
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (BuildConfig.DEV_TOOLS) {
-                // The bottom-left corner is the one no screen puts a control in.
-                ZoomReadout(zoom, Modifier.align(Alignment.BottomStart).padding(MapInset))
+        // The bottom-left corner is the one no screen puts a control in.
+        Column(
+            Modifier.align(Alignment.BottomStart).padding(MapInset),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (BuildConfig.DEV_TOOLS) ZoomReadout(zoom)
+            LegendSurface(Modifier.onSizeChanged { coverage.creditPx = it.height + insetPx }) {
+                MapCredit()
             }
-            controls()
         }
-        Surface(Modifier.fillMaxWidth().onSizeChanged { coverage.creditPx = it.height }, color = color) {
-            MapCredit(Modifier.padding(horizontal = MapInset, vertical = 4.dp))
-        }
+        controls()
     }
 }
 
@@ -184,8 +177,8 @@ private fun MapOverlay(
  * whole diff mid-pinch — in the `perf` build, which exists to measure exactly that.
  */
 @Composable
-private fun ZoomReadout(zoom: FloatState, modifier: Modifier = Modifier) {
-    LegendSurface(modifier) {
+private fun ZoomReadout(zoom: FloatState) {
+    LegendSurface {
         Text("z %.1f".format(zoom.floatValue), style = MaterialTheme.typography.labelSmall)
     }
 }
@@ -365,7 +358,7 @@ internal data class MapInsets(val top: Int, val bottom: Int) {
 
 private const val FRAME_MARGIN_PX = 96
 
-/** What hides a map: the screen's own controls, and the measured [MapCredit] strip above them. */
+/** What hides a map: the screen's own controls, and the measured [MapCredit] chip above them. */
 private class Coverage {
     var obscured: () -> MapInsets = { MapInsets.NONE }
     var creditPx = 0

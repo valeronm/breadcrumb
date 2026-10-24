@@ -1010,7 +1010,7 @@ why the workflow is the only thing standing between a forgotten bump and Play.
   recording's "start of the next trip" action, whose departure is placed by the road's duration
   (`GapDrafts.withRoad`). The ODbL credit in
   Settings and at the search results is a licence requirement, like the GeoNames one, and the
-  linked data credit along every map's bottom edge and in Settings (`MapCredit`) is what FOSSGIS's
+  linked data credit in every map's bottom-left corner and in Settings (`MapCredit`) is what FOSSGIS's
   terms ask for of the routing's users, their report-an-error link included; it stays on the map
   rather than behind MapLibre's attribution button because OSM's guideline wants it read without a
   tap. There is no
