@@ -295,7 +295,10 @@ object StayDeriver {
      * recording it fills. The instant is a join, not a stop: nothing is recorded between the two, and
      * their facing ends are not clustered ([clusteredEndpointsOf]).
      */
-    fun joined(before: TrackEnd, after: TrackEnd): Boolean = before.endedAt == after.startedAt
+    fun joined(before: TrackEnd, after: TrackEnd): Boolean = joined(before.endedAt, after.startedAt)
+
+    /** [joined] for tracks known by their bounds; an end not yet set joins nothing. */
+    fun joined(endedAt: Long?, startedAt: Long): Boolean = endedAt == startedAt
 
     /** One endpoint the clustering reads: which track's, which of its two ends, when and where. */
     data class EndpointRef(

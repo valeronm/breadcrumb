@@ -130,12 +130,13 @@ object TimelineRows {
      * tie the interval sorts newer (it extends past the shared instant; the track ended at it).
      */
     fun interleave(summaries: List<TrackSummary>, slices: List<Slice>): List<TimelineItem> {
+        val chains = TripChains.of(summaries)
         val descSlices = slices.asReversed()
-        val out = ArrayList<TimelineItem>(summaries.size + slices.size)
+        val out = ArrayList<TimelineItem>(chains.size + slices.size)
         var t = 0
         var v = 0
-        while (t < summaries.size || v < descSlices.size) {
-            val track = summaries.getOrNull(t)
+        while (t < chains.size || v < descSlices.size) {
+            val track = chains.getOrNull(t)
             val interval = descSlices.getOrNull(v)?.interval
             val takeInterval = when {
                 interval == null -> false
@@ -166,7 +167,7 @@ object TimelineRows {
                     )
                 }
             } else {
-                out += TimelineItem.TrackItem(summaries[t++])
+                out += TimelineItem.TrackItem(chains[t++])
             }
         }
         return out
@@ -223,7 +224,7 @@ sealed interface TimelineItem {
     val zone: ZoneId?
 
     data class TrackItem(
-        val summary: TrackSummary,
+        val trip: Trip,
         /** Where it set off — the clock it is filed and starts on. */
         override val zone: ZoneId? = null,
         /**
@@ -238,7 +239,9 @@ sealed interface TimelineItem {
          */
         val endZone: ZoneId? = null,
     ) : TimelineItem {
-        override val startedAt get() = summary.startedAt
+        constructor(summary: TrackSummary) : this(Trip(summary))
+
+        override val startedAt get() = trip.startedAt
     }
 
     /** The track being recorded into, whose distance and end are unknown until it closes. It is on

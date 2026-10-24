@@ -82,4 +82,7 @@
         <item quantity="one">%d visit</item>
         <item quantity="other">%d visits</item>
     </plurals>
+
+    <!-- Developer builds only -->
+    <string name="timeline_replay" translatable="false">Replay</string>
 </resources>

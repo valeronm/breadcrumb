@@ -37,14 +37,14 @@ class MonthlyTotalsTest {
         meters: Double,
         zone: ZoneId = utc,
     ) = TimelineItem.TrackItem(
-        summary = trackSummary(++nextId, activity.name, startedAt, startedAt + 30 * MIN, meters),
+        trip = Trip(trackSummary(++nextId, activity.name, startedAt, startedAt + 30 * MIN, meters)),
         zone = zone,
     )
 
     /** A track whose stored type no build of this app can read — a legacy code from an old install. */
     private fun legacyTrack(stored: String, startedAt: Long, meters: Double) =
         track(ActivityType.WALKING, startedAt, meters).let {
-            it.copy(summary = it.summary.copy(activityType = stored))
+            it.copy(trip = Trip(it.trip.main.copy(activityType = stored)))
         }
 
     private fun stay(

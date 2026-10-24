@@ -98,14 +98,14 @@ internal fun JourneyDetailScreen(
     // list, so a timeline emission that changed no track in the window doesn't restart the load
     // and reset the map to empty mid-fill.
     val journeyTracks = remember(journeyItems) {
-        journeyItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
+        journeyItems.filterIsInstance<TimelineItem.TrackItem>().flatMap { it.trip.parts }
     }
     val trackKeys = remember(journeyTracks) { journeyTracks.map { it.id to it.endedAt } }
     val lines by produceState(emptyList<JourneyLine>(), trackKeys) {
         viewModel.journeyPolylines.linesFor(journeyTracks).collect { value = it }
     }
     val shownTrackIds = remember(shownItems) {
-        shownItems.filterIsInstance<TimelineItem.TrackItem>().mapTo(HashSet()) { it.summary.id }
+        shownItems.filterIsInstance<TimelineItem.TrackItem>().flatMapTo(HashSet()) { item -> item.trip.parts.map { it.id } }
     }
     val shownLines = remember(lines, shownTrackIds) { lines.filter { it.trackId in shownTrackIds } }
 

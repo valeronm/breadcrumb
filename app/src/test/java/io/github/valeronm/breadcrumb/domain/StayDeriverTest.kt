@@ -556,7 +556,7 @@ class StayDeriverTest {
         assertTrue(items[0] is TimelineItem.TrackItem)
         assertTrue(items[1] is TimelineItem.StayItem)
         assertTrue(items[2] is TimelineItem.TrackItem)
-        assertEquals(2L, (items[0] as TimelineItem.TrackItem).summary.id)
+        assertEquals(2L, (items[0] as TimelineItem.TrackItem).trip.main.id)
     }
 
     @Test fun `intervals older than every track still reach the timeline`() {

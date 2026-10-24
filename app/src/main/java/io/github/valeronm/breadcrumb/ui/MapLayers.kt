@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
 import com.google.gson.JsonObject
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
@@ -214,6 +215,9 @@ internal fun Coordinate.toPoint(): Point = Point.fromLngLat(lon, lat)
  * previous *drawn* position rather than the raw point, so the unwrapped longitudes stay continuous
  * across an antimeridian however many legs cross it.
  */
+internal fun drawnLine(points: List<Coordinate>, activity: ActivityType?): List<Coordinate> =
+    if (GreatCircle.drawsPath(points.size, activity)) greatCirclePositions(points) else points
+
 internal fun greatCirclePositions(points: List<Coordinate>): List<Coordinate> {
     if (points.size < 2) return points
     val out = ArrayList<Coordinate>()

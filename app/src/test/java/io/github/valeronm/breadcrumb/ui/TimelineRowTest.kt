@@ -25,6 +25,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
@@ -223,17 +224,19 @@ class TimelineRowTest {
 
     private fun trackRow(activity: ActivityType, source: TrackOrigin = TrackOrigin.RECORDED) = row {
         TrackRow(
-            track = TrackSummary(
-                id = 1,
-                activityType = activity.name,
-                startedAt = noon,
-                endedAt = noon + HOUR,
-                distanceMeters = 5_000.0,
-                pointCount = 100,
-                ignoredCount = 0,
-                source = source.code,
-                startPlaceId = null,
-                endPlaceId = null,
+            trip = Trip(
+                TrackSummary(
+                    id = 1,
+                    activityType = activity.name,
+                    startedAt = noon,
+                    endedAt = noon + HOUR,
+                    distanceMeters = 5_000.0,
+                    pointCount = 100,
+                    ignoredCount = 0,
+                    source = source.code,
+                    startPlaceId = null,
+                    endPlaceId = null,
+                ),
             ),
             shape = SHAPE,
             zone = zone,
@@ -256,6 +259,34 @@ class TimelineRowTest {
     fun `a trip from elsewhere names its origin aloud`() {
         trackRow(ActivityType.DRIVING, TrackOrigin.GOOGLE_TIMELINE)
         compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline))
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun `a trip with a start entered by hand names both origins aloud`() {
+        fun part(id: Long, start: Long, end: Long, source: TrackOrigin) = TrackSummary(
+            id = id, activityType = ActivityType.DRIVING.name, startedAt = start, endedAt = end,
+            distanceMeters = 1_000.0, pointCount = 2, ignoredCount = 0, source = source.code,
+            startPlaceId = null, endPlaceId = null,
+        )
+        row {
+            TrackRow(
+                trip = Trip(
+                    listOf(
+                        part(1, noon, noon + HOUR / 4, TrackOrigin.MANUAL),
+                        part(2, noon + HOUR / 4, noon + HOUR, TrackOrigin.GOOGLE_TIMELINE),
+                    ),
+                ),
+                shape = SHAPE,
+                zone = zone,
+                endZone = null,
+                onOpen = {},
+                onDelete = {},
+            )
+        }
+        compose.onNodeWithContentDescription(context.getString(R.string.common_origin_google_timeline))
+            .assertIsDisplayed()
+        compose.onNodeWithContentDescription(context.getString(R.string.common_origin_entered_by_hand))
             .assertIsDisplayed()
     }
 

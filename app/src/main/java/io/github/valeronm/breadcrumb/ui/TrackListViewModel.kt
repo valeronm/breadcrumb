@@ -362,9 +362,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             TimelineRows.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
         ).map { item ->
             when (item) {
-                is TimelineItem.TrackItem -> d.zonesOfTrack(item.summary.id).let {
-                    item.copy(zone = it.start, endZone = it.end)
-                }
+                is TimelineItem.TrackItem -> item.copy(
+                    zone = d.zonesOfTrack(item.trip.parts.first().id).start,
+                    endZone = d.zonesOfTrack(item.trip.parts.last().id).end,
+                )
                 is TimelineItem.RecordingItem -> item
                 // The slice already carries the zones.
                 is TimelineItem.GapItem -> r.gapsByAnchor.getValue(item.gap.afterTrackId).let {
@@ -733,17 +734,19 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * [onDeleted] runs only if the delete went through: a return inside the stitch window can
      * reopen the track before the tap lands.
      */
-    fun delete(trackId: Long, onDeleted: () -> Unit) {
+    fun delete(trackIds: List<Long>, onDeleted: () -> Unit) {
         viewModelScope.launch {
-            if (repository.deleteTrack(trackId)) onDeleted()
+            if (repository.deleteTracks(trackIds)) onDeleted()
         }
     }
 
+    fun restoreTrack(trackId: Long) = restoreTracks(listOf(trackId))
+
     /** Refused, like an import, while an operation on the whole history runs. */
-    fun restoreTrack(trackId: Long) {
+    fun restoreTracks(trackIds: List<Long>) {
         if (importExport.refuseIfBusy()) return
         viewModelScope.launch {
-            if (!repository.restoreTrack(trackId)) {
+            if (!repository.restoreTracks(trackIds)) {
                 say(getApplication<Application>().getString(R.string.discarded_restore_overlaps))
             }
         }

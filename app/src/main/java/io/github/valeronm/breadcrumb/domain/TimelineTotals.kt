@@ -91,7 +91,7 @@ class TimelineTotalsBuilder {
      */
     fun add(item: TimelineItem, nowMs: Long) {
         when (item) {
-            is TimelineItem.TrackItem -> add(item.summary, nowMs)
+            is TimelineItem.TrackItem -> for (part in item.trip.parts) add(part, nowMs)
             is TimelineItem.StayItem -> addStay(item, nowMs)
             is TimelineItem.GapItem, is TimelineItem.RecordingItem -> Unit
         }

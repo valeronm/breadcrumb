@@ -33,7 +33,7 @@ object JourneySlice {
         for (item in items) {
             if (item.startedAt >= windowEnd) continue
             val end = when (item) {
-                is TimelineItem.TrackItem -> item.summary.endedAt ?: nowMs
+                is TimelineItem.TrackItem -> item.trip.endedAt ?: nowMs
                 is TimelineItem.RecordingItem -> nowMs
                 is TimelineItem.StayItem -> item.stay.end ?: nowMs
                 is TimelineItem.GapItem -> item.gap.end

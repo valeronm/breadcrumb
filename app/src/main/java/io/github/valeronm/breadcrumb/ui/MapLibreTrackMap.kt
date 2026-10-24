@@ -80,6 +80,9 @@ internal fun MapLibreTrackMap(
     endPlaces: List<Place> = emptyList(),
     // A dashed connector from an end to the pin of a place it is stated to but lies outside of.
     endLinks: List<RoutePlaces.Link> = emptyList(),
+    // The trip's parts entered by hand ([Trip.entered]), dashed in the track's color: one trip with
+    // this track, but no measured path. Read once, at style load.
+    enteredLegs: List<List<Coordinate>> = emptyList(),
     // Live preview: the last point is the current position — a droplet rotated to the movement
     // bearing instead of the finished-track end dot.
     directionalEnd: Boolean = false,
@@ -121,13 +124,19 @@ internal fun MapLibreTrackMap(
             style.addSource(GeoJsonSource(END_LINK_SOURCE, endLinkCollection(endLinks)))
             addConnectorLayer(style, dark, END_LINK_LAYER, END_LINK_SOURCE)
             addDwellLayers(style, dwells)
+            addEnteredLegs(style, enteredLegs, activity, mapActivityArgb(activity, dark))
             addTrackLine(style, points, colors, greatCircleLegs)
             addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
             addMarkers(ctx, style, points, noisyPoints, directionalEnd)
             // Over the recorder's own markers: at an end the two land within a capture radius of
             // each other, and the place states where the journey went.
             addEndPlacePins(ctx, style, endPlaces, dark)
-            frameTo(map, framePositions(points, noisyPoints, greatCircleLegs, endLinks), singlePointZoom = 15.0)
+            frameTo(
+                map,
+                framePositions(points, noisyPoints, greatCircleLegs, endLinks) +
+                    enteredLegs.flatMap { drawnLine(it, activity) }.map { LatLng(it.lat, it.lon) },
+                singlePointZoom = 15.0,
+            )
             // Stamped here as well as drawn: otherwise the first update sees no applied input
             // and rebuilds every source the load just built.
             applied.points = points
@@ -254,6 +263,8 @@ private const val END_PLACE_SOURCE = "end-place-src"
 private const val END_PLACE_LAYER = "end-place-layer"
 private const val END_LINK_SOURCE = "end-link-src"
 private const val END_LINK_LAYER = "end-link-layer"
+private const val ENTERED_SOURCE = "entered-src"
+private const val ENTERED_LAYER = "entered-layer"
 
 /**
  * The stretch at each track edge the recorder ran on through — fixes already off the path, each run
@@ -312,6 +323,27 @@ private fun endPlaceCollection(places: List<Place>): FeatureCollection =
             )
         },
     )
+
+private fun addEnteredLegs(style: Style, legs: List<List<Coordinate>>, activity: ActivityType?, argb: Int) {
+    style.addSource(
+        GeoJsonSource(
+            ENTERED_SOURCE,
+            FeatureCollection.fromFeatures(
+                legs.filter { it.size >= 2 }.map { leg ->
+                    Feature.fromGeometry(LineString.fromLngLats(drawnLine(leg, activity).map { it.toPoint() }))
+                },
+            ),
+        ),
+    )
+    style.addLayer(
+        LineLayer(ENTERED_LAYER, ENTERED_SOURCE).withProperties(
+            PropertyFactory.lineColor(argb),
+            PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
+            PropertyFactory.lineDasharray(arrayOf(2f, 1.5f)),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        ),
+    )
+}
 
 private fun endLinkCollection(links: List<RoutePlaces.Link>): FeatureCollection =
     FeatureCollection.fromFeatures(

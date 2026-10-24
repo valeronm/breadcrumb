@@ -463,7 +463,7 @@ private fun PlaceRow(
         title = summary.name ?: stringResource(summary.unnamedTitleRes),
         titleColor = statedTitleColor(named),
         subtitle = AnnotatedString(placeSubtitle(summary, sort)),
-        mark = summary.place?.mark,
+        marks = listOfNotNull(summary.place?.mark),
     )
 }
 

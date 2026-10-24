@@ -86,6 +86,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.TripChains
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.UnitChoice
@@ -836,6 +837,7 @@ private fun DiscardedTrackOverlay(
         TrackDetailScreen(
             trackId = trackId,
             summary = discardedTracks.firstOrNull { it.track.id == trackId }?.track,
+            trip = null,
             viewModel = viewModel,
             onBack = layer.dismiss,
             // No splitting or editing here: these tracks are on their way out of the timeline, not
@@ -869,9 +871,13 @@ private fun MainDestinationOverlay(
                 // Off the summaries, not the resolved timeline: the row is all this lookup needs,
                 // and the timeline also re-emits for derivation changes no track row moved.
                 val tracks by viewModel.tracks.collectAsStateWithLifecycle()
+                val trip = remember(tracks, rendered.id) {
+                    TripChains.tripOf(tracks, rendered.id)?.takeIf { it.parts.size > 1 }
+                }
                 TrackDetailScreen(
                     trackId = rendered.id,
                     summary = tracks.firstOrNull { it.id == rendered.id },
+                    trip = trip,
                     viewModel = viewModel,
                     onBack = layer.dismiss,
                     onSplit = { atTs ->

@@ -567,6 +567,31 @@ class TrackRepositoryTest {
         test.assertStatsMatchPoints(id)
     }
 
+    @Test fun `a trip's parts are deleted and restored together`() = runTest {
+        val first = finishedWalk(0)
+        val second = finishedWalk(12)
+
+        assertTrue(repository.deleteTracks(listOf(first, second)))
+        assertEquals(DiscardReason.DELETED.code, dao.track(first)!!.discardReason)
+        assertEquals(DiscardReason.DELETED.code, dao.track(second)!!.discardReason)
+        DerivedConsistency.assertInternallyConsistent(test.db, TEST_START + 10_000_000L)
+
+        assertTrue(repository.restoreTracks(listOf(first, second)))
+        assertNull(dao.track(first)!!.discardedAt)
+        assertNull(dao.track(second)!!.discardedAt)
+        DerivedConsistency.assertMatchesFreshDerive(test.db, TEST_START + 10_000_000L)
+    }
+
+    @Test fun `a trip whose part overlaps the timeline is restored not at all`() = runTest {
+        val first = finishedWalk(0)
+        val second = finishedWalk(12)
+        repository.deleteTracks(listOf(first, second))
+        finishedWalk(14)
+
+        assertFalse(repository.restoreTracks(listOf(first, second)))
+        assertEquals(DiscardReason.DELETED.code, dao.track(first)!!.discardReason)
+    }
+
     @Test fun `a track overlapping one on the timeline stays in Recently deleted`() = runTest {
         val first = finishedWalk(0)
         val second = finishedWalk(12)

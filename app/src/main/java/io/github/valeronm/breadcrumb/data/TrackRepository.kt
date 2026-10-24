@@ -517,11 +517,16 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * User-initiated delete is a soft delete: the track moves to Recently deleted (restorable)
      * and is only hard-deleted by [purgeOldDiscarded] after the retention window.
      */
-    suspend fun deleteTrack(trackId: Long): Boolean =
+    suspend fun deleteTrack(trackId: Long): Boolean = deleteTracks(listOf(trackId))
+
+    /** Deletes those of [trackIds] that are settled, as one write; false when none was. */
+    suspend fun deleteTracks(trackIds: List<Long>): Boolean =
         db.withTransaction {
-            closedTrack(trackId) ?: return@withTransaction false
-            dao.setDiscarded(trackId, System.currentTimeMillis(), DiscardReason.DELETED.code)
-            derivation.reknit(listOf(trackId))
+            val settled = trackIds.filter { closedTrack(it) != null }
+            if (settled.isEmpty()) return@withTransaction false
+            val now = System.currentTimeMillis()
+            for (id in settled) dao.setDiscarded(id, now, DiscardReason.DELETED.code)
+            derivation.reknit(settled)
             true
         }
 
@@ -538,13 +543,16 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * Bring a discarded track back to the timeline (undoes a delete/discard within retention).
      * False when the track overlaps one already there, which leaves it discarded.
      */
-    suspend fun restoreTrack(trackId: Long): Boolean = db.withTransaction {
+    suspend fun restoreTrack(trackId: Long): Boolean = restoreTracks(listOf(trackId))
+
+    /** [restoreTrack] for several tracks as one write: false when one overlaps, and then none is restored. */
+    suspend fun restoreTracks(trackIds: List<Long>): Boolean = db.withTransaction {
         // Reopening clears the discard columns, so a discarded row is never the one the recorder holds.
-        val track = dao.track(trackId)?.takeIf { it.discardedAt != null } ?: return@withTransaction true
-        val end = checkNotNull(track.endedAt)
-        if (spanTaken(track.startedAt, end, trackId)) return@withTransaction false
-        dao.restoreTrack(trackId)
-        derivation.reknit(listOf(trackId))
+        val tracks = trackIds.mapNotNull { id -> dao.track(id)?.takeIf { it.discardedAt != null } }
+        if (tracks.any { spanTaken(it.startedAt, checkNotNull(it.endedAt), it.id) }) return@withTransaction false
+        if (tracks.isEmpty()) return@withTransaction true
+        for (track in tracks) dao.restoreTrack(track.id)
+        derivation.reknit(tracks.map { it.id })
         true
     }
 

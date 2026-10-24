@@ -57,7 +57,7 @@ class JourneySliceTest {
             nowMs = 24 * hour,
         )
 
-        assertEquals(listOf(2L), sliced.filterIsInstance<TimelineItem.TrackItem>().map { it.summary.id })
+        assertEquals(listOf(2L), sliced.filterIsInstance<TimelineItem.TrackItem>().map { it.trip.main.id })
         assertTrue(sliced.filterIsInstance<TimelineItem.StayItem>().isEmpty())
     }
 
@@ -69,7 +69,7 @@ class JourneySliceTest {
             nowMs = 24 * hour,
         )
 
-        val track = (sliced.single() as TimelineItem.TrackItem).summary
+        val track = (sliced.single() as TimelineItem.TrackItem).trip.main
         assertEquals(2 * hour, track.startedAt)
         assertEquals(6 * hour, track.endedAt)
     }

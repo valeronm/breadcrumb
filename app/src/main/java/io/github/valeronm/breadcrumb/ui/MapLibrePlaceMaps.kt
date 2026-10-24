@@ -20,7 +20,6 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
@@ -1040,8 +1039,7 @@ internal fun MapLibreTripMap(
     // own rule for arcing it.
     val line = remember(shape, origin, destination, activity) {
         if (origin == null || destination == null) return@remember null
-        val stored = ManualPath.line(origin, destination, shape)
-        if (GreatCircle.drawsPath(stored.size, activity)) greatCirclePositions(stored) else stored
+        drawnLine(ManualPath.line(origin, destination, shape), activity)
     }
     // What every frame takes in: the line as drawn, since a road or a great-circle arc bows outside
     // the box its ends span.

@@ -36,6 +36,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -85,6 +87,7 @@ import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
 import kotlinx.coroutines.delay
@@ -480,7 +483,7 @@ private fun TimelineListPage(
             ) {
                 groups.forEach { group ->
                     val dayItems = group.items
-                    val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
+                    val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().flatMap { it.trip.parts }
                     val away = awayDays[group.date]
                     stickyHeading(key = group.headingKey) {
                         val label = dayLabelOf(group.date)
@@ -501,18 +504,14 @@ private fun TimelineListPage(
                         val highlighted = item.rowKey() == highlightKey
                         when (item) {
                             is TimelineItem.TrackItem -> TrackRow(
-                                track = item.summary,
+                                trip = item.trip,
                                 shape = shape,
                                 zone = item.clock,
                                 endZone = item.endZone,
-                                onOpen = { onOpen(item.summary.id) },
-                                onDelete = { undo.deleteTrack(viewModel, item.summary.id, deletedMessage) },
-                                // DEBUG: long-press replays the track through the Record tab's live view.
-                                onReplay = if (BuildConfig.DEV_TOOLS) {
-                                    { onReplay(item.summary) }
-                                } else {
-                                    null
-                                },
+                                onOpen = onOpen,
+                                onDelete = { undo.deleteTracks(viewModel, item.trip.parts.map { it.id }, deletedMessage) },
+                                // DEBUG: replays the track through the Record tab's live view.
+                                onReplay = if (BuildConfig.DEV_TOOLS) onReplay else null,
                             )
                             is TimelineItem.RecordingItem -> RecordingRow(
                                 item = item,
@@ -579,7 +578,7 @@ private fun TimelineMapPage(
     val itemsByDay = remember(items) { items.groupBy { it.filedOn } }
     val dayItems = itemsByDay[day].orEmpty()
     val dayTracks = remember(dayItems) {
-        dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
+        dayItems.filterIsInstance<TimelineItem.TrackItem>().flatMap { it.trip.parts }
     }
     // Keyed on the tracks' (id, endedAt) pairs rather than the list, so a timeline emission that
     // changed no track on this day doesn't restart the load and reset the map to empty mid-fill.
@@ -920,7 +919,7 @@ internal val TimelineItem.clock: ZoneId get() = zone ?: timelineZone()
 internal val TimelineItem.filedOn: LocalDate get() = filedAt.toLocalDate(clock)
 
 internal fun TimelineItem.rowKey(): String = when (this) {
-    is TimelineItem.TrackItem -> "track:${summary.id}"
+    is TimelineItem.TrackItem -> "track:${trip.main.id}"
     is TimelineItem.RecordingItem -> "recording:$trackId"
     is TimelineItem.StayItem -> "stay:${stay.afterTrackId}:${stay.start}"
     is TimelineItem.GapItem -> "gap:${gap.start}"
@@ -1002,17 +1001,28 @@ internal fun RecordingRow(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
+/**
+ * One [Trip], marked with each source its parts came from, the main part's first. A chained trip's
+ * long-press lists every part, a tap opening only the main one.
+ */
 @Composable
 internal fun TrackRow(
-    track: TrackSummary,
+    trip: Trip,
     shape: RoundedCornerShape,
     zone: ZoneId,
     /** Where it arrived, when that is a different clock — see [TimelineItem.TrackItem.endZone]. */
     endZone: ZoneId?,
-    onOpen: () -> Unit,
+    onOpen: (Long) -> Unit,
+    /** Deletes every part of the trip. */
     onDelete: () -> Unit,
-    onReplay: (() -> Unit)? = null,
+    onReplay: ((TrackSummary) -> Unit)? = null,
 ) {
+    val main = trip.main
+    val chained = trip.parts.size > 1
+    val marks = remember(trip) {
+        (listOf(main) + trip.entered).mapNotNull { TrackOrigin.fromCode(it.source)?.mark }.distinct()
+    }
+    var menuOpen by remember { mutableStateOf(false) }
     // Swipe right-to-left to delete — a soft delete, undoable from the snackbar and, after that,
     // from Recently deleted.
     SwipeActionRow(
@@ -1023,32 +1033,69 @@ internal fun TrackRow(
         iconDescription = stringResource(R.string.common_delete),
         onDismiss = onDelete,
     ) {
-        val activity = ActivityType.ofName(track.activityType)
-        val activityName = activityLabel(LocalContext.current, track.activityType)
-        val origin = TrackOrigin.fromCode(track.source)
-        ListRowCard(
-            // Long-press replays the track, which Card's own onClick can't express.
-            modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
-            shape = shape,
-            icon = activityIcon(activity),
-            disc = activityDiscStyle(activity),
-            iconDescription = activityName,
-            mark = origin?.mark,
-            // What happened leads; when it happened is the metadata line.
-            title = trackRowTitle(activityName, track.distanceMeters),
-            titleColor = MaterialTheme.colorScheme.onSurface,
-            // Each end on its own clock where they differ — a track is the one recorded row that can
-            // cross a border, and flattening it onto the departure's clock hides the crossing. The two
-            // times then no longer span the duration beside them, which is why each carries its own
-            // offset: read together they say the drive lost an hour to the border, which is the truth.
-            subtitle = trackRowSpan(
-                track.startedAt,
-                zone,
-                track.endedAt,
-                endZone ?: zone,
-                durationText(track.startedAt, track.endedAt),
-            ),
-        )
+        val activity = ActivityType.ofName(main.activityType)
+        val activityName = activityLabel(LocalContext.current, main.activityType)
+        Box {
+            ListRowCard(
+                modifier = Modifier.combinedClickable(
+                    onClick = { onOpen(main.id) },
+                    onLongClick = if (chained) {
+                        { menuOpen = true }
+                    } else {
+                        onReplay?.let { replay -> { replay(main) } }
+                    },
+                ),
+                shape = shape,
+                icon = activityIcon(activity),
+                disc = activityDiscStyle(activity),
+                iconDescription = activityName,
+                marks = marks,
+                // What happened leads; when it happened is the metadata line.
+                title = trackRowTitle(activityName, trip.distanceMeters),
+                titleColor = MaterialTheme.colorScheme.onSurface,
+                // Each end on its own clock where they differ — a track is the one recorded row that can
+                // cross a border, and flattening it onto the departure's clock hides the crossing. The two
+                // times then no longer span the duration beside them, which is why each carries its own
+                // offset: read together they say the drive lost an hour to the border, which is the truth.
+                subtitle = trackRowSpan(
+                    trip.startedAt,
+                    zone,
+                    trip.endedAt,
+                    endZone ?: zone,
+                    durationText(trip.startedAt, trip.endedAt),
+                ),
+            )
+            if (chained) {
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    for (part in trip.parts) {
+                        DropdownMenuItem(
+                            // By length rather than clock: the parts run in order, and a join's
+                            // instant has no clock of its own to be read on.
+                            text = {
+                                Text(
+                                    distanceText(part.distanceMeters) + " · " +
+                                        durationText(part.startedAt, part.endedAt),
+                                )
+                            },
+                            trailingIcon = TrackOrigin.fromCode(part.source)?.mark?.let { { OriginGlyph(it) } },
+                            onClick = {
+                                menuOpen = false
+                                onOpen(part.id)
+                            },
+                        )
+                    }
+                    if (onReplay != null) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.timeline_replay)) },
+                            onClick = {
+                                menuOpen = false
+                                onReplay(main)
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1235,7 +1282,7 @@ internal fun StayCard(
         iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
         badge = if (mergeable) Icons.Filled.Pause else null,
         badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
-        mark = place?.place?.mark,
+        marks = listOfNotNull(place?.place?.mark),
         // The place leads; when (with midnight slices phrased humanly) is the metadata line. The
         // atlas's city stands in where the user has said nothing, dimmed by `named` below so a
         // worked-out name never reads as one they chose. A merge-eligible stop the atlas can't

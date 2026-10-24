@@ -642,6 +642,15 @@ are the ones being replaced; and the write is otherwise an insert, `finalizeImpo
 because the aggregates and the overrun verdict are functions of the points and these are new points.
 An edit is deliberately **not** undoable — every value is in the form, unlike a merge or a delete.
 
+**A trip is what the reader sees, and it can be several tracks** (`Trip`, `TripChains`). Tracks
+joined end to start — one ending at the instant the next begins, the shape a trip entered by hand to
+fill a missing recording leaves — and of one type are one timeline row, one page and one swipe to
+delete. They stay separate tracks because no merge crosses writers, which is what keeps typed ends
+out of measured fixes. A different type keeps them apart too, choosing it being the user's word that
+it was another trip. The joined instant is a join, not a stop: nothing is derived between the two,
+and their facing ends are not clustered (`StayDeriver.joined`). Each part keeps its own page and
+delete, the trip's page being the main part's — the one not entered by hand.
+
 
 **Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*
 rows and a Room SQL migration can't express the logic, add a repository pass and run it from

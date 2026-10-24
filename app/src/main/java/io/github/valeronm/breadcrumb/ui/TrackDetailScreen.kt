@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -80,6 +81,7 @@ import io.github.valeronm.breadcrumb.domain.RoutePlaces
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSettle
+import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.ui.theme.LocalDarkTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
@@ -93,6 +95,8 @@ import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 internal fun TrackDetailScreen(
     trackId: Long,
     summary: TrackSummary?,
+    /** The trip this track is the [Trip.main] part of, where it has parts entered around it. */
+    trip: Trip?,
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
     /**
@@ -101,8 +105,8 @@ internal fun TrackDetailScreen(
      * defaulted so that a new caller has to say which it is instead of inheriting silence.
      */
     onSplit: ((Long) -> Unit)?,
-    /** Delete this track, offered where a cut would discard both halves; the caller offers the undo
-     *  and closes this screen. */
+    /** Delete this track — this one, not the trip it is part of; the caller offers the undo and
+     *  closes this screen. */
     onDelete: (() -> Unit)?,
     /**
      * Open the trip form on this track — offered only for a manual one, whose whole content is the
@@ -131,7 +135,26 @@ internal fun TrackDetailScreen(
         value = viewModel.zonesOfTrack(trackId)
     }
     val startZone = zones.start
-    val endZone = zones.end
+    // The trip this page states: this track alone, or with the parts entered around it.
+    val shown = trip ?: summary?.let(::Trip)
+    val first = shown?.parts?.first()
+    val last = shown?.parts?.last()
+    val tripZones by produceState(zones, first?.id, last?.id, zones) {
+        value = if (trip == null || first == null || last == null) {
+            zones
+        } else {
+            Clocks(viewModel.zonesOfTrack(first.id).start, viewModel.zonesOfTrack(last.id).end)
+        }
+    }
+    // Keyed on the parts' ids and ends, not the parts: the track list re-emits for changes these
+    // fixes do not follow.
+    val entered = trip?.entered.orEmpty()
+    val enteredPoints by produceState<Map<Long, List<TrackPoint>>?>(null, entered.map { it.id to it.endedAt }) {
+        value = entered.associate { it.id to viewModel.getTrackPoints(it.id).good }
+    }
+    val enteredLegs = remember(enteredPoints) {
+        enteredPoints.orEmpty().values.map { leg -> leg.map { Coordinate(it.latitude, it.longitude) } }
+    }
     val points = trackPoints?.good
     val noisyPoints = trackPoints?.noisy
     val stayPoints = trackPoints?.edgeStay.orEmpty()
@@ -148,6 +171,7 @@ internal fun TrackDetailScreen(
     val overruns = remember(points, stayPoints) {
         TrackSettle.overruns(points.orEmpty(), stayPoints)
     }
+    val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
     // The places this journey set out from and arrived at. Off the stored rows rather than the
     // derived summaries: a pin and its reach are all the rule and the map read, and neither has
     // anything to learn from a visit count worth waiting for the clustering over.
@@ -156,14 +180,16 @@ internal fun TrackDetailScreen(
     // their coordinates, so a dispatcher hop would cost more than the work — and arriving in the
     // first composition means the pins are there when the style loads, instead of a source rebuilt a
     // frame later.
-    val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
-    val route = remember(points, storedPlaces, summary?.startPlaceId, summary?.endPlaceId) {
+    //
+    // The ends are the whole trip's: an entered start or end moves one off this track's own.
+    val route = remember(points, enteredPoints, first, last, storedPlaces) {
+        fun fixesOf(part: TrackSummary?) = if (part?.id == trackId) points.orEmpty() else enteredPoints?.get(part?.id).orEmpty()
         RoutePlaces.route(
-            points.orEmpty(),
+            listOfNotNull(fixesOf(first).firstOrNull(), fixesOf(last).lastOrNull()),
             storedPlaces,
             AndroidDistance,
-            startPlaceId = summary?.startPlaceId,
-            endPlaceId = summary?.endPlaceId,
+            startPlaceId = first?.startPlaceId,
+            endPlaceId = last?.endPlaceId,
         )
     }
     // The one seam walk this screen's derived series come from, keyed on the points alone — it is
@@ -241,6 +267,12 @@ internal fun TrackDetailScreen(
                             )
                         }
                     }
+                    // A track still being recorded into has no settled row to delete.
+                    if (onDelete != null && summary?.endedAt != null) {
+                        IconButton(onClick = onDelete) {
+                            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.common_delete))
+                        }
+                    }
                     IconButton(onClick = {
                         viewModel.importExport.shareTracks(listOf(trackId)) { intent ->
                             if (intent != null) context.startActivity(intent)
@@ -258,7 +290,7 @@ internal fun TrackDetailScreen(
         Box(modifier = Modifier.padding(inner).fillMaxSize().clipToBounds()) {
             val load = trackPoints
             when {
-                load == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                load == null || enteredPoints == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 // A track without a drawable line still gets the map when it has noisy fixes to
                 // mark — a bad-points-only track is exactly what the noisy overlay is for.
                 load.good.size < KeepRule.MIN_LINE_POINTS && load.noisy.isEmpty() -> Text(
@@ -270,7 +302,7 @@ internal fun TrackDetailScreen(
                     Modifier.fillMaxSize().padding(horizontal = 12.dp).padding(bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (summary != null) {
+                    if (summary != null && shown != null) {
                         // Each end on its own clock, marked where it differs from the reader's — a
                         // track can cross a border, and the row this screen opened from says so.
                         val shiftColor = zoneShiftColor
@@ -283,11 +315,11 @@ internal fun TrackDetailScreen(
                             Text(
                                 buildAnnotatedString {
                                     appendDateTime(
-                                        summary.startedAt, startZone, reader, shiftColor, readerClock,
+                                        shown.startedAt, tripZones.start, reader, shiftColor, readerClock,
                                     )
-                                    summary.endedAt?.let { endedAt ->
+                                    shown.endedAt?.let { endedAt ->
                                         append(" – ")
-                                        appendTime(endedAt, endZone, reader, shiftColor, readerClock)
+                                        appendTime(endedAt, tripZones.end, reader, shiftColor, readerClock)
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
@@ -296,7 +328,7 @@ internal fun TrackDetailScreen(
                             )
                             OriginCaption(source?.mark)
                         }
-                        Card(Modifier.fillMaxWidth()) { TrackStatsHeader(summary) }
+                        Card(Modifier.fillMaxWidth()) { TrackStatsHeader(shown) }
                     }
                     val darkTheme = LocalDarkTheme.current
                     // No modes means no graph, no chips and a line in the activity's color — a manual
@@ -340,6 +372,7 @@ internal fun TrackDetailScreen(
                                     overruns = overruns,
                                     endPlaces = route.places,
                                     endLinks = route.links,
+                                    enteredLegs = enteredLegs,
                                     precomputedColoring = graph?.coloring ?: solidLine,
                                     precomputedSeams = seams,
                                     modifier = Modifier.fillMaxSize(),
@@ -988,13 +1021,12 @@ private fun tripDraftOf(
 }
 
 @Composable
-private fun TrackStatsHeader(summary: TrackSummary) {
-    val durationS = summary.endedAt?.let { (it - summary.startedAt) / 1000.0 } ?: 0.0
-    val avgKmh = avgSpeedKmh(summary.distanceMeters, durationS)
+private fun TrackStatsHeader(trip: Trip) {
+    val durationS = trip.endedAt?.let { (it - trip.startedAt) / 1000.0 } ?: 0.0
+    val avgKmh = avgSpeedKmh(trip.distanceMeters, durationS)
     StatHeaderRow(
-        stringResource(R.string.common_stat_distance) to distanceText(summary.distanceMeters),
-        stringResource(R.string.common_stat_duration) to
-            durationText(summary.startedAt, summary.endedAt),
+        stringResource(R.string.common_stat_distance) to distanceText(trip.distanceMeters),
+        stringResource(R.string.common_stat_duration) to durationText(trip.startedAt, trip.endedAt),
         stringResource(R.string.track_stat_avg_speed) to
             if (avgKmh > 0) speedText(avgKmh) else stringResource(R.string.common_no_value),
     )
