@@ -146,9 +146,12 @@ internal class TripDraft(
     val tracksAround: Pair<Long?, Long?> = null to null,
     /** A type the trip is already known to have, which the form opens on where it offers it. */
     val activity: ActivityType? = null,
-    /** A road already fetched between [origin] and [destination] by [activity]'s profile. */
-    val route: OnlineRouting.Route? = null,
+    val roadDeparture: RoadDeparture? = null,
 )
+
+/** A road already fetched between a draft's ends by its activity's profile, and the departure its
+ *  duration places before the drafted arrival. */
+internal class RoadDeparture(val route: OnlineRouting.Route, val departMs: Long)
 
 /** The manual track a form was opened on: its row is rewritten in place rather than a new one inserted. */
 internal class EditedTrip(
@@ -174,13 +177,11 @@ internal class TripDraftEnd(
     val placeName: String?,
     /** Null where the caller knows where but not when. */
     val timeMs: Long?,
-    /** Placed from the other end by [TripDraft.route]'s duration. */
-    val coupledMs: Long? = null,
 )
 
 /** One end of the trip being entered — a pin and a time, each settable in any order, and either of
  *  them possibly already known to whoever opened the form ([TripDraftEnd]). */
-private class TripEnd(drafted: TripDraftEnd?) {
+private class TripEnd(drafted: TripDraftEnd?, coupled: Long? = null) {
     var pin by mutableStateOf(drafted?.at)
 
     /** The name the pin was picked *by* — a saved place's label, or an online hit's name — which
@@ -194,7 +195,7 @@ private class TripEnd(drafted: TripDraftEnd?) {
 
     /** Placed from the other end by a road's duration; held apart from [own] because a lifted
      *  coupling must give back the time that was recorded or typed. */
-    var coupledMs by mutableStateOf(drafted?.coupledMs)
+    var coupledMs by mutableStateOf(coupled)
 
     fun side(atMs: Long?): ManualPath.StaySide? {
         val at = pin ?: return null
@@ -246,7 +247,7 @@ private fun TripDraft.initialRoute(): RoutedLeg? {
     val profile = activity?.let(OnlineRouting.Profile::of) ?: return null
     val from = origin?.at ?: return null
     val to = destination?.at ?: return null
-    route?.let { return RoutedLeg(profile, from, to, it.shape, it.durationMs) }
+    roadDeparture?.let { return RoutedLeg(profile, from, to, it.route.shape, it.route.durationMs) }
     val edited = editing ?: return null
     if (edited.path.isEmpty()) return null
     val fromMs = origin.timeMs ?: return null
@@ -305,7 +306,7 @@ internal fun AddTripScreen(
 ) {
     // Keyed on the draft: a second gap's form can open while the first is still animating out, and
     // an unkeyed remember would hand it the ends the last one was filled with.
-    val origin = remember(draft) { TripEnd(draft.origin) }
+    val origin = remember(draft) { TripEnd(draft.origin, draft.roadDeparture?.departMs) }
     val destination = remember(draft) { TripEnd(draft.destination) }
     // A default beyond the draft's would be a guess the user commits without reading: a missing
     // leg's two ends say nothing about how it was made.

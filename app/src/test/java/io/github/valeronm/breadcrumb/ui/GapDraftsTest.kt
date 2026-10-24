@@ -38,8 +38,8 @@ class GapDraftsTest {
 
     @Test fun `the form opens a proposal with its departure coupled to the road`() {
         val p = GapDrafts.withRoad(GapDrafts.missedStart(detail), road(20 * 60_000L), detail.gap.start)!!
-        assertEquals(p.trip.origin.end.timestampMs, p.draft.origin!!.coupledMs)
-        assertNull(p.draft.origin.timeMs)
+        assertEquals(p.trip.origin.end.timestampMs, p.draft.roadDeparture!!.departMs)
+        assertNull(p.draft.origin!!.timeMs)
         assertEquals(detail.gap.end, p.draft.destination!!.timeMs)
         assertEquals(detail.before.id to detail.after.id, p.draft.tracksAround)
     }

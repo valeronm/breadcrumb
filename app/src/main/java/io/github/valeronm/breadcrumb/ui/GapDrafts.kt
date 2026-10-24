@@ -42,11 +42,11 @@ internal object GapDrafts {
         if (departMs < notBeforeMs || departMs >= arriveMs) return null
         val form = TripDraft(
             day = draft.day,
-            origin = TripDraftEnd(from, origin.placeName, origin.timeMs, coupledMs = departMs),
+            origin = origin,
             destination = destination,
             tracksAround = draft.tracksAround,
             activity = activity,
-            route = route,
+            roadDeparture = RoadDeparture(route, departMs),
         )
         val trip = TrackListViewModel.ManualTrip(
             activity,
