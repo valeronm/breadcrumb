@@ -16,10 +16,14 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -135,9 +139,6 @@ internal fun GapDetailScreen(
                         }
                     }
                 }
-                ListItem(modifier = Modifier.clickable { onShowOnTimeline(detail.gap) }) {
-                    Text(stringResource(R.string.gap_show_on_timeline))
-                }
             }
         },
         topBar = {
@@ -145,6 +146,13 @@ internal fun GapDetailScreen(
                 colors = canvasTopBarColors(),
                 title = { Text(stringResource(R.string.gap_title)) },
                 navigationIcon = { BackNavIcon(onBack) },
+                actions = {
+                    if (d != null) {
+                        IconButton(onClick = { onShowOnTimeline(d.gap) }) {
+                            Icon(Icons.Filled.Route, contentDescription = stringResource(R.string.gap_show_on_timeline))
+                        }
+                    }
+                },
             )
         },
     ) { inner ->
