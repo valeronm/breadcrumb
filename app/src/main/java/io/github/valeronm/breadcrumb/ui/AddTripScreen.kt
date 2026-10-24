@@ -132,6 +132,8 @@ private fun noonOf(day: LocalDate?, zone: ZoneId): ZonedDateTime =
  * What the form opens holding. The Timeline's top bar knows only which day was on screen; a gap's
  * page knows the places the absence lies between and when it ran.
  */
+// Every parameter has a default, and each caller names the few it knows.
+@Suppress("LongParameterList")
 internal class TripDraft(
     /** The day an end with no time of its own opens its pickers on. */
     val day: LocalDate?,
@@ -144,6 +146,8 @@ internal class TripDraft(
     val tracksAround: Pair<Long?, Long?> = null to null,
     /** A type the trip is already known to have, which the form opens on where it offers it. */
     val activity: ActivityType? = null,
+    /** A road already fetched between [origin] and [destination] by [activity]'s profile. */
+    val route: OnlineRouting.Route? = null,
 )
 
 /** The manual track a form was opened on: its row is rewritten in place rather than a new one inserted. */
@@ -170,6 +174,8 @@ internal class TripDraftEnd(
     val placeName: String?,
     /** Null where the caller knows where but not when. */
     val timeMs: Long?,
+    /** Placed from the other end by [TripDraft.route]'s duration. */
+    val coupledMs: Long? = null,
 )
 
 /** One end of the trip being entered — a pin and a time, each settable in any order, and either of
@@ -188,7 +194,7 @@ private class TripEnd(drafted: TripDraftEnd?) {
 
     /** Placed from the other end by a road's duration; held apart from [own] because a lifted
      *  coupling must give back the time that was recorded or typed. */
-    var coupledMs by mutableStateOf<Long?>(null)
+    var coupledMs by mutableStateOf(drafted?.coupledMs)
 
     fun side(atMs: Long?): ManualPath.StaySide? {
         val at = pin ?: return null
@@ -223,24 +229,29 @@ private class RoutedLeg(
     val shape: List<Coordinate>,
     val durationMs: Long,
 ) {
-    /** The length of the line the trip will be stored along — the saved row's figure, not the
-     *  router's, which measures between road-snapped ends. */
-    val lengthM: Double by lazy { ManualPath.lengthM(ManualPath.line(from, to, shape), AndroidDistance) }
+    val lengthM: Double by lazy { storedLineM(from, to, shape) }
 }
 
-/**
- * The path a trip being edited was saved with, as the leg it would be asked for again; its
- * duration is the row's span, which is what the saved times were coupled by.
- */
-private fun TripDraft.storedRoute(): RoutedLeg? {
+/** What saving a trip with [ends] would do to [places]; nothing is written, so no row is stamped. */
+internal fun previewTripPlaces(ends: List<TripPlaces.End>, places: List<Place>): TripPlaces.Plan =
+    TripPlaces.plan(ends, places, AndroidDistance, createdAt = 0)
+
+/** The length of the line a trip is stored along — the saved row's figure, not the router's, which
+ *  measures between road-snapped ends. */
+internal fun storedLineM(from: Coordinate, to: Coordinate, shape: List<Coordinate>): Double =
+    ManualPath.lengthM(ManualPath.line(from, to, shape), AndroidDistance)
+
+/** An edited trip's path is timed by the row's span, the duration its saved times were coupled by. */
+private fun TripDraft.initialRoute(): RoutedLeg? {
+    val profile = activity?.let(OnlineRouting.Profile::of) ?: return null
+    val from = origin?.at ?: return null
+    val to = destination?.at ?: return null
+    route?.let { return RoutedLeg(profile, from, to, it.shape, it.durationMs) }
     val edited = editing ?: return null
     if (edited.path.isEmpty()) return null
-    val profile = activity?.let(OnlineRouting.Profile::of) ?: return null
-    val from = origin ?: return null
-    val to = destination ?: return null
-    val fromMs = from.timeMs ?: return null
-    val toMs = to.timeMs ?: return null
-    return RoutedLeg(profile, from.at ?: return null, to.at ?: return null, edited.path, toMs - fromMs)
+    val fromMs = origin.timeMs ?: return null
+    val toMs = destination.timeMs ?: return null
+    return RoutedLeg(profile, from, to, edited.path, toMs - fromMs)
 }
 
 /** One end's date or time being edited: which end, on whose clock, and where the picker opens
@@ -312,7 +323,7 @@ internal fun AddTripScreen(
     // like the ends beside it: a second form opening while the first animates out gets a map of its
     // own, and would otherwise sort around wherever that one was left.
     var mapCenter by remember(draft) { mutableStateOf<Coordinate?>(null) }
-    var routed by remember(draft) { mutableStateOf(draft.storedRoute()) }
+    var routed by remember(draft) { mutableStateOf(draft.initialRoute()) }
     // The tracks the form was opened between, whatever is typed after: a gap's draft names them, and
     // a trip being edited sits between its neighbors on the timeline.
     val touching by produceState<Pair<TouchingTrack?, TouchingTrack?>>(null to null, draft) {
@@ -519,12 +530,9 @@ internal fun AddTripScreen(
     val tripPlaces = remember(
         storedPlaces, origin.pin, origin.placeName, destination.pin, destination.placeName,
     ) {
-        TripPlaces.plan(
+        previewTripPlaces(
             listOf(TripPlaces.End(origin.pin, origin.placeName), TripPlaces.End(destination.pin, destination.placeName)),
             storedPlaces,
-            AndroidDistance,
-            // The preview writes nothing, so its rows are never stamped.
-            createdAt = 0,
         )
     }
     val (originPlace, destinationPlace) = tripPlaces.outcomes

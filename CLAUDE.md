@@ -1006,7 +1006,9 @@ why the workflow is the only thing standing between a forgotten bump and Play.
   looking**: the form's own place list sorts by the map centre because re-ordering rows the device
   already holds discloses nothing, and that is the whole reason the two use different anchors. The
   **online road routing** (`data/OnlineRouting`, OpenStreetMap data too) sends a trip's two points
-  and nothing else, and only when asked for by the add-trip form's chip. The ODbL credit in
+  and nothing else, and only when asked for: by the add-trip form's chip, or by a missing
+  recording's "start of the next trip" action, whose departure is placed by the road's duration
+  (`GapDrafts.withRoad`). The ODbL credit in
   Settings and at the search results is a licence requirement, like the GeoNames one, and the
   linked data credit along every map's bottom edge and in Settings (`MapCredit`) is what FOSSGIS's
   terms ask for of the routing's users, their report-an-error link included; it stays on the map

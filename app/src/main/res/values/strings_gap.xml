@@ -12,6 +12,8 @@
     <string name="gap_fix_stayed_here">Make it a stay</string>
     <string name="gap_fix_merge">Merge the trips</string>
 
+    <string name="gap_proposal_edit">Edit</string>
+
     <string name="gap_stayed_where">Where did you stay?</string>
     <string name="gap_stayed_undo">Stay added</string>
 </resources>

@@ -11,6 +11,8 @@
     <string name="gap_fix_stayed_here">Сделать посещением</string>
     <string name="gap_fix_merge">Объединить поездки</string>
 
+    <string name="gap_proposal_edit">Изменить</string>
+
     <string name="gap_stayed_where">Где вы были?</string>
     <string name="gap_stayed_undo">Посещение добавлено</string>
 </resources>

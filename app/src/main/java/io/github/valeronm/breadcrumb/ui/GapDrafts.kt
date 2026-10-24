@@ -1,7 +1,10 @@
 package io.github.valeronm.breadcrumb.ui
 
+import io.github.valeronm.breadcrumb.data.OnlineRouting
+import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 
 internal object GapDrafts {
@@ -23,6 +26,37 @@ internal object GapDrafts {
         activity = ActivityType.ofName(detail.after.activityType),
     )
 
+    /**
+     * [missedStart] whole: departing [route]'s duration before its arrival, as the add-trip form
+     * couples it. Null where that departure falls before [notBeforeMs], the end of the track before
+     * the gap, which the trip would overlap.
+     */
+    fun withRoad(draft: TripDraft, route: OnlineRouting.Route, notBeforeMs: Long): RoadProposal? {
+        val activity = draft.activity ?: return null
+        val origin = draft.origin ?: return null
+        val destination = draft.destination ?: return null
+        val from = origin.at ?: return null
+        val to = destination.at ?: return null
+        val arriveMs = destination.timeMs ?: return null
+        val departMs = ManualPath.coupledEnd(arriveMs, route.durationMs, forward = false)
+        if (departMs < notBeforeMs || departMs >= arriveMs) return null
+        val form = TripDraft(
+            day = draft.day,
+            origin = TripDraftEnd(from, origin.placeName, origin.timeMs, coupledMs = departMs),
+            destination = destination,
+            tracksAround = draft.tracksAround,
+            activity = activity,
+            route = route,
+        )
+        val trip = TrackListViewModel.ManualTrip(
+            activity,
+            TrackListViewModel.ManualTripEnd(TrackRepository.ManualEnd(from, departMs), origin.placeName),
+            TrackListViewModel.ManualTripEnd(TrackRepository.ManualEnd(to, arriveMs), destination.placeName),
+            route.shape,
+        )
+        return RoadProposal(form, trip)
+    }
+
     private fun draft(detail: GapDetail, origin: TripDraftEnd, activity: ActivityType? = null) = TripDraft(
         day = detail.gap.start.toLocalDate(detail.departureZone),
         origin = origin,
@@ -30,4 +64,12 @@ internal object GapDrafts {
         tracksAround = detail.gap.afterTrackId to detail.after.id,
         activity = activity,
     )
+}
+
+/** A missed start made whole by a road: [trip] as it is saved, [draft] the same trip as the add-trip form holds it. */
+internal class RoadProposal(
+    val draft: TripDraft,
+    val trip: TrackListViewModel.ManualTrip,
+) {
+    val lengthM: Double by lazy { storedLineM(trip.origin.end.at, trip.destination.end.at, trip.path) }
 }

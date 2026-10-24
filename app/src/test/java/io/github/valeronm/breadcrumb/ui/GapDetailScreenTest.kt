@@ -10,6 +10,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.OnlineRouting
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis
 import io.github.valeronm.breadcrumb.ui.GapFixtures.detail
 import io.github.valeronm.breadcrumb.ui.GapFixtures.verdict
@@ -17,6 +19,7 @@ import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -66,6 +69,25 @@ class GapDetailScreenTest {
         compose.onNodeWithText(context.getString(R.string.gap_fix_merge)).performClick()
 
         assertEquals(GapDiagnosis.Fix.MERGE, picked)
+    }
+
+    // --- Proposal --------------------------------------------------------------
+
+    @Test
+    fun `a proposal shows the stay it leaves at the departure's place and the trip after it`() {
+        val d = detail(zone)
+        val proposal = GapDrafts.withRoad(
+            GapDrafts.missedStart(d),
+            OnlineRouting.Route(20 * 60_000L, emptyList()),
+            d.gap.start,
+        )!!
+        var cancelled = false
+        screen { GapProposal(proposal, d, enabled = true, onOpenPlace = {}, onCancel = { cancelled = true }, onEdit = {}, onSave = {}) }
+
+        compose.onNodeWithText(d.fromPlace!!.name!!).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(ActivityType.DRIVING.labelRes), substring = true).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.common_cancel)).performClick()
+        assertTrue(cancelled)
     }
 
     // --- Facts -----------------------------------------------------------------

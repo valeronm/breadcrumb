@@ -28,11 +28,14 @@ internal fun stayedHereChoice(sides: List<PlaceResolver.ResolvedStay>): StayedHe
 internal sealed interface GapAction {
     data class AddTrip(val draft: TripDraft) : GapAction
 
+    /** Ask a road for the departure [draft] leaves untimed before offering it. */
+    data class ProposeStart(val draft: TripDraft) : GapAction
+
     data class Merge(val plan: TrackMerge.Plan) : GapAction
 }
 
 internal fun gapAction(fix: GapDiagnosis.Fix, detail: GapDetail): GapAction = when (fix) {
-    GapDiagnosis.Fix.MISSED_START -> GapAction.AddTrip(GapDrafts.missedStart(detail))
+    GapDiagnosis.Fix.MISSED_START -> GapAction.ProposeStart(GapDrafts.missedStart(detail))
     GapDiagnosis.Fix.ADD_TRIP -> GapAction.AddTrip(GapDrafts.wholeGap(detail))
     GapDiagnosis.Fix.MERGE ->
         GapAction.Merge(checkNotNull(detail.verdict.merge) { "merge offered without a plan" })

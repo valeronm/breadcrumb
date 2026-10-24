@@ -51,8 +51,8 @@ class GapActionsTest {
     // --- Dispatch --------------------------------------------------------------
 
     @Test
-    fun `the missed start opens the form on its own draft`() {
-        val action = gapAction(GapDiagnosis.Fix.MISSED_START, detail(zone)) as GapAction.AddTrip
+    fun `the missed start asks a road for its own draft's departure`() {
+        val action = gapAction(GapDiagnosis.Fix.MISSED_START, detail(zone)) as GapAction.ProposeStart
 
         assertNull(action.draft.origin?.timeMs)
     }

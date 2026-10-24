@@ -11,6 +11,8 @@
     <string name="gap_fix_stayed_here">Transformar em permanência</string>
     <string name="gap_fix_merge">Juntar as viagens</string>
 
+    <string name="gap_proposal_edit">Editar</string>
+
     <string name="gap_stayed_where">Onde ficou?</string>
     <string name="gap_stayed_undo">Permanência adicionada</string>
 </resources>
