@@ -1041,24 +1041,21 @@ internal fun TrackRow(
     ) {
         val activity = ActivityType.ofName(main.activityType)
         val activityName = activityLabel(LocalContext.current, main.activityType)
-        ListRowCard(
+        TripRowCard(
             modifier = Modifier.combinedClickable(
                 onClick = { if (chained) onOpenTrip(main.id) else onOpen(main.id) },
                 onLongClick = onReplay?.let { replay -> { replay(main) } },
             ),
             shape = shape,
-            icon = activityIcon(activity),
-            disc = activityDiscStyle(activity),
-            iconDescription = activityName,
+            activity = activity,
+            name = activityName,
             marks = if (chained) emptyList() else listOfNotNull(main.mark),
-            // What happened leads; when it happened is the metadata line.
-            title = trackRowTitle(activityName, trip.distanceMeters),
-            titleColor = MaterialTheme.colorScheme.onSurface,
+            lengthM = trip.distanceMeters,
             // Each end on its own clock where they differ — a track is the one recorded row that can
             // cross a border, and flattening it onto the departure's clock hides the crossing. The two
             // times then no longer span the duration beside them, which is why each carries its own
             // offset: read together they say the drive lost an hour to the border, which is the truth.
-            subtitle = trackRowSpan(
+            span = trackRowSpan(
                 trip.startedAt,
                 zone,
                 trip.endedAt,
@@ -1128,31 +1125,6 @@ private fun TripPartLines(trip: Trip, partClocks: List<Clocks>, zone: ZoneId, on
 }
 
 private const val PART_BAND_ALPHA = 0.05f
-
-/** A track row's title: what moved, and how far where that is known. */
-@Composable
-internal fun trackRowTitle(activityName: String, lengthM: Double?): String =
-    if (lengthM == null) activityName else "$activityName · " + distanceText(lengthM)
-
-/**
- * A track row's time line: its two clock times, each on its own end's clock, and how long it ran.
- * A track still recording has no end time.
- */
-@Composable
-internal fun trackRowSpan(startMs: Long, startZone: ZoneId, endMs: Long?, endZone: ZoneId, length: String?): AnnotatedString {
-    // Resolved here: nothing composable may be read inside the builder (see appendTime).
-    val reader = timelineZone()
-    val shiftColor = zoneShiftColor
-    val readerClock = LocalReaderClock.current
-    return buildAnnotatedString {
-        appendTime(startMs, startZone, reader, shiftColor, readerClock)
-        endMs?.let {
-            append(" – ")
-            appendTime(it, endZone, reader, shiftColor, readerClock)
-        }
-        length?.let { append(" · $it") }
-    }
-}
 
 /**
  * A history sweep, while it runs: distances and end times shift behind it as each track is

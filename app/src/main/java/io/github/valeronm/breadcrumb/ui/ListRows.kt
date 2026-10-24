@@ -62,9 +62,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.util.WebLinks
 import kotlinx.coroutines.delay
+import java.time.ZoneId
 
 /**
  * Corner shape for a row in a day group: large outer corners on the group's first/last edge,
@@ -463,5 +465,68 @@ internal fun rememberOnlineHits(
             delay(400)
             viewModel.searchOnline(query, latestNear, withinM)
         }
+    }
+}
+
+/**
+ * A trip as its timeline row states it: what happened leads — the activity's disc, its name and the
+ * length — and when it happened is the metadata line.
+ */
+@Composable
+internal fun TripRowCard(
+    shape: RoundedCornerShape,
+    activity: ActivityType?,
+    /** The activity's name, or what the row says while it has none. */
+    name: String,
+    lengthM: Double?,
+    span: AnnotatedString?,
+    modifier: Modifier = Modifier,
+    /** False while the trip has no activity: the title is then [name] alone, dimmed. */
+    typed: Boolean = true,
+    marks: List<OriginMark> = emptyList(),
+    outlined: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    below: (@Composable ColumnScope.() -> Unit)? = null,
+) {
+    ListRowCard(
+        shape = shape,
+        icon = activityIcon(activity),
+        disc = activityDiscStyle(activity),
+        iconDescription = name.takeIf { typed },
+        marks = marks,
+        title = if (typed) trackRowTitle(name, lengthM) else name,
+        titleColor = statedTitleColor(stated = typed),
+        subtitle = span,
+        modifier = modifier,
+        outlined = outlined,
+        onClick = onClick,
+        trailing = trailing,
+        below = below,
+    )
+}
+
+/** A track row's title: what moved, and how far where that is known. */
+@Composable
+private fun trackRowTitle(activityName: String, lengthM: Double?): String =
+    if (lengthM == null) activityName else "$activityName · " + distanceText(lengthM)
+
+/**
+ * A track row's time line: its two clock times, each on its own end's clock, and how long it ran.
+ * A track still recording has no end time.
+ */
+@Composable
+internal fun trackRowSpan(startMs: Long, startZone: ZoneId, endMs: Long?, endZone: ZoneId, length: String?): AnnotatedString {
+    // Resolved here: nothing composable may be read inside the builder (see appendTime).
+    val reader = timelineZone()
+    val shiftColor = zoneShiftColor
+    val readerClock = LocalReaderClock.current
+    return buildAnnotatedString {
+        appendTime(startMs, startZone, reader, shiftColor, readerClock)
+        endMs?.let {
+            append(" – ")
+            appendTime(it, endZone, reader, shiftColor, readerClock)
+        }
+        length?.let { append(" · $it") }
     }
 }

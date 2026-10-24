@@ -1207,7 +1207,6 @@ private fun TripLegRow(
     arriveMs: Long?,
     arriveZone: ZoneId,
 ) {
-    val name = activity?.let { stringResource(it.labelRes) }
     // A track always has both ends.
     val span = if (departMs != null && arriveMs != null) {
         val length = if (arriveMs > departMs) durationText(departMs, arriveMs) else null
@@ -1215,14 +1214,13 @@ private fun TripLegRow(
     } else {
         null
     }
-    ListRowCard(
+    TripRowCard(
         shape = shape,
-        icon = activityIcon(activity),
-        disc = activityDiscStyle(activity),
-        iconDescription = name,
-        title = name?.let { trackRowTitle(it, lengthM) } ?: stringResource(R.string.addtrip_no_type),
-        titleColor = statedTitleColor(stated = activity != null),
-        subtitle = span,
+        activity = activity,
+        name = activity?.let { stringResource(it.labelRes) } ?: stringResource(R.string.addtrip_no_type),
+        typed = activity != null,
+        lengthM = lengthM,
+        span = span,
         onClick = onShow,
         outlined = activity == null,
         trailing = {

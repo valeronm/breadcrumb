@@ -477,8 +477,6 @@ internal fun GapProposal(
         place = place,
         zone = detail.departureZone,
     )
-    val activity = trip.activityType
-    val activityName = stringResource(activity.labelRes)
     Column(
         Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -491,15 +489,13 @@ internal fun GapProposal(
             zone = detail.departureZone,
             onClick = { place?.let { onOpenPlace(it.key) } },
         )
-        ListRowCard(
+        TripRowCard(
             shape = groupedRowShape(1, 2),
-            icon = activityIcon(activity),
-            disc = activityDiscStyle(activity),
-            iconDescription = activityName,
+            activity = trip.activityType,
+            name = stringResource(trip.activityType.labelRes),
             marks = listOfNotNull(TrackOrigin.MANUAL.mark),
-            title = trackRowTitle(activityName, proposal.lengthM),
-            titleColor = MaterialTheme.colorScheme.onSurface,
-            subtitle = trackRowSpan(
+            lengthM = proposal.lengthM,
+            span = trackRowSpan(
                 departMs,
                 detail.departureZone,
                 arriveMs,
