@@ -242,6 +242,7 @@ class TimelineRowTest {
             zone = zone,
             endZone = null,
             onOpen = {},
+            onOpenTrip = {},
             onDelete = {},
         )
     }
@@ -281,6 +282,7 @@ class TimelineRowTest {
                 zone = zone,
                 endZone = null,
                 onOpen = {},
+                onOpenTrip = {},
                 onDelete = {},
             )
         }

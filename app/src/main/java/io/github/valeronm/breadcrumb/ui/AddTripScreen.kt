@@ -256,17 +256,19 @@ private class TimeEdit(
 )
 
 /**
- * A recorded track a trip being entered meets at one of its ends: its path, and the fix and the
- * bound it meets the trip at — its end where it comes before the trip, else its start.
+ * A track a trip being entered meets at one of its ends: the paths of its own trip, and the fix and
+ * the bound it meets the trip at — its end where it comes before the trip, else its start.
  */
 internal class TouchingTrack(
-    val line: JourneyLine,
+    /** Its trip's parts from this track away from the trip being entered. */
+    val lines: List<JourneyLine>,
+    val activityType: String,
     val touching: Coordinate,
     val boundMs: Long,
     /** The place the touching end is stated to. */
     val placeId: Long?,
 ) {
-    val activity: ActivityType? get() = ActivityType.ofName(line.activityType)
+    val activity: ActivityType? get() = ActivityType.ofName(activityType)
     val side get() = ManualPath.StaySide(boundMs, touching, placeId)
 }
 

@@ -37,12 +37,14 @@ import io.github.valeronm.breadcrumb.domain.TimelineRows
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.TripChains
 import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -774,18 +776,34 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     /** Tracks [beforeId] and [afterId] as a trip between them meets them, the one before first. */
     internal suspend fun touchingTracks(beforeId: Long?, afterId: Long?): Pair<TouchingTrack?, TouchingTrack?> =
         coroutineScope {
-            val before = beforeId?.let { async { touchingTrack(it, precedes = true) } }
-            val after = afterId?.let { async { touchingTrack(it, precedes = false) } }
+            val summaries = trackRows.first()
+            val before = beforeId?.let { async { touchingTrack(summaries, it, precedes = true) } }
+            val after = afterId?.let { async { touchingTrack(summaries, it, precedes = false) } }
             before?.await() to after?.await()
         }
 
-    private suspend fun touchingTrack(trackId: Long, precedes: Boolean): TouchingTrack? {
+    private suspend fun touchingTrack(summaries: List<TrackSummary>, trackId: Long, precedes: Boolean): TouchingTrack? {
         val track = repository.track(trackId) ?: return null
         val lat = (if (precedes) track.endLat else track.startLat) ?: return null
         val lon = (if (precedes) track.endLon else track.startLon) ?: return null
         val boundMs = (if (precedes) track.endedAt else track.startedAt) ?: return null
         val placeId = if (precedes) track.endPlaceId else track.startPlaceId
-        return TouchingTrack(journeyPolylines.lineFor(track), Coordinate(lat, lon), boundMs, placeId)
+        val parts = TripChains.containing(summaries, trackId)?.parts
+        val lines = if (parts == null) {
+            listOf(journeyPolylines.lineFor(track))
+        } else {
+            val at = parts.indexOfFirst { it.id == trackId }
+            // Only the parts on the far side of the touching one: a trip being edited is part of its neighbor's trip.
+            val shown = if (precedes) parts.take(at + 1) else parts.drop(at)
+            coroutineScope { shown.map { async { journeyPolylines.lineFor(it) } }.awaitAll() }
+        }
+        return TouchingTrack(
+            lines = lines,
+            activityType = track.activityType,
+            touching = Coordinate(lat, lon),
+            boundMs = boundMs,
+            placeId = placeId,
+        )
     }
 
     /**

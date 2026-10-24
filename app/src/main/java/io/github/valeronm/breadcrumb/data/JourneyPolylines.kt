@@ -7,6 +7,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.PolylineSimplifier
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -24,6 +25,8 @@ internal class JourneyLine(
     val activityType: String,
     val greatCircle: Boolean,
     val segments: List<DoubleArray>,
+    /** [TrackOrigin.impliesMotion] of the track's writer, which a row keeps for its life. */
+    val unmeasured: Boolean,
 )
 
 /**
@@ -55,13 +58,13 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
             size > MAX_LINES
     }
 
-    private suspend fun lineFor(track: TrackSummary): JourneyLine =
-        lineFor(track.id, track.endedAt, track.activityType, track.pointCount)
+    suspend fun lineFor(track: TrackSummary): JourneyLine =
+        lineFor(track.id, track.endedAt, track.activityType, track.pointCount, track.source)
 
     suspend fun lineFor(track: Track): JourneyLine =
-        lineFor(track.id, track.endedAt, track.activityType, track.pointCount)
+        lineFor(track.id, track.endedAt, track.activityType, track.pointCount, track.source)
 
-    private suspend fun lineFor(id: Long, endedAt: Long?, activityType: String, pointCount: Int): JourneyLine {
+    private suspend fun lineFor(id: Long, endedAt: Long?, activityType: String, pointCount: Int, source: String?): JourneyLine {
         val key = id to endedAt
         mutex.withLock { cache[key] }?.let { return it }
         val points = repository.pointsFor(id)
@@ -71,6 +74,7 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
                 activityType = activityType,
                 greatCircle = GreatCircle.drawsPath(pointCount, ActivityType.ofName(activityType)),
                 segments = SegmentBreaks.split(points).map(::segmentOf),
+                unmeasured = TrackOrigin.impliesMotion(source),
             )
         }
         mutex.withLock { cache[key] = line }

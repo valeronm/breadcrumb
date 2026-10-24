@@ -14,6 +14,7 @@ import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.PropertyValue
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -209,6 +210,37 @@ private fun mutedOpacity(dark: Boolean): Expression = Expression.switchCase(
 
 /** The axis swap GeoJSON demands, made in exactly one place: a [Point] is longitude-first. */
 internal fun Coordinate.toPoint(): Point = Point.fromLngLat(lon, lat)
+
+/**
+ * The dash of a track whose motion was implied rather than measured, in line widths, with flat caps:
+ * a round cap stretches every dash by a line width.
+ */
+internal fun LineLayer.dashedAsUnmeasured(): LineLayer = withProperties(
+    PropertyFactory.lineDasharray(arrayOf(2f, 1.5f)),
+    PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
+)
+
+/** Feature property marking a line whose motion was implied rather than measured. */
+internal const val UNMEASURED_KEY = "unmeasured"
+
+/**
+ * Two line layers over [source], `<idPrefix>-solid` and `<idPrefix>-dashed`, splitting its features
+ * on [UNMEASURED_KEY]: MapLibre takes no per-feature dash.
+ */
+internal fun addLineLayersByMeasure(style: Style, idPrefix: String, source: String, vararg properties: PropertyValue<*>) {
+    val unmeasured = Expression.has(UNMEASURED_KEY)
+    style.addLayer(
+        LineLayer("$idPrefix-solid", source)
+            .withProperties(*properties, PropertyFactory.lineCap(Property.LINE_CAP_ROUND))
+            .withFilter(Expression.not(unmeasured)),
+    )
+    style.addLayer(
+        LineLayer("$idPrefix-dashed", source)
+            .withProperties(*properties)
+            .dashedAsUnmeasured()
+            .withFilter(unmeasured),
+    )
+}
 
 /**
  * [points] densified along each leg's great circle ([GreatCircle.arc]). Each arc starts from the

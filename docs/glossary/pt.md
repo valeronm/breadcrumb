@@ -31,6 +31,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | track | trajeto | Never *percurso*, *rota*, *caminho*. Only the recorded path: everywhere the sentence is about the journey itself, the word is *viagem*. |
+| part | parte | |
 | gap | gravação em falta | |
 | gap-end | chegou · saiu | Third person, which carries no gender. |
 | point | ponto | Rejected ones are *ruidosos*; a guessed one is a *posição estimada*, the phrase the setting that drops them already used. |

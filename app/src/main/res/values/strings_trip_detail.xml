@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TripDetailScreen: a trip of several parts, each opening as a track of its own. -->
+<resources>
+    <string name="trip_parts">Parts of the trip</string>
+</resources>

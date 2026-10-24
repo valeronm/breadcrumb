@@ -16,9 +16,6 @@ data class Trip(val parts: List<TrackSummary>) {
     /** The part the trip is *of*: the first one not entered by hand, or the first when all were. */
     val main: TrackSummary = parts.firstOrNull { TrackOrigin.fromCode(it.source) != TrackOrigin.MANUAL } ?: parts.first()
 
-    /** The parts other than [main]: those entered by hand around it. */
-    val entered: List<TrackSummary> get() = parts.filter { it !== main }
-
     val startedAt: Long get() = parts.first().startedAt
 
     /** Null while the newest part is still open. */
@@ -46,14 +43,18 @@ object TripChains {
     }
 
     /** The trip [trackId] is the [Trip.main] part of, out of [summaries] newest first; null where it is not one. */
-    fun tripOf(summaries: List<TrackSummary>, trackId: Long): Trip? {
+    fun tripOf(summaries: List<TrackSummary>, trackId: Long): Trip? =
+        containing(summaries, trackId)?.takeIf { it.main.id == trackId }
+
+    /** The trip [trackId] is any part of, out of [summaries] newest first; null where it is not among them. */
+    fun containing(summaries: List<TrackSummary>, trackId: Long): Trip? {
         val at = summaries.indexOfFirst { it.id == trackId }
         if (at < 0) return null
         var newest = at
         while (newest > 0 && continues(summaries[newest], summaries[newest - 1])) newest--
         var oldest = at
         while (oldest < summaries.lastIndex && continues(summaries[oldest + 1], summaries[oldest])) oldest++
-        return Trip(summaries.subList(newest, oldest + 1).asReversed().toList()).takeIf { it.main.id == trackId }
+        return Trip(summaries.subList(newest, oldest + 1).asReversed().toList())
     }
 
     private fun continues(before: TrackSummary, after: TrackSummary) =

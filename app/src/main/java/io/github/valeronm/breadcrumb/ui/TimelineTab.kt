@@ -84,7 +84,6 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
-import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.Trip
@@ -178,7 +177,8 @@ internal fun TimelineTab(
     jump: TimelineJump?,
     onJumpShown: () -> Unit,
     viewedDay: TimelineViewedDay,
-    onOpen: (Long) -> Unit,
+    onOpen: (trackId: Long) -> Unit,
+    onOpenTrip: (mainId: Long) -> Unit,
     onOpenPlace: (String) -> Unit,
     /** Open the journey detail — the band over a day inside one is the way in from here. */
     onOpenJourney: (TravelNaming.Summary) -> Unit,
@@ -325,6 +325,7 @@ internal fun TimelineTab(
                     },
                     viewedDay = listViewedDay,
                     onOpen = onOpen,
+                    onOpenTrip = onOpenTrip,
                     onOpenPlace = onOpenPlace,
                     onOpenJourney = onOpenJourney,
                     onOpenGap = onOpenGap,
@@ -357,7 +358,8 @@ private fun TimelineListPage(
     jump: TimelineJump?,
     onJumpShown: () -> Unit,
     viewedDay: TimelineViewedDay,
-    onOpen: (Long) -> Unit,
+    onOpen: (trackId: Long) -> Unit,
+    onOpenTrip: (mainId: Long) -> Unit,
     onOpenPlace: (String) -> Unit,
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     onOpenGap: (afterTrackId: Long) -> Unit,
@@ -509,6 +511,7 @@ private fun TimelineListPage(
                                 zone = item.clock,
                                 endZone = item.endZone,
                                 onOpen = onOpen,
+                                onOpenTrip = onOpenTrip,
                                 onDelete = { undo.deleteTracks(viewModel, item.trip.parts.map { it.id }, deletedMessage) },
                                 // DEBUG: replays the track through the Record tab's live view.
                                 onReplay = if (BuildConfig.DEV_TOOLS) onReplay else null,
@@ -1012,7 +1015,9 @@ internal fun TrackRow(
     zone: ZoneId,
     /** Where it arrived, when that is a different clock — see [TimelineItem.TrackItem.endZone]. */
     endZone: ZoneId?,
-    onOpen: (Long) -> Unit,
+    onOpen: (trackId: Long) -> Unit,
+    /** Opens a trip of several parts; [onOpen] opens a part of it, or a trip that is one track. */
+    onOpenTrip: (mainId: Long) -> Unit,
     /** Deletes every part of the trip. */
     onDelete: () -> Unit,
     onReplay: ((TrackSummary) -> Unit)? = null,
@@ -1020,7 +1025,7 @@ internal fun TrackRow(
     val main = trip.main
     val chained = trip.parts.size > 1
     val marks = remember(trip) {
-        (listOf(main) + trip.entered).mapNotNull { TrackOrigin.fromCode(it.source)?.mark }.distinct()
+        tripMarks(trip)
     }
     var menuOpen by remember { mutableStateOf(false) }
     // Swipe right-to-left to delete — a soft delete, undoable from the snackbar and, after that,
@@ -1038,7 +1043,7 @@ internal fun TrackRow(
         Box {
             ListRowCard(
                 modifier = Modifier.combinedClickable(
-                    onClick = { onOpen(main.id) },
+                    onClick = { if (chained) onOpenTrip(main.id) else onOpen(main.id) },
                     onLongClick = if (chained) {
                         { menuOpen = true }
                     } else {
@@ -1067,22 +1072,9 @@ internal fun TrackRow(
             )
             if (chained) {
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    for (part in trip.parts) {
-                        DropdownMenuItem(
-                            // By length rather than clock: the parts run in order, and a join's
-                            // instant has no clock of its own to be read on.
-                            text = {
-                                Text(
-                                    distanceText(part.distanceMeters) + " · " +
-                                        durationText(part.startedAt, part.endedAt),
-                                )
-                            },
-                            trailingIcon = TrackOrigin.fromCode(part.source)?.mark?.let { { OriginGlyph(it) } },
-                            onClick = {
-                                menuOpen = false
-                                onOpen(part.id)
-                            },
-                        )
+                    TripPartItems(trip) { id ->
+                        menuOpen = false
+                        onOpen(id)
                     }
                     if (onReplay != null) {
                         DropdownMenuItem(

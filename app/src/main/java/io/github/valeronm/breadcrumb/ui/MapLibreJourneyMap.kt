@@ -11,7 +11,6 @@ import io.github.valeronm.breadcrumb.domain.GreatCircle
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -69,13 +68,13 @@ internal fun MapLibreJourneyMap(
             applied.frameKey = frameKey
             applied.framedComplete = linesComplete
             style.addSource(GeoJsonSource(JOURNEY_SOURCE, collection))
-            style.addLayer(
-                LineLayer(JOURNEY_LAYER, JOURNEY_SOURCE).withProperties(
-                    PropertyFactory.lineWidth(3f),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                    PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
-                ),
+            addLineLayersByMeasure(
+                style,
+                JOURNEY_LAYER,
+                JOURNEY_SOURCE,
+                PropertyFactory.lineWidth(3f),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
             )
             addOverviewLayers(ctx, style, places, dark, fullSize = true)
             frame(map, lines, places)
@@ -144,17 +143,21 @@ private fun addSegmentCorners(segment: DoubleArray, into: MutableList<LatLng>) {
 }
 
 /**
- * One feature per drawn stretch, its color property shared per activity. A line
+ * One feature per drawn stretch, its properties shared per activity color and marked
+ * [UNMEASURED_KEY] where the line's [JourneyLine.unmeasured] holds. A line
  * [GreatCircle.drawsPath] names is densified along its great circle ([greatCirclePositions]), as
  * the track detail draws it.
  */
 internal fun journeyCollection(lines: List<JourneyLine>, colorByType: Map<String, Int>): FeatureCollection {
     val features = ArrayList<Feature>()
-    val propsByColor = HashMap<Int, JsonObject>()
+    val propsByLook = HashMap<Pair<Int, Boolean>, JsonObject>()
     for (line in lines) {
         val color = colorByType[line.activityType] ?: continue
-        val props = propsByColor.getOrPut(color) {
-            JsonObject().apply { addProperty(JOURNEY_COLOR_KEY, ColorUtils.colorToRgbaString(color)) }
+        val props = propsByLook.getOrPut(color to line.unmeasured) {
+            JsonObject().apply {
+                addProperty(JOURNEY_COLOR_KEY, ColorUtils.colorToRgbaString(color))
+                if (line.unmeasured) addProperty(UNMEASURED_KEY, true)
+            }
         }
         for (segment in line.segments) {
             val positions = segmentPositions(segment, line.greatCircle)

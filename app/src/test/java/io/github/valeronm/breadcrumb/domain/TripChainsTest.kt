@@ -27,7 +27,6 @@ class TripChainsTest {
     @Test fun `a trip is of the part not entered by hand, and adds up every part`() {
         val trip = Trip(listOf(enteredStart, recorded))
         assertEquals(recorded, trip.main)
-        assertEquals(listOf(enteredStart), trip.entered)
         assertEquals(enteredStart.startedAt, trip.startedAt)
         assertEquals(recorded.endedAt, trip.endedAt)
         assertEquals(32_000.0, trip.distanceMeters, 0.0)
@@ -39,6 +38,12 @@ class TripChainsTest {
         assertNull(TripChains.tripOf(history, enteredStart.id))
         assertEquals(Trip(later), TripChains.tripOf(history, later.id))
         assertNull(TripChains.tripOf(history, 99))
+    }
+
+    @Test fun `a trip is found by any of its parts`() {
+        assertEquals(Trip(listOf(enteredStart, recorded)), TripChains.containing(history, enteredStart.id))
+        assertEquals(Trip(listOf(enteredStart, recorded)), TripChains.containing(history, recorded.id))
+        assertNull(TripChains.containing(history, 99))
     }
 
     @Test fun `a trip is one timeline row, and its day totals hold every part`() {

@@ -625,7 +625,8 @@ measurement, which is the honest half of the truth). **No "mixed" writer exists*
 `TrackMerge.plan` refuses a merge across writers rather than inventing one, which also keeps typed
 endpoints from being absorbed into measured fixes. Besides that refusal it is read by
 `availableColorModes` (`ui/TrackColoring`), which drops the colour metrics an import or a manual
-entry can't carry. Manual tracks bypass the keep thresholds like imports do — `KeepRule`'s two-point
+entry can't carry, and by every map, which dashes a track whose writer implied its motion rather than
+measured it (`TrackOrigin.measuresMotion`). Manual tracks bypass the keep thresholds like imports do — `KeepRule`'s two-point
 purge floor would otherwise delete every one on arrival — and their two ends are stamped exactly at
 the row's bounds, since `TrackBounds` derives those same bounds back off them: a fix stamped
 anywhere else would move the clock away from what the user typed, which is why a road shape between
@@ -648,8 +649,9 @@ fill a missing recording leaves — and of one type are one timeline row, one pa
 delete. They stay separate tracks because no merge crosses writers, which is what keeps typed ends
 out of measured fixes. A different type keeps them apart too, choosing it being the user's word that
 it was another trip. The joined instant is a join, not a stop: nothing is derived between the two,
-and their facing ends are not clustered (`StayDeriver.joined`). Each part keeps its own page and
-delete, the trip's page being the main part's — the one not entered by hand.
+and their facing ends are not clustered (`StayDeriver.joined`). The trip has a page of its own,
+every part on one map; what reads one track's fixes — the metric,
+the graph, a cut, an edit — is on each part's own page, which deletes that part alone.
 
 
 **Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*

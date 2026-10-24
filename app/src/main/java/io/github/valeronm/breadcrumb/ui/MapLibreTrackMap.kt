@@ -80,9 +80,8 @@ internal fun MapLibreTrackMap(
     endPlaces: List<Place> = emptyList(),
     // A dashed connector from an end to the pin of a place it is stated to but lies outside of.
     endLinks: List<RoutePlaces.Link> = emptyList(),
-    // The trip's parts entered by hand ([Trip.entered]), dashed in the track's color: one trip with
-    // this track, but no measured path. Read once, at style load.
-    enteredLegs: List<List<Coordinate>> = emptyList(),
+    // Read once, at style load.
+    dashed: Boolean = false,
     // Live preview: the last point is the current position — a droplet rotated to the movement
     // bearing instead of the finished-track end dot.
     directionalEnd: Boolean = false,
@@ -124,19 +123,13 @@ internal fun MapLibreTrackMap(
             style.addSource(GeoJsonSource(END_LINK_SOURCE, endLinkCollection(endLinks)))
             addConnectorLayer(style, dark, END_LINK_LAYER, END_LINK_SOURCE)
             addDwellLayers(style, dwells)
-            addEnteredLegs(style, enteredLegs, activity, mapActivityArgb(activity, dark))
-            addTrackLine(style, points, colors, greatCircleLegs)
+            addTrackLine(style, points, colors, greatCircleLegs, dashed)
             addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
             addMarkers(ctx, style, points, noisyPoints, directionalEnd)
             // Over the recorder's own markers: at an end the two land within a capture radius of
             // each other, and the place states where the journey went.
             addEndPlacePins(ctx, style, endPlaces, dark)
-            frameTo(
-                map,
-                framePositions(points, noisyPoints, greatCircleLegs, endLinks) +
-                    enteredLegs.flatMap { drawnLine(it, activity) }.map { LatLng(it.lat, it.lon) },
-                singlePointZoom = 15.0,
-            )
+            frameTo(map, framePositions(points, noisyPoints, greatCircleLegs, endLinks), singlePointZoom = 15.0)
             // Stamped here as well as drawn: otherwise the first update sees no applied input
             // and rebuilds every source the load just built.
             applied.points = points
@@ -189,26 +182,93 @@ internal fun MapLibreTrackMap(
                 style.getSourceAs<GeoJsonSource>(EDGE_STAY_SOURCE)
                     ?.setGeoJson(edgeStayFeature(overruns))
             }
-            // One check for both sources: a pin and the area it sits in are one place, and a set
-            // that had them disagree would be showing a reach nothing claims.
-            if (applied.endPlaces !== endPlaces) {
-                applied.endPlaces = endPlaces
-                addEndPlacePinImages(context, style, endPlaces)
-                style.getSourceAs<GeoJsonSource>(END_PLACE_AREA_SOURCE)
-                    ?.setGeoJson(captureAreaCollection(PlaceClusterer.seedsOf(endPlaces)))
-                style.getSourceAs<GeoJsonSource>(END_PLACE_SOURCE)
-                    ?.setGeoJson(endPlaceCollection(endPlaces))
-            }
-            if (applied.endLinks !== endLinks) {
-                applied.endLinks = endLinks
-                style.getSourceAs<GeoJsonSource>(END_LINK_SOURCE)?.setGeoJson(endLinkCollection(endLinks))
-            }
+            updateEndPlaces(context, style, applied, endPlaces, endLinks)
             if (!applied.framed) {
                 frameTo(map, framePositions(points, noisyPoints, greatCircleLegs, endLinks), singlePointZoom = 15.0)
                 applied.framed = true
             }
         },
     )
+}
+
+/** A part's good fixes, and whether its writer implied their motion. */
+internal class TripPart(val points: List<TrackPoint>, val unmeasured: Boolean)
+
+/**
+ * Every part of a trip as a line in the [activity]'s color, with the trip's end places drawn as
+ * [MapLibreTrackMap] draws a track's. No metric: each part's own page carries it.
+ */
+@Composable
+internal fun MapLibreTripMapOfParts(
+    parts: List<TripPart>,
+    activity: ActivityType?,
+    endPlaces: List<Place>,
+    endLinks: List<RoutePlaces.Link>,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val applied = remember { AppliedTrackInputs() }
+    val ends = remember(parts) {
+        listOfNotNull(parts.firstOrNull()?.points?.firstOrNull(), parts.lastOrNull()?.points?.lastOrNull())
+    }
+    MapLibreStyledMap(
+        modifier = modifier,
+        onStyleLoaded = { ctx, map, style, dark ->
+            addEndPlaceAreas(style, endPlaces, dark)
+            style.addSource(GeoJsonSource(END_LINK_SOURCE, endLinkCollection(endLinks)))
+            addConnectorLayer(style, dark, END_LINK_LAYER, END_LINK_SOURCE)
+            style.addSource(GeoJsonSource(PART_SOURCE, partCollection(parts, activity)))
+            addLineLayersByMeasure(
+                style,
+                PART_LAYER,
+                PART_SOURCE,
+                PropertyFactory.lineColor(mapActivityArgb(activity, dark)),
+                PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+            addMarkers(ctx, style, ends, emptyList(), directionalEnd = false)
+            addEndPlacePins(ctx, style, endPlaces, dark)
+            frameTo(
+                map,
+                parts.flatMap { framePositions(it.points, emptyList(), GreatCircle.drawsPath(it.points.size, activity), emptyList()) } +
+                    endLinks.map { LatLng(it.to.lat, it.to.lon) },
+                singlePointZoom = 15.0,
+            )
+            applied.endPlaces = endPlaces
+            applied.endLinks = endLinks
+        },
+        onUpdate = { _, style -> updateEndPlaces(context, style, applied, endPlaces, endLinks) },
+    )
+}
+
+private fun partCollection(parts: List<TripPart>, activity: ActivityType?): FeatureCollection {
+    val unmeasured = JsonObject().apply { addProperty(UNMEASURED_KEY, true) }
+    return FeatureCollection.fromFeatures(
+        parts.mapNotNull { part ->
+            lineFeature(part.points, unmeasured.takeIf { part.unmeasured }, GreatCircle.drawsPath(part.points.size, activity))
+        },
+    )
+}
+
+/** One check for both place sources: a pin and the area it sits in are one place, and a set that had them disagree would be showing a reach nothing claims. */
+private fun updateEndPlaces(
+    context: Context,
+    style: Style,
+    applied: AppliedTrackInputs,
+    endPlaces: List<Place>,
+    endLinks: List<RoutePlaces.Link>,
+) {
+    if (applied.endPlaces !== endPlaces) {
+        applied.endPlaces = endPlaces
+        addEndPlacePinImages(context, style, endPlaces)
+        style.getSourceAs<GeoJsonSource>(END_PLACE_AREA_SOURCE)
+            ?.setGeoJson(captureAreaCollection(PlaceClusterer.seedsOf(endPlaces)))
+        style.getSourceAs<GeoJsonSource>(END_PLACE_SOURCE)?.setGeoJson(endPlaceCollection(endPlaces))
+    }
+    if (applied.endLinks !== endLinks) {
+        applied.endLinks = endLinks
+        style.getSourceAs<GeoJsonSource>(END_LINK_SOURCE)?.setGeoJson(endLinkCollection(endLinks))
+    }
 }
 
 /**
@@ -263,8 +323,8 @@ private const val END_PLACE_SOURCE = "end-place-src"
 private const val END_PLACE_LAYER = "end-place-layer"
 private const val END_LINK_SOURCE = "end-link-src"
 private const val END_LINK_LAYER = "end-link-layer"
-private const val ENTERED_SOURCE = "entered-src"
-private const val ENTERED_LAYER = "entered-layer"
+private const val PART_SOURCE = "part-src"
+private const val PART_LAYER = "part-layer"
 
 /**
  * The stretch at each track edge the recorder ran on through — fixes already off the path, each run
@@ -323,27 +383,6 @@ private fun endPlaceCollection(places: List<Place>): FeatureCollection =
             )
         },
     )
-
-private fun addEnteredLegs(style: Style, legs: List<List<Coordinate>>, activity: ActivityType?, argb: Int) {
-    style.addSource(
-        GeoJsonSource(
-            ENTERED_SOURCE,
-            FeatureCollection.fromFeatures(
-                legs.filter { it.size >= 2 }.map { leg ->
-                    Feature.fromGeometry(LineString.fromLngLats(drawnLine(leg, activity).map { it.toPoint() }))
-                },
-            ),
-        ),
-    )
-    style.addLayer(
-        LineLayer(ENTERED_LAYER, ENTERED_SOURCE).withProperties(
-            PropertyFactory.lineColor(argb),
-            PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
-            PropertyFactory.lineDasharray(arrayOf(2f, 1.5f)),
-            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-        ),
-    )
-}
 
 private fun endLinkCollection(links: List<RoutePlaces.Link>): FeatureCollection =
     FeatureCollection.fromFeatures(
@@ -487,7 +526,7 @@ private fun trackLineFeature(
     return FeatureCollection.fromFeatures(features)
 }
 
-private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArray, greatCircleLegs: Boolean) {
+private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArray, greatCircleLegs: Boolean, dashed: Boolean) {
     // A run of a slow stretch spans metres — sub-pixel on any view of a whole track — and a GeoJSON
     // source simplifies per tile, which drops a feature that small outright. The one long polyline
     // this replaced survived it because simplification keeps a long line's shape.
@@ -507,7 +546,7 @@ private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArra
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             PropertyFactory.lineColor(Expression.get(COLOR_KEY)),
-        ),
+        ).apply { if (dashed) dashedAsUnmeasured() },
     )
 }
 

@@ -31,6 +31,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | track | маршрут | Only the recorded path — everywhere the sentence is about the journey itself, the word is *поездка*. Never *трек* (jargon a GPX-minded reader knows but a plain one doesn't), *путь*, *след*. |
+| part | часть | Agrees with *поездка*: «части поездки». |
 | gap | нет записи | A clause rather than a noun phrase: Russian states the absence directly, where «пропуск» or «пробел» would name a thing. |
 | gap-end | прибыли · отправились | The polite plural, which keeps a past-tense verb genderless as «вы были» does. *Отправились* over *уехали* or *ушли*, which each name a way of moving. |
 | point | точка | Rejected ones are *отклонённые* — never the calque *шумные* (which reads as loud, not as measurement noise) nor *выбросы* (which reads as emissions); a guessed one is *приблизительное местоположение*. |

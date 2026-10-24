@@ -1116,14 +1116,14 @@ internal fun MapLibreTripMap(
             showOverview(style, showPlaces)
             applied.touchingLines = touchingLines
             style.addSource(GeoJsonSource(TOUCHING_LINE_SOURCE, touchingLines))
-            style.addLayer(
-                LineLayer(TOUCHING_LINE_LAYER, TOUCHING_LINE_SOURCE).withProperties(
-                    PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
-                    PropertyFactory.lineOpacity(contextOpacity(dark, TOUCHING_OPACITY)),
-                    PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                ),
+            addLineLayersByMeasure(
+                style,
+                TOUCHING_LINE_LAYER,
+                TOUCHING_LINE_SOURCE,
+                PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
+                PropertyFactory.lineOpacity(contextOpacity(dark, TOUCHING_OPACITY)),
+                PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
             applied.line = line
             // Under the pins, so the ends stay readable where the line meets them.
@@ -1132,9 +1132,8 @@ internal fun MapLibreTripMap(
                 LineLayer(TRIP_LINE_LAYER, TRIP_LINE_SOURCE).withProperties(
                     PropertyFactory.lineColor(lineArgb),
                     PropertyFactory.lineWidth(TRIP_LINE_WIDTH),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                ),
+                ).dashedAsUnmeasured(),
             )
             // The line's points run origin to destination, which a line-placed symbol faces along.
             style.addImage(TRIP_DIRECTION_IMG, drawableBitmap(ctx, R.drawable.ic_trip_direction))
@@ -1233,8 +1232,8 @@ private fun colorProps(argb: Int) = JsonObject().apply {
 
 private fun touchingLineCollection(touching: List<TouchingTrack>, dark: Boolean): FeatureCollection =
     journeyCollection(
-        touching.map { it.line },
-        touching.associate { it.line.activityType to mapActivityArgb(it.activity, dark) },
+        touching.flatMap { it.lines },
+        touching.associate { it.activityType to mapActivityArgb(it.activity, dark) },
     )
 
 /** Each touching track's fix, and the trip's [continuing] ends in the trip's own [tripArgb]. */

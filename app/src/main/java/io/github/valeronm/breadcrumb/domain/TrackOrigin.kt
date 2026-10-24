@@ -54,6 +54,9 @@ enum class TrackOrigin(
     companion object {
         fun fromCode(code: String?): TrackOrigin? = entries.firstOrNull { it.code == code }
 
+        /** An unknown or absent [code] reads as measured. */
+        fun impliesMotion(code: String?): Boolean = fromCode(code)?.measuresMotion == false
+
         /**
          * The writer reconstructed from the fixes, for rows that never got to declare one — which
          * is a backup file made before the column existed. **Not a substitute for the declaration**:

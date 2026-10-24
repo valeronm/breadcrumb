@@ -26,6 +26,15 @@ class TrackOriginTest {
         }
     }
 
+    @Test fun `only a typed pair of ends and Google's reconstruction imply their motion`() {
+        assertEquals(
+            setOf(TrackOrigin.MANUAL, TrackOrigin.GOOGLE_TIMELINE),
+            TrackOrigin.entries.filter { TrackOrigin.impliesMotion(it.code) }.toSet(),
+        )
+        assertEquals(false, TrackOrigin.impliesMotion(null))
+        assertEquals(false, TrackOrigin.impliesMotion("synced"))
+    }
+
     @Test fun `an unknown or absent code is no writer, not a default one`() {
         assertNull(TrackOrigin.fromCode(null))
         assertNull(TrackOrigin.fromCode("synced"))
