@@ -300,8 +300,8 @@ internal fun TrackDetailScreen(
                     }
                     // The chips carry no surface of their own: they are the control for the map
                     // below, not a block of content beside it, and a card around a row of chips
-                    // reads as a third thing to look at.
-                    if (colorModes.isNotEmpty()) {
+                    // reads as a third thing to look at. A single mode leaves nothing to choose.
+                    if (colorModes.size > 1) {
                         ColorModeSelector(colorMode, colorModes) { selectedMode = it }
                     }
                     // Map and scrubber read as one group: small gaps, small corners between them.
