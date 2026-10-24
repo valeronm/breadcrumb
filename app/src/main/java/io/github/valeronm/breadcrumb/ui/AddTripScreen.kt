@@ -1033,12 +1033,13 @@ private class EndMark(val icon: ImageVector, val disc: DiscStyle, val name: Stri
 private fun endMark(place: TripPlaces.Outcome, continues: Boolean): EndMark {
     val neutral = placeDiscStyle(null)
     val name = place.name
+    val marker = TripPlaces.markerOf(place, continues)
     return when {
-        continues -> EndMark(Icons.Filled.FiberManualRecord, neutral, name)
+        marker == TripPlaces.Marker.POINT -> EndMark(Icons.Filled.FiberManualRecord, neutral, name)
         place is TripPlaces.Outcome.Held ->
             EndMark(place.place.placeCategory.discIcon, placeDiscStyle(place.place.placeCategory), name)
-        name != null -> EndMark(Icons.Filled.Place, neutral, name)
-        else -> EndMark(Icons.Outlined.Place, neutral, null)
+        marker == TripPlaces.Marker.SPOT -> EndMark(Icons.Outlined.Place, neutral, null)
+        else -> EndMark(Icons.Filled.Place, neutral, name)
     }
 }
 

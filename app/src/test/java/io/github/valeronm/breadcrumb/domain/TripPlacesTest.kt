@@ -85,4 +85,15 @@ class TripPlacesTest {
         assertEquals(listOf(true, true), seeds.map { it.named })
         assertEquals(listOf(at(0.0), at(5_000.0)), seeds.map { it.anchor })
     }
+
+    @Test fun `an end carrying on a track is a point, whatever place it is at`() {
+        assertEquals(TripPlaces.Marker.POINT, TripPlaces.markerOf(Outcome.Held(place(1, 0.0, "Home")), continues = true))
+        assertEquals(TripPlaces.Marker.POINT, TripPlaces.markerOf(Outcome.None, continues = true))
+    }
+
+    @Test fun `an end that stops is its place where it has one, and a spot where not`() {
+        assertEquals(TripPlaces.Marker.PLACE, TripPlaces.markerOf(Outcome.Held(place(1, 0.0, "Home")), continues = false))
+        assertEquals(TripPlaces.Marker.PLACE, TripPlaces.markerOf(Outcome.Shares("Home"), continues = false))
+        assertEquals(TripPlaces.Marker.SPOT, TripPlaces.markerOf(Outcome.None, continues = false))
+    }
 }

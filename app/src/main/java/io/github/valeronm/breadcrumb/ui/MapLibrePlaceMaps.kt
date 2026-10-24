@@ -1045,9 +1045,12 @@ internal fun MapLibreTripMap(
     val mapDark = isMapDark()
     val lineArgb = mapActivityArgb(activity, mapDark)
     val touchingLines = remember(touching, mapDark) { touchingLineCollection(touching, mapDark) }
-    val originContinues = ManualPath.End.ORIGIN in continuing
-    val destinationContinues = ManualPath.End.DESTINATION in continuing
-    val continuingEnds = listOfNotNull(origin?.takeIf { originContinues }, destination?.takeIf { destinationContinues })
+    val originMarker = TripPlaces.markerOf(originPlace, ManualPath.End.ORIGIN in continuing)
+    val destinationMarker = TripPlaces.markerOf(destinationPlace, ManualPath.End.DESTINATION in continuing)
+    val continuingEnds = listOfNotNull(
+        origin?.takeIf { originMarker == TripPlaces.Marker.POINT },
+        destination?.takeIf { destinationMarker == TripPlaces.Marker.POINT },
+    )
     val touchingEnds = remember(touching, continuingEnds, mapDark, lineArgb) {
         touchingEndCollection(touching, continuingEnds, lineArgb, mapDark)
     }
@@ -1057,10 +1060,10 @@ internal fun MapLibreTripMap(
     ) {
         FeatureCollection.fromFeatures(
             listOfNotNull(
-                origin?.takeUnless { originContinues }
-                    ?.let { endpointFeature(it, endPinImage(originPlace), originLabel) },
-                destination?.takeUnless { destinationContinues }
-                    ?.let { endpointFeature(it, endPinImage(destinationPlace), destinationLabel) },
+                origin?.takeUnless { originMarker == TripPlaces.Marker.POINT }
+                    ?.let { endpointFeature(it, endPinImage(originPlace, originMarker), originLabel) },
+                destination?.takeUnless { destinationMarker == TripPlaces.Marker.POINT }
+                    ?.let { endpointFeature(it, endPinImage(destinationPlace, destinationMarker), destinationLabel) },
             ),
         )
     }
@@ -1218,9 +1221,9 @@ internal fun MapLibreTripMap(
 }
 
 /** A trip end's pin, matching its row in the form's sheet. */
-private fun endPinImage(place: TripPlaces.Outcome): String = when (place) {
-    is TripPlaces.Outcome.Held -> placePinImage(place.place.placeCategory, withGlyph = true)
-    TripPlaces.Outcome.None -> SPOT_PIN_IMAGE
+private fun endPinImage(place: TripPlaces.Outcome, marker: TripPlaces.Marker): String = when {
+    place is TripPlaces.Outcome.Held -> placePinImage(place.place.placeCategory, withGlyph = true)
+    marker == TripPlaces.Marker.SPOT -> SPOT_PIN_IMAGE
     else -> placePinImage(null, withGlyph = true)
 }
 

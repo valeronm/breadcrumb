@@ -313,10 +313,9 @@ private fun GapMap(
         }
     }
 
-    // With a trip proposed, an end drawn as a pin wears its place, and an end carrying on a track
-    // leaves no stay there to show.
+    // With a trip proposed, its ends' markers stand for their places.
     fun shown(end: ManualPath.End, outcome: TripPlaces.Outcome) =
-        proposal == null || (end !in continuing && outcome == TripPlaces.Outcome.None)
+        proposal == null || TripPlaces.markerOf(outcome, end in continuing) == TripPlaces.Marker.SPOT
     val sides = listOfNotNull(
         detail.fromPlace?.takeIf { shown(ManualPath.End.ORIGIN, ends[0]) },
         detail.toPlace?.takeIf { shown(ManualPath.End.DESTINATION, ends[1]) },

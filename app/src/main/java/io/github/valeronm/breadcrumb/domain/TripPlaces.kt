@@ -44,6 +44,17 @@ object TripPlaces {
         }
     }
 
+    /** How a trip's end is drawn: on the track it carries straight on from, as the place it is
+     *  at, or as a spot no place holds. */
+    enum class Marker { POINT, PLACE, SPOT }
+
+    /** An end carrying on a track leaves no stay, so its place goes unshown whatever it is. */
+    fun markerOf(outcome: Outcome, continues: Boolean): Marker = when {
+        continues -> Marker.POINT
+        outcome == Outcome.None -> Marker.SPOT
+        else -> Marker.PLACE
+    }
+
     /** One [Outcome] per end, in order, and the place seeds as the save will leave them. */
     class Plan(val outcomes: List<Outcome>, val seeds: List<PlaceClusterer.Seed>) {
         val created: List<Place> get() = outcomes.mapNotNull { (it as? Outcome.Creates)?.row }
