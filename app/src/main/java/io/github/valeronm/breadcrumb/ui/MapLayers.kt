@@ -216,7 +216,7 @@ internal fun Coordinate.toPoint(): Point = Point.fromLngLat(lon, lat)
  * a round cap stretches every dash by a line width.
  */
 internal fun LineLayer.dashedAsUnmeasured(): LineLayer = withProperties(
-    PropertyFactory.lineDasharray(arrayOf(2f, 1.5f)),
+    PropertyFactory.lineDasharray(arrayOf(2.5f, 1f)),
     PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
 )
 
