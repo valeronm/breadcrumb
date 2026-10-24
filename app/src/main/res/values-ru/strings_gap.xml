@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="gap_title">Нет записи</string>
+    <string name="gap_days">%1$s – %2$s</string>
     <string name="gap_at_least_speed">не менее %1$s</string>
     <string name="gap_other_fixes">Другие способы заполнить</string>
     <string name="gap_unavailable_fixes">Недоступно</string>

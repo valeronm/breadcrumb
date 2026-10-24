@@ -2,6 +2,7 @@
 <!-- GapDetailScreen: one missing recording and the ways to fill it. -->
 <resources>
     <string name="gap_title">Missing recording</string>
+    <string name="gap_days">%1$s – %2$s</string>
     <string name="gap_at_least_speed">at least %1$s</string>
     <string name="gap_other_fixes">Other ways to fill it</string>
     <string name="gap_unavailable_fixes">Unavailable</string>

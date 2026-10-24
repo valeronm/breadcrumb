@@ -226,7 +226,20 @@ internal fun GapDetailScreen(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                title = { Text(stringResource(R.string.gap_title)) },
+                title = {
+                    Column {
+                        Text(stringResource(R.string.gap_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (d != null) {
+                            Text(
+                                gapDays(d),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
                     if (d != null) {
@@ -541,6 +554,15 @@ private fun StayedHereSheet(
             }
         }
     }
+}
+
+/** The day the gap began on its departure's clock, and the day it ended where that differs. */
+@Composable
+private fun gapDays(detail: GapDetail): String {
+    val dayLabel = rememberDayLabel()
+    val first = detail.gap.start.toLocalDate(detail.departureZone)
+    val last = detail.gap.end.toLocalDate(detail.arrivalZone)
+    return if (first == last) dayLabel(first) else stringResource(R.string.gap_days, dayLabel(first), dayLabel(last))
 }
 
 @Composable
