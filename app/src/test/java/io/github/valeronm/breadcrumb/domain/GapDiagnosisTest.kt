@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.GapDiagnosis.Block
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis.Fix
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis.Reason
 import org.junit.Assert.assertEquals
@@ -34,6 +35,7 @@ class GapDiagnosisTest {
         assertEquals(Fix.STAYED_HERE, v.suggested)
         assertEquals(Reason.ENDS_CLOSE, v.reason)
         assertEquals(listOf(Fix.MISSED_START, Fix.ADD_TRIP, Fix.MERGE), v.others)
+        assertEquals(emptyMap<Fix, Block>(), v.blocked)
     }
 
     @Test fun `the stayed-here distance is inclusive`() {
@@ -46,21 +48,15 @@ class GapDiagnosisTest {
         val v = diagnose(gap(apartM = 450.0))
         assertEquals(Fix.MISSED_START, v.suggested)
         assertEquals(Reason.PARKED_THEN_LEFT, v.reason)
-        assertEquals(listOf(Fix.ADD_TRIP, Fix.MERGE), v.others)
-    }
-
-    @Test fun `a slow gap before a still track does not suggest the missed start`() {
-        val still = trackSummary(2, "STILL", startedAt = 70 * MIN, endedAt = 80 * MIN)
-        val v = diagnose(gap(apartM = 450.0), a = still)
-        assertEquals(Fix.ADD_TRIP, v.suggested)
-        assertFalse(Fix.MISSED_START in v.others)
+        assertEquals(listOf(Fix.ADD_TRIP, Fix.STAYED_HERE, Fix.MERGE), v.others)
+        assertEquals(mapOf(Fix.STAYED_HERE to Block.STAY_NO_NAMED_PLACE), v.blocked)
     }
 
     @Test fun `a fast gap between compatible tracks suggests a merge`() {
         val v = diagnose(gap(apartM = 12_000.0, minutes = 10))
         assertEquals(Fix.MERGE, v.suggested)
         assertEquals(Reason.DROPOUT, v.reason)
-        assertEquals(listOf(Fix.ADD_TRIP), v.others)
+        assertEquals(mapOf(Fix.STAYED_HERE to Block.STAY_TOO_FAR), v.blocked)
     }
 
     @Test fun `a fast gap between different activities suggests adding the trip`() {
@@ -68,14 +64,17 @@ class GapDiagnosisTest {
         val v = diagnose(gap(apartM = 12_000.0, minutes = 10), a = walk)
         assertEquals(Fix.ADD_TRIP, v.suggested)
         assertEquals(Reason.TRAVELLED, v.reason)
-        assertEquals(emptyList<Fix>(), v.others)
+        assertEquals(
+            mapOf(Fix.MERGE to Block.MERGE_ACTIVITIES_DIFFER, Fix.STAYED_HERE to Block.STAY_TOO_FAR),
+            v.blocked,
+        )
     }
 
-    @Test fun `a side with no fix never offers a stay or the missed start`() {
-        val v = diagnose(gap(apartM = 50.0, fromKnown = false))
+    @Test fun `a side with no fix rules out a stay on that side`() {
+        val v = diagnose(gap(apartM = 50.0, fromKnown = false), fromNamed = true)
         assertEquals(Fix.MERGE, v.suggested)
         assertEquals(Reason.NO_POSITION, v.reason)
-        assertEquals(listOf(Fix.ADD_TRIP), v.others)
+        assertEquals(mapOf(Fix.STAYED_HERE to Block.STAY_NO_POINT_BEFORE), v.blocked)
     }
 
     @Test fun `a side with no fix between incompatible tracks suggests adding the trip`() {
@@ -99,21 +98,28 @@ class GapDiagnosisTest {
     @Test fun `close ends between unnamed places offer no stay`() {
         val v = diagnose(gap(apartM = 150.0))
         assertEquals(Fix.MISSED_START, v.suggested)
-        assertFalse(Fix.STAYED_HERE in v.others)
+        assertEquals(Block.STAY_NO_NAMED_PLACE, v.blocked[Fix.STAYED_HERE])
     }
 
     @Test fun `a slow gap at a named place also offers a stay`() {
         val v = diagnose(gap(apartM = 450.0), fromNamed = true)
         assertEquals(Fix.MISSED_START, v.suggested)
         assertEquals(listOf(Fix.ADD_TRIP, Fix.STAYED_HERE, Fix.MERGE), v.others)
+        assertEquals(emptyMap<Fix, Block>(), v.blocked)
     }
 
-    @Test fun `a slow gap between unnamed places offers no stay`() {
-        assertFalse(Fix.STAYED_HERE in diagnose(gap(apartM = 450.0)).others)
+    @Test fun `trips of different writers name the writers whatever their activities`() {
+        val imported = trackSummary(2, "WALKING", startedAt = 70 * MIN, endedAt = 80 * MIN, source = TrackOrigin.IMPORTED.code)
+        assertEquals(Block.MERGE_WRITERS_DIFFER, diagnose(gap(apartM = 450.0), a = imported).blocked[Fix.MERGE])
     }
 
-    @Test fun `a fast gap at a named place offers no stay`() {
-        assertFalse(Fix.STAYED_HERE in diagnose(gap(apartM = 450.0, minutes = 1), fromNamed = true).others)
+    @Test fun `a far gap names the distance even with no named place`() {
+        assertEquals(Block.STAY_TOO_FAR, diagnose(gap(apartM = 12_000.0, minutes = 10)).blocked[Fix.STAYED_HERE])
+    }
+
+    @Test fun `a fast gap at a named place rules out a stay as too far`() {
+        val v = diagnose(gap(apartM = 450.0, minutes = 1), fromNamed = true)
+        assertEquals(Block.STAY_TOO_FAR, v.blocked[Fix.STAYED_HERE])
     }
 
     @Test fun `a slow gap before a track starting at a named place suggests the whole trip`() {

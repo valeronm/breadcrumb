@@ -25,7 +25,7 @@ internal object GapFixtures {
         merge: TrackMerge.Plan? = null,
         apartMeters: Double? = 1_000.0,
         atLeastMps: Double? = 1.0,
-    ) = GapDiagnosis.Verdict(suggested, reason, emptyList(), merge, apartMeters, atLeastMps)
+    ) = GapDiagnosis.Verdict(suggested, reason, emptyMap(), merge, apartMeters, atLeastMps)
 
     fun detail(
         zone: ZoneId,

@@ -3,6 +3,7 @@
     <string name="gap_title">Нет записи</string>
     <string name="gap_at_least_speed">не менее %1$s</string>
     <string name="gap_other_fixes">Другие способы заполнить</string>
+    <string name="gap_unavailable_fixes">Недоступно</string>
     <string name="gap_show_both_ends">Показать обе точки</string>
     <string name="gap_show_on_timeline">Показать в истории</string>
 
@@ -10,6 +11,13 @@
     <string name="gap_fix_add_trip">Добавить недостающую поездку</string>
     <string name="gap_fix_stayed_here">Сделать посещением</string>
     <string name="gap_fix_merge">Объединить поездки</string>
+
+    <string name="gap_blocked_merge_activities">У поездок разные активности</string>
+    <string name="gap_blocked_merge_writers">Объединить можно только поездки, добавленные одним способом</string>
+    <string name="gap_blocked_stay_no_point_before">У предыдущей поездки только отклонённые точки</string>
+    <string name="gap_blocked_stay_no_point_after">У следующей поездки только отклонённые точки</string>
+    <string name="gap_blocked_stay_too_far">Стороны слишком далеко друг от друга для посещения</string>
+    <string name="gap_blocked_stay_no_named_place">Ни одна из сторон не в месте с названием</string>
 
     <string name="gap_proposal_edit">Изменить</string>
 

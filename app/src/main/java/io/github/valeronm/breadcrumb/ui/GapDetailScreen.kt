@@ -27,7 +27,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -191,20 +190,34 @@ internal fun GapDetailScreen(
                     }
                 }
                 // A proposal is one decision on screen; Cancel brings the other ways back.
-                if (proposal == null && verdict.others.isNotEmpty()) {
-                    Column(Modifier.padding(horizontal = 16.dp)) {
-                        SectionHeading(stringResource(R.string.gap_other_fixes))
+                if (proposal == null) {
+                    val (available, unavailable) = verdict.others.partition { it !in verdict.blocked }
+                    if (available.isNotEmpty()) {
+                        FixHeading(R.string.gap_other_fixes)
+                        available.forEach { other ->
+                            OutlinedButton(
+                                onClick = { onFix(other) },
+                                enabled = fetching != other,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                            ) {
+                                FixLabel(other, busy = fetching == other)
+                            }
+                        }
                     }
-                    verdict.others.forEach { other ->
-                        ListItem(
-                            modifier = Modifier.clickable { onFix(other) },
-                            trailingContent = if (fetching == other) {
-                                { CircularProgressIndicator(Modifier.size(24.dp)) }
-                            } else {
-                                null
-                            },
-                        ) {
-                            Text(stringResource(other.labelRes()))
+                    if (unavailable.isNotEmpty()) {
+                        FixHeading(R.string.gap_unavailable_fixes)
+                        unavailable.forEach { other ->
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                                OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
+                                    Text(stringResource(other.labelRes()))
+                                }
+                                Text(
+                                    stringResource(verdict.blocked.getValue(other).labelRes()),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -530,12 +543,29 @@ private fun StayedHereSheet(
     }
 }
 
+@Composable
+private fun FixHeading(@StringRes text: Int) {
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        SectionHeading(stringResource(text))
+    }
+}
+
 @StringRes
 internal fun GapDiagnosis.Fix.labelRes(): Int = when (this) {
     GapDiagnosis.Fix.MISSED_START -> R.string.gap_fix_missed_start
     GapDiagnosis.Fix.ADD_TRIP -> R.string.gap_fix_add_trip
     GapDiagnosis.Fix.STAYED_HERE -> R.string.gap_fix_stayed_here
     GapDiagnosis.Fix.MERGE -> R.string.gap_fix_merge
+}
+
+@StringRes
+internal fun GapDiagnosis.Block.labelRes(): Int = when (this) {
+    GapDiagnosis.Block.MERGE_ACTIVITIES_DIFFER -> R.string.gap_blocked_merge_activities
+    GapDiagnosis.Block.MERGE_WRITERS_DIFFER -> R.string.gap_blocked_merge_writers
+    GapDiagnosis.Block.STAY_NO_POINT_BEFORE -> R.string.gap_blocked_stay_no_point_before
+    GapDiagnosis.Block.STAY_NO_POINT_AFTER -> R.string.gap_blocked_stay_no_point_after
+    GapDiagnosis.Block.STAY_TOO_FAR -> R.string.gap_blocked_stay_too_far
+    GapDiagnosis.Block.STAY_NO_NAMED_PLACE -> R.string.gap_blocked_stay_no_named_place
 }
 
 /** The 16.dp gutter, the 36.dp place disc and the 16.dp after it: where an end's text starts. */

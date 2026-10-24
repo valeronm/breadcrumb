@@ -4,6 +4,7 @@
     <string name="gap_title">Missing recording</string>
     <string name="gap_at_least_speed">at least %1$s</string>
     <string name="gap_other_fixes">Other ways to fill it</string>
+    <string name="gap_unavailable_fixes">Unavailable</string>
     <string name="gap_show_both_ends">Show both ends</string>
     <string name="gap_show_on_timeline">Show on timeline</string>
 
@@ -11,6 +12,13 @@
     <string name="gap_fix_add_trip">Add the missing trip</string>
     <string name="gap_fix_stayed_here">Make it a stay</string>
     <string name="gap_fix_merge">Merge the trips</string>
+
+    <string name="gap_blocked_merge_activities">The trips have different activities</string>
+    <string name="gap_blocked_merge_writers">Only trips added the same way can be merged</string>
+    <string name="gap_blocked_stay_no_point_before">The trip before has only noisy points</string>
+    <string name="gap_blocked_stay_no_point_after">The trip after has only noisy points</string>
+    <string name="gap_blocked_stay_too_far">The two sides are too far apart for a stay</string>
+    <string name="gap_blocked_stay_no_named_place">Neither side is at a named place</string>
 
     <string name="gap_proposal_edit">Edit</string>
 

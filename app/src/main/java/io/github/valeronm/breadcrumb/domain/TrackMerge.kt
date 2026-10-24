@@ -27,10 +27,17 @@ object TrackMerge {
      * that one visit stops counting, and the merge undoes — the stay re-derives from the tracks
      * the moment it does.
      */
-    fun compatible(before: TrackSummary, after: TrackSummary): Plan? {
-        if (before.activityType != after.activityType) return null
-        if (before.source != after.source) return null
-        return Plan(earlierId = before.id, laterId = after.id)
+    fun compatible(before: TrackSummary, after: TrackSummary): Plan? =
+        if (mismatch(before, after) == null) Plan(earlierId = before.id, laterId = after.id) else null
+
+    enum class Mismatch { WRITER, ACTIVITY }
+
+    /** What keeps [compatible] from planning a merge; a differing writer is named first, since
+     *  retyping a track cannot lift it. */
+    fun mismatch(before: TrackSummary, after: TrackSummary): Mismatch? = when {
+        before.source != after.source -> Mismatch.WRITER
+        before.activityType != after.activityType -> Mismatch.ACTIVITY
+        else -> null
     }
 
     /** [compatible], limited to an interval that is closed and at most [MAX_INTERVAL_MS] long. */
