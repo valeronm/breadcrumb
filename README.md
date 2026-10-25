@@ -201,7 +201,7 @@ viewer under `/viewer/`; the viewer's own README says how to run it on its own.
 
 Kotlin · Jetpack Compose (Material 3) · Room · Play Services Location (Activity Recognition;
 positions come from the platform GPS provider) · MapLibre GL Native on a Protomaps vector
-basemap · AGP 9.3.1 / Gradle 9.6.1 · single-module.
+basemap · single-module.
 
 ## Testing activity switching
 
