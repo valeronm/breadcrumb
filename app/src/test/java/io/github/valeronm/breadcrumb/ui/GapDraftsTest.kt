@@ -54,4 +54,9 @@ class GapDraftsTest {
         val p = GapDrafts.withRoad(GapDrafts.missedStart(detail), road(gapMs), detail.gap.start)!!
         assertEquals(detail.gap.start, p.trip.origin.end.timestampMs)
     }
+
+    @Test fun `a road under a minute departs exactly its duration before the arrival`() {
+        val p = GapDrafts.withRoad(GapDrafts.missedStart(detail), road(40_000L), detail.gap.start)!!
+        assertEquals(detail.gap.end - 40_000L, p.trip.origin.end.timestampMs)
+    }
 }

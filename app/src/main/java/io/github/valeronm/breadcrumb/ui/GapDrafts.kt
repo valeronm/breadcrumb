@@ -27,9 +27,9 @@ internal object GapDrafts {
     )
 
     /**
-     * [missedStart] whole: departing [route]'s duration before its arrival, as the add-trip form
-     * couples it. Null where that departure falls before [notBeforeMs], the end of the track before
-     * the gap, which the trip would overlap.
+     * [missedStart] whole: departing exactly [route]'s duration before its recorded arrival, which
+     * no picker typed to the minute. Null where that departure falls before [notBeforeMs], the end
+     * of the track before the gap, which the trip would overlap, or the road takes no time.
      */
     fun withRoad(draft: TripDraft, route: OnlineRouting.Route, notBeforeMs: Long): RoadProposal? {
         val activity = draft.activity ?: return null
@@ -38,7 +38,7 @@ internal object GapDrafts {
         val from = origin.at ?: return null
         val to = destination.at ?: return null
         val arriveMs = destination.timeMs ?: return null
-        val departMs = ManualPath.coupledEnd(arriveMs, route.durationMs, forward = false)
+        val departMs = ManualPath.coupledEnd(arriveMs, route.durationMs, forward = false, roundToMinute = false)
         if (departMs < notBeforeMs || departMs >= arriveMs) return null
         val form = TripDraft(
             day = draft.day,

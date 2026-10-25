@@ -63,13 +63,13 @@ object ManualPath {
 
     /**
      * Where the other end lands when one end is set and the two are a road's [durationMs] apart:
-     * after it when [forward], before it otherwise, rounded to the nearest minute, which is the
-     * resolution the ends are typed at. Nearest rather than down, so the span drifts from the
-     * duration by the same half minute either way round.
+     * after it when [forward], before it otherwise. With [roundToMinute], rounded to the nearest
+     * minute, the resolution an end is typed at; nearest rather than down, so the span drifts from
+     * the duration by the same half minute either way round.
      */
-    fun coupledEnd(editedMs: Long, durationMs: Long, forward: Boolean): Long {
+    fun coupledEnd(editedMs: Long, durationMs: Long, forward: Boolean, roundToMinute: Boolean = true): Long {
         val exact = if (forward) editedMs + durationMs else editedMs - durationMs
-        return Math.round(exact / MINUTE_MS.toDouble()) * MINUTE_MS
+        return if (roundToMinute) Math.round(exact / MINUTE_MS.toDouble()) * MINUTE_MS else exact
     }
 
     /**
