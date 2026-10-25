@@ -160,12 +160,7 @@ private fun GroupedRowScope.TappableRow(
             Spacer(Modifier.width(16.dp))
         }
         RowLabels(label, subtitle)
-        Icon(
-            trailing,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(28.dp),
-        )
+        Icon(trailing, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
