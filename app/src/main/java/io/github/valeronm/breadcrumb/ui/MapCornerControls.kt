@@ -6,7 +6,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -62,7 +61,7 @@ internal fun BoxScope.MapCorner(
 ) {
     Column(
         Modifier.align(Alignment.BottomEnd).padding(MapInset - touchHalo(SmallFabSize)),
-        verticalArrangement = Arrangement.spacedBy(8.dp - touchHalo(SmallFabSize) * 2),
+        verticalArrangement = mapStackArrangement(SmallFabSize),
         horizontalAlignment = Alignment.End,
     ) {
         if (onReframe != null) {
@@ -90,7 +89,7 @@ internal fun PinAimControls(
     if (aiming) {
         // Stacked rather than side by side: at the credit's height the corner stays one button wide.
         Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp - touchHalo(SmallFabSize) * 2),
+            verticalArrangement = mapStackArrangement(SmallFabSize),
             horizontalAlignment = Alignment.End,
         ) {
             // A small FAB's height, touch target and shape, so it matches the one below it.

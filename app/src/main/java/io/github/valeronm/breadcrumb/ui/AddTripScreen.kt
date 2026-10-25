@@ -800,9 +800,7 @@ internal fun AddTripScreen(
                         .fillMaxWidth()
                         .padding(top = MapInset)
                         .onGloballyPositioned { cover.headerBottom = it.boundsInWindow().bottom },
-                    // Negative where the halos exceed the gap: the touch targets overlap, the
-                    // chips do not.
-                    verticalArrangement = Arrangement.spacedBy(8.dp - halo * 2),
+                    verticalArrangement = mapStackArrangement(),
                 ) {
                     if (picking != null) {
                         SearchDropdown(
@@ -873,7 +871,7 @@ internal fun AddTripScreen(
                     }
                     Column(
                         Modifier.padding(horizontal = MapInset),
-                        verticalArrangement = Arrangement.spacedBy(8.dp - halo * 2),
+                        verticalArrangement = mapStackArrangement(),
                     ) {
                         // The switch on the Privacy page takes the offer away entirely rather than
                         // leaving a chip that does nothing. On, the chip is the path's own

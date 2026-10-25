@@ -97,16 +97,21 @@ internal fun FilterToggleChip(selected: Boolean, label: String, onClick: () -> U
  */
 @Composable
 internal fun BoxScope.MapFilterChips(content: @Composable ColumnScope.() -> Unit) {
-    val halo = touchHalo(FilterChipDefaults.Height)
     Column(
         Modifier
             .align(Alignment.TopStart)
-            .padding(start = MapInset, top = MapInset - halo),
-        // Negative where the halos exceed the gap: the touch targets overlap, the chips do not.
-        verticalArrangement = Arrangement.spacedBy(8.dp - halo * 2),
+            .padding(start = MapInset, top = MapInset - touchHalo(FilterChipDefaults.Height)),
+        verticalArrangement = mapStackArrangement(),
         content = content,
     )
 }
+
+/** Spacing that leaves 8 dp between controls of [visible] height stacked over a map, negative where their
+ *  touch halos exceed that: the touch targets overlap, the controls do not. */
+@Composable
+@ReadOnlyComposable
+internal fun mapStackArrangement(visible: Dp = FilterChipDefaults.Height): Arrangement.Vertical =
+    Arrangement.spacedBy(8.dp - touchHalo(visible) * 2)
 
 /** A legend in a [MapFilterChips] stack: the stack spaces its items for a chip's touch halo, and a
  *  surface has none. */
