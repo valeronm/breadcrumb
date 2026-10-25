@@ -3,8 +3,7 @@ package io.github.valeronm.breadcrumb.domain
 /**
  * What the position stream says the ground is doing, independent of any activity label. **Every
  * consultation of a [Motion] must define an [Unknown] case identical to its pre-consultation
- * behaviour** — the invariant that makes the cross-check a toggle: off substitutes [Unknown] at
- * the single place the verdict is produced, and nothing downstream needs to know a switch exists.
+ * behavior**, since [Unknown] is what every rule receives whenever the ground cannot answer.
  */
 sealed interface Motion {
 
@@ -13,13 +12,12 @@ sealed interface Motion {
 
     /**
      * The ground is provably still — every fix in the window sits within a few metres of the rest.
-     * No consultation distinguishes this from [Unknown] today (the cross-check acts only on positive
-     * evidence of *movement*); it stays separate because the confirmer can tell the two apart, and a
-     * rule ending a track on a standstill — not merely declining to end one — needs this, not [Unknown].
+     * Distinct from [Unknown] because a rule that ends a track on a standstill, rather than merely
+     * declining to end one, needs positive evidence of stillness.
      */
     data object Stopped : Motion
 
-    /** Not enough evidence — treat as "behave as if the cross-check did not exist". */
+    /** Not enough evidence to call the ground moving or still. */
     data object Unknown : Motion
 }
 

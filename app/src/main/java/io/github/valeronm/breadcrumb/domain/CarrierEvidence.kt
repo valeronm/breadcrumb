@@ -27,8 +27,7 @@ package io.github.valeronm.breadcrumb.domain
  * between *consecutive* samples both holding the condition, capped at [MAX_CREDIT_MS] per pair —
  * evidence accrues at the rate fixes actually arrive, so a stale window cannot credit a delivery
  * gap, and the abstaining samples after every GPS restart (an empty window reads [Motion.Unknown])
- * fence the credit off naturally. [Motion.Unknown] holds neither condition, so with the cross-check
- * off nothing ever accumulates — the same defaulted-fallback shape as every other consultation.
+ * fence the credit off naturally. [Motion.Unknown] holds neither condition, so it accrues nothing.
  * In-memory: [restart]ed when a track opens, read when it closes; process death loses it and the
  * dangling track finishes without a rename — with the evidence gone, abstaining is honest.
  */

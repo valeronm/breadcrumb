@@ -150,9 +150,8 @@ class TrackQualityTest {
     }
 
     // --- The ceiling under a measured-motion verdict ---------------------
-    // The cases above all run with `Motion.Unknown` — what the recorder passes when the motion
-    // cross-check is off — and stay unedited on purpose: their green run is what pins that the
-    // off state changes nothing.
+    // The cases above all run with `Motion.Unknown` and stay unedited on purpose: their green run
+    // pins that `Motion.Unknown` leaves the ceiling as it was before the witness.
 
     /** A carried journey — the case the cross-check exists for. */
     private val CARRIED = Motion.Moving(Speed.kmh(20.0))

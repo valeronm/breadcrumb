@@ -40,8 +40,7 @@ object TrackQuality {
      * confirmer like any other fix (the feed contract that keeps the witness from inheriting the
      * error it checks) and can carry a window to [Motion.Moving] on its own — at worst a fix is
      * judged as though the track were a train ride, a ceiling the recorder already grants on a
-     * label alone. [Motion.Unknown] — the cross-check switched off, or the sky
-     * blocked — leaves the label's ceiling exactly as it was.
+     * label alone. [Motion.Unknown] leaves the label's ceiling exactly as it was.
      */
     fun jumpCeiling(activity: ActivityType, motion: Motion = Motion.Unknown): Speed {
         val label = labelCeiling(activity)
@@ -236,9 +235,7 @@ object TrackQuality {
      * verdict, or null when it's switched off (not the same as false — see [badFixReason]);
      * [maxAccuracyM] → [IgnoreReason.ACCURACY], the configured limit; [motion] →
      * [IgnoreReason.JUMP], what the position stream says the ground is doing, which with the
-     * activity sets how high the jump gate stands (see [jumpCeiling]) — [Motion.Unknown], the
-     * default and what stands while the ground can't answer, leaves that gate at the
-     * activity's own height.
+     * activity sets how high the jump gate stands (see [jumpCeiling]).
      */
     data class Gates(
         val maxAccuracyM: Float,
@@ -260,11 +257,10 @@ object TrackQuality {
      * [lastGood] is null for the first point of a track (or segment); [distance] is injectable so
      * the speed logic is host-testable. The GNSS evidence is a plain Boolean because deciding it is
      * `GnssSnapshot.backed`'s job — the caller reads two platform timestamps and nothing more.
-     * [Gates.motion] reaches only the jump ceiling (see [jumpCeiling]); its [Motion.Unknown]
-     * default — also what the recorder passes with the cross-check switched off — makes the rule
-     * behave as if no second witness existed. The two reasons above it are untouched by it on
-     * purpose: they judge a fix on its own merits rather than against a label, and they are the
-     * very gates that decide which fixes the position stream's witness may be fed at all.
+     * [Gates.motion] reaches only the jump ceiling (see [jumpCeiling]). The two reasons above it
+     * are untouched by it on purpose: they judge a fix on its own merits rather than against a
+     * label, and they are the very gates that decide which fixes the position stream's witness may
+     * be fed at all.
      */
     fun badFixReason(
         lastGood: TrackPoint?,

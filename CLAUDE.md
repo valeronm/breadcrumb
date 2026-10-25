@@ -1,1070 +1,454 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Breadcrumb is a single-module Android app (Kotlin, Jetpack Compose) that keeps a day-by-day timeline
+of where you have been — trips, stays and named places — recorded in the background with no start
+button. `README.md` is the user-facing overview.
 
-Breadcrumb is a single-module Android app (Kotlin + Jetpack Compose) that records GPS tracks in the
-background, automatically starting/stopping based on the user's detected activity. See `README.md`
-for the user-facing overview.
+This file holds what no single source file carries: rules that span files, environment gotchas, and
+the decisions behind them. Where one file's KDoc already carries the reasoning, the rule is stated
+here once with that file named.
 
-## Build & run
+## Working in this repo
+
+### Builds
+
+- The Gradle daemon's JDK is pinned (`gradle/gradle-daemon-jvm.properties`), so setting
+  `JAVA_HOME` never fixes a build.
+- Gradle and AGP are pinned as a compatible pair: move both or neither.
+- **`installPerf` is the build to put on a phone**: debug without `debuggable`, whose slowdown reads
+  as a regression that isn't there, installed over the debug app with the history intact. Install
+  debug only for the `run-as` database pull and the Compose tooling; `installDemo` is the screenshot
+  build. `app/build.gradle.kts` carries each build type's rationale.
+
+### Lint
+
+ktlint and detekt both run in CI, and each config states which rules it turns off and why
+(`.editorconfig`, `config/detekt/detekt.yml`). **Re-enabling a disabled rule is a style decision to
+raise with the user**, not a cleanup. A refactor that moves code `app/detekt-baseline.xml` holds can
+resurface its entry as new, which is intended.
+
+**The build's "ReportingExtension.file(String) has been deprecated" warning stands deliberately.**
+It fires inside detekt's own plugin `apply()`, before any config of ours runs (upstream
+detekt#8452), and the fix lives only on detekt 2.x, which renames the packages to `dev.detekt` and
+reorganizes the rule sets. It is revisited when detekt 2.0 is stable, or when Gradle 10, which
+removes the API, is on the table.
+
+### Testing on the device
+
+Hands-on testing is the user's job. For a change that needs a device:
+
+1. Verify what you can without it: build, run the unit tests.
+2. Install `installPerf` on the connected phone.
+3. Hand off a short test plan: where to go, what the change should look like, and what would show a
+   regression. Concrete tracks and places found in the device data beat generic instructions, and
+   read-only adb — logcat, a copy of the database — is fine for finding them.
+
+**Pull all three database files**: Room runs in WAL mode, so a recent commit can still sit in
+`tracks.db-wal`, and a lone main file reads as though it never happened. A pull needs `installDebug`
+first.
 
 ```bash
-./gradlew :app:assembleDebug   # build APK
-./gradlew :app:installDebug    # build + install on a connected device/emulator
+for f in tracks.db tracks.db-wal tracks.db-shm; do
+  adb exec-out run-as io.github.valeronm.breadcrumb.debug cat databases/$f > $f
+done
 ```
 
-The build runs on **JDK 21 automatically**, whatever your system default JDK is: Gradle's daemon JVM
-is pinned to Java 21 via `gradle/gradle-daemon-jvm.properties` (auto-provisioned through the foojay
-resolver if no JDK 21 is installed). No `JAVA_HOME` override is needed, and a too-new system JDK
-won't break the build.
+Opened from the directory holding all three, `tracks.db` replays the log. A track still missing its
+`endedAt` after that is genuinely dangling: a process death mid-recording, which an install causes.
 
-Debug installs as `io.github.valeronm.breadcrumb.debug` (release: `io.github.valeronm.breadcrumb`).
-Launch / verify on an emulator (on a physical phone these are the user's to run — see "Testing on
-the device"):
+**Don't launch or drive the app on a physical phone** (`am start`, `input tap` or swipe): there is
+no knowing whether the user is using the phone at that moment, and injected input lands on top of
+whatever that is. Take a screenshot only when the user asks for one, since `screencap` captures
+whatever is on screen, other apps included. On an emulator, driving the app is fair game.
 
-```bash
-adb shell am start -n io.github.valeronm.breadcrumb.debug/io.github.valeronm.breadcrumb.ui.MainActivity
-adb shell screencap -p /sdcard/s.png && adb pull /sdcard/s.png   # screenshot to inspect UI
-```
+## Tests
 
-Two more build types sit beside debug and release, each with its full rationale in
-`app/build.gradle.kts`. **`installPerf` is the build performance questions are answered on**:
-identical to debug but not debuggable — `debuggable = true` holds ART's optimizer back far enough
-to read as a regression that isn't there — and it reuses the `.debug` suffix, so it replaces the
-debug app in place with its recorded history intact, and `installDebug` puts the debuggable one
-back. **`installDemo` is the build screenshots are shot from**: a `.demo` install of its own whose
-empty database the generated demo history (`tools/generate_demo_history.py`) restores into.
-`tools/shoot_screenshots.py` drives it over adb to re-shoot the README set, and
-`tools/generate_store_assets.py` composites the store assets from the full-resolution raws that
-shoot leaves behind.
+Unit tests run on the host only; there are no instrumented tests. `assembleDebug` does not compile
+them, so run `:app:testDebugUnitTest` after touching anything they cover. Room runs in them through
+Robolectric (an in-memory database, the `TestDb` fixture), so the repository's database rules are
+covered without a device. Screens, the map and the recorder's live behavior are verified on a device
+or an emulator: arming and the notification need only the app running, and activity recognition
+needs real movement or an emulator route.
 
-The Gradle and AGP versions are pinned and coupled — if you upgrade one, move the other to a
-compatible pair, not one alone.
+What each harness can answer, and how to ask it:
 
-Code style is enforced by **ktlint** (`./gradlew :app:ktlintCheck`, auto-fix with
-`:app:ktlintFormat`) and code smells by **detekt** (`./gradlew :app:detekt`); CI runs both. Each
-config says which rules it turns off and why — `.editorconfig` and `config/detekt/detekt.yml`. What
-neither can say: **the disables are choices, not oversights**, so re-enabling one is a style
-decision to raise with the user, not a cleanup. After fixing a finding held by
-`app/detekt-baseline.xml`, regenerate with `:app:detektBaseline`; a refactor that moves baselined
-code can resurface its entry as new, which is intended. **The build's "ReportingExtension.file(String)
-has been deprecated" warning stands deliberately**: it fires inside detekt's own plugin `apply()`,
-before any config of ours runs (upstream detekt#8452), no 1.23.x fix is coming, and the fix lives
-only on the 2.x line, which renames the packages to `dev.detekt` and reorganises the rule sets.
-Migrating to a pre-release for warning-silence is not worth the churn; it is revisited when detekt
-2.0 is stable or when Gradle 10, which removes the API, is on the table.
+- **A domain rule is tested through the params that ship**, such as `EdgeStayDetector.BRIEF_STOP`,
+  never the `Params()` defaults no production path uses: a suite pinning those passes green through
+  any change to the numbers the recorder runs.
+- **The recorder's loops are tested off the device.** `FixIngestTest` and `ActivityIngestTest` drive
+  the two cores on a plain JVM and assert on what each returns: the rows and verdict a batch of
+  fixes produced (`Ingested`), and the `Effect` list a reading produced, which reads as the sequence
+  the recorder should perform.
+- **Every suite that writes the stored derivation's rows asserts through `DerivedConsistency`**,
+  whose KDoc states which of its two strengths a case is owed. A rebuild must always restore the
+  exact one, which keeps the weaker one from becoming a place to hide a bug.
+- **A backup suite chooses which side of the export's grid its values sit on**: on it to assert
+  equality across the round trip, off it to ask what the rounding does. `BackupImporterTest` and
+  `BackupRestoreTest` show each.
+- **Robolectric's CLDR is not the device's ICU**, so a locale *rendering* read out of a test run can
+  be green in CI and wrong on every phone: one skeleton through one formatter has given a different
+  day-period spelling under each. The harness answers whether the pattern reaches the formatter, not
+  what a language writes. For day periods, month names, separators and decimal marks, take the answer
+  from a device screenshot and say which source a stated format came from; in a suite, assert the
+  shape (has a letter, has two digits), never a literal lifted from a Robolectric run.
+- **`TimelineRowTest` reads composed rows back off the semantics tree**, the one place a string that
+  is missing, misnamed or wired to the wrong row fails; its KDoc carries the rules a case follows.
+  It samples while `ResourceHygieneTest` is total over the string table, so prefer a total rule
+  there. Enum-to-resource mappings need neither: they are exhaustive `when`s.
+- **Better still, take the decision out of the row.** A rule stated as a value (`ui/StayBounds.kt`)
+  is total over its cases on a plain JVM, leaving the row test only the rendering. A row composed in
+  a test is `internal` rather than `private`; don't widen one without covering it.
+- **JaCoCo doesn't see through Robolectric's sandbox classloader**, so those classes read 0% however
+  they exit.
 
-## Unit tests
-
-Unit tests live in `app/src/test` and cover the pure logic in `domain/` plus data-layer pieces
-(TrackQuality, TrackStats, GpxExporter/GpxParser, BackupExporter/BackupImporter) — run them with
-`./gradlew :app:testDebugUnitTest`, and note that `assembleDebug` does **not** compile them, so
-run the tests after touching anything they cover. **Room runs in these host tests via Robolectric**
-(in-memory DB, `TestDb` fixture), so the repository's DB rules are covered without a device — see
-`TrackRepositoryTest`, `TimelineInvalidationTest`, and the stored derivation's own suites
-(`DerivationStoreTest`, `DerivedConsistencyTest`, `DerivedReadModelTest`).
-
-**A backup suite has to choose which side of the export's grid its numbers sit on.** Asserting
-equality across the round trip owes values already on it, or the case fails on digits rather than on
-the field it meant to follow; asking what the rounding *does* owes values off it — and, where a
-distance is what's being asked, a step between fixes that isn't a whole number of grid units, since
-a uniform one rounds every fix alike and leaves the legs unchanged.
+### Database schema
 
 **v18 is the schema floor**: an older database fails to open rather than migrating, and the KDoc on
-`AppDatabase.MIGRATIONS` says why, including why no destructive fallback belongs in the builder.
-**Where the floor sits is a fact about the installs, not a preference** — a floor above an install's
-schema version bricks it on the next update, so check before raising it by finding the commit an
-install came from — `adb shell dumpsys package <id> | grep versionCode` for an uploaded build, whose
-number names its release tag, and the recorder's arming line (logcat or Settings → Logs), which
-stamps `BuildConfig.GIT_SHA`, for a build that never shipped. The `version` declared at that commit
-is the schema its database is on.
+`AppDatabase.MIGRATIONS` states why, including why no destructive fallback belongs in the builder.
+**Where the floor sits is a fact about the installs, not a preference**, since a floor above an
+install's schema version bricks it on the next update. Before raising it, find the commit each
+install came from and read the `version` declared there: `adb shell dumpsys package <id> | grep
+versionName` for an uploaded build, whose release tag is `v` plus that name, and the recorder's
+arming line (logcat or Settings → Logs), which stamps the commit, for a build that never shipped.
 
-Room's schema is exported to `app/schemas/` and committed, one JSON per version, so a schema change
-reviews as a diff; a bump **adds** a file rather than replacing the ones before it, so don't prune
-them. A migration test then owes two things. **Shape** — that what the chain reaches is what Room
-builds from the entities — belongs on the *last* migration in the chain, that being the only place
-Room itself asks it, so it moves as the chain grows rather than staying where it was written.
-**Carriage** — that the rows came across — is what Room checks nothing about, and is the whole
-reason a rebuild-and-copy migration owes a test at all. Keep the *before* schema frozen: hand-written
-raw SQL, no entity or DAO imports, since it is a shape that can never change again. (The shape
-assertion is the exception that must move with the entities, which is why the rule is on the fixture
-and not the file.) `MigrationTestHelper` off the exported JSON is the intended direction for a start
-version that has one, and would want `androidx.room:room-testing`; nothing below v19 was ever
-exported, which is what `MigrationDb` is for.
-
-**Persisting a derivation makes two implementations of one rule**, so it owes a guard that they
-agree — `DerivedConsistency`, shared by every suite that writes those rows so the question has one
-answer. It holds in two strengths, and which one a case is owed is the whole of the design. **Exact**
-(`assertMatchesFreshDerive`): the rows are, column for column, what deriving the whole history afresh
-produces — owed wherever the history only grew or was rewritten in place. **Coherent**
-(`assertInternallyConsistent`): the assignments are legal, the arithmetic over them holds, and the
-intervals are what `StayDeriver.verdictBetween` says *given* those assignments — all that is owed
-after a delete or a merge, since a cluster's anchor is its first-ever member and losing that track
-strands the anchor where a fresh pass would not put it. A rebuild must then restore the exact claim,
-which is what keeps "coherent" from becoming a place to hide a bug. `DerivedConsistencyTest` asks
-this of *sequences* of mutations rather than one at a time, which is where the two writers actually
-diverge: a repair judges a seam against rows an earlier repair left. Robolectric emulates the SDK
-the app targets, pinned in `app/src/test/resources/robolectric.properties` because it refuses to run
-a package whose target is newer than what it can emulate — so raising `targetSdk` waits on a
-Robolectric that has that level, and on JDK 17+ it needs the `--add-opens` list its own docs publish
-(`testOptions`, kept verbatim so it diffs against upstream).
-**Robolectric's native runtime ships no Linux aarch64 build**, so on an arm64 dev box
-every Room-backed test fails with an architecture assertion, whatever the change — that's the
-environment, not a regression. Run them with `-PqemuJdk`, which forks the test worker into an
-x86_64 JVM under qemu (see "Running the Room tests on arm64"); without it, CI is where they run.
-
-A domain rule must be tested through the params that **ship**. `EdgeStayDetectorTest` runs
-`EdgeStayDetector.BRIEF_STOP` (and `VEHICLE` where the activity floor is the point) rather than the
-`Params()` constructor defaults, which no production path uses: a suite pinning the defaults passes
-green through any change to the numbers the recorder actually runs.
-
-The recorder's own two loops are covered off the device by `FixIngestTest` and `ActivityIngestTest`
-(both in `src/test/…/location/`, both plain JVM — the cores carry no Android). The activity one
-asserts on the returned `Effect` list, so a case reads as the sequence the recorder should perform:
-what a stop schedules, whether a return stitches or splits, that a late-drained reading is timed by
-its own event but stamps its tracks at the wall clock, and that the deafness restart stays inside its
-five-minute floor while the detection behind it does not.
-
-There are no *instrumented* tests, but the timeline's rows are composed and read back off the
-semantics tree by `TimelineRowTest` (Robolectric, so it runs in the normal unit-test pass and needs
-`-PqemuJdk` on arm64 like the Room ones). It answers the one question every other suite has to take
-on trust — does *this* state put *that* resource on screen — which is where a string that is missing,
-misnamed or wired to the wrong row fails and nowhere else. Two rules make it worth having:
-**expectations are read from the resource table, never spelled in the test** (a literal `"Stayed"`
-would pin English and rot exactly as a hand-written fake does), and **a `values-pt` expectation is
-only obtainable through `translated()`, which asserts the two languages differ for that key** — a
-missing translation otherwise falls back to English, the row renders English, and the case passes.
-That guard is a function rather than a convention precisely so the next case cannot skip it.
-
-**Robolectric's CLDR is not the device's ICU**, so a locale *rendering* read out of a test run can be
-green in CI and wrong on every phone — the same skeleton through the same formatter has given one
-day-period spelling under Robolectric and another on the device. The harness answers whether the
-pattern reaches the formatter, not what a language writes. For day periods, month names, separators
-and decimal marks, take the answer from a device screenshot and say which source a stated format
-came from; in a suite, assert the shape (has a letter, has two digits) rather than the literal
-string, since a literal lifted from a Robolectric run is a hand-written fake with a passing test.
-
-**Know what it does not cover.** It samples — a few rows, some of their cases, a scattering of
-Portuguese keys. Totality
-over the string table is `ResourceHygieneTest`'s job and belongs there — it is plain JVM, costs a
-file read, and holds for every string anyone adds (it now checks that every translatable English key
-reaches every language that ships, which is the failure a rendering test *cannot* catch, since a row
-composed against a missing key renders the English fallback quite happily). Prefer adding a total
-rule there over adding cases here. Enum→resource mappings need neither: they are exhaustive `when`s,
-so the compiler already refuses an unmapped entry.
-
-The third move, and usually the best one, is to **take the decision out of the row**: a rule stated as
-a value (`ui/StayBounds.kt` — which clock times a stay row states, and whether a duration may sit
-beside them) is total over its own cases on a plain JVM, where composed it was reachable only by
-building a row in exactly the right zone. What the row test then covers is the rendering, which is
-all it was ever the right tool for.
-
-Two prices, both real: composing a row means it is `internal` rather than `private` (a small thing —
-this file already defaults to `internal` for cross-file symbols — but do not widen a row without
-covering it), and the harness costs ~24 s on an arm64 dev box, of which ~18 s is a one-time toll that
-further Compose classes will not pay again. `debugImplementation("ui-test-manifest")` also puts an
-empty activity in the **debug APK**; `app/src/debug/AndroidManifest.xml` closes it, since the library
-ships it exported and this debug build records around the clock.
-
-Everything above that — screens, the map, the recorder's live behaviour — is still verified by
-building and driving the app on a device/emulator (arming and the notification wording need only the
-app running; activity recognition needs real movement or an emulator route).
+Room exports the schema to `app/schemas/`, one JSON per version, committed so a schema change
+reviews as a diff; never prune them. A migration test owes two things.
+**Shape**, that the chain reaches what Room builds from the entities, is asserted on the last
+migration's test and moves there as the chain grows. **Carriage**, that the rows came across, is what
+Room checks nothing about, and is why every rebuild-and-copy migration owes a test. The *before*
+schema is frozen hand-written SQL with no entity or DAO imports. `MigrationTestHelper` over the
+exported JSON is the direction for a start version that has one (it would want
+`androidx.room:room-testing`); nothing below v19 was exported, which is what `MigrationDb` is for.
 
 ### Running the Room tests on arm64
 
-`nativeruntime-dist-compat` carries `native/linux/x86_64/`, `native/mac/{aarch64,x86_64}/` and
-`native/windows/x86_64/` — no Linux arm64, and none of the published versions has one, so waiting
-for a Robolectric bump is not the fix. Once per machine:
+Robolectric's native runtime has no Linux arm64 build in any published version, so on an arm64
+machine every Room-backed test fails with an architecture assertion whatever the change.
+`-PqemuJdk` forks the test worker into an x86_64 JVM under qemu:
 
 ```bash
-sudo apt install qemu-user libc6-amd64-cross libstdc++6-amd64-cross libgcc-s1-amd64-cross
-./gradlew :app:provisionQemuTestJdk      # ~200 MB, pinned version + SHA-256
-./gradlew :app:testDebugUnitTest -PqemuJdk
+./gradlew :app:provisionQemuTestJdk          # once per machine; the build names any missing package
+./gradlew :app:testDebugUnitTest -PqemuJdk   # --tests "*TrackRepositoryTest" iterates on one class
 ```
 
-`provisionQemuTestJdk` downloads a pinned Temurin build into `$GRADLE_USER_HOME/jdks/`, so nothing
-is tied to one machine's layout, and rewrites its `bin/java` as a wrapper exec'ing
-`qemu-x86_64 -L <sysroot> bin/java.real`. Overrides: `-PqemuBin`, `-PqemuSysroot`, and
-`-PqemuJdk=/path` for an entirely separate JVM. The build file carries the constraints that shaped
-it — why the `-L` prefix is baked into the wrapper, why the wrapper replaces `bin/java` in place,
-why provisioning can't be a task dependency, and why none of it is a Gradle toolchain — beside the
-code each one explains.
-
-Iterating on one Room test wants a filter, since the flag applies to the whole task:
-`-PqemuJdk --tests "*TrackRepositoryTest"`. The tax lands only where the work is real — the pure
-tests cost a second or two more, while the Robolectric classes — the only ones that need the
-emulation at all — account for essentially all of the added minute. Emulation is not a second
-opinion on CI, though: it runs the same x86_64 code CI runs, so a
-green local run means the tests pass, not that they'd pass on some third platform. It buys no
-coverage either — JaCoCo doesn't see through Robolectric's sandbox classloader, so those classes
-read 0% however they exit.
-
-## Testing on the device
-
-Hands-on testing is the human's job, not Claude's. The workflow for a change that needs device
-verification:
-
-1. Verify what you can without the device: build it, run the unit tests.
-2. Install the build on the connected phone (`./gradlew :app:installDebug`).
-3. Hand off with a short test plan: where to navigate, what the change should look like, and what
-   would indicate a regression — pointing at concrete tracks/places found in the device data beats
-   generic instructions. Mining the data for such cases is encouraged:
-   read-only adb — logcat, pulling a copy of the app's DB — is fine. **Pull all three files**, not
-   just `tracks.db`: Room runs in WAL mode, so a recent commit can still be sitting in
-   `tracks.db-wal` and a lone main file reads as though it never happened — which bites exactly when
-   investigating something that just occurred.
-
-   ```bash
-   for f in tracks.db tracks.db-wal tracks.db-shm; do
-     adb exec-out run-as io.github.valeronm.breadcrumb.debug cat databases/$f > $f
-   done
-   ```
-
-   `run-as` works only against a debuggable install: with the perf build on the phone the pull
-   above is refused, and `installDebug` — which replaces it in place, history intact — is the way
-   back to one it works on.
-
-   Open `tracks.db` from the directory holding all three and SQLite replays the log on open. A track
-   still missing its `endedAt` after that is genuinely dangling (a process death mid-recording, which
-   an install causes), not merely uncheckpointed. Screenshots are a different matter:
-   `screencap` grabs whatever is currently on the phone's screen, which can expose personal info
-   from other apps — take one only when the user asks for it.
-
-Don't launch or drive the app on a physical phone yourself (`am start`, `input tap`/swipe): you
-have no way of knowing whether the user is using the phone at that moment or what for — injected
-launches and taps land on top of whatever that is and can break it. On an emulator, driving the
-app is fair game.
+Without it, CI is where those tests run. `app/build.gradle.kts` carries the constraints that shaped
+the setup beside the code each one explains. It is no second opinion on CI either: it runs the
+same x86_64 code CI runs, so a green local run means the tests pass, not that they would pass on
+some third platform.
 
 ## Architecture
 
-The app is one foreground service driven by Activity Recognition, with a Compose UI that observes it.
-The pieces below only make sense together — read them as a unit.
+### Recorder
 
-**Recording pipeline** (`location/`):
-- `LocationRecordingService` is the core. It's a started **foreground service** (type `location`)
-  that requests raw platform GPS, owns the current `Track`, and is the single source of
-  truth for recording. A `@Volatile companion instance` (plus `isRunning`) lets other
-  components talk to the live service **directly within the process** — this deliberately avoids
-  Android 12+ background-FGS-start restrictions. A broadcast hands work to the live instance; it
-  never starts one, with a single exception: the watchdog's self-heal below, which is legal only
-  because an alarm carries a temporary power-allowlist window.
-- **The two paths that decide anything have no Android in them, and the service performs what they
-  decide.** `FixIngest` is the fix path; `ActivityIngest` is the activity path (readings in, a list
-  of `Effect`s out), and the no-fix give-up guard's consultations run there too (`onGnssTick` /
-  `onResumeSignal`). Between them they own everything that persists across a track, while the
-  service keeps the platform resources and the open track's id. The rules each have their own
-  suite; these two are where the *loops that sequence them* live, so a fixture can drive them with
-  no phone. `NoFixGuard` is shared by both paths and the service. The invariants binding core to
-  dispatcher — every effect run and run in order, `EnsureGps` asking for a state rather than
-  commanding a transition, `ArmResumeSignals` not folded into `StopGps` — are on `Effect` and its
-  members.
-- **The service's platform surface is split by concern**, so each piece fits on a screen and the
-  service reads as wiring: `RecorderNotifications` (the shade), `WatchdogAlarm` (the 15-minute
-  wake), `ResumeSignals`, `GnssWatch`, `WifiWatch`. These buy readability, not testability: they
-  wrap final platform classes and are host-untestable. `startLocationUpdates` and
-  `stopLocationUpdates` deliberately stay in the service; each says why.
-- `ActivityRecognitionManager` registers Activity Transition updates (and a one-shot activity
-  *snapshot* on arming). Results arrive at `ActivityTransitionReceiver`, which forwards the detected
-  `ActivityType` to `LocationRecordingService.instance` (it does not start the service).
-- `WatchdogReceiver` fires on an alarm every 15 min while armed, and does what the coroutine
-  timers can't be trusted with in Doze: re-*requests* the transition registration (a request, never
-  a restart), revisits a held reading, and restarts the service if the armed flag is set but the
-  service is dead.
-- **Both receivers hold their broadcast open (`goAsync`) until the service has applied the
-  reading** — each receiver's KDoc says what breaks otherwise. Don't "simplify" it away.
-- Lifecycle: arming (`ACTION_START`) puts the service in an **idle** state (no track, GPS off) and
-  fires the snapshot; recording only begins on a *moving* activity. Each continuous stretch of
-  movement is one `Track`; how a reading continues, splits or closes it is `TrackController`'s state
-  machine. `START_STICKY` + the persisted armed flag resume after process death; `BootReceiver`
-  resumes after reboot and app update.
-- **A stop closes the track — there is no paused state anywhere.** It is settled, kept-or-discarded
-  and derived onto the timeline at once, because a trip nothing shows reads as a trip the app
-  missed. Whether movement returning soon after belongs to that track is asked of the *stored
-  history* when it arrives, never of anything the recorder held: `StitchRule` takes the last row by
-  id and continues it when its **last point** (not its `endedAt`, which the overrun rule pulls back)
-  is inside the user's window, it is closed, the recorder wrote it, its label shares a motion family,
-  and it is either live or discarded by the keep thresholds. `TrackRepository.openOrStitch` is the
-  one caller, resolving every `Effect.OpenTrack` into either that row or a fresh insert and reporting
-  back through `ActivityIngest.onTrackResolved` — which is how the recorder learns the **row's**
-  label, a carrier rename having possibly rewritten it. Because none of this lives in memory, a
-  stretch resuming after a process death continues the same track as one resuming without, and the
-  recorder can never hold one track's state while writing into another's.
+- **`LocationRecordingService` is the single source of truth for recording**, a foreground service
+  of type `location`. A broadcast hands work to the live instance in the process and never starts
+  the service, except where the platform allows a background start: the boot and update re-arm
+  (`BootReceiver`) and the watchdog's self-heal (`WatchdogReceiver`).
+- **Decisions are made in two cores with no Android in them**: `FixIngest` for fixes, returning
+  the rows to store and the verdict (`Ingested`), and `ActivityIngest` for readings, returning the
+  `Effect`s the service performs. New recorder behavior goes into a core with a case in its suite.
+  The invariants binding a core to its dispatcher — every effect run, in order; `EnsureGps` asking
+  for a state rather than commanding a transition — are stated on `Effect`.
+- The service's platform surface is split into a class per concern (`RecorderNotifications`,
+  `WatchdogAlarm`, …) so the service reads as wiring. They wrap final platform classes, so the
+  split buys readability, not testability.
+- **A receiver holds its broadcast open (`goAsync`) until the service has applied what it carried**;
+  each receiver's KDoc states what breaks otherwise.
+- **A stop closes the track; there is no paused state anywhere**, because a trip nothing shows
+  reads as a trip the app missed. Whether returning movement continues it is asked of the *stored
+  history* (`StitchRule`, through `TrackRepository.openOrStitch`), never of anything the recorder
+  held.
+- Live state reaches Compose through `TrackingStatus`, a process-wide `StateFlow`, never by binding
+  to the service.
+- **A transition registration can go silently deaf, and re-registering does not cure it**
+  (`ActivityRecognitionManager.restart`; the remedy is a reboot, and `StaleReadingOracle` detects
+  it). That is no rule against re-registering: the watchdog re-*requests* the registration every
+  tick, and that replay is what the detection reads.
 
-**Activity Recognition describes the user's body, not the journey**, and close, split and the jump
-ceiling all read it as the journey. `MovementConfirmer` is the recorder's second witness, and it is
-**always on** — the recorder's one job is recording movements, and a mislabelled STILL aboard a
-moving carrier costs the trip, which is the verdict that retired the setting that used to gate it.
-**`Unknown` is the fallback** — every consultation defines an `Unknown` case identical to the
-pre-witness behaviour, which is what runs whenever the ground can't answer; a consultation that
-can't be expressed as a `Motion.Unknown`-defaulted parameter is a design smell, not a workaround.
-Each consulting rule's suite keeps its pre-witness half unedited above a divider, which is what pins
-that fallback. **Exactly five consultations exist**, and that there are five and only five is the
-thing no one file says: the gate parks a contradicted STILL, the jump ceiling rises to fit measured
-ground speed, a `Moving` verdict vetoes the no-fix give-up, every path that turns GPS off
-re-evaluates the parked slot on the way down, and a standstill the witness proved closes a
-**signal-opened** track until a reading names it (`ArrivalWatch` — a track opened by a departure
-trigger has no reporter whose stop will ever end it, while a track a reading has named is never
-closed this way: its reporter lags, but delivers). Promotion rides the `GnssStatus` callback, with the
-15-minute watchdog alarm as the guaranteed revisit.
+### Movement witness
 
-**A signal-opened track closes at the no-fix give-up**, which is the other end the arrival watch
-cannot reach: the watch waits on a standstill proven from fixes, and the give-up is the recorder
-declaring there are none to prove it with, while no reporter owes this track a stop — so it would
-stand open until the next reading, which can be many hours. It ends at its last good fix where it
-has one, and the close hands the ground back to the triggers that opened it. A reading-opened track
-keeps the ordinary give-up.
+- **Activity Recognition describes the user's body, not the journey**, so `MovementConfirmer` reads
+  the ground's movement off the position stream as a second witness. It is always on: a STILL
+  mislabeled aboard a moving carrier costs the whole trip.
+- **Every consultation takes the verdict as a `Motion.Unknown`-defaulted parameter, and its
+  `Unknown` case is the behavior from before the witness.** A consultation that can't be expressed
+  that way is a design smell, not a workaround. `ActivityGate`'s corroboration hold is the
+  deliberate exception: while GPS runs, a STILL the ground cannot vouch for is held rather than
+  applied. Each consulting rule's suite keeps its pre-witness cases unedited above a divider, which
+  pins the fallback. No list of consultations is kept; they are wherever a `Motion` is read.
+- **A track opened by a departure trigger has no reporter whose stop will end it**, so a standstill
+  the witness proved (`ArrivalWatch`) or the no-fix give-up closes it. A track a reading has named
+  is closed by neither, since its reporter lags but delivers.
+- **When a reading-opened track gives up on GPS, the departure triggers take the ground**, and
+  leaving the spot resumes GPS on that track. That is what lets a foot track give up quickly when no
+  fix arrives at all (`NoFixGuard`): a walk that starts under a roof comes back when the phone
+  leaves the building.
+- **The witness names movement, never what is moving.** A track it proves carried gets `UNKNOWN`,
+  shown as "Moving". There is no carrier classifier and none is planned: telling a ferry from a train
+  from a bus needs map geometry the app does not carry, and speed alone cannot tell a bus from a
+  car, so a specific label would be a guess that nothing downstream could tell from a measurement.
 
-**A reading-opened track's give-up hands the ground to the departure triggers**, and leaving the spot
-where GPS gave up resumes GPS on that track rather than opening one. As trip starters the triggers
-rarely beat Activity Recognition; once a reading has named the track, nothing competes with them.
-That evidence is what lets a foot track give up quickly when no fix of any kind arrives: indoor
-walking is where GPS searches for nothing, and a walk that starts under a roof comes back when the
-phone leaves the building rather than on a blind retry. Vehicle and bicycle tracks, and a fix lost
-mid-track, which is what a tunnel is, keep the configured window.
+### Domain layer
 
-**The witness names movement, never what is doing the moving.** A track it proves is carried gets
-`UNKNOWN`, which displays as "Moving" and carries the most permissive quality ceiling — exactly what
-the evidence supports and nothing more. There is no carrier classifier and none is planned: telling
-a ferry from a train from a bus needs map geometry the app does not carry, and speed alone makes a
-bus and a car indistinguishable, so a specific guess is worse than an honest vague label, nothing
-downstream being able to tell it was a guess. `FERRY` is a label the user applies by hand, and the
-first activity reading arriving onto a recording "Moving" track names it rather than splitting it
-— the supported way a track gets a specific name.
+`domain/` is pure Kotlin with no Android in it, unit-tested. New behavior goes there first, with a
+test, before it is wired into the service or the UI. **Domain functions take the Room entities
+directly** rather than a mapped model: the point walk runs over millions of rows, and a per-row
+mapping allocation buys nothing but layering. **`db` never imports `domain`**, which would make the
+two one unit, and entities carry no domain defaults for the same reason. A value persisted as a
+code — an activity, an ignore reason, a place category, a writer — is a closed set of permanent
+codes stored raw and mapped in the domain.
 
-**State bridge:** `location/TrackingStatus` is a process-wide `MutableStateFlow` the service writes
-and the UI collects — this is how live recording state reaches Compose without binding to the service.
+### Stored derivation
 
-**Domain logic** (`domain/`): pure, unit-tested Kotlin with no Android dependencies — the service
-and UI stay thin by delegating here. `TrackController` (track lifecycle state machine — `Idle` and
-`Recording`, and no clock in it), `StitchRule` (whether movement returning after a stop keeps the
-last track — see the recorder's lifecycle above), `ActivityGate` (signal filter) / `ActivityInterpreter` (transition
-interpretation), `ReadingClock` (event-time gating of activity readings), `NoFixGuard` (give up when
-GPS can't get a fix), `KeepRule`, `TrackMerge` (merge short same-activity stays), `StayDeriver` +
-`PlaceClusterer` + `PlaceResolver` (timeline stays and named places), `TimelineRows` (the derived
-intervals cut at local midnights and interleaved with the tracks into the day list),
-`DwellDetector` (in-track stop
-detection — a read-only track-detail overlay, and stage 1 of the edge-stay rule below, which passes
-its own tuning; splitting tracks at a *detected* stop is designed but not
-built — the user's own cut ships), `EdgeStayDetector` (the recorder's overrun at a track's edges, where Activity
-Recognition lagged the real stop) + `StationaryRuns` (the inside of a stop) + `TrackSettle` (what
-both verdicts do to the points), `GraphBreaks` (where the metric graph's line is not joined),
-`RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
-`DeafnessWarning` (decide when to tell the user about it), `MovementConfirmer` (the recording
-pipeline's second witness — see below), `DepartureWatch` + `ArrivalWatch` (the two edges of a
-journey Play Services never reported — noticing the leaving from coarse positions, and the
-standstill that ends a track the departure side opened), `PlaceCategorySuggester` (guess a place's category from
-what the user called it — see below), `RoutePlaces` (the named places at a track's two ends),
-`TravelDeriver` + `TravelNaming` (journeys away from home — see below) and `CityAtlas` (the offline
-atlas they are named from). New
-behavior belongs here first, with a test, before wiring into the service or UI. The shared
-vocabulary lives here too: `ActivityType`/`TrackGroup`, `IgnoreReason`, `PlaceCategory`, and the
-`DistanceFn` seam (the GMS `DetectedActivity` mapping is `location/DetectedActivities`). One deliberate impurity: domain functions take the Room entities
-(`TrackPoint`, `TrackSummary`, `Place`) directly rather than a mapped domain model — the point walk
-runs over millions of rows, and a per-row mapping allocation buys nothing but layering purity. The
-`db` package must not import `domain` back (that would make the two one unit); entities carry no
-domain defaults for the same reason.
+- **The timeline's stays are stored, not derived on read** (`DerivationStore`). The derivation runs
+  where a track changes, so showing a day is a query, and a reader outside the app's own screens can
+  ask what a day held without walking the history.
+- **Two passes write those rows and must agree**: `rebuild` over the whole history and
+  `StayLedger.reknit` over the rows one change reaches. They share one rule
+  (`StayDeriver.verdictBetween`, `Agreement`), and `StayLedger` states where they may diverge.
+- **Every path that changes tracks owes the derivation a call, and a new path has to decide
+  which**: `reknit` with the ids it touched, inside its own transaction, for a change that moves a
+  known stretch; `reconcile(stale = true)` for one that is historical or out of order, such as an
+  import or a restore; `reconcile` for a change to the seeds.
+- **`DerivationStore.read` is the only way to read the derivation**: it appends the trailing stay,
+  which cannot be stored.
+- **The derivation carries no record of the app's own attention**, since that describes the app
+  rather than where anyone was. The rule is wider: **no surface renders epistemic state the user
+  cannot act on.** A stay whose middle went unattested looks identical to one observed throughout,
+  with no "estimated" and no confidence tint, and a surface exposing a derived fact states what is
+  known and stays silent on how well it is known. Reintroducing an app-facts surface is a design
+  decision to raise, not a gap to fill.
+- **A screen does not wait for the derivation**: `TrackListViewModel` dresses every reading with a
+  place write (`withPlace`) until the lists the screens read carry it.
 
-**A journey is a run of nights, and every rule about one is a rule about placing a night**
-(`TravelDeriver`). A night is *away* when the cluster holding it is not one home's — cluster
-identity, never a distance, so there is no radius to sit just inside or outside and a hotel five
-minutes down the road is as much a journey as one abroad. Home is the **set** of `HOME`-tagged
-places (their pins seed the clustering, so each one's capture radius draws its own boundary), and
-with nothing tagged the cluster holding the most nights stands in. Nights are sampled at 03:00 on
-**solar** time derived from longitude — no zone was ever recorded and today's device zone slices a
-past trip abroad at the wrong hours, while an offset off by up to ~1.5 h cannot change which bed
-someone was in. A night at home splits a run in two; a night nothing can place (a gap whose two
-sides disagree) is carried through a run but can neither open nor close one. **Days are nights + 1**
-and a journey's figures come only from its own days: the bounds are the days `daysCovered` marks,
-trimmed by the home stays either side but never stretched by them, because the night someone flies
-the interval covering their last night at home is a *gap* and the last stay at home can be a day
-earlier.
+### Places
 
-**What a journey is called is decided apart from what it is** (`TravelNaming` + the naming pass in
-`TrackListViewModel`): places ranked by time spent, anything under two hours dropped, at most three
-named. Time spent means stays **plus tracks that begin and end in the same place** — a day walking a
-city is mostly movement, and by stays alone that city scores less than the car park. The floor is
-absolute rather than a share of the journey, because a share halves when one place resolves to two
-names and both then vanish. Names come from the atlas, not from the user's own labels — the
-exception is a `HOME`/`FRIENDS_FAMILY` place, where visiting the person *is* the destination — since
-a label sits on a parking spot the recorder happened to stop at, and on-foot recording will scatter
-that one label into many small clusters. `PlaceCategory.visited` marks the stops that are the road
-rather than a place on it (fuel, service areas); parking deliberately still counts, being the only
-evidence a car-borne history has of being in a city.
+- **A place row holds what was said about a spot, and everything else about a place is derived on
+  read** (`Place` in `db/Entities.kt`).
+- **A category feeds nothing on the way to a stay, and a name only by being there**
+  (`PlaceClusterer.seedOf`).
+- **A track's end can be stated to a place** (`startPlaceId`, `endPlaceId`), and then joins that
+  place's cluster whatever its distance from the pin. A statement is evidence the capture radii
+  cannot weigh, so only a writer holding such evidence sets one: the Google import and the user.
+- **The category vocabulary is closed** (`PlaceCategory`): every entry owes a glyph (`ui/Glyphs`)
+  and a group, which the color coding reads (`ui/Palette.kt`).
+- **`PlaceEditScreen` owns everything the user says about a place**: name, capture radius and pin,
+  written as one row. The detail screen reads and does not edit, bar the category chips.
 
-**Settings** (`data/Settings`, SharedPreferences): the armed flag plus *global* sampling (min
-time/distance between points), point-quality gates (accuracy gate, require-GNSS cross-check), the
-stitch window, the GPS give-up timeout, and keep-track
-thresholds (min duration/length/extent). It also holds recorder bookkeeping that isn't a user
-setting at all: when the recorder was last disarmed (the instant the timeline's trailing stay
-closes at), which permissions this install has ever put a dialog up for,
-and the versions `App.onCreate` records (the settle rules, track stats, derived logic)
-that are what make it re-derive the whole history. Sampling is read by the service when
-each track's GPS request starts; keep thresholds by the repository when a track finishes.
-`ActivityType` therefore only carries a label, a `recording` boolean, and a `TrackGroup`; sampling
-cadence is global.
+### Tracks
 
-**Data** (`data/`): Room behind `TrackRepository`. A finished track is kept, soft-deleted as
-*discarded*, or hard-deleted outright (`keepVerdict`, rule in `KeepRule`). Discarded and
-user-deleted tracks are reviewable and restorable from Settings → Recently deleted, auto-purged
-after 14 days; the same check runs on normal finish and via `finalizeDangling`, which cleans up
-tracks left open by a crash. **A merge is undone by restoring its originals from Recently deleted;
-a split by `unsplitTracks`** — which is why `mergeTracks` copies its points while `splitTrack`
-reassigns them. A track comes back from Recently deleted only if it overlaps none on the timeline,
-so an original returns alone once the merged track is gone; `unmergeTracks` does both in one step.
-`GpxExporter` (`data/export/`) builds GPX for share intents (`FileProvider`) or
-bulk-writes to a user-picked folder (Storage Access Framework); `GpxParser` imports GPX files
-shared/opened into the app, and `importTracks` refuses a file whose period an existing track
-already covers. `BackupExporter`/`BackupImporter` (`data/export/`) are the full backup — one
-gzipped JSON file with every kept track's points and the places, streamed both ways (the importer
-still skips the `liveness` array an older file carries). **A coordinate and every measured figure
-beside it reach that file on a grid, not at the width a `Double` prints** — `BackupExporter` states
-which grid and why — so a restore returns the fixes rounded rather than bit-identical, and the
-aggregates on a restored row are recomputed from them rather than read out of the file. **The
-export reads several tracks per query**, batching consecutive ones by the fix counts already on
-their rows (`BackupExporter.FIXES_PER_READ`) so that nothing is read to decide what to read — a
-query's fixed cost is most of what a short track costs to read, which is what makes reading one at a
-time expensive. **A column added to `track_points` lowers that budget**, the cursor window being its
-ceiling: the number is in the exporter and the row it sizes is in `Entities.kt`, so neither file can
-warn you on its own.
-Restore, the Google Timeline import
-(`GoogleTimelineImporter`) and the GPX import sit in the Data page's Import section. Restore takes
-only an empty history: with tracks present it would have to merge with them, so its row is disabled,
-saying why, from the first track on. The two imports load beside the kept history and skip every
-trip a kept track overlaps, so where the recorder and a file both cover a stretch, the recorder's
-track stands. The empty states of an empty history lead to that
-page, and the Timeline's empty state reports a running restore or import wherever it was started.
-Clearing the history from that page leaves the recorder armed, so it runs inside the recorder's lock:
-the open track is closed first and the recorder re-armed after, as a start re-arms it, and a fix
-arriving in between finds no track to write to. Every operation on the whole history — restore, the
-imports, clear, both exports, and a restore from Recently deleted — refuses to start while another
-runs, `ImportExportController.historyOpRunning` being the one place that says whether one does: an
-export beside a clear would write a file missing what the clear took. The Google Timeline import keeps Google's
-grouping of visits into places, which the user confirmed or corrected in Google and which a path
-sampled once a minute cannot recover: a place row per Google place a loaded trip starts or ends at,
-left unnamed unless it is a home or a work, and every trip end Google joined to a visit stated to
-that visit's place. A home or a work gets its row even with no trip loaded there, its category being
-the one fact such a row carries. Google labels visits rather than places, so a spot is a home or a
-work on a majority of its labelled visits. **A home or a work the history already holds is matched,
-not duplicated** — same category, Google's pin inside its circle — and Google's trip ends are stated
-to that row without writing it, so every place row the import wrote is one it created, written as
-`google_timeline` with Google's id as its identity. A place an earlier import made is found by that
-identity and takes a newer export's trip ends the same way, a Google place a merge absorbed included,
-since the merge hands its identity to the place kept. No other Google place is matched to an existing one, however close: only the category is
-evidence on both sides that two pins are one place. The
-format also feeds the
-web companion viewer in `site/src/viewer/` (see its own README) — a change to it is a change to that viewer's
-input, and the viewer draws off-path fixes by the same conventions this app does *and derives the
-same timeline* (a port of `StayDeriver`/`PlaceClusterer` in `site/src/viewer/js/stays.js`, tested case for case
-against `StayDeriverTest`), so a rule that moves here moves there. `PlaceRepository` backs the
-Places tab.
+- **An ignored point is one that isn't part of the path** (`IgnoreReason`). Every writer of a
+  track's points enters through `TrackSettle.settle`, and `HistorySweeps` re-settles the history
+  when the rule's version moves.
+- **A track's clock is its first and last good fix**, never the transition that opened or closed
+  the row (`TrackBounds`).
+- **The track row carries its points' aggregates, and a recorded fix never writes it**, so a fix
+  never re-runs the observed queries, which read `tracks` only; `TimelineInvalidationTest` fails if
+  either half breaks. The UI collects with `collectAsStateWithLifecycle` for the same reason: a
+  backgrounded Compose tree keeps collecting otherwise.
+- **A track's writer is declared by whoever inserts the row, not measured** (`TrackOrigin`), and no
+  "mixed" writer exists: a merge across writers is refused.
+- **An edit to a manual track (`updateManualTrack`) is deliberately not undoable**: every value is
+  in the form, unlike a merge or a delete.
+- **A trip is what the reader sees, and it can be several tracks** (`Trip`, `TripChains`): tracks
+  joined end to start and of one type are one timeline row, one page and one swipe to delete. They
+  stay separate tracks because no merge crosses writers, and a different type keeps them apart, the
+  user's word that it was another trip.
+- Splitting a track at a detected stop is designed but not built; the user's own cut ships.
 
-**The timeline's stays are stored, not derived on read** — `data/DerivationStore` over
-`derived_clusters`, `cluster_members` and `derived_intervals` (schema v19). Showing a day is a query,
-and the derivation runs where a track *changes* rather than where one is read, which is what lets a
-reader outside the app's own screens ask what a day held without walking the history. **Two passes
-write those rows and they must agree**: `rebuild` derives the whole history, `StayLedger.reknit`
-repairs the handful of rows one change reaches. What keeps them honest is that the rule they share
-is written once — `StayDeriver.verdictBetween` decides what the interval between two adjacent tracks
-is, and `Agreement` what "the same place" means — and where they are *allowed* to diverge is stated
-on `StayLedger` rather than hidden: a cluster's anchor is its first-ever member, so deleting the
-track that founded one leaves the anchor put. `DerivedReadModel` is the exact inverse of the write
-mapping (a code added to one is unreadable until added to the other), and the trailing stay is
-appended there rather than stored — it closes at the clock, so no row could hold it. **Two of the
-three carry no id**: a membership *is* a track's start or its end and an interval *is* what follows a
-track, so each is keyed on that rather than on a generated column beside a unique index saying the
-same thing — which on the largest of these tables was a second index maintained by every rebuild for
-something nothing read.
+### Journeys
 
-**Reading the derivation is `DerivationStore.read`, and that is the only entry point.** It maps the
-stored rows and appends the trailing stay — a sequence every caller would otherwise repeat. It is a
-method rather than part of `observeStored` because its other inputs move with no write behind them:
-the clock, whether something is recording, and the disarm timestamp in `Settings` that closes the
-trailing stay (the app attests nothing past a disarm, so that stay must not stretch to the clock
-while the recorder is off). **The mapped rows are kept
-while the rows are** — a recording starting, a disarm or the clock advancing cannot have
-moved a row, and mapping ~20,000 of them again is the larger half of what a reading costs; identity
-of the lists `observeStored` carries over is what decides.
+**A journey is a run of nights away from home, and every rule about one is a rule about placing a
+night** (`TravelDeriver`). **What a journey is called is decided apart from what it is**
+(`TravelNaming`). Each KDoc carries its rules.
 
-**`observeStored` reads `places` with them**, in the same transaction, because a cluster is named by
-one: observed apart, naming a place — which writes the row and re-derives in a single transaction —
-reached the screens as two emissions, and the one in between held a place no cluster pointed at yet,
-which renders as a named place with no visits. Read together, they are also **not re-read together**:
-the invalidation names which tables were written, and a write that reached no derived table — a
-rename, a re-categorization — carries the previous rows over rather than reading one per endpoint and
-one per interval in the history again, as a finished track carries `places` over, which an import
-leaves at over a thousand rows. On two conditions, not one, because that emission describes the
-moment the tracker last refreshed rather than this read: the two halves must still agree on seeds,
-which is the same correspondence `reconcile` establishes, asked of rows already in hand.
+### History operations
 
-What a screen must *not* wait for is the derivation
-itself: naming re-derives the history, so until that lands every reader is correctly showing the
-unnamed cluster just named. So `TrackListViewModel` holds the committed row against the key of the
-summary it was written against, and every reading of the derivation dresses that spot with it —
-`withPlace` on `PlaceResolver`'s two readings (`PlaceSummary` for the Places surfaces, `ResolvedStay`
-for the timeline row whose naming invitation usually asked) splitting what the writer owns (label,
-pin, reach) from what the derivation does (the visits, and where they landed), and keeping the
-identity the screen opened so it does not lose the spot while the name is being drawn. That the two
-readings key a cluster alike is what lets one write dress both, and is pinned rather than assumed.
-The row takes its id as soon as the insert answers with one, since the chips and a second edit beside
-it address a row by id. It is dropped once the summaries and the timeline rows the screens read
-already say the same thing — those, not the derivation they are computed from, since a row dropped
-on the derivation alone is gone while the lists still describe the spot as it was — and never
-merely on the write returning: Room's invalidation is asynchronous, so the commit and the screens
-seeing it are different moments.
+- **A backup holds every kept track's fixes and the places on a grid** (`BackupExporter` states
+  which and why), so a restore returns the fixes rounded. A column added to `track_points` lowers
+  the export's read budget (`BackupExporter.FIXES_PER_READ`), and `Entities.kt`, where the column
+  would be added, does not mention it.
+- **Operations on the whole history exclude each other** — restore, the imports, clear, the exports,
+  and a restore from Recently deleted — and `ImportExportController.historyOpRunning` is the one flag
+  for whether one is running. An export beside a clear would write a file missing what the clear
+  took.
+- **The Google Timeline import keeps Google's grouping of visits into places** by stating each trip
+  end to its visit's place. The user confirmed or corrected that grouping in Google, and a path
+  sampled once a minute cannot recover it. Every place row the import writes is one it created.
+  A place an earlier import made is found again by Google's id; beyond those, only a home or a work
+  is matched to a place the history already holds, since a category is the only other evidence on
+  both sides that two pins are one place (`GoogleTimelinePlaces`).
+- **The backup format also feeds the web viewer** in `site/src/viewer/`, which ports `StayDeriver`
+  and `PlaceClusterer` to `js/stays.js` and is tested case for case against `StayDeriverTest`: a
+  rule that moves here moves there.
 
-**Which paths repair and which re-derive** is what a new mutation path has to decide, and all three
-answers live in `TrackRepository` beside the writes they belong to. A change that moves a known
-stretch of the timeline calls `reknit` with the ids it touched, inside its own transaction — a track
-finished, deleted, restored, merged, unmerged, split, unsplit, entered or rewritten by hand, or
-retyped across a boundary that moved its edges (that last one being why a retype is not the free
-column write it looks like). A change that is historical or out of order calls `rebuild`: a GPX
-import, a backup restore, or either versioned sweep having run under a version not yet recorded —
-whether or not it wrote this time, since the writes may be a previous launch's that died before the
-derivation consumed them, which is also why the versions are recorded only after it has. And a
-change to the **seeds** goes through
-`reconcile`, which is the only way a rebuild is reached outside a repair: it brings the seed clusters
-back into agreement with the `places` table and re-derives when one moved — or when the caller says
-the rows are stale for a reason of its own (`stale = true`), so a launch that must rebuild anyway
-pays for one pass.
+### Backfills
 
-**The derivation deliberately carries no record of the app's own attention.** An earlier design kept
-a liveness log (armed/disarmed/outage events) and stamped every stay observed or inferred by it; it
-was removed because observed/inferred describes the app, not where anyone was, and nothing rendered
-it — the customer cannot act on it either way. What survives of it is one timestamp in `Settings`
-(when the recorder was last disarmed, which closes the trailing stay) and the importer's tolerance
-for the `liveness` array older backup files carry. Reintroducing an app-facts surface is a design
-decision to raise, not a gap to fill. The rule behind the removal is wider than that log: **no
-surface renders epistemic state the user cannot act on.** A stay whose middle went unattested looks
-identical to one observed throughout — no "partly unrecorded", no "estimated", no confidence tint —
-because knowing a night was reconstructed rather than observed changes nothing the reader can do.
-When a new surface exposes a derived fact, check whether its wording leaks the evidence behind it:
-state what is known and stay silent on how well it is known.
+When a new rule must reprocess existing rows and a Room migration cannot express it, add a
+repository pass and run it from `App.onCreate`'s IO coroutine behind a `Settings` done-flag. Make
+the pass idempotent, since a crash between the work and the flag write
+re-runs it. Once the installed base has run it, delete the pass, its flag, and any DAO query only it
+used; `git log --grep=backfill` holds worked examples. **No backfill is live now.** The versioned
+sweeps (`HistorySweeps`) are not backfills: they run again whenever their rule's version moves, and
+`App.onCreate` states why their order before the derivation is load-bearing.
 
-**A place row holds what was said about a spot, and only that** — its name, its capture radius, its
-`category` (`PlaceCategory.code`, null = untagged), and who last wrote it (`source`,
-`PlaceOrigin.code`): the import writes `google_timeline`, any save of the place editor makes it
-`manual`, and that is all the origin mark reads. What other sources call the spot lives beside the row
-in `place_identities`, any number per place and each naming exactly one, and it never changes how a
-place is shown. Everything else about a place is derived on read. **A row may be
-unnamed**, and then reads everywhere as the unnamed cluster it seeds; naming it writes onto that row,
-so the source's identity survives. **A category feeds nothing on the way to a stay, and a name only
-by being there**: where several circles cover a measured end, a named place takes it before any
-unnamed one, a name being the user's word on which spot the end belongs to. The plumbing is built to
-say so: what reaches the derivation is a place's pin, its reach, whether it is named and its row —
-`PlaceClusterer.seedOf`, the one projection that says so — carried into the derived tables as that
-place's seed cluster (`DerivationStore.reconcile`). The cluster rows do not copy whether a place is
-named, so a place write that names or unnames one rebuilds (`PlaceRepository`). A rename or a
-re-categorization moves no seed, so it writes nothing and re-derives nothing, which
-`DerivationStoreTest` pins. On the read side a place is matched to its
-cluster **by position**, `PlaceResolver` resolving positionally, which is why `DerivedReadModel`
-orders seeded clusters by their place's index and organic ones after them.
+### UI
 
-**A track's end can be stated to a place** (`startPlaceId`, `endPlaceId` on `tracks`), and a stated
-end joins that place's cluster whatever its distance from the pin, founding no anchor; two ends both
-stated agree exactly when they name the same place (`StayDeriver.verdictBetween`). A statement is
-evidence the capture radii cannot weigh, so only a writer holding such evidence sets one — the Google
-import, from Google's own visit grouping, and the user, by making a missing recording a stay at a
-named place — and the recorder never does. Merge and split hand the statements on with the ends they
-belong to, and a cut is stated to nothing.
+- **A permission is asked at the intention that needs it**, never at launch: turning recording on
+  runs the setup ladder, and a map's My location button asks for plain location. The two share one
+  record of what was asked (`Settings.askedPermissions`), so they cannot disagree about whether
+  Android will still ask. `ui/Setup.kt` holds the whole flow and the rules it follows. What setup
+  still owes shows only on the Record tab's card. Every step is required, and `complete` is the
+  whole condition for arming.
+- **The all-the-time location half is requested, never navigated to**: asking for it makes Android
+  open the page holding "Allow all the time" itself; `util/Permissions.kt` states why each
+  alternative fails.
+- **No top-level `val` in a `ui/` file may reach the Android framework eagerly.** Kotlin compiles a
+  file's top-level declarations into one class initializer, so a single eager `android.graphics`
+  call makes every pure function in that file unloadable from a plain JVM test (`untaggedPinColor`
+  is `by lazy` for this reason).
+- A screen gets a file of its own, named for its composable, and cross-file symbols are `internal`
+  rather than `private`.
 
-The vocabulary is a closed set of permanent codes stored raw and mapped in the domain
-(`Place.placeCategory`, following the `activityType` / `IgnoreReason.code` precedent), with untagged
-a first-class state rather than an `Other`; the categories `inTimeTotals` marks stay out of the
-timeline's per-day totals (`dayCategoryTotals`). Every entry owes a glyph (`ui/Glyphs`, where an `ImageVector`
-can live and the domain package can't) and a `PlaceCategoryGroup` — the coarse grouping the **colour
-coding** reads. `ui/Palette.kt` holds both categorical palettes and the rule separating them by
-surface; the web viewer instead colours per activity throughout, its map drawing overlapping *lines*
-with no glyph to tell them apart.
+### Maps
 
-**Naming a place and categorizing it are two steps, because the second is read off the first.**
-`PlaceCategorySuggester` learns from the places the user has already tagged and offers an untagged
-place's likely categories as one-tap chips on its detail screen, beside the row that opens the full
-picker; `TrackListViewModel.categorySuggester` retrains it off `placeRows` rather than the
-derivation.
+- **The shared map owns each map's frame and corners** (`MapLibreStyledMap`): a screen hands it its
+  fit, when to refit and what the fit covers, and its corner content as slots, since overlays placed
+  by hand in a map's corners have nothing keeping them apart. The live preview follows the
+  recording instead (`MapLibreTrackMap`).
+- **Never resize a `MapView`; give each screen its own** (`PlaceEditScreen`'s KDoc has the
+  argument).
+- **A track is drawn as one line feature per run of same-colored fixes**, deliberately not as a
+  `line-gradient`: the banded ramp, the source's simplification tolerance and the round caps are one
+  mechanism, and none survives being tidied alone (`trackLineFeature`).
+- **The stops, the overrun and the end connector are deliberately unlabeled.** Their meaning is in
+  where they sit and how they are drawn, and a panel of times over the route says less while covering
+  the map. Labeling them is a decision to take, not an oversight to fix.
+- **The basemap styles are bundled** (`assets/protomaps-dark.json`, `protomaps-light.json`): the
+  hosted API's official flavors verbatim, with the tile URL's key replaced by `{PROTOMAPS_KEY}`. To
+  refresh one, re-fetch `https://api.protomaps.com/styles/v5/{dark,light}/en.json?key=…` and
+  re-apply the placeholder.
 
-**An ignored point is one that isn't part of the path**: a fix the recorder's bad-fix rule rejected,
-or a good fix the settle pass takes off it — `IgnoreReason.EDGE_STAY` for fixes recorded past the
-stop at a track's edges, and `IgnoreReason.STATIONARY` for the inside of a stop, whose first and last
-fixes already say where it was and how long it lasted (`StationaryRuns`). `IgnoreReason` holds the
-distinction. The settle flags are applied automatically wherever a track's points change — finished,
-imported, merged, split, restored, or retyped across the foot/vehicle line — and
-`HistorySweeps.resettle` re-derives the whole history when `TrackSettle.RULE_VERSION` moves. The
-overrun is decided first, so a stop at a track's edge is the overrun's. A writer that ends its trips
-at their stops (`TrackOrigin.endsAtStops`) is exempt from the overrun, the rule having no tuning for
-it (`EdgeStayDetector.paramsFor`): Google ends a trip at the instant its visit begins, and a manual
-trip's typed ends are its stops, so the stop is already placed. A manual trip is exempt from
-thinning too, its fixes being typed ends and a router's shape rather than a receiver's record.
+## Product and copy
 
-**A track's clock is then set from the fixes that survive** (`TrackBounds`, applied in the same pass):
-its bounds are the first and last *good* point, never the transition that opened or closed the row.
-Activity Recognition reports a stop minutes after GPS went silent at an arrival — a garage, indoors —
-and the overrun rule cannot reach that edge, having no fixes there to find a dwell in or place a
-speed collapse at; held, those minutes claim a whereabouts nothing measured and take them from the
-stay beside them, since every minute the track holds is one the interval around it doesn't. Because
-an edge-stay flag makes a fix ignored, this lands on the boundary fix by itself wherever an overrun
-*was* found — so the bounds are one rule with one author rather than two that agree by convention.
-`TrackSettle.plan` speaks for the flags alone; `TrackSettle.settle` is the order the rules run
-in, and every writer enters through it.
+**The recorded history is the product's first purpose and GPS tracking its second**, so any copy —
+store listing, release notes, a post — leads with the timeline, the stays and the places: when and
+where you have been, which places you stop at, how often you return. The tracks are valuable in
+their own right, and they are also how the history is collected; automatic recording is how that
+happens without a start button, which is not the proposition. The code leads with the recording
+pipeline, so copy written from the source drifts into pitching a tracker whose selling point is
+starting by itself. The README has the order right, so take it from there.
 
-**The track row carries its points' aggregates, and the recorder must never write it.** Distance,
-point/ignored counts and the first/last good coordinates are columns on `tracks`, written only by
-`TrackSettler.refreshStats` and re-walked history-wide by `HistorySweeps.stats` when
-`TrackStats.RULE_VERSION` moves. This is a performance invariant spanning three files, not a
-convenience: the observed queries (`TrackDao`) must read `tracks` only, and the recorder's hot path
-must write nothing but point rows — `TimelineInvalidationTest` fails if either half is broken, and
-each of the three says why. The UI collects with `collectAsStateWithLifecycle` for the same reason —
-a backgrounded Compose tree keeps collecting otherwise, and the process outlives the UI by weeks.
+### Site
 
-**A track's writer is declared, not measured.** `source` (`TrackOrigin.code`) is set by whoever
-inserts the row — the recorder in `startTrack`, the GPX import, the add-trip form
-(`insertManualTrack`, a `manual` track: two typed endpoints, with a router's road shape between them
-where the user asked for one), a backup restore, and merge/split handing it on to the rows they
-create. `TrackOrigin.inferFrom` reconstructs it only where no declaration exists: a backup file
-carrying no `source` key (a source-less manual track reads as imported there — a path, not a
-measurement, which is the honest half of the truth). **No "mixed" writer exists** —
-`TrackMerge.plan` refuses a merge across writers rather than inventing one, which also keeps typed
-endpoints from being absorbed into measured fixes. Besides that refusal it is read by
-`availableColorModes` (`ui/TrackColoring`), which drops the colour metrics an import or a manual
-entry can't carry, and by every map, which dashes a track whose writer implied its motion rather than
-measured it (`TrackOrigin.measuresMotion`). Manual tracks bypass the keep thresholds like imports do — `KeepRule`'s two-point
-purge floor would otherwise delete every one on arrival — and their two ends are stamped exactly at
-the row's bounds, since `TrackBounds` derives those same bounds back off them: a fix stamped
-anywhere else would move the clock away from what the user typed, which is why a road shape between
-them (`ManualPath`) keeps them as the first and last fix.
+`site/` is the app's website at `breadcrumb.place`, an Astro project on GitHub Pages; the companion
+viewer is a page of it, with its own README in `site/src/viewer/`. **The viewer's Protomaps key is
+readable by anyone who opens the page**, so it is a key of its own (`pages.yml`). Every package in
+`site/package.json` is a development dependency, because nothing in `node_modules`
+reaches a visitor, and advisory alerts are filtered by that scope. The custom domain is a Pages
+setting rather than a `CNAME` file, since the Actions deploy carries none.
 
-
-**A manual track is also the only one that can be rewritten** (`updateManualTrack`, reached by the
-track detail's pencil, which on any other track opens the type dialog instead): the same two pins
-and two times, and the road shape the form holds, go back onto the row that produced them, replacing
-its fixes outright — which is exactly why `source` gates it, every other track's points being a
-measurement or a file's. Two things follow from rewriting in place: the row is excluded from its own
-overlap check (`NO_TRACK` where an insert excludes nothing), since the fixes it would collide with
-are the ones being replaced; and the write is otherwise an insert, `finalizeImportedTrack` included,
-because the aggregates and the overrun verdict are functions of the points and these are new points.
-An edit is deliberately **not** undoable — every value is in the form, unlike a merge or a delete.
-
-**A trip is what the reader sees, and it can be several tracks** (`Trip`, `TripChains`). Tracks
-joined end to start — one ending at the instant the next begins, the shape a trip entered by hand to
-fill a missing recording leaves — and of one type are one timeline row, one page and one swipe to
-delete. They stay separate tracks because no merge crosses writers, which is what keeps typed ends
-out of measured fixes. A different type keeps them apart too, choosing it being the user's word that
-it was another trip. The joined instant is a join, not a stop: nothing is derived between the two,
-and their facing ends are not clustered (`StayDeriver.joined`). The trip has a page of its own,
-every part on one map; what reads one track's fixes — the metric,
-the graph, a cut, an edit — is on each part's own page, which deletes that part alone.
-
-
-**Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*
-rows and a Room SQL migration can't express the logic, add a repository pass and run it from
-`App.onCreate`'s IO coroutine behind a `Settings` done-flag:
-`if (!Settings.isXDone(...)) { repository.x(); Settings.setXDone(...) }`. It runs there (not in
-any screen) because the background service can keep the process alive for weeks without the UI
-opening. Make the pass idempotent — a crash between the work and the flag write means it re-runs.
-Delete the pass, its flag, and any DAO queries only it used once the installed base has run it;
-`git log --grep=backfill` holds worked examples to copy from (the ignore-reason backfill, the
-drive-start leading-stray repair, the point-starved-track purge). **No backfill is live right
-now**: `App.onCreate` runs the discarded-track retention purge, the two versioned sweeps (the
-settle, then track stats) and then the derivation — seeds reconciled, and the history re-derived if
-those seeds moved, if a sweep ran, or if `DerivationStore.LOGIC_VERSION` outran what the rows were
-derived by. That last order is load-bearing: the sweeps rewrite the very coordinates the derivation
-reads, and every version is recorded only after the derivation has consumed them, so a launch that
-dies partway re-runs the whole sequence rather than skipping a sweep whose writes it never derived
-from. `HistorySweeps` says why a sweep is not a backfill, and `reconcile` is not
-one either — it is a reconciliation with no completion to record.
-
-**UI** (`ui/`): `MainActivity.MainScreen` hosts a bottom-nav (Record / Timeline / Places / Insights) Scaffold
-with full-screen **overlay** layers on top: sealed `MainDestination` (`TrackDetail` | `Settings`) plus
-stacked layers for place detail, journey detail (reached from the Insights tab or a Timeline band,
-keyed by the journey's first night), the Settings pages (`SettingsPage`), discarded-track detail,
-and the add-trip form (`AddTripScreen`) — each
-animated by a `PredictiveBackHandler` (scale/shift previewing the layer underneath, back returning
-one layer at a time). **What that form opens holding is a `TripDraft`**, which is also the state
-saying it is open. A gap is cut **once**, at the midnight opening the day it ended (`slicePerDay`), so
-a row holds both ends or exactly one, and never neither. Each end carries an instant rather than
-a wall clock, because the zone follows from resolving the pin (which the form does after opening)
-and because a bound rounded to the pickers' minute would overlap the track it was taken from. Its
-position is the **recording's own** — `StayDeriver.Gap` carries the two fixes whose disagreement made
-it a gap, and an end timed at a neighbouring track's bound is placed where that track was at that
-instant, not at the pin of the place holding it, which can sit a street away and would leave the
-entered leg jumping off the path it fills.
-
-**A permission is asked at the intention that needs it** — the platform's own "ask in context"
-guidance. Nothing is requested at launch and there is no onboarding page. Turning recording on is
-the intention nearly all of them follow from (`ui/Setup.kt`, which holds the whole setup flow and,
-deliberately, no screen); the other is a map's My location button, since wanting to see where you
-are is reason enough for plain location (`MyLocationState`), and a refusal there shares setup's
-record of what was asked, so the two cannot disagree about whether Android will still ask.
-The Record tab's toggle is the request, and flipping it on runs `SetupLadder` — each unmet
-requirement asked at the moment the one before it was granted. **The run ends the moment a step
-comes back unmet**, because a refusal is an answer and asking the next thing on top of it is how a
-permission flow turns into nagging; the run arms the recorder only if it got through everything.
-
-The ladder has **two signals and must not confuse them** — a dialog's result, which fires once for
-exactly what was asked, and a resume, which fires for reasons that have nothing to do with a run.
-`SetupStep.answersOnResume` is which one an ask answers on — the battery exemption and a blocked
-step, everything else going through the permission system, which reports back through the launcher
-whatever it put on screen. Named for the answer rather than for leaving the app because the two
-differ: from Android 11 the all-the-time request *does* leave and still answers through the launcher.
-The ladder captures that (with the step's progress) *when the ask goes out* rather than re-deriving
-it from the answer. A resume while one of the app's own prompts is up is not an answer either, and
-`RecorderSetup` holds it back on `prompt` being non-null — one condition covering every such dialog,
-so a third cannot be added without it.
-
-**A step is a reason, not a dialog** — and the reader's reason, not the platform's. Location
-"all the time" is **one** step, because in system settings it is one switch with two positions, and
-a reader shown two rows for it is shown the same control twice; Android merely refuses the second
-question until the first is answered, so the row states the whole bargain up front and names the
-upgrade alone once that is what is left (`SetupStep.bodyRes`). That is also why the ladder ends on
-an ask that **moved nothing** rather than one that left a step unmet — `SetupState.progressOf`
-counts location's two halves, so the first grant carries the run into the second.
-
-`SetupState` is read off the platform every time, so a permission revoked long after setup is unmet
-again with nothing to invalidate. **Every step is required and `complete` is the whole condition for
-arming** — there is no narrower "enough to record" beside it. Two of them could technically be
-refused and still leave a recording running (the foreground service starts without
-`POST_NOTIFICATIONS`, Android only hiding the notification; the battery exemption is not checked up
-front), and they are required anyway: a recorder that arms and then dies in the background hours
-later, or one running with nothing on screen to say so, is a failure the reader meets long after the
-moment they could have understood it. One list, one meaning of ready, and a toggle that either works
-or names what is missing — which is also what keeps the card from having to sort requirements into
-two kinds.
-
-Three things the platform makes fiddly, each handled once. **The all-the-time disclosure**
-(`BackgroundLocationDisclosure`) is said before *every* request for it, from the ladder and the card
-alike, so it cannot go missing by the route taken; being the last thing on screen before the
-platform's own asking takes over, it is also where the reader is told which option to pick there.
-**A permission refused twice can no longer be asked for**, which `Settings.askedPermissions` is what
-detects — `shouldShowRequestPermissionRationale` answers false both for that and for a permission
-never asked, and only the recorded ask separates them. **Asking for a blocked step *is* opening
-settings** — one definition (`RecorderSetup.grant`) both surfaces reach, since a card that offers "Open
-settings" while the toggle fires a request Android stopped taking leaves one control silently doing
-nothing. `SetupStep.answersOnResume` follows from the same fact, a blocked step answering on the
-resume from settings rather than through a dialog.
-
-**No reader is handed to Android without being told why**, and that is what the two paths differ
-over — not the ask, only whether the reason is already on screen. The card carries every step's
-words above its own button, so its blocked button goes straight through; a run has no card up, so
-`askFromLadder` puts those same words in `BlockedStepDialog` first. Same for the all-time
-disclosure, which a run must show for want of a row and shows on the card path too because the
-policy attaches it to the request rather than to the surface. A jump into system settings with
-nothing said is one the reader arrives from not knowing which switch was wanted.
-
-And **the all-the-time half is requested, never navigated to**. Asking for
-`ACCESS_BACKGROUND_LOCATION` on its own, once plain location is granted, makes the permission
-controller open its per-app location page itself from Android 11 on — the screen holding "Allow all
-the time", which is nearer the switch than anywhere an app may send someone. Do not replace this
-with a settings deep link: `Settings.ACTION_APPLICATION_DETAILS_SETTINGS` lands two levels above it,
-and the permission controller's own entry points (`MANAGE_APP_PERMISSION`,
-`MANAGE_APP_PERMISSIONS`) *resolve* from a normal app and then refuse to start, wanting the
-signature permission `GRANT_RUNTIME_PERMISSIONS` — they resolve and then deny, so a resolve check
-reads as success and the failure shows up only as a `SecurityException` at launch.
-`openAppSettings` is for the twice-refused case alone.
-
-**What is still owed is shown in exactly one place**, `SetupCard` in the Record tab's content slot —
-a row per *unmet* requirement, carrying its reason and its own button. There is deliberately no page
-behind it: a summary card that opens a screen listing the same requirements is the same list twice,
-and the slot is large enough for the detail. It sits **below the live map** in the tab's `when`,
-because a recording drawing itself outranks anything still owed and what can be owed while one runs
-(the exemption, notifications) stops nothing.
-
-**The Record tab keeps one shape through all of it** — the toggle at the top, the keep-screen-on row
-at the bottom, one card between them — so the screen a reader learns on the first launch is the
-screen they keep. The toggle stays **live** whatever is missing, since turning it on is what puts
-the requests up. The card yields to a live recording, which can only outlive setup by a requirement
-being revoked mid-track, and a track being drawn outranks the notice about it. Nothing else about
-setup exists: no page, no first-run flow, and so no flag recording that one was seen.
-
-The Compose code lives in the `ui` package, one file per screen named for its composable
-(`RecordTab`, `PlaceEditScreen`, …) and the shared pieces split by kind — so a file is found by
-its name, and only the placements that were decisions are worth stating. `MainActivity.kt` keeps
-the activity, navigation and layer wiring, while the overlay-stack machinery itself is
-`OverlayLayer.kt`; the timeline's state holder is `TrackListViewModel.kt`, with the GPX/backup
-transfer kept beside it in `ImportExportController.kt` rather than inside it; the recorder's setup
-model and its card share `Setup.kt` (no screen of its own — see above); the map stack hangs off
-`MapSurface.kt` (the styled map and `frameTo`); and the color-ramp/legend code is
-`TrackColoring.kt` (cross-file symbols are `internal`, not `private`). The widget kinds: generic
-chrome in `Components.kt`, settings rows in `SettingsWidgets.kt`, list rows and discs in
-`ListRows.kt`, dialogs in `Dialogs.kt`, categorical palettes in `Palette.kt`, locale-decided words
-(dates, months, countries) in `LocaleWords.kt`, zone-shift time marks in `TimeMarks.kt` and the
-duration ladder in `DurationFormat.kt`. **No top-level `val` in these files may reach the Android
-framework eagerly** — Kotlin compiles them into one class initializer per file, so a single eager
-`android.graphics` call makes *every* pure function in that file unloadable from a plain JVM test,
-dragging a sandbox and an emulated JVM behind an arithmetic assertion. `untaggedPinColor` is `by
-lazy` for exactly this reason. That is the rule; which file a formatter sits in is then free. The track
-map is `MapLibreTrackMap` (MapLibre GL Native) on a **Protomaps
-vector basemap** (dark or light flavor per the Display page's map setting, which defaults to the
-app theme): **the track is one line feature per run of same-colored fixes**, colored by the
-selected metric (ramp luminance also shade-dependent),
-start/end and noisy-fix markers sit on a symbol layer, and switching the color metric rebuilds the
-line's source without moving the camera. Deliberately not a `line-gradient`: the banded ramp, the
-source's simplification tolerance and the layer's round caps are one mechanism serving that, and
-none survives being tidied alone — `trackLineFeature` says why. More layers ride on the same map —
-the detected in-track stops as place-style capture circles *under* the line, the recorder's overrun
-grayed off the track's ends, read back from the stored flags rather than re-detected, and the
-**places at the path's two ends** (`RoutePlaces`), each a pin over the capture area that claimed
-that end, labeled where the place is named. An end stated to a place is that place's whatever it
-is called, and where the circle does not reach the end's fix a dashed connector joins the two —
-nothing else on the map would say they belong together. The stops, the overrun and the connector
-are **deliberately unlabelled** — their meaning is in where they sit and how they're drawn. A panel of times over the route says less than the shapes do
-and covers the map saying it, so labelling them is a decision to take, not an oversight to fix.
-
-## Site
-
-`site/` is the app's website, an Astro project deployed to GitHub Pages at `breadcrumb.place` by
-`pages.yml` on every push to `main` that touches it; `npm run dev` there previews it. It is a
-build rather than plain files because the landing page is mostly screenshots: they and the icon are
-imported from `docs/`, so the README, the store assets and the site share one set, and are
-re-encoded per width at build. The companion viewer is a page of the site, `viewer.astro` under
-the site's own header, with its modules in `site/src/viewer/` bundled into it by the build — its
-own README says what it is, and why MapLibre alone stays a file served as it is. `viewer-tests.yml`
-runs its self-contained node suites; the parse and convert ones check the streaming parser against
-a real export and so run by hand. **The viewer's Protomaps key is readable by anyone who opens the
-page**, so it is a key of its own, locked to the site's origin and held in the `PROTOMAPS_WEB_KEY`
-secret, never the app's, and baked into the viewer's script at build. Every package in `site/package.json` is a development dependency because nothing
-in `node_modules` reaches a visitor, and that scope is what advisory alerts against the tree are
-filtered by. The custom domain is a Pages setting, not a `CNAME` file, since the Actions deploy
-carries none.
-
-**The site is written for a person deciding whether to put the app on their phone** — an Android
+**The site is written for a person deciding whether to put the app on their phone**: an Android
 user, not a developer, who asks where location data goes before installing, because the app's
 proposition selects for exactly that reader. They come for four things: what the app is, what it
-looks like, what happens to their data, and how to get it; every sentence answers one of those or
+looks like, what happens to their data, and how to get it. Every sentence answers one of those or
 goes. An existing user returning for the viewer or the privacy page, and Google's review checking
 the privacy-policy URL, read the same pages and need nothing more. Developers go to the repository,
 which the site links and then stops; nothing on it names a build type, a script, a tool or a
-mechanism, and nothing on it explains how the site or its screenshots were made. It is informational,
-not a pitch: this reader is served by being told, not sold. The privacy page is the policy Play's
-listing points at, so its URL is fixed.
+mechanism, and nothing explains how the site or its screenshots were made. It is informational, not
+a pitch. The privacy page is the policy Play's listing points at, so its URL is fixed.
 
-**The copy is plain help-page prose, because that reader scans for answers rather than reads.**
-The reader is *you* and the actor is *the app* or *your phone*; a sentence opens on its subject,
-carries one fact, and stops — two facts joined by a semicolon are two sentences, and a merged pair
-is what the copy has read as machine-written on. No inverted clauses ("Trips a short stop split can
-be merged"), no appositions or balanced pairs, and no derivation's point of view: "when your stays
+**The copy is plain help-page prose, because that reader scans for answers rather than reads.** The
+reader is *you* and the actor is *the app* or *your phone*. A sentence opens on its subject, carries
+one fact, and stops; two facts joined by a semicolon are two sentences, and a merged pair is what
+the copy has read as machine-written on. No inverted clauses ("Trips a short stop split can be
+merged"), no appositions or balanced pairs, and no derivation's point of view: "when your stays
 keep landing in the same spot, the app makes it a place", not "stays that keep landing in the same
 spot form a place". The code's words stay in the code — *capture radius*, *fix*, *filter* — and the
 reader's stand in for them. Copy written from the source or the README carries their habits, so
 rewrite it rather than trim it.
 
-**The two pages weigh correctness differently.** The privacy page is a contract: every claim on it
-must hold against the code, and a qualifier that keeps a sentence true ("unless your Android backup
-holds a copy") stays however it reads. The landing page must be correct too, but a fact is stated
-only as exactly as the reader needs it, and never as mechanics: "the year behind it" over "the
-twelve months before it", a watch for leaving where you stopped over a geofence and a probe. When
-accuracy and simplicity pull apart on the landing page, simplicity wins as long as the sentence is
-not false.
+**The privacy page and the landing page weigh correctness differently.** The privacy page is a
+contract: every claim on it must hold against the code, and a qualifier that keeps a sentence true
+("unless your Android backup holds a copy") stays however it reads. The landing page must be
+correct too, but a fact is stated only as exactly as the reader needs it, and never as mechanics:
+"the year behind it" over "the twelve months before it", a watch for leaving where you stopped over
+a geofence and a probe. When accuracy and simplicity pull apart on the landing page, simplicity wins
+as long as the sentence is not false.
 
 **The privacy page describes the released build, not `main`.** The site deploys on every push, so a
 page edited beside a feature is live while every installed app still behaves the old way, and the
 feature can change again before it ships. A change to what the app collects, logs or sends is
 written into the page in the release's version-bump commit.
 
-## Releases
+### Releases
 
-When preparing a Play release (version bump, building the bundle, or writing the "What's new"
-text), follow `docs/release-notes-guide.md` — it defines the audience rules for release notes,
-how to derive them from commits since the last *uploaded* build, and the versioning scheme
-(a hand-bumped `major.minor.patch` `versionName` — which part to bump falls out of the same
-bucketing of the commit range that writes the notes, so the number and the text are one judgement,
-and major is declared rather than derived — manual `versionCode` as an independent upload counter,
-the git sha kept out of both and stamped into the log instead, never upload a `-dirty` build).
+A Play release — the version bump, building the bundle, the "What's new" text — follows
+`docs/release-notes-guide.md`, which also states which part of the version to bump. After the Release
+workflow has attached the `.aab` to its GitHub Release, append the "What's new" text to the release
+body with `gh release edit`, under the generated provenance line, then download the `.aab` and
+upload it to the Play Console by hand with the same text. **A build's identity is three facts kept
+apart** (`util/BuildIdentity`): no variant suffix on the `versionName`, and no sha anywhere a reader
+sees.
 
-**The recorded history is the product's first purpose and GPS tracking its second**, so any copy —
-store listing, release notes, a post — leads with the timeline, the stays and the places: when and
-where you have been, which places you stop at, how often you return. The tracks are a valuable part
-of it in their own right, and they are also the mechanism by which the history is collected —
-automatic recording is how that happens without a start button, which is not the proposition. The
-code leads with the recording pipeline, so copy written from the source drifts into pitching a
-tracker whose selling point is starting by itself; the README has the order right, so take it from
-there and not from the files.
-
-**What a build is, is three facts that move independently, and `util/BuildIdentity` is where they
-are combined** — the version, the variant (`debug`/`perf`/`demo`, absent on the release that ships)
-and the commit. None is folded into another: no variant suffix on the `versionName`, which is why
-the build types set no `versionNameSuffix`, and no sha in anything a reader sees. Settings states
-version and variant, the recorder's arming line logs all three, and the `versionCode` appears in
-neither — it is Play's upload vocabulary, shared by every build between two uploads. The top bar's
-badge *says* the variant and so does not spell it again; what it carries of its own is only whether
-to appear (`BuildConfig.SHOW_BUILD_BADGE`, off on demo so a screenshot carries none).
-
-Every build uploaded to Play is marked with a lightweight tag `v<version>` (e.g. `v1.0.1`) on the
-commit it was built from — so "commits since the last uploaded build" is just `git log <tag>..`.
-**Every upload bumps the version, patch by default**, which is what lets the tag be the version
-alone: a second upload of one is a tag git refuses to create, so the rule cannot be broken by
-forgetting it. GitHub Actions automates the pipeline
-(`.github/workflows/`):
-`tests.yml` runs ktlint, detekt, Android Lint and the unit tests on every push/PR; `release.yml` fires on pushing such a
-tag — it fails unless the tag is exactly `v` plus the committed `versionName` and the `versionCode`
-exceeds every previously tagged one, builds the signed
-bundle (upload keystore + Protomaps key come from repo secrets), and attaches the `.aab` to a
-GitHub Release. Release flow: commit the version bump, with the privacy page brought up to date for
-what the release ships → push it to `main` → tag it
-`v<version>` → push the tag (the tag alone would build, but a commit no branch contains is not a
-release; when later commits must stay local, `git push origin <bump-sha>:main` pushes the bump on
-its own) → append the "What's new" text (written per `docs/release-notes-guide.md`) to the GitHub
-Release body via `gh release edit`, under the generated provenance line → download the `.aab`
-from the GitHub Release and upload it to the Play Console manually, reusing the same "What's
-new" text there. The source of truth is `app/build.gradle.kts`; the tag only cross-checks the
-version. The `versionCode` is bumped in that same edit, and nothing in the app reads it, which is
-why the workflow is the only thing standing between a forgotten bump and Play.
-
-## Conventions & constraints
+## Conventions
 
 - **No recorded history reaches the repo, and nothing in it refers to whoever recorded it.** Most of
-  the tuning here rests on field
-  evidence, and citing it is right — but comments, KDoc, commit messages and `docs/` must carry
-  what the data *showed*, never which trip showed it: no recording dates or times, no place names
-  or real coordinates, no per-trip distances, durations, point counts or quality figures. "A parked
-  phone can report phantom Doppler up to 3.5 m/s" — not "an arrival 7 m from the track's final
-  position on such-and-such a date". The person behind the history is never a subject either: no
-  "the author", no "my phone", no note explaining what a choice does or doesn't reveal about anyone
-  — a sentence like that is itself the disclosure, and it is the one a stranger reads first.
-  History-wide aggregates are fine while they name no date or place ("an end stay
-  on ~30% of tracks, median ~72 s"), and so are generated test fixtures, whose coordinates are
-  invented. The repository is the one artifact that leaves the machine; the recorded history stays
-  on it. Fixtures sit at a **neutral origin** and should stay there: the domain tests build meter
-  offsets off latitude 1.0, the data-layer ones off latitude 1.0 / longitude −2.0. Real coordinates
-  in a fixture leak a region even when no trip is named.
-- **Don't count a set that can grow** — in comments, KDoc, `docs/` or this file. "The three codes",
+  the tuning here rests on field evidence, and citing it is right, but comments, KDoc, commit
+  messages and `docs/` carry what the data *showed*, never which trip showed it: no recording dates
+  or times, no place names or real coordinates, no per-trip distances, durations, point counts or
+  quality figures. "A parked phone can report phantom Doppler up to 3.5 m/s", not "an arrival 7 m
+  from the track's final position on such-and-such a date". The person behind the history is never
+  a subject either: no "the author", no "my phone", no note explaining what a choice does or doesn't
+  reveal about anyone. A sentence like that is itself the disclosure, and it is the one a stranger
+  reads first. History-wide aggregates are fine while they name no date or place ("an end stay on
+  ~30% of tracks, median ~72 s"), and so are generated test fixtures, whose coordinates are
+  invented. Fixtures sit at a neutral origin, since real coordinates leak a region even when no
+  trip is named. The repository is the one artifact that leaves the machine; the recorded history
+  stays on it.
+- **Don't count a set that can grow** in comments, KDoc, `docs/` or this file. "The three codes",
   "the two rows below": a number in prose is a claim nothing checks, and it rots the first time an
-  entry is added or removed. Either describe the set without counting it, or name every member — so
-  a change cannot leave the sentence silently wrong.
-- **Activity recognition needs Google Play Services**, so this is intentionally not a FOSS/F-Droid
-  build. A continuous foreground service + persistent notification is mandatory for background location
-  — there is no "invisible" mode.
-- **A GMS transition registration can go silently deaf, and re-registration is not a cure** — the
-  app **detects and reports rather than repairs**: `StaleReadingOracle` spots it, `DeafnessWarning`
-  decides when to say so, and the user is told to reboot. Don't build anything that assumes
-  restarting the registration fixes this; `ActivityRecognitionManager.restart` carries the field
-  evidence. It is *not* a rule against re-registering — the watchdog re-*requests* every tick, and
-  that replay is what feeds the oracle; the request/restart line is drawn at the watchdog tick.
-- The `alerts` channel (`RecorderNotifications`) is a second, transient channel. The "persistent
-  notification" rules above are about the foreground service's channel, not this one.
-- Background location requires the user to grant **"Allow all the time"**, which on Android 11+ is only
-  grantable from the app's system settings page (the permission UI deep-links there).
-- **User-facing text is a resource; the layer that decides *what* to say holds no words.** Strings
-  live in `res/values/strings_<screen>.xml`, one file per `ui/` screen (Android merges them all, so
-  names must be unique across the set and the prefixes are what keep them apart). `domain/` and
-  `util/` hold no language at all: an enum carries a code and the UI maps it to a `@StringRes`
-  (`ui/CategoryLabels`, `ui/RecorderWords`), and a rule that needs a *sentence* takes a vocabulary
-  interface the host implements — `RecorderVocabulary`, `UnitSymbols`, `DurationSymbols`. That seam
-  is what keeps those suites on a plain JVM, and it is why they are interfaces rather than
-  formatters: the rounding, the duration ladder's rungs and the recorder's phrasing are this app's
-  decisions, and a measure/date formatter would re-decide them.
-- **Each recurring concept has one word per language, recorded in `docs/glossary/`** — `en.md` is the
-  canonical file and every other language answers it (trip = *viagem*, place = *local*, positioning
-  = *localizar*, …). Write new strings from it, review string changes against it, and record a new
-  term or exception in it rather than deciding silently; its README carries the structure, the
-  grouping and how a language is added.
+  entry is added or removed. Either describe the set without counting it, or name every member.
+- **User-facing text is a resource, and the layer that decides what to say holds no words.**
+  Strings live in `res/values/strings_<screen>.xml`; Android merges the files, so a name must be
+  unique across them. `domain/` and `util/` hold no language at all: an enum carries a code the UI
+  maps to a `@StringRes`, and a rule that needs a sentence takes a vocabulary interface the host
+  implements (`RecorderVocabulary`, `UnitSymbols`, `DurationSymbols`), which keeps those suites on a
+  plain JVM.
+- **Each recurring concept has one word per language**, recorded in `docs/glossary/` with `en.md`
+  canonical. Write new strings from it, review string changes against it, and record a new term or
+  exception there rather than deciding silently.
 - **Never assemble a sentence from parts.** No `"$verb $noun N of M"`, no `if (n == 1) "visit" else
-  "visits"`, no lowercasing a noun to slot it mid-sentence — word order, agreement and case are the
-  language's, not the caller's. One whole phrase per case, and `<plurals>` for anything counted.
-  A line built around a value no format string can carry — a clock time drawn with its own zone-shift
-  span — is still one whole phrase: `annotatedStringResource` (`ui/TimeMarks.kt`) splices styled
-  arguments into a resource's placeholders, so the time goes where the *translation* puts it. A word
-  that appears both alone and inside a sentence is **authored twice**, not transformed: an
-  `ActivityType` carries `labelRes` and `inlineLabelRes` (`ui/RecorderWords.kt`), because lower-casing
-  the label to slot it mid-sentence would decide a noun-capitalizing language's orthography for it.
-  `ResourceHygieneTest` pins three rules the compiler can't, reading the XML rather than the resource
-  table: **no resource carries edge whitespace** (one that needs it is a fragment, and a fragment
-  freezes word order — the quoting that used to preserve the space preserved the freeze with it),
-  every translation uses its original's placeholders, and `locales_config.xml` lists exactly the
-  `values-*` folders that exist (a language missing from it never reaches the system's per-app
-  language picker).
-- **Dates and measures follow the locale, units follow the country.** `localizedDateFormat` resolves
-  a pattern from a skeleton, and `standaloneCase` capitalizes a date that heads a section — Romance
-  languages lowercase months and weekdays, and the platform capitalizes them in that position.
-  Because that reaches `android.text.format.DateFormat`, **nothing a plain-JVM test can call may
-  format a date**: `groupTimelineByDay` returns dates and the screen renders them for exactly this
-  reason. `Measures` pairs the unit system with its symbols because the two come from different
-  halves of one locale — the country picks metric vs imperial, the language picks "km" vs "км".
-- **A clock is the exception: its hour cycle is a device setting, not a locale's preference.**
-  `ReaderClock` pairs the locale (field order, separators) with `DateFormat.is24HourFormat` (12 or
-  24), which is the same source Material's time picker reads — a skeleton asking for `j` would answer
-  the locale's *preferred* cycle and contradict a reader who set their phone the other way. It is the
-  app's only clock format, so it is also the only place `H` or `h` is chosen. Two consequences worth
-  knowing: **changing 12/24 is not a configuration change**, so `rememberReaderClock` observes
-  `Settings.System.TIME_12_24` rather than trusting recomposition, and a caller inside
-  `buildAnnotatedString` takes the clock as a parameter for the same reason it takes the shift colour
-  — nothing composable may be read in that scope.
-- **Logs are never localized.** `DebugLog` text, its tags, and the operation names handed to it
-  (`runExclusiveOp`'s `logLabel`) stay English whatever the device language. Settings → Logs showing
-  them in-app does not make them interface text: a log line sits beside untranslated platform
-  exception messages, and a fault that greps differently on two phones is worth less than one that
-  reads awkwardly on one. Notification and screen text beside a log call is the opposite — that is a
-  user surface and translates.
-- `applicationId` is permanent once published; the `${applicationId}.fileprovider` authority and
-  notification/manifest pieces derive from it, so don't hardcode the package elsewhere.
-- All data is local; the network carries map data — Protomaps vector tiles (hosted API) plus the
-  glyphs/sprite from `protomaps.github.io` — and two deliberate exceptions, each behind its own
-  switch in Settings → Privacy. The **online place search** (`data/OnlinePlaceSearch`,
-  photon.komoot.io, OpenStreetMap data) sends the typed query and — where there is a pin to bias
-  by — that pin's coordinate, and treats every failure as "no results". The add-trip form searches
-  it for an end's pin, and the place edit screen for a name, keeping only results inside the place's
-  circle; a suggestion becomes the name only by being picked. **The coordinate is a pin — one the
-  user placed, or the pin of the place being named — never wherever the map happens to be
-  looking**: the form's own place list sorts by the map centre because re-ordering rows the device
-  already holds discloses nothing, and that is the whole reason the two use different anchors. The
-  **online road routing** (`data/OnlineRouting`, OpenStreetMap data too) sends a trip's two points
-  and nothing else, and only when asked for: by the add-trip form's chip, or by a missing
-  recording's "start of the next trip" action, whose departure is placed by the road's duration
-  (`GapDrafts.withRoad`). The ODbL credit in
-  Settings and at the search results is a licence requirement, like the GeoNames one, and the
-  linked data credit in every map's bottom-left corner and in Settings (`MapCredit`) is what FOSSGIS's
-  terms ask for of the routing's users, their report-an-error link included; it stays on the map
-  rather than behind MapLibre's attribution button because OSM's guideline wants it read without a
-  tap. There is no
-  server sync (a possible future feature — the Online services section of Settings → Privacy is
-  where server URL/key fields would go).
-- **The Protomaps hosted-API key is not committed.** It lives in `local.properties` as
-  `protomapsApiKey=…` (gitignored), surfaced as `BuildConfig.PROTOMAPS_API_KEY`, and injected into the
-  bundled style at load time (`{PROTOMAPS_KEY}` placeholder in `assets/protomaps-{dark,light}.json`).
-  A fresh checkout needs that line added or the basemap won't load.
-- **The city atlas is a bundled asset** (`assets/cities.bin`, ~4 MB): GeoNames `cities1000` — every
-  populated place of 1,000+ **and every administrative seat whatever its size**, which is why that
-  file rather than the smaller `cities5000`, a historic village being exactly what a journey gets
-  named after. Packed by `tools/pack_cities.py` (its docstring is the format spec) and checked in, so
-  a fresh checkout and CI need no network; regenerate only to take a newer dump. **A place is named
-  in the app's language** where GeoNames' `alternateNamesV2` has a name for it: the same run writes
-  `res/raw-<language>/city_names.bin` for the languages the app ships besides English, holding only
-  the names that differ from a row's own, and an empty default. They are resources rather than
-  assets so the bundle's language splits deliver a device only its own languages' tables. They index
-  the atlas's rows, so the atlas and its tables are regenerated together from one day's dumps and
-  never apart, and only the table for the language the screens are in is loaded. **CC BY 4.0 — the credit in Settings is a licence
-  requirement, not decoration.** Feature codes decide nothing about
-  what a place *is*: Paris's arrondissements are plain `PPL`, same as any town, so districts are
-  separated from towns by the naming heuristic in `CityAtlas` (a window plus a population dominance
-  factor) and not by the data. The rows carry an IANA zone, read in two places: the timeline's
-  per-cluster clocks (`TrackListViewModel` resolves each cluster's centroid to a city and shows
-  stay/track times on that zone's clock) and the add-trip form, which interprets each end's typed
-  departure/arrival time in the zone of the city its pin resolves to.
-- **The basemap styles are bundled assets** (`assets/protomaps-dark.json` / `protomaps-light.json`,
-  picked by theme) — the official flavors as served by the hosted API's style endpoint
-  (`https://api.protomaps.com/styles/v5/{dark,light}/en.json?key=…`), verbatim except the API key
-  in the tiles URL replaced with the `{PROTOMAPS_KEY}` placeholder. To refresh, re-fetch from that
-  endpoint and re-apply the placeholder swap.
-- **Below Android 12 the app states its own colours** (`ui/theme/SeededScheme.kt`): there is no
-  wallpaper to be dressed from, and the library's defaults are the Material sample's purple. The
-  file is generated by `tools/generate_scheme.py` — the seed is the launcher icon's green, imported
-  from `generate_icon.py` so a re-coloured icon carries the scheme with it, and the spec is pinned
-  to 2021 because that is what the platform hands the app on 12 and up. Edit the seed there and
-  re-run, never the generated file; `SeededSchemeTest` fails if a role goes unstated. The generator
-  needs `materialyoucolor`, which is deliberately not a dependency of anything the build runs.
-- **Frame the map with `moveCamera`, not `easeCamera`** — a map opens already fitted, never
-  animating in. **The shared map owns each map's frame and corners**: a screen hands
-  `MapLibreStyledMap` its fit, when to refit and what the fit covers, and its corner content as
-  slots, because overlays placed by hand in a map's corners have nothing keeping them apart. The
-  live preview follows the recording instead, in `MapLibreTrackMap`.
-- **Never resize a `MapView` — give each screen its own.** A resized texture map stretches its last
-  frame (a pin becomes an oval) and nothing fixes it from inside a shared map; two screens that want
-  the map at different sizes are two layers with a map each, and the fresh camera is the point
-  rather than the price. `PlaceEditScreen`'s KDoc has the argument, including the rejected
-  alternatives.
-- **`PlaceEditScreen` owns everything the user says about a place** — name, capture radius and pin,
-  written as one row; the detail screen reads and does not edit, bar the category chips. A detected
-  stop has no row, so it carries no edit action, only "Create place" — and following that create
-  needs both halves: `TrackListViewModel.savePlace(…, onCreated)` hands back the inserted id, and
-  `MainScreen` re-keys the open screen onto it through `PlaceResolver.keyOf`. The screens carry the
-  rest.
-- **Marker symbol layers draw in source order**, set once on the shared `markerSymbolLayer` base,
-  which says why.
+  "visits"`, no lowercasing a noun to slot it mid-sentence: word order, agreement and case are the
+  language's, not the caller's. One whole phrase per case, and `<plurals>` for anything counted. A
+  value no format string can carry still goes where the translation puts it
+  (`annotatedStringResource`), and a word used both alone and inside a sentence is authored twice
+  (`labelRes`, `inlineLabelRes`). `ResourceHygieneTest` pins the rules the compiler can't.
+- **Dates and measures follow the locale; units follow the country.** Nothing a plain-JVM test can
+  call may format a date, since formatting reaches `android.text.format.DateFormat`
+  (`ui/LocaleWords.kt`). The hour cycle is the exception, a device setting rather than a locale's
+  preference: `ReaderClock` is the app's only clock format.
+- **Logs are never localized.** `DebugLog` text, its tags, and the operation names handed to it stay
+  English whatever the device language. Settings → Logs showing them in the app does not make them
+  interface text: a log line sits beside untranslated platform exception messages, and a fault that
+  greps differently on two phones is worth less than one that reads awkwardly on one. Notification
+  and screen text beside a log call is the opposite: a user surface, translated.
+- **The network carries map data and two deliberate exceptions**, each behind its own switch in
+  Settings → Privacy: the online place search and the online road routing. Everything else is
+  local, and there is no server sync. **The coordinate a search sends is a pin —
+  one the user placed, or the pin of the place being named — never wherever the map happens to be
+  looking**; sorting rows the device already holds by the map's center discloses nothing, which is
+  why the add-trip form's own place list may. Routing sends a trip's two points, and only when
+  asked. The ODbL, GeoNames and routing credits are license requirements, and the routing's data
+  credit sits in every map's corner rather than behind MapLibre's attribution button, because OSM's
+  guideline wants it read without a tap (`MapCredit`).
+- **The Protomaps key is not committed.** A fresh checkout needs `protomapsApiKey=…` in the
+  gitignored `local.properties`, or the basemap won't load.
+- **The city atlas and its per-language name tables are bundled**, packed in one run by
+  `tools/pack_cities.py`, whose docstring holds the format and the choices behind it. The packer
+  drops the rows the data marks as parts of a town (`PPLX`); a district under an ordinary
+  settlement code is told from a town by `CityAtlas`'s naming heuristic.
+- **Activity recognition needs Google Play Services**, so this is deliberately not a FOSS or F-Droid
+  build.
+- **`applicationId` is permanent once published.** The FileProvider authority derives from it, and
+  code reads the package from `packageName` rather than a literal.

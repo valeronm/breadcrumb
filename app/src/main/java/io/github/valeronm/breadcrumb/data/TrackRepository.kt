@@ -76,7 +76,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * endpoints. Held here rather than left to a caller because the repair is part of the write:
      * every path below that changes which tracks the timeline holds, or where one begins and ends,
      * owes the derivation either a [DerivationStore.reknit] over the ids it touched or — where the
-     * change is historical and out of order — a [DerivationStore.rebuild].
+     * change is historical and out of order — a [DerivationStore.reconcile] with `stale = true`.
      */
     private val derivation = DerivationStore(context, db)
 

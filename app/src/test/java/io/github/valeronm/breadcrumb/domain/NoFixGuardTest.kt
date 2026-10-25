@@ -136,8 +136,7 @@ class NoFixGuardTest {
 
     // --- The measured-ground veto -------------------------------------------
     // Everything above is the guard as it was before the recorder had a second witness, and stays
-    // unedited: an untouched green test is what pins the behaviour the cross-check's off state has
-    // to reproduce, and `Motion.Unknown` is what the recorder passes when it is off.
+    // unedited: an untouched green test pins the behavior `Motion.Unknown` has to reproduce.
 
     @Test fun `moving ground vetoes the give-up`() {
         // The starved-guard case: a carried journey whose fixes are all rejected against a

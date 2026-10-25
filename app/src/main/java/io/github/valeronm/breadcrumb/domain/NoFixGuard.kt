@@ -64,10 +64,8 @@ class NoFixGuard(
      * carrier than anywhere else: [onFixAccepted] sees only fixes that passed the quality gates, so
      * a journey whose fixes are all rejected against a pedestrian ceiling starves the guard despite
      * perfect reception, and turning GPS off there would lose exactly the journey the cross-check
-     * exists to keep. [motion] defaults to [Motion.Unknown] — also what the recorder passes with
-     * the cross-check switched off — making the guard bit-for-bit the guard with no cross-check;
-     * [Motion.Stopped] gives up like [Motion.Unknown], a standstill being no reason to keep a
-     * fruitless probe running.
+     * exists to keep. [Motion.Stopped] gives up like [Motion.Unknown], a standstill being no reason
+     * to keep a fruitless probe running.
      *
      * **Until the probe's first fix the window is [firstFixWaitMs]** when that is positive: a fix of
      * any kind ends it, since even one the accuracy gate rejects proves the sky is visible.

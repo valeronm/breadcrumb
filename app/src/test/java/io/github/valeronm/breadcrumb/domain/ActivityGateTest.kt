@@ -62,9 +62,9 @@ class ActivityGateTest {
 
     // --- Parking a reading the ground contradicts ---------------------------
     // Everything above this line is the gate as it was before the second witness, deliberately left
-    // untouched: an unedited green test is what pins the behaviour the cross-check's off state has
-    // to reproduce. A test mechanically updated to pass `Motion.Unknown` would pin nothing, having
-    // been touched by the same change it checks.
+    // untouched: an unedited green test pins the behavior `Motion.Unknown` has to reproduce.
+    // A test mechanically updated to pass `Motion.Unknown` would pin nothing, having been touched
+    // by the same change it checks.
 
     private val MOVING = Motion.Moving(Speed.mps(6.0))
 
