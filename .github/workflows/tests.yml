@@ -15,6 +15,7 @@ on:
       - '.github/workflows/pages.yml'
       - '.github/workflows/dependency-graph.yml'
       - '.github/workflows/codeql.yml'
+      - '.github/workflows/agents-md.yml'
   pull_request:
     paths-ignore:
       - 'docs/**'
@@ -28,6 +29,7 @@ on:
       - '.github/workflows/pages.yml'
       - '.github/workflows/dependency-graph.yml'
       - '.github/workflows/codeql.yml'
+      - '.github/workflows/agents-md.yml'
 
 permissions:
   contents: read

@@ -1,0 +1,24 @@
+name: AGENTS.md
+
+on:
+  push:
+    branches: [main]
+    paths: ['AGENTS.md']
+  pull_request:
+    paths: ['AGENTS.md']
+
+permissions:
+  contents: read
+
+jobs:
+  size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Codex reads only the first 32 KiB of project instructions (its project_doc_max_bytes).
+      - name: Check AGENTS.md fits what Codex reads
+        run: |
+          size=$(wc -c < AGENTS.md)
+          echo "AGENTS.md is $size of 32768 bytes"
+          test "$size" -le 32768
