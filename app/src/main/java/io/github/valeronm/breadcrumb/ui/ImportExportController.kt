@@ -20,7 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -28,9 +28,9 @@ import kotlinx.coroutines.withContext
 private const val TAG = "Breadcrumb"
 
 /**
- * The long-running data-transfer operations — GPX import/export/share and full backup/restore — kept
- * out of [TrackListViewModel] so the timeline's state holder isn't also an orchestration hub. [scope]
- * is the owning ViewModel's, so every operation and its progress flow survive navigation.
+ * The operations on the whole history, and GPX sharing, kept out of [TrackListViewModel] so the
+ * timeline's state holder isn't also an orchestration hub. [scope] is the owning ViewModel's, so
+ * every operation and its progress flow survive navigation.
  */
 internal class ImportExportController(
     private val app: Application,
@@ -43,6 +43,8 @@ internal class ImportExportController(
     /** Track progress of a long-running export/restore-style operation. */
     class OpProgress(val tracksDone: Int, val tracksTotal: Int?)
 
+    class GpxImportProgress(val filesDone: Int, val filesTotal: Int, val imported: Int)
+
     /** What a restore reports when it is not a failure, which is null. */
     private sealed interface RestoreOutcome {
         class Restored(val summary: BackupImporter.Summary) : RestoreOutcome
@@ -51,31 +53,65 @@ internal class ImportExportController(
         data object NotEmpty : RestoreOutcome
     }
 
-    /** Non-null while a GPX bulk export runs — drives the Export tracks row; survives navigation. */
-    private val _gpxExportProgress = MutableStateFlow<OpProgress?>(null)
-    val gpxExportProgress: StateFlow<OpProgress?> = _gpxExportProgress
+    private enum class Transfer { GPX_EXPORT, BACKUP_EXPORT, BACKUP_RESTORE, CLEAR, GOOGLE_IMPORT }
 
-    /** Non-null while a backup export runs — drives the "Back up everything" row; survives navigation. */
-    private val _exportProgress = MutableStateFlow<OpProgress?>(null)
-    val exportProgress: StateFlow<OpProgress?> = _exportProgress
+    private sealed interface Running {
+        class Transferring(val transfer: Transfer, val progress: OpProgress) : Running
 
-    /** Non-null while a backup restore runs — drives the empty-state progress text. */
-    private val _restoreProgress = MutableStateFlow<OpProgress?>(null)
-    val restoreProgress: StateFlow<OpProgress?> = _restoreProgress
+        class ImportingGpx(val progress: GpxImportProgress) : Running
+
+        data object Undeleting : Running
+    }
 
     /**
-     * The shared scaffold of the long-running operations above: one at a time per [progress] flow
-     * (a second call while one runs is ignored), progress published as the operation reports it
-     * and cleared when it ends, failures logged and handed to [message] as null.
+     * Two operations on the whole history running together would each read or write without seeing
+     * the other, so an operation takes this slot only through [claim].
      */
-    private fun <T> runExclusiveOp(
-        progress: MutableStateFlow<OpProgress?>,
+    private val running = MutableStateFlow<Running?>(null)
+
+    /** False, with the reader told why, while another operation holds the slot. */
+    private fun claim(op: Running): Boolean {
+        if (running.compareAndSet(null, op)) return true
+        say(app.getString(R.string.data_load_busy))
+        return false
+    }
+
+    private fun <T> derived(read: (Running?) -> T): StateFlow<T> =
+        running.map(read).stateIn(scope, SharingStarted.Eagerly, read(running.value))
+
+    private fun progressOf(transfer: Transfer): StateFlow<OpProgress?> =
+        derived { op -> (op as? Running.Transferring)?.takeIf { it.transfer == transfer }?.progress }
+
+    /** Trails [running], so an operation starts through [claim] rather than on this. */
+    val historyBusy: StateFlow<Boolean> = derived { it != null }
+
+    /** Non-null while a GPX bulk export runs. */
+    val gpxExportProgress: StateFlow<OpProgress?> = progressOf(Transfer.GPX_EXPORT)
+
+    /** Non-null while a backup export runs. */
+    val exportProgress: StateFlow<OpProgress?> = progressOf(Transfer.BACKUP_EXPORT)
+
+    /** Non-null while a backup restore runs. */
+    val restoreProgress: StateFlow<OpProgress?> = progressOf(Transfer.BACKUP_RESTORE)
+
+    /** Non-null while the history is being cleared. */
+    val clearProgress: StateFlow<OpProgress?> = progressOf(Transfer.CLEAR)
+
+    /** Non-null while a Google Timeline import runs. Its total is the trips found in the file, null
+     *  until the file is read. */
+    val googleTimelineImportProgress: StateFlow<OpProgress?> = progressOf(Transfer.GOOGLE_IMPORT)
+
+    /** Non-null while a GPX import runs. */
+    val importProgress: StateFlow<GpxImportProgress?> = derived { (it as? Running.ImportingGpx)?.progress }
+
+    /** [op]'s failures are logged and reach [message] as null. */
+    private fun <T> runTransfer(
+        transfer: Transfer,
         logLabel: String,
         message: (T?) -> String,
         op: suspend (onProgress: (Int, Int?) -> Unit) -> T?,
     ) {
-        if (progress.value != null) return
-        progress.value = OpProgress(0, null)
+        if (!claim(Running.Transferring(transfer, OpProgress(0, null)))) return
         scope.launch {
             // These run for minutes over a long history, and a report that one was slow arrives
             // with no way to tell slow from stalled unless the log says when it began and how long
@@ -85,7 +121,7 @@ internal class ImportExportController(
             DebugLog.i(TAG, "$logLabel started")
             val result = withContext(Dispatchers.IO) {
                 try {
-                    op { done, total -> progress.value = OpProgress(done, total) }
+                    op { done, total -> running.value = Running.Transferring(transfer, OpProgress(done, total)) }
                     // Boundary catch: whatever an export/import throws, the user gets the failure
                     // message instead of a crash. Cancellation isn't a failure — rethrow so the
                     // coroutine winds down instead of reporting a spurious null result.
@@ -98,7 +134,7 @@ internal class ImportExportController(
             }
             val elapsed = SystemClock.elapsedRealtime() - startedAt
             DebugLog.i(TAG, "$logLabel ${if (result == null) "gave up" else "finished"} in $elapsed ms")
-            progress.value = null
+            running.value = null
             say(message(result))
         }
     }
@@ -111,43 +147,20 @@ internal class ImportExportController(
 
     /** Exports every track as a .gpx file into the picked folder. */
     fun exportAll(treeUri: Uri) =
-        runHistoryOp(_gpxExportProgress, "gpx export", ::exportResultMessage) { onProgress ->
+        runTransfer(Transfer.GPX_EXPORT, "gpx export", ::exportResultMessage) { onProgress ->
             GpxExporter.exportAllToTree(app, repository, treeUri, onProgress)
         }
 
     /** Writes the whole history as one gzipped JSON file (backup, and the web companion's data source). */
     fun exportBackup(uri: Uri) =
-        runHistoryOp(_exportProgress, "backup export", ::exportResultMessage) { onProgress ->
+        runTransfer(Transfer.BACKUP_EXPORT, "backup export", ::exportResultMessage) { onProgress ->
             BackupExporter.exportTo(app, backupRepositories, uri, System.currentTimeMillis(), onProgress)
         }
 
-    /** Non-null while the history is being cleared. */
-    private val _clearProgress = MutableStateFlow<OpProgress?>(null)
-    val clearProgress: StateFlow<OpProgress?> = _clearProgress
-
-    /** Two operations on the history running together would each read or write without seeing the other. */
-    private fun historyOpRunning(): Boolean = historyOps.any { it.value != null }
-
-    /** True while another operation on the history runs, which the reader is then told. */
-    fun refuseIfBusy(): Boolean {
-        val busy = historyOpRunning()
-        if (busy) say(app.getString(R.string.data_load_busy))
-        return busy
-    }
-
-    private fun <T> runHistoryOp(
-        progress: MutableStateFlow<OpProgress?>,
-        logLabel: String,
-        message: (T?) -> String,
-        op: suspend (onProgress: (Int, Int?) -> Unit) -> T?,
-    ) {
-        if (!refuseIfBusy()) runExclusiveOp(progress, logLabel, message, op)
-    }
-
     /** Deletes the whole history, recording left armed. */
     fun clearHistory() =
-        runHistoryOp(
-            _clearProgress,
+        runTransfer(
+            Transfer.CLEAR,
             "history clear",
             { app.getString(if (it == null) R.string.data_clear_failed else R.string.data_cleared) },
         ) {
@@ -170,7 +183,7 @@ internal class ImportExportController(
      * starts rather than when it was offered: a recording can end while the file is being picked.
      */
     fun restoreBackup(uri: Uri) =
-        runHistoryOp(_restoreProgress, "backup restore", ::restoreMessage) { onProgress ->
+        runTransfer(Transfer.BACKUP_RESTORE, "backup restore", ::restoreMessage) { onProgress ->
             if (repository.hasKeptTracks()) {
                 RestoreOutcome.NotEmpty
             } else {
@@ -178,10 +191,16 @@ internal class ImportExportController(
             }
         }
 
-    /** Non-null while a Google Timeline import runs; its total is the trips found in the file, so it
-     *  stays null until the file is read. */
-    private val _googleTimelineImportProgress = MutableStateFlow<OpProgress?>(null)
-    val googleTimelineImportProgress: StateFlow<OpProgress?> = _googleTimelineImportProgress
+    fun restoreDeleted(trackIds: List<Long>) {
+        if (!claim(Running.Undeleting)) return
+        scope.launch {
+            try {
+                if (!repository.restoreTracks(trackIds)) say(app.getString(R.string.discarded_restore_overlaps))
+            } finally {
+                running.value = null
+            }
+        }
+    }
 
     private fun googleImportMessage(summary: GoogleTimelineImporter.Summary?): String {
         if (summary == null) return app.getString(R.string.data_google_import_failed)
@@ -199,7 +218,7 @@ internal class ImportExportController(
     }
 
     fun importGoogleTimeline(uri: Uri) =
-        runHistoryOp(_googleTimelineImportProgress, "google timeline import", ::googleImportMessage) { onProgress ->
+        runTransfer(Transfer.GOOGLE_IMPORT, "google timeline import", ::googleImportMessage) { onProgress ->
             GoogleTimelineImporter.importFrom(
                 app,
                 backupRepositories,
@@ -223,34 +242,12 @@ internal class ImportExportController(
         if (result.failed > 0) add(app.counted(R.plurals.gpx_failed, result.failed))
     }.joinToString(" · ")
 
-    class GpxImportProgress(val filesDone: Int, val filesTotal: Int, val imported: Int)
-
-    /** Non-null while an import runs — drives the Settings progress row; survives navigation. */
-    private val _importProgress = MutableStateFlow<GpxImportProgress?>(null)
-    val importProgress: StateFlow<GpxImportProgress?> = _importProgress
-
-    /** Every operation that reads, writes or clears the whole history; declared after each of them. */
-    private val historyOps: List<StateFlow<*>> = listOf(
-        _restoreProgress,
-        _googleTimelineImportProgress,
-        _importProgress,
-        _clearProgress,
-        _exportProgress,
-        _gpxExportProgress,
-    )
-
-    /** Whether one of [historyOps] runs, for the rows to show. It trails them, so [historyOpRunning]
-     *  reads them directly. */
-    val historyBusy: StateFlow<Boolean> = combine(historyOps) { ops -> ops.any { it != null } }
-        .stateIn(scope, SharingStarted.Eagerly, false)
-
     /**
      * The failures it reports count unreadable or unparseable files and tracks without enough
      * timestamped points to place on the timeline.
      */
     fun importGpx(uris: List<Uri>) {
-        if (refuseIfBusy()) return
-        _importProgress.value = GpxImportProgress(0, uris.size, 0)
+        if (!claim(Running.ImportingGpx(GpxImportProgress(0, uris.size, 0)))) return
         scope.launch {
             var imported = 0
             var duplicates = 0
@@ -277,10 +274,10 @@ internal class ImportExportController(
                         DebugLog.w("Breadcrumb", "gpx import failed for $uri: ${e.message}")
                         failed++
                     }
-                    _importProgress.value = GpxImportProgress(index + 1, uris.size, imported)
+                    running.value = Running.ImportingGpx(GpxImportProgress(index + 1, uris.size, imported))
                 }
             }
-            _importProgress.value = null
+            running.value = null
             say(gpxImportMessage(GpxImportSummary(imported, duplicates, overlapping, failed)))
         }
     }

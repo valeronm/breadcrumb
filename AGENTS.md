@@ -265,9 +265,9 @@ night** (`TravelDeriver`). **What a journey is called is decided apart from what
   the export's read budget (`BackupExporter.FIXES_PER_READ`), and `Entities.kt`, where the column
   would be added, does not mention it.
 - **Operations on the whole history exclude each other** — restore, the imports, clear, the exports,
-  and a restore from Recently deleted — and `ImportExportController.historyOpRunning` is the one flag
-  for whether one is running. An export beside a clear would write a file missing what the clear
-  took.
+  and a restore from Recently deleted — and each starts by claiming the one slot in
+  `ImportExportController`, which a new operation cannot skip. An export beside a clear would write a
+  file missing what the clear took.
 - **The Google Timeline import keeps Google's grouping of visits into places** by stating each trip
   end to its visit's place. The user confirmed or corrected that grouping in Google, and a path
   sampled once a minute cannot recover it. Every place row the import writes is one it created.
