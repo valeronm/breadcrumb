@@ -6,7 +6,6 @@
     <string name="gap_at_least_speed">at least %1$s</string>
     <string name="gap_other_fixes">Other ways to fill it</string>
     <string name="gap_unavailable_fixes">Unavailable</string>
-    <string name="gap_show_both_ends">Show both ends</string>
     <string name="gap_show_on_timeline">Show on timeline</string>
 
     <string name="gap_fix_missed_start">Add the start of the next trip</string>

@@ -5,7 +5,6 @@
     <string name="gap_at_least_speed">pelo menos %1$s</string>
     <string name="gap_other_fixes">Outras formas de a preencher</string>
     <string name="gap_unavailable_fixes">Indisponíveis</string>
-    <string name="gap_show_both_ends">Mostrar os dois pontos</string>
     <string name="gap_show_on_timeline">Mostrar na cronologia</string>
 
     <string name="gap_fix_missed_start">Adicionar o início da viagem seguinte</string>

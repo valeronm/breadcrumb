@@ -52,6 +52,7 @@
     </plurals>
     <string name="common_osm_credit">Resultados online © OpenStreetMap</string>
     <string name="common_map_credit">© %1$s · %4$s\nDados © contribuidores do %2$s (%3$s)</string>
+    <string name="common_map_reset_view">Repor a vista</string>
     <string name="common_osm_report_error">Comunicar um erro no mapa</string>
     <string name="common_origin_google_timeline">Linha cronológica da Google</string>
     <string name="common_origin_entered_by_hand">Introduzida à mão</string>

@@ -109,6 +109,11 @@ internal fun MapLibreTrackMap(
     }
     val colors = coloring.colors
     val applied = remember { AppliedTrackInputs() }
+    val frameWhole = { map: MapLibreMap ->
+        frameTo(map, framePositions(points, noisyPoints, greatCircleLegs, endLinks), singlePointZoom = 15.0)
+    }
+    // The live preview reframes itself as the recording grows.
+    val reframe = if (directionalEnd) null else frameWhole
 
     MapLibreStyledMap(
         modifier = modifier,
@@ -120,6 +125,7 @@ internal fun MapLibreTrackMap(
         } else {
             null
         },
+        reframe = reframe,
         overMap = { map -> if (selectedPoint != null) SelectionMarker(map, selectedPoint) },
         onStyleLoaded = { ctx, map, style, dark ->
             // The end places are one input drawn at two depths — their areas under the line, their
@@ -134,7 +140,7 @@ internal fun MapLibreTrackMap(
             // Over the recorder's own markers: at an end the two land within a capture radius of
             // each other, and the place states where the journey went.
             addEndPlacePins(ctx, style, endPlaces, dark)
-            frameTo(map, framePositions(points, noisyPoints, greatCircleLegs, endLinks), singlePointZoom = 15.0)
+            frameWhole(map)
             // Stamped here as well as drawn: otherwise the first update sees no applied input
             // and rebuilds every source the load just built.
             applied.points = points
@@ -189,7 +195,7 @@ internal fun MapLibreTrackMap(
             }
             updateEndPlaces(context, style, applied, endPlaces, endLinks)
             if (!applied.framed) {
-                frameTo(map, framePositions(points, noisyPoints, greatCircleLegs, endLinks), singlePointZoom = 15.0)
+                frameWhole(map)
                 applied.framed = true
             }
         },
@@ -216,8 +222,17 @@ internal fun MapLibreTripMapOfParts(
     val ends = remember(parts) {
         listOfNotNull(parts.firstOrNull()?.points?.firstOrNull(), parts.lastOrNull()?.points?.lastOrNull())
     }
+    val frameWhole = { map: MapLibreMap ->
+        frameTo(
+            map,
+            parts.flatMap { framePositions(it.points, emptyList(), GreatCircle.drawsPath(it.points.size, activity), emptyList()) } +
+                endLinks.map { LatLng(it.to.lat, it.to.lon) },
+            singlePointZoom = 15.0,
+        )
+    }
     MapLibreStyledMap(
         modifier = modifier,
+        reframe = frameWhole,
         onStyleLoaded = { ctx, map, style, dark ->
             addEndPlaceAreas(style, endPlaces, dark)
             style.addSource(GeoJsonSource(END_LINK_SOURCE, endLinkCollection(endLinks)))
@@ -233,12 +248,7 @@ internal fun MapLibreTripMapOfParts(
             )
             addMarkers(ctx, style, ends, emptyList(), directionalEnd = false)
             addEndPlacePins(ctx, style, endPlaces, dark)
-            frameTo(
-                map,
-                parts.flatMap { framePositions(it.points, emptyList(), GreatCircle.drawsPath(it.points.size, activity), emptyList()) } +
-                    endLinks.map { LatLng(it.to.lat, it.to.lon) },
-                singlePointZoom = 15.0,
-            )
+            frameWhole(map)
             applied.endPlaces = endPlaces
             applied.endLinks = endLinks
         },

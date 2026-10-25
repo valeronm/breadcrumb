@@ -314,6 +314,7 @@ internal fun offsetMeters(e: Coordinate, northM: Double, eastM: Double): Coordin
 /** Fits the camera to the capture circle [radiusM] around [center] — the ring is the subject. */
 internal fun framePlace(map: MapLibreMap, center: Coordinate, radiusM: Double) {
     fitBounds(map, LatLngBounds.Builder().includes(squareAround(center, radiusM)).build(), 64)
+    framed(map)
 }
 
 /** The north-east and south-west corners of the square [radiusM] out from [center] on each side. */

@@ -38,6 +38,7 @@ internal fun updateUserLocation(style: Style, at: Coordinate?) {
 internal fun moveCameraTo(map: MapLibreMap, at: Coordinate) {
     val zoom = maxOf(map.cameraPosition.zoom, USER_LOCATION_ZOOM)
     map.cameraPosition = paddedCamera(map, at.toLatLng(), zoom)
+    leftFrame(map)
 }
 
 private fun userLocationFeatures(at: Coordinate?): FeatureCollection =

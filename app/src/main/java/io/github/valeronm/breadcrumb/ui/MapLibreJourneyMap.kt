@@ -55,6 +55,7 @@ internal fun MapLibreJourneyMap(
     applied.onOpenPlace = onOpenPlace
     MapLibreStyledMap(
         modifier = modifier,
+        reframe = { frame(it, lines, places) },
         onMapReady = { map ->
             map.addOnMapClickListener { latLng ->
                 val key = overviewPlaceKeyNear(map, latLng)

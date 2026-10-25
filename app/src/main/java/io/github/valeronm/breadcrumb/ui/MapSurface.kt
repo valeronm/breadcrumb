@@ -26,6 +26,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -39,6 +40,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -84,6 +86,10 @@ internal fun MapLibreStyledMap(
     controls: @Composable BoxScope.() -> Unit = {},
     /** A key to what the map's colors mean, stacked over the credit in the bottom-left corner. */
     legend: (@Composable ColumnScope.() -> Unit)? = null,
+    /** The way back to the map's fitted frame, offered once the camera has left it. */
+    reframe: ((MapLibreMap) -> Unit)? = null,
+    /** The screen's own button in the bottom-right corner, under [reframe]'s. */
+    corner: @Composable () -> Unit = {},
     /** Drawn over the map's own pixels and under [controls], in the map view's coordinates. */
     overMap: @Composable BoxScope.(MapLibreMap) -> Unit = {},
     onMapReady: (MapLibreMap) -> Unit = {},
@@ -94,10 +100,15 @@ internal fun MapLibreStyledMap(
     // A map's style loads once per MapView.
     key(dark) {
         val currentCamera by rememberUpdatedState(camera)
-        val host = remember { MapHost() }
+        val host = remember { MapHost(camera?.carriedAway == true) }
         val mapView = rememberMapLibreMapView(dark) {
-            currentCamera?.detach()
+            currentCamera?.detach(host.coverage.away.value)
             host.map?.let(coverages::remove)
+        }
+        // Read at the tap, so a frame rebuilt with each composition never reaches the overlay's inputs.
+        val currentReframe by rememberUpdatedState(reframe)
+        val onReframe: () -> Unit = remember(host) {
+            { host.map?.let { map -> currentReframe?.invoke(map) } }
         }
         val readyMap = remember { mutableStateOf<MapLibreMap?>(null) }
         LaunchedEffect(readyMap.value) {
@@ -125,6 +136,11 @@ internal fun MapLibreStyledMap(
                         view.getMapAsync { map ->
                             host.map = map
                             coverages[map] = host.coverage
+                            map.addOnCameraMoveStartedListener { reason ->
+                                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                                    host.coverage.away.value = true
+                                }
+                            }
                             readyMap.value = map
                             currentCamera?.attach(map)
                             val readZoom = { zoom.floatValue = map.cameraPosition.zoom.toFloat() }
@@ -145,7 +161,7 @@ internal fun MapLibreStyledMap(
                 },
             )
             readyMap.value?.let { overMap(it) }
-            MapOverlay(zoom, host.coverage, controls, legend)
+            MapOverlay(zoom, host.coverage, controls, legend, onReframe.takeIf { reframe != null }, corner)
         }
     }
 }
@@ -157,8 +173,12 @@ private fun MapOverlay(
     coverage: Coverage,
     controls: @Composable BoxScope.() -> Unit,
     legend: (@Composable ColumnScope.() -> Unit)?,
+    onReframe: (() -> Unit)?,
+    corner: @Composable () -> Unit,
 ) {
     val indent = Modifier.padding(start = MapInset)
+    var cornerReachPx by remember { mutableIntStateOf(0) }
+    val cornerReach = with(LocalDensity.current) { cornerReachPx.toDp() }
     Box(
         Modifier
             .fillMaxSize()
@@ -166,10 +186,11 @@ private fun MapOverlay(
     ) {
         // The bottom-left corner is the one no screen puts a control in.
         Column(
-            // Narrower than the map by a corner control, so a long credit wraps rather than running under one.
+            // Clear of the corner's controls, so a long credit wraps rather than running under them. At least one
+            // control's width even when the corner is empty: the reset button can fade in there.
             Modifier
                 .align(Alignment.BottomStart)
-                .padding(end = CornerControlReach + 8.dp),
+                .padding(end = maxOf(CornerControlReach, cornerReach) + 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (BuildConfig.DEV_TOOLS) ZoomReadout(zoom, indent)
@@ -182,6 +203,7 @@ private fun MapOverlay(
             }
         }
         controls()
+        MapCorner(coverage.away, onReframe, { cornerReachPx = it }, corner)
     }
 }
 
@@ -222,11 +244,11 @@ private fun ZoomReadout(zoom: FloatState, modifier: Modifier) {
 /**
  * Per-[MapView] mutable state held outside Compose's snapshot system. Same role as each caller's
  * `Applied*Inputs` holder: a remembered plain object, not a snapshot state, so writing it never
- * recomposes.
+ * recomposes. [Coverage.away] is the exception, being what draws the reframe button.
  */
-private class MapHost {
+private class MapHost(away: Boolean) {
     var map: MapLibreMap? = null
-    val coverage = Coverage()
+    val coverage = Coverage(away)
     var inited = false
     var onStyleLoaded: (Context, MapLibreMap, Style, Boolean) -> Unit = { _, _, _, _ -> }
 }
@@ -343,6 +365,7 @@ internal fun frameTo(
         }
         positions.size == 1 -> map.cameraPosition = paddedCamera(map, positions[0], singlePointZoom)
     }
+    if (positions.isNotEmpty()) framed(map)
 }
 
 /** Fits [bounds] [marginPx] in from the edges of the part of the map [covered] leaves showing. */
@@ -369,6 +392,7 @@ internal fun centerOn(map: MapLibreMap, at: LatLng) {
     map.moveCamera(
         CameraUpdateFactory.newLatLngPadding(at, 0.0, shown.top.toDouble(), 0.0, shown.bottom.toDouble()),
     )
+    leftFrame(map)
 }
 
 /** Whether every one of [positions] sits inside the middle of the part of the map [covered] leaves
@@ -394,10 +418,12 @@ internal data class MapInsets(val top: Int, val bottom: Int) {
 
 private const val FRAME_MARGIN_PX = 96
 
-/** What hides a map: the screen's own controls, and the measured [MapCredit] chip and legend above them. */
-private class Coverage {
+/** What hides a map — the screen's own controls, and the measured [MapCredit] chip and legend above
+ *  them — and whether its camera has left the frame fitted inside the rest. */
+private class Coverage(away: Boolean) {
     var obscured: () -> MapInsets = { MapInsets.NONE }
     var cornerPx = 0
+    val away = mutableStateOf(away)
 }
 
 /** Weak on the map, and an entry is removed when its map view is destroyed, so a screen's [Coverage.obscured]
@@ -412,6 +438,16 @@ internal fun covered(map: MapLibreMap): MapInsets {
     val coverage = coverages[map] ?: return MapInsets.NONE
     val obscured = Snapshot.withoutReadObservation(coverage.obscured)
     return obscured.copy(bottom = obscured.bottom + coverage.cornerPx)
+}
+
+/** Marks [map]'s camera as having left its fitted frame by a move no gesture made. */
+internal fun leftFrame(map: MapLibreMap) {
+    coverages[map]?.away?.value = true
+}
+
+/** Marks [map]'s camera as showing its fitted frame. */
+internal fun framed(map: MapLibreMap) {
+    coverages[map]?.away?.value = false
 }
 
 /** How far in from each edge, as a share of the part of the map left showing, a position still reads

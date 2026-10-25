@@ -73,10 +73,8 @@ internal fun NewPlaceScreen(
                         camera = camera,
                         modifier = Modifier.fillMaxSize(),
                         goTo = myLocation.goTo,
-                        controls = {
-                            AimCrosshair()
-                            MyLocationControl(myLocation)
-                        },
+                        controls = { AimCrosshair() },
+                        corner = { MyLocationControl(myLocation) },
                     )
                     AimHint(Modifier.align(Alignment.TopStart).padding(MapInset))
                 }

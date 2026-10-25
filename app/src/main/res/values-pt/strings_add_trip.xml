@@ -12,7 +12,6 @@
     <string name="addtrip_tap_origin">Toque num local ou mantenha premido para definir a origem</string>
     <string name="addtrip_tap_destination">Toque num local ou mantenha premido para definir o destino</string>
     <string name="addtrip_no_matches">Sem correspondências</string>
-    <string name="addtrip_show_whole_trip">Mostrar a viagem inteira</string>
     <string name="addtrip_follow_roads">Seguir estradas</string>
     <string name="addtrip_along_roads">Pelas estradas · %1$s · %2$s</string>
     <string name="addtrip_no_roads">Nenhum trajeto por estrada entre estes pontos</string>

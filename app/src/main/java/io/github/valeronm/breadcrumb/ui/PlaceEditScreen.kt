@@ -242,8 +242,8 @@ internal fun PlaceEditScreen(
                         onLongPress = { movePin(it, pinMoved) },
                         camera = camera,
                         modifier = Modifier.fillMaxSize(),
-                        controls = {
-                            if (aiming) AimCrosshair()
+                        controls = { if (aiming) AimCrosshair() },
+                        corner = {
                             MapCornerControls(
                                 aiming = aiming,
                                 aimDescription = stringResource(R.string.places_pin_aim),

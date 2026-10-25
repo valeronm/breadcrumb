@@ -68,6 +68,7 @@
     <!-- Each placeholder is a link: the basemap's maker, then the data credit FOSSGIS's terms ask
          for — the project, the licence and the report-an-error page. -->
     <string name="common_map_credit">© %1$s · %4$s\nData © %2$s contributors (%3$s)</string>
+    <string name="common_map_reset_view">Reset view</string>
     <string name="common_osm_report_error">Report a map error</string>
     <!-- Where a trip or a place came from; one recorded or made in the app carries none. -->
     <string name="common_origin_gpx" translatable="false">GPX</string>

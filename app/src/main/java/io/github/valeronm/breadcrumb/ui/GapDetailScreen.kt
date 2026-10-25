@@ -346,7 +346,7 @@ private fun GapMap(
         frameKey = frameKey,
         obscured = obscured,
         modifier = Modifier.fillMaxSize(),
-        controls = { FrameControl(stringResource(R.string.gap_show_both_ends), onReframe) },
+        reframe = { onReframe() },
     )
 }
 

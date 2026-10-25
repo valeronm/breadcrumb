@@ -792,9 +792,7 @@ internal fun AddTripScreen(
                     onCenterSettled = { mapCenter = it },
                     obscured = cover::insets,
                     modifier = Modifier.fillMaxSize(),
-                    controls = {
-                        FrameControl(stringResource(R.string.addtrip_show_whole_trip)) { frameKey++ }
-                    },
+                    reframe = { frameKey++ },
                 )
                 val halo = touchHalo(FilterChipDefaults.Height)
                 Column(

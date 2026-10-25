@@ -17,7 +17,6 @@
     <string name="addtrip_tap_destination">Tap a place or long-press to set the destination</string>
     <!-- ODbL's credit, at the results it applies to. -->
     <string name="addtrip_no_matches">No matches</string>
-    <string name="addtrip_show_whole_trip">Show the whole trip</string>
 
     <!-- Asking the online router for the trip's path: the chip's offer, the chip once it has one
          (the length, then the time it takes), and the one message a failure gets. -->
