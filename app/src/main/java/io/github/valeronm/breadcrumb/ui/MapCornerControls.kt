@@ -7,10 +7,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,9 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
@@ -61,12 +57,8 @@ internal fun BoxScope.MapCorner(
     /** Read here rather than by the caller, so a change recomposes this corner alone. */
     away: State<Boolean>,
     onReframe: (() -> Unit)?,
-    /** How far in from the map's right edge [corner]'s controls reach, in pixels. */
-    onCornerReach: (Int) -> Unit,
     corner: @Composable () -> Unit,
 ) {
-    // A control's touch halo sits outside what the eye sees on both sides.
-    val insetPx = with(LocalDensity.current) { (MapInset - touchHalo(SmallFabSize) * 2).roundToPx() }
     Column(
         Modifier.align(Alignment.BottomEnd).padding(MapInset - touchHalo(SmallFabSize)),
         verticalArrangement = Arrangement.spacedBy(8.dp - touchHalo(SmallFabSize) * 2),
@@ -79,7 +71,7 @@ internal fun BoxScope.MapCorner(
                 }
             }
         }
-        Box(Modifier.onSizeChanged { onCornerReach(it.width + insetPx) }) { corner() }
+        corner()
     }
 }
 
@@ -95,14 +87,12 @@ internal fun PinAimControls(
     onConfirmAim: () -> Unit,
 ) {
     if (aiming) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp - touchHalo(SmallFabSize) * 2),
-            verticalAlignment = Alignment.CenterVertically,
+        // Stacked rather than side by side: at the credit's height the corner stays one button wide.
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp - touchHalo(SmallFabSize) * 2),
+            horizontalAlignment = Alignment.End,
         ) {
-            CornerFab(onCancelAim) {
-                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_cancel))
-            }
-            // A small FAB's height, touch target and shape, so it matches the one beside it.
+            // A small FAB's height, touch target and shape, so it matches the one below it.
             ExtendedFloatingActionButton(
                 onClick = onConfirmAim,
                 modifier = Modifier.minimumInteractiveComponentSize().height(SmallFabSize),
@@ -110,6 +100,9 @@ internal fun PinAimControls(
                 icon = { Icon(Icons.Filled.Check, contentDescription = null) },
                 text = { Text(confirmLabel) },
             )
+            CornerFab(onCancelAim) {
+                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_cancel))
+            }
         }
     } else {
         CornerFab(onAim) { Icon(Icons.Filled.PushPin, contentDescription = aimDescription) }

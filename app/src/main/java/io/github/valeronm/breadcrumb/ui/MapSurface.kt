@@ -26,7 +26,6 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -40,7 +39,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -177,8 +175,6 @@ private fun MapOverlay(
     corner: @Composable () -> Unit,
 ) {
     val indent = Modifier.padding(start = MapInset)
-    var cornerReachPx by remember { mutableIntStateOf(0) }
-    val cornerReach = with(LocalDensity.current) { cornerReachPx.toDp() }
     Box(
         Modifier
             .fillMaxSize()
@@ -186,11 +182,10 @@ private fun MapOverlay(
     ) {
         // The bottom-left corner is the one no screen puts a control in.
         Column(
-            // Clear of the corner's controls, so a long credit wraps rather than running under them. At least one
-            // control's width even when the corner is empty: the reset button can fade in there.
+            // Narrower than the map by a corner control, so a long credit wraps rather than running under one.
             Modifier
                 .align(Alignment.BottomStart)
-                .padding(end = maxOf(CornerControlReach, cornerReach) + 8.dp),
+                .padding(end = CornerControlReach + 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (BuildConfig.DEV_TOOLS) ZoomReadout(zoom, indent)
@@ -203,7 +198,7 @@ private fun MapOverlay(
             }
         }
         controls()
-        MapCorner(coverage.away, onReframe, { cornerReachPx = it }, corner)
+        MapCorner(coverage.away, onReframe, corner)
     }
 }
 
