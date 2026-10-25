@@ -195,7 +195,7 @@ private enum class HomeTab(
     @StringRes val titleRes: Int = labelRes,
 ) {
     // The Record tab heads the app rather than itself, so its title is the product's name.
-    RECORD(R.string.nav_record, Icons.Filled.MyLocation, titleRes = R.string.title_record),
+    RECORD(R.string.nav_record, Icons.Filled.MyLocation, titleRes = R.string.app_brand),
     TIMELINE(R.string.nav_timeline, Icons.Filled.Route),
     PLACES(R.string.nav_places, Icons.Filled.Place),
     INSIGHTS(R.string.nav_insights, Icons.Filled.Insights),

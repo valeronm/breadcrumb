@@ -8,6 +8,12 @@
 <resources>
     <!-- A product name, not wording. Overridden per build variant to tell the launcher icons apart. -->
     <string name="app_name" translatable="false">Breadcrumb</string>
+    <!--
+      Deliberately not app_name: that one is overridden per build variant to tell the *launcher*
+      icons apart ("Breadcrumb (debug)"), and a screen naming the product wants the name alone —
+      the badge or the version line beside it already says which build this is.
+    -->
+    <string name="app_brand" translatable="false">Breadcrumb</string>
 
     <string name="common_back">Back</string>
     <string name="common_cancel">Cancel</string>

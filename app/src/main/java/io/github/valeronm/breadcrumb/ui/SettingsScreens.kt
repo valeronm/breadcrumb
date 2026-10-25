@@ -751,7 +751,7 @@ internal fun AboutSettingsScreen(say: (String) -> Unit, onBack: () -> Unit) {
         AppIcon(Modifier.align(Alignment.CenterHorizontally))
         Spacer(Modifier.height(12.dp))
         Text(
-            stringResource(R.string.app_name),
+            stringResource(R.string.app_brand),
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.titleLarge,
