@@ -14,6 +14,7 @@
     </plurals>
     <string name="discarded_restore">Restore trip</string>
     <string name="discarded_restore_overlaps">Not restored: it overlaps a trip on the timeline</string>
+    <string name="discarded_restore_failed">Restore failed</string>
 
     <!-- The app's side is named by what it did, a reader knowing a keep rule only as something
          that happened without them. -->

@@ -15,6 +15,7 @@
     </plurals>
     <string name="discarded_restore">Recuperar a viagem</string>
     <string name="discarded_restore_overlaps">Não foi recuperada: sobrepõe-se a uma viagem na cronologia</string>
+    <string name="discarded_restore_failed">Falha ao recuperar</string>
 
     <string name="discarded_filter_all">Todas</string>
     <string name="discarded_filter_you">Por si</string>

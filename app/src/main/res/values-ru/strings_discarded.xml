@@ -17,6 +17,7 @@
     </plurals>
     <string name="discarded_restore">Восстановить поездку</string>
     <string name="discarded_restore_overlaps">Не восстановлена: пересекается с поездкой в истории</string>
+    <string name="discarded_restore_failed">Не удалось восстановить</string>
 
     <string name="discarded_filter_all">Все</string>
     <string name="discarded_filter_you">Вами</string>

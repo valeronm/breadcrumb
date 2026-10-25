@@ -104,6 +104,16 @@ internal class ImportExportController(
     /** Non-null while a GPX import runs. */
     val importProgress: StateFlow<GpxImportProgress?> = derived { (it as? Running.ImportingGpx)?.progress }
 
+    /** Null when [block] throws, logged as [label] failing; a cancellation is no failure and propagates. */
+    private suspend fun <T> failureAsNull(label: String, block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+        DebugLog.w(TAG, "$label failed: ${e.message}")
+        null
+    }
+
     /** [op]'s failures are logged and reach [message] as null. */
     private fun <T> runTransfer(
         transfer: Transfer,
@@ -120,16 +130,8 @@ internal class ImportExportController(
             val startedAt = SystemClock.elapsedRealtime()
             DebugLog.i(TAG, "$logLabel started")
             val result = withContext(Dispatchers.IO) {
-                try {
+                failureAsNull(logLabel) {
                     op { done, total -> running.value = Running.Transferring(transfer, OpProgress(done, total)) }
-                    // Boundary catch: whatever an export/import throws, the user gets the failure
-                    // message instead of a crash. Cancellation isn't a failure — rethrow so the
-                    // coroutine winds down instead of reporting a spurious null result.
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-                    DebugLog.w(TAG, "$logLabel failed: ${e.message}")
-                    null
                 }
             }
             val elapsed = SystemClock.elapsedRealtime() - startedAt
@@ -194,10 +196,12 @@ internal class ImportExportController(
     fun restoreDeleted(trackIds: List<Long>) {
         if (!claim(Running.Undeleting)) return
         scope.launch {
-            try {
-                if (!repository.restoreTracks(trackIds)) say(app.getString(R.string.discarded_restore_overlaps))
-            } finally {
-                running.value = null
+            val restored = failureAsNull("recently deleted restore") { repository.restoreTracks(trackIds) }
+            running.value = null
+            when (restored) {
+                null -> say(app.getString(R.string.discarded_restore_failed))
+                false -> say(app.getString(R.string.discarded_restore_overlaps))
+                true -> Unit
             }
         }
     }
@@ -256,23 +260,21 @@ internal class ImportExportController(
             withContext(Dispatchers.IO) {
                 val resolver = app.contentResolver
                 for ((index, uri) in uris.withIndex()) {
-                    try {
+                    // One unreadable file counts as failed, and the rest still import.
+                    val counts = failureAsNull("gpx import of $uri") {
                         val parsed =
                             resolver.openInputStream(uri)?.use { GpxParser.parse(it) } ?: emptyList()
                         val importable = parsed.mapNotNull { GpxParser.toImportable(it) }
                         failed += parsed.size - importable.size
                         if (parsed.isEmpty()) failed++ // a readable file with no tracks at all
-                        val counts = repository.importTracks(importable)
+                        repository.importTracks(importable)
+                    }
+                    if (counts == null) {
+                        failed++
+                    } else {
                         imported += counts.imported
                         duplicates += counts.duplicates
                         overlapping += counts.overlapping
-                        // Boundary catch: one unreadable file counts as failed, the rest import.
-                        // Cancellation isn't a failed file — rethrow instead of counting it.
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-                        DebugLog.w("Breadcrumb", "gpx import failed for $uri: ${e.message}")
-                        failed++
                     }
                     running.value = Running.ImportingGpx(GpxImportProgress(index + 1, uris.size, imported))
                 }
