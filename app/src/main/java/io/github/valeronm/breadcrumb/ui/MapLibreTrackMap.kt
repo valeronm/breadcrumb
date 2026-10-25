@@ -3,12 +3,10 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
@@ -67,6 +65,8 @@ internal fun MapLibreTrackMap(
     activity: ActivityType? = null,
     colorMode: ColorMode = ColorMode.SPEED,
     showLegend: Boolean = false,
+    /** A key to [noisyPoints]' marks, stacked over the color legend. */
+    noisyLegend: @Composable () -> Unit = {},
     // Read only while drawing, so a new selection redraws the marker without recomposing the map.
     selectedPoint: (() -> TrackPoint?)? = null,
     // Detected in-track stops, highlighted as place-style capture circles under the line.
@@ -112,8 +112,13 @@ internal fun MapLibreTrackMap(
 
     MapLibreStyledMap(
         modifier = modifier,
-        controls = {
-            if (showLegend) TrackLegend(coloring.legend, Modifier.align(Alignment.BottomEnd).padding(MapInset))
+        legend = if (showLegend) {
+            {
+                noisyLegend()
+                TrackLegend(coloring.legend)
+            }
+        } else {
+            null
         },
         overMap = { map -> if (selectedPoint != null) SelectionMarker(map, selectedPoint) },
         onStyleLoaded = { ctx, map, style, dark ->

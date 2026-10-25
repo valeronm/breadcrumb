@@ -7,9 +7,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.CornerBasedShape
+import androidx.compose.foundation.shape.ZeroCornerSize
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,9 +34,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -75,6 +82,8 @@ internal fun MapLibreStyledMap(
     obscured: () -> MapInsets = { MapInsets.NONE },
     /** What the screen floats over the map, lifted clear of what [obscured] covers. */
     controls: @Composable BoxScope.() -> Unit = {},
+    /** A key to what the map's colors mean, stacked over the credit in the bottom-left corner. */
+    legend: (@Composable ColumnScope.() -> Unit)? = null,
     /** Drawn over the map's own pixels and under [controls], in the map view's coordinates. */
     overMap: @Composable BoxScope.(MapLibreMap) -> Unit = {},
     onMapReady: (MapLibreMap) -> Unit = {},
@@ -136,7 +145,7 @@ internal fun MapLibreStyledMap(
                 },
             )
             readyMap.value?.let { overMap(it) }
-            MapOverlay(zoom, host.coverage, controls)
+            MapOverlay(zoom, host.coverage, controls, legend)
         }
     }
 }
@@ -147,8 +156,9 @@ private fun MapOverlay(
     zoom: FloatState,
     coverage: Coverage,
     controls: @Composable BoxScope.() -> Unit,
+    legend: (@Composable ColumnScope.() -> Unit)?,
 ) {
-    val insetPx = with(LocalDensity.current) { MapInset.roundToPx() }
+    val indent = Modifier.padding(start = MapInset)
     Box(
         Modifier
             .fillMaxSize()
@@ -159,15 +169,38 @@ private fun MapOverlay(
             // Narrower than the map by a corner control, so a long credit wraps rather than running under one.
             Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = MapInset, bottom = MapInset, end = CornerControlReach + 8.dp),
+                .padding(end = CornerControlReach + 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (BuildConfig.DEV_TOOLS) ZoomReadout(zoom)
-            LegendSurface(Modifier.onSizeChanged { coverage.creditPx = it.height + insetPx }) {
-                MapCredit()
+            if (BuildConfig.DEV_TOOLS) ZoomReadout(zoom, indent)
+            Column(
+                Modifier.onSizeChanged { coverage.cornerPx = it.height },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                legend?.let { Column(indent, verticalArrangement = Arrangement.spacedBy(8.dp), content = it) }
+                CreditSurface(coverage)
             }
         }
         controls()
+    }
+}
+
+/** Flush in the map's corner and fainter than what floats over it, so it reads as part of the map. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CreditSurface(coverage: Coverage) {
+    val color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+    val shape = legendShape.copy(topStart = ZeroCornerSize, bottomEnd = ZeroCornerSize, bottomStart = ZeroCornerSize)
+    val sheetCorner = (BottomSheetDefaults.ExpandedShape as CornerBasedShape).topStart
+    Box(
+        Modifier.drawBehind {
+            // A sheet over the map's bottom edge rounds away from it at its corner, uncovering the map
+            // beside the credit.
+            val under = if (coverage.obscured().bottom > 0) sheetCorner.toPx(size, this) else 0f
+            drawOutline(shape.createOutline(Size(size.width, size.height + under), layoutDirection, this), color)
+        },
+    ) {
+        MapCredit(Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
     }
 }
 
@@ -180,8 +213,8 @@ private fun MapOverlay(
  * whole diff mid-pinch — in the `perf` build, which exists to measure exactly that.
  */
 @Composable
-private fun ZoomReadout(zoom: FloatState) {
-    LegendSurface {
+private fun ZoomReadout(zoom: FloatState, modifier: Modifier) {
+    LegendSurface(modifier) {
         Text("z %.1f".format(zoom.floatValue), style = MaterialTheme.typography.labelSmall)
     }
 }
@@ -361,10 +394,10 @@ internal data class MapInsets(val top: Int, val bottom: Int) {
 
 private const val FRAME_MARGIN_PX = 96
 
-/** What hides a map: the screen's own controls, and the measured [MapCredit] chip above them. */
+/** What hides a map: the screen's own controls, and the measured [MapCredit] chip and legend above them. */
 private class Coverage {
     var obscured: () -> MapInsets = { MapInsets.NONE }
-    var creditPx = 0
+    var cornerPx = 0
 }
 
 /** Weak on the map, and an entry is removed when its map view is destroyed, so a screen's [Coverage.obscured]
@@ -378,7 +411,7 @@ private val coverages = WeakHashMap<MapLibreMap, Coverage>()
 internal fun covered(map: MapLibreMap): MapInsets {
     val coverage = coverages[map] ?: return MapInsets.NONE
     val obscured = Snapshot.withoutReadObservation(coverage.obscured)
-    return obscured.copy(bottom = obscured.bottom + coverage.creditPx)
+    return obscured.copy(bottom = obscured.bottom + coverage.cornerPx)
 }
 
 /** How far in from each edge, as a share of the part of the map left showing, a position still reads

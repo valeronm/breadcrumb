@@ -377,7 +377,7 @@ internal fun ColorModeSelector(
 }
 
 @Composable
-internal fun TrackLegend(legend: Legend, modifier: Modifier) {
+internal fun TrackLegend(legend: Legend, modifier: Modifier = Modifier) {
     when (legend) {
         Legend.Solid -> Unit
         is Legend.None ->
