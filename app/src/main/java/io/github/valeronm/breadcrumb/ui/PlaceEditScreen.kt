@@ -246,7 +246,7 @@ internal fun PlaceEditScreen(
                         onLongPress = { movePin(it, pinMoved) },
                         camera = camera,
                         modifier = Modifier.fillMaxSize(),
-                        controls = { if (aiming) AimCrosshair() },
+                        crosshair = aiming,
                         // Over the map's corner, not under the slider: the count is read *while*
                         // dragging, and a hand reaching down to the slider covers everything below it.
                         // Here it sits beside the dots it counts, in the one part of the screen a thumb

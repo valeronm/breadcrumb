@@ -6,7 +6,6 @@ import android.graphics.PointF
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -127,7 +126,7 @@ internal fun MapLibrePlaceMap(
     /** A long press on the map, in map coordinates — how the center is placed by hand. */
     onLongPress: (Coordinate) -> Unit,
     camera: CameraCarry? = null,
-    controls: @Composable BoxScope.() -> Unit = {},
+    crosshair: Boolean = false,
     topStart: (@Composable ColumnScope.() -> Unit)? = null,
     corner: @Composable () -> Unit = {},
 ) {
@@ -147,7 +146,7 @@ internal fun MapLibrePlaceMap(
     MapLibreStyledMap(
         modifier = modifier,
         camera = camera,
-        controls = controls,
+        crosshair = crosshair,
         frame = { framePlace(it, center.location, radiusM) },
         // A changed radius refits, the circle being the subject. A moved pin does not: the move was
         // aimed at a point the user was looking at, which a refit would slide out from under them.
@@ -600,7 +599,7 @@ internal fun MapLibrePlacesMap(
     modifier: Modifier = Modifier,
     /** The phone's position, where the camera goes and the dot is drawn — see [MapCenterRequest]. */
     goTo: MapCenterRequest? = null,
-    controls: @Composable BoxScope.() -> Unit = {},
+    crosshair: Boolean = false,
     topStart: (@Composable ColumnScope.() -> Unit)? = null,
     corner: @Composable () -> Unit = {},
 ) {
@@ -611,7 +610,7 @@ internal fun MapLibrePlacesMap(
     MapLibreStyledMap(
         modifier = modifier,
         camera = camera,
-        controls = controls,
+        crosshair = crosshair,
         frame = { map -> if (opened != null) map.cameraPosition = opened else frameAllPlaces(map, places) },
         frameKey = frameKey,
         // A filter changes the places a fit covers without moving the camera.

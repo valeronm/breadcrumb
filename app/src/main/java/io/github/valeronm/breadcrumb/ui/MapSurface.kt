@@ -80,8 +80,8 @@ internal fun MapLibreStyledMap(
     camera: CameraCarry? = null,
     /** What the screen's own controls cover of the map right now, read on every frame of a drag. */
     obscured: () -> MapInsets = { MapInsets.NONE },
-    /** What the screen floats over the map, lifted clear of what [obscured] covers. */
-    controls: @Composable BoxScope.() -> Unit = {},
+    /** Puts [AimCrosshair] at the middle of what [obscured] leaves showing. */
+    crosshair: Boolean = false,
     /** A key to what the map's colors mean, stacked over the credit in the bottom-left corner. */
     legend: (@Composable ColumnScope.() -> Unit)? = null,
     /** Filters and hints stacked in the top-left corner ([MapFilterChips]), below what [obscured] covers. */
@@ -100,7 +100,7 @@ internal fun MapLibreStyledMap(
     openAt: ((MapLibreMap) -> Unit)? = null,
     /** The screen's own button in the bottom-right corner, under the reset button. */
     corner: @Composable () -> Unit = {},
-    /** Drawn over the map's own pixels and under [controls], in the map view's coordinates. */
+    /** Drawn over the map's own pixels and under its controls, in the map view's coordinates. */
     overMap: @Composable BoxScope.(MapLibreMap) -> Unit = {},
     onMapReady: (MapLibreMap) -> Unit = {},
     onStyleLoaded: (ctx: Context, map: MapLibreMap, style: Style, dark: Boolean) -> Unit,
@@ -177,7 +177,7 @@ internal fun MapLibreStyledMap(
                 },
             )
             readyMap.value?.let { overMap(it) }
-            MapOverlay(zoom, host.coverage, controls, legend, topStart, onReframe.takeIf { frame != null }, corner)
+            MapOverlay(zoom, host.coverage, crosshair, legend, topStart, onReframe.takeIf { frame != null }, corner)
         }
     }
 }
@@ -187,7 +187,7 @@ internal fun MapLibreStyledMap(
 private fun MapOverlay(
     zoom: FloatState,
     coverage: Coverage,
-    controls: @Composable BoxScope.() -> Unit,
+    crosshair: Boolean,
     legend: (@Composable ColumnScope.() -> Unit)?,
     topStart: (@Composable ColumnScope.() -> Unit)?,
     onReframe: (() -> Unit)?,
@@ -216,7 +216,7 @@ private fun MapOverlay(
                 CreditSurface(coverage)
             }
         }
-        controls()
+        if (crosshair) AimCrosshair()
         MapCorner(coverage.away, onReframe, corner)
     }
     topStart?.let {
