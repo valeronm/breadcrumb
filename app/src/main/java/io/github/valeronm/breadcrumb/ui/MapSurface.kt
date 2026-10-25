@@ -156,7 +156,10 @@ private fun MapOverlay(
     ) {
         // The bottom-left corner is the one no screen puts a control in.
         Column(
-            Modifier.align(Alignment.BottomStart).padding(MapInset),
+            // Narrower than the map by a corner control, so a long credit wraps rather than running under one.
+            Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = MapInset, bottom = MapInset, end = CornerControlReach + 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (BuildConfig.DEV_TOOLS) ZoomReadout(zoom)

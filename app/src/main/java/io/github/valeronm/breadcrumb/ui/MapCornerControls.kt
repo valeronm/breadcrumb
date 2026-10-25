@@ -131,6 +131,9 @@ private fun BoxScope.CornerSlot(content: @Composable () -> Unit) {
 /** Material's small FAB container, which its library keeps internal. */
 private val SmallFabSize = 40.dp
 
+/** How far in from the map's right edge a [CornerSlot] control reaches, its inset included. */
+internal val CornerControlReach = MapInset + SmallFabSize
+
 /**
  * The cross at the map's middle, where the pin would land. A long press drops a pin under a
  * fingertip, which covers the very spot it aims at; the cross stays visible while the map moves
