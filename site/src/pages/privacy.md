@@ -54,13 +54,21 @@ screen, under Settings → Privacy. Recording carries on whether the app is lock
   and where the place is on the map.
   You can turn the search off under Settings → Privacy.
   The app then searches only the list of cities built into it, and suggests no names.
+- **Road routing**, if you use it. When you add a trip by hand and ask for it to follow the roads,
+  or tap Add the start of the next trip on a missing recording, the app sends the trip's two
+  points to the routing service that [FOSSGIS](https://www.fossgis.de/) runs at
+  routing.openstreetmap.de. Nothing from your history goes with them. You can turn road routing
+  off under Settings → Privacy. How FOSSGIS handles the request is covered by
+  [its privacy policy](https://www.fossgis.de/datenschutzerkl%C3%A4rung/), not this one.
 - **What you export.** A trip shared as a GPX file, or a backup of your whole history, goes
   wherever you send it. The app never sends it anywhere on its own.
 - **The log**, if you share it. The app keeps a log on the phone for troubleshooting. It reaches
   back several weeks, and you can clear it or share it under Settings → Logs. It holds no
   positions. It does hold when each trip started and ended, how long and how far it was, how you
   moved, how far the phone moved from where it last stopped, the name of any file you opened in
-  the app, and the app's version.
+  the app, and the app's version. If you turn on Leaving a Wi-Fi network under Settings → Trips,
+  it also holds when the phone joined and left a Wi-Fi network, with Android's number for that
+  connection and its frequency, never the network's name.
 - **Rough positions between trips.** Activity recognition runs through Google Play Services on
   your phone. So does the watch for you leaving where you stopped, which is how the app notices a
   trip that activity recognition missed, such as a train. Play Services is given the spot to watch,
@@ -78,7 +86,10 @@ screen, under Settings → Privacy. Recording carries on whether the app is lock
   background. The app also uses one to tell you when activity detection has stopped responding.
 - **Run at startup, and ignore battery optimisations.** So recording resumes after a reboot and
   the phone does not stop it to save power.
-- **Network.** For the map tiles and the optional place search above.
+- **Network.** For the map tiles, the optional place search and road routing above. If you turn
+  on Leaving a Wi-Fi network under Settings → Trips, the app also watches for the phone leaving a
+  Wi-Fi network, so a trip that starts indoors is noticed. With it off, the app does not watch
+  Wi-Fi.
 - **Fingerprint.** For the app lock, if you turn it on.
 
 ## The viewer
