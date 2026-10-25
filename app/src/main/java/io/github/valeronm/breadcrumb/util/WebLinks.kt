@@ -20,6 +20,13 @@ internal object WebLinks {
     const val OSM_COPYRIGHT = "https://www.openstreetmap.org/copyright"
     const val ODBL = "https://opendatacommons.org/licenses/odbl/"
     const val OSM_FIX_THE_MAP = "https://www.openstreetmap.org/fixthemap"
+
+    // The place-name atlas's credit links.
+    const val GEONAMES = "https://www.geonames.org/"
+    const val CC_BY_4 = "https://creativecommons.org/licenses/by/4.0/"
+
+    const val FOSSGIS_ROUTING = "https://routing.openstreetmap.de/"
+    const val PHOTON = "https://photon.komoot.io/"
 }
 
 internal fun Context.openInBrowser(url: String, onNoApp: () -> Unit) = viewUri(url.toUri(), onNoApp)

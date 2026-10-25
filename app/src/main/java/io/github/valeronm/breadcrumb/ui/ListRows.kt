@@ -55,7 +55,6 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.Dp
@@ -414,11 +413,8 @@ internal fun SearchDropdown(
  * contributors, the licence and a way to report an error, each linked.
  */
 @Composable
-internal fun MapCredit(modifier: Modifier = Modifier, textAlign: TextAlign? = null) {
-    val linkStyle = TextLinkStyles(SpanStyle(color = MaterialTheme.colorScheme.primary))
-    fun link(url: String, text: String) = buildAnnotatedString {
-        withLink(LinkAnnotation.Url(url, linkStyle)) { append(text) }
-    }
+internal fun MapCredit(modifier: Modifier = Modifier) {
+    val link = creditLinks()
     Text(
         annotatedStringResource(
             R.string.common_map_credit,
@@ -429,9 +425,15 @@ internal fun MapCredit(modifier: Modifier = Modifier, textAlign: TextAlign? = nu
         ),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        textAlign = textAlign,
         modifier = modifier,
     )
+}
+
+/** Makes a credit's linked name, in the theme's link color. */
+@Composable
+internal fun creditLinks(): (url: String, text: String) -> AnnotatedString {
+    val linkStyle = TextLinkStyles(SpanStyle(color = MaterialTheme.colorScheme.primary))
+    return { url, text -> buildAnnotatedString { withLink(LinkAnnotation.Url(url, linkStyle)) { append(text) } } }
 }
 
 /** ODbL's credit, owed at every list holding [OnlinePlaceSearch] results. */

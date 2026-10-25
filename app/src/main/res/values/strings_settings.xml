@@ -35,7 +35,11 @@
     <string name="settings_reset">Reset</string>
 
     <!-- Attribution, a licence requirement rather than decoration. -->
-    <string name="credit_geonames">Place names from GeoNames, CC BY 4.0</string>
+    <string name="credit_geonames">Place names from %1$s, %2$s</string>
+    <string name="about_credit_map">Map from %1$s</string>
+    <string name="about_credit_data">Map data © %1$s contributors (%2$s)</string>
+    <string name="about_credit_routing">Road routing from %1$s</string>
+    <string name="about_credit_search">Online place search from %1$s</string>
 
     <!-- About -->
     <string name="settings_about">About</string>

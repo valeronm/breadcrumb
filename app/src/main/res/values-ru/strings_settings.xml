@@ -32,7 +32,11 @@
     <string name="settings_logs">Журнал</string>
     <string name="settings_reset">Сброс</string>
 
-    <string name="credit_geonames">Названия мест — GeoNames, CC BY 4.0</string>
+    <string name="credit_geonames">Названия мест — %1$s, %2$s</string>
+    <string name="about_credit_map">Карта — %1$s</string>
+    <string name="about_credit_data">Данные карты © участники %1$s (%2$s)</string>
+    <string name="about_credit_routing">Маршруты по дорогам — %1$s</string>
+    <string name="about_credit_search">Онлайн-поиск мест — %1$s</string>
 
     <string name="settings_about">О приложении</string>
     <string name="about_version">Версия %1$s</string>

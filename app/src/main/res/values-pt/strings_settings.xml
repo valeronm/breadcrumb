@@ -31,7 +31,11 @@
     <string name="settings_logs">Registos</string>
     <string name="settings_reset">Repor</string>
 
-    <string name="credit_geonames">Nomes de locais do GeoNames, CC BY 4.0</string>
+    <string name="credit_geonames">Nomes de locais do %1$s, %2$s</string>
+    <string name="about_credit_map">Mapa do %1$s</string>
+    <string name="about_credit_data">Dados do mapa © contribuidores do %1$s (%2$s)</string>
+    <string name="about_credit_routing">Trajetos por estrada do %1$s</string>
+    <string name="about_credit_search">Pesquisa de locais online do %1$s</string>
 
     <string name="settings_about">Acerca da aplicação</string>
     <string name="about_version">Versão %1$s</string>

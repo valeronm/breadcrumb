@@ -58,6 +58,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -765,13 +766,39 @@ internal fun AboutSettingsScreen(say: (String) -> Unit, onBack: () -> Unit) {
             { LinkRow(stringResource(R.string.about_source_code), WebLinks.SOURCE, say) },
         )
         Spacer(Modifier.height(24.dp))
-        // CC BY 4.0 asks for the credit wherever the work is used, and the timeline's place names
-        // are that use.
-        FootnoteText(stringResource(R.string.credit_geonames))
-        // ODbL asks for the credit wherever OSM-derived results show, and FOSSGIS's terms for the
-        // links beside it.
-        MapCredit(Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        AboutCredits()
     }
+}
+
+/** Without the map credit's report-an-error link: there is no map here to report on, and every map carries one. */
+@Composable
+private fun AboutCredits() {
+    val link = creditLinks()
+    // CC BY 4.0 asks for the credit wherever the work is used, and the timeline's place names are
+    // that use.
+    CreditLine(annotatedStringResource(R.string.credit_geonames, link(WebLinks.GEONAMES, "GeoNames"), link(WebLinks.CC_BY_4, "CC BY 4.0")))
+    CreditLine(annotatedStringResource(R.string.about_credit_map, link(WebLinks.PROTOMAPS, "Protomaps")))
+    // ODbL asks for the credit wherever OSM-derived results show: the map, the routes and the search.
+    CreditLine(
+        annotatedStringResource(
+            R.string.about_credit_data,
+            link(WebLinks.OSM_COPYRIGHT, "OpenStreetMap"),
+            link(WebLinks.ODBL, "ODbL"),
+        ),
+    )
+    CreditLine(annotatedStringResource(R.string.about_credit_routing, link(WebLinks.FOSSGIS_ROUTING, "FOSSGIS")))
+    CreditLine(annotatedStringResource(R.string.about_credit_search, link(WebLinks.PHOTON, "Photon")))
+}
+
+@Composable
+private fun CreditLine(text: AnnotatedString) {
+    Text(
+        text,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable

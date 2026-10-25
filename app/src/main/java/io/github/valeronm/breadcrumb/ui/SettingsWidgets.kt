@@ -39,7 +39,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.util.DistanceSliderScale
@@ -120,17 +119,6 @@ internal fun GroupedRowScope.LinkRow(label: String, url: String, say: (String) -
     TappableRow(label, subtitle, enabled = true, leading = null, Icons.AutoMirrored.Filled.OpenInNew) {
         context.openInBrowser(url) { say(noBrowser) }
     }
-}
-
-@Composable
-internal fun FootnoteText(text: String) {
-    Text(
-        text,
-        modifier = Modifier.fillMaxWidth(),
-        textAlign = TextAlign.Center,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 @Composable
