@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -67,6 +68,7 @@ internal fun MapLibreTrackMap(
     showLegend: Boolean = false,
     /** A key to [noisyPoints]' marks, stacked over the color legend. */
     noisyLegend: @Composable () -> Unit = {},
+    topStart: (@Composable ColumnScope.() -> Unit)? = null,
     // Read only while drawing, so a new selection redraws the marker without recomposing the map.
     selectedPoint: (() -> TrackPoint?)? = null,
     // Detected in-track stops, highlighted as place-style capture circles under the line.
@@ -123,6 +125,7 @@ internal fun MapLibreTrackMap(
         } else {
             null
         },
+        topStart = topStart,
         // The live preview frames itself as the recording grows, and has no frame to return to.
         frame = frameWhole.takeUnless { directionalEnd },
         // A track still loading fits once its points arrive.

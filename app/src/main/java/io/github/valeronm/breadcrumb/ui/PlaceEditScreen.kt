@@ -34,7 +34,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.res.pluralStringResource
@@ -227,6 +226,11 @@ internal fun PlaceEditScreen(
             }
             Card(Modifier.weight(1f).fillMaxWidth()) {
                 Box(Modifier.fillMaxSize().clipToBounds()) {
+                    // What the circle holds *now*, not what the stored radius holds, so the count and
+                    // the dots can't disagree as the slider moves.
+                    val captured = remember(scan, radiusM, summary.endpoints) {
+                        scan?.countWithin(radiusM.toDouble()) ?: summary.endpoints.size
+                    }
                     MapLibrePlaceMap(
                         center = PlaceMarker(pin, summary.place),
                         radiusM = radiusM.toDouble(),
@@ -243,6 +247,19 @@ internal fun PlaceEditScreen(
                         camera = camera,
                         modifier = Modifier.fillMaxSize(),
                         controls = { if (aiming) AimCrosshair() },
+                        // Over the map's corner, not under the slider: the count is read *while*
+                        // dragging, and a hand reaching down to the slider covers everything below it.
+                        // Here it sits beside the dots it counts, in the one part of the screen a thumb
+                        // never crosses.
+                        topStart = {
+                            MapStackLegend {
+                                Text(
+                                    pluralStringResource(R.plurals.places_captured_endpoints, captured, captured),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                            if (aiming) AimHint()
+                        },
                         corner = {
                             PinAimControls(
                                 aiming = aiming,
@@ -257,30 +274,6 @@ internal fun PlaceEditScreen(
                             )
                         },
                     )
-                    // Over the map's corner, not under the slider: this number is read *while*
-                    // dragging, and a hand reaching down to the slider covers everything below it.
-                    // Here it sits beside the dots it counts, in the one part of the screen a thumb
-                    // never crosses. What the circle holds *now*, not what the stored radius holds,
-                    // so it and the dots can't disagree as the slider moves.
-                    val captured = remember(scan, radiusM, summary.endpoints) {
-                        scan?.countWithin(radiusM.toDouble()) ?: summary.endpoints.size
-                    }
-                    Column(
-                        Modifier.align(Alignment.TopStart).padding(MapInset),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        LegendSurface {
-                            Text(
-                                pluralStringResource(
-                                    R.plurals.places_captured_endpoints,
-                                    captured,
-                                    captured,
-                                ),
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
-                        if (aiming) AimHint()
-                    }
                 }
             }
             // Below the map, not above it: this is the one control dragged while watching the result,

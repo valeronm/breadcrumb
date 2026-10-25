@@ -7,6 +7,7 @@ import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -127,6 +128,7 @@ internal fun MapLibrePlaceMap(
     onLongPress: (Coordinate) -> Unit,
     camera: CameraCarry? = null,
     controls: @Composable BoxScope.() -> Unit = {},
+    topStart: (@Composable ColumnScope.() -> Unit)? = null,
     corner: @Composable () -> Unit = {},
 ) {
     val applied = remember { AppliedPlaceInputs() }
@@ -151,6 +153,7 @@ internal fun MapLibrePlaceMap(
         // aimed at a point the user was looking at, which a refit would slide out from under them.
         frameKey = radiusM,
         frameCovers = center.location,
+        topStart = topStart,
         corner = corner,
         onMapReady = { map ->
             map.addOnMapLongClickListener { at ->
@@ -598,6 +601,7 @@ internal fun MapLibrePlacesMap(
     /** The phone's position, where the camera goes and the dot is drawn — see [MapCenterRequest]. */
     goTo: MapCenterRequest? = null,
     controls: @Composable BoxScope.() -> Unit = {},
+    topStart: (@Composable ColumnScope.() -> Unit)? = null,
     corner: @Composable () -> Unit = {},
 ) {
     val applied = remember { AppliedOverviewInputs() }
@@ -613,6 +617,7 @@ internal fun MapLibrePlacesMap(
         // A filter changes the places a fit covers without moving the camera.
         frameCovers = pins.takeIf { opened == null },
         openAt = goTo?.let { request -> { map -> moveCameraTo(map, request.at) } },
+        topStart = topStart,
         corner = corner,
         onMapReady = { map ->
             map.addOnMapClickListener { latLng ->

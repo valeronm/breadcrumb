@@ -112,7 +112,7 @@ internal fun BoxScope.MapFilterChips(content: @Composable ColumnScope.() -> Unit
  *  surface has none. */
 @Composable
 internal fun ColumnScope.MapStackLegend(content: @Composable ColumnScope.() -> Unit) {
-    LegendSurface(Modifier.padding(top = touchHalo(FilterChipDefaults.Height)), content)
+    LegendSurface(Modifier.padding(vertical = touchHalo(FilterChipDefaults.Height)), content)
 }
 
 /** Elevated on an opaque surface: the default chip tones all but vanish against a basemap. */

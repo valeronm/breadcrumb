@@ -296,10 +296,12 @@ private fun PlacesMapPage(
                     camera = mapCamera,
                     modifier = Modifier.fillMaxSize(),
                     goTo = myLocation.goTo,
+                    topStart = filters,
                     corner = { MyLocationControl(myLocation) },
                 )
             }
-            MapFilterChips(filters)
+            // With no map to stack them, the filters stand over the message on their own.
+            if (mapPlaces.isEmpty()) MapFilterChips(filters)
         }
     }
 }

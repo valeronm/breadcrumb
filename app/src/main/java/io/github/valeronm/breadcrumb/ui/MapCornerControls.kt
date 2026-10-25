@@ -9,6 +9,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -164,8 +165,8 @@ internal fun BoxScope.AimCrosshair() {
 }
 
 @Composable
-internal fun AimHint(modifier: Modifier = Modifier) {
-    LegendSurface(modifier) {
+internal fun ColumnScope.AimHint() {
+    MapStackLegend {
         Text(stringResource(R.string.places_pin_aim_hint), style = MaterialTheme.typography.labelSmall)
     }
 }

@@ -84,6 +84,8 @@ internal fun MapLibreStyledMap(
     controls: @Composable BoxScope.() -> Unit = {},
     /** A key to what the map's colors mean, stacked over the credit in the bottom-left corner. */
     legend: (@Composable ColumnScope.() -> Unit)? = null,
+    /** Filters and hints stacked in the top-left corner ([MapFilterChips]), below what [obscured] covers. */
+    topStart: (@Composable ColumnScope.() -> Unit)? = null,
     /**
      * The fit the map opens on, unless a carried camera or [openAt] places it, and the one the reset
      * button returns to once the camera has left it. Null where nothing is framed.
@@ -175,7 +177,7 @@ internal fun MapLibreStyledMap(
                 },
             )
             readyMap.value?.let { overMap(it) }
-            MapOverlay(zoom, host.coverage, controls, legend, onReframe.takeIf { frame != null }, corner)
+            MapOverlay(zoom, host.coverage, controls, legend, topStart, onReframe.takeIf { frame != null }, corner)
         }
     }
 }
@@ -187,6 +189,7 @@ private fun MapOverlay(
     coverage: Coverage,
     controls: @Composable BoxScope.() -> Unit,
     legend: (@Composable ColumnScope.() -> Unit)?,
+    topStart: (@Composable ColumnScope.() -> Unit)?,
     onReframe: (() -> Unit)?,
     corner: @Composable () -> Unit,
 ) {
@@ -215,6 +218,9 @@ private fun MapOverlay(
         }
         controls()
         MapCorner(coverage.away, onReframe, corner)
+    }
+    topStart?.let {
+        Box(Modifier.fillMaxSize().offset { IntOffset(0, coverage.obscured().top) }) { MapFilterChips(it) }
     }
 }
 

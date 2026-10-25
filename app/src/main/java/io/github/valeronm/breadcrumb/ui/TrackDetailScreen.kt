@@ -328,20 +328,22 @@ internal fun TrackDetailScreen(
                                     dashed = TrackOrigin.impliesMotion(summary?.source),
                                     precomputedColoring = graph?.coloring ?: solidLine,
                                     precomputedSeams = seams,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                                if (!noisyPoints.isNullOrEmpty()) {
                                     // On the map rather than in the bar: it shows and hides marks
                                     // drawn here.
-                                    MapFilterChips {
-                                        MapFilterChip(
-                                            selected = showNoisy,
-                                            label = stringResource(R.string.track_filter_noisy),
-                                        ) {
-                                            showNoisyOverride = !showNoisy
+                                    topStart = if (noisyPoints.isNullOrEmpty()) {
+                                        null
+                                    } else {
+                                        {
+                                            MapFilterChip(
+                                                selected = showNoisy,
+                                                label = stringResource(R.string.track_filter_noisy),
+                                            ) {
+                                                showNoisyOverride = !showNoisy
+                                            }
                                         }
-                                    }
-                                }
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
                             }
                         }
                         if (graph != null) {
