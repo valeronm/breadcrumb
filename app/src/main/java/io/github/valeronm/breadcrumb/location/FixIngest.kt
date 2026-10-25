@@ -110,11 +110,6 @@ class FixIngest(internal val distance: DistanceFn) {
     val distanceMeters: Double get() = accumulator.distanceMeters
     val lastGood: TrackPoint? get() = accumulator.lastGood
 
-    /**
-     * The witness's verdict — [Motion.Unknown] whenever the ground data can't support one, which
-     * is also what every consultation treats as "no witness": the recorder must record movement,
-     * and a mislabelled STILL aboard a moving carrier costs the trip unless the ground can answer.
-     */
     fun verdict(nowMs: Long): Motion = confirmer.verdict(nowMs)
 
     /**

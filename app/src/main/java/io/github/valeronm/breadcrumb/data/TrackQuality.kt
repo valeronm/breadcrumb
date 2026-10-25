@@ -257,10 +257,10 @@ object TrackQuality {
      * [lastGood] is null for the first point of a track (or segment); [distance] is injectable so
      * the speed logic is host-testable. The GNSS evidence is a plain Boolean because deciding it is
      * `GnssSnapshot.backed`'s job — the caller reads two platform timestamps and nothing more.
-     * [Gates.motion] reaches only the jump ceiling (see [jumpCeiling]). The two reasons above it
-     * are untouched by it on purpose: they judge a fix on its own merits rather than against a
-     * label, and they are the very gates that decide which fixes the position stream's witness may
-     * be fed at all.
+     * [Gates.motion] reaches only the jump ceiling (see [jumpCeiling]). [IgnoreReason.NO_GNSS] and
+     * [IgnoreReason.ACCURACY] are untouched by it on purpose: they judge a fix on its own merits
+     * rather than against a label, and they are the gates that decide which fixes the position
+     * stream's witness may be fed at all.
      */
     fun badFixReason(
         lastGood: TrackPoint?,

@@ -28,11 +28,8 @@ ktlint and detekt both run in CI, and each config states which rules it turns of
 raise with the user**, not a cleanup. A refactor that moves code `app/detekt-baseline.xml` holds can
 resurface its entry as new, which is intended.
 
-**The build's "ReportingExtension.file(String) has been deprecated" warning stands deliberately.**
-It fires inside detekt's own plugin `apply()`, before any config of ours runs (upstream
-detekt#8452), and the fix lives only on detekt 2.x, which renames the packages to `dev.detekt` and
-reorganizes the rule sets. It is revisited when detekt 2.0 is stable, or when Gradle 10, which
-removes the API, is on the table.
+**The build's "ReportingExtension.file(String) has been deprecated" warning stands deliberately**:
+the detekt pin in `build.gradle.kts` states why and when it moves.
 
 ### Testing on the device
 
@@ -99,8 +96,6 @@ What each harness can answer, and how to ask it:
 - **Better still, take the decision out of the row.** A rule stated as a value (`ui/StayBounds.kt`)
   is total over its cases on a plain JVM, leaving the row test only the rendering. A row composed in
   a test is `internal` rather than `private`; don't widen one without covering it.
-- **JaCoCo doesn't see through Robolectric's sandbox classloader**, so those classes read 0% however
-  they exit.
 
 ### Database schema
 

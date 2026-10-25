@@ -242,6 +242,7 @@ android {
             // Lets a debug build install alongside a release build.
             applicationIdSuffix = ".debug"
             // JaCoCo coverage for host unit tests: `./gradlew :app:createDebugUnitTestCoverageReport`.
+            // Classes Robolectric loads read 0%: JaCoCo doesn't see through its sandbox classloader.
             enableUnitTestCoverage = true
             buildConfigField("boolean", "DEV_TOOLS", "true")
             buildConfigField("boolean", "SHOW_BUILD_BADGE", "true")
