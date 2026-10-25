@@ -59,10 +59,7 @@ A timeline of everywhere you go, recorded by itself. Data stays on your phone.
 Play's limit is 4000 characters.
 
 ```
-Breadcrumb quietly records where you go. You never have to remember to press "start".
-
-RECORDS BY ITSELF
-Turn on Auto recording once and forget it. Breadcrumb notices when you start walking, running, cycling or driving. It records until you stop and labels the trip with how you moved. You can change the label later, even to taxi, boat, public transit or flight. No buttons, no forgotten recordings.
+Breadcrumb keeps a timeline of where you have been: the trips you made, the places you stayed at, and how often you go back. It records in the background, with no button to press.
 
 YOUR DAYS AS A TIMELINE
 The timeline reads like a diary. It shows your trips and the stays between them, day by day, with totals for each day. Times abroad show in local time.
@@ -74,11 +71,14 @@ INSIGHTS
 Journeys: nights away from home in a row become one journey. It is named after the places where you spent most of it. Each year adds up your journeys, nights, cities and countries.
 Statistics: one month of trips and places, compared with the year behind it.
 
+EVERY TRIP ON A MAP
+Each trip is drawn on a detailed map. The line is colored by speed or elevation. The map also shows the named places at each end.
+
+RECORDS BY ITSELF
+Turn on Auto recording once and forget it. Breadcrumb notices when you start walking, running, cycling or driving. It records until you stop and labels the trip with how you moved. You can change the label later, even to taxi, boat, public transit or flight.
+
 FILL IN WHAT WASN'T RECORDED
 Add a trip by hand, like a flight or anything the app missed. You can edit it later. Merge two trips that a short stop split, or split one trip into two.
-
-EVERY TRIP ON A MAP
-Each trip is drawn on a detailed map. The line is coloured by speed or elevation. The map also shows the named places at each end.
 
 YOUR HISTORY STAYS YOURS
 • No account. No cloud. No ads. No analytics.
@@ -87,7 +87,7 @@ YOUR HISTORY STAYS YOURS
 • Import and export GPX files: one trip, a whole day, or everything.
 • A deleted trip waits in Recently deleted before it goes for good.
 • Lock the app with your fingerprint or PIN, if you want.
-• The app goes online only for maps and for a place search you can turn off.
+• The app goes online only for maps, and for a place search and road routing you can each turn off.
 
 BUILT FOR BATTERY
 Recording starts only when you move. GPS turns off the moment you stop.
