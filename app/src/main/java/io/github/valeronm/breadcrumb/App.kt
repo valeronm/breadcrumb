@@ -57,8 +57,7 @@ class App : Application() {
             val repository = TrackRepository(this@App)
             // Drop soft-deleted tracks whose Recently-deleted review window has lapsed.
             repository.purgeOldDiscarded()
-            // Crash-cleanup of dangling tracks happens in the service's arm path. One-time
-            // data backfills also go here when needed — see "Backfills" in CLAUDE.md.
+            // Crash-cleanup of dangling tracks happens in the service's arm path.
             val settleRuleMoved = Settings.settleRuleVersion(this@App) < TrackSettle.RULE_VERSION
             val statsRuleMoved = Settings.statsRuleVersion(this@App) < TrackStats.RULE_VERSION
             val derivedLogicMoved = Settings.derivedLogicVersion(this@App) < DerivationStore.LOGIC_VERSION

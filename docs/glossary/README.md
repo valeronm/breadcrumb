@@ -36,7 +36,7 @@ compares. A translation file records only what is *its own*: the word it chose, 
 decisions behind it. What a concept means is not restated per language; it is in `en.md` once.
 
 The *mechanics* of resource writing — whole sentences, no fragments, placeholders, plurals, inline
-vs standalone word forms — are documented in `CLAUDE.md` and in the string files' own comments, and
+vs standalone word forms — are documented in `AGENTS.md` and in the string files' own comments, and
 are partly machine-checked by `ResourceHygieneTest`. The glossary is only about which words the
 sentences use — plus the writing conventions below, which every language shares.
 

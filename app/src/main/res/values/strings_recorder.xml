@@ -73,10 +73,6 @@
     <string name="recorder_restart_advice">restarting the phone usually fixes it</string>
 
     <!--
-      The notification shade. These translate; the DebugLog lines beside them in the same file do
-      not — see CLAUDE.md. The remedy is a reboot: re-registering the detector does not cure it.
-    -->
-    <!--
       The two notification channels, as the *system's* settings list them — the user reads these in
       Android's own notification screens, not in this app.
     -->
@@ -86,6 +82,7 @@
     <string name="channel_alerts_description">Shown when automatic recording stops responding</string>
 
     <string name="notification_stop">Stop</string>
+    <!-- Re-registering the detector does not cure a stalled detection; only a reboot does. -->
     <string name="notification_deaf_title">Activity detection stalled</string>
     <string name="notification_deaf_text">Trips may be missed or start late. Restarting the phone usually fixes it.</string>
 </resources>

@@ -114,14 +114,10 @@ internal fun TrackDetailScreen(
     onEditTrip: ((TripDraft) -> Unit)?,
 ) {
     val context = LocalContext.current
-    // One load of everything the screen draws (null = still reading), keyed on the row as well as
-    // the id. Nothing observes `track_points` — such a query would re-run on every GPS fix (see
-    // CLAUDE.md) — so the row standing in lets the screen notice a re-derivation it didn't ask for:
-    // a retype re-runs the overrun rule and hands back what the new jump ceiling accepts
-    // (`TrackRepository.setActivityType`); keyed on the id alone, the header would update from the
-    // summary flow while the line and grayed edges kept the pre-retype shape until reopen. A retype
-    // that moves nothing re-reads for nothing — a rare tap, invisible because produceState keeps
-    // what it has while the new query runs.
+    // Nothing observes `track_points` (such a query would re-run on every GPS fix), so the summary
+    // row is the key that tells this screen a retype re-derived its points
+    // (`TrackRepository.setActivityType`). A retype that moves nothing re-reads for nothing, unseen
+    // because produceState keeps its value while the new query runs.
     val trackPoints by produceState<TrackPoints?>(initialValue = null, trackId, summary) {
         value = viewModel.getTrackPoints(trackId)
     }

@@ -195,7 +195,7 @@
     <string name="data_backup_verb">Backing up…</string>
     <string name="data_backup_progress">Backing up trip %1$d of %2$d</string>
 
-    <!-- Logs. The chrome translates; the entries it frames never do — see CLAUDE.md. -->
+    <!-- Logs. Only the screen's chrome is here: the entries it lists stay English. -->
     <string name="logs_title">Logs (%1$d)</string>
     <string name="logs_share">Share logs</string>
     <string name="logs_clear">Clear logs</string>

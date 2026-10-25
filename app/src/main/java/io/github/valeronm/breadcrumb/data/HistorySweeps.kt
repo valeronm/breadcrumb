@@ -13,11 +13,8 @@ private const val TAG = "Breadcrumb"
 private const val SWEEP_BATCH_TRACKS = 100
 
 /**
- * The standing, versioned walks over the whole history — what `App.onCreate` runs when a rule's
- * version outran the one the rows were computed by. Unlike CLAUDE.md's one-shot backfills these are
- * infrastructure, deliberately: the ignored fixes, the bounds over them and the aggregates are
- * verdicts of rules that keep moving, so don't delete a sweep once it has run; the next rule change
- * needs it.
+ * Unlike a one-shot backfill, a sweep is kept after it has run: the ignored fixes, the bounds over
+ * them and the aggregates are verdicts of rules that keep moving.
  */
 internal class HistorySweeps(
     private val db: AppDatabase,

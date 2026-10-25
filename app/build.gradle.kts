@@ -374,12 +374,11 @@ kotlin {
     }
 }
 
-// Through the Room plugin rather than a bare `room.schemaLocation` KSP arg. The plugin tracks this
-// committed directory as an annotation-processing *input*, so deleting a schema re-derives it,
-// where the arg wrote the file as a side effect nothing tracked at all and an up-to-date or cached
-// compile left it missing or stale with no build able to notice. It also keeps the absolute path
-// out of the processor's cache key, which the arg form put there — costing a miss on every
-// checkout at a different path. What the exported files are for is in CLAUDE.md.
+// The exported files are committed so a schema change reviews as a diff. They go through the Room
+// plugin rather than the `room.schemaLocation` KSP arg because the plugin tracks this directory as
+// an annotation-processing *input*: the arg writes the files as a side effect no build tracks,
+// which an up-to-date or cached compile can leave missing or stale. The arg also puts the absolute
+// path in the processor's cache key, a cache miss on every checkout at a different path.
 room {
     schemaDirectory("$projectDir/schemas")
 }
