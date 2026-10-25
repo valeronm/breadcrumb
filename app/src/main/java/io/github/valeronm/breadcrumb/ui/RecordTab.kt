@@ -184,7 +184,8 @@ private fun RecordedStats(viewModel: TrackListViewModel) {
     }
     GroupedRows(
         *periods.map { (title, periodTracks) ->
-            @Composable { PeriodStats(title, periodTracks) }
+            val row: @Composable GroupedRowScope.() -> Unit = { PeriodStats(title, periodTracks) }
+            row
         }.toTypedArray(),
     )
 }

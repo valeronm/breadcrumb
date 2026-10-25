@@ -818,7 +818,7 @@ private fun AppIcon(modifier: Modifier) {
 private val APP_ICON_SIZE = 72.dp
 
 @Composable
-private fun ImportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
+private fun GroupedRowScope.ImportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
     val importProgress by viewModel.importExport.importProgress.collectAsStateWithLifecycle()
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -867,7 +867,7 @@ private fun ImportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
  * row one already.
  */
 @Composable
-private fun DataActionRow(
+private fun GroupedRowScope.DataActionRow(
     label: String,
     subtitle: String,
     done: Int?,
@@ -900,7 +900,7 @@ private fun progressSubtitle(
 }
 
 @Composable
-private fun ExportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
+private fun GroupedRowScope.ExportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
     val progress by viewModel.importExport.gpxExportProgress.collectAsStateWithLifecycle()
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
@@ -932,7 +932,7 @@ private fun rememberBackupLauncher(viewModel: TrackListViewModel): () -> Unit {
 }
 
 @Composable
-private fun ExportBackupRow(viewModel: TrackListViewModel, blockedBy: String?) {
+private fun GroupedRowScope.ExportBackupRow(viewModel: TrackListViewModel, blockedBy: String?) {
     val progress by viewModel.importExport.exportProgress.collectAsStateWithLifecycle()
     val backUp = rememberBackupLauncher(viewModel)
     DataActionRow(
@@ -951,7 +951,7 @@ private fun ExportBackupRow(viewModel: TrackListViewModel, blockedBy: String?) {
 }
 
 @Composable
-private fun ClearHistoryRow(viewModel: TrackListViewModel, busyBlocked: String?) {
+private fun GroupedRowScope.ClearHistoryRow(viewModel: TrackListViewModel, busyBlocked: String?) {
     val clearable by viewModel.historyClearable.collectAsStateWithLifecycle()
     val progress by viewModel.importExport.clearProgress.collectAsStateWithLifecycle()
     val backUp = rememberBackupLauncher(viewModel)
@@ -1006,7 +1006,7 @@ private val BACKUP_MIME_TYPES =
 private val GOOGLE_TIMELINE_MIME_TYPES = arrayOf("application/json", "application/octet-stream")
 
 @Composable
-private fun RestoreRow(viewModel: TrackListViewModel, blockedBy: String?) {
+private fun GroupedRowScope.RestoreRow(viewModel: TrackListViewModel, blockedBy: String?) {
     val progress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.importExport.restoreBackup(uri)
@@ -1026,7 +1026,7 @@ private fun RestoreRow(viewModel: TrackListViewModel, blockedBy: String?) {
 }
 
 @Composable
-private fun GoogleTimelineRow(viewModel: TrackListViewModel, blockedBy: String?) {
+private fun GroupedRowScope.GoogleTimelineRow(viewModel: TrackListViewModel, blockedBy: String?) {
     val progress by viewModel.importExport.googleTimelineImportProgress.collectAsStateWithLifecycle()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.importExport.importGoogleTimeline(uri)

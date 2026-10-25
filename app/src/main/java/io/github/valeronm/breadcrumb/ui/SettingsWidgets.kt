@@ -24,11 +24,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,18 +78,33 @@ internal fun IconSwitch(
  * edges and small ones between neighbors (same look as the track list's day groups).
  */
 @Composable
-internal fun GroupedRows(vararg rows: @Composable () -> Unit) {
+internal fun GroupedRows(vararg rows: @Composable GroupedRowScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         rows.forEachIndexed { index, row ->
+            val scope = remember { GroupedRowScope() }
             Card(modifier = Modifier.fillMaxWidth(), shape = groupedRowShape(index, rows.size)) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) { row() }
+                // Read here, inside the card's clip, so the press fills its corners and a row registering
+                // recomposes this card alone.
+                val tap = scope.tap
+                Column(
+                    Modifier
+                        .then(if (tap != null) Modifier.clickable(enabled = scope.enabled, onClick = tap) else Modifier)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) { scope.row() }
             }
         }
     }
 }
 
+/** A [GroupedRows] card, which a tappable row inside it hands its tap to. */
+@Stable
+internal class GroupedRowScope {
+    internal var tap by mutableStateOf<(() -> Unit)?>(null)
+    internal var enabled by mutableStateOf(true)
+}
+
 @Composable
-internal fun NavRow(
+internal fun GroupedRowScope.NavRow(
     label: String,
     subtitle: String? = null,
     enabled: Boolean = true,
@@ -96,7 +114,7 @@ internal fun NavRow(
 
 /** Marked apart from [NavRow] so a link out of the app is not mistaken for a screen. */
 @Composable
-internal fun LinkRow(label: String, url: String, say: (String) -> Unit, subtitle: String? = null) {
+internal fun GroupedRowScope.LinkRow(label: String, url: String, say: (String) -> Unit, subtitle: String? = null) {
     val context = LocalContext.current
     val noBrowser = stringResource(R.string.browser_no_app)
     TappableRow(label, subtitle, enabled = true, leading = null, Icons.AutoMirrored.Filled.OpenInNew) {
@@ -116,7 +134,7 @@ internal fun FootnoteText(text: String) {
 }
 
 @Composable
-private fun TappableRow(
+private fun GroupedRowScope.TappableRow(
     label: String,
     subtitle: String?,
     enabled: Boolean,
@@ -124,11 +142,16 @@ private fun TappableRow(
     trailing: ImageVector,
     onClick: () -> Unit,
 ) {
+    val currentClick by rememberUpdatedState(onClick)
+    DisposableEffect(this, enabled) {
+        tap = { currentClick() }
+        this@TappableRow.enabled = enabled
+        onDispose { tap = null }
+    }
     // No vertical padding of its own: the GroupedRows card already pads the row.
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
             .alpha(if (enabled) 1f else 0.5f),
         verticalAlignment = Alignment.CenterVertically,
     ) {
