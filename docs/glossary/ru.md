@@ -101,6 +101,8 @@ Sections and order follow `en.md`, so the two files read side by side.
   nominative — «Место: %s», not a frame that needs «%s» in the genitive.
 - Sentence case throughout, which is Russian's own norm — no title case exists to resist.
 - Quotation marks are «ёлочки».
+- **Never «конец» for the end of a trip or a route.** A trip's arrival is its *пункт назначения*;
+  a trim of a route's end names the route or what it loses — «Обрезать маршрут?», «Короче на %1$s».
 
 ## Decisions
 

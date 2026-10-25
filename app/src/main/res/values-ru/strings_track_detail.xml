@@ -25,11 +25,11 @@
     <string name="track_split_too_short">Слишком коротко для разделения</string>
     <string name="track_trim_here">Обрезать здесь</string>
     <string name="track_trim_start_title">Обрезать начало?</string>
-    <string name="track_trim_end_title">Обрезать конец?</string>
+    <string name="track_trim_end_title">Обрезать маршрут?</string>
     <string name="track_trim_starts_later">Начнётся на %1$s позже · на %2$s короче</string>
     <string name="track_trim_ends_earlier">Закончится на %1$s раньше · на %2$s короче</string>
     <string name="track_trim_shorter_start">На %1$s короче в начале</string>
-    <string name="track_trim_shorter_end">На %1$s короче в конце</string>
+    <string name="track_trim_shorter_end">Короче на %1$s</string>
     <string name="track_trim_explainer">«Отменить» вернёт поездку.</string>
     <string name="track_trim_confirm">Обрезать</string>
     <string name="track_split_drops_both_title">Обе части будут слишком короткими</string>
