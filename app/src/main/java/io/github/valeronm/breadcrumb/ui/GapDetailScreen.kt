@@ -503,14 +503,17 @@ internal fun GapProposal(
                 durationText(departMs, arriveMs),
             ),
         )
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = onCancel, enabled = enabled, modifier = Modifier.weight(1f)) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+        ) {
+            TextButton(onClick = onCancel, enabled = enabled) {
                 Text(stringResource(R.string.common_cancel))
             }
-            OutlinedButton(onClick = onEdit, enabled = enabled, modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = onEdit, enabled = enabled) {
                 Text(stringResource(R.string.gap_proposal_edit))
             }
-            Button(onClick = onSave, enabled = enabled, modifier = Modifier.weight(1f)) {
+            Button(onClick = onSave, enabled = enabled) {
                 Text(stringResource(R.string.common_save))
             }
         }
