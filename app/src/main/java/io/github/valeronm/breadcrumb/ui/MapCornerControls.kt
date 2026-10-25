@@ -84,7 +84,7 @@ internal fun BoxScope.MapCorner(
 }
 
 @Composable
-internal fun MapCornerControls(
+internal fun PinAimControls(
     aiming: Boolean,
     /** What the crosshair's button is for on this map, said to a screen reader. */
     aimDescription: String,

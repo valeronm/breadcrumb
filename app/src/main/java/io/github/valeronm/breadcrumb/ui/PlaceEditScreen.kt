@@ -244,7 +244,7 @@ internal fun PlaceEditScreen(
                         modifier = Modifier.fillMaxSize(),
                         controls = { if (aiming) AimCrosshair() },
                         corner = {
-                            MapCornerControls(
+                            PinAimControls(
                                 aiming = aiming,
                                 aimDescription = stringResource(R.string.places_pin_aim),
                                 confirmLabel = stringResource(R.string.places_pin_here),
