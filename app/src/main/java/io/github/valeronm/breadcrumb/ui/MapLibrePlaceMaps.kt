@@ -106,8 +106,8 @@ internal fun rememberNeighborhood(
  * Renders one place on the basemap: the cluster's capture circle (a meter-true polygon around
  * [center]) with every captured track endpoint as small dots, plus [neighbors] — gray
  * neighbor-endpoint dots and labeled named pins — so the radius can be judged against what a wider
- * circle would swallow. The camera fits the circle once on open, unless [camera] carries one
- * across, and the data is a snapshot: an input change is a full refresh.
+ * circle would swallow. The camera fits the circle on open, unless [camera] carries one across, and
+ * again when the radius changes; the data is a snapshot: an input change is a full refresh.
  */
 @Composable
 internal fun MapLibrePlaceMap(
@@ -146,7 +146,11 @@ internal fun MapLibrePlaceMap(
         modifier = modifier,
         camera = camera,
         controls = controls,
-        reframe = { framePlace(it, center.location, radiusM) },
+        frame = { framePlace(it, center.location, radiusM) },
+        // A changed radius refits, the circle being the subject. A moved pin does not: the move was
+        // aimed at a point the user was looking at, which a refit would slide out from under them.
+        frameKey = radiusM,
+        frameCovers = center.location,
         corner = corner,
         onMapReady = { map ->
             map.addOnMapLongClickListener { at ->
@@ -154,7 +158,7 @@ internal fun MapLibrePlaceMap(
                 true
             }
         },
-        onStyleLoaded = { ctx, map, style, dark ->
+        onStyleLoaded = { ctx, _, style, dark ->
             applied.circleCenter = center.location
             applied.circleRadiusM = radiusM
             applied.markers = endpoints to neighbors
@@ -162,10 +166,8 @@ internal fun MapLibrePlaceMap(
             applied.capture = capture
             applied.rivalAreas = rivalAreas
             addPlaceLayers(ctx, style, placeContent(), dark)
-            val carried = camera?.takeCarried()
-            if (carried != null) map.cameraPosition = carried else framePlace(map, center.location, radiusM)
         },
-        onUpdate = { map, style ->
+        onUpdate = { _, style ->
             if (applied.circleCenter != center.location || applied.circleRadiusM != radiusM) {
                 applied.circleCenter = center.location
                 style.getSourceAs<GeoJsonSource>(PLACE_CIRCLE_SOURCE)
@@ -173,11 +175,6 @@ internal fun MapLibrePlaceMap(
             }
             if (applied.circleRadiusM != radiusM) {
                 applied.circleRadiusM = radiusM
-                // A radius that changed re-fits the camera — the circle is the subject and it just
-                // grew or shrank. A *moved* pin deliberately does not: the move was aimed at a point
-                // the user was looking at, so re-fitting would slide it out from under them and
-                // re-zoom to boot, which is exactly the precision the placement was after.
-                framePlace(map, center.location, radiusM)
                 // The dots do not move; which side of the radius they fall on does.
                 style.getLayer(PLACE_MARKER_LAYER)?.setProperties(markerIconProperty(radiusM))
             }
@@ -387,7 +384,7 @@ internal fun MapLibreMergeMap(
     val current by rememberUpdatedState(places)
     MapLibreStyledMap(
         modifier = modifier,
-        reframe = { frameMerge(it, places) },
+        frame = { frameMerge(it, places) },
         onMapReady = { map ->
             map.addOnMapClickListener { at ->
                 val point = at.toCoordinate()
@@ -399,7 +396,7 @@ internal fun MapLibreMergeMap(
                 hit != null
             }
         },
-        onStyleLoaded = { ctx, map, style, dark ->
+        onStyleLoaded = { ctx, _, style, dark ->
             applied.places = places
             applied.openedId = openedId
             for (c in MERGE_CIRCLES) {
@@ -417,7 +414,6 @@ internal fun MapLibreMergeMap(
             addPlacePinImages(ctx, style, PinSet.PlacesAndNeighbors)
             style.addSource(GeoJsonSource(MERGE_MARKER_SOURCE, mergeMarkers(places)))
             style.addLayer(labeledSymbolLayer(dark, MERGE_MARKER_LAYER, MERGE_MARKER_SOURCE))
-            frameMerge(map, places)
         },
         onUpdate = { _, style ->
             if (applied.places !== places) {
@@ -594,7 +590,7 @@ internal fun rememberStayPlaces(
 internal fun MapLibrePlacesMap(
     places: List<OverviewPlace>,
     /** Re-fits the camera to every place, as the map opened, when this differs from the value
-     *  last applied. Framing otherwise runs at most once per map instance. */
+     *  last applied. */
     frameKey: Any,
     onOpen: (String) -> Unit,
     camera: CameraCarry,
@@ -606,24 +602,17 @@ internal fun MapLibrePlacesMap(
 ) {
     val applied = remember { AppliedOverviewInputs() }
     applied.onOpen = onOpen
-    val frameAll = { map: MapLibreMap ->
-        frameAllPlaces(map, places)
-        applied.framedPins = pinsOf(places)
-    }
-    val reframe = { map: MapLibreMap ->
-        val opened = camera.opened
-        if (opened != null) {
-            map.cameraPosition = opened
-            framed(map)
-        } else {
-            frameAll(map)
-        }
-    }
+    val opened = camera.opened
+    val pins = remember(places) { places.map { it.marker.location } }
     MapLibreStyledMap(
         modifier = modifier,
         camera = camera,
         controls = controls,
-        reframe = reframe,
+        frame = { map -> if (opened != null) map.cameraPosition = opened else frameAllPlaces(map, places) },
+        frameKey = frameKey,
+        // A filter changes the places a fit covers without moving the camera.
+        frameCovers = pins.takeIf { opened == null },
+        openAt = goTo?.let { request -> { map -> moveCameraTo(map, request.at) } },
         corner = corner,
         onMapReady = { map ->
             map.addOnMapClickListener { latLng ->
@@ -632,21 +621,13 @@ internal fun MapLibrePlacesMap(
                 key != null
             }
         },
-        onStyleLoaded = { ctx, map, style, dark ->
+        onStyleLoaded = { ctx, _, style, dark ->
             applied.places = places
-            applied.frameKey = frameKey
-            applied.framedPins = pinsOf(places)
             addOverviewCircles(style, dark, places)
             style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             addOverviewLayers(ctx, style, places, dark)
             addUserLocationLayer(style, goTo?.at)
-            val carried = camera.takeCarried()
-            when {
-                carried != null -> map.cameraPosition = carried
-                goTo != null -> moveCameraTo(map, goTo.at)
-                else -> frameAll(map)
-            }
             applied.goTo = goTo
         },
         onUpdate = { map, style ->
@@ -661,12 +642,6 @@ internal fun MapLibrePlacesMap(
                 applied.places = places
                 updateOverviewSource(style, places)
                 updateOverviewCircles(style, places)
-                // A filter changes the places a fit covers without moving the camera.
-                if (camera.opened == null && pinsOf(places) != applied.framedPins) leftFrame(map)
-            }
-            if (applied.frameKey != frameKey) {
-                applied.frameKey = frameKey
-                frameAll(map)
             }
         },
     )
@@ -674,8 +649,6 @@ internal fun MapLibrePlacesMap(
 
 /** The overview map's one fit — on open and on [MapLibrePlacesMap]'s frameKey alike, so the home
  *  gesture lands exactly the frame the map opened with. */
-private fun pinsOf(places: List<OverviewPlace>) = places.map { it.marker.location }
-
 private fun frameAllPlaces(map: MapLibreMap, places: List<OverviewPlace>) =
     frameTo(map, places.map { it.marker.location.toLatLng() }, singlePointZoom = 13.0)
 
@@ -774,11 +747,7 @@ internal class CameraCarry(private var carried: CameraPosition? = null) {
 /** Last-applied input of the all-places overview map. */
 private class AppliedOverviewInputs {
     var places: List<OverviewPlace>? = null
-    var frameKey: Any? = null
     var goTo: MapCenterRequest? = null
-
-    /** The places the camera was last fitted to, by pin. */
-    var framedPins: List<Coordinate>? = null
 
     /** The click listener is registered once, so it reads the handler from here to never go stale. */
     var onOpen: (String) -> Unit = {}
@@ -971,7 +940,6 @@ private class AppliedTripInputs {
     var places: List<OverviewPlace>? = null
     var showPlaces: Boolean? = null
     var center: MapCenterRequest? = null
-    var frameKey: Any? = null
     var line: List<Coordinate>? = null
     var touchingLines: FeatureCollection? = null
     var touchingEnds: FeatureCollection? = null
@@ -988,11 +956,12 @@ private class AppliedTripInputs {
     private val handler = Handler(Looper.getMainLooper())
 
     /**
-     * Fits the trip once the layout that the same change sets off has run: the sheet can grow in
-     * that layout, and a fit taken before it would leave the trip under the sheet.
+     * Brings the trip back into view, if it has left it, once the layout that the same change sets off
+     * has run: the sheet can grow in that layout, and a fit taken before it would leave the trip under
+     * the sheet.
      */
-    fun fitAfterLayout(force: Boolean) {
-        handler.post { map?.let { frameTripMap(it, trip, places.orEmpty(), force) } }
+    fun fitAfterLayout() {
+        handler.post { map?.let { frameTripMap(it, trip, places.orEmpty(), force = false) } }
     }
 
     /** Drops a fit still waiting on layout, whose map is going with the screen. */
@@ -1055,7 +1024,6 @@ internal fun MapLibreTripMap(
      *  keeps the trip out of it, and the credit, legend and corner buttons are lifted clear of it. */
     obscured: () -> MapInsets,
     modifier: Modifier = Modifier,
-    reframe: ((MapLibreMap) -> Unit)? = null,
 ) {
     val applied = remember { AppliedTripInputs() }
     DisposableEffect(applied) { onDispose(applied::dispose) }
@@ -1107,7 +1075,13 @@ internal fun MapLibreTripMap(
     MapLibreStyledMap(
         modifier = modifier,
         obscured = obscured,
-        reframe = reframe,
+        frame = { map ->
+            frameTripMap(map, applied.trip, applied.places.orEmpty(), force = true)
+            // The opening frame lands before the idle listener is there to hear it, so where the map
+            // came up is stated outright — otherwise nothing knows the centre until the first pan.
+            map.cameraPosition.target?.let { centerSettled(it.toCoordinate()) }
+        },
+        frameKey = frameKey,
         onMapReady = { map ->
             applied.attach(map)
             map.addOnCameraIdleListener {
@@ -1138,13 +1112,12 @@ internal fun MapLibreTripMap(
                 point != null
             }
         },
-        onStyleLoaded = { ctx, map, style, dark ->
+        onStyleLoaded = { ctx, _, style, dark ->
             applied.pins = origin to destination
             applied.places = places
             // Whatever the screen was asking for when the map arrived is already answered by the
             // framing below — a request outstanding at open would otherwise fire on top of it.
             applied.center = center
-            applied.frameKey = frameKey
             // The overview map's own layers, ids and all — a style belongs to one MapView, so the
             // names can't collide, and the places here are exactly that map's field of pins.
             addOverviewCircles(style, dark, places)
@@ -1204,12 +1177,6 @@ internal fun MapLibreTripMap(
             applied.markers = markers
             style.addLayer(labeledSymbolLayer(dark, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
             applied.trip = trip
-            frameTripMap(map, trip, places, force = true)
-            // The opening frame lands before the idle listener is there to hear it, so where the map
-            // came up is stated outright — otherwise nothing knows the centre until the first pan.
-            map.cameraPosition.target?.let {
-                centerSettled(it.toCoordinate())
-            }
         },
         onUpdate = { map, style ->
             if (applied.places !== places) {
@@ -1227,10 +1194,8 @@ internal fun MapLibreTripMap(
                 applied.markers = markers
                 style.getSourceAs<GeoJsonSource>(TRIP_MARKER_SOURCE)?.setGeoJson(markers)
             }
-            val frameAsked = applied.frameKey != frameKey
-            applied.frameKey = frameKey
             applied.trip = trip
-            if (pinsMoved || frameAsked) applied.fitAfterLayout(force = frameAsked)
+            if (pinsMoved) applied.fitAfterLayout()
             if (applied.center !== center) {
                 applied.center = center
                 // The zoom is left where the user put it: they asked to go somewhere, not to see it

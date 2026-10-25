@@ -264,7 +264,7 @@ internal fun GapDetailScreen(
                     cover.mapBottom = bounds.bottom
                 },
         ) {
-            GapMap(detail, proposal, viewModel, frameKey, cover::insets, onReframe = { frameKey++ })
+            GapMap(detail, proposal, viewModel, frameKey, cover::insets)
         }
     }
 
@@ -288,7 +288,6 @@ private fun GapMap(
     viewModel: TrackListViewModel,
     frameKey: Int,
     obscured: () -> MapInsets,
-    onReframe: () -> Unit,
 ) {
     val beforeId = detail.before.id
     val afterId = detail.after.id
@@ -346,7 +345,6 @@ private fun GapMap(
         frameKey = frameKey,
         obscured = obscured,
         modifier = Modifier.fillMaxSize(),
-        reframe = { onReframe() },
     )
 }
 

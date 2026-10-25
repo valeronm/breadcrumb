@@ -84,9 +84,19 @@ internal fun MapLibreStyledMap(
     controls: @Composable BoxScope.() -> Unit = {},
     /** A key to what the map's colors mean, stacked over the credit in the bottom-left corner. */
     legend: (@Composable ColumnScope.() -> Unit)? = null,
-    /** The way back to the map's fitted frame, offered once the camera has left it. */
-    reframe: ((MapLibreMap) -> Unit)? = null,
-    /** The screen's own button in the bottom-right corner, under [reframe]'s. */
+    /**
+     * The fit the map opens on, unless a carried camera or [openAt] places it, and the one the reset
+     * button returns to once the camera has left it. Null where nothing is framed.
+     */
+    frame: ((MapLibreMap) -> Unit)? = null,
+    /** [frame] runs again, once the layout the change sets off has run, whenever this differs from the
+     *  value it last ran under. */
+    frameKey: Any? = null,
+    /** What [frame] fits: a change no refit follows leaves the camera off its frame. Compared by equality. */
+    frameCovers: Any? = null,
+    /** A view of the map's own to open on in place of [frame], which leaves the camera off its frame. */
+    openAt: ((MapLibreMap) -> Unit)? = null,
+    /** The screen's own button in the bottom-right corner, under the reset button. */
     corner: @Composable () -> Unit = {},
     /** Drawn over the map's own pixels and under [controls], in the map view's coordinates. */
     overMap: @Composable BoxScope.(MapLibreMap) -> Unit = {},
@@ -102,12 +112,12 @@ internal fun MapLibreStyledMap(
         val mapView = rememberMapLibreMapView(dark) {
             currentCamera?.detach(host.coverage.away.value)
             host.map?.let(coverages::remove)
+            host.view?.removeCallbacks(host.refit)
         }
-        // Read at the tap, so a frame rebuilt with each composition never reaches the overlay's inputs.
-        val currentReframe by rememberUpdatedState(reframe)
-        val onReframe: () -> Unit = remember(host) {
-            { host.map?.let { map -> currentReframe?.invoke(map) } }
-        }
+        host.view = mapView
+        // Read through the host at the tap, so a frame rebuilt with each composition never reaches the
+        // overlay's inputs.
+        val onReframe: () -> Unit = remember(host) { { host.map?.let(host::fit) } }
         val readyMap = remember { mutableStateOf<MapLibreMap?>(null) }
         LaunchedEffect(readyMap.value) {
             val map = readyMap.value ?: return@LaunchedEffect
@@ -122,6 +132,10 @@ internal fun MapLibreStyledMap(
         // style is still null, so their update is skipped. Route the callback through the host so the
         // load applies the *latest* composition's data, not what the first composition captured.
         host.onStyleLoaded = onStyleLoaded
+        host.frame = frame
+        host.frameKey = frameKey
+        host.frameCovers = frameCovers
+        host.openAt = openAt
         host.coverage.obscured = obscured
         val zoom = remember { mutableFloatStateOf(0f) }
         Box(modifier) {
@@ -146,6 +160,7 @@ internal fun MapLibreStyledMap(
                             onMapReady(map)
                             map.setStyle(Style.Builder().fromJson(styleFlavor(view.context, dark).json)) { style ->
                                 host.onStyleLoaded(view.context, map, style, dark)
+                                host.open(map, currentCamera?.takeCarried())
                                 // The opening frame is a moveCamera, which lands before this listener
                                 // exists to hear it.
                                 if (BuildConfig.DEV_TOOLS) readZoom()
@@ -155,11 +170,12 @@ internal fun MapLibreStyledMap(
                         val map = host.map
                         val style = map?.style ?: return@AndroidView
                         onUpdate(map, style)
+                        host.follow()
                     }
                 },
             )
             readyMap.value?.let { overMap(it) }
-            MapOverlay(zoom, host.coverage, controls, legend, onReframe.takeIf { reframe != null }, corner)
+            MapOverlay(zoom, host.coverage, controls, legend, onReframe.takeIf { frame != null }, corner)
         }
     }
 }
@@ -246,6 +262,54 @@ private class MapHost(away: Boolean) {
     val coverage = Coverage(away)
     var inited = false
     var onStyleLoaded: (Context, MapLibreMap, Style, Boolean) -> Unit = { _, _, _, _ -> }
+    var frame: ((MapLibreMap) -> Unit)? = null
+    var frameKey: Any? = null
+    var frameCovers: Any? = null
+    var openAt: ((MapLibreMap) -> Unit)? = null
+    var view: MapView? = null
+    private var fittedKey: Any? = null
+    private var fittedCovers: Any? = null
+
+    // Posted rather than run in the update: a screen's sheet can grow in the layout the same change
+    // sets off, and a fit taken before it would leave what it frames under the sheet.
+    val refit = Runnable { map?.let(::fit) }
+
+    fun open(map: MapLibreMap, carried: CameraPosition?) {
+        when {
+            carried != null -> map.cameraPosition = carried
+            openAt != null -> {
+                openAt?.invoke(map)
+                coverage.away.value = true
+            }
+            else -> {
+                fit(map)
+                return
+            }
+        }
+        markFitted()
+    }
+
+    fun fit(map: MapLibreMap) {
+        frame?.invoke(map)
+        markFitted()
+        coverage.away.value = false
+    }
+
+    fun follow() {
+        if (frame == null) return
+        if (frameKey != fittedKey) {
+            markFitted()
+            view?.post(refit)
+        } else if (frameCovers != fittedCovers) {
+            fittedCovers = frameCovers
+            coverage.away.value = true
+        }
+    }
+
+    private fun markFitted() {
+        fittedKey = frameKey
+        fittedCovers = frameCovers
+    }
 }
 
 /**
@@ -360,7 +424,6 @@ internal fun frameTo(
         }
         positions.size == 1 -> map.cameraPosition = paddedCamera(map, positions[0], singlePointZoom)
     }
-    if (positions.isNotEmpty()) framed(map)
 }
 
 /** Fits [bounds] [marginPx] in from the edges of the part of the map [covered] leaves showing. */
@@ -438,11 +501,6 @@ internal fun covered(map: MapLibreMap): MapInsets {
 /** Marks [map]'s camera as having left its fitted frame by a move no gesture made. */
 internal fun leftFrame(map: MapLibreMap) {
     coverages[map]?.away?.value = true
-}
-
-/** Marks [map]'s camera as showing its fitted frame. */
-internal fun framed(map: MapLibreMap) {
-    coverages[map]?.away?.value = false
 }
 
 /** How far in from each edge, as a share of the part of the map left showing, a position still reads

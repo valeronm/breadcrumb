@@ -112,8 +112,6 @@ internal fun MapLibreTrackMap(
     val frameWhole = { map: MapLibreMap ->
         frameTo(map, framePositions(points, noisyPoints, greatCircleLegs, endLinks), singlePointZoom = 15.0)
     }
-    // The live preview reframes itself as the recording grows.
-    val reframe = if (directionalEnd) null else frameWhole
 
     MapLibreStyledMap(
         modifier = modifier,
@@ -125,7 +123,11 @@ internal fun MapLibreTrackMap(
         } else {
             null
         },
-        reframe = reframe,
+        // The live preview frames itself as the recording grows, and has no frame to return to.
+        frame = frameWhole.takeUnless { directionalEnd },
+        // A track still loading fits once its points arrive.
+        frameKey = points.isEmpty(),
+        frameCovers = remember(points, noisyPoints, endLinks) { listOf(points, noisyPoints, endLinks) },
         overMap = { map -> if (selectedPoint != null) SelectionMarker(map, selectedPoint) },
         onStyleLoaded = { ctx, map, style, dark ->
             // The end places are one input drawn at two depths — their areas under the line, their
@@ -140,7 +142,7 @@ internal fun MapLibreTrackMap(
             // Over the recorder's own markers: at an end the two land within a capture radius of
             // each other, and the place states where the journey went.
             addEndPlacePins(ctx, style, endPlaces, dark)
-            frameWhole(map)
+            if (directionalEnd) frameWhole(map)
             // Stamped here as well as drawn: otherwise the first update sees no applied input
             // and rebuilds every source the load just built.
             applied.points = points
@@ -148,7 +150,6 @@ internal fun MapLibreTrackMap(
             applied.colors = colors
             applied.endPlaces = endPlaces
             applied.endLinks = endLinks
-            applied.framed = true
         },
         onUpdate = { map, style ->
             // The line's features carry their colors, so a color switch rebuilds that source —
@@ -170,7 +171,7 @@ internal fun MapLibreTrackMap(
                 // Live preview: hold the camera (so a pan/zoom survives and the map
                 // isn't re-rendered every fix); re-fit only when the current position
                 // stops showing well.
-                if (applied.framed && directionalEnd) {
+                if (directionalEnd) {
                     points.lastOrNull()?.let { last ->
                         if (!showsWell(map, listOf(LatLng(last.latitude, last.longitude)))) {
                             // Headroom so the position lands inside showsWell's margin, not
@@ -194,10 +195,6 @@ internal fun MapLibreTrackMap(
                     ?.setGeoJson(edgeStayFeature(overruns))
             }
             updateEndPlaces(context, style, applied, endPlaces, endLinks)
-            if (!applied.framed) {
-                frameWhole(map)
-                applied.framed = true
-            }
         },
     )
 }
@@ -232,8 +229,8 @@ internal fun MapLibreTripMapOfParts(
     }
     MapLibreStyledMap(
         modifier = modifier,
-        reframe = frameWhole,
-        onStyleLoaded = { ctx, map, style, dark ->
+        frame = frameWhole,
+        onStyleLoaded = { ctx, _, style, dark ->
             addEndPlaceAreas(style, endPlaces, dark)
             style.addSource(GeoJsonSource(END_LINK_SOURCE, endLinkCollection(endLinks)))
             addConnectorLayer(style, dark, END_LINK_LAYER, END_LINK_SOURCE)
@@ -248,7 +245,6 @@ internal fun MapLibreTripMapOfParts(
             )
             addMarkers(ctx, style, ends, emptyList(), directionalEnd = false)
             addEndPlacePins(ctx, style, endPlaces, dark)
-            frameWhole(map)
             applied.endPlaces = endPlaces
             applied.endLinks = endLinks
         },
@@ -304,10 +300,6 @@ private class AppliedTrackInputs {
      *  when the path or the places table changed. */
     var endPlaces: List<Place>? = null
     var endLinks: List<RoutePlaces.Link>? = null
-
-    /** Frame once per map; later updates must not move the camera (the live preview re-frames
-     *  only when the current position nears the viewport edge). */
-    var framed = false
 }
 
 private const val TRACK_SOURCE = "track-src"

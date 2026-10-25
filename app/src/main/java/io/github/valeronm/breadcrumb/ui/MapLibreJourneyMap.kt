@@ -55,7 +55,8 @@ internal fun MapLibreJourneyMap(
     applied.onOpenPlace = onOpenPlace
     MapLibreStyledMap(
         modifier = modifier,
-        reframe = { frame(it, lines, places) },
+        frame = { frame(it, lines, places) },
+        frameKey = frameKey to linesComplete,
         onMapReady = { map ->
             map.addOnMapClickListener { latLng ->
                 val key = overviewPlaceKeyNear(map, latLng)
@@ -63,11 +64,9 @@ internal fun MapLibreJourneyMap(
                 key != null
             }
         },
-        onStyleLoaded = { ctx, map, style, dark ->
+        onStyleLoaded = { ctx, _, style, dark ->
             applied.collection = collection
             applied.places = places
-            applied.frameKey = frameKey
-            applied.framedComplete = linesComplete
             style.addSource(GeoJsonSource(JOURNEY_SOURCE, collection))
             addLineLayersByMeasure(
                 style,
@@ -78,9 +77,8 @@ internal fun MapLibreJourneyMap(
                 PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
             )
             addOverviewLayers(ctx, style, places, dark, fullSize = true)
-            frame(map, lines, places)
         },
-        onUpdate = { map, style ->
+        onUpdate = { _, style ->
             if (applied.collection !== collection) {
                 applied.collection = collection
                 style.getSourceAs<GeoJsonSource>(JOURNEY_SOURCE)?.setGeoJson(collection)
@@ -89,11 +87,6 @@ internal fun MapLibreJourneyMap(
                 applied.places = places
                 updateOverviewSource(style, places)
             }
-            if (applied.frameKey != frameKey || (linesComplete && !applied.framedComplete)) {
-                applied.frameKey = frameKey
-                applied.framedComplete = linesComplete
-                frame(map, lines, places)
-            }
         },
     )
 }
@@ -101,13 +94,9 @@ internal fun MapLibreJourneyMap(
 private class AppliedJourneyInputs {
     var collection: FeatureCollection? = null
     var places: List<OverviewPlace>? = null
-    var frameKey: Any? = null
 
     /** The click listener is registered once, so it reads the handler from here to never go stale. */
     var onOpenPlace: (String) -> Unit = {}
-
-    /** Whether the current frame was taken with every line in hand — see the composable's KDoc. */
-    var framedComplete = false
 }
 
 private fun frame(map: MapLibreMap, lines: List<JourneyLine>, places: List<OverviewPlace>) {
