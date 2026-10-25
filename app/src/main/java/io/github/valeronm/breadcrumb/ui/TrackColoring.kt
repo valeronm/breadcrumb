@@ -377,15 +377,15 @@ internal fun ColorModeSelector(
 }
 
 @Composable
-internal fun TrackLegend(legend: Legend, modifier: Modifier = Modifier) {
+internal fun TrackLegend(legend: Legend) {
     when (legend) {
         Legend.Solid -> Unit
         is Legend.None ->
-            LegendSurface(modifier) {
+            LegendSurface {
                 Text(stringResource(legend.messageRes), style = MaterialTheme.typography.labelSmall)
             }
         is Legend.Ramp ->
-            LegendSurface(modifier) {
+            LegendSurface {
                 val luminance = rampLuminance(isMapDark())
                 // Dense stops along the same HSL ramp the track uses: the brush blends
                 // neighbors in RGB, and RGB midpoints of red/green and green/blue are muddy

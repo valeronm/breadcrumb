@@ -23,6 +23,7 @@ import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -62,8 +63,8 @@ import java.util.WeakHashMap
 import kotlin.math.roundToInt
 
 /**
- * The map every screen draws on, and nothing drawn on it: the [MapView] and its lifecycle, the
- * basemap flavor, and the camera. Nothing here knows which map is on top of it.
+ * The map every screen draws on: the [MapView] and its lifecycle, the basemap flavor, the camera and
+ * its frame, and what sits in the map's corners. Nothing here knows which map is on top of it.
  */
 
 /** Measured to what the eye sees of a control, not to its touch target ([touchHalo]). */
@@ -119,7 +120,7 @@ internal fun MapLibreStyledMap(
         host.view = mapView
         // Read through the host at the tap, so a frame rebuilt with each composition never reaches the
         // overlay's inputs.
-        val onReframe: () -> Unit = remember(host) { { host.map?.let(host::fit) } }
+        val onReset: () -> Unit = remember(host) { { host.map?.let(host::fit) } }
         val readyMap = remember { mutableStateOf<MapLibreMap?>(null) }
         LaunchedEffect(readyMap.value) {
             val map = readyMap.value ?: return@LaunchedEffect
@@ -177,7 +178,7 @@ internal fun MapLibreStyledMap(
                 },
             )
             readyMap.value?.let { overMap(it) }
-            MapOverlay(zoom, host.coverage, crosshair, legend, topStart, onReframe.takeIf { frame != null }, corner)
+            MapOverlay(zoom, host.coverage, crosshair, legend, topStart, onReset.takeIf { frame != null }, corner)
         }
     }
 }
@@ -190,7 +191,7 @@ private fun MapOverlay(
     crosshair: Boolean,
     legend: (@Composable ColumnScope.() -> Unit)?,
     topStart: (@Composable ColumnScope.() -> Unit)?,
-    onReframe: (() -> Unit)?,
+    onReset: (() -> Unit)?,
     corner: @Composable () -> Unit,
 ) {
     val indent = Modifier.padding(start = MapInset)
@@ -217,7 +218,7 @@ private fun MapOverlay(
             }
         }
         if (crosshair) AimCrosshair()
-        MapCorner(coverage.away, onReframe, corner)
+        MapCorner(coverage.away, onReset, corner)
     }
     topStart?.let {
         Box(Modifier.fillMaxSize().offset { IntOffset(0, coverage.obscured().top) }) { MapFilterChips(it) }
@@ -229,19 +230,21 @@ private fun MapOverlay(
 @Composable
 private fun CreditSurface(coverage: Coverage) {
     val color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
-    val shape = legendShape.copy(topStart = ZeroCornerSize, bottomEnd = ZeroCornerSize, bottomStart = ZeroCornerSize)
     val sheetCorner = (BottomSheetDefaults.ExpandedShape as CornerBasedShape).topStart
+    // A sheet over the map's bottom edge rounds away from it at its corner, uncovering the map beside
+    // the credit. Derived, so a drag redraws the credit only where a sheet reaches or leaves that edge.
+    val overSheet by remember(coverage) { derivedStateOf { coverage.obscured().bottom > 0 } }
     Box(
         Modifier.drawBehind {
-            // A sheet over the map's bottom edge rounds away from it at its corner, uncovering the map
-            // beside the credit.
-            val under = if (coverage.obscured().bottom > 0) sheetCorner.toPx(size, this) else 0f
-            drawOutline(shape.createOutline(Size(size.width, size.height + under), layoutDirection, this), color)
+            val under = if (overSheet) sheetCorner.toPx(size, this) else 0f
+            drawOutline(CreditShape.createOutline(Size(size.width, size.height + under), layoutDirection, this), color)
         },
     ) {
         MapCredit(Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
     }
 }
+
+private val CreditShape = legendShape.copy(topStart = ZeroCornerSize, bottomEnd = ZeroCornerSize, bottomStart = ZeroCornerSize)
 
 /**
  * The live camera zoom, dev builds only — a marker size ramp and the zoom a pin earns its glyph at
@@ -261,7 +264,7 @@ private fun ZoomReadout(zoom: FloatState, modifier: Modifier) {
 /**
  * Per-[MapView] mutable state held outside Compose's snapshot system. Same role as each caller's
  * `Applied*Inputs` holder: a remembered plain object, not a snapshot state, so writing it never
- * recomposes. [Coverage.away] is the exception, being what draws the reframe button.
+ * recomposes. [Coverage.away] is the exception, being what draws the reset button.
  */
 private class MapHost(away: Boolean) {
     var map: MapLibreMap? = null
@@ -281,18 +284,19 @@ private class MapHost(away: Boolean) {
     val refit = Runnable { map?.let(::fit) }
 
     fun open(map: MapLibreMap, carried: CameraPosition?) {
+        val opening = openAt
         when {
-            carried != null -> map.cameraPosition = carried
-            openAt != null -> {
-                openAt?.invoke(map)
+            carried != null -> {
+                map.cameraPosition = carried
+                markFitted()
+            }
+            opening != null -> {
+                opening(map)
+                markFitted()
                 coverage.away.value = true
             }
-            else -> {
-                fit(map)
-                return
-            }
+            else -> fit(map)
         }
-        markFitted()
     }
 
     fun fit(map: MapLibreMap) {
@@ -305,11 +309,14 @@ private class MapHost(away: Boolean) {
         if (frame == null) return
         if (frameKey != fittedKey) {
             markFitted()
+            view?.removeCallbacks(refit)
             view?.post(refit)
-        } else if (frameCovers != fittedCovers) {
-            fittedCovers = frameCovers
-            coverage.away.value = true
+            return
         }
+        val moved = frameCovers != fittedCovers
+        // Kept even when equal, so the next comparison meets the same instance.
+        fittedCovers = frameCovers
+        if (moved) coverage.away.value = true
     }
 
     private fun markFitted() {

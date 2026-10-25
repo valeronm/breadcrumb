@@ -1051,8 +1051,10 @@ why the workflow is the only thing standing between a forgotten bump and Play.
   re-run, never the generated file; `SeededSchemeTest` fails if a role goes unstated. The generator
   needs `materialyoucolor`, which is deliberately not a dependency of anything the build runs.
 - **Frame the map with `moveCamera`, not `easeCamera`** — a map opens already fitted, never
-  animating in, and framing runs once per map instance. `frameTo` in `MapSurface.kt` does the
-  fitting; `MapLibreTrackMap` carries the live preview's re-frame rule.
+  animating in. **The shared map owns each map's frame and corners**: a screen hands
+  `MapLibreStyledMap` its fit, when to refit and what the fit covers, and its corner content as
+  slots, because overlays placed by hand in a map's corners have nothing keeping them apart. The
+  live preview follows the recording instead, in `MapLibreTrackMap`.
 - **Never resize a `MapView` — give each screen its own.** A resized texture map stretches its last
   frame (a pin becomes an oval) and nothing fixes it from inside a shared map; two screens that want
   the map at different sizes are two layers with a map each, and the fresh camera is the point

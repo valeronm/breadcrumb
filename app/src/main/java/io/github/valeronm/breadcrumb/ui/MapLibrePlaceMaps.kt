@@ -965,6 +965,7 @@ private class AppliedTripInputs {
      * the sheet.
      */
     fun fitAfterLayout() {
+        handler.removeCallbacksAndMessages(null)
         handler.post { map?.let { frameTripMap(it, trip, places.orEmpty(), force = false) } }
     }
 

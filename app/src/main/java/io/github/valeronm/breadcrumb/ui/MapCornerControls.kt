@@ -56,7 +56,7 @@ import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 internal fun BoxScope.MapCorner(
     /** Read here rather than by the caller, so a change recomposes this corner alone. */
     away: State<Boolean>,
-    onReframe: (() -> Unit)?,
+    onReset: (() -> Unit)?,
     corner: @Composable () -> Unit,
 ) {
     Column(
@@ -64,9 +64,9 @@ internal fun BoxScope.MapCorner(
         verticalArrangement = mapStackArrangement(SmallFabSize),
         horizontalAlignment = Alignment.End,
     ) {
-        if (onReframe != null) {
+        if (onReset != null) {
             AnimatedVisibility(away.value, enter = fadeIn(), exit = fadeOut()) {
-                CornerFab(onReframe) {
+                CornerFab(onReset) {
                     Icon(Icons.Filled.ZoomOutMap, contentDescription = stringResource(R.string.common_map_reset_view))
                 }
             }

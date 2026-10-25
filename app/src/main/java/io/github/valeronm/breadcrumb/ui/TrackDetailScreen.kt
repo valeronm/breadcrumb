@@ -319,7 +319,7 @@ internal fun TrackDetailScreen(
                                     activity = activity,
                                     colorMode = colorMode,
                                     showLegend = true,
-                                    noisyLegend = { if (showNoisy) NoisyLegend(load.noisy, Modifier) },
+                                    noisyLegend = { if (showNoisy) NoisyLegend(load.noisy) },
                                     selectedPoint = { selectedIndex?.let { load.good.getOrNull(it) } },
                                     dwells = dwells,
                                     overruns = overruns,
@@ -922,11 +922,11 @@ private fun noisyLegendEntry(reason: IgnoreReason?): Pair<Int, Color> = when (re
 
 /** Legend for the noisy-fix markers: one row per rejection reason present in [noisyPoints]. */
 @Composable
-private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
+private fun NoisyLegend(noisyPoints: List<TrackPoint>) {
     val entries = remember(noisyPoints) {
         noisyPoints.map { noisyLegendEntry(IgnoreReason.fromCode(it.ignoreReason)) }.distinct()
     }
-    LegendSurface(modifier) {
+    LegendSurface {
         for ((labelRes, color) in entries) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(color))
