@@ -53,7 +53,13 @@ internal class ImportExportController(
         data object NotEmpty : RestoreOutcome
     }
 
-    private enum class Transfer { GPX_EXPORT, BACKUP_EXPORT, BACKUP_RESTORE, CLEAR, GOOGLE_IMPORT }
+    private enum class Transfer(val logLabel: String) {
+        GPX_EXPORT("gpx export"),
+        BACKUP_EXPORT("backup export"),
+        BACKUP_RESTORE("backup restore"),
+        CLEAR("history clear"),
+        GOOGLE_IMPORT("google timeline import"),
+    }
 
     private sealed interface Running {
         class Transferring(val transfer: Transfer, val progress: OpProgress) : Running
@@ -65,15 +71,27 @@ internal class ImportExportController(
 
     /**
      * Two operations on the whole history running together would each read or write without seeing
-     * the other, so an operation takes this slot only through [claim].
+     * the other, so an operation takes this slot only through [launchClaimed].
      */
     private val running = MutableStateFlow<Running?>(null)
 
-    /** False, with the reader told why, while another operation holds the slot. */
-    private fun claim(op: Running): Boolean {
-        if (running.compareAndSet(null, op)) return true
-        say(app.getString(R.string.data_load_busy))
-        return false
+    /**
+     * Refused, with the reader told why, while another operation holds the slot. The message [work]
+     * returns is said once the slot is free.
+     */
+    private fun launchClaimed(op: Running, work: suspend () -> String?) {
+        if (!running.compareAndSet(null, op)) {
+            say(app.getString(R.string.data_load_busy))
+            return
+        }
+        scope.launch {
+            val message = try {
+                work()
+            } finally {
+                running.value = null
+            }
+            message?.let(say)
+        }
     }
 
     private fun <T> derived(read: (Running?) -> T): StateFlow<T> =
@@ -82,7 +100,7 @@ internal class ImportExportController(
     private fun progressOf(transfer: Transfer): StateFlow<OpProgress?> =
         derived { op -> (op as? Running.Transferring)?.takeIf { it.transfer == transfer }?.progress }
 
-    /** Trails [running], so an operation starts through [claim] rather than on this. */
+    /** Trails [running], so no operation is gated on it. */
     val historyBusy: StateFlow<Boolean> = derived { it != null }
 
     /** Non-null while a GPX bulk export runs. */
@@ -117,28 +135,23 @@ internal class ImportExportController(
     /** [op]'s failures are logged and reach [message] as null. */
     private fun <T> runTransfer(
         transfer: Transfer,
-        logLabel: String,
         message: (T?) -> String,
         op: suspend (onProgress: (Int, Int?) -> Unit) -> T?,
-    ) {
-        if (!claim(Running.Transferring(transfer, OpProgress(0, null)))) return
-        scope.launch {
-            // These run for minutes over a long history, and a report that one was slow arrives
-            // with no way to tell slow from stalled unless the log says when it began and how long
-            // it took. Elapsed realtime, not the wall clock, so a clock correction mid-export
-            // can't produce a negative duration.
-            val startedAt = SystemClock.elapsedRealtime()
-            DebugLog.i(TAG, "$logLabel started")
-            val result = withContext(Dispatchers.IO) {
-                failureAsNull(logLabel) {
-                    op { done, total -> running.value = Running.Transferring(transfer, OpProgress(done, total)) }
-                }
+    ) = launchClaimed(Running.Transferring(transfer, OpProgress(0, null))) {
+        // These run for minutes over a long history, and a report that one was slow arrives with no
+        // way to tell slow from stalled unless the log says when it began and how long it took.
+        // Elapsed realtime, not the wall clock, so a clock correction mid-export can't produce a
+        // negative duration.
+        val startedAt = SystemClock.elapsedRealtime()
+        DebugLog.i(TAG, "${transfer.logLabel} started")
+        val result = withContext(Dispatchers.IO) {
+            failureAsNull(transfer.logLabel) {
+                op { done, total -> running.value = Running.Transferring(transfer, OpProgress(done, total)) }
             }
-            val elapsed = SystemClock.elapsedRealtime() - startedAt
-            DebugLog.i(TAG, "$logLabel ${if (result == null) "gave up" else "finished"} in $elapsed ms")
-            running.value = null
-            say(message(result))
         }
+        val elapsed = SystemClock.elapsedRealtime() - startedAt
+        DebugLog.i(TAG, "${transfer.logLabel} ${if (result == null) "gave up" else "finished"} in $elapsed ms")
+        message(result)
     }
 
     private fun exportResultMessage(count: Int?): String = if (count == null) {
@@ -149,13 +162,13 @@ internal class ImportExportController(
 
     /** Exports every track as a .gpx file into the picked folder. */
     fun exportAll(treeUri: Uri) =
-        runTransfer(Transfer.GPX_EXPORT, "gpx export", ::exportResultMessage) { onProgress ->
+        runTransfer(Transfer.GPX_EXPORT, ::exportResultMessage) { onProgress ->
             GpxExporter.exportAllToTree(app, repository, treeUri, onProgress)
         }
 
     /** Writes the whole history as one gzipped JSON file (backup, and the web companion's data source). */
     fun exportBackup(uri: Uri) =
-        runTransfer(Transfer.BACKUP_EXPORT, "backup export", ::exportResultMessage) { onProgress ->
+        runTransfer(Transfer.BACKUP_EXPORT, ::exportResultMessage) { onProgress ->
             BackupExporter.exportTo(app, backupRepositories, uri, System.currentTimeMillis(), onProgress)
         }
 
@@ -163,7 +176,6 @@ internal class ImportExportController(
     fun clearHistory() =
         runTransfer(
             Transfer.CLEAR,
-            "history clear",
             { app.getString(if (it == null) R.string.data_clear_failed else R.string.data_cleared) },
         ) {
             val clear: suspend () -> Unit = { repository.clearHistory() }
@@ -185,7 +197,7 @@ internal class ImportExportController(
      * starts rather than when it was offered: a recording can end while the file is being picked.
      */
     fun restoreBackup(uri: Uri) =
-        runTransfer(Transfer.BACKUP_RESTORE, "backup restore", ::restoreMessage) { onProgress ->
+        runTransfer(Transfer.BACKUP_RESTORE, ::restoreMessage) { onProgress ->
             if (repository.hasKeptTracks()) {
                 RestoreOutcome.NotEmpty
             } else {
@@ -193,16 +205,11 @@ internal class ImportExportController(
             }
         }
 
-    fun restoreDeleted(trackIds: List<Long>) {
-        if (!claim(Running.Undeleting)) return
-        scope.launch {
-            val restored = failureAsNull("recently deleted restore") { repository.restoreTracks(trackIds) }
-            running.value = null
-            when (restored) {
-                null -> say(app.getString(R.string.discarded_restore_failed))
-                false -> say(app.getString(R.string.discarded_restore_overlaps))
-                true -> Unit
-            }
+    fun restoreDeleted(trackIds: List<Long>) = launchClaimed(Running.Undeleting) {
+        when (failureAsNull("recently deleted restore") { repository.restoreTracks(trackIds) }) {
+            null -> app.getString(R.string.discarded_restore_failed)
+            false -> app.getString(R.string.discarded_restore_overlaps)
+            true -> null
         }
     }
 
@@ -222,7 +229,7 @@ internal class ImportExportController(
     }
 
     fun importGoogleTimeline(uri: Uri) =
-        runTransfer(Transfer.GOOGLE_IMPORT, "google timeline import", ::googleImportMessage) { onProgress ->
+        runTransfer(Transfer.GOOGLE_IMPORT, ::googleImportMessage) { onProgress ->
             GoogleTimelineImporter.importFrom(
                 app,
                 backupRepositories,
@@ -250,38 +257,33 @@ internal class ImportExportController(
      * The failures it reports count unreadable or unparseable files and tracks without enough
      * timestamped points to place on the timeline.
      */
-    fun importGpx(uris: List<Uri>) {
-        if (!claim(Running.ImportingGpx(GpxImportProgress(0, uris.size, 0)))) return
-        scope.launch {
-            var imported = 0
-            var duplicates = 0
-            var overlapping = 0
-            var failed = 0
-            withContext(Dispatchers.IO) {
-                val resolver = app.contentResolver
-                for ((index, uri) in uris.withIndex()) {
-                    // One unreadable file counts as failed, and the rest still import.
-                    val counts = failureAsNull("gpx import of $uri") {
-                        val parsed =
-                            resolver.openInputStream(uri)?.use { GpxParser.parse(it) } ?: emptyList()
-                        val importable = parsed.mapNotNull { GpxParser.toImportable(it) }
-                        failed += parsed.size - importable.size
-                        if (parsed.isEmpty()) failed++ // a readable file with no tracks at all
-                        repository.importTracks(importable)
-                    }
-                    if (counts == null) {
-                        failed++
-                    } else {
-                        imported += counts.imported
-                        duplicates += counts.duplicates
-                        overlapping += counts.overlapping
-                    }
-                    running.value = Running.ImportingGpx(GpxImportProgress(index + 1, uris.size, imported))
+    fun importGpx(uris: List<Uri>) = launchClaimed(Running.ImportingGpx(GpxImportProgress(0, uris.size, 0))) {
+        var imported = 0
+        var duplicates = 0
+        var overlapping = 0
+        var failed = 0
+        withContext(Dispatchers.IO) {
+            val resolver = app.contentResolver
+            for ((index, uri) in uris.withIndex()) {
+                // One unreadable file counts as failed, and the rest still import.
+                val counts = failureAsNull("gpx import of $uri") {
+                    val parsed = resolver.openInputStream(uri)?.use { GpxParser.parse(it) } ?: emptyList()
+                    val importable = parsed.mapNotNull { GpxParser.toImportable(it) }
+                    failed += parsed.size - importable.size
+                    if (parsed.isEmpty()) failed++ // a readable file with no tracks at all
+                    repository.importTracks(importable)
                 }
+                if (counts == null) {
+                    failed++
+                } else {
+                    imported += counts.imported
+                    duplicates += counts.duplicates
+                    overlapping += counts.overlapping
+                }
+                running.value = Running.ImportingGpx(GpxImportProgress(index + 1, uris.size, imported))
             }
-            running.value = null
-            say(gpxImportMessage(GpxImportSummary(imported, duplicates, overlapping, failed)))
         }
+        gpxImportMessage(GpxImportSummary(imported, duplicates, overlapping, failed))
     }
 
     /** Exports the given tracks and hands back a share chooser Intent (single- or multi-file). */

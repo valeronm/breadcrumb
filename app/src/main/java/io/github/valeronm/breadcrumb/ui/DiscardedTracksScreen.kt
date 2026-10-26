@@ -144,7 +144,7 @@ internal fun DiscardedTracksScreen(
                         rows = shown,
                         nowMs = nowMs,
                         onOpenTrack = onOpenTrack,
-                        onRestore = viewModel::restoreTrack,
+                        onRestore = { viewModel.importExport.restoreDeleted(listOf(it)) },
                     )
                 }
             }

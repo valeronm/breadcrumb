@@ -110,7 +110,7 @@ internal fun UndoSnackbar.deleteTrack(viewModel: TrackListViewModel, trackId: Lo
 
 /** Deletes [trackIds] as one trip, with one undo bringing them all back. */
 internal fun UndoSnackbar.deleteTracks(viewModel: TrackListViewModel, trackIds: List<Long>, message: String) =
-    viewModel.delete(trackIds) { show(message) { viewModel.restoreTracks(trackIds) } }
+    viewModel.delete(trackIds) { show(message) { viewModel.importExport.restoreDeleted(trackIds) } }
 
 /** Merges two tracks and offers the split back under [message]; nothing shows when the merge is
  *  refused. */

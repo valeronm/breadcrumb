@@ -741,10 +741,6 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun restoreTrack(trackId: Long) = restoreTracks(listOf(trackId))
-
-    fun restoreTracks(trackIds: List<Long>) = importExport.restoreDeleted(trackIds)
-
     fun purgeDiscarded(through: Long) {
         viewModelScope.launch { repository.purgeDiscarded(through) }
     }
