@@ -13,6 +13,7 @@
     <string name="common_stop">Parar</string>
     <string name="common_delete">Eliminar</string>
     <string name="common_save">Guardar</string>
+    <string name="common_failed">Algo correu mal</string>
     <string name="common_stat_distance">Distância</string>
     <string name="common_stat_duration">Duração</string>
 

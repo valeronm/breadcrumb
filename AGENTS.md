@@ -304,6 +304,9 @@ sweeps (`HistorySweeps`) are not backfills: they run again whenever their rule's
   is `by lazy` for this reason).
 - A screen gets a file of its own, named for its composable, and cross-file symbols are `internal`
   rather than `private`.
+- **A write launches in `TrackListViewModel`'s `scope`, not `viewModelScope`**: its handler logs a
+  failure and tells the reader, where an exception on `viewModelScope` ends the process. A write an
+  undo awaits goes through `launchUndoable`, not `async`.
 
 ### Maps
 

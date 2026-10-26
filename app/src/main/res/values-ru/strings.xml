@@ -13,6 +13,7 @@
     <string name="common_stop">Остановить</string>
     <string name="common_delete">Удалить</string>
     <string name="common_save">Сохранить</string>
+    <string name="common_failed">Что-то пошло не так</string>
     <string name="common_stat_distance">Расстояние</string>
     <string name="common_stat_duration">Длительность</string>
 

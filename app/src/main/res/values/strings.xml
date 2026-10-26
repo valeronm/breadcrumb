@@ -27,6 +27,8 @@
     <!-- Commits an editor: the trip form and the place editor both hold everything until it is
          pressed, so the word says a row is written rather than that the reader has finished. -->
     <string name="common_save">Save</string>
+    <!-- A change that failed with nothing more specific to say about it. -->
+    <string name="common_failed">Something went wrong</string>
     <!-- Stat-cell labels, on the Record card and on a track's detail. -->
     <string name="common_stat_distance">Distance</string>
     <string name="common_stat_duration">Duration</string>

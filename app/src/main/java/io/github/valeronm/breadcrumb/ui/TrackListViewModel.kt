@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Cities
 import io.github.valeronm.breadcrumb.data.DerivationStore
@@ -40,6 +41,9 @@ import io.github.valeronm.breadcrumb.domain.TripChains
 import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
+import io.github.valeronm.breadcrumb.util.DebugLog
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -59,9 +63,12 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.plus
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.ZoneId
+
+private const val TAG = "Breadcrumb"
 
 class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -80,8 +87,17 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         messageQueue.trySend(message)
     }
 
+    /**
+     * [viewModelScope] has no exception handler, so a write launched there that throws ends the
+     * process.
+     */
+    private val scope = viewModelScope + CoroutineExceptionHandler { _, e ->
+        DebugLog.e(TAG, "ui write failed", e)
+        say(app.getString(R.string.common_failed))
+    }
+
     internal val importExport =
-        ImportExportController(app, viewModelScope, repository, backupRepositories, ::say)
+        ImportExportController(app, scope, repository, backupRepositories, ::say)
 
     /** The language the screens are in, which places are named in. It outlives a language switch,
      *  as this model does, so the screens hand it over ([useLanguage]). */
@@ -408,13 +424,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         onDone: (PlaceRepository.StayedHere) -> Unit,
     ) {
         val placeId = side.place?.id ?: return
-        viewModelScope.launch {
+        scope.launch {
             placeRepository.stayedHere(beforeId, afterId, placeId)?.let(onDone)
         }
     }
 
     fun undoStayedHere(done: PlaceRepository.StayedHere) {
-        viewModelScope.launch { placeRepository.undoStayedHere(done) }
+        scope.launch { placeRepository.undoStayedHere(done) }
     }
 
     val recordingRow: StateFlow<TimelineItem.RecordingItem?> = TrackingStatus.state
@@ -583,7 +599,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         if (PlaceResolver.saysSameAs(existing, row)) return
         var pending = PendingPlace(editing.key, row)
         pendingPlace.value = pending
-        viewModelScope.launch {
+        scope.launch {
             try {
                 if (existing == null) {
                     val id = placeRepository.create(row)
@@ -616,11 +632,21 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * [async] holds a failure until its result is awaited, which an undo may never do; here the
+     * failure reaches [scope]'s handler as it happens, and the result is cancelled.
+     */
+    private fun <T> launchUndoable(write: suspend () -> T): Deferred<T> {
+        val result = CompletableDeferred<T>()
+        scope.launch { result.complete(write()) }.invokeOnCompletion { result.cancel() }
+        return result
+    }
+
     // Only the latest: one Undo is offered at a time, and a newer removal replaces the older's.
     private var lastRemoval: Pair<Long, Deferred<PlaceRepository.Removal>>? = null
 
     fun deletePlace(place: Place) {
-        lastRemoval = place.id to viewModelScope.async { placeRepository.delete(place) }
+        lastRemoval = place.id to launchUndoable { placeRepository.delete(place) }
     }
 
     /** Undo a [deletePlace]; the row keeps its id and its stated ends. */
@@ -628,13 +654,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val (id, removal) = lastRemoval ?: return
         if (id != place.id) return
         lastRemoval = null
-        viewModelScope.launch { placeRepository.restore(removal.await()) }
+        scope.launch { placeRepository.restore(removal.await()) }
     }
 
     private var lastMerge: Pair<Long, Deferred<PlaceRepository.Merge>>? = null
 
     fun mergePlaces(keep: Place, absorbed: List<Place>) {
-        lastMerge = keep.id to viewModelScope.async { placeRepository.merge(keep, absorbed) }
+        lastMerge = keep.id to launchUndoable { placeRepository.merge(keep, absorbed) }
     }
 
     /** Undo a [mergePlaces] into [keep]; the absorbed rows keep their ids and their stated ends. */
@@ -642,12 +668,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val (id, merge) = lastMerge ?: return
         if (id != keep.id) return
         lastMerge = null
-        viewModelScope.launch { placeRepository.unmerge(merge.await()) }
+        scope.launch { placeRepository.unmerge(merge.await()) }
     }
 
     /** Null untags. A category is not a clustering input, so nothing re-derives. */
     fun setPlaceCategory(id: Long, category: PlaceCategory?) {
-        viewModelScope.launch { placeRepository.setCategory(id, category) }
+        scope.launch { placeRepository.setCategory(id, category) }
     }
 
     /** Written in one call because each create re-derives the history. */
@@ -683,7 +709,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         trip: ManualTrip,
         onResult: (TrackRepository.ManualTrackResult) -> Unit,
     ) {
-        viewModelScope.launch {
+        scope.launch {
             val result = if (editing == null) {
                 repository.insertManualTrack(trip.activityType, trip.origin.end, trip.destination.end, trip.path)
             } else {
@@ -698,14 +724,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     /** [onMerged] receives the merged track's id, which [unmergeTracks] takes. */
     fun mergeTracks(plan: TrackMerge.Plan, onMerged: (Long) -> Unit) {
-        viewModelScope.launch {
+        scope.launch {
             repository.mergeTracks(plan.earlierId, plan.laterId)?.let(onMerged)
         }
     }
 
     /** Undo a [mergeTracks]: drop the merged track, bring both originals back. */
     fun unmergeTracks(mergedId: Long, plan: TrackMerge.Plan) {
-        viewModelScope.launch {
+        scope.launch {
             repository.unmergeTracks(mergedId, plan.earlierId, plan.laterId)
         }
     }
@@ -719,14 +745,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * The track keeps its id as the first half. [onSplit] is not called when the cut is refused.
      */
     fun splitTrack(trackId: Long, atTs: Long, onSplit: (TrackRepository.Split) -> Unit) {
-        viewModelScope.launch {
+        scope.launch {
             repository.splitTrack(trackId, atTs)?.let(onSplit)
         }
     }
 
     /** Undo a [splitTrack]: the second half's fixes go back and its row goes away. */
     fun unsplitTracks(originalId: Long, split: TrackRepository.Split) {
-        viewModelScope.launch {
+        scope.launch {
             repository.unsplitTracks(originalId, split)
         }
     }
@@ -736,17 +762,17 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * reopen the track before the tap lands.
      */
     fun delete(trackIds: List<Long>, onDeleted: () -> Unit) {
-        viewModelScope.launch {
+        scope.launch {
             if (repository.deleteTracks(trackIds)) onDeleted()
         }
     }
 
     fun purgeDiscarded(through: Long) {
-        viewModelScope.launch { repository.purgeDiscarded(through) }
+        scope.launch { repository.purgeDiscarded(through) }
     }
 
     fun setTrackActivity(trackId: Long, activityType: ActivityType) {
-        viewModelScope.launch { repository.setActivityType(trackId, activityType) }
+        scope.launch { repository.setActivityType(trackId, activityType) }
     }
 
     suspend fun getPoints(trackId: Long): List<TrackPoint> = repository.pointsFor(trackId)
