@@ -245,7 +245,8 @@ class CityAtlas private constructor(
 
     /**
      * The city that should *name* this coordinate: the most populous one within [NAME_WINDOW_M] of
-     * the nearest in the coordinate's country, which is not the same as the nearest itself.
+     * the nearest in the coordinate's country, the nearer of two equally populous, which is not the
+     * same as the nearest itself.
      *
      * **The country comes from the outlines** ([parse]), since a place's own code carries the
      * place's country, not which side of a border the coordinate is on. Outside every outline it is
@@ -281,11 +282,13 @@ class CityAtlas private constructor(
         index.forEachNear(lat, lon, reach, distance) { row ->
             // Population before geometry: it rules out nearly every row for the cost of one read,
             // where a distance call and a City are the expensive part of looking at one.
-            if (populationAt(row) <= best.population) return@forEachNear
-            if (populationAt(row) < local.population * NAME_DOMINANCE) return@forEachNear
+            val population = populationAt(row)
+            if (population < best.population) return@forEachNear
+            if (population < local.population * NAME_DOMINANCE) return@forEachNear
             if (countryCodeAt(row) != country) return@forEachNear
             val d = distance.meters(lat, lon, latOf(row), lonOf(row))
-            if (d <= reach) best = cityAt(row, d)
+            if (d > reach) return@forEachNear
+            if (population > best.population || d < best.distanceM) best = cityAt(row, d)
         }
         return best
     }

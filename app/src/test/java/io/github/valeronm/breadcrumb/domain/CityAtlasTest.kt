@@ -190,6 +190,16 @@ class CityAtlasTest {
         assertEquals("Border district", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
     }
 
+    @Test fun `of two cities a district could belong to, equally populous, the nearer takes the name`() {
+        val atlas = atlasOf(
+            testCity("Small district", 200.0, pop = 5),
+            TestCity(latAt(3_000.0), lonAt(0.0), 40, "XX", "Etc/GMT", "Farther city"),
+            TestCity(latAt(-2_000.0), lonAt(0.0), 40, "XX", "Etc/GMT", "Nearer city"),
+        )
+
+        assertEquals("Nearer city", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+    }
+
     @Test fun `a place with no population figure keeps its name`() {
         // Administrative seats are listed whatever their size, and many carry a zero. Zero times any
         // factor is a bar every neighbour clears, so without a case of its own the village someone
