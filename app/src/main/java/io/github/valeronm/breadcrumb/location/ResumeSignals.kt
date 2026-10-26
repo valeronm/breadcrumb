@@ -22,24 +22,21 @@ import io.github.valeronm.breadcrumb.util.isGranted
  * is worth is recorder policy and lives with the guard that acts on it, so it can be exercised off
  * the device rather than asserted here.
  *
- * **[Signal.MOTION] serves two unrelated consumers, and this is deliberately blind to which.** GPS
- * off after a failed probe makes it the no-fix guard's resume; GPS off for want of a journey makes
- * it the departure trigger's. Those states are disjoint — a close clears the guard's
+ * **[ResumeSignal.MOTION] serves two unrelated consumers, and this is deliberately blind to
+ * which.** GPS off after a failed probe makes it the no-fix guard's resume; GPS off for want of a
+ * journey makes it the departure trigger's. Those states are disjoint — a close clears the guard's
  * suspension — so one sensor, one registration and one arm/disarm protocol cover both, and
  * [ActivityIngest.onResumeSignal] is where they are told apart.
  *
  * The recorder decides *when* these should be listening — [ArmResumeSignals][Effect.ArmResumeSignals]
- * and [ArmSignificantMotion][Effect.ArmSignificantMotion] are its two requests, and this owns only
+ * and [ArmSignificantMotion][Effect.ArmSignificantMotion] are its requests, and this owns only
  * the registration behind them. Everything here runs on the main thread, where the listeners are
  * registered and delivered.
  */
 class ResumeSignals(
     private val context: Context,
-    private val onSignal: (Signal) -> Unit,
+    private val onSignal: (ResumeSignal) -> Unit,
 ) {
-
-    /** Which cheap signal fired. [WIFI_LOST] is reported by [WifiWatch]. */
-    enum class Signal { MOTION, PASSIVE_FIX, WIFI_LOST }
 
     private val sensors by lazy { context.getSystemService(SensorManager::class.java) }
     private val motionSensor by lazy { sensors?.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION) }
@@ -74,7 +71,7 @@ class ResumeSignals(
             override fun onTrigger(event: TriggerEvent?) {
                 motionListener = null // one-shot: already disarmed by the sensor framework
                 DebugLog.i(TAG, "motion trigger fired")
-                onSignal(Signal.MOTION)
+                onSignal(ResumeSignal.MOTION)
             }
         }
         if (sm.requestTriggerSensor(listener, sensor)) {
@@ -108,7 +105,7 @@ class ResumeSignals(
         val lm = locations ?: return
         val listener = object : LocationListenerCompat {
             override fun onLocationChanged(location: Location) {
-                if (location.provider == LocationManager.GPS_PROVIDER) onSignal(Signal.PASSIVE_FIX)
+                if (location.provider == LocationManager.GPS_PROVIDER) onSignal(ResumeSignal.PASSIVE_FIX)
             }
         }
         passiveListener = listener

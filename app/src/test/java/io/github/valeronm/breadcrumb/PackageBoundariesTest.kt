@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import com.tngtech.archunit.base.DescribedPredicate
 import com.tngtech.archunit.core.domain.JavaClass
 import com.tngtech.archunit.core.domain.JavaClass.Predicates.ANNOTATIONS
+import com.tngtech.archunit.core.domain.JavaClass.Predicates.belongTo
 import com.tngtech.archunit.core.domain.JavaClass.Predicates.belongToAnyOf
 import com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage
 import com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage
@@ -17,6 +18,7 @@ import com.tngtech.archunit.core.importer.ImportOption
 import com.tngtech.archunit.lang.ArchRule
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
+import io.github.valeronm.breadcrumb.boundaryfixture.data.TrackPolicy
 import io.github.valeronm.breadcrumb.boundaryfixture.data.TrackRepository
 import io.github.valeronm.breadcrumb.boundaryfixture.data.db.DbReachesDomain
 import io.github.valeronm.breadcrumb.boundaryfixture.data.db.DbReachesRepository
@@ -31,8 +33,25 @@ import io.github.valeronm.breadcrumb.boundaryfixture.domain.ReachesRecorder
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.ReachesRepository
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.ReachesSharedRow
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.ReachesUi
+import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreEffect
+import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreReachesAdapter
+import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreValue
 import io.github.valeronm.breadcrumb.boundaryfixture.location.RecorderAdapter
 import io.github.valeronm.breadcrumb.boundaryfixture.ui.Screen
+import io.github.valeronm.breadcrumb.data.TrackQuality
+import io.github.valeronm.breadcrumb.data.TrackStats
+import io.github.valeronm.breadcrumb.location.ActivityIngest
+import io.github.valeronm.breadcrumb.location.ActivitySettings
+import io.github.valeronm.breadcrumb.location.DepartureTriggers
+import io.github.valeronm.breadcrumb.location.Effect
+import io.github.valeronm.breadcrumb.location.Fix
+import io.github.valeronm.breadcrumb.location.FixIngest
+import io.github.valeronm.breadcrumb.location.GateState
+import io.github.valeronm.breadcrumb.location.GnssState
+import io.github.valeronm.breadcrumb.location.IngestSettings
+import io.github.valeronm.breadcrumb.location.Ingested
+import io.github.valeronm.breadcrumb.location.Registration
+import io.github.valeronm.breadcrumb.location.ResumeSignal
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.reflect.KClass
@@ -49,8 +68,12 @@ class PackageBoundariesTest {
         databaseRule(APP).check(app)
 
     @Test
-    fun `the shared rows depend only on the standard libraries, Room's annotations and each other`() =
+    fun `the shared rows depend only on what domain may and Room's annotations`() =
         sharedRowRule(APP).check(app)
+
+    @Test
+    fun `the recorder core depends only on what domain may, the track policy and itself`() =
+        recorderCoreRule(APP).check(app)
 
     @Test
     fun `the domain rule rejects an aliased platform import`() =
@@ -104,6 +127,18 @@ class PackageBoundariesTest {
     fun `the shared row rule rejects Room beyond its annotations`() =
         assertRejected(sharedRowRule(FIXTURE), RoomRow::class, RoomDatabase::class)
 
+    @Test
+    fun `the recorder core rule rejects the platform from a nested class`() =
+        assertRejected(recorderCoreRule(FIXTURE), CoreEffect::class, Context::class)
+
+    @Test
+    fun `the recorder core rule rejects an app class outside its allowlist`() =
+        assertRejected(recorderCoreRule(FIXTURE), CoreReachesAdapter::class, RecorderAdapter::class)
+
+    @Test
+    fun `the recorder core rule accepts the domain, a shared row, the track policy and itself`() =
+        recorderCoreRule(FIXTURE).check(fixture(CoreValue::class))
+
     private fun assertRejected(rule: ArchRule, subject: KClass<*>, target: KClass<*>) {
         val details = rule.evaluate(fixture(subject)).failureReport.details
         val name = target.java.name
@@ -112,9 +147,18 @@ class PackageBoundariesTest {
 
     private fun fixture(type: KClass<*>): JavaClasses = fixtures.that(belongToAnyOf(type.java))
 
-    private class PackageTree(val root: String, rows: List<String>) {
+    private class PackageTree(
+        val root: String,
+        rows: List<String>,
+        cores: List<KClass<*>>,
+        policy: List<KClass<*>>,
+    ) {
+        val domain = resideInAPackage("$root.domain..")
         val sharedRows = named("are shared rows", rows.map { "$root.data.db.$it" })
-        val domainReach = resideInAnyPackage("java..", "kotlin..").or(sharedRows).or(COMPILER_ANNOTATIONS)
+        val domainReach =
+            resideInAnyPackage("java..", "kotlin..").or(domain).or(sharedRows).or(COMPILER_ANNOTATIONS)
+        val recorderCore = belongTo(named("the recorder core", cores.map { it.java.name }))
+        val trackPolicy = belongTo(named("the track policy", policy.map { it.java.name }))
     }
 
     private companion object {
@@ -130,26 +174,42 @@ class PackageBoundariesTest {
 
         val APP = PackageTree(
             "io.github.valeronm.breadcrumb",
-            listOf("Place", "TrackPoint", "TrackSummary", "Track", "TrackEndpoints"),
+            rows = listOf("Place", "TrackPoint", "TrackSummary", "Track", "TrackEndpoints"),
+            cores = listOf(
+                FixIngest::class,
+                ActivityIngest::class,
+                Effect::class,
+                ResumeSignal::class,
+                ActivitySettings::class,
+                DepartureTriggers::class,
+                Fix::class,
+                GateState::class,
+                GnssState::class,
+                Ingested::class,
+                IngestSettings::class,
+                Registration::class,
+            ),
+            // The track policy defaults its distance to AndroidDistance, which no rule here checks.
+            policy = listOf(TrackQuality::class, TrackStats::class),
         )
-        val FIXTURE = PackageTree("${APP.root}.boundaryfixture", listOf("Track", "PlatformRow", "RoomRow"))
+        val FIXTURE = PackageTree(
+            "${APP.root}.boundaryfixture",
+            rows = listOf("Track", "PlatformRow", "RoomRow"),
+            cores = listOf(CoreEffect::class, CoreValue::class, CoreReachesAdapter::class),
+            policy = listOf(TrackPolicy::class),
+        )
 
         // ArchUnit's `ImportOption.DoNotIncludeTests` does not match AGP's unit-test output folders.
         val app: JavaClasses by lazy {
             ClassFileImporter()
                 .withImportOption(ImportOption { location -> !location.contains("UnitTest") })
-                .importPackages("${APP.root}.domain", "${APP.root}.data.db")
+                .importPackages("${APP.root}.domain", "${APP.root}.data.db", "${APP.root}.location")
         }
 
         // Each import resolves its dependencies from the classpath anew.
         val fixtures: JavaClasses by lazy { ClassFileImporter().importPackages(FIXTURE.root) }
 
-        fun domainRule(tree: PackageTree): ArchRule =
-            classes()
-                .that().resideInAPackage("${tree.root}.domain..")
-                .should().onlyDependOnClassesThat(
-                    tree.domainReach.or(resideInAPackage("${tree.root}.domain..")),
-                )
+        fun domainRule(tree: PackageTree): ArchRule = onlyReach(tree.domain, tree.domainReach)
 
         fun databaseRule(tree: PackageTree): ArchRule =
             noClasses()
@@ -160,11 +220,25 @@ class PackageBoundariesTest {
 
         // The domain calls into the rows.
         fun sharedRowRule(tree: PackageTree): ArchRule =
-            classes()
-                .that(tree.sharedRows)
-                .should().onlyDependOnClassesThat(
-                    tree.domainReach.or(resideInAPackage("androidx.room..").and(ANNOTATIONS)),
-                )
+            onlyReach(
+                tree.sharedRows,
+                tree.domainReach.or(resideInAPackage("androidx.room..").and(ANNOTATIONS)),
+            )
+
+        fun recorderCoreRule(tree: PackageTree): ArchRule =
+            onlyReach(
+                tree.recorderCore,
+                tree.domainReach.or(tree.recorderCore).or(tree.trackPolicy),
+            )
+
+        // An array carries neither its element's name nor its enclosing class.
+        fun onlyReach(
+            subjects: DescribedPredicate<in JavaClass>,
+            allowed: DescribedPredicate<in JavaClass>,
+        ): ArchRule =
+            classes().that(subjects).should().onlyDependOnClassesThat(
+                DescribedPredicate.describe<JavaClass>(allowed.description) { allowed.test(it.baseComponentType) },
+            )
 
         fun named(description: String, names: Collection<String>): DescribedPredicate<JavaClass> =
             DescribedPredicate.describe(description) { it.name in names }

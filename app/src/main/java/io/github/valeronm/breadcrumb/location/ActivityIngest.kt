@@ -377,16 +377,16 @@ class ActivityIngest(
      * request that costs something is only ever built when there is something to ask about.
      */
     fun onResumeSignal(
-        signal: ResumeSignals.Signal,
+        signal: ResumeSignal,
         elapsedMs: Long,
         settings: ActivitySettings,
     ): List<Effect> {
         firstFixWaitRestarted = false
-        if (signal == ResumeSignals.Signal.WIFI_LOST && !settings.triggers.wifi) return emptyList()
+        if (signal == ResumeSignal.WIFI_LOST && !settings.triggers.wifi) return emptyList()
         if (noFixGuard.suspended) {
             val respectBackoff = when (signal) {
-                ResumeSignals.Signal.MOTION -> true
-                ResumeSignals.Signal.PASSIVE_FIX, ResumeSignals.Signal.WIFI_LOST -> false
+                ResumeSignal.MOTION -> true
+                ResumeSignal.PASSIVE_FIX, ResumeSignal.WIFI_LOST -> false
             }
             // Too soon after the last failed probe to retry blind, so a burst asks whether the phone
             // has left the spot GPS gave up at. The standing request already asks, and a burst would
@@ -400,7 +400,7 @@ class ActivityIngest(
         // A running track already has the ground under continuous observation at a resolution a
         // burst could not improve on.
         if (recording) {
-            if (signal == ResumeSignals.Signal.WIFI_LOST) {
+            if (signal == ResumeSignal.WIFI_LOST) {
                 firstFixWaitRestarted = noFixGuard.restartFirstFixWait(elapsedMs, firstFixWaitMs)
             }
             return emptyList()
@@ -409,9 +409,9 @@ class ActivityIngest(
         // The standing request already has positions arriving, and a burst would replace it.
         if (triggers.continuous) return emptyList()
         return when (signal) {
-            ResumeSignals.Signal.MOTION -> if (triggers.motion) motionBurst() else emptyList()
-            ResumeSignals.Signal.WIFI_LOST -> ArrayList<Effect>().also(::signalBurst)
-            ResumeSignals.Signal.PASSIVE_FIX -> emptyList()
+            ResumeSignal.MOTION -> if (triggers.motion) motionBurst() else emptyList()
+            ResumeSignal.WIFI_LOST -> ArrayList<Effect>().also(::signalBurst)
+            ResumeSignal.PASSIVE_FIX -> emptyList()
         }
     }
 

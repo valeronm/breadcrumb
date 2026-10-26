@@ -162,7 +162,7 @@ class DepartureTriggerTest : ActivityIngestFixture() {
 
         assertEquals(
             listOf(signalBurst, Effect.ArmSignificantMotion),
-            core.onResumeSignal(ResumeSignals.Signal.MOTION, E0, settings),
+            core.onResumeSignal(ResumeSignal.MOTION, E0, settings),
         )
     }
 
@@ -170,20 +170,20 @@ class DepartureTriggerTest : ActivityIngestFixture() {
         val wifi = triggers(wifi = true)
         core.onArmed(T0, wifi)
 
-        assertEquals(listOf(signalBurst), core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0, wifi))
+        assertEquals(listOf(signalBurst), core.onResumeSignal(ResumeSignal.WIFI_LOST, E0, wifi))
     }
 
     @Test fun `a lost Wi-Fi network buys nothing when that trigger is switched off`() {
         val off = triggers(fence = true, motion = true)
         core.onArmed(T0, off)
 
-        assertTrue(core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0, off).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignal.WIFI_LOST, E0, off).isEmpty())
     }
 
     @Test fun `a burst a signal bought outlives the position that anchors the watch`() {
         core.onArmed(T0, settings)
         probeFix(probeAt(0.0, accuracyM = 300.0), T0 + 5_000, settings)
-        core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0, settings)
+        core.onResumeSignal(ResumeSignal.WIFI_LOST, E0, settings)
 
         val out = probeFix(probeAt(20.0, accuracyM = 15.0), T0 + 20_000, settings)
 
@@ -203,15 +203,15 @@ class DepartureTriggerTest : ActivityIngestFixture() {
     @Test fun `neither motion nor a lost Wi-Fi network is worth asking about while a track is running`() {
         reading(ActivityType.WALKING, T0)
 
-        assertTrue(core.onResumeSignal(ResumeSignals.Signal.MOTION, E0, settings).isEmpty())
-        assertTrue(core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0, settings).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignal.MOTION, E0, settings).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignal.WIFI_LOST, E0, settings).isEmpty())
     }
 
     @Test fun `motion buys nothing when that trigger is switched off`() {
         val off = triggers(fence = true)
         core.onArmed(T0, off)
 
-        assertTrue(core.onResumeSignal(ResumeSignals.Signal.MOTION, E0, off).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignal.MOTION, E0, off).isEmpty())
     }
 
     /**
@@ -224,8 +224,8 @@ class DepartureTriggerTest : ActivityIngestFixture() {
         val both = triggers(fence = true, continuous = true, motion = true, wifi = true)
         core.onArmed(T0, both)
 
-        assertTrue(core.onResumeSignal(ResumeSignals.Signal.MOTION, E0, both).isEmpty())
-        assertTrue(core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0, both).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignal.MOTION, E0, both).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignal.WIFI_LOST, E0, both).isEmpty())
     }
 
     /**

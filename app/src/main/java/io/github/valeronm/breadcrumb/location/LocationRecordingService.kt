@@ -74,7 +74,7 @@ class LocationRecordingService : Service() {
     private val watchdogAlarm = WatchdogAlarm(this)
     private val departureFence = DepartureFence(this)
     private val departureProbe = DepartureProbe(this, ::onProbePosition)
-    private val wifiWatch = WifiWatch(this) { onResumeSignal(ResumeSignals.Signal.WIFI_LOST) }
+    private val wifiWatch = WifiWatch(this) { onResumeSignal(ResumeSignal.WIFI_LOST) }
     private var wifiSwitch: AutoCloseable? = null
 
     // Held rather than rebuilt per post: the shade is re-worded once per fix batch for the length of
@@ -734,12 +734,7 @@ class LocationRecordingService : Service() {
         }
     }
 
-    /**
-     * A cheap signal says conditions may have changed. What that means depends on why GPS is off —
-     * a stalled search resumes it, an idle recorder buys a burst of coarse positions instead — and
-     * [ActivityIngest.onResumeSignal] is where the two are told apart.
-     */
-    private fun onResumeSignal(signal: ResumeSignals.Signal) {
+    private fun onResumeSignal(signal: ResumeSignal) {
         launchArmed("resume signal") {
             val effects =
                 core.onResumeSignal(signal, SystemClock.elapsedRealtime(), activitySettings())

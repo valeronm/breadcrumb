@@ -143,8 +143,9 @@ some third platform.
 - **Decisions are made in two cores with no Android in them**: `FixIngest` for fixes, returning
   the rows to store and the verdict (`Ingested`), and `ActivityIngest` for readings, returning the
   `Effect`s the service performs. New recorder behavior goes into a core with a case in its suite.
-  The invariants binding a core to its dispatcher — every effect run, in order; `EnsureGps` asking
-  for a state rather than commanding a transition — are stated on `Effect`.
+  `PackageBoundariesTest` checks what the cores may depend on. The invariants binding a core to its
+  dispatcher — every effect run, in order; `EnsureGps` asking for a state rather than commanding a
+  transition — are stated on `Effect`.
 - The service's platform surface is split into a class per concern (`RecorderNotifications`,
   `WatchdogAlarm`, …) so the service reads as wiring. They wrap final platform classes, so the
   split buys readability, not testability.

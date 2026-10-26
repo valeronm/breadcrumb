@@ -470,7 +470,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
     @Test fun `a resume signal probes again`() {
         givenGpsSuspended()
 
-        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + NoFixGuard.RETRY_BASE_MS, settings)
+        val out = core.onResumeSignal(ResumeSignal.MOTION, E0 + GIVE_UP_MS + NoFixGuard.RETRY_BASE_MS, settings)
 
         assertEquals(resumed, out)
     }
@@ -478,7 +478,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
     @Test fun `motion too soon after a failed probe asks whether the phone left instead of probing`() {
         givenGpsSuspended()
 
-        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + 1, settings)
+        val out = core.onResumeSignal(ResumeSignal.MOTION, E0 + GIVE_UP_MS + 1, settings)
 
         assertEquals(listOf(signalBurst, Effect.ArmSignificantMotion), out)
     }
@@ -489,7 +489,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         core.onProbeStarted(E0)
         core.onGnssTick(T0 + GIVE_UP_MS, E0 + GIVE_UP_MS, GIVE_UP_MS, continuous)
 
-        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + 1, continuous)
+        val out = core.onResumeSignal(ResumeSignal.MOTION, E0 + GIVE_UP_MS + 1, continuous)
 
         assertEquals(listOf(Effect.ArmSignificantMotion), out)
     }
@@ -498,7 +498,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         givenGpsSuspended()
         val motionOff = settings.copy(triggers = TRIGGERS.copy(motion = false))
 
-        val out = core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + GIVE_UP_MS + 1, motionOff)
+        val out = core.onResumeSignal(ResumeSignal.MOTION, E0 + GIVE_UP_MS + 1, motionOff)
 
         assertEquals(
             "the one-shot trigger has fired and disarmed itself; the passive listener still stands",
@@ -510,7 +510,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
     @Test fun `a passive fix ignores the backoff, being evidence rather than a suggestion`() {
         givenGpsSuspended()
 
-        val out = core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS + 1, settings)
+        val out = core.onResumeSignal(ResumeSignal.PASSIVE_FIX, E0 + GIVE_UP_MS + 1, settings)
 
         assertEquals(resumed, out)
     }
@@ -518,7 +518,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
     @Test fun `a lost Wi-Fi network ignores the backoff`() {
         givenGpsSuspended()
 
-        val out = core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + GIVE_UP_MS + 1, settings)
+        val out = core.onResumeSignal(ResumeSignal.WIFI_LOST, E0 + GIVE_UP_MS + 1, settings)
 
         assertEquals(resumed, out)
     }
@@ -527,14 +527,14 @@ class ActivityIngestTest : ActivityIngestFixture() {
         givenGpsSuspended()
         val off = settings.copy(triggers = settings.triggers.copy(wifi = false))
 
-        assertTrue(core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + GIVE_UP_MS + 1, off).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignal.WIFI_LOST, E0 + GIVE_UP_MS + 1, off).isEmpty())
     }
 
     @Test fun `a lost Wi-Fi network restarts a walk's wait for its first fix`() {
         givenWalkAwaitingFirstFix()
         val lostAt = 50_000L
 
-        val out = core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + lostAt, settings)
+        val out = core.onResumeSignal(ResumeSignal.WIFI_LOST, E0 + lostAt, settings)
 
         assertTrue(out.isEmpty())
         assertTrue(core.firstFixWaitRestarted)
@@ -547,7 +547,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         givenWalkAwaitingFirstFix()
         val off = settings.copy(triggers = settings.triggers.copy(wifi = false))
 
-        core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + 50_000, off)
+        core.onResumeSignal(ResumeSignal.WIFI_LOST, E0 + 50_000, off)
 
         assertFalse(core.firstFixWaitRestarted)
         val waited = NoFixGuard.FIRST_FIX_WAIT_MS
@@ -558,7 +558,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         reading(ActivityType.DRIVING, T0)
         core.onProbeStarted(E0)
 
-        core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + 50_000, settings)
+        core.onResumeSignal(ResumeSignal.WIFI_LOST, E0 + 50_000, settings)
 
         assertFalse(core.firstFixWaitRestarted)
     }
@@ -566,16 +566,16 @@ class ActivityIngestTest : ActivityIngestFixture() {
     @Test fun `motion restarts no wait for a first fix`() {
         givenWalkAwaitingFirstFix()
 
-        core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + 50_000, settings)
+        core.onResumeSignal(ResumeSignal.MOTION, E0 + 50_000, settings)
 
         assertFalse(core.firstFixWaitRestarted)
     }
 
     @Test fun `a later signal clears the restart it did not make`() {
         givenWalkAwaitingFirstFix()
-        core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + 50_000, settings)
+        core.onResumeSignal(ResumeSignal.WIFI_LOST, E0 + 50_000, settings)
 
-        core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + 51_000, settings)
+        core.onResumeSignal(ResumeSignal.MOTION, E0 + 51_000, settings)
 
         assertFalse(core.firstFixWaitRestarted)
     }
@@ -601,7 +601,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         startWalking()
         core.onProbeStarted(E0)
 
-        assertTrue(core.onResumeSignal(ResumeSignals.Signal.PASSIVE_FIX, E0 + GIVE_UP_MS, settings).isEmpty())
+        assertTrue(core.onResumeSignal(ResumeSignal.PASSIVE_FIX, E0 + GIVE_UP_MS, settings).isEmpty())
     }
 
     /** A resume: GPS back on, and the watch over the give-up spot torn down with it. */
