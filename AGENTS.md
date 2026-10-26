@@ -186,13 +186,15 @@ some third platform.
 
 ### Domain layer
 
-`domain/` is pure Kotlin with no Android in it, unit-tested. New behavior goes there first, with a
-test, before it is wired into the service or the UI. **Domain functions take the Room entities
-directly** rather than a mapped model: the point walk runs over millions of rows, and a per-row
-mapping allocation buys nothing but layering. **`db` never imports `domain`**, which would make the
-two one unit, and entities carry no domain defaults for the same reason. A value persisted as a
-code — an activity, an ignore reason, a place category, a writer — is a closed set of permanent
-codes stored raw and mapped in the domain.
+`domain/` depends only on the Kotlin and Java standard libraries and the Room rows, and is
+unit-tested. New behavior goes there first, with a test, before it is wired into the service or the
+UI. **Domain functions take the Room entities directly** rather than a mapped model: the point walk
+runs over millions of rows, and a per-row mapping allocation buys nothing but layering. **`db`
+depends on nothing else in the app**, since every reader of a row takes whatever `db` imports with
+it: a `db` that imports `domain` makes the two one unit, and entities carry no domain defaults for
+the same reason. `PackageBoundariesTest` checks the `domain` and `db` boundaries on the compiled
+classes. A value persisted as a code — an activity, an ignore reason, a place category, a writer —
+is a closed set of permanent codes stored raw and mapped in the domain.
 
 ### Stored derivation
 

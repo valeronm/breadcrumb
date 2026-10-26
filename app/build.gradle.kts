@@ -449,6 +449,7 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("androidx.test:core:1.7.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+    testImplementation("com.tngtech.archunit:archunit:1.5.1")
 
     // Compose's test harness — see `TimelineRowTest`, which explains what it buys. The BOM is
     // repeated because `ui-test-junit4` is declared without a version.
