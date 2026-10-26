@@ -59,12 +59,9 @@ internal object DerivedReadModel {
         val membersByCluster = stored.members.groupBy { it.clusterId }
         val clusters = ordered.map { row ->
             val locations = membersByCluster[row.id].orEmpty().map { Coordinate(it.lat, it.lon) }
-            val anchor = Coordinate(row.anchorLat, row.anchorLon)
             PlaceClusterer.Cluster(
-                anchor = anchor,
-                // Asked of the clusterer rather than restated over the stored sums, so a cluster
-                // read back reports itself where a freshly derived one would.
-                centroid = PlaceClusterer.centroidOf(row.sumLat, row.sumLon, row.memberCount, anchor),
+                anchor = Coordinate(row.anchorLat, row.anchorLon),
+                placing = PlaceClusterer.Sums(row.sumLat, row.sumLon, row.memberCount),
                 memberIndices = emptyList(),
                 members = locations,
                 radiusM = row.radiusM,

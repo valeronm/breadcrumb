@@ -457,6 +457,20 @@ assert.equal(
     assert.deepEqual(clusters[0].memberIndices, [0]);
     assert.deepEqual(clusters[1].memberIndices, [1]);
   }
+  // A member stated from outside its seed's circle leaves the centroid to the others.
+  {
+    const [seeded] = clusterEndpoints(
+      [at(30), at(5000)], 150, flatDistance, [pin(0, 350, 7)], (index) => (index === 1 ? 7 : null),
+    );
+    assert.deepEqual(seeded.memberIndices, [0, 1]);
+    assert.deepEqual(seeded.centroid, at(30));
+  }
+  // A seed whose only member is stated from outside its circle stays at its pin.
+  {
+    const [seeded] = clusterEndpoints([at(5000)], 150, flatDistance, [pin(0, 350, 7)], () => 7);
+    assert.deepEqual(seeded.memberIndices, [0]);
+    assert.deepEqual(seeded.centroid, at(0));
+  }
 }
 
 // --- a named place outranks the others covering an endpoint -----------------------------------------

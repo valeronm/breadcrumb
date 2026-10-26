@@ -41,7 +41,7 @@ class StayLedgerTest {
             StayLedger.ClusterRow(
                 id = index + 1L,
                 seed = PlaceClusterer.Seed(cluster.anchor, cluster.radiusM, (index + 1L).takeIf { index in seeded }),
-                memberCount = cluster.visitCount,
+                memberCount = cluster.placing.count,
             )
         }
         val members = derivation.clusters.flatMapIndexed { index, cluster ->
@@ -324,6 +324,32 @@ class StayLedgerTest {
         val interval = reknit(stored, prev = first, added = listOf(second)).intervals.single()
 
         assertTrue("the pin's reach holds the pair together", interval.verdict is StayDeriver.Verdict.Stayed)
+    }
+
+    @Test fun `an end stated to a place from outside its circle joins it and leaves its sums alone`() {
+        val atSea = Coordinate(1.0, 1.05)
+        val departure = TrackEnd(
+            trackId = 1, startedAt = 60 * MIN, endedAt = 120 * MIN, start = atSea, end = office, startPlaceId = 7L,
+        )
+        val arrival = TrackEnd(
+            trackId = 2, startedAt = 240 * MIN, endedAt = 300 * MIN, start = office, end = home, endPlaceId = 7L,
+        )
+        val stored = Stored(
+            clusters = listOf(StayLedger.ClusterRow(1L, PlaceClusterer.Seed(home, 150.0, placeId = 7L), memberCount = 0)),
+            members = emptyList(),
+        )
+
+        val mutations = reknit(stored, added = listOf(departure, arrival))
+
+        val port = StayLedger.ClusterRef.Stored(1L)
+        assertEquals(
+            listOf(atSea, home),
+            mutations.memberships.filter { it.cluster == port }.map { it.at },
+        )
+        val delta = mutations.deltas.single { it.cluster == port }
+        assertEquals(1, delta.count)
+        assertEquals(home.lat, delta.sumLat, 1e-9)
+        assertEquals(home.lon, delta.sumLon, 1e-9)
     }
 
     @Test fun `a stay names the cluster its earlier endpoint is in`() {

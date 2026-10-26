@@ -165,10 +165,12 @@ data class DerivedCluster(
     val anchorLat: Double,
     val anchorLon: Double,
     val radiusM: Double,
-    /** Running sums of member positions; the centroid is these over [memberCount], and the anchor
-     *  when that is zero — a seeded cluster whose stays were all deleted keeps its pin. */
+    /** Running sums of the positions of the members inside [radiusM]; the centroid is these over
+     *  [memberCount], and the anchor when that is zero — a seeded cluster whose stays were all
+     *  deleted keeps its pin. */
     val sumLat: Double,
     val sumLon: Double,
+    /** How many members lie inside [radiusM] — what the sums run over, not the membership. */
     val memberCount: Int,
 )
 

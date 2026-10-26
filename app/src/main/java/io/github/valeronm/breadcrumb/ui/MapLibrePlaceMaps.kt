@@ -318,7 +318,7 @@ private fun placeMarkerCollection(content: PlaceMapContent): FeatureCollection {
     if (capture != null) {
         capture.winnable.forEach { features.add(endpointFeature(it.location, IMG_NEIGHBOR, distanceM = it.distanceM)) }
         capture.conceded.forEach { features.add(endpointFeature(it, IMG_NEIGHBOR)) }
-        capture.held.forEach { features.add(endpointFeature(it, IMG_ASSIGNED)) }
+        capture.held.forEach { features.add(endpointFeature(it.location, IMG_ASSIGNED)) }
         capture.heldElsewhere.forEach { features.add(endpointFeature(it, IMG_ASSIGNED_NEIGHBOR)) }
     } else {
         markers.endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }

@@ -26,6 +26,7 @@ object StayLedger {
     class ClusterRow(
         val id: Long,
         val seed: PlaceClusterer.Seed,
+        /** The stored count of members inside the circle ([PlaceClusterer.locates]). */
         val memberCount: Int,
     ) {
         /** Whether a place row seeds this cluster — a seed survives with no members, and seeds are
@@ -51,10 +52,10 @@ object StayLedger {
     )
 
     /**
-     * How one cluster's membership moved — applied to its running sums and count. Every membership
-     * this pass adds or takes away is in exactly one of these, [founded] clusters included, so a
-     * caller has one rule to apply rather than a rule and an exception: a founded row is inserted
-     * empty and then shifted like any other.
+     * How one cluster's running sums and count moved. Every membership this pass adds or takes away
+     * that [PlaceClusterer.locates] admits is in exactly one of these, [founded] clusters included,
+     * so a caller has one rule to apply rather than a rule and an exception: a founded row is
+     * inserted empty and then shifted like any other.
      */
     class ClusterDelta(val cluster: ClusterRef, val sumLat: Double, val sumLon: Double, val count: Int)
 
@@ -170,8 +171,14 @@ object StayLedger {
         val agreement = StayDeriver.Agreement(params, distance, pins)
 
         val anchors = StoredAnchors(stored.clusters, params.placeRadiusM, distance)
+        val rowOf = stored.clusters.associateBy { it.id }
         val deltas = HashMap<ClusterRef, ClusterDelta>()
         fun shift(cluster: ClusterRef, at: Coordinate, by: Int) {
+            val seed = when (cluster) {
+                is ClusterRef.Stored -> rowOf.getValue(cluster.id).seed
+                is ClusterRef.Founded -> anchors.founded[cluster.index]
+            }
+            if (!PlaceClusterer.locates(seed, at, distance)) return
             val current = deltas[cluster]
             deltas[cluster] = ClusterDelta(
                 cluster = cluster,
@@ -239,6 +246,8 @@ object StayLedger {
                     seam.removed,
                 membershipsOfTracks = seam.added.map { it.trackId } + seam.removed,
                 membershipsOfEnds = leavingEnds,
+                // No end is stated to an organic cluster, so every member lies inside its circle
+                // and its count is its membership.
                 emptiedClusters = stored.clusters
                     .filterNot { it.seeded }
                     .filter { it.memberCount + (deltas[ClusterRef.Stored(it.id)]?.count ?: 0) <= 0 }

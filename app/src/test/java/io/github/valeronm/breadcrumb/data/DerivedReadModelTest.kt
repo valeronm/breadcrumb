@@ -76,7 +76,7 @@ class DerivedReadModelTest {
         assertEquals(fresh.intervals, read.intervals.dropLast(1))
         assertEquals(fresh.clusters.map { it.anchor }, read.clusters.map { it.anchor })
         assertEquals(fresh.clusters.map { it.seedIndex }, read.clusters.map { it.seedIndex })
-        assertEquals(fresh.clusters.map { it.visitCount }, read.clusters.map { it.visitCount })
+        assertEquals(fresh.clusters.map { it.members.size }, read.clusters.map { it.members.size })
         assertEquals(fresh.clusters.map { it.radiusM }, read.clusters.map { it.radiusM })
         fresh.clusters.forEachIndexed { i, cluster ->
             assertEquals(cluster.centroid.lat, read.clusters[i].centroid.lat, 1e-9)

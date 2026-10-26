@@ -148,7 +148,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
         /** `ZoneId.of` parses and allocates on every call. */
         private val zoneByCluster: List<ZoneId> by lazy {
-            derivation.clusters.map { zoneOrDevice(cities[it.centroid]?.zoneId) }
+            clusterPlaces.map { zoneOrDevice(it.zoneId) }
         }
 
         private val zonesByTrack: Map<Long, Clocks> by lazy {

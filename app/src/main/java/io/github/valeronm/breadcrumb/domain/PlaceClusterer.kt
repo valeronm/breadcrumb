@@ -48,14 +48,15 @@ object PlaceClusterer {
     fun seedOf(place: Place): Seed = Seed(place.pin, place.radiusM, place.id, named = place.isNamed)
 
     /**
-     * **Where a cluster reports itself to be**, from its members' sums and count — with [anchor] the
-     * answer when it has none, a seed keeping its pin until something joins it. One function because
-     * a cluster is arrived at two ways, derived from a list of members and read back from stored
-     * running sums, and a spot that moved on one path and not the other is a place that names itself
-     * differently on the Places map than on the timeline row for the same stop.
+     * Whether a member at [at] counts toward its cluster's position: it lies inside [seed]'s circle.
+     * A location stated to a place joins its seed from any distance ([Anchoring.claim]), and one
+     * outside the circle says which place it belongs to, not where that place is.
      */
-    fun centroidOf(sumLat: Double, sumLon: Double, count: Int, anchor: Coordinate): Coordinate =
-        if (count == 0) anchor else Coordinate(sumLat / count, sumLon / count)
+    fun locates(seed: Seed, at: Coordinate, distance: DistanceFn): Boolean =
+        seed.covers(distance.meters(seed.anchor.lat, seed.anchor.lon, at.lat, at.lon))
+
+    /** A cluster's members inside its circle ([locates]), summed — what its position is the mean of. */
+    class Sums(val lat: Double, val lon: Double, val count: Int)
 
     /** [seedOf] over a list, in the list's order — which is the order clustering seeds in. */
     fun seedsOf(places: List<Place>): List<Seed> = places.map(::seedOf)
@@ -159,8 +160,7 @@ object PlaceClusterer {
     class Cluster(
         /** First member's location (or the seed pin) — the stable cluster identity. */
         val anchor: Coordinate,
-        /** Arithmetic mean of member locations — the display/pin location. */
-        val centroid: Coordinate,
+        val placing: Sums,
         /**
          * Indices into the input list, for a caller that has to say *which* endpoints these are —
          * empty when the cluster was read back from storage rather than derived, where the input
@@ -174,19 +174,24 @@ object PlaceClusterer {
         /** Index into the seed list when this cluster grew from a seed; null for organic clusters. */
         val seedIndex: Int? = null,
     ) {
-        /** Counted off [members], which every cluster has — [memberIndices] only a derived one. */
-        val visitCount: Int get() = members.size
+        /**
+         * **Where the cluster reports itself to be**, the display/pin location: the mean of its
+         * members inside the circle, or [anchor] where none is, a seed keeping its pin until
+         * something joins it.
+         */
+        val centroid: Coordinate =
+            if (placing.count == 0) anchor else Coordinate(placing.lat / placing.count, placing.lon / placing.count)
 
         /** What this cluster is to the clustering: an anchor with a reach — see [seedOf], which
          *  says why that projection is never spelled at a call site. */
         val seed: Seed get() = Seed(anchor, radiusM)
 
         /**
-         * The members' mean, or null where there are no members to average — the reading
-         * [centroid] cannot give, since an empty seed keeps its pin there. Only a seeded cluster
-         * can be empty: an organic one exists because an endpoint founded it.
+         * [centroid], or null where no member lies inside the circle — the reading [centroid]
+         * cannot give, since a seed then keeps its pin there. Only a seeded cluster can have none:
+         * an organic one's founder sits at its anchor.
          */
-        val endpointMean: Coordinate? get() = centroid.takeIf { members.isNotEmpty() }
+        val endpointMean: Coordinate? get() = centroid.takeIf { placing.count > 0 }
     }
 
     /**
@@ -272,9 +277,10 @@ object PlaceClusterer {
         return List(anchoring.size) { ci ->
             val seed = anchoring.seedAt(ci)
             val locs = members[ci].map { locations[it] }
+            val inside = locs.filter { locates(seed, it, distance) }
             Cluster(
                 anchor = seed.anchor,
-                centroid = centroidOf(locs.sumOf { it.lat }, locs.sumOf { it.lon }, locs.size, seed.anchor),
+                placing = Sums(inside.sumOf { it.lat }, inside.sumOf { it.lon }, inside.size),
                 memberIndices = members[ci],
                 members = locs,
                 radiusM = seed.radiusM,
@@ -315,7 +321,7 @@ object PlaceClusterer {
         distance: DistanceFn,
     ): List<Coordinate> {
         val scan = scanCapture(candidates, anchor, radiusM, contest, distance)
-        return scan.held + scan.winnable.filter { it.distanceM <= radiusM }.map { it.location }
+        return (scan.held + scan.winnable.filter { it.distanceM <= radiusM }).map { it.location }
     }
 
     /** A candidate still in play, with the distance that decides it. */
@@ -355,7 +361,7 @@ object PlaceClusterer {
          */
         val conceded: List<Coordinate>,
         /** Candidates stated to this place, taken at any radius. */
-        val held: List<Coordinate>,
+        val held: List<Reach>,
         /** Candidates stated to another place, which no radius here takes. */
         val heldElsewhere: List<Coordinate>,
     ) {
@@ -368,21 +374,22 @@ object PlaceClusterer {
         fun countWithin(radiusM: Double): Int = held.size + winnable.count { it.distanceM <= radiusM }
 
         /**
-         * The mean of what a radius of [radiusM] would take — where a pin following the dragged
-         * circle would sit — or null when it would take nothing. Same walk and predicate as
-         * [countWithin], so the two describe one set: no count of nothing with a position anyway,
-         * nor the reverse.
+         * Where a pin following the dragged circle would sit: the mean of what a radius of [radiusM]
+         * would take inside the circle, or null when that is nothing. A [held] candidate outside it
+         * is still taken ([countWithin]) but places nothing, as [locates] has it.
          */
         fun centroidWithin(radiusM: Double): Coordinate? {
-            var lat = held.sumOf { it.lat }
-            var lon = held.sumOf { it.lon }
-            var taken = held.size
-            for (reach in winnable) {
-                if (reach.distanceM > radiusM) continue
+            var lat = 0.0
+            var lon = 0.0
+            var taken = 0
+            fun take(reach: Reach) {
+                if (reach.distanceM > radiusM) return
                 lat += reach.location.lat
                 lon += reach.location.lon
                 taken++
             }
+            held.forEach(::take)
+            winnable.forEach(::take)
             return if (taken == 0) null else Coordinate(lat / taken, lon / taken)
         }
     }
@@ -415,7 +422,7 @@ object PlaceClusterer {
         // Most candidates are conceded in the case this exists for: a dense neighborhood seen
         // through a slider that stops well short of it.
         val conceded = ArrayList<Coordinate>(candidates.size)
-        val held = ArrayList<Coordinate>(stated.here.size)
+        val held = ArrayList<Reach>(stated.here.size)
         val heldElsewhere = ArrayList<Coordinate>(stated.elsewhere.size)
         // Per coordinate, the statements still to match: to this place first, then elsewhere.
         val pending = HashMap<Coordinate, IntArray>()
@@ -425,7 +432,7 @@ object PlaceClusterer {
             val left = pending[candidate]
             if (left != null && left[0] > 0) {
                 left[0]--
-                held += candidate
+                held += Reach(candidate, distance.meters(anchor.lat, anchor.lon, candidate.lat, candidate.lon))
                 continue
             }
             if (left != null && left[1] > 0) {

@@ -688,7 +688,7 @@ class StayDeriverTest {
         val clusters = StayDeriver.derive(
             tracks, StayDeriver.Params(), flatDistance, placePins = listOf(pin(0.0, placeId = 1)),
         ).clusters
-        assertEquals(listOf(2, 2), clusters.map { it.visitCount })
+        assertEquals(listOf(2, 2), clusters.map { it.members.size })
         assertNull(clusters[1].seedIndex)
         assertEquals(at(5000.0), clusters[1].anchor)
     }

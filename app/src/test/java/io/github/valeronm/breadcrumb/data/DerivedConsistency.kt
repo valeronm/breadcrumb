@@ -81,9 +81,9 @@ internal object DerivedConsistency {
             assertEquals("$where: radius", cluster.radiusM, row.radiusM, 1e-9)
             // The sums are a column, not a reading of the member rows below — so this is what says
             // the repair's running arithmetic still describes the endpoints it was arithmetic over.
-            assertEquals("$where: member count", cluster.visitCount, row.memberCount)
-            assertEquals("$where: sumLat", cluster.members.sumOf { it.lat }, row.sumLat, 1e-9)
-            assertEquals("$where: sumLon", cluster.members.sumOf { it.lon }, row.sumLon, 1e-9)
+            assertEquals("$where: member count", cluster.placing.count, row.memberCount)
+            assertEquals("$where: sumLat", cluster.placing.lat, row.sumLat, 1e-9)
+            assertEquals("$where: sumLon", cluster.placing.lon, row.sumLon, 1e-9)
             // Endpoint identity, not just position: two tracks can begin at the same coordinate, and
             // a membership stored against the wrong one of them would compare equal by place alone.
             assertEquals(
@@ -172,9 +172,12 @@ internal object DerivedConsistency {
         for (cluster in stored.clusters) {
             val members = membersOf[cluster.id].orEmpty()
             val where = "cluster ${cluster.id}"
-            assertEquals("$where: member count", members.size, cluster.memberCount)
-            assertEquals("$where: sumLat", members.sumOf { it.lat }, cluster.sumLat, 1e-9)
-            assertEquals("$where: sumLon", members.sumOf { it.lon }, cluster.sumLon, 1e-9)
+            val seed = cluster.toSeed(named = false)
+            val placing = members.map { Coordinate(it.lat, it.lon) }
+                .filter { PlaceClusterer.locates(seed, it, AndroidDistance) }
+            assertEquals("$where: member count", placing.size, cluster.memberCount)
+            assertEquals("$where: sumLat", placing.sumOf { it.lat }, cluster.sumLat, 1e-9)
+            assertEquals("$where: sumLon", placing.sumOf { it.lon }, cluster.sumLon, 1e-9)
             if (members.isEmpty()) {
                 // A seeded cluster's place survives its last visit; an organic one *is* its members,
                 // so an empty one is a row nothing would ever have created.

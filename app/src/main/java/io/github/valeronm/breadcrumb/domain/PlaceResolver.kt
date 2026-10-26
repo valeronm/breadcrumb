@@ -189,11 +189,11 @@ object PlaceResolver {
         /** Every track endpoint captured by the cluster, for showing the scatter on a map. */
         val endpoints: List<Coordinate>,
         /**
-         * Where the visits actually landed — the mean of [endpoints], as against [anchor], where
-         * the pin was dropped; null when there is nothing to average. The clusterer's own mean
-         * ([PlaceClusterer.Cluster.endpointMean]) carried through rather than recomputed here, and
-         * what [pin] answers with for an unnamed cluster — where a place sits when nothing has
-         * said where to put it.
+         * Where the visits actually landed — the mean of the [endpoints] inside the circle, as
+         * against [anchor], where the pin was dropped; null when none lies inside it. The
+         * clusterer's own mean ([PlaceClusterer.Cluster.endpointMean]) carried through rather than
+         * recomputed here, and what [pin] answers with for an unnamed cluster — where a place sits
+         * when nothing has said where to put it.
          */
         val endpointCentroid: Coordinate?,
         /** This place's individual visits (unsliced), newest first — the detail screen's history. */
@@ -227,10 +227,10 @@ object PlaceResolver {
         val name: String? get() = displayName(place, city)
 
         /**
-         * Where this place sits — see [pinOf]; unnamed, that is the mean of what it captured, which
-         * is exactly where naming would drop the pin. Derived, because a summary that carried it
-         * could hold a position its own anchor and endpoints disagree with. The [anchor] fallback is
-         * for a seeded cluster nothing has visited, the only kind with no endpoints to average.
+         * Where this place sits — see [pinOf]; unnamed, that is the mean of what it captured inside
+         * its circle, which is exactly where naming would drop the pin. Derived, because a summary
+         * that carried it could hold a position its own anchor and endpoints disagree with. The
+         * [anchor] fallback is for a seeded cluster nothing has visited.
          */
         val pin: Coordinate get() = pinOf(place, endpointCentroid ?: anchor)
 
@@ -423,7 +423,8 @@ object PlaceResolver {
                 endpointCentroid = cluster?.endpointMean,
                 stays = agg?.stays?.sortedByDescending { it.start } ?: emptyList(),
                 // From the cluster the pin seeded, not the pin: the atlas was asked about
-                // centroids, and a seeded cluster with no members has the two in the same spot.
+                // centroids, and a seeded cluster with no member inside its circle has the two in
+                // the same spot.
                 locality = cluster?.let { cities[it.centroid] },
             )
         }

@@ -22,14 +22,14 @@ class PlaceClustererTest {
 
     @Test fun `a single stay is a singleton cluster anchored at itself`() {
         val c = cluster(at(0.0)).single()
-        assertEquals(1, c.visitCount)
+        assertEquals(1, c.members.size)
         assertEquals(at(0.0), c.anchor)
         assertEquals(at(0.0), c.centroid)
     }
 
     @Test fun `two nearby stays form one cluster with the mean centroid`() {
         val c = cluster(at(0.0), at(50.0)).single()
-        assertEquals(2, c.visitCount)
+        assertEquals(2, c.members.size)
         assertEquals(at(0.0), c.anchor)
         assertEquals(at(25.0).lon, c.centroid.lon, 1e-9)
     }
@@ -37,7 +37,7 @@ class PlaceClustererTest {
     @Test fun `two distant stays form two clusters`() {
         val clusters = cluster(at(0.0), at(300.0))
         assertEquals(2, clusters.size)
-        assertTrue(clusters.all { it.visitCount == 1 })
+        assertTrue(clusters.all { it.members.size == 1 })
     }
 
     @Test fun `a stay between two clusters joins the nearest anchor`() {
@@ -70,8 +70,8 @@ class PlaceClustererTest {
         val office = at(500.0)
         val clusters = cluster(home, office, home, home, office, home, office, home)
         assertEquals(2, clusters.size)
-        assertEquals(5, clusters[0].visitCount)
-        assertEquals(3, clusters[1].visitCount)
+        assertEquals(5, clusters[0].members.size)
+        assertEquals(3, clusters[1].members.size)
     }
 
     /** index → anchor of its cluster (cluster identity that's comparable across runs). */
@@ -98,7 +98,7 @@ class PlaceClustererTest {
         val clusters = clusterSeeded(listOf(seed(0.0)), at(1000.0))
         assertEquals(2, clusters.size)
         assertEquals(0, clusters[0].seedIndex)
-        assertEquals(0, clusters[0].visitCount)
+        assertEquals(0, clusters[0].members.size)
         assertEquals(at(0.0), clusters[0].centroid)
         assertNull(clusters[1].seedIndex)
     }
@@ -153,6 +153,31 @@ class PlaceClustererTest {
         )
         assertEquals(listOf(0), clusters[0].memberIndices)
         assertEquals(listOf(1), clusters[1].memberIndices)
+    }
+
+    @Test fun `a member stated from outside its seed's circle leaves the centroid to the others`() {
+        val seeded = PlaceClusterer.cluster(
+            listOf(at(30.0), at(5000.0)),
+            distance = flatDistance,
+            seeds = listOf(seed(0.0).copy(placeId = 7)),
+            statedPlaceAt = { if (it == 1) 7L else null },
+        ).first()
+
+        assertEquals(listOf(0, 1), seeded.memberIndices)
+        assertEquals(at(30.0), seeded.centroid)
+    }
+
+    @Test fun `a seed whose only member is stated from outside its circle stays at its pin`() {
+        val seeded = PlaceClusterer.cluster(
+            listOf(at(5000.0)),
+            distance = flatDistance,
+            seeds = listOf(seed(0.0).copy(placeId = 7)),
+            statedPlaceAt = { 7L },
+        ).single()
+
+        assertEquals(listOf(0), seeded.memberIndices)
+        assertEquals(at(0.0), seeded.centroid)
+        assertNull(seeded.endpointMean)
     }
 
     // --- Reach-box pruning ------------------------------------------------------
@@ -291,12 +316,13 @@ class PlaceClustererTest {
         val stated = PlaceClusterer.Stated(here = listOf(at(900.0), at(2000.0)), elsewhere = listOf(at(50.0)))
         val scan = PlaceClusterer.scanCapture(candidates, at(0.0), 500.0, PlaceClusterer.Contest(emptyList(), stated), flatDistance)
 
-        assertEquals(listOf(at(900.0)), scan.held)
+        assertEquals(listOf(at(900.0)), scan.held.map { it.location })
         assertEquals(listOf(at(50.0)), scan.heldElsewhere)
         assertTrue(scan.conceded.isEmpty())
         assertEquals(listOf(at(0.0), at(50.0)), scan.winnable.map { it.location })
         assertEquals(2, scan.countWithin(25.0))
-        assertEquals(at(450.0).lon, checkNotNull(scan.centroidWithin(25.0)).lon, 1e-9)
+        assertEquals(at(0.0), scan.centroidWithin(25.0))
+        assertEquals(at(950.0 / 3).lon, checkNotNull(scan.centroidWithin(900.0)).lon, 1e-9)
     }
 
     private fun wouldCapture(
@@ -424,8 +450,8 @@ class PlaceClustererTest {
             .cluster(locations, distance = flatDistance, seeds = listOf(PlaceClusterer.Seed(at(0.0), radiusM)))
             .first { it.seedIndex == 0 }
 
-        assertEquals(1, seededWith(100.0).visitCount)
-        assertEquals(3, seededWith(400.0).visitCount)
+        assertEquals(1, seededWith(100.0).members.size)
+        assertEquals(3, seededWith(400.0).members.size)
     }
 
     @Test fun `the preview sees that widening too, given only named rivals`() {

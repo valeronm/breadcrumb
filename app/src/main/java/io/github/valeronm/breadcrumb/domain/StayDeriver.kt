@@ -106,9 +106,9 @@ object StayDeriver {
          * Index into [Derivation.clusters] — the place this stay belongs to, and **the only answer
          * it has to where it was**. A stay is the interval two tracks leave between them, so where
          * is a question about the cluster its endpoints agreed on, whose centroid is the mean of
-         * every visit rather than a point between one pair. The asymmetry with [Gap], which does
-         * carry coordinates, is the point: a gap exists *because* its two ends disagree, so there
-         * is no cluster to ask.
+         * its visits inside its circle rather than a point between one pair. The asymmetry with
+         * [Gap], which does carry coordinates, is the point: a gap exists *because* its two ends
+         * disagree, so there is no cluster to ask.
          */
         val clusterId: Int,
     ) : Interval {

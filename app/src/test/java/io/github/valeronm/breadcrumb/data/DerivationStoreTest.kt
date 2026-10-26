@@ -126,6 +126,21 @@ class DerivationStoreTest {
         assertEquals(2.0, after.sumLat, 1e-9)
     }
 
+    @Test fun `an end stated to a place from outside its circle is one of its members, not its position`() = runTest {
+        val port = places.create(test.place("Port", 1.0, -2.0))
+        track(0, 5, TEST_START)
+        val far = track(30, 35, TEST_START + 3 * 60 * 60_000L)
+        db.trackDao().stateStarts(listOf(far), port)
+
+        store.rebuild()
+
+        val cluster = derived.seededClusters().single()
+        assertEquals(port, placeHoldingStartOf(far))
+        assertEquals(1, cluster.memberCount)
+        assertEquals(1.0, cluster.sumLat, 1e-9)
+        assertDerivedMatchesFreshDerive()
+    }
+
     // --- Repaired around a change, rather than derived again ------------------
     //
     // Every case here ends on the same assertion the rebuild cases do: what the mutation path left

@@ -61,7 +61,8 @@ const DEFAULT_PARAMS = {
  * seed covering an endpoint takes it; otherwise assignment is nearest-qualifying-anchor, so an
  * endpoint closer to a distinct organic anchor still goes there. `statedPlaceAt(index)` is the
  * place a location is stated to, or null: it joins that place's seed whatever its distance, and
- * founds no anchor; a place with no seed here leaves it to the radii. */
+ * founds no anchor; a place with no seed here leaves it to the radii. A member outside its cluster's
+ * circle counts toward no centroid, as `PlaceClusterer.locates` has it. */
 export function clusterEndpoints(locations, radiusM, distance, seeds, statedPlaceAt = () => null) {
   const anchors = [];
   const radii = [];
@@ -117,12 +118,13 @@ export function clusterEndpoints(locations, radiusM, distance, seeds, statedPlac
   });
   return anchors.map((anchor, ci) => {
     const locs = members[ci].map((i) => locations[i]);
+    const placing = locs.filter((l) => distance(anchor.lat, anchor.lon, l.lat, l.lon) <= radii[ci]);
     return {
       anchor,
-      // A seed with no members keeps its pin as the centroid.
-      centroid: locs.length === 0 ? anchor : {
-        lat: locs.reduce((sum, l) => sum + l.lat, 0) / locs.length,
-        lon: locs.reduce((sum, l) => sum + l.lon, 0) / locs.length,
+      // A seed with no member inside its circle keeps its pin as the centroid.
+      centroid: placing.length === 0 ? anchor : {
+        lat: placing.reduce((sum, l) => sum + l.lat, 0) / placing.length,
+        lon: placing.reduce((sum, l) => sum + l.lon, 0) / placing.length,
       },
       memberIndices: members[ci],
       members: locs,

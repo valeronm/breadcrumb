@@ -144,14 +144,13 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             // Seeded clusters come back in seed order, so a cluster's index into the derivation
             // resolves to the row it was seeded from; the rest are new rows.
             val clusterRowIds = derivation.clusters.map { cluster ->
-                val sumLat = cluster.members.sumOf { it.lat }
-                val sumLon = cluster.members.sumOf { it.lon }
+                val placing = cluster.placing
                 val seedIndex = cluster.seedIndex
                 if (seedIndex == null) {
-                    derived.insertCluster(seedRow(cluster.seed, sumLat, sumLon, cluster.visitCount))
+                    derived.insertCluster(seedRow(cluster.seed, placing.lat, placing.lon, placing.count))
                 } else {
                     val id = seeds[seedIndex].id
-                    derived.setClusterMembership(id, sumLat, sumLon, cluster.visitCount)
+                    derived.setClusterMembership(id, placing.lat, placing.lon, placing.count)
                     id
                 }
             }
@@ -485,7 +484,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
          * next launch, which is the lever for a rule change here or in the deriver — and the repair
          * for rows nobody trusts.
          */
-        const val LOGIC_VERSION = 4
+        const val LOGIC_VERSION = 5
 
         /** The tables this class writes — the ones [observeStored] carries over when a write
          *  reached none of them. Named apart from `places`, which is the writing the user does. */
