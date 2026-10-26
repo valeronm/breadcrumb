@@ -200,6 +200,40 @@ class CityAtlasTest {
         assertEquals("Nearer city", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
     }
 
+    @Test fun `a bigger town across a regional line does not take the name`() {
+        val atlas = atlasOf(
+            testCity("Harbor town", 700.0, pop = 2, region = 9),
+            testCity("Capital", 1_250.0, pop = 6, region = 60),
+            testCity("Big town", 4_350.0, pop = 24, region = 4),
+        )
+
+        assertEquals("Harbor town", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+    }
+
+    @Test fun `a district takes its city's name within their region`() {
+        val atlas = atlasOf(
+            testCity("Fourth district", 400.0, pop = 27, region = 3),
+            testCity("Neighbor city", 1_500.0, pop = 3_000, region = 5),
+            testCity("The city", 2_000.0, pop = 2_100, region = 3),
+        )
+
+        assertEquals("The city", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+    }
+
+    @Test fun `a row with no region code is in every region`() {
+        val uncodedCity = atlasOf(
+            testCity("Coded district", 400.0, pop = 27, region = 3),
+            testCity("Uncoded city", 2_000.0, pop = 2_100),
+        )
+        val uncodedDistrict = atlasOf(
+            testCity("Uncoded district", 400.0, pop = 27),
+            testCity("Coded city", 2_000.0, pop = 2_100, region = 3),
+        )
+
+        assertEquals("Uncoded city", uncodedCity.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+        assertEquals("Coded city", uncodedDistrict.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+    }
+
     @Test fun `a place with no population figure keeps its name`() {
         // Administrative seats are listed whatever their size, and many carry a zero. Zero times any
         // factor is a bar every neighbour clears, so without a case of its own the village someone

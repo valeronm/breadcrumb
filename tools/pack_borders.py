@@ -84,7 +84,7 @@ def read_atlas(path):
     for _ in range(zone_count):
         at += 1 + blob[at]
     rows = ROW.iter_unpack(blob[at: at + row_count * ROW.size])
-    return [(lat / 1e6, lon / 1e6, country.decode("ascii")) for lat, lon, _, country, _, _ in rows]
+    return [(lat / 1e6, lon / 1e6, country.decode("ascii")) for lat, lon, _, country, *_ in rows]
 
 
 def code_of(properties):

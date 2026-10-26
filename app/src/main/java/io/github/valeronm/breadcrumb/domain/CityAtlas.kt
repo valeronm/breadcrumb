@@ -17,7 +17,7 @@ import java.nio.charset.StandardCharsets
  * it, and by its row's own name everywhere else. A coordinate's country comes from the outlines
  * [parse] reads beside the rows.
  *
- * Held as the raw bytes rather than decoded into objects: a row is six fields read by offset when
+ * Held as the raw bytes rather than decoded into objects: a row's fields are read by offset when
  * one is wanted, and 160,000 of them as instances would cost more heap than the file. Only the
  * winning row's name is ever turned into a String — with one exception: the first name search
  * folds every name once into its own index ([searchByName]).
@@ -40,9 +40,9 @@ class CityAtlas private constructor(
     ) : LatitudeIndex.Rows {
         override val count get() = rowCount
 
-        override fun latE6(row: Int) = i32(rowsAt + row * ROW_BYTES)
+        override fun latE6(row: Int) = i32(rowsAt + row * ROW_BYTES + LAT_AT)
 
-        override fun lonE6(row: Int) = i32(rowsAt + row * ROW_BYTES + 4)
+        override fun lonE6(row: Int) = i32(rowsAt + row * ROW_BYTES + LON_AT)
 
         private fun i32(at: Int): Int =
             (bytes[at].toInt() and 0xFF shl 24) or
@@ -244,9 +244,9 @@ class CityAtlas private constructor(
     }
 
     /**
-     * The city that should *name* this coordinate: the most populous one within [NAME_WINDOW_M] of
-     * the nearest in the coordinate's country, the nearer of two equally populous, which is not the
-     * same as the nearest itself.
+     * The city that should *name* this coordinate, which is not the same as the nearest one: the most
+     * populous within [NAME_WINDOW_M] of the nearest in the coordinate's country and in the nearest's
+     * region, the nearer of two equally populous.
      *
      * **The country comes from the outlines** ([parse]), since a place's own code carries the
      * place's country, not which side of a border the coordinate is on. Outside every outline it is
@@ -268,11 +268,16 @@ class CityAtlas private constructor(
      * over an atlas that does not mark which of its rows are parts of others — the codes are the
      * same for a capital's arrondissement and for a village — and the way out is better data, not
      * better numbers.
+     *
+     * **A bigger place takes the name only from a place in its own region**, the first-level division
+     * the atlas codes each row with: where towns run into one another across a regional line, the
+     * larger one in reach is a neighbor whatever its size.
      */
     fun naming(lat: Double, lon: Double, distance: DistanceFn): City? {
         val found = nearestInCountry(lat, lon, distance) ?: return null
         val local = cityAt(found.row, found.distanceM)
         val country = countryCodeAt(found.row)
+        val region = regionAt(found.row)
         // A row with no population figure keeps its name. Administrative seats are listed whatever
         // their size and many carry a zero, and a zero times any factor is a bar every neighbour
         // clears — the village someone stayed in would lose its name to the nearest larger town.
@@ -286,6 +291,7 @@ class CityAtlas private constructor(
             if (population < best.population) return@forEachNear
             if (population < local.population * NAME_DOMINANCE) return@forEachNear
             if (countryCodeAt(row) != country) return@forEachNear
+            if (!sameRegion(regionAt(row), region)) return@forEachNear
             val d = distance.meters(lat, lon, latOf(row), lonOf(row))
             if (d > reach) return@forEachNear
             if (population > best.population || d < best.distanceM) best = cityAt(row, d)
@@ -307,18 +313,23 @@ class CityAtlas private constructor(
     }
 
     /** The two-letter country code packed into an int, for comparing without allocating a string. */
-    private fun countryCodeAt(row: Int): Int = u16(rowsAt + row * ROW_BYTES + 10)
+    private fun countryCodeAt(row: Int): Int = u16(rowsAt + row * ROW_BYTES + COUNTRY_AT)
 
     private fun packedCode(country: String): Int = (country[0].code shl 8) or country[1].code
 
-    private fun populationAt(row: Int): Int = u16(rowsAt + row * ROW_BYTES + 8) * 1_000
+    private fun regionAt(row: Int): Int = u16(rowsAt + row * ROW_BYTES + REGION_AT)
+
+    // GeoNames leaves some cities without a region while coding their districts.
+    private fun sameRegion(a: Int, b: Int): Boolean = a == b || a == NO_REGION || b == NO_REGION
+
+    private fun populationAt(row: Int): Int = u16(rowsAt + row * ROW_BYTES + POPULATION_AT) * 1_000
 
     private fun cityAt(row: Int, distanceM: Double): City {
         val at = rowsAt + row * ROW_BYTES
         return City(
             name = nameAt(row),
             country = countryAt(row),
-            zoneId = zones[u16(at + 12)],
+            zoneId = zones[u16(at + ZONE_AT)],
             population = populationAt(row),
             distanceM = distanceM,
         )
@@ -332,7 +343,7 @@ class CityAtlas private constructor(
     }
 
     private fun countryAt(row: Int): String =
-        String(bytes, rowsAt + row * ROW_BYTES + 10, 2, StandardCharsets.US_ASCII)
+        String(bytes, rowsAt + row * ROW_BYTES + COUNTRY_AT, 2, StandardCharsets.US_ASCII)
 
     private fun latOf(row: Int): Double = table.latE6(row) / 1e6
     private fun lonOf(row: Int): Double = table.lonE6(row) / 1e6
@@ -340,8 +351,14 @@ class CityAtlas private constructor(
     private fun u16(at: Int): Int = (bytes[at].toInt() and 0xFF shl 8) or (bytes[at + 1].toInt() and 0xFF)
 
     companion object {
-        /** lat, lon, population, country, zone index, name length — see the packer. */
-        private const val ROW_BYTES = 15
+        private const val LAT_AT = 0
+        private const val LON_AT = 4
+        private const val POPULATION_AT = 8
+        private const val COUNTRY_AT = 10
+        private const val REGION_AT = 12
+        private const val ZONE_AT = 14
+        private const val NAME_LENGTH_AT = 16
+        private const val ROW_BYTES = 17
 
         /**
          * How much further than the nearest city a bigger one may sit and still take the name.
@@ -363,7 +380,9 @@ class CityAtlas private constructor(
 
         private const val NAME_SEPARATOR = '\u0000'
 
-        private val MAGIC = "BCTY1".toByteArray(StandardCharsets.US_ASCII)
+        private const val NO_REGION = 0
+
+        private val MAGIC = "BCTY2".toByteArray(StandardCharsets.US_ASCII)
 
         /**
          * Reads a packed atlas and the [borders] file labeled against it. Throws
@@ -388,7 +407,7 @@ class CityAtlas private constructor(
             require(namesAt <= bytes.size) { "city atlas is truncated" }
             val nameStarts = IntArray(rowCount + 1)
             for (row in 0 until rowCount) {
-                val length = bytes[rowsAt + row * ROW_BYTES + 14].toInt() and 0xFF
+                val length = bytes[rowsAt + row * ROW_BYTES + NAME_LENGTH_AT].toInt() and 0xFF
                 nameStarts[row + 1] = nameStarts[row] + length
             }
             require(namesAt + nameStarts[rowCount] <= bytes.size) { "city atlas names are truncated" }

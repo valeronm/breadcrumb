@@ -19,7 +19,10 @@ internal class TestCity(
     val country: String,
     val zone: String,
     val name: String,
+    val region: Int = NO_REGION,
 )
+
+internal const val NO_REGION = 0
 
 /** A city [meters] east of the origin — the shape most fixtures want. */
 internal fun testCity(
@@ -28,7 +31,8 @@ internal fun testCity(
     pop: Int = 20,
     country: String = "XX",
     zone: String = "Etc/GMT",
-) = TestCity(ORIGIN_LAT, lonAt(meters), pop, country, zone, name)
+    region: Int = NO_REGION,
+) = TestCity(ORIGIN_LAT, lonAt(meters), pop, country, zone, name, region)
 
 /**
  * See `tools/pack_cities.py`'s docstring for the field-by-field spec this encodes. With no [outlines],
@@ -38,7 +42,7 @@ internal fun atlasOf(vararg rows: TestCity, outlines: List<TestOutline> = emptyL
     val sorted = rows.sortedBy { it.lat }
     val zones = sorted.map { it.zone }.distinct().sorted()
     val out = ByteArrayOutputStream()
-    out.write("BCTY1".toByteArray(StandardCharsets.US_ASCII))
+    out.write("BCTY2".toByteArray(StandardCharsets.US_ASCII))
     out.i32(sorted.size)
     out.u16(zones.size)
     for (zone in zones) {
@@ -51,6 +55,7 @@ internal fun atlasOf(vararg rows: TestCity, outlines: List<TestOutline> = emptyL
         out.i32((row.lon * 1e6).roundToInt())
         out.u16(row.popThousands)
         out.write(row.country.toByteArray(StandardCharsets.US_ASCII))
+        out.u16(row.region)
         out.u16(zones.indexOf(row.zone))
         out.u8(row.name.toByteArray(StandardCharsets.UTF_8).size)
     }

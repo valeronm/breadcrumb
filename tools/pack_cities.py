@@ -5,7 +5,7 @@ Source: https://download.geonames.org/export/dump/cities1000.zip (CC BY 4.0) —
 of 1,000 people or more *plus every seat of an administrative division whatever its size*, which is
 the reason for this file rather than the smaller cities5000: a historic village of a few hundred is
 often its own seat, and it is exactly the kind of place a journey is named after. The dump is 35 MB
-of tab-separated text with 19 columns, of which the app needs five; this writes those five as a
+of tab-separated text with 19 columns, of which the app needs few; this writes those as a
 fixed-width table sorted by latitude, which is what lets the lookup binary-search a coordinate
 instead of scanning 160,000 rows.
 
@@ -17,18 +17,23 @@ labeled against these rows.
 
 Format (big-endian, matching java.nio.ByteBuffer's default so the reader needs no byte-order call):
 
-    magic       5 bytes  "BCTY1"
+    magic       5 bytes  "BCTY2"
     rowCount    int32
     tzCount     uint16
     tz ids      tzCount x (uint8 length + UTF-8 bytes)      # IANA ids, e.g. "Europe/Lisbon"
-    rows        rowCount x 15 bytes, ascending by latitude:
+    rows        rowCount x 17 bytes, ascending by latitude:
                     lat     int32   microdegrees
                     lon     int32   microdegrees
                     popK    uint16  population / 1000, saturating
                     country 2 bytes ISO 3166-1 alpha-2
+                    region  uint16  index from 1 into the sorted (country, admin1) pairs; 0 for none
                     tz      uint16  index into the tz table
                     nameLen uint8   UTF-8 byte length of the name
     names       concatenated UTF-8, in row order
+
+A region is the row's GeoNames admin1, its first-level administrative division. The index only
+tells regions apart, and a newer dump can renumber them. GeoNames leaves some rows without one, empty
+or coded "00", and those carry 0.
 
 Names carry no offsets: the reader accumulates the lengths in one pass at load, which costs a
 microsecond and saves 270 KB of asset.
@@ -58,18 +63,21 @@ import struct
 import sys
 import zipfile
 
-MAGIC = b"BCTY1"
+MAGIC = b"BCTY2"
 HEADER = struct.Struct(">iH")
-ROW = struct.Struct(">iiH2sHB")
+ROW = struct.Struct(">iiH2sHHB")
 NAMES_MAGIC = b"BCTN1"
 # The app's languages besides English, whose rows already carry English or local names.
 LANGUAGES = ("pt", "ru")
 # GeoNames dump columns, of the 19 the format defines.
-COL_ID, COL_NAME, COL_LAT, COL_LON, COL_FEATURE, COL_COUNTRY, COL_POP, COL_TZ = 0, 1, 4, 5, 7, 8, 14, 17
+COL_ID, COL_NAME, COL_LAT, COL_LON, COL_FEATURE, COL_COUNTRY, COL_ADMIN1, COL_POP, COL_TZ = (
+    0, 1, 4, 5, 7, 8, 10, 14, 17
+)
 # alternateNamesV2 columns.
 ALT_ID, ALT_LANG, ALT_NAME, ALT_PREFERRED, ALT_SHORT, ALT_COLLOQUIAL, ALT_HISTORIC, ALT_TO = 1, 2, 3, 4, 5, 6, 7, 9
 MAX_NAME_BYTES = 255
 MAX_POP_K = 0xFFFF
+NO_ADMIN1 = ("", "00")
 
 # Places that can name somewhere a person stayed. The dump also carries PPLX — "section of populated
 # place" — which is what makes a naive nearest-row lookup answer central Lisbon with a neighbourhood
@@ -106,6 +114,7 @@ def read_rows(path):
                 f[COL_TZ],
                 name,
                 f[COL_ID],
+                f[COL_ADMIN1],
             )
         )
     rows.sort(key=lambda r: r[0])
@@ -115,14 +124,17 @@ def read_rows(path):
 def pack(rows):
     zones = sorted({r[4] for r in rows})
     zone_index = {z: i for i, z in enumerate(zones)}
+    regions = sorted({(r[3], r[7]) for r in rows if r[7] not in NO_ADMIN1})
+    region_index = {region: i for i, region in enumerate(regions, 1)}
     out = bytearray(MAGIC)
     out += HEADER.pack(len(rows), len(zones))
     for zone in zones:
         encoded = zone.encode("utf-8")
         out += struct.pack(">B", len(encoded)) + encoded
     names = bytearray()
-    for lat, lon, pop_k, country, zone, name, _ in rows:
-        out += ROW.pack(lat, lon, pop_k, country, zone_index[zone], len(name))
+    for lat, lon, pop_k, country, zone, name, _, admin1 in rows:
+        region = region_index.get((country, admin1), 0)
+        out += ROW.pack(lat, lon, pop_k, country, region, zone_index[zone], len(name))
         names += name
     return bytes(out + names)
 
