@@ -228,11 +228,15 @@ can also import a `.gpx` file to populate trips, places, and the map without mov
 
 - Place names come from [GeoNames](https://www.geonames.org/) `cities1000`, packed by
   `tools/pack_cities.py` into `app/src/main/assets/cities.bin` and shipped in the APK — CC BY 4.0.
+- Country outlines come from [Natural Earth](https://www.naturalearthdata.com/)'s 1:10m map units,
+  packed by `tools/pack_borders.py` into `app/src/main/assets/borders.bin` and shipped in the APK —
+  public domain.
 - The basemap is [Protomaps](https://protomaps.com/) vector tiles built from OpenStreetMap data,
   fetched from their hosted API — © OpenStreetMap contributors, ODbL.
 - The optional online place search queries [Photon](https://photon.komoot.io/), and the optional
   road routing [FOSSGIS's OSRM servers](https://routing.openstreetmap.de/), both OpenStreetMap
   data — © OpenStreetMap contributors, ODbL.
 
-The app repeats these credits where a user can see them, in Settings and beside the search results,
-which is what the licences ask; `NOTICE` carries the same list for anyone redistributing the repo.
+The app repeats each credit a license requires where a user can see it, in Settings and beside the
+search results, and `NOTICE` carries the same credits for anyone redistributing the repo. Natural
+Earth, being public domain, requires none.

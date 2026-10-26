@@ -12,7 +12,8 @@ instead of scanning 160,000 rows.
     ./tools/pack_cities.py cities1000.txt alternateNamesV2.zip app/src/main
 
 The output is checked into the repo. Regenerate it only to take a newer dump — a fresh checkout and
-CI must never need the network for it.
+CI must never need the network for it — and run `pack_borders.py` after it, whose outlines are
+labeled against these rows.
 
 Format (big-endian, matching java.nio.ByteBuffer's default so the reader needs no byte-order call):
 
@@ -58,6 +59,8 @@ import sys
 import zipfile
 
 MAGIC = b"BCTY1"
+HEADER = struct.Struct(">iH")
+ROW = struct.Struct(">iiH2sHB")
 NAMES_MAGIC = b"BCTN1"
 # The app's languages besides English, whose rows already carry English or local names.
 LANGUAGES = ("pt", "ru")
@@ -113,16 +116,13 @@ def pack(rows):
     zones = sorted({r[4] for r in rows})
     zone_index = {z: i for i, z in enumerate(zones)}
     out = bytearray(MAGIC)
-    out += struct.pack(">i", len(rows))
-    out += struct.pack(">H", len(zones))
+    out += HEADER.pack(len(rows), len(zones))
     for zone in zones:
         encoded = zone.encode("utf-8")
         out += struct.pack(">B", len(encoded)) + encoded
     names = bytearray()
     for lat, lon, pop_k, country, zone, name, _ in rows:
-        out += struct.pack(">iiH", lat, lon, pop_k)
-        out += country
-        out += struct.pack(">HB", zone_index[zone], len(name))
+        out += ROW.pack(lat, lon, pop_k, country, zone_index[zone], len(name))
         names += name
     return bytes(out + names)
 

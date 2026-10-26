@@ -13,6 +13,15 @@ class CityAtlasTest {
     private fun row(name: String, meters: Double, pop: Int = 20, zone: String = "Etc/GMT") =
         testCity(name, meters, pop, zone = zone)
 
+    private val acrossTheLine = listOf(
+        box("PT", west = -200_000.0, east = 1_000.0),
+        box("ES", west = 1_000.0, east = 200_000.0),
+    )
+
+    private fun pt(name: String, meters: Double, pop: Int = 3) = testCity(name, meters, pop, "PT", "Europe/Lisbon")
+
+    private fun es(name: String, meters: Double, pop: Int = 3) = testCity(name, meters, pop, "ES", "Europe/Madrid")
+
     @Test fun `the nearest city wins, whichever side of the query it sits`() {
         val atlas = atlasOf(
             row("Westward", -40_000.0),
@@ -20,9 +29,9 @@ class CityAtlasTest {
             row("Far east", 300_000.0),
         )
 
-        assertEquals("Eastward", atlas.nearest(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
-        assertEquals("Westward", atlas.nearest(ORIGIN_LAT, lonAt(-30_000.0), flatDistance)?.name)
-        assertEquals("Far east", atlas.nearest(ORIGIN_LAT, lonAt(280_000.0), flatDistance)?.name)
+        assertEquals("Eastward", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+        assertEquals("Westward", atlas.naming(ORIGIN_LAT, lonAt(-30_000.0), flatDistance)?.name)
+        assertEquals("Far east", atlas.naming(ORIGIN_LAT, lonAt(280_000.0), flatDistance)?.name)
     }
 
     @Test fun `a row far away in latitude is still found when nothing is nearer`() {
@@ -30,7 +39,7 @@ class CityAtlasTest {
         // survive the pruning bound rather than be cut off by it.
         val atlas = atlasOf(TestCity(ORIGIN_LAT + 2.0, lonAt(0.0), 30, "XX", "Etc/GMT", "Northerly"))
 
-        val hit = atlas.nearest(ORIGIN_LAT, lonAt(0.0), flatDistance)
+        val hit = atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)
         assertEquals("Northerly", hit?.name)
         assertEquals(200_000.0, hit?.distanceM ?: 0.0, 1.0)
     }
@@ -41,14 +50,14 @@ class CityAtlasTest {
             TestCity(ORIGIN_LAT + 1.0, lonAt(0.0), 7, "ES", "Europe/Madrid", "Móra d'Ebre"),
         )
 
-        val hit = atlas.nearest(ORIGIN_LAT + 1.0, lonAt(0.0), flatDistance)!!
+        val hit = atlas.naming(ORIGIN_LAT + 1.0, lonAt(0.0), flatDistance)!!
         // A non-ASCII name is the case a byte length and a character count disagree about.
         assertEquals("Móra d'Ebre", hit.name)
         assertEquals("ES", hit.country)
         assertEquals("Europe/Madrid", hit.zoneId)
         assertEquals(7_000, hit.population)
 
-        val other = atlas.nearest(ORIGIN_LAT, lonAt(1_000.0), flatDistance)!!
+        val other = atlas.naming(ORIGIN_LAT, lonAt(1_000.0), flatDistance)!!
         assertEquals("Sintra", other.name)
         assertEquals("Europe/Lisbon", other.zoneId)
         assertEquals(24_874_000, other.population)
@@ -62,7 +71,6 @@ class CityAtlasTest {
             TestCity(ORIGIN_LAT, lonAt(2_000.0), 2_100, "XX", "Etc/GMT", "The city"),
         )
 
-        assertEquals("Fourth district", atlas.nearest(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
         assertEquals("The city", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
     }
 
@@ -98,21 +106,88 @@ class CityAtlasTest {
         assertEquals("Seaside town", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
     }
 
-    @Test fun `a place across a border does not name a coordinate its neighbours disown`() {
-        // The nearest row is foreign and the country around it is not: a village near a border would
-        // otherwise take a name from the far side, and count a country nobody entered.
+    @Test fun `a place across a border does not name a coordinate on this side of it`() {
         val atlas = atlasOf(
-            TestCity(ORIGIN_LAT, lonAt(1_200.0), 2, "ES", "Europe/Madrid", "Across the line"),
-            TestCity(ORIGIN_LAT, lonAt(-3_000.0), 3, "PT", "Europe/Lisbon", "This side"),
-            TestCity(ORIGIN_LAT, lonAt(-6_000.0), 4, "PT", "Europe/Lisbon", "Also this side"),
-            TestCity(ORIGIN_LAT, lonAt(-9_000.0), 5, "PT", "Europe/Lisbon", "Further in"),
+            es("Across the line", 1_200.0, pop = 2),
+            pt("This side", -3_000.0),
+            outlines = acrossTheLine,
         )
 
         val hit = atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)!!
         assertEquals("This side", hit.name)
         assertEquals("PT", hit.country)
-        // The raw nearest is unguarded and still answers with what is actually closest.
-        assertEquals("Across the line", atlas.nearest(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+    }
+
+    @Test fun `a town outnumbered by places across the border keeps its own country`() {
+        val atlas = atlasOf(
+            pt("Hilltown", 0.0, pop = 0),
+            pt("Market town", -17_500.0, pop = 7),
+            es("Across one", 15_000.0),
+            es("Across two", 15_200.0, pop = 1),
+            es("Across three", 20_000.0, pop = 0),
+            outlines = acrossTheLine,
+        )
+
+        val hit = atlas.naming(ORIGIN_LAT, lonAt(200.0), flatDistance)!!
+        assertEquals("Hilltown", hit.name)
+        assertEquals("PT", hit.country)
+        assertEquals("Europe/Lisbon", hit.zoneId)
+    }
+
+    @Test fun `the nearest place in the spot's country names it however far, before a closer foreign one`() {
+        val atlas = atlasOf(
+            pt("Far inland", -40_000.0),
+            es("Just across", 10_000.0),
+            outlines = acrossTheLine,
+        )
+
+        assertEquals("Far inland", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+    }
+
+    @Test fun `a spot in no outline takes the country of an outline nearer than any place`() {
+        val atlas = atlasOf(
+            es("Across the bay", 2_000.0),
+            pt("Harbor town", -5_000.0),
+            outlines = listOf(
+                box("PT", west = -200_000.0, east = -1_000.0),
+                box("ES", west = 1_500.0, east = 200_000.0),
+            ),
+        )
+
+        assertEquals("Harbor town", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+    }
+
+    @Test fun `a spot in no outline takes the country of a place nearer than any outline`() {
+        val atlas = atlasOf(
+            testCity("Island village", 300.0, 1, "GR", "Europe/Athens"),
+            testCity("Mainland town", 8_000.0, 40, "TR", "Europe/Istanbul"),
+            outlines = listOf(box("TR", west = 5_000.0, east = 200_000.0)),
+        )
+
+        val hit = atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)!!
+        assertEquals("Island village", hit.name)
+        assertEquals("GR", hit.country)
+    }
+
+    @Test fun `a spot in a country with no places is named by the nearest place of any`() {
+        val atlas = atlasOf(
+            testCity("Nearest anywhere", 20_000.0, 2),
+            outlines = listOf(box("AQ", west = -10_000.0, east = 10_000.0)),
+        )
+
+        val hit = atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)!!
+        assertEquals("Nearest anywhere", hit.name)
+        assertEquals("XX", hit.country)
+    }
+
+    @Test fun `a district takes its city's name only from the same country`() {
+        val atlas = atlasOf(
+            pt("Border district", -200.0, pop = 5),
+            es("Big city across", 2_500.0, pop = 400),
+            outlines = acrossTheLine,
+        )
+
+        assertEquals("Border district", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
     }
 
     @Test fun `a place with no population figure keeps its name`() {
@@ -168,9 +243,9 @@ class CityAtlasTest {
         val base = atlasOf(row("Lisbon", 0.0), row("Porto", 300_000.0))
         val atlas = base.withNames(localNamesOf(2, mapOf(0 to "Lisboa")))
 
-        assertEquals("Lisboa", atlas.nearest(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
-        assertEquals("Porto", atlas.nearest(ORIGIN_LAT, lonAt(300_000.0), flatDistance)?.name)
-        assertEquals("Lisbon", base.nearest(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+        assertEquals("Lisboa", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
+        assertEquals("Porto", atlas.naming(ORIGIN_LAT, lonAt(300_000.0), flatDistance)?.name)
+        assertEquals("Lisbon", base.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.name)
     }
 
     @Test fun `name search finds a place by either name and reports the language's`() {
@@ -197,13 +272,14 @@ class CityAtlasTest {
         val atlas = atlasOf()
 
         assertEquals(0, atlas.size)
-        assertNull(atlas.nearest(ORIGIN_LAT, lonAt(0.0), flatDistance))
+        assertNull(atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance))
     }
 
     @Test fun `anything that is not an atlas is rejected at parse`() {
-        assertThrows(IllegalArgumentException::class.java) { CityAtlas.parse(ByteArray(0)) }
+        val noOutlines = bordersBytes(emptyList())
+        assertThrows(IllegalArgumentException::class.java) { CityAtlas.parse(ByteArray(0), noOutlines) }
         assertThrows(IllegalArgumentException::class.java) {
-            CityAtlas.parse("not an atlas at all".toByteArray(StandardCharsets.UTF_8))
+            CityAtlas.parse("not an atlas at all".toByteArray(StandardCharsets.UTF_8), noOutlines)
         }
     }
 }

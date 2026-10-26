@@ -8,10 +8,11 @@ import io.github.valeronm.breadcrumb.domain.CityAtlas
 import java.util.Locale
 
 /**
- * The packed city atlas (`assets/cities.bin`), read once per process and held for the life of it.
+ * The packed city atlas (`assets/cities.bin`) with the country outlines it names by
+ * (`assets/borders.bin`), read once per process and held for the life of it.
  *
- * 4 MB of asset becomes 4 MB of heap, plus the names table of the language asked for, which is why
- * it is read **lazily** rather than at startup:
+ * The atlas's bytes, the outlines decoded and the names table of the language asked for are several
+ * megabytes of heap, which is why they are read **lazily** rather than at startup:
  * a recorder that runs for weeks without the UI ever opening should not carry a table of place names
  * it has nothing to name. The first caller pays for the read.
  *
@@ -22,6 +23,7 @@ import java.util.Locale
 object Cities {
 
     private const val ASSET = "cities.bin"
+    private const val BORDERS = "borders.bin"
 
     @Volatile private var atlas: CityAtlas? = null
 
@@ -41,9 +43,8 @@ object Cities {
         return synchronized(this) {
             named?.let { (held, atlas) -> if (held == language) return atlas }
             val app = context.applicationContext
-            val base = atlas ?: app.assets.open(ASSET).use { it.readBytes() }
-                .let(CityAtlas::parse)
-                .also { atlas = it }
+            fun asset(name: String) = app.assets.open(name).use { it.readBytes() }
+            val base = atlas ?: CityAtlas.parse(asset(ASSET), asset(BORDERS)).also { atlas = it }
             val inLanguage = Configuration(app.resources.configuration)
                 .apply { setLocale(Locale.forLanguageTag(language)) }
             val names = app.createConfigurationContext(inLanguage).resources

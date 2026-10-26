@@ -15,13 +15,20 @@ import javax.xml.parsers.DocumentBuilderFactory
  */
 class CityNamesShippedTest {
 
-    private val atlas = CityAtlas.parse(File("src/main/assets/cities.bin").readBytes())
+    private val atlas = CityAtlas.parse(
+        File("src/main/assets/cities.bin").readBytes(),
+        File("src/main/assets/borders.bin").readBytes(),
+    )
 
     private val tables: Map<String, File> =
         File("src/main/res").listFiles { f -> f.isDirectory && f.name.startsWith("raw") }.orEmpty()
             .map { it.name.removePrefix("raw").removePrefix("-") to File(it, "city_names.bin") }
             .filter { (_, file) -> file.exists() }
             .toMap()
+
+    @Test fun `the shipped outlines were labeled against the shipped atlas`() {
+        CountryBorders.parse(File("src/main/assets/borders.bin").readBytes(), atlas.size)
+    }
 
     @Test fun `every names table indexes the shipped atlas`() {
         for (file in tables.values) CityAtlas.LocalNames.parse(file.readBytes(), atlas.size)

@@ -21,6 +21,9 @@ internal const val ORIGIN_LON = 1.0
 /** The longitude standing for [meters] east of the origin under [flatDistance]. */
 internal fun lonAt(meters: Double) = ORIGIN_LON + meters / 100_000.0
 
+/** The latitude standing for [meters] north of the origin under [flatDistance]. */
+internal fun latAt(meters: Double) = ORIGIN_LAT + meters / 100_000.0
+
 /** An endpoint [meters] east of the origin. */
 internal fun at(meters: Double) = Coordinate(ORIGIN_LAT, lonAt(meters))
 

@@ -334,6 +334,7 @@ android {
                     .withPathSensitivity(PathSensitivity.RELATIVE)
                 it.inputs.files(
                     layout.projectDirectory.file("src/main/assets/cities.bin"),
+                    layout.projectDirectory.file("src/main/assets/borders.bin"),
                     layout.projectDirectory.file("src/main/res/xml/locales_config.xml"),
                     layout.projectDirectory.dir("src/main/res").asFileTree
                         .matching { include("raw*/city_names.bin") },

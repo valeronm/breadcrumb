@@ -19,14 +19,19 @@ import kotlin.math.roundToInt
  * best distance found — over 160,000 cities that settles in a few dozen distance calls.
  *
  * A place is named in a language through [withNames] wherever that language's table has a name for
- * it, and by its row's own name everywhere else.
+ * it, and by its row's own name everywhere else. A coordinate's country comes from the outlines
+ * [parse] reads beside the rows.
  *
  * Held as the raw bytes rather than decoded into objects: a row is six fields read by offset when
  * one is wanted, and 160,000 of them as instances would cost more heap than the file. Only the
  * winning row's name is ever turned into a String — with one exception: the first name search
  * folds every name once into its own index ([searchByName]).
  */
-class CityAtlas private constructor(private val table: Table, private val local: LocalNames = LocalNames.NONE) {
+class CityAtlas private constructor(
+    private val table: Table,
+    private val borders: CountryBorders,
+    private val local: LocalNames = LocalNames.NONE,
+) {
 
     /** The parsed rows, shared by every [withNames] copy of one atlas. */
     private class Table(
@@ -102,7 +107,7 @@ class CityAtlas private constructor(private val table: Table, private val local:
 
     /** This atlas naming its places from [names] where a row has one there, and by the row's own
      *  name everywhere else. Shares the rows; the search index is built afresh for the new names. */
-    fun withNames(names: LocalNames): CityAtlas = CityAtlas(table, names)
+    fun withNames(names: LocalNames): CityAtlas = CityAtlas(table, borders, names)
 
     /** A named place, with how far it sat from the coordinate that found it. */
     class City(
@@ -166,9 +171,9 @@ class CityAtlas private constructor(private val table: Table, private val local:
     }
 
     /**
-     * The [limit] most populous of [rows], most populous first — a bounded slate kept by insertion,
-     * the [COUNTRY_VOTES] pattern: a two-letter query matches tens of thousands of rows, and a full
-     * sort re-decodes the population field on every comparison for an order only the head of is read.
+     * The [limit] most populous of [rows], most populous first — a bounded slate kept by insertion:
+     * a two-letter query matches tens of thousands of rows, and a full sort re-decodes the population
+     * field on every comparison for an order only the head of is read.
      */
     private fun mostPopulous(rows: List<Int>, limit: Int): List<Int> {
         val size = minOf(rows.size, limit)
@@ -229,7 +234,12 @@ class CityAtlas private constructor(private val table: Table, private val local:
 
     /**
      * The city that should *name* this coordinate: the most populous one within [NAME_WINDOW_M] of
-     * the nearest, which is not the same as the nearest itself.
+     * the nearest in the coordinate's country, which is not the same as the nearest itself.
+     *
+     * **The country comes from the outlines** ([parse]), since a place's own code carries the
+     * place's country, not which side of a border the coordinate is on. Outside every outline it is
+     * the country of whichever is nearer, the nearest outline or the nearest place. A coordinate in a
+     * country with no place in the atlas is named by the nearest place of any.
      *
      * An atlas of settlements is also an atlas of their parts — an arrondissement, a borough,
      * a district — each a real administrative place with its own row and its own small population.
@@ -248,11 +258,9 @@ class CityAtlas private constructor(private val table: Table, private val local:
      * better numbers.
      */
     fun naming(lat: Double, lon: Double, distance: DistanceFn): City? {
-        val anyNearest = nearest(lat, lon, distance) ?: return null
-        val neighbourhood = around(lat, lon, anyNearest.distanceM, distance)
-        val country = neighbourhood.country
-        val local = neighbourhood.nearestInCountry?.let { cityAt(it, neighbourhood.nearestInCountryM) }
-            ?: anyNearest
+        val found = nearestInCountry(lat, lon, distance) ?: return null
+        val local = cityAt(found.row, found.distanceM)
+        val country = countryCodeAt(found.row)
         // A row with no population figure keeps its name. Administrative seats are listed whatever
         // their size and many carry a zero, and a zero times any factor is a bar every neighbour
         // clears — the village someone stayed in would lose its name to the nearest larger town.
@@ -271,61 +279,30 @@ class CityAtlas private constructor(private val table: Table, private val local:
         return best
     }
 
-    /**
-     * The country a coordinate is most likely in, and the nearest place in it — resolved in one walk,
-     * since both questions read the same band.
-     *
-     * The country is the commonest among the [COUNTRY_VOTES] nearest places, ties going to the
-     * nearest. An atlas knows nothing of borders, so near one the nearest row can easily sit on
-     * the far side — a village names itself after a town in the next country, and a journey that
-     * never left home counts two countries. Its neighbourhood is the evidence the row itself doesn't
-     * carry. A real border city outvotes its neighbours by sitting on top of the query, so this never
-     * argues a genuinely foreign place away.
-     */
-    private fun around(lat: Double, lon: Double, nearestM: Double, distance: DistanceFn): Neighbourhood {
-        val farthest = DoubleArray(COUNTRY_VOTES) { Double.MAX_VALUE }
-        val voter = IntArray(COUNTRY_VOTES) { NO_COUNTRY }
-        val nearestOf = HashMap<Int, Int>(COUNTRY_VOTES)
-        val nearestOfM = HashMap<Int, Double>(COUNTRY_VOTES)
-        walkOutward(lat, lon, nearestM + COUNTRY_REACH_M) { row ->
-            val d = distance.meters(lat, lon, latOf(row), lonOf(row))
-            val code = countryCodeAt(row)
-            if (d < (nearestOfM[code] ?: Double.MAX_VALUE)) {
-                nearestOfM[code] = d
-                nearestOf[code] = row
-            }
-            // Keep the nearest few, insertion-sorted — the whole band would be thousands of rows in
-            // a dense country, and only the closest handful vote.
-            var slot = COUNTRY_VOTES - 1
-            if (d >= farthest[slot]) return@walkOutward
-            while (slot > 0 && farthest[slot - 1] > d) {
-                farthest[slot] = farthest[slot - 1]
-                voter[slot] = voter[slot - 1]
-                slot--
-            }
-            farthest[slot] = d
-            voter[slot] = code
+    private fun nearestInCountry(lat: Double, lon: Double, distance: DistanceFn): Found? {
+        borders.countryAt(lat, lon)?.let { country ->
+            return nearestRow(lat, lon, distance, packedCode(country))
+                ?: nearestRow(lat, lon, distance, ANY_COUNTRY)
         }
-        val votes = HashMap<Int, Int>(COUNTRY_VOTES)
-        for (code in voter) if (code != NO_COUNTRY) votes[code] = (votes[code] ?: 0) + 1
-        val leader = votes.maxByOrNull { it.value }?.value
-        // Ties go to the nearest voter, which is the first slot holding a country with that count.
-        val country = voter.firstOrNull { it != NO_COUNTRY && votes[it] == leader } ?: NO_COUNTRY
-        return Neighbourhood(country, nearestOf[country], nearestOfM[country] ?: 0.0)
+        val anyNearest = nearestRow(lat, lon, distance, ANY_COUNTRY) ?: return null
+        val outline = borders.nearestOutline(lat, lon, distance)
+        if (outline == null || outline.distanceM >= anyNearest.distanceM) return anyNearest
+        val country = packedCode(outline.country)
+        if (country == countryCodeAt(anyNearest.row)) return anyNearest
+        return nearestRow(lat, lon, distance, country) ?: anyNearest
     }
 
-    private class Neighbourhood(val country: Int, val nearestInCountry: Int?, val nearestInCountryM: Double)
+    private class Found(val row: Int, val distanceM: Double)
 
     /** The two-letter country code packed into an int, for comparing without allocating a string. */
     private fun countryCodeAt(row: Int): Int = u16(rowsAt + row * ROW_BYTES + 10)
 
+    private fun packedCode(country: String): Int = (country[0].code shl 8) or country[1].code
+
     private fun populationAt(row: Int): Int = u16(rowsAt + row * ROW_BYTES + 8) * 1_000
 
-    /**
-     * The nearest city to [lat]/[lon], or null only for an empty atlas. Nearest by [distance] on the
-     * real geometry — the latitude ordering is a search index, never the answer.
-     */
-    fun nearest(lat: Double, lon: Double, distance: DistanceFn): City? {
+    /** [country] is a packed code or [ANY_COUNTRY]. */
+    private fun nearestRow(lat: Double, lon: Double, distance: DistanceFn, country: Int): Found? {
         if (rowCount == 0) return null
         val targetE6 = (lat * 1e6).roundToInt()
         var best = -1
@@ -334,6 +311,7 @@ class CityAtlas private constructor(private val table: Table, private val local:
         var down = up - 1
 
         fun consider(row: Int) {
+            if (country != ANY_COUNTRY && countryCodeAt(row) != country) return
             val d = distance.meters(lat, lon, latOf(row), lonOf(row))
             if (d < bestM) {
                 bestM = d
@@ -360,13 +338,13 @@ class CityAtlas private constructor(private val table: Table, private val local:
             }
             if (!moved) break
         }
-        return best.takeIf { it >= 0 }?.let { cityAt(it, bestM) }
+        return best.takeIf { it >= 0 }?.let { Found(it, bestM) }
     }
 
     /**
-     * Every row that could be within [reachM] of [lat]/[lon], nearest latitude first. The shared walk
-     * under both lookups: rows are ordered by latitude, so the search starts at the query's own and
-     * steps outward until the latitude difference alone exceeds the reach.
+     * Every row that could be within [reachM] of [lat]/[lon], nearest latitude first. Rows are ordered
+     * by latitude, so the search starts at the query's own and steps outward until the latitude
+     * difference alone exceeds the reach.
      *
      * Longitude cannot bound the *walk* — the ordering says nothing about it — but it rules out most
      * of what the walk visits before anything is spent on them. A band of a quarter-degree circles
@@ -455,8 +433,8 @@ class CityAtlas private constructor(private val table: Table, private val local:
         /** lat, lon, population, country, zone index, name length — see the packer. */
         private const val ROW_BYTES = 15
 
-        /** No country voted for — no packed code can be zero, both bytes being ASCII letters. */
-        private const val NO_COUNTRY = 0
+        /** No packed code can be zero, both bytes being ASCII letters. */
+        private const val ANY_COUNTRY = 0
 
         /** Beyond this a longitude difference has wrapped, and the bound is no longer a bound. */
         private const val HALF_TURN_DEGREES = 180.0
@@ -478,25 +456,20 @@ class CityAtlas private constructor(private val table: Table, private val local:
          */
         private const val NAME_DOMINANCE = 3
 
-        /** How many of the nearest places vote on which country a coordinate is in. */
-        private const val COUNTRY_VOTES = 5
-
         /** A folded needle shorter than this matches a meaningless fraction of the atlas — a
          *  one-char query hits tens of thousands of rows for a ranking no single letter asked. */
         private const val MIN_QUERY_CHARS = 2
 
         private const val NAME_SEPARATOR = '\u0000'
 
-        /** How far out those voters may be gathered from, and how far a same-country name may sit. */
-        private const val COUNTRY_REACH_M = 25_000.0
-
         private val MAGIC = "BCTY1".toByteArray(StandardCharsets.US_ASCII)
 
         /**
-         * Reads a packed atlas. Throws [IllegalArgumentException] on anything that isn't one, which
-         * is a build error rather than a runtime condition — the file ships inside the APK.
+         * Reads a packed atlas and the [borders] file labeled against it. Throws
+         * [IllegalArgumentException] on anything that isn't such a pair, which is a build error rather
+         * than a runtime condition — both files ship inside the APK.
          */
-        fun parse(bytes: ByteArray): CityAtlas {
+        fun parse(bytes: ByteArray, borders: ByteArray): CityAtlas {
             require(bytes.size > MAGIC.size) { "city atlas is empty" }
             require(MAGIC.indices.all { bytes[it] == MAGIC[it] }) { "not a city atlas" }
             val header = ByteBuffer.wrap(bytes, MAGIC.size, bytes.size - MAGIC.size)
@@ -518,7 +491,10 @@ class CityAtlas private constructor(private val table: Table, private val local:
                 nameStarts[row + 1] = nameStarts[row] + length
             }
             require(namesAt + nameStarts[rowCount] <= bytes.size) { "city atlas names are truncated" }
-            return CityAtlas(Table(bytes, rowCount, rowsAt, namesAt, nameStarts, zones))
+            return CityAtlas(
+                Table(bytes, rowCount, rowsAt, namesAt, nameStarts, zones),
+                CountryBorders.parse(borders, rowCount),
+            )
         }
     }
 }

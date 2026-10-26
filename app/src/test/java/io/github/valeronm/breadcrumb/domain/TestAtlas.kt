@@ -30,8 +30,11 @@ internal fun testCity(
     zone: String = "Etc/GMT",
 ) = TestCity(ORIGIN_LAT, lonAt(meters), pop, country, zone, name)
 
-/** See `tools/pack_cities.py`'s docstring for the field-by-field spec this encodes. */
-internal fun atlasOf(vararg rows: TestCity): CityAtlas {
+/**
+ * See `tools/pack_cities.py`'s docstring for the field-by-field spec this encodes. With no [outlines],
+ * every coordinate is outside them.
+ */
+internal fun atlasOf(vararg rows: TestCity, outlines: List<TestOutline> = emptyList()): CityAtlas {
     val sorted = rows.sortedBy { it.lat }
     val zones = sorted.map { it.zone }.distinct().sorted()
     val out = ByteArrayOutputStream()
@@ -52,7 +55,7 @@ internal fun atlasOf(vararg rows: TestCity): CityAtlas {
         out.u8(row.name.toByteArray(StandardCharsets.UTF_8).size)
     }
     for (row in sorted) out.write(row.name.toByteArray(StandardCharsets.UTF_8))
-    return CityAtlas.parse(out.toByteArray())
+    return CityAtlas.parse(out.toByteArray(), bordersBytes(outlines, sorted.size))
 }
 
 /**
@@ -74,14 +77,14 @@ internal fun localNamesOf(rowCount: Int, names: Map<Int, String>, parsedFor: Int
     return CityAtlas.LocalNames.parse(out.toByteArray(), parsedFor)
 }
 
-private fun ByteArrayOutputStream.u8(v: Int) = write(v and 0xFF)
+internal fun ByteArrayOutputStream.u8(v: Int) = write(v and 0xFF)
 
 private fun ByteArrayOutputStream.u16(v: Int) {
     u8(v shr 8)
     u8(v)
 }
 
-private fun ByteArrayOutputStream.i32(v: Int) {
+internal fun ByteArrayOutputStream.i32(v: Int) {
     u16(v shr 16)
     u16(v)
 }
