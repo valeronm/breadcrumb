@@ -2,10 +2,6 @@ package io.github.valeronm.breadcrumb.domain
 
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
-import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.max
-import kotlin.math.roundToInt
 
 /**
  * The offline city atlas: every populated place of 1,000 or more and every administrative seat
@@ -14,9 +10,8 @@ import kotlin.math.roundToInt
  * however much better its answers would be.
  *
  * Packed by `tools/pack_cities.py`, whose docstring is the format's specification; this reads it and
- * nothing else writes it. Rows are fixed-width and sorted by latitude, so a lookup binary-searches
- * to the query's latitude and walks outward only while a row's latitude alone could still beat the
- * best distance found — over 160,000 cities that settles in a few dozen distance calls.
+ * nothing else writes it. Rows are fixed-width and sorted by latitude, the order [LatitudeIndex]
+ * searches outward by.
  *
  * A place is named in a language through [withNames] wherever that language's table has a name for
  * it, and by its row's own name everywhere else. A coordinate's country comes from the outlines
@@ -42,7 +37,21 @@ class CityAtlas private constructor(
         /** Start of each row's name within the names blob; one longer than [rowCount]. */
         val nameStarts: IntArray,
         val zones: List<String>,
-    )
+    ) : LatitudeIndex.Rows {
+        override val count get() = rowCount
+
+        override fun latE6(row: Int) = i32(rowsAt + row * ROW_BYTES)
+
+        override fun lonE6(row: Int) = i32(rowsAt + row * ROW_BYTES + 4)
+
+        private fun i32(at: Int): Int =
+            (bytes[at].toInt() and 0xFF shl 24) or
+                (bytes[at + 1].toInt() and 0xFF shl 16) or
+                (bytes[at + 2].toInt() and 0xFF shl 8) or
+                (bytes[at + 3].toInt() and 0xFF)
+
+        val index = LatitudeIndex(this)
+    }
 
     private val bytes = table.bytes
     private val rowCount = table.rowCount
@@ -50,6 +59,8 @@ class CityAtlas private constructor(
     private val namesAt = table.namesAt
     private val nameStarts = table.nameStarts
     private val zones = table.zones
+
+    private val index = table.index
 
     /**
      * The names places have in one language where they differ from a row's own, packed as that
@@ -267,32 +278,30 @@ class CityAtlas private constructor(
         if (local.population == 0) return local
         val reach = local.distanceM + NAME_WINDOW_M
         var best = local
-        walkOutward(lat, lon, reach) { row ->
+        index.forEachNear(lat, lon, reach, distance) { row ->
             // Population before geometry: it rules out nearly every row for the cost of one read,
             // where a distance call and a City are the expensive part of looking at one.
-            if (populationAt(row) <= best.population) return@walkOutward
-            if (populationAt(row) < local.population * NAME_DOMINANCE) return@walkOutward
-            if (countryCodeAt(row) != country) return@walkOutward
+            if (populationAt(row) <= best.population) return@forEachNear
+            if (populationAt(row) < local.population * NAME_DOMINANCE) return@forEachNear
+            if (countryCodeAt(row) != country) return@forEachNear
             val d = distance.meters(lat, lon, latOf(row), lonOf(row))
             if (d <= reach) best = cityAt(row, d)
         }
         return best
     }
 
-    private fun nearestInCountry(lat: Double, lon: Double, distance: DistanceFn): Found? {
-        borders.countryAt(lat, lon)?.let { country ->
-            return nearestRow(lat, lon, distance, packedCode(country))
-                ?: nearestRow(lat, lon, distance, ANY_COUNTRY)
-        }
-        val anyNearest = nearestRow(lat, lon, distance, ANY_COUNTRY) ?: return null
+    private fun nearestInCountry(lat: Double, lon: Double, distance: DistanceFn): LatitudeIndex.Found? {
+        fun nearestIn(country: Int) = index.nearest(lat, lon, distance) { countryCodeAt(it) == country }
+        fun nearestOfAny() = index.nearest(lat, lon, distance) { true }
+
+        borders.countryAt(lat, lon)?.let { return nearestIn(packedCode(it)) ?: nearestOfAny() }
+        val anyNearest = nearestOfAny() ?: return null
         val outline = borders.nearestOutline(lat, lon, distance)
         if (outline == null || outline.distanceM >= anyNearest.distanceM) return anyNearest
         val country = packedCode(outline.country)
         if (country == countryCodeAt(anyNearest.row)) return anyNearest
-        return nearestRow(lat, lon, distance, country) ?: anyNearest
+        return nearestIn(country) ?: anyNearest
     }
-
-    private class Found(val row: Int, val distanceM: Double)
 
     /** The two-letter country code packed into an int, for comparing without allocating a string. */
     private fun countryCodeAt(row: Int): Int = u16(rowsAt + row * ROW_BYTES + 10)
@@ -300,83 +309,6 @@ class CityAtlas private constructor(
     private fun packedCode(country: String): Int = (country[0].code shl 8) or country[1].code
 
     private fun populationAt(row: Int): Int = u16(rowsAt + row * ROW_BYTES + 8) * 1_000
-
-    /** [country] is a packed code or [ANY_COUNTRY]. */
-    private fun nearestRow(lat: Double, lon: Double, distance: DistanceFn, country: Int): Found? {
-        if (rowCount == 0) return null
-        val targetE6 = (lat * 1e6).roundToInt()
-        var best = -1
-        var bestM = Double.MAX_VALUE
-        var up = lowerBound(targetE6)
-        var down = up - 1
-
-        fun consider(row: Int) {
-            if (country != ANY_COUNTRY && countryCodeAt(row) != country) return
-            val d = distance.meters(lat, lon, latOf(row), lonOf(row))
-            if (d < bestM) {
-                bestM = d
-                best = row
-            }
-        }
-
-        // Interleaved rather than one side then the other: a coordinate far from any city (at sea,
-        // in a desert) would otherwise walk one direction to the bound before the first distance
-        // exists to prune the other with.
-        while (up < rowCount || down >= 0) {
-            var moved = false
-            if (up < rowCount && latBoundOf(up, targetE6) <= bestM) {
-                consider(up++)
-                moved = true
-            } else {
-                up = rowCount
-            }
-            if (down >= 0 && latBoundOf(down, targetE6) <= bestM) {
-                consider(down--)
-                moved = true
-            } else {
-                down = -1
-            }
-            if (!moved) break
-        }
-        return best.takeIf { it >= 0 }?.let { Found(it, bestM) }
-    }
-
-    /**
-     * Every row that could be within [reachM] of [lat]/[lon], nearest latitude first. Rows are ordered
-     * by latitude, so the search starts at the query's own and steps outward until the latitude
-     * difference alone exceeds the reach.
-     *
-     * Longitude cannot bound the *walk* — the ordering says nothing about it — but it rules out most
-     * of what the walk visits before anything is spent on them. A band of a quarter-degree circles
-     * the earth, so at the reaches used here nearly every row in it is on another continent, and the
-     * check is two reads and a compare against a distance call and the allocations behind it.
-     */
-    private inline fun walkOutward(lat: Double, lon: Double, reachM: Double, visit: (Int) -> Unit) {
-        val targetE6 = (lat * 1e6).roundToInt()
-        val lonE6 = (lon * 1e6).roundToInt()
-        var up = lowerBound(targetE6)
-        var down = up - 1
-        while (up < rowCount && latBoundOf(up, targetE6) <= reachM) {
-            if (lonBoundOf(up, lat, lonE6) <= reachM) visit(up)
-            up++
-        }
-        while (down >= 0 && latBoundOf(down, targetE6) <= reachM) {
-            if (lonBoundOf(down, lat, lonE6) <= reachM) visit(down)
-            down--
-        }
-    }
-
-    /**
-     * The least distance a row this far east or west could be at. Meters per degree of longitude
-     * shrink towards the poles, so the *higher* of the two latitudes gives the smaller figure — and
-     * an understated bound is the only safe kind, since it can only fail to prune.
-     */
-    private fun lonBoundOf(row: Int, lat: Double, targetLonE6: Int): Double {
-        val delta = abs(lonE6Of(row).toLong() - targetLonE6) / 1e6
-        if (delta > HALF_TURN_DEGREES) return 0.0
-        val poleward = max(abs(lat), abs(latOf(row)))
-        return delta * MIN_M_PER_DEGREE_LAT * cos(Math.toRadians(poleward))
-    }
 
     private fun cityAt(row: Int, distanceM: Double): City {
         val at = rowsAt + row * ROW_BYTES
@@ -399,48 +331,14 @@ class CityAtlas private constructor(
     private fun countryAt(row: Int): String =
         String(bytes, rowsAt + row * ROW_BYTES + 10, 2, StandardCharsets.US_ASCII)
 
-    /**
-     * The least distance a row this far north or south could possibly be at. Meridian meters per
-     * degree is deliberately understated so the bound never prunes a row that could still win.
-     */
-    private fun latBoundOf(row: Int, targetE6: Int): Double =
-        abs(latE6Of(row).toLong() - targetE6) / 1e6 * MIN_M_PER_DEGREE_LAT
-
-    private fun lowerBound(targetE6: Int): Int {
-        var lo = 0
-        var hi = rowCount
-        while (lo < hi) {
-            val mid = (lo + hi) ushr 1
-            if (latE6Of(mid) < targetE6) lo = mid + 1 else hi = mid
-        }
-        return lo
-    }
-
-    private fun latE6Of(row: Int): Int = i32(rowsAt + row * ROW_BYTES)
-    private fun lonE6Of(row: Int): Int = i32(rowsAt + row * ROW_BYTES + 4)
-    private fun latOf(row: Int): Double = latE6Of(row) / 1e6
-    private fun lonOf(row: Int): Double = lonE6Of(row) / 1e6
-
-    private fun i32(at: Int): Int =
-        (bytes[at].toInt() and 0xFF shl 24) or
-            (bytes[at + 1].toInt() and 0xFF shl 16) or
-            (bytes[at + 2].toInt() and 0xFF shl 8) or
-            (bytes[at + 3].toInt() and 0xFF)
+    private fun latOf(row: Int): Double = table.latE6(row) / 1e6
+    private fun lonOf(row: Int): Double = table.lonE6(row) / 1e6
 
     private fun u16(at: Int): Int = (bytes[at].toInt() and 0xFF shl 8) or (bytes[at + 1].toInt() and 0xFF)
 
     companion object {
         /** lat, lon, population, country, zone index, name length — see the packer. */
         private const val ROW_BYTES = 15
-
-        /** No packed code can be zero, both bytes being ASCII letters. */
-        private const val ANY_COUNTRY = 0
-
-        /** Beyond this a longitude difference has wrapped, and the bound is no longer a bound. */
-        private const val HALF_TURN_DEGREES = 180.0
-
-        /** Meters per degree of latitude, understated (the true minimum is ~110,574 at the equator). */
-        private const val MIN_M_PER_DEGREE_LAT = 110_000.0
 
         /**
          * How much further than the nearest city a bigger one may sit and still take the name.

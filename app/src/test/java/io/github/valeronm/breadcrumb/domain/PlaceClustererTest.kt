@@ -4,10 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.asin
 import kotlin.math.cos
-import kotlin.math.min
-import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
@@ -164,18 +161,8 @@ class PlaceClustererTest {
     // unpruned reference scan, under a real-Earth distance rather than the flat stub above: the bound's
     // whole risk is spherical (a degree of longitude shortens toward the pole; the box is probed at one point).
 
-    /** Spherical distance, so the pruning cases meet the geometry the bound is exposed to. */
-    private val sphere = DistanceFn { aLat, aLon, bLat, bLon ->
-        val r = 6_371_008.8
-        val dLat = Math.toRadians(bLat - aLat)
-        val dLon = Math.toRadians(bLon - aLon)
-        val h = sin(dLat / 2) * sin(dLat / 2) +
-            cos(Math.toRadians(aLat)) * cos(Math.toRadians(bLat)) * sin(dLon / 2) * sin(dLon / 2)
-        2 * r * asin(min(1.0, sqrt(h)))
-    }
-
-    /** Metres per degree of latitude on [sphere]. */
-    private val degreeM = 2 * Math.PI * 6_371_008.8 / 360.0
+    /** Meters per degree of latitude on [sphereDistance]. */
+    private val degreeM = 2 * Math.PI * EARTH_RADIUS_M / 360.0
 
     /** The clustering as an unpruned scan of every anchor would assign it. */
     private fun referenceAssignments(
@@ -244,10 +231,10 @@ class PlaceClustererTest {
         for (lat in listOf(0.0, 1.0, 23.5, 45.0, 60.0, 84.0, -45.0)) {
             for (latSpread in listOf(1.0, 0.02)) {
                 val (endpoints, seeds) = generatedHistory(lat, latSpread)
-                val pruned = PlaceClusterer.cluster(endpoints, 150.0, sphere, seeds).map { it.memberIndices }
+                val pruned = PlaceClusterer.cluster(endpoints, 150.0, sphereDistance, seeds).map { it.memberIndices }
                 assertEquals(
                     "lat=$lat latSpread=$latSpread",
-                    referenceAssignments(endpoints, 150.0, sphere, seeds),
+                    referenceAssignments(endpoints, 150.0, sphereDistance, seeds),
                     pruned,
                 )
             }
@@ -266,8 +253,8 @@ class PlaceClustererTest {
                 for (point in endpoints) {
                     assertEquals(
                         "lat=$lat latSpread=$latSpread",
-                        PlaceClusterer.nearestSeedIndex(point.lat, point.lon, seeds, sphere),
-                        index.nearest(point.lat, point.lon, sphere),
+                        PlaceClusterer.nearestSeedIndex(point.lat, point.lon, seeds, sphereDistance),
+                        index.nearest(point.lat, point.lon, sphereDistance),
                     )
                 }
             }
@@ -290,7 +277,7 @@ class PlaceClustererTest {
             val clusters = PlaceClusterer.cluster(
                 listOf(east, north, diagonal),
                 radiusM = 150.0,
-                distance = sphere,
+                distance = sphereDistance,
                 seeds = listOf(PlaceClusterer.Seed(pin, radius)),
             )
             assertEquals("lat=$lat", listOf(0, 1, 2), clusters[0].memberIndices)
