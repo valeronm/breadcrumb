@@ -4,6 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.roundToLong
+import kotlin.math.sin
+import kotlin.random.Random
 
 class CountryBordersTest {
 
@@ -39,6 +44,24 @@ class CountryBordersTest {
 
         assertEquals("PT", borders.countryAt(ORIGIN_LAT, lonAt(5_000.0)))
         assertEquals("ES", borders.countryAt(ORIGIN_LAT, lonAt(15_000.0)))
+    }
+
+    @Test fun `a point is inside exactly where a ray from it crosses the rings an odd number of times`() {
+        val random = Random(3)
+        val star = List(40) { k ->
+            val angle = 2 * PI * k / 40
+            val reach = if (k % 2 == 0) 60_000.0 else 15_000.0 + random.nextDouble() * 20_000.0
+            latAt(reach * sin(angle)) to lonAt(reach * cos(angle))
+        }
+        val hole = rectangle(-5_000.0, 5_000.0, -5_000.0, 5_000.0)
+        val borders = bordersOf(listOf(TestOutline("PT", listOf(star, hole))))
+
+        repeat(2_000) {
+            val lat = latAt(random.nextDouble(-70_000.0, 70_000.0))
+            val lon = lonAt(random.nextDouble(-70_000.0, 70_000.0))
+            val inside = listOf(star, hole).count { crossedOddly(it, lat, lon) } % 2 == 1
+            assertEquals("at $lat, $lon", if (inside) "PT" else null, borders.countryAt(lat, lon))
+        }
     }
 
     @Test fun `the nearest outline is measured to its edge`() {
@@ -94,4 +117,16 @@ class CountryBordersTest {
             bordersOf(listOf(box("p1", west = 0.0, east = 1_000.0)))
         }
     }
+}
+
+/** The crossing count read off every edge of [ring], with no index. */
+private fun crossedOddly(ring: List<Pair<Double, Double>>, lat: Double, lon: Double): Boolean {
+    val points = ring.map { (a, b) -> (a * 1e5).roundToLong() / 1e5 to (b * 1e5).roundToLong() / 1e5 }
+    var odd = false
+    for (i in points.indices) {
+        val (latI, lonI) = points[i]
+        val (latJ, lonJ) = points[(i + points.size - 1) % points.size]
+        if ((latI > lat) != (latJ > lat) && lon < (lonJ - lonI) * (lat - latI) / (latJ - latI) + lonI) odd = !odd
+    }
+    return odd
 }

@@ -3,13 +3,14 @@ package io.github.valeronm.breadcrumb.domain
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import kotlin.math.cos
+import kotlin.math.floor
 
 /**
  * The country outlines (`assets/borders.bin`), packed by `tools/pack_borders.py`, whose docstring is
  * the format's specification and says why the edges of the seas are simplified and the borders are not.
  *
- * Decoded at parse into one coordinate array per ring, because a lookup reads every vertex of each
- * outline whose bounding box holds the point.
+ * Decoded at parse into one coordinate array per ring, with each outline's edges bucketed by the latitude
+ * bands they span, since a large country's outline runs to tens of thousands of vertices.
  */
 class CountryBorders private constructor(private val outlines: List<Outline>) {
 
@@ -35,11 +36,60 @@ class CountryBorders private constructor(private val outlines: List<Outline>) {
             lons = Extent(minLon.toDouble(), maxLon.toDouble())
         }
 
-        /** The format marks no ring as a hole. */
-        fun holds(lat: Double, lon: Double): Boolean =
-            lat in lats &&
-                lon in lons &&
-                rings.count { crossesOddly(it, lat, lon) } % 2 == 1
+        private val firstBand = Math.floorDiv(lats.min.toInt(), BAND)
+
+        /** Where each band's edges start in [bandEdges], one past the last band at the end. */
+        private val bandStarts: IntArray
+
+        /** Each edge as `ring shl EDGE_BITS or vertex`, the edge running from the vertex before it to it. */
+        private val bandEdges: IntArray
+
+        init {
+            require(rings.size < 1 shl (Int.SIZE_BITS - 1 - EDGE_BITS)) { "borders file holds an outline of ${rings.size} rings" }
+            val bands = Math.floorDiv(lats.max.toInt(), BAND) - firstBand + 1
+            val counts = IntArray(bands + 1)
+            forEachEdge { _, band -> counts[band + 1]++ }
+            for (band in 1..bands) counts[band] += counts[band - 1]
+            bandStarts = counts.copyOf()
+            bandEdges = IntArray(counts[bands])
+            forEachEdge { edge, band -> bandEdges[counts[band]++] = edge }
+        }
+
+        private inline fun forEachEdge(visit: (edge: Int, band: Int) -> Unit) {
+            for ((r, ring) in rings.withIndex()) {
+                require(ring.size / 2 < 1 shl EDGE_BITS) { "borders file holds a ring of ${ring.size / 2} vertices" }
+                var j = ring.size - 2
+                for (i in ring.indices step 2) {
+                    val from = j
+                    j = i
+                    // A level edge crosses no line of latitude.
+                    if (ring[i] == ring[from]) continue
+                    val low = Math.floorDiv(minOf(ring[i], ring[from]), BAND) - firstBand
+                    val high = Math.floorDiv(maxOf(ring[i], ring[from]), BAND) - firstBand
+                    for (band in low..high) visit(r shl EDGE_BITS or (i / 2), band)
+                }
+            }
+        }
+
+        /** The format marks no ring as a hole: a point is inside when it is inside an odd number of rings. */
+        fun holds(lat: Double, lon: Double): Boolean {
+            if (lat !in lats || lon !in lons) return false
+            val band = Math.floorDiv(floor(lat).toInt(), BAND) - firstBand
+            var odd = false
+            for (at in bandStarts[band] until bandStarts[band + 1]) {
+                val ring = rings[bandEdges[at] ushr EDGE_BITS]
+                val i = 2 * (bandEdges[at] and EDGE_MASK)
+                val j = if (i == 0) ring.size - 2 else i - 2
+                val latI = ring[i].toDouble()
+                val latJ = ring[j].toDouble()
+                if ((latI > lat) != (latJ > lat)) {
+                    val lonI = ring[i + 1].toDouble()
+                    val lonJ = ring[j + 1].toDouble()
+                    if (lon < (lonJ - lonI) * (lat - latI) / (latJ - latI) + lonI) odd = !odd
+                }
+            }
+            return odd
+        }
     }
 
     private class Extent(val min: Double, val max: Double) {
@@ -181,6 +231,13 @@ class CountryBorders private constructor(private val outlines: List<Outline>) {
         /** Units of a coordinate per degree, as packed. */
         private const val SCALE = 1e5
 
+        /** A latitude band of the edge index, in [SCALE] units: a tenth of a degree. */
+        private const val BAND = 10_000
+
+        /** The bits of an indexed edge naming its vertex within its ring; the rest name the ring. */
+        private const val EDGE_BITS = 21
+        private const val EDGE_MASK = (1 shl EDGE_BITS) - 1
+
         private val MAGIC = "BCBR1".toByteArray(StandardCharsets.US_ASCII)
 
         /** Throws [IllegalArgumentException] on anything that isn't a borders file labeled against an
@@ -204,20 +261,4 @@ class CountryBorders private constructor(private val outlines: List<Outline>) {
             return CountryBorders(outlines)
         }
     }
-}
-
-private fun crossesOddly(ring: IntArray, lat: Double, lon: Double): Boolean {
-    var odd = false
-    var j = ring.size - 2
-    for (i in ring.indices step 2) {
-        val latI = ring[i].toDouble()
-        val latJ = ring[j].toDouble()
-        if ((latI > lat) != (latJ > lat)) {
-            val lonI = ring[i + 1].toDouble()
-            val lonJ = ring[j + 1].toDouble()
-            if (lon < (lonJ - lonI) * (lat - latI) / (latJ - latI) + lonI) odd = !odd
-        }
-        j = i
-    }
-    return odd
 }
