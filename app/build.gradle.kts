@@ -435,7 +435,7 @@ dependencies {
     // a hard filter, while the `android-sdk-opengl` sibling declares no graphics feature at all.
     // Swapping the artifact silently widens or narrows the supported device set — it is a
     // distribution decision, not just a rendering one.
-    implementation("org.maplibre.gl:android-sdk:13.5.1")
+    implementation("org.maplibre.gl:android-sdk:13.7.1")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
