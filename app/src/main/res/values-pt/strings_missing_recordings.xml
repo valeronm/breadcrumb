@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="missing_recordings_title">Gravações em falta</string>
-    <string name="missing_recordings_title_count">Gravações em falta (%1$d)</string>
+    <string name="missing_recordings_title">Falhas na gravação</string>
+    <plurals name="missing_recordings_count">
+        <item quantity="one">%1$d gravação em falta</item>
+        <item quantity="many">%1$d gravações em falta</item>
+        <item quantity="other">%1$d gravações em falta</item>
+    </plurals>
     <string name="missing_recordings_empty">Não há gravações em falta.</string>
     <string name="missing_recordings_scroll_to_day">Ir para um dia</string>
 </resources>

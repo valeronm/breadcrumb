@@ -22,9 +22,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
@@ -67,7 +65,7 @@ private enum class DiscardFilter(@StringRes val labelRes: Int) {
  * thresholds, or replaced by a merge — with why it's here and how long until the retention
  * purge removes it for good. Rows restore in place; tapping opens the full track detail.
  *
- * Rows are headed by the day the trip was *recorded*, which is what the reader recognises a trip by.
+ * Rows are headed by the day the recording started, which is what the reader recognizes it by.
  *
  * The chips narrow what is listed and nothing else — **"clear all" empties Recently deleted
  * whatever chip is showing**.
@@ -85,31 +83,23 @@ internal fun DiscardedTracksScreen(
     var showClearDialog by remember { mutableStateOf(false) }
     var filter by rememberSaveable { mutableStateOf(DiscardFilter.ALL) }
     val shown = remember(tracks, filter) { tracks.filter(filter::holds) }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                colors = canvasTopBarColors(),
-                title = {
-                    Text(
-                        if (shown.isEmpty()) {
-                            stringResource(R.string.discarded_title)
-                        } else {
-                            stringResource(R.string.discarded_title_count, shown.size)
-                        },
+    CollapsingBarScaffold(
+        title = stringResource(R.string.discarded_title),
+        onBack = onBack,
+        subtitle = if (shown.isEmpty()) {
+            null
+        } else {
+            pluralStringResource(R.plurals.discarded_count, shown.size, shown.size)
+        },
+        actions = {
+            if (tracks.isNotEmpty()) {
+                IconButton(onClick = { showClearDialog = true }) {
+                    Icon(
+                        Icons.Filled.DeleteForever,
+                        contentDescription = stringResource(R.string.discarded_clear_all),
                     )
-                },
-                navigationIcon = { BackNavIcon(onBack) },
-                actions = {
-                    if (tracks.isNotEmpty()) {
-                        IconButton(onClick = { showClearDialog = true }) {
-                            Icon(
-                                Icons.Filled.DeleteForever,
-                                contentDescription = stringResource(R.string.discarded_clear_all),
-                            )
-                        }
-                    }
-                },
-            )
+                }
+            }
         },
     ) { inner ->
         if (tracks.isEmpty()) {

@@ -32,7 +32,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 |---|---|---|
 | track | trajeto | Never *percurso*, *rota*, *caminho*. Only the recorded path: everywhere the sentence is about the journey itself, the word is *viagem*. |
 | part | parte | |
-| gap | gravação em falta | |
+| gap | gravação em falta | The page listing them all is titled «Falhas na gravação». |
 | gap-end | chegou · saiu | Third person, which carries no gender. |
 | point | ponto | Rejected ones are *ruidosos*; a guessed one is a *posição estimada*, the phrase the setting that drops them already used. |
 | activity | atividade | |
@@ -64,7 +64,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | delete | eliminar | |
 | clear | limpar | |
 | undo | anular | |
-| restore-trip | recuperar | Matches *recuperáveis* on the same screens. Plain-prose "puts the trip back" (undo explainers) may still say *repõe*. |
+| restore-recording | recuperar | Matches *recuperáveis* on the same screens. Plain-prose "puts the trip back" (undo explainers) may still say *repõe*. |
 | restore-backup | restaurar | |
 | reset | repor | |
 
@@ -73,6 +73,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | recording | gravação | The recorder's progressive titles use *A gravar*. Never *registo* — that is the logs, in this same group, and the collision cost the notification channel its name once already. |
+| deleted-recording | gravação | Feminine like *viagem*, so Recently deleted keeps its agreement. |
 | positioning | localizar (verb), posicionamento (noun) | Progressive *a localizar* in the recorder's status line; *posicionamento por satélite* where the setting names the technique. |
 | backup | cópia de segurança | Short form *cópia*; the verb is *copiar*. |
 | google-timeline | Linha cronológica da Google | *Linha cronológica* is what the phone's Settings call it; *da Google* says whose it is, as the English name does, and takes the feminine the phone's own text uses for the company (*a Google*). Never the app's *cronologia*. |
@@ -100,8 +101,8 @@ Sections and order follow `en.md`, so the two files read side by side.
   read as translationese. The screens keep them apart by context — a trip is a row, a journey heads a
   band in Insights, and the category is a chip in a picker.
 - **Portuguese splits what English says with restore and reset**: *restaurar* rebuilds from a file,
-  *recuperar* brings a deleted trip back, *repor* is reserved for reset.
+  *recuperar* brings a deleted recording back, *repor* is reserved for reset.
 - **A screen named after what it holds agrees with it.** "Eliminadas recentemente" is feminine
-  because everything on it is a *viagem* — the generic masculine would sit beside "Sem viagens
+  because everything on it is a *gravação* — the generic masculine would sit beside "Sem gravações
   eliminadas" unagreed. Every reference to the screen carries the same gender, and if the screen ever
   holds a second noun, the generic masculine becomes right and this entry flips.

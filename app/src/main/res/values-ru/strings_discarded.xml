@@ -1,28 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="discarded_title">Недавно удалённые</string>
-    <string name="discarded_title_count">Недавно удалённые (%1$d)</string>
+    <plurals name="discarded_count">
+        <item quantity="one">%1$d запись</item>
+        <item quantity="few">%1$d записи</item>
+        <item quantity="many">%1$d записей</item>
+        <item quantity="other">%1$d записи</item>
+    </plurals>
     <string name="discarded_clear_all">Очистить всё</string>
     <plurals name="discarded_empty">
-        <item quantity="one">Удалённых поездок нет. Они появляются здесь, когда вы удаляете поездку или её отсеивает фильтр, и их можно восстановить в течение %1$d дня.</item>
-        <item quantity="few">Удалённых поездок нет. Они появляются здесь, когда вы удаляете поездку или её отсеивает фильтр, и их можно восстановить в течение %1$d дней.</item>
-        <item quantity="many">Удалённых поездок нет. Они появляются здесь, когда вы удаляете поездку или её отсеивает фильтр, и их можно восстановить в течение %1$d дней.</item>
-        <item quantity="other">Удалённых поездок нет. Они появляются здесь, когда вы удаляете поездку или её отсеивает фильтр, и их можно восстановить в течение %1$d дня.</item>
+        <item quantity="one">Удалённых записей нет. Они появляются здесь, когда вы удаляете запись или её отсеивает фильтр, и их можно восстановить в течение %1$d дня.</item>
+        <item quantity="few">Удалённых записей нет. Они появляются здесь, когда вы удаляете запись или её отсеивает фильтр, и их можно восстановить в течение %1$d дней.</item>
+        <item quantity="many">Удалённых записей нет. Они появляются здесь, когда вы удаляете запись или её отсеивает фильтр, и их можно восстановить в течение %1$d дней.</item>
+        <item quantity="other">Удалённых записей нет. Они появляются здесь, когда вы удаляете запись или её отсеивает фильтр, и их можно восстановить в течение %1$d дня.</item>
     </plurals>
     <plurals name="discarded_retention">
-        <item quantity="one">Поездки хранятся здесь %1$d день, затем удаляются навсегда</item>
-        <item quantity="few">Поездки хранятся здесь %1$d дня, затем удаляются навсегда</item>
-        <item quantity="many">Поездки хранятся здесь %1$d дней, затем удаляются навсегда</item>
-        <item quantity="other">Поездки хранятся здесь %1$d дня, затем удаляются навсегда</item>
+        <item quantity="one">Записи хранятся здесь %1$d день, затем удаляются навсегда</item>
+        <item quantity="few">Записи хранятся здесь %1$d дня, затем удаляются навсегда</item>
+        <item quantity="many">Записи хранятся здесь %1$d дней, затем удаляются навсегда</item>
+        <item quantity="other">Записи хранятся здесь %1$d дня, затем удаляются навсегда</item>
     </plurals>
-    <string name="discarded_restore">Восстановить поездку</string>
+    <string name="discarded_restore">Восстановить запись</string>
     <string name="discarded_restore_overlaps">Не восстановлена: пересекается с поездкой в истории</string>
     <string name="discarded_restore_failed">Не удалось восстановить</string>
 
     <string name="discarded_filter_all">Все</string>
     <string name="discarded_filter_you">Вами</string>
     <string name="discarded_filter_automatic">Автоматически</string>
-    <string name="discarded_none_of_source">Здесь нет поездок, подходящих под этот фильтр.</string>
+    <string name="discarded_none_of_source">Здесь нет записей, подходящих под этот фильтр.</string>
     <plurals name="discarded_excluded">
         <item quantity="one">%d исключена</item>
         <item quantity="few">%d исключены</item>
@@ -31,10 +36,10 @@
     </plurals>
     <string name="discarded_clear_confirm_title">Очистить «Недавно удалённые»?</string>
     <plurals name="discarded_clear_confirm_body">
-        <item quantity="one">%d поездка будет удалена навсегда. Это нельзя отменить.</item>
-        <item quantity="few">Все %d поездки будут удалены навсегда. Это нельзя отменить.</item>
-        <item quantity="many">Все %d поездок будут удалены навсегда. Это нельзя отменить.</item>
-        <item quantity="other">Все %d поездки будут удалены навсегда. Это нельзя отменить.</item>
+        <item quantity="one">%d запись будет удалена навсегда. Это нельзя отменить.</item>
+        <item quantity="few">Все %d записи будут удалены навсегда. Это нельзя отменить.</item>
+        <item quantity="many">Все %d записей будут удалены навсегда. Это нельзя отменить.</item>
+        <item quantity="other">Все %d записи будут удалены навсегда. Это нельзя отменить.</item>
     </plurals>
     <string name="discarded_delete_all">Удалить все</string>
 

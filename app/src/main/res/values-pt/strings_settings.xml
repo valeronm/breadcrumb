@@ -175,7 +175,7 @@
     <string name="data_backup_verb">A copiar…</string>
     <string name="data_backup_progress">A copiar a viagem %1$d de %2$d</string>
 
-    <string name="logs_title">Registos (%1$d)</string>
+    <string name="logs_title">Registos</string>
     <string name="logs_share">Partilhar os registos</string>
     <string name="logs_clear">Limpar os registos</string>
     <string name="logs_empty">Ainda sem registos. Aparecem aqui assim que a gravação estiver armada e detetar movimento.</string>

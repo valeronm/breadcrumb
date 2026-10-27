@@ -32,7 +32,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 |---|---|---|
 | track | маршрут | Only the recorded path — everywhere the sentence is about the journey itself, the word is *поездка*. Never *трек* (jargon a GPX-minded reader knows but a plain one doesn't), *путь*, *след*. |
 | part | часть | Agrees with *поездка*: «части поездки». |
-| gap | нет записи | A clause rather than a noun phrase: Russian states the absence directly, where «пропуск» or «пробел» would name a thing. |
+| gap | нет записи | A clause rather than a noun phrase: Russian states the absence directly, where «пропуск» or «пробел» would name a thing. A count needs a noun the clause cannot give, so counted it is «промежуток без записи». The page listing them all is titled «Пробелы в записи», the one place *пробел* is used. |
 | gap-end | прибыли · отправились | The polite plural, which keeps a past-tense verb genderless as «вы были» does. *Отправились* over *уехали* or *ушли*, which each name a way of moving. |
 | point | точка | Rejected ones are *отклонённые* — never the calque *шумные* (which reads as loud, not as measurement noise) nor *выбросы* (which reads as emissions); a guessed one is *приблизительное местоположение*. |
 | activity | активность | Where a settings sentence explains what is detected, «способ передвижения» may carry it — that names the *type*, not the concept. The **inline forms** of the carrier-borne types are headed by the trip's own noun — «поездка на велосипеде», «поездка на такси» — while the rest are bare («ходьба», «перелёт»): the sentences those forms drop into are about the trip, and a bare «велосипед» cannot be their subject. |
@@ -64,7 +64,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | delete | удалить | Never *убрать*, which reads as tidying up. |
 | clear | очистить | |
 | undo | отменить | The verb; *cancel* is the noun «Отмена» — see decisions below. |
-| restore-trip | восстановить | |
+| restore-recording | восстановить | |
 | restore-backup | восстановить | Like English, the object carries the difference; Russian does not split the verb. |
 | reset | сбросить | |
 
@@ -73,6 +73,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | recording | запись | Progressive titles use «Идёт запись». Never *отслеживание* — that is *tracking*, the concept the app refuses. |
+| deleted-recording | запись | The recorder's word for its act, here counted as the thing it made. Feminine like *поездка*, so Recently deleted keeps its agreement. |
 | positioning | определение местоположения | The status line says «Определение местоположения…», never «Поиск GPS» or «Поиск сигнала» — *поиск* is the user's, and the radio is not the subject. |
 | backup | резервная копия | Short form *копия*; the verb is «создать резервную копию». |
 | google-timeline | Хронология Google | *Хронология* is what the phone's Settings call it; *Google* says whose it is, as the English name does. |

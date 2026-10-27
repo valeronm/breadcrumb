@@ -2,17 +2,20 @@
 <!-- DiscardedTracksScreen: Settings → Recently deleted. -->
 <resources>
     <string name="discarded_title">Recently deleted</string>
-    <string name="discarded_title_count">Recently deleted (%1$d)</string>
+    <plurals name="discarded_count">
+        <item quantity="one">%1$d recording</item>
+        <item quantity="other">%1$d recordings</item>
+    </plurals>
     <string name="discarded_clear_all">Clear all</string>
     <plurals name="discarded_empty">
-        <item quantity="one">No deleted trips. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d day.</item>
-        <item quantity="other">No deleted trips. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d days.</item>
+        <item quantity="one">No deleted recordings. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d day.</item>
+        <item quantity="other">No deleted recordings. They appear here when you delete one or a keep rule filters one out, and stay restorable for %1$d days.</item>
     </plurals>
     <plurals name="discarded_retention">
-        <item quantity="one">Trips stay here for %1$d day, then are deleted forever</item>
-        <item quantity="other">Trips stay here for %1$d days, then are deleted forever</item>
+        <item quantity="one">Recordings stay here for %1$d day, then are deleted forever</item>
+        <item quantity="other">Recordings stay here for %1$d days, then are deleted forever</item>
     </plurals>
-    <string name="discarded_restore">Restore trip</string>
+    <string name="discarded_restore">Restore recording</string>
     <string name="discarded_restore_overlaps">Not restored: it overlaps a trip on the timeline</string>
     <string name="discarded_restore_failed">Restore failed</string>
 
@@ -21,7 +24,7 @@
     <string name="discarded_filter_all">All</string>
     <string name="discarded_filter_you">By you</string>
     <string name="discarded_filter_automatic">Automatic</string>
-    <string name="discarded_none_of_source">No trips here match this filter.</string>
+    <string name="discarded_none_of_source">No recordings here match this filter.</string>
     <!--
       "excluded", not "noisy": the count covers both species — bad fixes and the recorder's overrun
       at the edges — and what they have in common is being left out of the path.
@@ -32,8 +35,8 @@
     </plurals>
     <string name="discarded_clear_confirm_title">Clear Recently deleted?</string>
     <plurals name="discarded_clear_confirm_body">
-        <item quantity="one">The one trip will be permanently deleted. This can\'t be undone.</item>
-        <item quantity="other">All %d trips will be permanently deleted. This can\'t be undone.</item>
+        <item quantity="one">The one recording will be permanently deleted. This can\'t be undone.</item>
+        <item quantity="other">All %d recordings will be permanently deleted. This can\'t be undone.</item>
     </plurals>
     <string name="discarded_delete_all">Delete all</string>
 

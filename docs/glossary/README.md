@@ -85,8 +85,9 @@ form's state is a `TripDraft`.
 
 Which concept a string is reaching for follows from **what its sentence is about**:
 
-- where and when someone went → **trip**. Merging, splitting, deleting and restoring; the detail
-  screen and its type; the keep thresholds; the empty states; a trip in progress.
+- where and when someone went → **trip**. Merging, splitting and deleting; the detail screen and
+  its type; the keep thresholds; the empty states; a trip in progress.
+- what waits in Recently deleted → **deleted-recording**. Restoring, and that screen's own copy.
 - time spent somewhere, as its own row → **stay**, never *stop* or *visit*.
 - the recorded path, its points, or the file holding them → **track**.
 

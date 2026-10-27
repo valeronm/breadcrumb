@@ -8,13 +8,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -29,25 +27,17 @@ internal fun MissingRecordingsScreen(
     onOpen: (afterTrackId: Long) -> Unit,
 ) {
     val missing by viewModel.missingRecordings.collectAsStateWithLifecycle()
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                colors = canvasTopBarColors(),
-                title = {
-                    val count = missing?.count ?: 0
-                    Text(
-                        if (count == 0) {
-                            stringResource(R.string.missing_recordings_title)
-                        } else {
-                            stringResource(R.string.missing_recordings_title_count, count)
-                        },
-                    )
-                },
-                navigationIcon = { BackNavIcon(onBack) },
-            )
+    val count = missing?.count ?: 0
+    CollapsingBarScaffold(
+        title = stringResource(R.string.missing_recordings_title),
+        onBack = onBack,
+        subtitle = if (count == 0) {
+            null
+        } else {
+            pluralStringResource(R.plurals.missing_recordings_count, count, count)
         },
     ) { inner ->
-        val days = missing?.days ?: return@Scaffold
+        val days = missing?.days ?: return@CollapsingBarScaffold
         if (days.isEmpty()) {
             EmptyState(
                 stringResource(R.string.missing_recordings_empty),

@@ -30,7 +30,7 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 |---|---|---|
 | track | track | The recorded *path* of a trip — the points between its two ends. A detail a trip may not have: one entered by hand stores only its bounds, and a trip the recorder missed entirely is a gap row with no track at all. |
 | part | part | One of the tracks a trip is made of, where a start or an end entered by hand joins a recording end to start. Named only where the parts are listed one by one; everywhere else the reader sees the trip. |
-| gap | missing recording | A stretch between two trips whose ends disagree about where the phone was, so a trip happened in it and nothing holds it. Stated as what is missing rather than named: a place's history and the page listing them all say *missing recording*, never *gap* (the code's word) or *absence*; a timeline row states no name, its outlined card saying it. |
+| gap | missing recording | A stretch between two trips whose ends disagree about where the phone was, so a trip happened in it and nothing holds it. Stated as what is missing rather than named: a place's history and the count on the page listing them all say *missing recording*, never *absence*; a timeline row states no name, its outlined card saying it. *Gap* is the code's word, and on screen only that page's title, *Recording gaps*, uses it. |
 | gap-end | arrived · left | A gap's end, read from the place it sits at, is a recorded event there: the last recorded trip *arrived* at that time, or the next one *left* at it. Never the phone's own arrival or departure, which fell somewhere inside the gap and was not recorded. Subjectless, like every sentence about recording. |
 | point | point | A position belonging to a trip, stored as a row of it — whether positioning found it, a file supplied it, or **the user placed it on the map**, which is all a hand-entered trip's ends are. Rejected ones are *noisy*; one the phone guessed rather than measured from satellites is a *guessed position*. |
 | activity | activity | The user's detected activity. Per-type words live in `strings_recorder.xml`, in standalone and inline forms. |
@@ -62,10 +62,10 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | merge | merge | Combining trips into one, or folding places into one. A short stop a merge dissolves is *merged away*. |
 | keep | keep | Choosing the one place a merge of places folds the others into — the *kept place*. |
 | split | split | Cutting one trip into two. |
-| delete | delete | Destroying data, and discarding an entity such as a place. One verb on purpose: severity is carried by the surface, not the word — a trip goes to Recently deleted, a place ends with its undo snackbar — and a softer verb for the second would promise less finality than is true. |
+| delete | delete | Destroying data, and discarding an entity such as a place. One verb on purpose: severity is carried by the surface, not the word — a recording goes to Recently deleted, a place ends with its undo snackbar — and a softer verb for the second would promise less finality than is true. |
 | clear | clear | Emptying a list (logs, Recently deleted). |
 | undo | undo | Reverting the last action. |
-| restore-trip | restore | Putting one trip back from Recently deleted — "Restore trip". |
+| restore-recording | restore | Putting one recording back from Recently deleted — "Restore recording". |
 | restore-backup | restore | Rebuilding everything from a backup file — "Restore from backup". The object carries the difference; English does not split the verb. |
 | reset | reset | Returning settings to their defaults. |
 
@@ -74,6 +74,7 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | Concept | Term | What it means |
 |---|---|---|
 | recording | recording | The act and state of capturing trips — one of the ways a trip arrives, beside importing and typing one in. Never *tracking*. |
+| deleted-recording | recording | One item in Recently deleted: a track deleted by the user, filtered out by the keep thresholds or replaced by a merge, whether recorded, imported or entered by hand. Not a *trip*, which is a movement on the timeline. |
 | positioning | positioning | Working out where the phone is — the process, from switching the receiver on to accepting a point. Never *fix*, and never *signal*. |
 | backup | backup | The full-app export: one file with everything. |
 | google-timeline | Google Timeline | Google's own location history. *Timeline* is what the phone's Settings call it, which is where the reader finds the export; *Google* says whose it is. |
@@ -134,7 +135,9 @@ nobody has written yet, which is what earns it a place here rather than a commen
   capture radius, and the other is that trip's *point*. (*PIN* in the app-lock text is the platform's
   screen-lock code, unrelated to both, and stays because Android's own settings call it that.)
 - **A page's title and its subtitle name one concept, not two.** If the subtitle has to reach for a
-  second word to explain the title, the title is wrong.
+  second word to explain the title, the title is wrong. A subtitle that counts the page's items
+  names them in the concept's own word, so the title takes another: *Recording gaps* over
+  *692 missing recordings*.
 - **A state the reader is already living in is not news, and stating it sounds like a refusal.** A
   barrier says what it is *for*, and the button carries the action. Elsewhere *locked* stays exactly
   because it reassures — "Recording is never locked" is the sentence that needs the word.

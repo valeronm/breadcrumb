@@ -196,7 +196,7 @@
     <string name="data_backup_progress">Backing up trip %1$d of %2$d</string>
 
     <!-- Logs. Only the screen's chrome is here: the entries it lists stay English. -->
-    <string name="logs_title">Logs (%1$d)</string>
+    <string name="logs_title">Logs</string>
     <string name="logs_share">Share logs</string>
     <string name="logs_clear">Clear logs</string>
     <string name="logs_empty">No logs yet. They appear here once recording is armed and picks up movement.</string>

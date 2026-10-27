@@ -27,7 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumTopAppBar
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -311,7 +311,7 @@ internal fun PlaceDetailScreen(
                 }
             }
             if (titleTruncated) {
-                MediumTopAppBar(
+                MediumFlexibleTopAppBar(
                     colors = canvasTopBarColors(),
                     scrollBehavior = scrollBehavior,
                     title = barTitle,

@@ -226,19 +226,9 @@ internal fun GapDetailScreen(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                title = {
-                    Column {
-                        Text(stringResource(R.string.gap_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (d != null) {
-                            Text(
-                                gapDays(d),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
+                title = { Text(stringResource(R.string.gap_title), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                subtitle = {
+                    if (d != null) Text(gapDays(d), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {

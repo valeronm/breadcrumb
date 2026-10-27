@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="missing_recordings_title">Нет записи</string>
-    <string name="missing_recordings_title_count">Нет записи (%1$d)</string>
+    <string name="missing_recordings_title">Пробелы в записи</string>
+    <plurals name="missing_recordings_count">
+        <item quantity="one">%1$d промежуток без записи</item>
+        <item quantity="few">%1$d промежутка без записи</item>
+        <item quantity="many">%1$d промежутков без записи</item>
+        <item quantity="other">%1$d промежутка без записи</item>
+    </plurals>
     <string name="missing_recordings_empty">Ничего не пропущено.</string>
     <string name="missing_recordings_scroll_to_day">Перейти к дню</string>
 </resources>

@@ -39,10 +39,8 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -128,16 +126,7 @@ internal fun SettingsSubScreen(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                colors = canvasTopBarColors(),
-                title = { Text(title) },
-                navigationIcon = { BackNavIcon(onBack) },
-                actions = actions,
-            )
-        },
-    ) { inner ->
+    CollapsingBarScaffold(title, onBack, actions = actions) { inner ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -601,39 +590,34 @@ private fun lockGraceLabel(sec: Int): String =
 internal fun LogsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val entries by DebugLog.entries.collectAsStateWithLifecycle(initialValue = emptyList())
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                colors = canvasTopBarColors(),
-                title = { Text(stringResource(R.string.logs_title, entries.size)) },
-                navigationIcon = { BackNavIcon(onBack) },
-                actions = {
-                    // The chooser title is chrome and translates; the log body it carries does not.
-                    val shareLogs = stringResource(R.string.logs_share)
-                    val scope = rememberCoroutineScope()
-                    IconButton(onClick = {
-                        // A stream, not EXTRA_TEXT: the persisted history runs to megabytes, and a
-                        // string that size dies in the binder transaction the intent rides.
-                        scope.launch(Dispatchers.IO) {
-                            val uri = LogExporter.export(context)
-                            val share = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            withContext(Dispatchers.Main) {
-                                context.startActivity(Intent.createChooser(share, shareLogs))
-                            }
-                        }
-                    }) { Icon(Icons.Filled.Share, contentDescription = shareLogs) }
-                    IconButton(onClick = { DebugLog.clear() }) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = stringResource(R.string.logs_clear),
-                        )
+    CollapsingBarScaffold(
+        title = stringResource(R.string.logs_title),
+        onBack = onBack,
+        actions = {
+            // The chooser title is chrome and translates; the log body it carries does not.
+            val shareLogs = stringResource(R.string.logs_share)
+            val scope = rememberCoroutineScope()
+            IconButton(onClick = {
+                // A stream, not EXTRA_TEXT: the persisted log runs to megabytes, past the binder
+                // transaction limit an intent extra is sent under.
+                scope.launch(Dispatchers.IO) {
+                    val uri = LogExporter.export(context)
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
-                },
-            )
+                    withContext(Dispatchers.Main) {
+                        context.startActivity(Intent.createChooser(share, shareLogs))
+                    }
+                }
+            }) { Icon(Icons.Filled.Share, contentDescription = shareLogs) }
+            IconButton(onClick = { DebugLog.clear() }) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = stringResource(R.string.logs_clear),
+                )
+            }
         },
     ) { inner ->
         if (entries.isEmpty()) {
