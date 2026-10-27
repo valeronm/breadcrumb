@@ -6,7 +6,7 @@ import kotlin.math.cos
 
 /**
  * The country outlines (`assets/borders.bin`), packed by `tools/pack_borders.py`, whose docstring is
- * the format's specification and says why the coasts are simplified and the land borders are not.
+ * the format's specification and says why the edges of the seas are simplified and the borders are not.
  *
  * Decoded at parse into one coordinate array per ring, because a lookup reads every vertex of each
  * outline whose bounding box holds the point.
@@ -48,7 +48,10 @@ class CountryBorders private constructor(private val outlines: List<Outline>) {
         fun gap(value: Double) = maxOf(0.0, min - value, value - max)
     }
 
-    /** The country of the outline [lat]/[lon] sits in, or null in none. */
+    /**
+     * The country of the first outline in the file holding [lat]/[lon], or null in none. Outlines overlap,
+     * and the file is in precedence order.
+     */
     fun countryAt(lat: Double, lon: Double): String? {
         val y = lat * SCALE
         val x = lon * SCALE

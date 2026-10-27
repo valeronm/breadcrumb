@@ -26,5 +26,10 @@ Basemap tiles come from the Protomaps hosted API (https://protomaps.com/), built
 data. The optional online place search queries Photon (https://photon.komoot.io/) and the optional
 road routing FOSSGIS's OSRM servers (https://routing.openstreetmap.de/), both OpenStreetMap data.
 
+app/src/main/assets/borders.bin holds country outlines from OpenStreetMap, taken from geo-maps'
+maritime borders (https://github.com/simonepri/geo-maps), produced by tools/pack_borders.py and
+shipped inside the APK. Being derived from OpenStreetMap, that file is offered under the ODbL, apart
+from the Apache License that covers the rest of the repository.
+
 (c) OpenStreetMap contributors, licensed under the Open Database License (ODbL):
 https://www.openstreetmap.org/copyright

@@ -32,6 +32,15 @@ class CountryBordersTest {
         assertEquals("ZA", borders.countryAt(ORIGIN_LAT, lonAt(5_000.0)))
     }
 
+    @Test fun `where outlines overlap, the first in the file holds the point`() {
+        val borders = bordersOf(
+            listOf(box("PT", west = -10_000.0, east = 10_000.0), box("ES", west = 0.0, east = 20_000.0)),
+        )
+
+        assertEquals("PT", borders.countryAt(ORIGIN_LAT, lonAt(5_000.0)))
+        assertEquals("ES", borders.countryAt(ORIGIN_LAT, lonAt(15_000.0)))
+    }
+
     @Test fun `the nearest outline is measured to its edge`() {
         val borders = bordersOf(
             listOf(box("ES", west = -20_000.0, east = -10_000.0), box("PT", west = 0.0, east = 10_000.0)),

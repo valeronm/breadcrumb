@@ -778,7 +778,8 @@ private fun AboutCredits() {
     // that use.
     CreditLine(annotatedStringResource(R.string.credit_geonames, link(WebLinks.GEONAMES, "GeoNames"), link(WebLinks.CC_BY_4, "CC BY 4.0")))
     CreditLine(annotatedStringResource(R.string.about_credit_map, link(WebLinks.PROTOMAPS, "Protomaps")))
-    // ODbL asks for the credit wherever OSM-derived results show: the map, the routes and the search.
+    // ODbL asks for the credit wherever OSM-derived results show: the map, the routes, the search, and
+    // the country a place is named in.
     CreditLine(
         annotatedStringResource(
             R.string.about_credit_data,
