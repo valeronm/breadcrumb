@@ -386,7 +386,7 @@ room {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.appcompat:appcompat:1.8.0")
     implementation("androidx.documentfile:documentfile:1.1.0")
 
@@ -410,7 +410,7 @@ dependencies {
     // alphas are functionally stable — what moves is the API surface, so the cost of sitting here
     // is that a bump can rename or withdraw something, not that the app is less sound. Going back
     // to `compose-bom` means undressing the theme first.
-    val composeBom = platform("androidx.compose:compose-bom-alpha:2026.10.00")
+    val composeBom = platform("androidx.compose:compose-bom-alpha:2026.10.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -420,9 +420,9 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Room
-    implementation("androidx.room:room-runtime:2.8.4")
-    implementation("androidx.room:room-ktx:2.8.4")
-    ksp("androidx.room:room-compiler:2.8.4")
+    implementation("androidx.room:room-runtime:2.8.5")
+    implementation("androidx.room:room-ktx:2.8.5")
+    ksp("androidx.room:room-compiler:2.8.5")
 
     // Location + Activity Recognition (Google Play Services)
     implementation("com.google.android.gms:play-services-location:21.4.0")
