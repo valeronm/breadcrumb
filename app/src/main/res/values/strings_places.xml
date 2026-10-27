@@ -159,4 +159,7 @@
         <item quantity="one">%d place merged</item>
         <item quantity="other">%d places merged</item>
     </plurals>
+
+    <!-- Country outlines on the places map, developer builds only -->
+    <string name="places_country_outlines">Country outlines</string>
 </resources>

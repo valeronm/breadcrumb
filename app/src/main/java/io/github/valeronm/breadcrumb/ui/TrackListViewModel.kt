@@ -838,6 +838,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         cityOf(at, language.value)
     }
 
+    /** The country outlines as [outlinesGeoJson] writes them; the first call loads the atlas. */
+    suspend fun countryOutlines(): String =
+        withContext(Dispatchers.Default) { outlinesGeoJson(Cities.borders(getApplication())) }
+
     /** The first call builds the atlas's folded-name index. */
     suspend fun searchCities(query: String, limit: Int): List<CityAtlas.Hit> =
         withContext(Dispatchers.Default) {

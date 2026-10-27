@@ -24,7 +24,7 @@ import java.nio.charset.StandardCharsets
  */
 class CityAtlas private constructor(
     private val table: Table,
-    private val borders: CountryBorders,
+    val borders: CountryBorders,
     private val local: LocalNames = LocalNames.NONE,
 ) {
 

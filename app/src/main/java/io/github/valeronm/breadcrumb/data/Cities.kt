@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.res.Configuration
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.CityAtlas
+import io.github.valeronm.breadcrumb.domain.CountryBorders
 import java.util.Locale
 
 /**
@@ -43,8 +44,7 @@ object Cities {
         return synchronized(this) {
             named?.let { (held, atlas) -> if (held == language) return atlas }
             val app = context.applicationContext
-            fun asset(name: String) = app.assets.open(name).use { it.readBytes() }
-            val base = atlas ?: CityAtlas.parse(asset(ASSET), asset(BORDERS)).also { atlas = it }
+            val base = base(app)
             val inLanguage = Configuration(app.resources.configuration)
                 .apply { setLocale(Locale.forLanguageTag(language)) }
             val names = app.createConfigurationContext(inLanguage).resources
@@ -52,5 +52,14 @@ object Cities {
             base.withNames(CityAtlas.LocalNames.parse(names, base.size))
                 .also { named = language to it }
         }
+    }
+
+    /** The outlines the atlas names by, read without loading any language's names table. */
+    fun borders(context: Context): CountryBorders = synchronized(this) { base(context.applicationContext) }.borders
+
+    /** Called holding the lock. */
+    private fun base(app: Context): CityAtlas {
+        fun asset(name: String) = app.assets.open(name).use { it.readBytes() }
+        return atlas ?: CityAtlas.parse(asset(ASSET), asset(BORDERS)).also { atlas = it }
     }
 }

@@ -27,7 +27,9 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -40,6 +42,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
@@ -103,6 +106,7 @@ internal fun PlacesTab(
     var sort by remember { mutableStateOf(PlacesSort.fromSettings(context)) }
     var showRareStops by remember { mutableStateOf(AppSettings.placesShowRareStops(context)) }
     var showLongAgo by remember { mutableStateOf(AppSettings.placesShowLongAgo(context)) }
+    var showOutlines by rememberSaveable { mutableStateOf(false) }
 
     val sorted = remember(sort, places) {
         val comparator = when (sort) {
@@ -208,6 +212,8 @@ internal fun PlacesTab(
                     onOpenPlace = onOpenPlace,
                     mapCamera = mapCamera,
                     say = viewModel::say,
+                    showOutlines = showOutlines,
+                    loadOutlines = viewModel::countryOutlines,
                 ) {
                     MapFilterChip(
                         selected = showRareStops,
@@ -222,6 +228,11 @@ internal fun PlacesTab(
                     ) {
                         showLongAgo = !showLongAgo
                         AppSettings.setPlacesShowLongAgo(context, showLongAgo)
+                    }
+                    if (BuildConfig.DEV_TOOLS) {
+                        MapFilterChip(selected = showOutlines, label = stringResource(R.string.places_country_outlines)) {
+                            showOutlines = !showOutlines
+                        }
                     }
                 }
             }
@@ -266,9 +277,12 @@ private fun PlacesMapPage(
     onOpenPlace: (String) -> Unit,
     mapCamera: CameraCarry,
     say: (String) -> Unit,
+    showOutlines: Boolean,
+    loadOutlines: suspend () -> String,
     filters: @Composable ColumnScope.() -> Unit,
 ) {
     val myLocation = rememberMyLocation(say)
+    val outlines by produceState<String?>(null, showOutlines) { value = if (showOutlines) loadOutlines() else null }
     // Card padding keeps the texture-mode map off the back-gesture edge strips.
     Card(
         Modifier
@@ -298,6 +312,7 @@ private fun PlacesMapPage(
                     goTo = myLocation.goTo,
                     topStart = filters,
                     corner = { MyLocationControl(myLocation) },
+                    outlines = outlines,
                 )
             }
             // With no map to stack them, the filters stand over the message on their own.

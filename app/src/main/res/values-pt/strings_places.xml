@@ -128,4 +128,7 @@
         <item quantity="many">%d locais juntados</item>
         <item quantity="other">%d locais juntados</item>
     </plurals>
+
+    <!-- Country outlines on the places map, developer builds only -->
+    <string name="places_country_outlines">Contornos dos países</string>
 </resources>

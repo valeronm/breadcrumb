@@ -180,15 +180,20 @@ internal fun markerSymbolLayer(id: String, source: String): SymbolLayer =
  */
 private const val PLACE_LABEL_OFFSET_EM = 1.2f
 
-/** Labeled pin layer, shared by every map that draws a place: a marker plus a label under it. */
-internal fun labeledSymbolLayer(dark: Boolean, id: String, source: String): SymbolLayer = markerSymbolLayer(id, source).withProperties(
-    // Named features carry a label under the pin; other features have an empty string.
-    PropertyFactory.textField(Expression.get(LABEL_KEY)),
+/** The typeface and halo of a label drawn over the basemap. */
+internal fun labelLettering(dark: Boolean): Array<PropertyValue<*>> = arrayOf(
     PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
-    PropertyFactory.textSize(12f),
-    PropertyFactory.textColor(if (dark) "#C8CFC6" else "#38423B"),
     PropertyFactory.textHaloColor(if (dark) "#14211A" else "#F0F2EE"),
     PropertyFactory.textHaloWidth(1.2f),
+)
+
+/** Labeled pin layer, shared by every map that draws a place: a marker plus a label under it. */
+internal fun labeledSymbolLayer(dark: Boolean, id: String, source: String): SymbolLayer = markerSymbolLayer(id, source).withProperties(
+    *labelLettering(dark),
+    // Named features carry a label under the pin; other features have an empty string.
+    PropertyFactory.textField(Expression.get(LABEL_KEY)),
+    PropertyFactory.textSize(12f),
+    PropertyFactory.textColor(if (dark) "#C8CFC6" else "#38423B"),
     PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
     PropertyFactory.textOffset(arrayOf(0f, PLACE_LABEL_OFFSET_EM)),
     PropertyFactory.textOptional(true),
@@ -208,7 +213,7 @@ private fun mutedOpacity(dark: Boolean): Expression = Expression.switchCase(
     Expression.literal(1f),
 )
 
-/** The axis swap GeoJSON demands, made in exactly one place: a [Point] is longitude-first. */
+/** The axis swap GeoJSON demands: a [Point] is longitude-first. */
 internal fun Coordinate.toPoint(): Point = Point.fromLngLat(lon, lat)
 
 /**

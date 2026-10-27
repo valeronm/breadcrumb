@@ -55,6 +55,12 @@ class CountryBorders private constructor(private val outlines: List<Outline>) {
         return outlines.firstOrNull { it.holds(y, x) }?.country
     }
 
+    /** An outline's rings, each as interleaved lat, lon in degrees. */
+    class Shape(val country: String, val rings: List<DoubleArray>)
+
+    /** Every outline, in file order. */
+    fun shapes(): List<Shape> = outlines.map { o -> Shape(o.country, o.rings.map { ring -> DoubleArray(ring.size) { ring[it] / SCALE } }) }
+
     /** An outline's country and how far its edge is from the coordinate that found it. */
     class Nearest(val country: String, val distanceM: Double)
 

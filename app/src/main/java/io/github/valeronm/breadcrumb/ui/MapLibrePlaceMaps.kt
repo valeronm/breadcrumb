@@ -15,6 +15,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.google.gson.JsonObject
+import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
@@ -602,6 +603,8 @@ internal fun MapLibrePlacesMap(
     crosshair: Boolean = false,
     topStart: (@Composable ColumnScope.() -> Unit)? = null,
     corner: @Composable () -> Unit = {},
+    /** The country outlines to draw over the basemap ([outlinesGeoJson]), in developer builds only. */
+    outlines: String? = null,
 ) {
     val applied = remember { AppliedOverviewInputs() }
     applied.onOpen = onOpen
@@ -627,6 +630,8 @@ internal fun MapLibrePlacesMap(
         },
         onStyleLoaded = { ctx, _, style, dark ->
             applied.places = places
+            if (BuildConfig.DEV_TOOLS) addOutlineLayers(style, dark, outlines)
+            applied.outlines = outlines
             addOverviewCircles(style, dark, places)
             style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
@@ -646,6 +651,10 @@ internal fun MapLibrePlacesMap(
                 applied.places = places
                 updateOverviewSource(style, places)
                 updateOverviewCircles(style, places)
+            }
+            if (applied.outlines !== outlines) {
+                applied.outlines = outlines
+                setOutlines(style, outlines)
             }
         },
     )
@@ -752,6 +761,7 @@ internal class CameraCarry(private var carried: CameraPosition? = null) {
 private class AppliedOverviewInputs {
     var places: List<OverviewPlace>? = null
     var goTo: MapCenterRequest? = null
+    var outlines: String? = null
 
     /** The click listener is registered once, so it reads the handler from here to never go stale. */
     var onOpen: (String) -> Unit = {}
