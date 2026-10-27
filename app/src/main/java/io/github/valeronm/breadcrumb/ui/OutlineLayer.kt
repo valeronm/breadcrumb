@@ -7,6 +7,7 @@ import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
+import kotlin.math.abs
 
 /**
  * The country outlines a place's name is decided by ([CountryBorders]), drawn over the basemap's own
@@ -69,11 +70,30 @@ private fun StringBuilder.writeOutlines(shapes: List<CountryBorders.Shape>) {
             for (v in 0..vertices) {
                 val at = 2 * (v % vertices)
                 if (v > 0) append(',')
-                append('[').append(ring[at + 1]).append(',').append(ring[at]).append(']')
+                append('[')
+                appendDegrees(ring[at + 1])
+                append(',')
+                appendDegrees(ring[at])
+                append(']')
             }
             append(']')
         }
         append("]}}")
     }
     append("]}")
+}
+
+/** [units] of [CountryBorders.UNITS_PER_DEGREE] as decimal degrees, with no trailing zeros. */
+private fun StringBuilder.appendDegrees(units: Int) {
+    if (units < 0) append('-')
+    append(abs(units) / CountryBorders.UNITS_PER_DEGREE)
+    var rest = abs(units) % CountryBorders.UNITS_PER_DEGREE
+    if (rest == 0) return
+    append('.')
+    var place = CountryBorders.UNITS_PER_DEGREE / 10
+    while (rest != 0) {
+        append('0' + rest / place)
+        rest %= place
+        place /= 10
+    }
 }

@@ -14,7 +14,7 @@ import kotlin.math.floor
  */
 class CountryBorders private constructor(private val outlines: List<Outline>) {
 
-    /** Rings as interleaved lat, lon in [SCALE] units. */
+    /** Rings as interleaved lat, lon in [UNITS_PER_DEGREE] units. */
     private class Outline(val country: String, val rings: List<IntArray>) {
         val lats: Extent
         val lons: Extent
@@ -103,16 +103,16 @@ class CountryBorders private constructor(private val outlines: List<Outline>) {
      * and the file is in precedence order.
      */
     fun countryAt(lat: Double, lon: Double): String? {
-        val y = lat * SCALE
-        val x = lon * SCALE
+        val y = lat * UNITS_PER_DEGREE
+        val x = lon * UNITS_PER_DEGREE
         return outlines.firstOrNull { it.holds(y, x) }?.country
     }
 
-    /** An outline's rings, each as interleaved lat, lon in degrees. */
-    class Shape(val country: String, val rings: List<DoubleArray>)
+    /** An outline's rings, each as interleaved lat, lon in [UNITS_PER_DEGREE] units, shared with the lookup and not to be written. */
+    class Shape(val country: String, val rings: List<IntArray>)
 
     /** Every outline, in file order. */
-    fun shapes(): List<Shape> = outlines.map { o -> Shape(o.country, o.rings.map { ring -> DoubleArray(ring.size) { ring[it] / SCALE } }) }
+    fun shapes(): List<Shape> = outlines.map { Shape(it.country, it.rings) }
 
     /** An outline's country and how far its edge is from the coordinate that found it. */
     class Nearest(val country: String, val distanceM: Double)
@@ -124,7 +124,7 @@ class CountryBorders private constructor(private val outlines: List<Outline>) {
      * wrapped, so a point beside it is measured only to the outlines on its side.
      */
     fun nearestOutline(lat: Double, lon: Double, distance: DistanceFn): Nearest? {
-        val search = EdgeSearch(lat * SCALE, lon * SCALE, cos(Math.toRadians(lat)))
+        val search = EdgeSearch(lat * UNITS_PER_DEGREE, lon * UNITS_PER_DEGREE, cos(Math.toRadians(lat)))
         // The outline with the nearest box is scanned first, so its edge prunes the rest by their boxes.
         val seed = outlines.minByOrNull(search::boxSq) ?: return null
         search.scan(seed)
@@ -132,11 +132,11 @@ class CountryBorders private constructor(private val outlines: List<Outline>) {
             if (outline !== seed && search.boxSq(outline) < search.bestSq) search.scan(outline)
         }
         val country = search.country ?: return null
-        return Nearest(country, distance.meters(lat, lon, search.nearLat / SCALE, search.nearLon / SCALE))
+        return Nearest(country, distance.meters(lat, lon, search.nearLat / UNITS_PER_DEGREE, search.nearLon / UNITS_PER_DEGREE))
     }
 
     /**
-     * The point on the edges scanned so far nearest the query at [lat]/[lon], in [SCALE] units, judged
+     * The point on the edges scanned so far nearest the query at [lat]/[lon], in [UNITS_PER_DEGREE] units, judged
      * on a plane where a unit of longitude counts [lonScale] of a unit of latitude.
      */
     private class EdgeSearch(private val lat: Double, private val lon: Double, private val lonScale: Double) {
@@ -229,9 +229,9 @@ class CountryBorders private constructor(private val outlines: List<Outline>) {
 
     companion object {
         /** Units of a coordinate per degree, as packed. */
-        private const val SCALE = 1e5
+        const val UNITS_PER_DEGREE = 100_000
 
-        /** A latitude band of the edge index, in [SCALE] units: a tenth of a degree. */
+        /** A latitude band of the edge index, in [UNITS_PER_DEGREE] units: a tenth of a degree. */
         private const val BAND = 10_000
 
         /** The bits of an indexed edge naming its vertex within its ring; the rest name the ring. */

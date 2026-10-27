@@ -78,7 +78,7 @@ class CountryBordersTest {
         assertNull(bordersOf(emptyList()).nearestOutline(ORIGIN_LAT, lonAt(0.0), flatDistance))
     }
 
-    @Test fun `every outline reads back in degrees, in file order`() {
+    @Test fun `every outline reads back as packed, in file order`() {
         val borders = bordersOf(
             listOf(box("PT", west = -10_000.0, east = 0.0), box("ES", west = 20_000.0, east = 30_000.0)),
         )
@@ -87,8 +87,8 @@ class CountryBordersTest {
 
         assertEquals(listOf("PT", "ES"), shapes.map { it.country })
         val ring = shapes.first().rings.single()
-        assertEquals(latAt(-50_000.0), ring[0], 1e-5)
-        assertEquals(lonAt(-10_000.0), ring[1], 1e-5)
+        assertEquals(latAt(-50_000.0), ring[0].toDouble() / CountryBorders.UNITS_PER_DEGREE, 1e-5)
+        assertEquals(lonAt(-10_000.0), ring[1].toDouble() / CountryBorders.UNITS_PER_DEGREE, 1e-5)
     }
 
     @Test fun `a borders file labeled against another atlas is rejected at parse`() {
