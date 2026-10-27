@@ -2,7 +2,7 @@
 plugins {
     // AGP supports only a range of Gradle versions, so this moves with the wrapper
     // (gradle/wrapper/gradle-wrapper.properties).
-    id("com.android.application") version "9.3.2" apply false
+    id("com.android.application") version "9.4.1" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.10" apply false
     id("com.google.devtools.ksp") version "2.3.11" apply false
     // Keep in step with the androidx.room:* coordinates in app/build.gradle.kts — a plugin and
