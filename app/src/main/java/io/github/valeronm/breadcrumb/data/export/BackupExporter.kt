@@ -245,6 +245,8 @@ object BackupExporter {
         cells.coordinate(""","endLon":""", t.endLon)
         t.startPlaceId?.let { cells.text(""","startPlaceId":$it""") }
         t.endPlaceId?.let { cells.text(""","endPlaceId":$it""") }
+        if (t.hidesStayBefore) cells.text(""","hidesStayBefore":true""")
+        if (t.hidesStayAfter) cells.text(""","hidesStayAfter":true""")
         cells.text(""","points":[""")
     }
 

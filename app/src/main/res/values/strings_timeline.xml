@@ -56,6 +56,10 @@
     <string name="timeline_merge">Merge trips</string>
     <string name="timeline_undo_merged">Trips merged</string>
     <string name="timeline_undo_deleted">Trip deleted</string>
+    <string name="timeline_hide_stay">Hide stay</string>
+    <string name="timeline_undo_hidden">Stay hidden</string>
+    <string name="timeline_show_hidden_stay">Show hidden stay</string>
+    <string name="timeline_undo_shown">Stay shown</string>
 
     <!--
       Stay rows. The clock time is drawn rather than interpolated — it carries its own colour marks

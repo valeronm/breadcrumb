@@ -153,6 +153,6 @@ class TimelineDayGroupingTest {
     private fun trackSummary(startedAt: Long) = io.github.valeronm.breadcrumb.data.db.TrackSummary(
         id = 1, activityType = "walking", startedAt = startedAt, endedAt = startedAt + 60_000,
         distanceMeters = 0.0, pointCount = 2, ignoredCount = 0, source = "recorded",
-        startPlaceId = null, endPlaceId = null,
+        startPlaceId = null, endPlaceId = null, hidesStayBefore = false, hidesStayAfter = false,
     )
 }

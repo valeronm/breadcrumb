@@ -87,6 +87,10 @@ class TestDb {
         return TEST_START + (60 + lingerFixes) * 10_000L
     }
 
+    /** The stored interval's type after [trackId], or null where nothing follows it. */
+    suspend fun intervalTypeAfter(trackId: Long) =
+        db.derivedDao().intervalsOnce().firstOrNull { it.afterTrackId == trackId }?.type
+
     /** Every keep threshold off, for a case about something other than what a short track becomes. */
     fun keepEveryTrack() {
         Settings.setMinTrackDurationSec(context, 0)

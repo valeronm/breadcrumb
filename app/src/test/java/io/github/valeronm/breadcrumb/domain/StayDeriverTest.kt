@@ -37,9 +37,12 @@ class StayDeriverTest {
         to: Coordinate? = home,
         startPlace: Long? = null,
         endPlace: Long? = null,
+        hidesBefore: Boolean = false,
+        hidesAfter: Boolean = false,
     ) = TrackEnd(
         trackId = id, startedAt = start, endedAt = end, start = from, end = to,
         startPlaceId = startPlace, endPlaceId = endPlace,
+        hidesStayBefore = hidesBefore, hidesStayAfter = hidesAfter,
     )
 
     private fun derive(
@@ -576,7 +579,7 @@ class StayDeriverTest {
     private fun summary(id: Long, startedAt: Long) = TrackSummary(
         id = id, activityType = "WALKING", startedAt = startedAt,
         endedAt = startedAt + 10 * MIN, distanceMeters = 1000.0, pointCount = 100, ignoredCount = 0,
-        source = null, startPlaceId = null, endPlaceId = null,
+        source = null, startPlaceId = null, endPlaceId = null, hidesStayBefore = false, hidesStayAfter = false,
     )
 
     // --- Joined tracks -----------------------------------------------------
@@ -610,6 +613,47 @@ class StayDeriverTest {
             track(2, start = 119 * MIN, end = 130 * MIN),
         )
         assertTrue(derive(overlapping).isEmpty())
+    }
+
+    // --- Hidden stays ------------------------------------------------------
+
+    /** [homePair] with the stay between them hidden at the ends given. */
+    private fun hiddenPair(after: Boolean = true, before: Boolean = true, from: Coordinate = nearHome) = listOf(
+        track(1, start = 60 * MIN, end = 120 * MIN, from = office, hidesAfter = after),
+        track(2, start = 240 * MIN, end = 300 * MIN, from = from, to = office, hidesBefore = before),
+    )
+
+    @Test fun `a stay hidden at both facing ends leaves nothing between them`() {
+        assertTrue(derive(hiddenPair()).isEmpty())
+    }
+
+    @Test fun `a stay hidden at one end only stays`() {
+        assertEquals(listOf(Stay::class), derive(hiddenPair(before = false)).map { it::class })
+        assertEquals(listOf(Stay::class), derive(hiddenPair(after = false)).map { it::class })
+    }
+
+    @Test fun `a hidden pair whose ends no longer agree leaves no gap either`() {
+        assertTrue(derive(hiddenPair(from = office)).isEmpty())
+    }
+
+    @Test fun `the facing ends of a hidden stay are not clustered`() {
+        assertEquals(
+            listOf(StayDeriver.Endpoint(1, isStart = true), StayDeriver.Endpoint(2, isStart = false)),
+            StayDeriver.clusteredEndpointsOf(hiddenPair()).map { it.key },
+        )
+        assertEquals(
+            listOf(listOf(office, office)),
+            StayDeriver.derive(hiddenPair(), StayDeriver.Params(), flatDistance).clusters.map { it.members },
+        )
+    }
+
+    @Test fun `a track between a hidden pair inherits no hide`() {
+        val between = track(3, start = 150 * MIN, end = 200 * MIN, from = home, to = home)
+        val (first, last) = hiddenPair()
+        assertEquals(
+            listOf(Stay::class, Stay::class),
+            derive(listOf(first, between, last)).map { it::class },
+        )
     }
 
     @Test fun `an endpoint's cluster is its own, not a later endpoint's at the same coordinate`() {

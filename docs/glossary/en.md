@@ -62,6 +62,7 @@ they are drawn alike and dropped alike, and nothing but this table says they are
 | merge | merge | Combining trips into one, or folding places into one. A short stop a merge dissolves is *merged away*. |
 | keep | keep | Choosing the one place a merge of places folds the others into — the *kept place*. |
 | split | split | Cutting one trip into two. |
+| hide | hide | Taking a stay off the timeline at the user's word, with the trips either side left as they were: a stop that was only a change of transport, such as walking on from where the car is parked. A hidden stay is *shown* again. |
 | delete | delete | Destroying data, and discarding an entity such as a place. One verb on purpose: severity is carried by the surface, not the word — a recording goes to Recently deleted, a place ends with its undo snackbar — and a softer verb for the second would promise less finality than is true. |
 | clear | clear | Emptying a list (logs, Recently deleted). |
 | undo | undo | Reverting the last action. |

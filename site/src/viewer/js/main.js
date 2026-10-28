@@ -172,6 +172,8 @@ function toTrackEnd(t) {
     end: endpoint(t.endLat, t.endLon),
     startPlaceId: t.startPlaceId ?? null,
     endPlaceId: t.endPlaceId ?? null,
+    hidesStayBefore: t.hidesStayBefore,
+    hidesStayAfter: t.hidesStayAfter,
   };
 }
 

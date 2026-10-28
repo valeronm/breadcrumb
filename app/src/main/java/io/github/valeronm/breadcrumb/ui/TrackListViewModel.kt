@@ -24,6 +24,7 @@ import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis
+import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.MonthTotals
 import io.github.valeronm.breadcrumb.domain.MonthlyTotals
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
@@ -32,6 +33,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.StaySwipe
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TimelineRows
 import io.github.valeronm.breadcrumb.domain.TrackMerge
@@ -304,10 +306,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * out once.
      */
     private class Reading(val summaries: List<TrackSummary>, val d: Derived) {
-        val neighbors = neighborsByAnchor(summaries)
+        val neighbors = TrackMerge.neighborsByAnchor(summaries)
 
         // Decided over the intervals: the timeline's rows are per-day slices, bounded by the display.
         val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
+        val staySwipes = StaySwipe.byAnchor(d.derivation.intervals, neighbors, mergePlans)
 
         /** Oldest first, as the derivation holds them. */
         val gaps: List<ResolvedGap> = d.derivation.intervals.filterIsInstance<StayDeriver.Gap>().map { gap ->
@@ -390,7 +393,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 is TimelineItem.StayItem -> item.copy(
                     place = d.placeOfCluster(item.stay.clusterId),
-                    merge = r.mergePlans[item.stay.afterTrackId],
+                    swipe = r.staySwipes[item.stay.afterTrackId],
                 )
             }
         }
@@ -729,6 +732,20 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** [onHidden] is not called when the tracks are no longer neighbors. */
+    fun hideStay(stay: HiddenStay, onHidden: () -> Unit = {}) {
+        scope.launch {
+            if (repository.hideStay(stay.beforeId, stay.afterId)) onHidden()
+        }
+    }
+
+    fun showStay(stay: HiddenStay, onShown: () -> Unit = {}) {
+        scope.launch {
+            repository.unhideStay(stay.beforeId, stay.afterId)
+            onShown()
+        }
+    }
+
     /** Undo a [mergeTracks]: drop the merged track, bring both originals back. */
     fun unmergeTracks(mergedId: Long, plan: TrackMerge.Plan) {
         scope.launch {
@@ -868,7 +885,3 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         const val PENDING_PLACE_TIMEOUT_MS = 30_000L
     }
 }
-
-// observeSummaries returns newest first.
-private fun neighborsByAnchor(summaries: List<TrackSummary>): Map<Long, TrackMerge.Neighbors> =
-    summaries.asReversed().zipWithNext().associate { (a, b) -> a.id to TrackMerge.Neighbors(a, b) }

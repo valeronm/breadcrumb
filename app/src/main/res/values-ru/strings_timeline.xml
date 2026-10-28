@@ -50,6 +50,10 @@
     <string name="timeline_merge">Объединить поездки</string>
     <string name="timeline_undo_merged">Поездки объединены</string>
     <string name="timeline_undo_deleted">Поездка удалена</string>
+    <string name="timeline_hide_stay">Скрыть посещение</string>
+    <string name="timeline_undo_hidden">Посещение скрыто</string>
+    <string name="timeline_show_hidden_stay">Показать скрытое посещение</string>
+    <string name="timeline_undo_shown">Посещение показано</string>
 
     <string name="timeline_all_day">Весь день</string>
     <string name="timeline_stay_since">%1$s – сейчас</string>

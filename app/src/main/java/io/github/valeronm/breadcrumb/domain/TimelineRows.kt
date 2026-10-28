@@ -131,6 +131,7 @@ object TimelineRows {
      */
     fun interleave(summaries: List<TrackSummary>, slices: List<Slice>): List<TimelineItem> {
         val chains = TripChains.of(summaries)
+        val hidden = HiddenStays.byEarlierTrack(summaries)
         val descSlices = slices.asReversed()
         val out = ArrayList<TimelineItem>(chains.size + slices.size)
         var t = 0
@@ -167,7 +168,8 @@ object TimelineRows {
                     )
                 }
             } else {
-                out += TimelineItem.TrackItem(chains[t++])
+                val trip = chains[t++]
+                out += TimelineItem.TrackItem(trip, hiddenStayAfter = hidden[trip.parts.last().id])
             }
         }
         return out
@@ -240,6 +242,7 @@ sealed interface TimelineItem {
         val endZone: ZoneId? = null,
         /** Each of [trip]'s parts' clocks, in order; empty while unattached, as [zone] is null. */
         val partClocks: List<Clocks> = emptyList(),
+        val hiddenStayAfter: HiddenStay? = null,
     ) : TimelineItem {
         constructor(summary: TrackSummary) : this(Trip(summary))
 
@@ -260,8 +263,8 @@ sealed interface TimelineItem {
         val stay: StayDeriver.Stay,
         /** Place resolution, attached after derivation; null only if resolution wasn't run. */
         val place: PlaceResolver.ResolvedStay? = null,
-        /** Non-null when this short same-activity stay can be closed by merging its two tracks. */
-        val merge: TrackMerge.Plan? = null,
+        /** What swiping the row does; null where it offers nothing. */
+        val swipe: StaySwipe? = null,
         override val zone: ZoneId? = null,
         /**
          * Whether this row's bounds are the stay's own or seams the day slicing put there — see

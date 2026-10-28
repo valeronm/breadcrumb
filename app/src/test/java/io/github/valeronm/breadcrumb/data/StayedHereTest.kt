@@ -21,12 +21,9 @@ class StayedHereTest {
     private suspend fun twoTracksAroundAGap(): Pair<Long, Long> {
         val first = test.walk(TEST_START, 0, 5)
         val second = test.walk(TEST_START + 3_600_000L, 5, 10, lonOffset = 0.01)
-        assertEquals("GAP", intervalTypeAfter(first))
+        assertEquals("GAP", test.intervalTypeAfter(first))
         return first to second
     }
-
-    private suspend fun intervalTypeAfter(trackId: Long) =
-        test.db.derivedDao().intervalsOnce().firstOrNull { it.afterTrackId == trackId }?.type
 
     @Test fun `linking both ends to a place turns the gap into a stay`() = runTest {
         val (first, second) = twoTracksAroundAGap()
@@ -36,7 +33,7 @@ class StayedHereTest {
 
         assertEquals(placeId, test.dao.track(first)!!.endPlaceId)
         assertEquals(placeId, test.dao.track(second)!!.startPlaceId)
-        assertEquals("STAY", intervalTypeAfter(first))
+        assertEquals("STAY", test.intervalTypeAfter(first))
         DerivedConsistency.assertMatchesFreshDerive(test.db, now)
     }
 
@@ -51,7 +48,7 @@ class StayedHereTest {
 
         assertEquals(imported, test.dao.track(first)!!.endPlaceId)
         assertNull(test.dao.track(second)!!.startPlaceId)
-        assertEquals("GAP", intervalTypeAfter(first))
+        assertEquals("GAP", test.intervalTypeAfter(first))
         DerivedConsistency.assertMatchesFreshDerive(test.db, now)
     }
 
@@ -66,7 +63,7 @@ class StayedHereTest {
         places.undoStayedHere(done)
 
         assertNull(test.dao.track(first)!!.endPlaceId)
-        assertEquals("GAP", intervalTypeAfter(first))
+        assertEquals("GAP", test.intervalTypeAfter(first))
         DerivedConsistency.assertMatchesFreshDerive(test.db, now)
     }
 
@@ -97,6 +94,6 @@ class StayedHereTest {
 
         assertNull(places.stayedHere(first, second, placeId = 999))
         assertNull(test.dao.track(first)!!.endPlaceId)
-        assertEquals("GAP", intervalTypeAfter(first))
+        assertEquals("GAP", test.intervalTypeAfter(first))
     }
 }

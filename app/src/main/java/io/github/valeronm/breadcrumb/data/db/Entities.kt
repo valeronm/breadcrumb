@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -87,6 +88,12 @@ data class Track(
     val startPlaceId: Long? = null,
     /** [startPlaceId] for the last fix. */
     val endPlaceId: Long? = null,
+    /** The user hid the stay before this track; it is hidden only while the track before it sets
+     *  [hidesStayAfter] too. */
+    @ColumnInfo(defaultValue = "0")
+    val hidesStayBefore: Boolean = false,
+    @ColumnInfo(defaultValue = "0")
+    val hidesStayAfter: Boolean = false,
 )
 
 @Entity(
@@ -322,6 +329,8 @@ data class TrackEndpoints(
     val endLon: Double?,
     val startPlaceId: Long?,
     val endPlaceId: Long?,
+    val hidesStayBefore: Boolean,
+    val hidesStayAfter: Boolean,
 )
 
 /**
@@ -353,4 +362,6 @@ data class TrackSummary(
     /** [Track.startPlaceId] and [Track.endPlaceId]: the places this track's ends are stated to. */
     val startPlaceId: Long?,
     val endPlaceId: Long?,
+    val hidesStayBefore: Boolean,
+    val hidesStayAfter: Boolean,
 )

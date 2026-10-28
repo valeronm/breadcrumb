@@ -179,8 +179,9 @@ export function seedIndex(seeds) {
 
 /** Derives the timeline's intervals from the tracks.
  * @param tracks ascending by time: {trackId, startedAt, endedAt, start, end, startPlaceId,
- *   endPlaceId} — start/end the first/last *good* point's {lat, lon}, or null (an unknown endpoint
- *   can only produce gaps, as in the app); the place ids those ends are stated to, or null.
+ *   endPlaceId, hidesStayBefore, hidesStayAfter} — start/end the first/last *good* point's
+ *   {lat, lon}, or null (an unknown endpoint can only produce gaps, as in the app); the place ids
+ *   those ends are stated to, or null; whether the user hid the stay on either side.
  * @param nowMs the instant the derivation is "as of" — the viewer passes the backup's export time,
  *   so an open tail stay is open as of the export rather than growing on every page load.
  * @param placePins places as clustering seeds: {anchor: {lat, lon}, radiusM, placeId, named}, in
@@ -199,10 +200,10 @@ export function deriveStays({
   // different clusters, each joining the nearest anchor that reaches it.
   const endpoints = [];
   tracks.forEach((track, i) => {
-    if (track.start && !(i > 0 && joined(tracks[i - 1], track))) {
+    if (track.start && !(i > 0 && noStopBetween(tracks[i - 1], track))) {
       endpoints.push({ key: endpointKey(track.trackId, true), at: track.start, placeId: track.startPlaceId });
     }
-    if (track.end && !(i + 1 < tracks.length && joined(track, tracks[i + 1]))) {
+    if (track.end && !(i + 1 < tracks.length && noStopBetween(track, tracks[i + 1]))) {
       endpoints.push({ key: endpointKey(track.trackId, false), at: track.end, placeId: track.endPlaceId });
     }
   });
@@ -242,7 +243,7 @@ export function deriveStays({
     const gapStart = prev.endedAt;
     const gapEnd = next.startedAt;
     // A clock that stepped backwards between tracks leaves nothing too.
-    if (gapEnd < gapStart || joined(prev, next)) continue;
+    if (gapEnd < gapStart || noStopBetween(prev, next)) continue;
     const a = prev.end;
     const b = next.start;
     const aCluster = a ? clusterOf.get(endpointKey(prev.trackId, false)) : null;
@@ -292,11 +293,11 @@ function tailStay(last, nowMs, clusterOf) {
   };
 }
 
-/** Two tracks sharing an instant — a trip entered by hand landing exactly on the edge of the
- * recording it fills. The instant is a join, not a stop: nothing is recorded between the two, and
- * their facing ends are not clustered. */
-function joined(before, after) {
-  return before.endedAt === after.startedAt;
+/** Two tracks with no stop between them: nothing is recorded between the two, and their facing
+ * ends are not clustered. Tracks share an instant where a trip entered by hand sits on the edge of
+ * the recording it fills. A hidden stay takes the user's statement on both facing ends. */
+function noStopBetween(before, after) {
+  return before.endedAt === after.startedAt || (before.hidesStayAfter && after.hidesStayBefore);
 }
 
 /** The identity an endpoint's cluster is held under — see the map in [deriveStays]. */

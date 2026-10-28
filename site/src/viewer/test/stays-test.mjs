@@ -172,6 +172,34 @@ const gaps = (intervals) => intervals.filter((i) => i.kind === "gap");
   assert.equal(betweenTracks(overlapping).length, 0, "a negative gap still emits nothing");
 }
 
+// --- hidden stays ----------------------------------------------------------------------------------
+{
+  const hiddenPair = ({ after = true, before = true, start = nearHome } = {}) => [
+    { ...track(1, 60 * MIN, 120 * MIN, office, home), hidesStayAfter: after },
+    { ...track(2, 240 * MIN, 300 * MIN, start, office), hidesStayBefore: before },
+  ];
+  assert.equal(betweenTracks(hiddenPair()).length, 0, "a stay hidden at both facing ends leaves nothing");
+  assert.deepEqual(
+    stays(betweenTracks(hiddenPair({ before: false }))).length, 1, "a stay hidden at its earlier end only stays",
+  );
+  assert.deepEqual(
+    stays(betweenTracks(hiddenPair({ after: false }))).length, 1, "a stay hidden at its later end only stays",
+  );
+  assert.equal(
+    betweenTracks(hiddenPair({ start: office })).length, 0, "a hidden pair whose ends no longer agree leaves no gap",
+  );
+  assert.deepEqual(
+    derive(hiddenPair()).clusters.map((c) => c.memberIndices.length),
+    [2],
+    "the facing ends of a hidden stay are not clustered",
+  );
+  const [first, last] = hiddenPair();
+  assert.equal(
+    stays(betweenTracks([first, track(3, 150 * MIN, 200 * MIN), last])).length, 2,
+    "a track between a hidden pair inherits no hide",
+  );
+}
+
 // --- the tail stay ----------------------------------------------------------------------------------
 {
   const tail = stays(intervalsOf([track(1, 60 * MIN, 120 * MIN)]))[0];

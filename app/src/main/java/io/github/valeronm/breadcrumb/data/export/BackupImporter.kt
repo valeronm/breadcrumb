@@ -198,6 +198,8 @@ object BackupImporter {
         var endLon: Double? = null
         var startPlaceId: Long? = null
         var endPlaceId: Long? = null
+        var hidesStayBefore = false
+        var hidesStayAfter = false
         val points = mutableListOf<TrackPoint>()
         val values = mutableListOf<Any?>() // one point's cells, reused across the whole track
         json.beginObject()
@@ -217,6 +219,8 @@ object BackupImporter {
                 "endLon" -> endLon = json.nextNumberOrNull()?.toDouble()
                 "startPlaceId" -> startPlaceId = json.nextNumberOrNull()?.toLong()
                 "endPlaceId" -> endPlaceId = json.nextNumberOrNull()?.toLong()
+                "hidesStayBefore" -> hidesStayBefore = json.nextPrimitive() == true
+                "hidesStayAfter" -> hidesStayAfter = json.nextPrimitive() == true
                 "points" -> {
                     json.beginArray()
                     while (json.hasNext()) points.add(readPoint(json, fields, id, values))
@@ -243,6 +247,8 @@ object BackupImporter {
             endLon = endLon,
             startPlaceId = startPlaceId,
             endPlaceId = endPlaceId,
+            hidesStayBefore = hidesStayBefore,
+            hidesStayAfter = hidesStayAfter,
         )
         return track to points
     }

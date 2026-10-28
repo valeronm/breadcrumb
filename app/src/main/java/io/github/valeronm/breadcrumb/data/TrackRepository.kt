@@ -598,6 +598,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                     source = earlier.source,
                     startPlaceId = earlier.startPlaceId,
                     endPlaceId = later.endPlaceId,
+                    hidesStayBefore = earlier.hidesStayBefore,
+                    hidesStayAfter = later.hidesStayAfter,
                 ),
             )
             dao.copyPointsInto(mergedId, earlierId)
@@ -617,6 +619,28 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             derivation.reknit(listOf(mergedId, earlierId, laterId))
             mergedId
         }
+    }
+
+    /**
+     * Hide the stay between [beforeId] and its next kept track [afterId], stated on both facing
+     * ends. False, writing nothing, where either is gone or another kept track lies between them.
+     */
+    suspend fun hideStay(beforeId: Long, afterId: Long): Boolean = db.withTransaction {
+        val before = closedTrack(beforeId)?.takeIf { it.discardedAt == null } ?: return@withTransaction false
+        if (dao.keptTrackAfter(before.startedAt, listOf(beforeId))?.id != afterId) return@withTransaction false
+        stateHidden(beforeId, afterId, hidden = true)
+        true
+    }
+
+    /** Undo a [hideStay]. */
+    suspend fun unhideStay(beforeId: Long, afterId: Long) = db.withTransaction {
+        stateHidden(beforeId, afterId, hidden = false)
+    }
+
+    private suspend fun stateHidden(beforeId: Long, afterId: Long, hidden: Boolean) {
+        dao.hideStayAfter(beforeId, hidden)
+        dao.hideStayBefore(afterId, hidden)
+        derivation.reknit(listOf(beforeId, afterId))
     }
 
     /**
@@ -706,7 +730,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     // Nothing states where the cut was.
-    private fun firstRowOf(track: Track, plan: TrackSplit.Plan) = track.copy(endedAt = plan.firstEndTs, endPlaceId = null)
+    private fun firstRowOf(track: Track, plan: TrackSplit.Plan) =
+        track.copy(endedAt = plan.firstEndTs, endPlaceId = null, hidesStayAfter = false)
 
     private fun secondRowOf(track: Track, plan: TrackSplit.Plan, endedAt: Long) = Track(
         activityType = track.activityType,
@@ -715,6 +740,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         // The half is the same recording, cut: a split never introduces a writer.
         source = track.source,
         endPlaceId = track.endPlaceId,
+        hidesStayAfter = track.hidesStayAfter,
     )
 
     /**
@@ -763,7 +789,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             val secondRow = secondRowOf(track, plan, endedAt)
             val secondId = dao.insertTrack(secondRow)
             dao.movePointsFrom(secondId, trackId, atTs)
-            dao.closeTrackAtPlace(trackId, plan.firstEndTs, endPlaceId = null)
+            dao.closeTrackWithEnd(trackId, plan.firstEndTs, endPlaceId = null, hidesStayAfter = false)
             // The points are the lists already in hand: the move rewrote one column and left every
             // row id, timestamp and flag alone, so re-reading them would buy nothing.
             val first = firstRowOf(track, plan)
@@ -807,7 +833,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.purgeTrack(split.secondId)
             // Written here rather than left to the settle below, which only rewrites an end it
             // disagrees with — and where it agrees, the row would keep the cut's own end.
-            dao.closeTrackAtPlace(originalId, rejoinedEnd, second.endPlaceId)
+            dao.closeTrackWithEnd(originalId, rejoinedEnd, second.endPlaceId, second.hidesStayAfter)
             settler.settleAndRefresh(original, rejoinedEnd, dao.allPointsFor(originalId), totalsStale = true)
             derivation.reknit(listOf(originalId, split.secondId))
         }

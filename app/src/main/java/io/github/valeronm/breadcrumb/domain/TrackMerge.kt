@@ -75,4 +75,9 @@ object TrackMerge {
     }
 
     data class Neighbors(val before: TrackSummary, val after: TrackSummary)
+
+    /** Each track's [Neighbors] with the track after it, keyed by the earlier one's id, oldest
+     *  first. [summaries] run newest first. */
+    fun neighborsByAnchor(summaries: List<TrackSummary>): Map<Long, Neighbors> =
+        summaries.asReversed().zipWithNext().associate { (a, b) -> a.id to Neighbors(a, b) }
 }

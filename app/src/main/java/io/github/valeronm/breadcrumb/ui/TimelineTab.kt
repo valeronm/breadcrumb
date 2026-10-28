@@ -20,12 +20,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
@@ -37,6 +39,8 @@ import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -61,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -71,6 +76,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -84,8 +90,10 @@ import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Clocks
+import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.StaySwipe
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
@@ -464,12 +472,15 @@ private fun TimelineListPage(
         }
         onJumpShown()
     }
-    // Both interval rows offer the same merge, so they share one handler rather than two copies
-    // of the undo wiring. Both undo messages are resolved here: the callbacks below run outside
-    // the composition.
+    // The undo messages are resolved here: the callbacks below run outside the composition.
     val mergedMessage = stringResource(R.string.timeline_undo_merged)
     val deletedMessage = stringResource(R.string.timeline_undo_deleted)
+    val hiddenMessage = stringResource(R.string.timeline_undo_hidden)
+    val shownMessage = stringResource(R.string.timeline_undo_shown)
+    // Both interval rows offer the same merge, so they share one handler rather than two copies
+    // of the undo wiring.
     val onMerge = { plan: TrackMerge.Plan -> undo.mergeTracks(viewModel, plan, mergedMessage) }
+    val onHide = { stay: HiddenStay -> undo.hideStay(viewModel, stay, hiddenMessage) }
     Box(Modifier.fillMaxSize()) {
         // Above the list, not inside it: dayAnchors counts lazy indices from zero, so a leading
         // item would put the fast scroller and the visit jump one row out for the sweep's
@@ -485,7 +496,7 @@ private fun TimelineListPage(
                 // list its breathing room instead, and rows now pass under an opaque header.
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
                 // Rows within a day sit tight so the group reads as one visual block.
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(ROW_SEAM),
             ) {
                 groups.forEach { group ->
                     val dayItems = group.items
@@ -520,6 +531,9 @@ private fun TimelineListPage(
                                 onDelete = { undo.deleteTracks(viewModel, item.trip.parts.map { it.id }, deletedMessage) },
                                 // DEBUG: replays the track through the Record tab's live view.
                                 onReplay = if (BuildConfig.DEV_TOOLS) onReplay else null,
+                                onShowHiddenStay = item.hiddenStayAfter?.let { hidden ->
+                                    { undo.showStay(viewModel, hidden, shownMessage) }
+                                },
                             )
                             is TimelineItem.RecordingItem -> RecordingRow(
                                 item = item,
@@ -532,6 +546,7 @@ private fun TimelineListPage(
                                 zone = item.clock,
                                 highlighted = highlighted,
                                 onMerge = onMerge,
+                                onHide = onHide,
                                 onClick = {
                                     item.place?.let { onOpenPlace(it.key) }
                                 },
@@ -1025,53 +1040,86 @@ internal fun TrackRow(
     /** Deletes every part of the trip. */
     onDelete: () -> Unit,
     onReplay: ((TrackSummary) -> Unit)? = null,
+    onShowHiddenStay: (() -> Unit)? = null,
 ) {
     val main = trip.main
     val chained = trip.chained
     var expanded by rememberSaveable(main.id) { mutableStateOf(false) }
-    // Swipe right-to-left to delete — a soft delete, undoable from the snackbar and, after that,
-    // from Recently deleted.
-    SwipeActionRow(
-        shape = shape,
-        containerColor = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        icon = Icons.Filled.Delete,
-        iconDescription = stringResource(R.string.common_delete),
-        onDismiss = onDelete,
-    ) {
-        val activity = ActivityType.ofName(main.activityType)
-        val activityName = activityLabel(LocalContext.current, main.activityType)
-        TripRowCard(
-            modifier = Modifier.combinedClickable(
-                onClick = { if (chained) onOpenTrip(main.id) else onOpen(main.id) },
-                onLongClick = onReplay?.let { replay -> { replay(main) } },
-            ),
+    Box {
+        // Swipe right-to-left to delete — a soft delete, undoable from the snackbar and, after that,
+        // from Recently deleted.
+        SwipeActionRow(
             shape = shape,
-            activity = activity,
-            name = activityName,
-            marks = if (chained) emptyList() else listOfNotNull(main.mark),
-            lengthM = trip.distanceMeters,
-            // Each end on its own clock where they differ — a track is the one recorded row that can
-            // cross a border, and flattening it onto the departure's clock hides the crossing. The two
-            // times then no longer span the duration beside them, which is why each carries its own
-            // offset: read together they say the drive lost an hour to the border, which is the truth.
-            span = trackRowSpan(
-                trip.startedAt,
-                zone,
-                trip.endedAt,
-                endZone ?: zone,
-                durationText(trip.startedAt, trip.endedAt),
-            ),
-            trailing = if (chained) {
-                { PartsToggle(expanded) { expanded = !expanded } }
-            } else {
-                null
-            },
-            below = if (chained && expanded) {
-                { TripPartLines(trip, partClocks, zone, onOpen) }
-            } else {
-                null
-            },
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            icon = Icons.Filled.Delete,
+            iconDescription = stringResource(R.string.common_delete),
+            onDismiss = onDelete,
+        ) {
+            val activity = ActivityType.ofName(main.activityType)
+            val activityName = activityLabel(LocalContext.current, main.activityType)
+            TripRowCard(
+                modifier = Modifier.combinedClickable(
+                    onClick = { if (chained) onOpenTrip(main.id) else onOpen(main.id) },
+                    onLongClick = onReplay?.let { replay -> { replay(main) } },
+                ),
+                shape = shape,
+                activity = activity,
+                name = activityName,
+                marks = if (chained) emptyList() else listOfNotNull(main.mark),
+                lengthM = trip.distanceMeters,
+                // Each end on its own clock where they differ — a track is the one recorded row that can
+                // cross a border, and flattening it onto the departure's clock hides the crossing. The two
+                // times then no longer span the duration beside them, which is why each carries its own
+                // offset: read together they say the drive lost an hour to the border, which is the truth.
+                span = trackRowSpan(
+                    trip.startedAt,
+                    zone,
+                    trip.endedAt,
+                    endZone ?: zone,
+                    durationText(trip.startedAt, trip.endedAt),
+                ),
+                trailing = if (chained) {
+                    { PartsToggle(expanded) { expanded = !expanded } }
+                } else {
+                    null
+                },
+                below = if (chained && expanded) {
+                    { TripPartLines(trip, partClocks, zone, onOpen) }
+                } else {
+                    null
+                },
+            )
+        }
+        // Outside the swipe, so the mark holds still while the card slides away under it.
+        onShowHiddenStay?.let { HiddenStayMark(it, Modifier.align(Alignment.TopEnd)) }
+    }
+}
+
+private val ROW_SEAM = 2.dp
+
+private val HIDDEN_STAY_MARK_SIZE = 22.dp
+
+/**
+ * The hidden stay this marks sat between this row and the one above. In the start column the mark
+ * reads as one more activity disc.
+ */
+@Composable
+private fun HiddenStayMark(onShow: () -> Unit, modifier: Modifier) {
+    Box(
+        modifier
+            .offset(x = -LIST_ROW_END_PADDING, y = -(ROW_SEAM + HIDDEN_STAY_MARK_SIZE) / 2)
+            .size(HIDDEN_STAY_MARK_SIZE)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .clickable(role = Role.Button, onClick = onShow),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Filled.UnfoldMore,
+            contentDescription = stringResource(R.string.timeline_show_hidden_stay),
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
         )
     }
 }
@@ -1176,27 +1224,35 @@ private fun SweepBanner(modifier: Modifier = Modifier) {
  * the city it sits in, and an unnamed recurring cluster its visit count as well. Tap → name.
  */
 @Composable
-private fun StayRow(
+internal fun StayRow(
     item: TimelineItem.StayItem,
     shape: RoundedCornerShape,
     zone: ZoneId,
     highlighted: Boolean,
     onMerge: (TrackMerge.Plan) -> Unit,
+    onHide: (HiddenStay) -> Unit,
     onClick: () -> Unit,
 ) {
     val place = item.place
     val named = place?.isNamed == true
-    // A short same-activity stay can be swiped to merge its two tracks — the merged track replaces
-    // the stay and both originals, and Undo unmerges. Ineligible stays (no plan) aren't swipeable.
-    MergeSwipeable(item.merge, shape, onMerge) {
-        StayCard(item, shape, named, highlighted, zone, onClick)
+    val card = @Composable { StayCard(item, shape, named, highlighted, zone, onClick) }
+    when (val swipe = item.swipe) {
+        is StaySwipe.Merge -> MergeSwipeable(swipe.plan, shape, onMerge, card)
+        is StaySwipe.Hide -> IntervalSwipeRow(
+            shape,
+            Icons.Filled.VisibilityOff,
+            stringResource(R.string.timeline_hide_stay),
+            onDismiss = { onHide(swipe.stay) },
+            card,
+        )
+        null -> card()
     }
 }
 
 /**
  * Wraps an interval's card in the swipe-to-merge affordance, or hands it back bare when the
  * interval carries no offer. Both interval rows — stays and short gaps — merge on one rule, so the
- * gesture, its color, its icon and its label are described once here rather than per row type.
+ * gesture, its icon and its label are described once here rather than per row type.
  */
 @Composable
 private fun MergeSwipeable(
@@ -1209,13 +1265,31 @@ private fun MergeSwipeable(
         card()
         return
     }
+    IntervalSwipeRow(
+        shape,
+        Icons.AutoMirrored.Filled.CallMerge,
+        stringResource(R.string.timeline_merge),
+        onDismiss = { onMerge(plan) },
+        card,
+    )
+}
+
+/** Every swipe on an interval row shares one color: a row offers a single action, and its icon names it. */
+@Composable
+private fun IntervalSwipeRow(
+    shape: RoundedCornerShape,
+    icon: ImageVector,
+    iconDescription: String,
+    onDismiss: () -> Unit,
+    card: @Composable () -> Unit,
+) {
     SwipeActionRow(
         shape = shape,
         containerColor = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        icon = Icons.AutoMirrored.Filled.CallMerge,
-        iconDescription = stringResource(R.string.timeline_merge),
-        onDismiss = { onMerge(plan) },
+        icon = icon,
+        iconDescription = iconDescription,
+        onDismiss = onDismiss,
     ) { card() }
 }
 
@@ -1233,7 +1307,7 @@ internal fun StayCard(
     // A merge-eligible short stop is marked in tertiary (matching the swipe-to-merge hint) as a
     // *badge* on the disc's corner rather than as its glyph: being mergeable is a fact about the
     // stay, while the glyph answers where the user was, and neither should cost the other.
-    val mergeable = item.merge != null
+    val mergeable = item.swipe is StaySwipe.Merge
     // A categorized place says what the stop was for in the icon column alone — its glyph and its
     // group's tint — where an untagged one shows the generic pin. Deliberately not repeated as text
     // in the subtitle: the row would then name in words what it has just drawn, and the line is

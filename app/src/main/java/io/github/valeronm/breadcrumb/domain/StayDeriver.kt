@@ -11,6 +11,8 @@ fun TrackEndpoints.toTrackEnd() = StayDeriver.TrackEnd(
     end = if (endLat != null && endLon != null) Coordinate(endLat, endLon) else null,
     startPlaceId = startPlaceId,
     endPlaceId = endPlaceId,
+    hidesStayBefore = hidesStayBefore,
+    hidesStayAfter = hidesStayAfter,
 )
 
 /**
@@ -61,6 +63,9 @@ object StayDeriver {
         /** [io.github.valeronm.breadcrumb.data.db.Track.startPlaceId]. */
         val startPlaceId: Long? = null,
         val endPlaceId: Long? = null,
+        /** [io.github.valeronm.breadcrumb.data.db.Track.hidesStayBefore]. */
+        val hidesStayBefore: Boolean = false,
+        val hidesStayAfter: Boolean = false,
     )
 
     data class Params(
@@ -187,7 +192,7 @@ object StayDeriver {
             val prev = tracks[i]
             val next = tracks[i + 1]
             // Their facing ends have no cluster to look up.
-            if (joined(prev, next)) continue
+            if (noStopBetween(prev, next)) continue
             val from = prev.end?.let { Gap.Side(it, clusterOf.getValue(Endpoint(prev.trackId, isStart = false))) }
             val to = next.start?.let { Gap.Side(it, clusterOf.getValue(Endpoint(next.trackId, isStart = true))) }
             val sameCluster = from != null && from.clusterId == to?.clusterId
@@ -271,7 +276,7 @@ object StayDeriver {
         agreement: Agreement,
     ): Verdict {
         // A clock that stepped backwards between tracks leaves nothing too.
-        if (after.startedAt < before.endedAt || joined(before, after)) return Verdict.None
+        if (after.startedAt < before.endedAt || noStopBetween(before, after)) return Verdict.None
         val a = before.end
         val b = after.start
         if (a == null || b == null || !agreement.samePlace(a, b, sameCluster, before.endPlaceId, after.startPlaceId)) {
@@ -291,14 +296,19 @@ object StayDeriver {
     data class Endpoint(val trackId: Long, val isStart: Boolean)
 
     /**
-     * Two tracks sharing an instant — a trip entered by hand landing exactly on the edge of the
-     * recording it fills. The instant is a join, not a stop: nothing is recorded between the two, and
-     * their facing ends are not clustered ([clusteredEndpointsOf]).
+     * Two tracks with no stop between them: nothing is recorded between the two, and their facing
+     * ends are not clustered ([clusteredEndpointsOf]).
      */
-    fun joined(before: TrackEnd, after: TrackEnd): Boolean = joined(before.endedAt, after.startedAt)
+    fun noStopBetween(before: TrackEnd, after: TrackEnd): Boolean =
+        joined(before.endedAt, after.startedAt) ||
+            hidden(beforeHidesAfter = before.hidesStayAfter, afterHidesBefore = after.hidesStayBefore)
 
-    /** [joined] for tracks known by their bounds; an end not yet set joins nothing. */
+    /** Two tracks sharing an instant, as a trip entered by hand on the edge of the recording it fills
+     *  does. An end not yet set joins nothing. */
     fun joined(endedAt: Long?, startedAt: Long): Boolean = endedAt == startedAt
+
+    /** A hidden stay takes the user's statement on both facing ends. */
+    fun hidden(beforeHidesAfter: Boolean, afterHidesBefore: Boolean): Boolean = beforeHidesAfter && afterHidesBefore
 
     /** One endpoint the clustering reads: which track's, which of its two ends, when and where. */
     data class EndpointRef(
@@ -314,9 +324,9 @@ object StayDeriver {
 
     /**
      * The endpoints of [tracks] the clustering reads, in its order — each track's start then its
-     * end, skipping an end the recorder never fixed and an end [joined] to its neighbor's.
-     * [tracks] is a stretch of the kept history with nothing left out between them, since a
-     * neighbor outside it cannot be seen to be joined.
+     * end, skipping an end the recorder never fixed and an end with no stop between it and its
+     * neighbor ([noStopBetween]). [tracks] is a stretch of the kept history with nothing left out between them,
+     * since a neighbor outside it cannot be compared with.
      *
      * **The order is the contract**, and it is total. [PlaceClusterer.Cluster.memberIndices] index
      * into exactly this list, so a caller that wants to know *which* endpoints a cluster holds reads
@@ -326,12 +336,12 @@ object StayDeriver {
      */
     fun clusteredEndpointsOf(tracks: List<TrackEnd>): List<EndpointRef> = buildList {
         tracks.forEachIndexed { index, track ->
-            val joinedBefore = tracks.getOrNull(index - 1)?.let { joined(it, track) } == true
-            val joinedAfter = tracks.getOrNull(index + 1)?.let { joined(track, it) } == true
-            if (!joinedBefore) {
+            val noStopBefore = tracks.getOrNull(index - 1)?.let { noStopBetween(it, track) } == true
+            val noStopAfter = tracks.getOrNull(index + 1)?.let { noStopBetween(track, it) } == true
+            if (!noStopBefore) {
                 track.start?.let { add(EndpointRef(track.trackId, true, track.startedAt, it, track.startPlaceId)) }
             }
-            if (!joinedAfter) {
+            if (!noStopAfter) {
                 track.end?.let { add(EndpointRef(track.trackId, false, track.endedAt, it, track.endPlaceId)) }
             }
         }

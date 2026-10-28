@@ -40,9 +40,12 @@ interface TrackDao {
     @Query("UPDATE tracks SET endedAt = :endedAt WHERE id = :trackId")
     suspend fun closeTrack(trackId: Long, endedAt: Long)
 
-    /** [closeTrack] for an end whose stated place moves with it. */
-    @Query("UPDATE tracks SET endedAt = :endedAt, endPlaceId = :endPlaceId WHERE id = :trackId")
-    suspend fun closeTrackAtPlace(trackId: Long, endedAt: Long, endPlaceId: Long?)
+    /** [closeTrack] for an end whose statements move with it. */
+    @Query(
+        "UPDATE tracks SET endedAt = :endedAt, endPlaceId = :endPlaceId, hidesStayAfter = :hidesStayAfter " +
+            "WHERE id = :trackId",
+    )
+    suspend fun closeTrackWithEnd(trackId: Long, endedAt: Long, endPlaceId: Long?, hidesStayAfter: Boolean)
 
     /**
      * Write a track's aggregates ([io.github.valeronm.breadcrumb.data.TrackStats]) onto its row —
@@ -317,6 +320,12 @@ interface TrackDao {
 
     @Query("UPDATE tracks SET endPlaceId = :placeId WHERE id IN (:ids)")
     suspend fun stateEnds(ids: List<Long>, placeId: Long?)
+
+    @Query("UPDATE tracks SET hidesStayAfter = :hidden WHERE id = :beforeId")
+    suspend fun hideStayAfter(beforeId: Long, hidden: Boolean)
+
+    @Query("UPDATE tracks SET hidesStayBefore = :hidden WHERE id = :afterId")
+    suspend fun hideStayBefore(afterId: Long, hidden: Boolean)
 
     /** Kept tracks with an end stated to one of [placeIds]. */
     @RewriteQueriesToDropUnusedColumns

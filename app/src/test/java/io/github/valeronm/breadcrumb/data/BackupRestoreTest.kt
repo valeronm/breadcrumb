@@ -306,6 +306,17 @@ class BackupRestoreTest {
         DerivedConsistency.assertMatchesFreshDerive(targetDb, TEST_START + 86_400_000L)
     }
 
+    @Test fun `a hidden stay stays hidden through a restore`() = runTest {
+        val first = source.walk(TEST_START, 0, 10)
+        val second = source.walk(TEST_START + 1_200_000L, 10, 20)
+        source.repository.hideStay(first, second)
+
+        roundTrip()
+
+        assertEquals(emptyList<Any>(), targetDb.derivedDao().intervalsOnce())
+        DerivedConsistency.assertMatchesFreshDerive(targetDb, TEST_START + 86_400_000L)
+    }
+
     @Test fun `a track naming a place the file does not hold is refused`() = runTest {
         val json = """{"format":"breadcrumb-export","version":2,"pointFields":["timestamp","lat","lon"],""" +
             """"places":[],"tracks":[{"id":1,"activityType":"WALKING","startedAt":0,"endedAt":1,""" +

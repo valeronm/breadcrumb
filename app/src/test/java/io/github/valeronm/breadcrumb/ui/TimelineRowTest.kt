@@ -22,9 +22,11 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.StaySwipe
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
@@ -34,6 +36,7 @@ import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -151,7 +154,7 @@ class TimelineRowTest {
             clusterId = 0,
         ),
         place = PlaceResolver.ResolvedStay(place = place, visitCount = 1, centroid = ORIGIN, radiusM = 150.0),
-        merge = if (merge) MERGE_PLAN else null,
+        swipe = if (merge) StaySwipe.Merge(MERGE_PLAN) else null,
         holdsStart = holdsStart,
         holdsEnd = holdsEnd,
     )
@@ -224,9 +227,41 @@ class TimelineRowTest {
         ).assertIsDisplayed()
     }
 
+    private fun swipeRow(swipe: StaySwipe) = row {
+        StayRow(
+            item = stayItem(noon, noon + 60_000).copy(swipe = swipe),
+            shape = SHAPE,
+            zone = zone,
+            highlighted = false,
+            onMerge = {},
+            onHide = {},
+            onClick = {},
+        )
+    }
+
+    @Test
+    fun `a stay the swipe hides offers the hide, not the merge`() {
+        swipeRow(StaySwipe.Hide(HiddenStay(beforeId = 1, afterId = 2)))
+
+        compose.onNodeWithContentDescription(context.getString(R.string.timeline_hide_stay)).assertExists()
+        compose.onAllNodesWithContentDescription(context.getString(R.string.timeline_merge)).assertCountEquals(0)
+    }
+
+    @Test
+    fun `a stay the swipe merges offers the merge, not the hide`() {
+        swipeRow(StaySwipe.Merge(MERGE_PLAN))
+
+        compose.onNodeWithContentDescription(context.getString(R.string.timeline_merge)).assertExists()
+        compose.onAllNodesWithContentDescription(context.getString(R.string.timeline_hide_stay)).assertCountEquals(0)
+    }
+
     // --- Track rows ----------------------------------------------------------
 
-    private fun trackRow(activity: ActivityType, source: TrackOrigin = TrackOrigin.RECORDED) = row {
+    private fun trackRow(
+        activity: ActivityType,
+        source: TrackOrigin = TrackOrigin.RECORDED,
+        onShowHiddenStay: (() -> Unit)? = null,
+    ) = row {
         TrackRow(
             trip = Trip(
                 TrackSummary(
@@ -240,6 +275,8 @@ class TimelineRowTest {
                     source = source.code,
                     startPlaceId = null,
                     endPlaceId = null,
+                    hidesStayBefore = false,
+                    hidesStayAfter = false,
                 ),
             ),
             shape = SHAPE,
@@ -249,7 +286,26 @@ class TimelineRowTest {
             onOpen = {},
             onOpenTrip = {},
             onDelete = {},
+            onShowHiddenStay = onShowHiddenStay,
         )
+    }
+
+    @Test
+    fun `a trip a hidden stay follows offers to show it`() {
+        var shown = false
+        trackRow(ActivityType.DRIVING) { shown = true }
+
+        compose.onNodeWithContentDescription(context.getString(R.string.timeline_show_hidden_stay)).performClick()
+
+        assertTrue(shown)
+    }
+
+    @Test
+    fun `a trip no hidden stay follows offers nothing to show`() {
+        trackRow(ActivityType.DRIVING)
+
+        compose.onAllNodesWithContentDescription(context.getString(R.string.timeline_show_hidden_stay))
+            .assertCountEquals(0)
     }
 
     @Test
@@ -271,7 +327,7 @@ class TimelineRowTest {
     private fun drivePart(id: Long, start: Long, end: Long, source: TrackOrigin) = TrackSummary(
         id = id, activityType = ActivityType.DRIVING.name, startedAt = start, endedAt = end,
         distanceMeters = 1_000.0, pointCount = 2, ignoredCount = 0, source = source.code,
-        startPlaceId = null, endPlaceId = null,
+        startPlaceId = null, endPlaceId = null, hidesStayBefore = false, hidesStayAfter = false,
     )
 
     private fun chainedRow(onOpen: (Long) -> Unit = {}) = row {

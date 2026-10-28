@@ -132,6 +132,9 @@ export function convertTrack(track, f) {
     // The places the export states these ends to, by the file's own place ids.
     startPlaceId: track.startPlaceId ?? null,
     endPlaceId: track.endPlaceId ?? null,
+    // A file carries each only when the user hid that stay.
+    hidesStayBefore: track.hidesStayBefore === true,
+    hidesStayAfter: track.hidesStayAfter === true,
     bbox: watched.length ? [minLon, minLat, maxLon, maxLat] : null,
     // One simplified line per watched stretch — several where the recording was interrupted, and the
     // usual one where it wasn't.

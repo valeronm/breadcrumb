@@ -46,6 +46,7 @@ import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
+import io.github.valeronm.breadcrumb.domain.StaySwipe
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import java.time.ZonedDateTime
@@ -146,7 +147,7 @@ internal fun PlacesTab(
     // slice is the whole stay.
     val mergeableStays = remember(timeline) {
         timeline.orEmpty().filterIsInstance<TimelineItem.StayItem>()
-            .filter { it.merge != null }
+            .filter { it.swipe is StaySwipe.Merge }
             .mapTo(HashSet()) { it.stay.afterTrackId to it.stay.start }
     }
     val mapPlaces = remember(mapFilter, mergeableStays) {

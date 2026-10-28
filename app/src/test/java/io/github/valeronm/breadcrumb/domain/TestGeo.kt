@@ -70,4 +70,6 @@ internal fun trackSummary(
     source = source,
     startPlaceId = null,
     endPlaceId = null,
+    hidesStayBefore = false,
+    hidesStayAfter = false,
 )

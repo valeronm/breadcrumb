@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -116,6 +117,12 @@ internal fun UndoSnackbar.deleteTracks(viewModel: TrackListViewModel, trackIds: 
  *  refused. */
 internal fun UndoSnackbar.mergeTracks(viewModel: TrackListViewModel, plan: TrackMerge.Plan, message: String) =
     viewModel.mergeTracks(plan) { mergedId -> show(message) { viewModel.unmergeTracks(mergedId, plan) } }
+
+internal fun UndoSnackbar.hideStay(viewModel: TrackListViewModel, stay: HiddenStay, message: String) =
+    viewModel.hideStay(stay) { show(message) { viewModel.showStay(stay) } }
+
+internal fun UndoSnackbar.showStay(viewModel: TrackListViewModel, stay: HiddenStay, message: String) =
+    viewModel.showStay(stay) { show(message) { viewModel.hideStay(stay) } }
 
 @Composable
 internal fun rememberUndoSnackbar(host: SnackbarHostState): UndoSnackbar {

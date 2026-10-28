@@ -61,6 +61,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | merge | объединить | *Merged away* is *поглощена* — the stay is absorbed, not joined. Also for places: *объединить места*. |
 | keep | оставить | The kept place is the *оставляемое место*. |
 | split | разделить | |
+| hide | скрыть | *Shown* again is *показать*. |
 | delete | удалить | Never *убрать*, which reads as tidying up. |
 | clear | очистить | |
 | undo | отменить | The verb; *cancel* is the noun «Отмена» — see decisions below. |

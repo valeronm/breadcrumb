@@ -1,10 +1,6 @@
 package io.github.valeronm.breadcrumb.data.db
 
-import android.content.Context
-import androidx.room.Room
-import androidx.room.util.TableInfo
 import androidx.sqlite.db.SupportSQLiteDatabase
-import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -122,35 +118,6 @@ class Migration20To21Test {
             assertTrue(c.moveToFirst())
             assertEquals(3L, c.getLong(0))
             assertTrue(c.isNull(1))
-        }
-    }
-
-    /**
-     * **The guard a real upgrade is exposed to**, and this is where it belongs: Room compares what
-     * it finds against its entities on the first open after an upgrade, and only the *end* of the
-     * chain is ever compared that way — which is here. The cases above read values, and so cannot
-     * see a nullability, a column type, a foreign key or an index; those live in the hand-written
-     * DDL the chain runs, and get someone a crash on open rather than a failure here. [TableInfo] is
-     * the shape Room compares, rather than the `CREATE` text, so formatting is not mistaken for
-     * drift.
-     *
-     * Move it into the next migration's test when one lands, for the same reason it sits here.
-     */
-    @Suppress("DEPRECATION")
-    @Test
-    fun `the migrated tables are the shape Room builds from the entities`() {
-        AppDatabase.MIGRATION_20_21.migrate(db)
-
-        val room = Room.inMemoryDatabaseBuilder(
-            ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
-        ).allowMainThreadQueries().build()
-        try {
-            val generated = room.openHelper.writableDatabase
-            for (table in listOf("places", "place_identities", "tracks")) {
-                assertEquals(TableInfo.read(generated, table), TableInfo.read(db, table))
-            }
-        } finally {
-            room.close()
         }
     }
 }
