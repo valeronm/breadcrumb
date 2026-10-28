@@ -28,9 +28,10 @@
         <item quantity="other">%d countries</item>
     </plurals>
 
-    <!-- The tab's two pages: the journeys above, a month against the year behind it below. -->
+    <!-- The tab's pages: the journeys, a month against the year behind it, and everywhere the history reached. -->
     <string name="insights_tab_journeys">Journeys</string>
     <string name="insights_tab_statistics">Statistics</string>
+    <string name="insights_tab_world">World</string>
 
     <string name="insights_stats_empty">No figures yet. They appear here once your history holds a trip, or a stay at a place you have given a category in Places.</string>
     <!--
@@ -63,4 +64,19 @@
     <!-- Read aloud for the arrows that step the shown month. -->
     <string name="insights_stats_previous_month">Previous month</string>
     <string name="insights_stats_next_month">Next month</string>
+
+    <string name="insights_world_empty">No countries yet. They appear here once your history holds a stay.</string>
+    <!-- The page's header, each over its count. -->
+    <string name="insights_world_stat_countries">Countries</string>
+    <string name="insights_world_stat_cities">Cities</string>
+    <!-- How many dates a country or a city was spent on. -->
+    <plurals name="insights_world_days">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
+    <!-- Read aloud for the button that opens or closes a country's cities. -->
+    <string name="insights_world_show_cities">Show cities</string>
+    <string name="insights_world_hide_cities">Hide cities</string>
+    <!-- Read aloud as what tapping a city does: the Places map opens on it. -->
+    <string name="insights_world_show_on_map">Show on map</string>
 </resources>

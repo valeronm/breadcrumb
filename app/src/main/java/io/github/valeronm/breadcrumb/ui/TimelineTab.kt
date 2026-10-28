@@ -34,7 +34,6 @@ import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
@@ -42,8 +41,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -66,7 +63,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -1080,7 +1076,12 @@ internal fun TrackRow(
                     durationText(trip.startedAt, trip.endedAt),
                 ),
                 trailing = if (chained) {
-                    { PartsToggle(expanded) { expanded = !expanded } }
+                    {
+                        ListRowExpandToggle(
+                            expanded,
+                            stringResource(if (expanded) R.string.timeline_hide_parts else R.string.timeline_show_parts),
+                        ) { expanded = !expanded }
+                    }
                 } else {
                     null
                 },
@@ -1125,54 +1126,18 @@ private fun HiddenStayMark(onShow: () -> Unit, modifier: Modifier) {
 }
 
 @Composable
-private fun PartsToggle(expanded: Boolean, onToggle: () -> Unit) {
-    FilledTonalIconButton(onClick = onToggle) {
-        Icon(
-            Icons.Filled.ExpandMore,
-            contentDescription = stringResource(if (expanded) R.string.timeline_hide_parts else R.string.timeline_show_parts),
-            modifier = Modifier.rotate(if (expanded) 180f else 0f),
-        )
-    }
-}
-
-@Composable
 private fun TripPartLines(trip: Trip, partClocks: List<Clocks>, zone: ZoneId, onOpen: (Long) -> Unit) {
-    // A wash of the content color rather than another surface role: it reads a step off the card
-    // whatever the card's own tone, in either theme.
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = PART_BAND_ALPHA))
-            .padding(vertical = 4.dp),
-    ) {
-        trip.parts.forEachIndexed { i, part ->
-            if (i > 0) {
-                HorizontalDivider(
-                    Modifier.padding(start = LIST_ROW_TEXT_INDENT, end = LIST_ROW_END_PADDING),
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                )
-            }
-            val clocks = partClocks.getOrElse(i) { Clocks.both(zone) }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onOpen(part.id) }
-                    .padding(start = LIST_ROW_TEXT_INDENT, end = LIST_ROW_END_PADDING, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    trackRowSpan(part.startedAt, clocks.start, part.endedAt, clocks.end, distanceText(part.distanceMeters)),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                ListRowEndColumn { part.mark?.let { OriginGlyph(it) } }
-            }
-        }
+    ListRowBand(trip.parts, onClick = { onOpen(it.id) }) { i, part ->
+        val clocks = partClocks.getOrElse(i) { Clocks.both(zone) }
+        Text(
+            trackRowSpan(part.startedAt, clocks.start, part.endedAt, clocks.end, distanceText(part.distanceMeters)),
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        ListRowEndColumn { part.mark?.let { OriginGlyph(it) } }
     }
 }
-
-private const val PART_BAND_ALPHA = 0.05f
 
 /**
  * A history sweep, while it runs: distances and end times shift behind it as each track is

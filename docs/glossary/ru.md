@@ -25,6 +25,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | insights | Статистика | Not a calque: Russian has no everyday noun for *insights*, so the tab is named for what is read there. |
 | journey | путешествие | Deliberately not a second *поездка* — see decisions below. |
 | statistics | По месяцам | **Not the literal *Статистика***, which this language already spends on the tab above — see decisions below. |
+| world | Мир | As a tab label beside *Путешествия* it reads as *world*; the sense of *peace* does not arise there. |
 
 ### A trip
 

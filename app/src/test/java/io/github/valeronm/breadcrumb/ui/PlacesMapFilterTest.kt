@@ -66,6 +66,26 @@ class PlacesMapFilterTest {
         assertEquals(PlacesMapFilter.Emptied.RARE_STOPS, filter.emptiedBy)
     }
 
+    @Test fun `recent places with enough visits need no chip on`() {
+        val places = listOf(place(visits = 5, lastSeen = RECENT))
+        assertEquals(ChipsNeeded(rareStops = false, longAgo = false), chipsShowingAll(places, SINCE))
+    }
+
+    @Test fun `a rare place among them needs the rare-stops chip`() {
+        val places = listOf(place(visits = 5, lastSeen = RECENT), place(visits = 1, lastSeen = RECENT))
+        assertEquals(ChipsNeeded(rareStops = true, longAgo = false), chipsShowingAll(places, SINCE))
+    }
+
+    @Test fun `a place last seen before the cutoff needs the long-ago chip`() {
+        val places = listOf(place(visits = 5, lastSeen = RECENT), place(visits = 5, lastSeen = OLD))
+        assertEquals(ChipsNeeded(rareStops = false, longAgo = true), chipsShowingAll(places, SINCE))
+    }
+
+    @Test fun `a rare place long ago needs both chips`() {
+        val places = listOf(place(visits = 1, lastSeen = OLD))
+        assertEquals(ChipsNeeded(rareStops = true, longAgo = true), chipsShowingAll(places, SINCE))
+    }
+
     private companion object {
         const val SINCE = 1_000_000L
         const val RECENT = SINCE + 1_000L

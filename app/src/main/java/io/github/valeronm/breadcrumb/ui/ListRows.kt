@@ -21,12 +21,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -80,8 +85,8 @@ internal fun groupedRowShape(index: Int, count: Int): RoundedCornerShape {
 }
 
 /**
- * The lists' shared row skeleton — category disc, title and subtitle on a card — shared by Timeline track
- * and stay rows and the Places list so padding, disc placement and type scale can't drift. [onClick] is a
+ * The lists' shared row skeleton — category disc, title and subtitle on a card — so padding, disc
+ * placement and type scale can't drift between lists. [onClick] is a
  * plain tap; richer gestures (long press) go in [modifier] with [onClick] null. Title color is explicit:
  * dynamic color dims the inherited card color to onSurfaceVariant (contentColorFor matches surfaceVariant first).
  */
@@ -111,11 +116,9 @@ internal fun ListRowCard(
     /** Drawn inside the card, under the row. */
     below: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
-    val rowContent: @Composable ColumnScope.() -> Unit = {
-        Row(
-            modifier = Modifier.padding(horizontal = ROW_PADDING, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    ListRowCard(
+        shape = shape,
+        leading = {
             IconDisc(
                 icon,
                 disc,
@@ -125,6 +128,43 @@ internal fun ListRowCard(
                 badgeColor = badgeColor,
                 badgeContentColor = badgeContentColor,
             )
+        },
+        title = title,
+        titleColor = titleColor,
+        subtitle = subtitle,
+        modifier = modifier,
+        marks = marks,
+        highlighted = highlighted,
+        outlined = outlined,
+        onClick = onClick,
+        trailing = trailing,
+        below = below,
+    )
+}
+
+/** [ListRowCard] with [leading] where the disc goes, centered in the disc's square so the text
+ *  starts at [LIST_ROW_TEXT_INDENT] whatever it holds. */
+@Composable
+internal fun ListRowCard(
+    shape: RoundedCornerShape,
+    leading: @Composable () -> Unit,
+    title: String,
+    titleColor: Color,
+    subtitle: AnnotatedString?,
+    modifier: Modifier = Modifier,
+    marks: List<OriginMark> = emptyList(),
+    highlighted: Boolean = false,
+    outlined: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    below: (@Composable ColumnScope.() -> Unit)? = null,
+) {
+    val rowContent: @Composable ColumnScope.() -> Unit = {
+        Row(
+            modifier = Modifier.padding(horizontal = ROW_PADDING, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.width(DISC_SIZE), contentAlignment = Alignment.Center) { leading() }
             Spacer(Modifier.width(DISC_GAP))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor)
@@ -157,10 +197,57 @@ private val DISC_SIZE = 36.dp
 private val DISC_GAP = 16.dp
 
 /** Where a [ListRowCard]'s text starts. */
-internal val LIST_ROW_TEXT_INDENT = ROW_PADDING + DISC_SIZE + DISC_GAP
+private val LIST_ROW_TEXT_INDENT = ROW_PADDING + DISC_SIZE + DISC_GAP
 
 /** Between a [ListRowCard]'s edge and whatever ends its row. */
 internal val LIST_ROW_END_PADDING = ROW_PADDING
+
+@Composable
+internal fun ListRowExpandToggle(expanded: Boolean, contentDescription: String, onToggle: () -> Unit) {
+    FilledTonalIconButton(onClick = onToggle) {
+        Icon(
+            Icons.Filled.ExpandMore,
+            contentDescription = contentDescription,
+            modifier = Modifier.rotate(if (expanded) 180f else 0f),
+        )
+    }
+}
+
+/** Rows inset to a [ListRowCard]'s text, for its `below`. */
+@Composable
+internal fun <T> ListRowBand(
+    items: List<T>,
+    onClick: (T) -> Unit,
+    onClickLabel: String? = null,
+    row: @Composable RowScope.(index: Int, item: T) -> Unit,
+) {
+    // A wash of the content color rather than another surface role: it reads a step off the card
+    // whatever the card's own tone, in either theme.
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = BAND_ALPHA))
+            .padding(vertical = 4.dp),
+    ) {
+        items.forEachIndexed { index, item ->
+            if (index > 0) {
+                HorizontalDivider(
+                    Modifier.padding(start = LIST_ROW_TEXT_INDENT, end = LIST_ROW_END_PADDING),
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                )
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClickLabel = onClickLabel) { onClick(item) }
+                    .padding(start = LIST_ROW_TEXT_INDENT, end = LIST_ROW_END_PADDING, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) { row(index, item) }
+        }
+    }
+}
+
+private const val BAND_ALPHA = 0.05f
 
 /**
  * The column ending a row, as wide as an icon button's touch target with its content centered, so

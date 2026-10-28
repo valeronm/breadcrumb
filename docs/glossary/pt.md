@@ -25,6 +25,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | insights | Resumo | Not a calque: Portuguese has no everyday noun for *insights*, so the tab is named for what it gives the reader. |
 | journey | viagem | |
 | statistics | Estatísticas | Free to be the literal word, *Resumo* naming the tab above it. |
+| world | Mundo | |
 
 ### A trip
 

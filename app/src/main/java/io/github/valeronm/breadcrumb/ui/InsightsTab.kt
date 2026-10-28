@@ -72,9 +72,10 @@ import java.time.ZoneId
  * What the history adds up to, as against what happened on a given day — the Timeline's question is
  * "what did I do then", this tab's is "where have I been" and "how much".
  *
- * Two readings of one history, and they are separate pages because they are read at different
- * scales: a journey is an episode with a name and dates, a month's figures are a shape you compare
- * against the shapes before it. Nothing on either page restates the other.
+ * Readings of one history, on separate pages because they are read at different scales: a journey
+ * is an episode with a name and dates, a month's figures are a shape you compare against the shapes
+ * before it, and the world is everywhere the whole history reached. Nothing on one page restates
+ * another.
  *
  * Which page is open is deliberately **not** persisted, unlike the Places tab's pages: those are a
  * standing preference about how you read your places, this is where you happened to be last time.
@@ -84,6 +85,7 @@ internal fun InsightsTab(
     viewModel: TrackListViewModel,
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     onOpenData: () -> Unit,
+    onOpenCity: (TravelNaming.SpentCity) -> Unit,
 ) {
     val pages = InsightsPage.entries
     val pager = rememberPagerState { pages.size }
@@ -93,6 +95,7 @@ internal fun InsightsTab(
             when (pages[index]) {
                 InsightsPage.JOURNEYS -> JourneysPage(viewModel, onOpenJourney, onOpenData)
                 InsightsPage.STATISTICS -> StatisticsPage(viewModel, onOpenData)
+                InsightsPage.WORLD -> WorldPage(viewModel, onOpenData, onOpenCity)
             }
         }
     }
@@ -101,6 +104,7 @@ internal fun InsightsTab(
 private enum class InsightsPage(@StringRes val labelRes: Int) {
     JOURNEYS(R.string.insights_tab_journeys),
     STATISTICS(R.string.insights_tab_statistics),
+    WORLD(R.string.insights_tab_world),
 }
 
 /**

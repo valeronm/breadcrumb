@@ -290,6 +290,8 @@ private fun MainScreen(
     // because the map reads it as its frame key — a value that must change, not one that is
     // consumed.
     var placesHomeRequest by remember { mutableIntStateOf(0) }
+    // A city another screen asked the Places map to open on, cleared once the tab has taken it.
+    var placesCity by remember { mutableStateOf<TravelNaming.SpentCity?>(null) }
     // The add-trip form's input, which is also the flag that it is open: the top bar opens it on
     // the day the Timeline was showing, a gap's page on the ends that gap already knows. Everything
     // the form does with it stays local to the form until its check mark.
@@ -585,11 +587,17 @@ private fun MainScreen(
                                 onOpenPlace = { placeDetailKey = it },
                                 mapCamera = placesMapCamera,
                                 onOpenData = { settingsPage = SettingsPage.Data },
+                                city = placesCity,
+                                onCityShown = { placesCity = null },
                             )
                             HomeTab.INSIGHTS -> InsightsTab(
                                 viewModel = viewModel,
                                 onOpenJourney = { journeyKey = it.travel.firstNightAt },
                                 onOpenData = { settingsPage = SettingsPage.Data },
+                                onOpenCity = {
+                                    placesCity = it
+                                    selectedTab = HomeTab.PLACES
+                                },
                             )
                         }
                     }

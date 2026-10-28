@@ -57,7 +57,11 @@ object TravelNaming {
      * A city and the country holding it — the pair a Cities row is named by, and what keeps two
      * towns sharing a name across a border from summing into one.
      */
-    data class SpentCity(val name: String, val country: String)
+    data class SpentCity(val name: String, val country: String) {
+        companion object {
+            fun of(city: CityAtlas.City) = SpentCity(city.name, city.country)
+        }
+    }
 
     /** One country's share of a journey: its cities most time first; their sum ranks it among its peers. */
     class CitySection(val country: String, val cities: List<Pair<String, Long>>)
@@ -74,10 +78,7 @@ object TravelNaming {
             .map { (country, rows) -> CitySection(country, rows.sortedByDescending { it.second }) }
             .sortedByDescending { section -> section.cities.sumOf { it.second } }
 
-    /**
-     * Everything a journey is credited with, its stays and its tracks' ends, is a cluster; [cities]
-     * supplies each one's city.
-     */
+    /** Each cluster's city, which [cities] supplies, and the place it grew from. */
     class ClusterNames(
         private val places: List<Place>,
         private val cities: (PlaceClusterer.Cluster) -> CityAtlas.City?,
@@ -87,6 +88,18 @@ object TravelNaming {
         /** The place a cluster grew from, which is the pin that seeded it. */
         fun placeOf(cluster: PlaceClusterer.Cluster): Place? =
             cluster.seedIndex?.let(places::getOrNull)
+
+        /** A place whose category is passed through ([PlaceCategory.visited]) visits no city. */
+        fun visitsCity(cluster: PlaceClusterer.Cluster): Boolean =
+            placeOf(cluster)?.placeCategory?.visited != false
+
+        /** The index of the cluster a track end at [at] belongs to; null where it is in no cluster
+         *  or in one [visitsCity] rejects. */
+        fun visitedClusterAt(derivation: StayDeriver.Derivation, at: Coordinate?): Int? {
+            val index = at?.let(derivation.clusterOfEndpoint::get) ?: return null
+            val cluster = derivation.clusters.getOrNull(index) ?: return null
+            return index.takeIf { visitsCity(cluster) }
+        }
     }
 
     /** Names each of [travels] from the timeline it was derived from. */
@@ -131,17 +144,15 @@ object TravelNaming {
         for ((clusterId, ms) in travel.clusterStayMs) {
             val cluster = timeline.derivation.clusters.getOrNull(clusterId) ?: continue
             val city = names.cityOf(cluster)
-            val place = names.placeOf(cluster)
-            // A country crossed is a country visited even when the only stop in it was for fuel, so
-            // countries are counted from every cluster; a city is not visited by refuelling in it.
             city?.let { spent.countries += it.country }
-            if (place?.placeCategory?.visited == false) continue
+            if (!names.visitsCity(cluster)) continue
+            val place = names.placeOf(cluster)
             city?.let {
                 // Stays alone, where timeByCity below also takes moving time: [cities] counts where
                 // the journey *stopped*, and a city only driven around in all day would otherwise
                 // join the count with no stay anywhere in it to show for itself.
                 spent.cities += it.name
-                val key = SpentCity(it.name, it.country)
+                val key = SpentCity.of(it)
                 spent.timeByCity[key] = (spent.timeByCity[key] ?: 0L) + ms
             }
             val name = nameOf(place, city?.name) ?: continue
@@ -175,12 +186,9 @@ object TravelNaming {
         // A track end is credited as a stay at its cluster would be. An end at a place that isn't
         // visited is the road, for the name and the city tally alike.
         fun spentAt(at: Coordinate?): Pair<String?, SpentCity?> {
-            val cluster = at?.let(derivation.clusterOfEndpoint::get)?.let(derivation.clusters::getOrNull)
-                ?: return null to null
-            val place = names.placeOf(cluster)
-            if (place?.placeCategory?.visited == false) return null to null
+            val cluster = names.visitedClusterAt(derivation, at)?.let(derivation.clusters::get) ?: return null to null
             val city = names.cityOf(cluster)
-            return nameOf(place, city?.name) to city?.let { SpentCity(it.name, it.country) }
+            return nameOf(names.placeOf(cluster), city?.name) to city?.let(SpentCity::of)
         }
         fun <K : Any> credit(into: MutableMap<K, Long>, start: K?, end: K?, ms: Long) {
             if (start == null || start != end) return

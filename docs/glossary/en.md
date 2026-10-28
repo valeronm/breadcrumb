@@ -23,6 +23,7 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 | insights | Insights | The tab where the timeline is read in aggregate rather than day by day. Deliberately named after what the reader gets and not after any one of the things listed there — journeys were what it held first, and a name taken from them would have had to change the moment a second reading sat beside them, which is what *statistics* now is. |
 | journey | journey | A run of nights away from home (Insights). The Insights concept and nothing else: a ferry crossing or a bus ride is a **trip**, however long it takes. |
 | statistics | Statistics | Insights' other page: one month's figures read against the twelve behind it. Named for the reading rather than for the month, which is only how it is cut. **A language whose word for *insights* is already this one must find another** — the page cannot be named after the tab containing it. |
+| world | World | Insights' third page: every country and city the history has been to, each with the days spent there. Named for the scope of the list rather than for countries, which are only its top level. |
 
 ### A trip
 

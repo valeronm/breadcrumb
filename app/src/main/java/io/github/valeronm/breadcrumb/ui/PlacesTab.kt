@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
@@ -48,6 +49,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import io.github.valeronm.breadcrumb.domain.StaySwipe
 import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import java.time.ZonedDateTime
 import java.util.Locale
@@ -89,6 +91,9 @@ internal fun PlacesTab(
     /** Holds the map view's camera while that view is showing. */
     mapCamera: CameraCarry,
     onOpenData: () -> Unit,
+    /** A city to open the map on; [onCityShown] runs once it is taken, and must clear it. */
+    city: TravelNaming.SpentCity?,
+    onCityShown: () -> Unit,
 ) {
     val context = LocalContext.current
     val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
@@ -138,8 +143,24 @@ internal fun PlacesTab(
     // default also hides the map's orange brief-stop dots, a one-off stop being a rare cluster by
     // definition.
     val mapFilter = remember(sorted, showRareStops, showLongAgo) {
-        val since = ZonedDateTime.now(timelineZone()).minusYears(1).toInstant().toEpochMilli()
-        filterPlacesMap(sorted, showRareStops, showLongAgo, since)
+        filterPlacesMap(sorted, showRareStops, showLongAgo, longAgoCutoff())
+    }
+    // The page and chips switched for a city are this visit's only, never written as the reader's
+    // preference.
+    var cityFocus by remember { mutableStateOf<MapFocusRequest?>(null) }
+    LaunchedEffect(city, derivedPlaces != null) {
+        if (city == null || derivedPlaces == null) return@LaunchedEffect
+        val inCity = sorted.filter { summary -> summary.locality?.let(TravelNaming.SpentCity::of) == city }
+        val needed = chipsShowingAll(inCity, longAgoCutoff())
+        showRareStops = showRareStops || needed.rareStops
+        showLongAgo = showLongAgo || needed.longAgo
+        page = PlacesPage.MAP
+        if (inCity.isNotEmpty()) {
+            // A camera carried from the map's last showing outranks the frame it opens on.
+            mapCamera.takeCarried()
+            cityFocus = MapFocusRequest(inCity.map { it.anchor })
+        }
+        onCityShown()
     }
     // Derived here rather than in the map view, which is disposed on switching away — there, this
     // history-wide walk would re-run on every return to the map. Stay identity (afterTrackId +
@@ -208,6 +229,7 @@ internal fun PlacesTab(
             PlacesPage.MAP -> viewStateHolder.SaveableStateProvider(PlacesPage.MAP) {
                 PlacesMapPage(
                     mapPlaces = mapPlaces,
+                    focus = cityFocus,
                     emptiedBy = mapFilter.emptiedBy,
                     homeRequest = homeRequest,
                     onOpenPlace = onOpenPlace,
@@ -273,6 +295,7 @@ internal fun overviewPlaceOf(summary: PlaceResolver.PlaceSummary, brief: Boolean
 @Composable
 private fun PlacesMapPage(
     mapPlaces: List<OverviewPlace>,
+    focus: MapFocusRequest?,
     emptiedBy: PlacesMapFilter.Emptied?,
     homeRequest: Int,
     onOpenPlace: (String) -> Unit,
@@ -311,6 +334,7 @@ private fun PlacesMapPage(
                     camera = mapCamera,
                     modifier = Modifier.fillMaxSize(),
                     goTo = myLocation.goTo,
+                    focus = focus,
                     topStart = filters,
                     corner = { MyLocationControl(myLocation) },
                     outlines = outlines,
@@ -514,3 +538,6 @@ private fun visitPhrase(summary: PlaceResolver.PlaceSummary): String =
 @Composable
 private fun placeScrubberStops(listed: List<PlaceResolver.PlaceSummary>): List<ScrollStop<PlaceResolver.PlaceSummary>> =
     remember(listed) { listed.mapIndexed { index, summary -> ScrollStop(summary, index) } }
+
+/** Before this, a place's last visit is long ago. */
+private fun longAgoCutoff(): Long = ZonedDateTime.now(timelineZone()).minusYears(1).toInstant().toEpochMilli()

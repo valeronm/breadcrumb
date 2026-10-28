@@ -27,6 +27,7 @@
 
     <string name="insights_tab_journeys">Viagens</string>
     <string name="insights_tab_statistics">Estatísticas</string>
+    <string name="insights_tab_world">Mundo</string>
 
     <string name="insights_stats_empty">Ainda sem números. Aparecem aqui assim que o seu histórico tiver uma viagem, ou uma permanência num local a que tenha dado uma categoria em Locais.</string>
     <string name="insights_stats_window_empty">Estes meses estão vazios. Recue para chegar ao resto do histórico.</string>
@@ -42,4 +43,16 @@
 
     <string name="insights_stats_previous_month">Mês anterior</string>
     <string name="insights_stats_next_month">Mês seguinte</string>
+
+    <string name="insights_world_empty">Ainda sem países. Aparecem aqui assim que o seu histórico tiver uma permanência.</string>
+    <string name="insights_world_stat_countries">Países</string>
+    <string name="insights_world_stat_cities">Cidades</string>
+    <plurals name="insights_world_days">
+        <item quantity="one">%d dia</item>
+        <item quantity="many">%d dias</item>
+        <item quantity="other">%d dias</item>
+    </plurals>
+    <string name="insights_world_show_cities">Mostrar cidades</string>
+    <string name="insights_world_hide_cities">Ocultar cidades</string>
+    <string name="insights_world_show_on_map">Mostrar no mapa</string>
 </resources>

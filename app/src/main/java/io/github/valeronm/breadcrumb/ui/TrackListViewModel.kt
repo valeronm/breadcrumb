@@ -41,6 +41,7 @@ import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.TripChains
 import io.github.valeronm.breadcrumb.domain.TripPlaces
+import io.github.valeronm.breadcrumb.domain.VisitedWorld
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import io.github.valeronm.breadcrumb.util.DebugLog
@@ -144,6 +145,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val language: String,
     ) {
         val stays: List<StayDeriver.Stay> = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
+
+        val timeline = TravelDeriver.Timeline(derivation, tracks)
+
+        val clusterNames = TravelNaming.ClusterNames(places) { cluster -> cities[cluster.centroid] }
 
         // Over the unsliced stays: after slicePerDay a three-day stay counts as three visits.
         private val clusterPlaces by lazy { PlaceResolver.resolveClusters(stays, derivation.clusters, places, cities) }
@@ -468,18 +473,22 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * [timeline].
      */
     val travels: StateFlow<List<TravelNaming.Summary>?> = derived.map { d ->
-        val timeline = TravelDeriver.Timeline(d.derivation, d.tracks)
         val travels = TravelDeriver.derive(
-            timeline,
+            d.timeline,
             TravelDeriver.homeOf(d.places, d.derivation.clusters, d.derivation.intervals),
             d.now,
             AndroidDistance,
         )
-        TravelNaming.summarize(
-            travels,
-            timeline,
-            TravelNaming.ClusterNames(d.places) { cluster -> d.cities[cluster.centroid] },
-        )
+        TravelNaming.summarize(travels, d.timeline, d.clusterNames)
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Every country and city the history has been to, most days first. **Null until the first
+     * derivation lands**, as on [timeline].
+     */
+    val world: StateFlow<List<VisitedWorld.Country>?> = derived.map { d ->
+        VisitedWorld.of(d.timeline, d.clusterNames, d::zoneOfCluster, d.now)
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
