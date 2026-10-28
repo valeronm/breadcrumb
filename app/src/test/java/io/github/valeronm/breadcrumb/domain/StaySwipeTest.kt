@@ -16,7 +16,7 @@ class StaySwipeTest {
     private fun swipes(stay: StayDeriver.Stay, neighbors: TrackMerge.Neighbors) = swipes(listOf(stay), mapOf(1L to neighbors))
 
     private fun swipes(intervals: List<StayDeriver.Interval>, neighbors: Map<Long, TrackMerge.Neighbors>) =
-        StaySwipe.byAnchor(intervals, neighbors, TrackMerge.plansByAnchor(intervals, neighbors))
+        StaySwipe.byAnchor(intervals, neighbors)
 
     @Test fun `a stop the tracks either side can merge across is merged`() {
         assertEquals(StaySwipe.Merge(TrackMerge.Plan(1, 2)), swipes(stay(2), walkThenWalk)[1])
@@ -26,12 +26,8 @@ class StaySwipeTest {
         assertEquals(StaySwipe.Hide(HiddenStay(beforeId = 1, afterId = 2)), swipes(stay(2), carThenWalk)[1])
     }
 
-    @Test fun `a stay too long to merge is hidden up to the cap`() {
-        assertEquals(StaySwipe.Hide(HiddenStay(beforeId = 1, afterId = 2)), swipes(stay(15), walkThenWalk)[1])
-    }
-
-    @Test fun `a stay past the cap offers nothing`() {
-        assertNull(swipes(stay(16), carThenWalk)[1])
+    @Test fun `a stay too long to merge is hidden, however long`() {
+        assertEquals(StaySwipe.Hide(HiddenStay(beforeId = 1, afterId = 2)), swipes(stay(12 * 60), walkThenWalk)[1])
     }
 
     @Test fun `a stay with no track after it offers nothing`() {

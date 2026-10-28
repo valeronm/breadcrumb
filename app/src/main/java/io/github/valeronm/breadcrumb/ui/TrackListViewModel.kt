@@ -310,7 +310,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
         // Decided over the intervals: the timeline's rows are per-day slices, bounded by the display.
         val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
-        val staySwipes = StaySwipe.byAnchor(d.derivation.intervals, neighbors, mergePlans)
+        val staySwipes = StaySwipe.byAnchor(d.derivation.intervals, neighbors)
 
         /** Oldest first, as the derivation holds them. */
         val gaps: List<ResolvedGap> = d.derivation.intervals.filterIsInstance<StayDeriver.Gap>().map { gap ->
