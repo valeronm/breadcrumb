@@ -27,16 +27,13 @@
     <string name="timeline_sweep">Reprocessing trips</string>
 
     <!-- What heads an Insights journey row the naming pass found no place for — the bare fact of
-         having been away. The timeline's own band leads with the day count below instead. -->
+         having been away. -->
     <plurals name="timeline_nights_away">
         <item quantity="one">%d night away</item>
         <item quantity="other">%d nights away</item>
     </plurals>
-    <!-- Opens the timeline's journey band, ahead of the destination names — the run's length. -->
-    <plurals name="timeline_journey_days">
-        <item quantity="one">%d day</item>
-        <item quantity="other">%d days</item>
-    </plurals>
+    <!-- Leads the timeline's journey band, ahead of the destination names: which day of how many. -->
+    <string name="timeline_away_day_of">Day %1$d of %2$d</string>
 
     <!-- The tab row over the timeline's two views: the day-by-day list, and one day on a map. -->
     <string name="timeline_view_list">List</string>
@@ -46,11 +43,8 @@
     <string name="timeline_map_prev_day">Previous day</string>
     <string name="timeline_map_next_day">Next day</string>
     <string name="timeline_map_empty_day">Nothing recorded on this day</string>
-    <!-- What tapping a day header's date does, read aloud. -->
 
     <!-- Row actions, read aloud -->
-    <!-- Where in a journey the reader has scrolled to; follows the journey's name on its band. -->
-    <string name="timeline_away_day">Day %1$d</string>
     <string name="timeline_share_day">Share %1$s tracks</string>
     <string name="timeline_scroll_to_day">Scroll to a day</string>
     <string name="timeline_merge">Merge trips</string>

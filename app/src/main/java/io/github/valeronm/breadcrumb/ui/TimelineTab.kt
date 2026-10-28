@@ -74,7 +74,6 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -612,18 +611,7 @@ private fun TimelineMapPage(
 
     Column(Modifier.fillMaxSize()) {
         DaySelector(day, onSelectDay)
-        away?.let {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(horizontal = 16.dp),
-            ) {
-                TravelHeading(it) { onOpenJourney(it.summary) }
-                // Band and marker share one line and one scale — this view has no date line for
-                // the marker to continue, so it continues the band instead.
-                AwayDayMarker(it, MaterialTheme.typography.labelLarge)
-            }
-        }
+        away?.let { TravelHeading(it, Modifier.padding(horizontal = 16.dp)) { onOpenJourney(it.summary) } }
         // The same figures the list's day header states, so the two views describe a day alike.
         // Zero-height on an empty day, whose message below says all there is to say.
         DayTotals(
@@ -711,7 +699,7 @@ private fun DaySelector(day: LocalDate, onSelect: (LocalDate) -> Unit) {
 }
 
 /**
- * The journey a day belongs to. On the list it sits above the date and is **repeated on every day
+ * The journey a day belongs to. On the list it sits under the date and is **repeated on every day
  * of that journey**, which is the point there: a sticky header holds one row at a time, so a
  * heading that appeared once at the top of the block would scroll away and leave the days under it
  * unattributed. The map view shows the same heading for its one day, where nothing repeats.
@@ -725,13 +713,13 @@ private fun DaySelector(day: LocalDate, onSelect: (LocalDate) -> Unit) {
  * can act on.
  */
 @Composable
-private fun TravelHeading(away: AwayDay, onOpen: () -> Unit) {
+private fun TravelHeading(away: AwayDay, modifier: Modifier = Modifier, onOpen: () -> Unit) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
         // The band is the journey's presence on this screen, so tapping it opens the journey —
         // same destination as the Insights row, from the other end.
-        modifier = Modifier.clickable(onClick = onOpen).padding(bottom = 2.dp),
+        modifier = modifier.clickable(onClick = onOpen).padding(bottom = 2.dp),
     ) {
         // Shared with the Travel place category on purpose: a chip on a place and a heading over a
         // run of days are read in different places, and the same glyph means "a trip" in both.
@@ -741,12 +729,12 @@ private fun TravelHeading(away: AwayDay, onOpen: () -> Unit) {
             tint = MaterialTheme.colorScheme.tertiary,
             modifier = Modifier.size(14.dp),
         )
-        // The length leads and the names follow — the run of days is what makes the band a
-        // journey, and an unnamed one still has it to say.
-        val days = pluralStringResource(R.plurals.timeline_journey_days, away.dayCount, away.dayCount)
+        // The day's place in the journey leads and the names follow: an unnamed journey still has
+        // it to say, and a long name truncates before it does.
+        val day = stringResource(R.string.timeline_away_day_of, away.ordinal, away.dayCount)
         val names = TravelNaming.title(away.summary.destinations)
         Text(
-            if (names == null) days else "$days · $names",
+            if (names == null) day else "$day · $names",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.tertiary,
             maxLines = 1,
@@ -755,24 +743,8 @@ private fun TravelHeading(away: AwayDay, onOpen: () -> Unit) {
     }
 }
 
-/**
- * Which day of a journey this is — the band carries the journey, this says only where in it the
- * reader stands. [style] is the caller's: the marker continues whatever text it sits beside. The
- * separator stays in code: it is layout between the marker and what it follows, not part of what
- * either says.
- */
 @Composable
-private fun AwayDayMarker(away: AwayDay, style: TextStyle) {
-    Text(
-        "· " + stringResource(R.string.timeline_away_day, away.ordinal),
-        style = style,
-        color = MaterialTheme.colorScheme.tertiary,
-    )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ColumnScope.DayHeader(
+internal fun ColumnScope.DayHeader(
     label: String,
     dayTracks: List<TrackSummary>,
     dayItems: List<TimelineItem>,
@@ -780,20 +752,12 @@ private fun ColumnScope.DayHeader(
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     onShare: () -> Unit,
 ) {
-    away?.let { TravelHeading(it) { onOpenJourney(it.summary) } }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            DayHeading(label)
-            // Same size as the date it continues, the tint alone telling the two apart.
-            away?.let { AwayDayMarker(it, MaterialTheme.typography.titleSmall) }
-        }
+        DayHeading(label)
         // Share exports the day's tracks as GPX — nothing to offer on a day with only stays.
         if (dayTracks.isNotEmpty()) {
             // Compact: a full 48dp/24dp action on every header outweighs the content rows.
@@ -808,6 +772,7 @@ private fun ColumnScope.DayHeader(
             }
         }
     }
+    away?.let { TravelHeading(it) { onOpenJourney(it.summary) } }
     DayTotals(dayTracks = dayTracks, dayItems = dayItems)
 }
 
@@ -886,13 +851,12 @@ private fun DayTotal(icon: ImageVector, description: String?, tint: Color, text:
 }
 
 /**
- * A day inside a travel: which one, where in it, and whether it is that travel's *latest* day —
- * the rows run newest-first, so that is the day the band announcing the travel sits above.
+ * A day inside a travel: which one, and where in it.
  *
  * Two travels can share a boundary day (arrived home in the morning, left again that evening); the
  * later one wins it, which is also the one whose band the reader is scrolling into.
  */
-private class AwayDay(val summary: TravelNaming.Summary, val ordinal: Int, val dayCount: Int)
+internal class AwayDay(val summary: TravelNaming.Summary, val ordinal: Int, val dayCount: Int)
 
 private fun awayDaysOf(travels: List<TravelNaming.Summary>, zone: ZoneId): Map<LocalDate, AwayDay> =
     buildMap {

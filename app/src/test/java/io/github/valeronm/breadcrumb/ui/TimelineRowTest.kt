@@ -3,12 +3,14 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import android.content.res.Configuration
 import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -30,6 +32,8 @@ import io.github.valeronm.breadcrumb.domain.StaySwipe
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.TravelDeriver
+import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
@@ -485,6 +489,56 @@ class TimelineRowTest {
         compose.onNodeWithText(durationOf(HOUR)).assertDoesNotExist()
     }
 
+    // --- Day headers ---------------------------------------------------------
+
+    private fun awayDay(destinations: List<String>): AwayDay {
+        val travel = TravelDeriver.Travel(
+            firstNight = DAY,
+            lastNight = DAY.plusDays(9),
+            firstNightAt = midnight,
+            lastNightAt = midnight,
+            leftHomeAt = null,
+            reachedHomeAt = null,
+            windowStart = midnight,
+            windowEnd = midnight,
+            clusterStayMs = emptyMap(),
+        )
+        val summary = TravelNaming.Summary(travel, destinations, emptySet(), emptySet(), emptyMap())
+        return AwayDay(summary, ordinal = 9, dayCount = 10)
+    }
+
+    private fun dayHeader(away: AwayDay) = row {
+        Column { DayHeader(DATE_LABEL, emptyList(), emptyList(), away, {}, {}) }
+    }
+
+    private fun dayOf(away: AwayDay) = context.getString(R.string.timeline_away_day_of, away.ordinal, away.dayCount)
+
+    @Test fun `a journey band leads with which day of the journey this is`() {
+        val away = awayDay(listOf("Seaside", "Hill town"))
+
+        dayHeader(away)
+
+        compose.onNodeWithText("${dayOf(away)} · ${TravelNaming.title(away.summary.destinations)}").assertIsDisplayed()
+    }
+
+    @Test fun `an unnamed journey's band is the day of the journey alone`() {
+        val away = awayDay(emptyList())
+
+        dayHeader(away)
+
+        compose.onNodeWithText(dayOf(away)).assertIsDisplayed()
+    }
+
+    @Test fun `a journey day's header leads with the date and the band follows`() {
+        val away = awayDay(listOf("Seaside"))
+
+        dayHeader(away)
+
+        val date = compose.onNodeWithText(DATE_LABEL).getBoundsInRoot()
+        val band = compose.onNodeWithText(dayOf(away), substring = true).getBoundsInRoot()
+        assertTrue(date.bottom <= band.top)
+    }
+
     // --- The translation actually reaching a row -----------------------------
 
     @Test
@@ -514,6 +568,17 @@ class TimelineRowTest {
 
         val until = translated(R.string.timeline_gap_until)
         compose.onNodeWithText(until.substringBefore("%1\$s"), substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "pt")
+    fun `a journey band reads its day in Portuguese`() {
+        val away = awayDay(emptyList())
+        val day = translated(R.string.timeline_away_day_of).format(away.ordinal, away.dayCount)
+
+        dayHeader(away)
+
+        compose.onNodeWithText(day).assertIsDisplayed()
     }
 
     private fun importedPlace(label: String?) = place(label).copy(source = PlaceOrigin.GOOGLE_TIMELINE.code)
@@ -551,6 +616,9 @@ class TimelineRowTest {
 
         /** Any ordinary day; nothing here turns on which, only that it is whole in the row's zone. */
         val DAY: LocalDate = LocalDate.of(2021, 3, 4)
+
+        /** A day header's date as the caller formats it; the header only places it. */
+        const val DATE_LABEL = "4 March 2021"
 
         const val HOUR = 3_600_000L
     }

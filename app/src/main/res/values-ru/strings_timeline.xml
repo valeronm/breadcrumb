@@ -30,12 +30,7 @@
         <item quantity="many">%d ночей вне дома</item>
         <item quantity="other">%d ночи вне дома</item>
     </plurals>
-    <plurals name="timeline_journey_days">
-        <item quantity="one">%d день</item>
-        <item quantity="few">%d дня</item>
-        <item quantity="many">%d дней</item>
-        <item quantity="other">%d дня</item>
-    </plurals>
+    <string name="timeline_away_day_of">День %1$d из %2$d</string>
 
     <string name="timeline_view_list">Список</string>
     <string name="timeline_view_map">Карта</string>
@@ -44,7 +39,6 @@
     <string name="timeline_map_next_day">Следующий день</string>
     <string name="timeline_map_empty_day">В этот день ничего не записано</string>
 
-    <string name="timeline_away_day">День %1$d</string>
     <string name="timeline_share_day">Поделиться маршрутами за %1$s</string>
     <string name="timeline_scroll_to_day">Перейти к дню</string>
     <string name="timeline_merge">Объединить поездки</string>
