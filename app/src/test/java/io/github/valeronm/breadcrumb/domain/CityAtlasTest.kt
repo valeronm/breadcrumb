@@ -330,6 +330,14 @@ class CityAtlasTest {
         }
     }
 
+    @Test fun `a table cut off inside its header is rejected at parse`() {
+        fun cut(magic: String) = (magic + "\u0000").toByteArray(StandardCharsets.US_ASCII)
+
+        assertThrows(IllegalArgumentException::class.java) { CityAtlas.LocalNames.parse(cut("BCTN1"), 0) }
+        assertThrows(IllegalArgumentException::class.java) { CityAtlas.RegionNames.parse(cut("BCRG1"), 0) }
+        assertThrows(IllegalArgumentException::class.java) { CityAtlas.parse(cut("BCTY2"), bordersBytes(emptyList())) }
+    }
+
     @Test fun `an empty atlas names nothing rather than failing`() {
         val atlas = atlasOf()
 

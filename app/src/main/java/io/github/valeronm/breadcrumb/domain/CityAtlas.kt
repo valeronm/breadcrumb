@@ -93,12 +93,7 @@ class CityAtlas private constructor(
             /** Throws [IllegalArgumentException] on anything that isn't a names table for an atlas
              *  of [rowCount] rows — a build error, both files shipping inside the APK. */
             fun parse(bytes: ByteArray, rowCount: Int): LocalNames {
-                require(bytes.size > MAGIC.size && MAGIC.indices.all { bytes[it] == MAGIC[it] }) {
-                    "not a city names table"
-                }
-                val header = ByteBuffer.wrap(bytes, MAGIC.size, bytes.size - MAGIC.size)
-                val forRows = header.int
-                require(forRows == rowCount) { "city names index $forRows rows, the atlas has $rowCount" }
+                val header = packedHeader(bytes, MAGIC, "city names table", Int.SIZE_BYTES * 2, atlasRows = rowCount)
                 val entryCount = header.int
                 val entriesAt = header.position()
                 val namesAt = entriesAt + entryCount * ENTRY_BYTES
@@ -143,12 +138,7 @@ class CityAtlas private constructor(
             /** Throws [IllegalArgumentException] on anything that isn't a region table for an atlas
              *  of [rowCount] rows — a build error, both files shipping inside the APK. */
             fun parse(bytes: ByteArray, rowCount: Int): RegionNames {
-                require(bytes.size > MAGIC.size && MAGIC.indices.all { bytes[it] == MAGIC[it] }) {
-                    "not a region names table"
-                }
-                val header = ByteBuffer.wrap(bytes, MAGIC.size, bytes.size - MAGIC.size)
-                val forRows = header.int
-                require(forRows == rowCount) { "region names index $forRows rows, the atlas has $rowCount" }
+                val header = packedHeader(bytes, MAGIC, "region names table", Int.SIZE_BYTES + Short.SIZE_BYTES, atlasRows = rowCount)
                 val regionCount = header.short.toInt() and 0xFFFF
                 val lengthsAt = header.position()
                 val namesAt = lengthsAt + regionCount
@@ -446,9 +436,7 @@ class CityAtlas private constructor(
          * than a runtime condition — both files ship inside the APK.
          */
         fun parse(bytes: ByteArray, borders: ByteArray): CityAtlas {
-            require(bytes.size > MAGIC.size) { "city atlas is empty" }
-            require(MAGIC.indices.all { bytes[it] == MAGIC[it] }) { "not a city atlas" }
-            val header = ByteBuffer.wrap(bytes, MAGIC.size, bytes.size - MAGIC.size)
+            val header = packedHeader(bytes, MAGIC, "city atlas", Int.SIZE_BYTES + Short.SIZE_BYTES)
             val rowCount = header.int
             require(rowCount >= 0) { "city atlas declares $rowCount rows" }
             val zoneCount = header.short.toInt() and 0xFFFF

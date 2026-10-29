@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.domain
 
-import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import kotlin.math.cos
 import kotlin.math.floor
@@ -243,12 +242,7 @@ class CountryBorders private constructor(private val outlines: List<Outline>) {
         /** Throws [IllegalArgumentException] on anything that isn't a borders file labeled against an
          *  atlas of [rowCount] rows — a build error, both files shipping inside the APK. */
         fun parse(bytes: ByteArray, rowCount: Int): CountryBorders {
-            require(bytes.size >= MAGIC.size + 8 && MAGIC.indices.all { bytes[it] == MAGIC[it] }) {
-                "not a borders file"
-            }
-            val header = ByteBuffer.wrap(bytes, MAGIC.size, bytes.size - MAGIC.size)
-            val forRows = header.int
-            require(forRows == rowCount) { "borders were labeled against $forRows atlas rows, the atlas has $rowCount" }
+            val header = packedHeader(bytes, MAGIC, "borders file", Int.SIZE_BYTES * 2, atlasRows = rowCount)
             val outlineCount = header.int
             require(outlineCount >= 0) { "borders file declares $outlineCount outlines" }
             val reader = Reader(bytes, header.position())
