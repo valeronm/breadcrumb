@@ -147,7 +147,7 @@ class PlaceResolverTest {
         assertEquals("Home", resolved[0].name)
         // Naming a spot says nothing about where on earth it is: the city and the clock survive it,
         // and a stay at a named place abroad still has to render on that country's time.
-        assertEquals("Hometown", resolved[0].city)
+        assertEquals("Hometown", resolved[0].locality?.name)
         assertEquals("Etc/GMT-3", resolved[0].zoneId)
         assertEquals("Seaside", resolved[1].name)
         assertNull(resolved[1].label)
@@ -221,7 +221,7 @@ class PlaceResolverTest {
 
         assertEquals("Home", summaries.single { it.isNamed }.name)
         // A named row carries its locality too — the Places list reads a clock off it, not a name.
-        assertEquals("Hometown", summaries.single { it.isNamed }.city)
+        assertEquals("Hometown", summaries.single { it.isNamed }.locality?.name)
         assertEquals("Seaside", summaries.single { !it.isNamed }.name)
     }
 
