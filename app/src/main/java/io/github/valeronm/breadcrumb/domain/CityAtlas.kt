@@ -177,6 +177,20 @@ class CityAtlas private constructor(
 
     val size: Int get() = rowCount
 
+    /** Whether another row in [row]'s country goes by the name [row] has in this atlas's language. */
+    fun hasNamesake(row: Int): Boolean {
+        val known = namesakes[row]
+        if (known != UNSCANNED) return known == SHARED
+        val country = countryCodeAt(row)
+        val name = nameAt(row)
+        val shared = (0 until rowCount).any { it != row && countryCodeAt(it) == country && nameAt(it) == name }
+        namesakes[row] = if (shared) SHARED else ALONE
+        return shared
+    }
+
+    /** Kept because [hasNamesake] scans every row; a benign race, since two scans of one row agree. */
+    private val namesakes by lazy { ByteArray(rowCount) }
+
     /** A name-search hit — where the named place sits, for a screen placing a pin by it. */
     class Hit(
         val name: String,
@@ -427,6 +441,10 @@ class CityAtlas private constructor(
         private const val NAME_SEPARATOR = '\u0000'
 
         private const val NO_REGION = 0
+
+        private const val UNSCANNED: Byte = 0
+        private const val ALONE: Byte = 1
+        private const val SHARED: Byte = 2
 
         private val MAGIC = "BCTY2".toByteArray(StandardCharsets.US_ASCII)
 

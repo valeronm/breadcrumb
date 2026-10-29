@@ -204,7 +204,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val found = HashMap<Coordinate, CityAtlas.City>(points.size)
         for (at in points) {
             if (at in resolved) continue
-            val city = if (previous.containsKey(at)) previous[at] else cityOf(at, language)
+            val city = if (previous.containsKey(at)) previous[at] else cityOf(at, Cities.atlas(getApplication(), language))
             resolved[at] = city
             city?.let { found[at] = it }
         }
@@ -221,8 +221,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-    private fun cityOf(at: Coordinate, language: String): CityAtlas.City? =
-        Cities.atlas(getApplication(), language).naming(at.lat, at.lon, AndroidDistance)
+    private fun cityOf(at: Coordinate, atlas: CityAtlas): CityAtlas.City? = atlas.naming(at.lat, at.lon, AndroidDistance)
 
     /**
      * The places come from the stored snapshot rather than an arm of their own, which would turn
@@ -859,9 +858,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * The containing city, so a spot inside a capital resolves to the capital rather than its
      * district. The first call loads the atlas.
      */
-    suspend fun cityAt(at: Coordinate): CityAtlas.City? = withContext(Dispatchers.Default) {
+    internal suspend fun cityAt(at: Coordinate): Locality? = withContext(Dispatchers.Default) {
         // Bypasses [cityByPoint], which only the derivation's coroutine may touch.
-        cityOf(at, language.value)
+        val atlas = Cities.atlas(getApplication(), language.value)
+        cityOf(at, atlas)?.let { city ->
+            Locality(TravelNaming.SpentCity.of(city), city.zoneId, atlas.hasNamesake(city.row))
+        }
     }
 
     /** The country outlines as [outlinesGeoJson] writes them; the first call loads the atlas. */
@@ -894,3 +896,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         const val PENDING_PLACE_TIMEOUT_MS = 30_000L
     }
 }
+
+/** A single spot's city, judged against every town the atlas holds. */
+internal class Locality(
+    override val city: TravelNaming.SpentCity,
+    val zoneId: String,
+    override val sharesName: Boolean,
+) : TravelNaming.ListedCity

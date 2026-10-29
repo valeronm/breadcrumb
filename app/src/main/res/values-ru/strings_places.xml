@@ -93,6 +93,8 @@
 
     <string name="place_detected_stop">Обнаруженное посещение</string>
     <string name="place_imported">Импортированное место</string>
+    <string name="place_locality">%1$s, %2$s</string>
+    <string name="place_locality_in_region">%1$s, %2$s, %3$s</string>
     <string name="place_detected_stop_inline">обнаруженное посещение</string>
     <string name="place_imported_inline">импортированное место</string>
     <string name="place_no_visits">Посещений пока нет</string>

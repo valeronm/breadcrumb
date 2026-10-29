@@ -36,5 +36,7 @@
     <string name="addtrip_local_clock_note">Na hora local, %1$s em relação à sua</string>
 
     <string name="addtrip_pin_placed">Ponto colocado</string>
+    <string name="addtrip_locality">%1$s, %2$s</string>
+    <string name="addtrip_locality_in_region">%1$s, %2$s, %3$s</string>
     <string name="addtrip_no_pin">Ainda sem ponto</string>
 </resources>

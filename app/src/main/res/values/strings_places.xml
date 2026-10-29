@@ -124,6 +124,10 @@
     <string name="place_detected_stop">Detected stay</string>
     <!-- A place an import brought in and nobody has named. -->
     <string name="place_imported">Imported place</string>
+    <!-- A place's country, then its city, after the country's flag. -->
+    <string name="place_locality">%1$s, %2$s</string>
+    <!-- A place's country, its city, then the region that tells the city from another town of its name. -->
+    <string name="place_locality_in_region">%1$s, %2$s, %3$s</string>
     <!-- The two above, worded for the middle of a sentence — a far place a gap line names. -->
     <string name="place_detected_stop_inline">detected stay</string>
     <string name="place_imported_inline">imported place</string>

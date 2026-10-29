@@ -32,6 +32,8 @@
 
     <string name="place_detected_stop">Permanência detetada</string>
     <string name="place_imported">Local importado</string>
+    <string name="place_locality">%1$s, %2$s</string>
+    <string name="place_locality_in_region">%1$s, %2$s, %3$s</string>
     <string name="place_detected_stop_inline">permanência detetada</string>
     <string name="place_imported_inline">local importado</string>
     <string name="place_no_visits">Ainda sem visitas</string>

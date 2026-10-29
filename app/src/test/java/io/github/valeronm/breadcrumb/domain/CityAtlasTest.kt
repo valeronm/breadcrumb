@@ -330,6 +330,24 @@ class CityAtlasTest {
         }
     }
 
+    @Test fun `a row has a namesake only where another in its country goes by its name`() {
+        val atlas = atlasOf(
+            testCity("Twin", 0.0),
+            testCity("Twin", 90_000.0),
+            testCity("Lone", 180_000.0),
+            testCity("Lone", 270_000.0, country = "YY"),
+        )
+
+        assertEquals(listOf(true, true, false, false), (0 until atlas.size).map(atlas::hasNamesake))
+    }
+
+    @Test fun `a namesake is judged by the names the atlas's language gives`() {
+        val atlas = atlasOf(testCity("Abcd", 0.0), testCity("Efgh", 90_000.0))
+            .withNames(localNamesOf(2, mapOf(1 to "Abcd")))
+
+        assertEquals(listOf(true, true), (0 until atlas.size).map(atlas::hasNamesake))
+    }
+
     @Test fun `a table cut off inside its header is rejected at parse`() {
         fun cut(magic: String) = (magic + "\u0000").toByteArray(StandardCharsets.US_ASCII)
 

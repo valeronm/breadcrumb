@@ -36,5 +36,7 @@
     <string name="addtrip_local_clock_note">По местному времени, %1$s от вашего</string>
 
     <string name="addtrip_pin_placed">Точка поставлена</string>
+    <string name="addtrip_locality">%1$s, %2$s</string>
+    <string name="addtrip_locality_in_region">%1$s, %2$s, %3$s</string>
     <string name="addtrip_no_pin">Точка ещё не поставлена</string>
 </resources>

@@ -61,9 +61,9 @@ object TravelNaming {
     }
 
     /**
-     * A city as a list of cities holds it, with [region] set only where another city in its country
-     * shares its name. Namesakes in one region, or in a region the atlas has no name for, still read
-     * alike.
+     * A city whose [region] is set only where [sharesName]: where another city in its country goes by its
+     * name, among the cities an implementer is judged against. Namesakes in one region, or in a region the
+     * atlas has no name for, still read alike.
      */
     interface ListedCity {
         val city: SpentCity
@@ -76,6 +76,7 @@ object TravelNaming {
     fun namesakes(cities: Collection<SpentCity>): Set<SpentCity> =
         cities.groupBy { it.country to it.name }.values.filter { it.size > 1 }.flatten().toSet()
 
+    /** Judged against the other cities of its journey. */
     data class CityTime(override val city: SpentCity, val ms: Long, override val sharesName: Boolean) : ListedCity
 
     /** One country's share of a journey: its cities most time first; their sum ranks it among its peers. */

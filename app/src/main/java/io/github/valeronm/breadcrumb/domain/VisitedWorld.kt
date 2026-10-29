@@ -15,6 +15,7 @@ import java.time.ZoneId
  */
 object VisitedWorld {
 
+    /** Judged against the other cities the history has been to. */
     data class City(
         override val city: TravelNaming.SpentCity,
         val days: Int,

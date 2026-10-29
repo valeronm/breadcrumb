@@ -63,7 +63,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
-import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -421,16 +420,19 @@ internal fun PlaceDetailScreen(
 @Composable
 private fun PlaceLocality(at: Coordinate, nowMs: Long, viewModel: TrackListViewModel, modifier: Modifier = Modifier) {
     val locale = LocalConfiguration.current.locales[0]
-    val city by produceState<CityAtlas.City?>(null, at) { value = viewModel.cityAt(at) }
+    val city by produceState<Locality?>(null, at) { value = viewModel.cityAt(at) }
     val resolved = city ?: return
-    val country = countryNameOf(resolved.country, locale)
+    val country = countryNameOf(resolved.city.country, locale)
+    val region = resolved.region
     // Widest first, and the flag leading it: mid-line it splits the row in two, where at the
     // head it is the line's own glyph. No globe beside a line that already names a country, and
     // no flag where the country cannot be named either.
     val label = if (country.isEmpty()) {
-        resolved.name
+        listedCityName(resolved)
     } else {
-        "${flagOf(resolved.country)} $country, ${resolved.name}"
+        val line = region?.let { stringResource(R.string.place_locality_in_region, country, resolved.name, it) }
+            ?: stringResource(R.string.place_locality, country, resolved.name)
+        "${flagOf(resolved.city.country)} $line"
     }
     // Off the city this line resolved, not off the summary's zone: one line, one answer about one
     // spot. Nothing trails a place keeping the reader's own clock — see [zoneShiftLabel].

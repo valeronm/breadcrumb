@@ -50,5 +50,9 @@
       the manual trip's two stored points, and a pin is a place's — see `docs/glossary/`.
     -->
     <string name="addtrip_pin_placed">Point placed</string>
+    <!-- A spot's city, then its country. -->
+    <string name="addtrip_locality">%1$s, %2$s</string>
+    <!-- A spot's city, the region that tells it from another town of its name, then its country. -->
+    <string name="addtrip_locality_in_region">%1$s, %2$s, %3$s</string>
     <string name="addtrip_no_pin">No point yet</string>
 </resources>
