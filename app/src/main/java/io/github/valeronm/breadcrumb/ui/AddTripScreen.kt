@@ -84,15 +84,15 @@ import io.github.valeronm.breadcrumb.data.OnlineRouting
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.EndTime
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
-import io.github.valeronm.breadcrumb.domain.SpotCity
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TripPlaces
+import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
+import io.github.valeronm.breadcrumb.domain.atlas.SpotCity
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
 import io.github.valeronm.breadcrumb.domain.placeCategory

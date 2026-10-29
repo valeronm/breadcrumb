@@ -20,7 +20,6 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis
@@ -32,7 +31,6 @@ import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
-import io.github.valeronm.breadcrumb.domain.SpotCity
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.StaySwipe
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -43,6 +41,8 @@ import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.TripChains
 import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.VisitedWorld
+import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
+import io.github.valeronm.breadcrumb.domain.atlas.SpotCity
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import io.github.valeronm.breadcrumb.util.DebugLog

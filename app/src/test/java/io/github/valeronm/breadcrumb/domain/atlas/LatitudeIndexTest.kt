@@ -1,5 +1,8 @@
-package io.github.valeronm.breadcrumb.domain
+package io.github.valeronm.breadcrumb.domain.atlas
 
+import io.github.valeronm.breadcrumb.domain.DistanceFn
+import io.github.valeronm.breadcrumb.domain.flatDistance
+import io.github.valeronm.breadcrumb.domain.sphereDistance
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows

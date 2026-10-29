@@ -49,7 +49,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import io.github.valeronm.breadcrumb.domain.StaySwipe
 import io.github.valeronm.breadcrumb.domain.TimelineItem
-import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import java.time.ZonedDateTime
 import java.util.Locale
@@ -92,7 +92,7 @@ internal fun PlacesTab(
     mapCamera: CameraCarry,
     onOpenData: () -> Unit,
     /** A city to open the map on; [onCityShown] runs once it is taken, and must clear it. */
-    city: TravelNaming.SpentCity?,
+    city: AtlasCity?,
     onCityShown: () -> Unit,
 ) {
     val context = LocalContext.current

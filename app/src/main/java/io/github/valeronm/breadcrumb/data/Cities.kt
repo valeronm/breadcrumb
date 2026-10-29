@@ -4,8 +4,8 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Configuration
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.domain.CityAtlas
-import io.github.valeronm.breadcrumb.domain.CountryBorders
+import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
+import io.github.valeronm.breadcrumb.domain.atlas.CountryBorders
 import java.util.Locale
 
 /**

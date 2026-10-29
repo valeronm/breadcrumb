@@ -1,5 +1,7 @@
-package io.github.valeronm.breadcrumb.domain
+package io.github.valeronm.breadcrumb.domain.atlas
 
+import io.github.valeronm.breadcrumb.domain.latAt
+import io.github.valeronm.breadcrumb.domain.lonAt
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import kotlin.math.roundToLong

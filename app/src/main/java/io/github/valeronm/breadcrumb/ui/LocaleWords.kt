@@ -11,7 +11,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.TravelLabel
-import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.atlas.ListedCity
 import io.github.valeronm.breadcrumb.util.PerLocale
 import java.time.Instant
 import java.time.LocalDate
@@ -130,7 +130,7 @@ internal fun countryDisplayName(code: String): String {
 }
 
 @Composable
-internal fun listedCityName(city: TravelNaming.ListedCity): String =
+internal fun listedCityName(city: ListedCity): String =
     city.region?.let { stringResource(R.string.common_city_in_region, city.name, it) } ?: city.name
 
 // `LLLL`, not `MMMM`: a month named on its own takes the stand-alone form, which in the Slavic

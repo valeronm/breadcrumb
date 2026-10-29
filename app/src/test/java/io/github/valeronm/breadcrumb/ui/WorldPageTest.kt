@@ -19,9 +19,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.VisitedWorld.City
 import io.github.valeronm.breadcrumb.domain.VisitedWorld.Country
+import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -41,11 +41,11 @@ class WorldPageTest {
     private fun days(n: Int) = context.resources.getQuantityString(R.plurals.insights_world_days, n, n)
 
     private val countries = listOf(
-        Country("XX", 40, listOf(City(TravelNaming.SpentCity(0, "Hometown", "XX"), 38, sharesName = false), City(SEASIDE, 3, sharesName = false))),
+        Country("XX", 40, listOf(City(AtlasCity(0, "Hometown", "XX"), 38, sharesName = false), City(SEASIDE, 3, sharesName = false))),
         Country("YY", 1, emptyList()),
     )
 
-    private val opened = mutableListOf<TravelNaming.SpentCity>()
+    private val opened = mutableListOf<AtlasCity>()
 
     private fun toggle(@StringRes label: Int) = SemanticsMatcher("taps to ${context.getString(label)}") {
         it.config.getOrNull(SemanticsActions.OnClick)?.label == context.getString(label)
@@ -92,8 +92,8 @@ class WorldPageTest {
                 "XX",
                 2,
                 listOf(
-                    City(TravelNaming.SpentCity(0, "Twin", "XX", "North"), 1, sharesName = true),
-                    City(TravelNaming.SpentCity(1, "Twin", "XX", "South"), 1, sharesName = true),
+                    City(AtlasCity(0, "Twin", "XX", "North"), 1, sharesName = true),
+                    City(AtlasCity(1, "Twin", "XX", "South"), 1, sharesName = true),
                 ),
             ),
         )
@@ -106,7 +106,7 @@ class WorldPageTest {
     }
 
     private fun showLongList() {
-        val towns = (0 until 40).map { City(TravelNaming.SpentCity(it, "Town $it", "XX"), 1, sharesName = false) }
+        val towns = (0 until 40).map { City(AtlasCity(it, "Town $it", "XX"), 1, sharesName = false) }
         val others = Locale.getISOCountries().take(20).map { Country(it, 1, emptyList()) }
         compose.setContent { AppTheme { CountryList(listOf(Country("XX", 40, towns)) + others) { opened += it } } }
         compose.onNode(toggle(R.string.insights_world_show_cities)).performClick()
@@ -135,6 +135,6 @@ class WorldPageTest {
     }
 
     private companion object {
-        val SEASIDE = TravelNaming.SpentCity(1, "Seaside", "XX")
+        val SEASIDE = AtlasCity(1, "Seaside", "XX")
     }
 }

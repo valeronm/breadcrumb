@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
+import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

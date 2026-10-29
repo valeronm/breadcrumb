@@ -1,5 +1,8 @@
-package io.github.valeronm.breadcrumb.domain
+package io.github.valeronm.breadcrumb.domain.atlas
 
+import io.github.valeronm.breadcrumb.domain.ORIGIN_LAT
+import io.github.valeronm.breadcrumb.domain.flatDistance
+import io.github.valeronm.breadcrumb.domain.lonAt
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import kotlin.math.roundToInt
@@ -96,8 +99,8 @@ internal fun regionNamesOf(rowCount: Int, vararg names: String?, parsedFor: Int 
 }
 
 /** The city this atlas names at [city]'s own coordinate. */
-internal fun CityAtlas.spentCityAt(city: TestCity): TravelNaming.SpentCity =
-    TravelNaming.SpentCity.of(naming(city.lat, city.lon, flatDistance)!!)
+internal fun CityAtlas.atlasCityAt(city: TestCity): AtlasCity =
+    AtlasCity.of(naming(city.lat, city.lon, flatDistance)!!)
 
 internal fun ByteArrayOutputStream.u8(v: Int) = write(v and 0xFF)
 

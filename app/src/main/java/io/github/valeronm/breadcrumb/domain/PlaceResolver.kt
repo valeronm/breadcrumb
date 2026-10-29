@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 
 /**
  * Resolves endpoint clusters to places: stays and gaps arrive already carrying their cluster ids

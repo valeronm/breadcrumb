@@ -1,8 +1,8 @@
 package io.github.valeronm.breadcrumb.ui
 
-import io.github.valeronm.breadcrumb.domain.CountryBorders
-import io.github.valeronm.breadcrumb.domain.TestOutline
-import io.github.valeronm.breadcrumb.domain.bordersBytes
+import io.github.valeronm.breadcrumb.domain.atlas.CountryBorders
+import io.github.valeronm.breadcrumb.domain.atlas.TestOutline
+import io.github.valeronm.breadcrumb.domain.atlas.bordersBytes
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

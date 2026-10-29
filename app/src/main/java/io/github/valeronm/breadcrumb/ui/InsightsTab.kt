@@ -63,6 +63,7 @@ import io.github.valeronm.breadcrumb.domain.MonthTotals
 import io.github.valeronm.breadcrumb.domain.MonthlyTotals
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
 import io.github.valeronm.breadcrumb.util.PerLocale
 import java.time.LocalDate
 import java.time.YearMonth
@@ -85,7 +86,7 @@ internal fun InsightsTab(
     viewModel: TrackListViewModel,
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     onOpenData: () -> Unit,
-    onOpenCity: (TravelNaming.SpentCity) -> Unit,
+    onOpenCity: (AtlasCity) -> Unit,
 ) {
     val pages = InsightsPage.entries
     val pager = rememberPagerState { pages.size }

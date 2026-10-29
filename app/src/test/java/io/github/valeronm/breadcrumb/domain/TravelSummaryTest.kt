@@ -2,6 +2,11 @@ package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
+import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
+import io.github.valeronm.breadcrumb.domain.atlas.TestCity
+import io.github.valeronm.breadcrumb.domain.atlas.atlasCityAt
+import io.github.valeronm.breadcrumb.domain.atlas.atlasOf
+import io.github.valeronm.breadcrumb.domain.atlas.testCity
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -23,7 +28,7 @@ class TravelSummaryTest {
 
     private val hour = 3_600_000L
     private fun at(city: TestCity) = Coordinate(city.lat, city.lon)
-    private fun spentCity(city: TestCity) = atlas.spentCityAt(city)
+    private fun atlasCity(city: TestCity) = atlas.atlasCityAt(city)
 
     private var nextId = 0L
 
@@ -74,7 +79,7 @@ class TravelSummaryTest {
         )
 
         assertEquals(listOf("Seaside", "Hill town"), summary.destinations)
-        assertEquals(setOf(spentCity(seaside), spentCity(hillTown)), summary.cities)
+        assertEquals(setOf(atlasCity(seaside), atlasCity(hillTown)), summary.cities)
         assertEquals(setOf("XX", "YY"), summary.countries)
     }
 
@@ -104,7 +109,7 @@ class TravelSummaryTest {
 
         assertEquals(listOf("Seaside", "Mum's"), summary.destinations)
         // The city is still the city, whatever the journey chose to call the stop in it.
-        assertEquals(setOf(spentCity(seaside), spentCity(hillTown)), summary.cities)
+        assertEquals(setOf(atlasCity(seaside), atlasCity(hillTown)), summary.cities)
     }
 
     @Test fun `the road is not a place on it`() {
@@ -118,7 +123,7 @@ class TravelSummaryTest {
         )
 
         assertEquals(listOf("Seaside"), summary.destinations)
-        assertEquals(setOf(spentCity(seaside)), summary.cities)
+        assertEquals(setOf(atlasCity(seaside)), summary.cities)
         assertEquals(setOf("XX", "YY"), summary.countries)
     }
 
@@ -157,7 +162,7 @@ class TravelSummaryTest {
         // Half an hour is not a destination, but it is still half an hour spent somewhere.
         assertEquals(listOf("Seaside"), summary.destinations)
         assertEquals(
-            mapOf(spentCity(seaside) to 20 * hour, spentCity(hillTown) to hour / 2),
+            mapOf(atlasCity(seaside) to 20 * hour, atlasCity(hillTown) to hour / 2),
             summary.timeByCity,
         )
     }
@@ -170,7 +175,7 @@ class TravelSummaryTest {
             listOf(at(seaside), nearSeaside),
         )
 
-        assertEquals(mapOf(spentCity(seaside) to 7 * hour), summary.timeByCity)
+        assertEquals(mapOf(atlasCity(seaside) to 7 * hour), summary.timeByCity)
     }
 
     @Test fun `the road contributes nothing to the city time map`() {
@@ -181,7 +186,7 @@ class TravelSummaryTest {
             places,
         )
 
-        assertEquals(mapOf(spentCity(seaside) to 20 * hour), summary.timeByCity)
+        assertEquals(mapOf(atlasCity(seaside) to 20 * hour), summary.timeByCity)
     }
 
     @Test fun `a person's place credits the city it sits in, not their name`() {
@@ -195,7 +200,7 @@ class TravelSummaryTest {
         )
 
         assertEquals(listOf("Mum's"), summary.destinations)
-        assertEquals(mapOf(spentCity(hillTown) to 5 * hour), summary.timeByCity)
+        assertEquals(mapOf(atlasCity(hillTown) to 5 * hour), summary.timeByCity)
     }
 
     @Test fun `a same-city track's credit is clipped to the journey's window`() {
@@ -206,7 +211,7 @@ class TravelSummaryTest {
         )
 
         // Ten minutes of pauses plus the four in-window hours of a track that runs six past it.
-        assertEquals(mapOf(spentCity(seaside) to (4 * hour + 10 * 60_000L)), summary.timeByCity)
+        assertEquals(mapOf(atlasCity(seaside) to (4 * hour + 10 * 60_000L)), summary.timeByCity)
     }
 
     @Test fun `a track's ends at the road are the road`() {
@@ -218,7 +223,7 @@ class TravelSummaryTest {
             tracks = listOf(track(hillTown, hillTown, startedAt = hour, endedAt = 5 * hour)),
         )
 
-        assertEquals(mapOf(spentCity(seaside) to 20 * hour), summary.timeByCity)
+        assertEquals(mapOf(atlasCity(seaside) to 20 * hour), summary.timeByCity)
     }
 
     @Test fun `tracks outside the journey's own window are not its time`() {

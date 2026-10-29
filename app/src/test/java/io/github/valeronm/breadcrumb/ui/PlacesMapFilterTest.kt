@@ -1,9 +1,9 @@
 package io.github.valeronm.breadcrumb.ui
 
-import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
-import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
+import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -92,7 +92,7 @@ class PlacesMapFilterTest {
         val here = place(visits = 5, lastSeen = RECENT).copy(locality = twin(row = 3))
         val namesake = place(visits = 5, lastSeen = RECENT).copy(locality = twin(row = 9))
 
-        assertEquals(listOf(here), placesIn(listOf(here, namesake), TravelNaming.SpentCity.of(twin(row = 3))))
+        assertEquals(listOf(here), placesIn(listOf(here, namesake), AtlasCity.of(twin(row = 3))))
     }
 
     private companion object {

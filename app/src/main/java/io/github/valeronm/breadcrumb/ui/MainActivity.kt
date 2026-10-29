@@ -89,6 +89,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.TripChains
+import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.UnitChoice
@@ -291,7 +292,7 @@ private fun MainScreen(
     // consumed.
     var placesHomeRequest by remember { mutableIntStateOf(0) }
     // A city another screen asked the Places map to open on, cleared once the tab has taken it.
-    var placesCity by remember { mutableStateOf<TravelNaming.SpentCity?>(null) }
+    var placesCity by remember { mutableStateOf<AtlasCity?>(null) }
     // The add-trip form's input, which is also the flag that it is open: the top bar opens it on
     // the day the Timeline was showing, a gap's page on the ends that gap already knows. Everything
     // the form does with it stays local to the form until its check mark.

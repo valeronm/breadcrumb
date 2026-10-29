@@ -12,7 +12,7 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
-import io.github.valeronm.breadcrumb.domain.TravelNaming.SpentCity
+import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import org.junit.Rule
 import org.junit.Test
@@ -28,7 +28,7 @@ class JourneyCitiesPageTest {
 
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
-    private fun show(timeByCity: Map<SpentCity, Long>) {
+    private fun show(timeByCity: Map<AtlasCity, Long>) {
         val night = LocalDate.of(2024, 5, 12)
         val travel = TravelDeriver.Travel(night, night, 0, 0, null, null, 0, HOUR, emptyMap())
         val summary = TravelNaming.Summary(
@@ -48,9 +48,9 @@ class JourneyCitiesPageTest {
     @Test fun `two towns sharing a name in one country each show their region`() {
         show(
             linkedMapOf(
-                SpentCity(0, "Twin", "XX", "North") to 3 * HOUR,
-                SpentCity(1, "Twin", "XX", "South") to 2 * HOUR,
-                SpentCity(2, "Lone", "XX", "North") to HOUR,
+                AtlasCity(0, "Twin", "XX", "North") to 3 * HOUR,
+                AtlasCity(1, "Twin", "XX", "South") to 2 * HOUR,
+                AtlasCity(2, "Lone", "XX", "North") to HOUR,
             ),
         )
 

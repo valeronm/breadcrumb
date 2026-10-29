@@ -1,4 +1,4 @@
-package io.github.valeronm.breadcrumb.domain
+package io.github.valeronm.breadcrumb.domain.atlas
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

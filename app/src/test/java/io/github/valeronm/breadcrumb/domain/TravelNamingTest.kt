@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
+import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -86,9 +87,9 @@ class TravelNamingTest {
     @Test fun `countries rank by their summed time, cities within each by their own`() {
         val sections = TravelNaming.citySections(
             linkedMapOf(
-                TravelNaming.SpentCity(0, "Braga", "PT") to 4 * hour,
-                TravelNaming.SpentCity(1, "Vigo", "ES") to 10 * hour,
-                TravelNaming.SpentCity(2, "Porto", "PT") to 8 * hour,
+                AtlasCity(0, "Braga", "PT") to 4 * hour,
+                AtlasCity(1, "Vigo", "ES") to 10 * hour,
+                AtlasCity(2, "Porto", "PT") to 8 * hour,
             ),
         )
 
@@ -101,8 +102,8 @@ class TravelNamingTest {
     @Test fun `tied cities keep the order they were visited in`() {
         val sections = TravelNaming.citySections(
             linkedMapOf(
-                TravelNaming.SpentCity(3, "First", "XX") to 6 * hour,
-                TravelNaming.SpentCity(4, "Second", "XX") to 6 * hour,
+                AtlasCity(3, "First", "XX") to 6 * hour,
+                AtlasCity(4, "Second", "XX") to 6 * hour,
             ),
         )
 

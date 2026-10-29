@@ -1,7 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
-import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
 
 internal class PlacesMapFilter(
     val visible: List<PlaceResolver.PlaceSummary>,
@@ -56,5 +56,5 @@ internal fun chipsShowingAll(places: List<PlaceResolver.PlaceSummary>, longAgoBe
     )
 }
 
-internal fun placesIn(places: List<PlaceResolver.PlaceSummary>, city: TravelNaming.SpentCity): List<PlaceResolver.PlaceSummary> =
+internal fun placesIn(places: List<PlaceResolver.PlaceSummary>, city: AtlasCity): List<PlaceResolver.PlaceSummary> =
     places.filter { summary -> summary.locality?.row == city.row }

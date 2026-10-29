@@ -4,6 +4,12 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
 import io.github.valeronm.breadcrumb.domain.VisitedWorld.City
 import io.github.valeronm.breadcrumb.domain.VisitedWorld.Country
+import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
+import io.github.valeronm.breadcrumb.domain.atlas.TestCity
+import io.github.valeronm.breadcrumb.domain.atlas.atlasCityAt
+import io.github.valeronm.breadcrumb.domain.atlas.atlasOf
+import io.github.valeronm.breadcrumb.domain.atlas.regionNamesOf
+import io.github.valeronm.breadcrumb.domain.atlas.testCity
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.Instant
@@ -25,7 +31,7 @@ class VisitedWorldTest {
     private fun at(city: TestCity) = Coordinate(city.lat, city.lon)
 
     private fun City(city: TestCity, days: Int): City =
-        VisitedWorld.City(atlas.spentCityAt(city), days, sharesName = false)
+        VisitedWorld.City(atlas.atlasCityAt(city), days, sharesName = false)
 
     private var nextId = 0L
 

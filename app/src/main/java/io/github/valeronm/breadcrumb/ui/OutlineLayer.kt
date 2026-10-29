@@ -1,6 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
-import io.github.valeronm.breadcrumb.domain.CountryBorders
+import io.github.valeronm.breadcrumb.domain.atlas.CountryBorders
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.LineLayer

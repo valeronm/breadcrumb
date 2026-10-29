@@ -1,5 +1,6 @@
-package io.github.valeronm.breadcrumb.domain
+package io.github.valeronm.breadcrumb.domain.atlas
 
+import io.github.valeronm.breadcrumb.domain.DistanceFn
 import java.nio.charset.StandardCharsets
 import kotlin.math.cos
 import kotlin.math.floor

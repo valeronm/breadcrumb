@@ -1,5 +1,8 @@
 package io.github.valeronm.breadcrumb.domain
 
+import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
+import io.github.valeronm.breadcrumb.domain.atlas.ListedCity
+import io.github.valeronm.breadcrumb.domain.atlas.namesakes
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -17,10 +20,10 @@ object VisitedWorld {
 
     /** Judged against the other cities the history has been to. */
     data class City(
-        override val city: TravelNaming.SpentCity,
+        override val city: AtlasCity,
         val days: Int,
         override val sharesName: Boolean,
-    ) : TravelNaming.ListedCity
+    ) : ListedCity
 
     /** [days] is not the sum of the cities' days: a day in two cities is one day here, and a stay
      *  that visits no city still counts one. */
@@ -33,13 +36,13 @@ object VisitedWorld {
         nowMs: Long,
     ): List<Country> {
         val countryDays = LinkedHashMap<String, MutableSet<LocalDate>>()
-        val cityDays = LinkedHashMap<TravelNaming.SpentCity, MutableSet<LocalDate>>()
+        val cityDays = LinkedHashMap<AtlasCity, MutableSet<LocalDate>>()
         for (credit in creditsOf(timeline, names, nowMs).sortedBy { it.start }) {
             val dates = datesOf(credit.start, credit.end, zoneOf(credit.clusterId))
             countryDays.getOrPut(credit.country, ::HashSet).addAll(dates)
             credit.city?.let { cityDays.getOrPut(it, ::HashSet).addAll(dates) }
         }
-        val shared = TravelNaming.namesakes(cityDays.keys)
+        val shared = namesakes(cityDays.keys)
         val citiesByCountry = cityDays.entries.groupBy({ it.key.country }) { (city, dates) ->
             City(city, dates.size, city in shared)
         }
@@ -51,7 +54,7 @@ object VisitedWorld {
     private class Credit(
         val clusterId: Int,
         val country: String,
-        val city: TravelNaming.SpentCity?,
+        val city: AtlasCity?,
         val start: Long,
         val end: Long,
     )
@@ -63,14 +66,14 @@ object VisitedWorld {
                 if (stay !is StayDeriver.Stay) continue
                 val cluster = derivation.clusters.getOrNull(stay.clusterId) ?: continue
                 val city = names.cityOf(cluster) ?: continue
-                val visited = if (names.visitsCity(cluster)) TravelNaming.SpentCity.of(city) else null
+                val visited = if (names.visitsCity(cluster)) AtlasCity.of(city) else null
                 add(Credit(stay.clusterId, city.country, visited, stay.start, stay.end ?: nowMs))
             }
             for (track in timeline.tracks) {
                 val startId = names.visitedClusterAt(derivation, track.start) ?: continue
                 val endId = names.visitedClusterAt(derivation, track.end) ?: continue
-                val city = names.cityOf(derivation.clusters[startId])?.let(TravelNaming.SpentCity::of) ?: continue
-                if (names.cityOf(derivation.clusters[endId])?.let(TravelNaming.SpentCity::of) != city) continue
+                val city = names.cityOf(derivation.clusters[startId])?.let(AtlasCity::of) ?: continue
+                if (names.cityOf(derivation.clusters[endId])?.let(AtlasCity::of) != city) continue
                 add(Credit(startId, city.country, city, track.startedAt, track.endedAt))
             }
         }

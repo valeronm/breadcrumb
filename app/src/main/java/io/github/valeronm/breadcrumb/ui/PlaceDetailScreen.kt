@@ -65,8 +65,8 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
-import io.github.valeronm.breadcrumb.domain.SpotCity
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.atlas.SpotCity
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.util.PerLocale
 import io.github.valeronm.breadcrumb.util.openInMaps
