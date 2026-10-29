@@ -6,9 +6,9 @@ import io.github.valeronm.breadcrumb.domain.VisitedWorld.City
 import io.github.valeronm.breadcrumb.domain.VisitedWorld.Country
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import io.github.valeronm.breadcrumb.domain.atlas.TestCity
+import io.github.valeronm.breadcrumb.domain.atlas.TwinTowns
 import io.github.valeronm.breadcrumb.domain.atlas.atlasCityAt
 import io.github.valeronm.breadcrumb.domain.atlas.atlasOf
-import io.github.valeronm.breadcrumb.domain.atlas.regionNamesOf
 import io.github.valeronm.breadcrumb.domain.atlas.testCity
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -65,25 +65,20 @@ class VisitedWorldTest {
     }
 
     @Test fun `two towns sharing a name in one country are two cities`() {
-        val north = testCity("Twin", 0.0, pop = 20)
-        val south = testCity("Twin", 90_000.0, pop = 20)
         val world = world(
-            listOf(north, south),
+            listOf(TwinTowns.north, TwinTowns.south),
             listOf(stay(0, day1, day1 + 2 * hour), stay(1, day1 + day, day1 + day + 2 * hour), stay(1, day1 + 2 * day, day1 + 2 * day + hour)),
-            atlas = atlasOf(north, south),
+            atlas = TwinTowns.atlas,
         )
 
         assertEquals(listOf("Twin" to 2, "Twin" to 1), world.single().cities.map { it.name to it.days })
     }
 
     @Test fun `a city carries its region only where another in its country shares its name`() {
-        val north = testCity("Twin", 0.0, pop = 20, region = 1)
-        val south = testCity("Twin", 90_000.0, pop = 20, region = 2)
-        val lone = testCity("Lone", 180_000.0, pop = 20, region = 1)
         val world = world(
-            listOf(north, south, lone),
+            listOf(TwinTowns.north, TwinTowns.south, TwinTowns.lone),
             listOf(stay(0, day1, day1 + hour), stay(1, day1 + day, day1 + day + hour), stay(2, day1 + 2 * day, day1 + 2 * day + hour)),
-            atlas = atlasOf(north, south, lone).withNames(CityAtlas.LocalNames.NONE, regionNamesOf(3, "North", "South")),
+            atlas = TwinTowns.atlas,
         )
 
         assertEquals(

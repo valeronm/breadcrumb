@@ -4,6 +4,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import io.github.valeronm.breadcrumb.domain.atlas.TestCity
+import io.github.valeronm.breadcrumb.domain.atlas.TwinTowns
 import io.github.valeronm.breadcrumb.domain.atlas.atlasCityAt
 import io.github.valeronm.breadcrumb.domain.atlas.atlasOf
 import io.github.valeronm.breadcrumb.domain.atlas.testCity
@@ -84,12 +85,10 @@ class TravelSummaryTest {
     }
 
     @Test fun `two towns sharing a name in one country count as two cities`() {
-        val north = testCity("Twin", 0.0, pop = 20)
-        val south = testCity("Twin", 90_000.0, pop = 20)
         val summary = summarize(
             travel(mapOf(0 to 5 * hour, 1 to 5 * hour)),
-            listOf(at(north), at(south)),
-            atlas = atlasOf(north, south),
+            listOf(at(TwinTowns.north), at(TwinTowns.south)),
+            atlas = TwinTowns.atlas,
         )
 
         assertEquals(2, summary.cities.size)

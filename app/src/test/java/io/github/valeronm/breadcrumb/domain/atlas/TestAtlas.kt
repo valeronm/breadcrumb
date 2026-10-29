@@ -98,6 +98,15 @@ internal fun regionNamesOf(rowCount: Int, vararg names: String?, parsedFor: Int 
     return CityAtlas.RegionNames.parse(out.toByteArray(), parsedFor)
 }
 
+/** Two towns named "Twin" in one country, in its regions North and South, and "Lone" in North. */
+internal object TwinTowns {
+    val north = testCity("Twin", 0.0, region = 1)
+    val south = testCity("Twin", 90_000.0, region = 2)
+    val lone = testCity("Lone", 180_000.0, region = 1)
+    val atlas: CityAtlas = atlasOf(north, south, lone)
+        .withNames(CityAtlas.LocalNames.NONE, regionNamesOf(3, "North", "South"))
+}
+
 /** The city this atlas names at [city]'s own coordinate. */
 internal fun CityAtlas.atlasCityAt(city: TestCity): AtlasCity =
     AtlasCity.of(naming(city.lat, city.lon, flatDistance)!!)
