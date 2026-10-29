@@ -71,8 +71,8 @@ internal class OverlayLayerState<T : Any>(over: OverlayLayerState<*>? = null) {
         over?.stackedOn?.add(this)
     }
 
-    /** Nothing above is open, so this layer's gesture is the one back should reach. */
-    val onTop: Boolean get() = stackedOn.none { it.requested }
+    /** Nothing above is open at any depth, so this layer's gesture is the one back should reach. */
+    val onTop: Boolean get() = stackedOn.none { it.requested || !it.onTop }
 
     /**
      * Dismiss every layer stacked on this one, however deep — a landing on this layer's own content.
