@@ -25,3 +25,5 @@ class ReachesDao(val dao: TrackDao)
 class ReachesRecorder(val recorder: RecorderAdapter)
 
 class ReachesSharedRow(val track: Track)
+
+class AtlasInput

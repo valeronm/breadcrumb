@@ -26,6 +26,7 @@ import io.github.valeronm.breadcrumb.boundaryfixture.data.db.PlatformRow
 import io.github.valeronm.breadcrumb.boundaryfixture.data.db.RoomRow
 import io.github.valeronm.breadcrumb.boundaryfixture.data.db.TrackDao
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.AliasedPlatformImport
+import io.github.valeronm.breadcrumb.boundaryfixture.domain.AtlasInput
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.HandWrittenPlatformAnnotation
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.QualifiedPlatformReference
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.ReachesDao
@@ -33,6 +34,8 @@ import io.github.valeronm.breadcrumb.boundaryfixture.domain.ReachesRecorder
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.ReachesRepository
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.ReachesSharedRow
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.ReachesUi
+import io.github.valeronm.breadcrumb.boundaryfixture.domain.atlas.AtlasReachesDomain
+import io.github.valeronm.breadcrumb.boundaryfixture.domain.atlas.AtlasValue
 import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreEffect
 import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreReachesAdapter
 import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreValue
@@ -40,6 +43,8 @@ import io.github.valeronm.breadcrumb.boundaryfixture.location.RecorderAdapter
 import io.github.valeronm.breadcrumb.boundaryfixture.ui.Screen
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackStats
+import io.github.valeronm.breadcrumb.domain.DistanceFn
+import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import io.github.valeronm.breadcrumb.location.ActivityIngest
 import io.github.valeronm.breadcrumb.location.ActivitySettings
 import io.github.valeronm.breadcrumb.location.DepartureTriggers
@@ -74,6 +79,10 @@ class PackageBoundariesTest {
     @Test
     fun `the recorder core depends only on what domain may, the track policy and itself`() =
         recorderCoreRule(APP).check(app)
+
+    @Test
+    fun `the atlas depends only on the standard libraries, itself and its domain inputs`() =
+        atlasRule(APP).check(app)
 
     @Test
     fun `the domain rule rejects an aliased platform import`() =
@@ -139,6 +148,14 @@ class PackageBoundariesTest {
     fun `the recorder core rule accepts the domain, a shared row, the track policy and itself`() =
         recorderCoreRule(FIXTURE).check(fixture(CoreValue::class))
 
+    @Test
+    fun `the atlas rule rejects a domain class outside its inputs`() =
+        assertRejected(atlasRule(FIXTURE), AtlasReachesDomain::class, ReachesSharedRow::class)
+
+    @Test
+    fun `the atlas rule accepts its domain inputs, itself and the standard libraries`() =
+        atlasRule(FIXTURE).check(fixture(AtlasValue::class))
+
     private fun assertRejected(rule: ArchRule, subject: KClass<*>, target: KClass<*>) {
         val details = rule.evaluate(fixture(subject)).failureReport.details
         val name = target.java.name
@@ -152,13 +169,15 @@ class PackageBoundariesTest {
         rows: List<String>,
         cores: List<KClass<*>>,
         policy: List<KClass<*>>,
+        atlasInputs: List<KClass<*>>,
     ) {
         val domain = resideInAPackage("$root.domain..")
         val sharedRows = named("are shared rows", rows.map { "$root.data.db.$it" })
-        val domainReach =
-            resideInAnyPackage("java..", "kotlin..").or(domain).or(sharedRows).or(COMPILER_ANNOTATIONS)
-        val recorderCore = belongTo(named("the recorder core", cores.map { it.java.name }))
-        val trackPolicy = belongTo(named("the track policy", policy.map { it.java.name }))
+        val domainReach = STANDARD.or(domain).or(sharedRows)
+        val recorderCore = members("the recorder core", cores)
+        val trackPolicy = members("the track policy", policy)
+        val atlas = resideInAPackage("$root.domain.atlas..")
+        val atlasReach = STANDARD.or(atlas).or(members("the atlas's domain inputs", atlasInputs))
     }
 
     private companion object {
@@ -171,6 +190,8 @@ class PackageBoundariesTest {
                 "androidx.compose.runtime.internal.StabilityInferred",
             ),
         )
+
+        val STANDARD = resideInAnyPackage("java..", "kotlin..").or(COMPILER_ANNOTATIONS)
 
         val APP = PackageTree(
             "io.github.valeronm.breadcrumb",
@@ -191,12 +212,14 @@ class PackageBoundariesTest {
             ),
             // The track policy defaults its distance to AndroidDistance, which no rule here checks.
             policy = listOf(TrackQuality::class, TrackStats::class),
+            atlasInputs = listOf(DistanceFn::class, PlaceSearch::class),
         )
         val FIXTURE = PackageTree(
             "${APP.root}.boundaryfixture",
             rows = listOf("Track", "PlatformRow", "RoomRow"),
             cores = listOf(CoreEffect::class, CoreValue::class, CoreReachesAdapter::class),
             policy = listOf(TrackPolicy::class),
+            atlasInputs = listOf(AtlasInput::class),
         )
 
         // ArchUnit's `ImportOption.DoNotIncludeTests` does not match AGP's unit-test output folders.
@@ -231,6 +254,8 @@ class PackageBoundariesTest {
                 tree.domainReach.or(tree.recorderCore).or(tree.trackPolicy),
             )
 
+        fun atlasRule(tree: PackageTree): ArchRule = onlyReach(tree.atlas, tree.atlasReach)
+
         // An array carries neither its element's name nor its enclosing class.
         fun onlyReach(
             subjects: DescribedPredicate<in JavaClass>,
@@ -242,5 +267,8 @@ class PackageBoundariesTest {
 
         fun named(description: String, names: Collection<String>): DescribedPredicate<JavaClass> =
             DescribedPredicate.describe(description) { it.name in names }
+
+        fun members(description: String, types: List<KClass<*>>): DescribedPredicate<JavaClass> =
+            belongTo(named(description, types.map { it.java.name }))
     }
 }
