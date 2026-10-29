@@ -1,16 +1,13 @@
 package io.github.valeronm.breadcrumb.ui
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Place
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,21 +48,38 @@ internal fun WorldPage(
 @Composable
 internal fun CountryList(countries: List<VisitedWorld.Country>, onOpenCity: (TravelNaming.SpentCity) -> Unit) {
     val cityCount = countries.sumOf { it.cities.size }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
+    // Kept across rotation and paging away.
+    var open by rememberSaveable { mutableStateOf(listOf<String>()) }
+    val list = rememberLazyListState()
+    LazyColumn(state = list, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
         item(key = "totals") {
             StatHeaderRow(
                 stringResource(R.string.insights_world_stat_countries) to "${countries.size}",
                 stringResource(R.string.insights_world_stat_cities) to "$cityCount",
             )
         }
-        itemsIndexed(countries, key = { _, country -> country.code }) { index, country ->
-            // Kept by the item's key across rotation and paging away.
-            var isOpen by rememberSaveable { mutableStateOf(false) }
-            CountryCard(country, isOpen, groupedRowShape(index, countries.size), { isOpen = !isOpen }, onOpenCity)
+        countries.forEachIndexed { index, country ->
+            val isOpen = country.code in open
+            val shape = groupedRowShape(index, countries.size)
+            stickyHeading(country.code, PaddingValues(top = 2.dp)) {
+                CountryCard(country, isOpen, if (isOpen) cardAboveBand(shape) else shape) {
+                    // The list keeps its place by its first visible row, which closing a pinned card removes.
+                    val cardIndex = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == country.code }?.index
+                    if (isOpen && cardIndex != null && list.firstVisibleItemIndex > cardIndex) list.requestScrollToItem(cardIndex)
+                    open = if (isOpen) open - country.code else open + country.code
+                }
+            }
+            if (isOpen) {
+                itemsIndexed(country.cities, key = { _, city -> "city:${city.city.row}" }) { cityIndex, city ->
+                    ListRowBandItem(
+                        cityIndex,
+                        country.cities.size,
+                        shape,
+                        onClick = { onOpenCity(city.city) },
+                        onClickLabel = stringResource(R.string.insights_world_show_on_map),
+                    ) { CityRow(city) }
+                }
+            }
         }
     }
 }
@@ -76,10 +90,10 @@ private fun CountryCard(
     isOpen: Boolean,
     shape: RoundedCornerShape,
     onToggle: () -> Unit,
-    onOpenCity: (TravelNaming.SpentCity) -> Unit,
 ) {
     val code = country.code
     val cityCount = country.cities.size
+    val toggleLabel = stringResource(if (isOpen) R.string.insights_world_hide_cities else R.string.insights_world_show_cities)
     ListRowCard(
         shape = shape,
         leading = { Text(flagOf(code), fontSize = 24.sp) },
@@ -91,43 +105,27 @@ private fun CountryCard(
                 if (cityCount > 0) pluralStringResource(R.plurals.insights_cities, cityCount, cityCount) else null,
             ).joinToString(" · "),
         ),
+        onClick = if (cityCount > 0) onToggle else null,
+        onClickLabel = toggleLabel,
         trailing = if (cityCount > 0) {
-            {
-                ListRowExpandToggle(
-                    isOpen,
-                    stringResource(if (isOpen) R.string.insights_world_hide_cities else R.string.insights_world_show_cities),
-                    onToggle,
-                )
-            }
+            { ListRowExpandMark(isOpen) }
         } else {
             null
         },
-        below = if (isOpen) {
-            {
-                ListRowBand(
-                    country.cities,
-                    onClick = { onOpenCity(it.city) },
-                    onClickLabel = stringResource(R.string.insights_world_show_on_map),
-                ) { _, city ->
-                    Text(listedCityName(city), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                    Text(
-                        pluralStringResource(R.plurals.insights_world_days, city.days, city.days),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    // The Places tab's own pin, for where a tap on the row goes.
-                    ListRowEndColumn {
-                        Icon(
-                            Icons.Outlined.Place,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        } else {
-            null
-        },
+    )
+}
+
+@Composable
+private fun RowScope.CityRow(city: VisitedWorld.City) {
+    Text(
+        listedCityName(city),
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.weight(1f),
+    )
+    Text(
+        pluralStringResource(R.plurals.insights_world_days, city.days, city.days),
+        // Equal-width digits line the day counts up down the column.
+        style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }

@@ -473,17 +473,20 @@ internal fun DayHeading(label: String) {
 }
 
 /** Rows scroll beneath a pinned heading, so its body is opaque and swallows taps. */
-internal fun LazyListScope.stickyHeading(key: Any, content: @Composable ColumnScope.() -> Unit) =
-    stickyHeader(key = key) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.background)
-                .swallowTaps()
-                .padding(top = 14.dp, bottom = 6.dp),
-            content = content,
-        )
-    }
+internal fun LazyListScope.stickyHeading(
+    key: Any,
+    padding: PaddingValues = PaddingValues(top = 14.dp, bottom = 6.dp),
+    content: @Composable ColumnScope.() -> Unit,
+) = stickyHeader(key = key) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
+            .swallowTaps()
+            .padding(padding),
+        content = content,
+    )
+}
 
 /**
  * The switch over a tab whose views are the same content drawn two ways — a connected button group

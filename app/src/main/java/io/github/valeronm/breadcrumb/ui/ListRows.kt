@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.ZeroCornerSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
@@ -32,6 +33,8 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
@@ -39,7 +42,9 @@ import androidx.compose.material3.SwipeToDismissBoxDefaults
 import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,8 +58,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -156,6 +164,7 @@ internal fun ListRowCard(
     highlighted: Boolean = false,
     outlined: Boolean = false,
     onClick: (() -> Unit)? = null,
+    onClickLabel: String? = null,
     trailing: (@Composable () -> Unit)? = null,
     below: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
@@ -189,7 +198,7 @@ internal fun ListRowCard(
         }
         below?.invoke(this)
     }
-    RowCard(shape, onClick, modifier, outlined, highlighted, rowContent)
+    RowCard(shape, onClick, modifier, outlined, highlighted, onClickLabel, rowContent)
 }
 
 private val ROW_PADDING = 16.dp
@@ -204,50 +213,117 @@ internal val LIST_ROW_END_PADDING = ROW_PADDING
 
 @Composable
 internal fun ListRowExpandToggle(expanded: Boolean, contentDescription: String, onToggle: () -> Unit) {
-    FilledTonalIconButton(onClick = onToggle) {
-        Icon(
-            Icons.Filled.ExpandMore,
-            contentDescription = contentDescription,
-            modifier = Modifier.rotate(if (expanded) 180f else 0f),
-        )
+    FilledTonalIconButton(onClick = onToggle) { ExpandArrow(expanded, contentDescription) }
+}
+
+/** A [ListRowExpandToggle]'s look with nothing to press and no label. */
+@Composable
+internal fun ListRowExpandMark(expanded: Boolean) {
+    val colors = IconButtonDefaults.filledTonalIconButtonColors()
+    Box(
+        Modifier
+            .minimumInteractiveComponentSize()
+            .size(IconButtonDefaults.smallContainerSize())
+            .background(colors.containerColor, IconButtonDefaults.filledShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        CompositionLocalProvider(LocalContentColor provides colors.contentColor) { ExpandArrow(expanded, null) }
     }
 }
 
-/** Rows inset to a [ListRowCard]'s text, for its `below`. */
+@Composable
+private fun ExpandArrow(expanded: Boolean, contentDescription: String?) {
+    Icon(Icons.Filled.ExpandMore, contentDescription, Modifier.rotate(if (expanded) 180f else 0f))
+}
+
+/**
+ * Rows inset to a [ListRowCard]'s text, for its `below`. On a device, a row far enough down one tall
+ * lazy list item takes no touch; [ListRowBandItem] makes each row an item of its own.
+ */
 @Composable
 internal fun <T> ListRowBand(
     items: List<T>,
     onClick: (T) -> Unit,
-    onClickLabel: String? = null,
     row: @Composable RowScope.(index: Int, item: T) -> Unit,
 ) {
-    // A wash of the content color rather than another surface role: it reads a step off the card
-    // whatever the card's own tone, in either theme.
     Column(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = BAND_ALPHA))
-            .padding(vertical = 4.dp),
+            .background(bandWash())
+            .padding(vertical = BAND_EDGE),
     ) {
         items.forEachIndexed { index, item ->
-            if (index > 0) {
-                HorizontalDivider(
-                    Modifier.padding(start = LIST_ROW_TEXT_INDENT, end = LIST_ROW_END_PADDING),
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                )
-            }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(onClickLabel = onClickLabel) { onClick(item) }
-                    .padding(start = LIST_ROW_TEXT_INDENT, end = LIST_ROW_END_PADDING, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) { row(index, item) }
+            BandRow(divided = index > 0, onClick = { onClick(item) }, onClickLabel = null) { row(index, item) }
         }
     }
 }
 
+/**
+ * Row [index] of [count] in a [ListRowBand] laid out as a lazy list item of its own, under a
+ * [ListRowCard] of [cardShape] whose fill and bottom corners it continues.
+ */
+@Composable
+internal fun ListRowBandItem(
+    index: Int,
+    count: Int,
+    cardShape: RoundedCornerShape,
+    onClick: () -> Unit,
+    onClickLabel: String,
+    row: @Composable RowScope.() -> Unit,
+) {
+    val last = index == count - 1
+    val corners = if (last) Modifier.clip(cardShape.copy(topStart = ZeroCornerSize, topEnd = ZeroCornerSize)) else Modifier
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .then(corners)
+            .background(bandWash().compositeOver(rowCardColors(outlined = false).containerColor))
+            .padding(top = if (index == 0) BAND_EDGE else 0.dp, bottom = if (last) BAND_EDGE else 0.dp),
+    ) {
+        BandRow(
+            divided = index > 0,
+            onClick = onClick,
+            onClickLabel = onClickLabel,
+            modifier = Modifier.heightIn(min = LocalMinimumInteractiveComponentSize.current),
+            row = row,
+        )
+    }
+}
+
+internal fun cardAboveBand(shape: RoundedCornerShape): RoundedCornerShape =
+    shape.copy(bottomStart = ZeroCornerSize, bottomEnd = ZeroCornerSize)
+
+@Composable
+private fun BandRow(
+    divided: Boolean,
+    onClick: () -> Unit,
+    onClickLabel: String?,
+    modifier: Modifier = Modifier,
+    row: @Composable RowScope.() -> Unit,
+) {
+    if (divided) {
+        HorizontalDivider(
+            Modifier.padding(start = LIST_ROW_TEXT_INDENT, end = LIST_ROW_END_PADDING),
+            color = MaterialTheme.colorScheme.outlineVariant,
+        )
+    }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clickable(onClickLabel = onClickLabel, onClick = onClick)
+            .padding(start = LIST_ROW_TEXT_INDENT, end = LIST_ROW_END_PADDING, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        content = row,
+    )
+}
+
+/** A wash of the content color rather than another surface role: it reads a step off the card
+ *  whatever the card's own tone, in either theme. */
+@Composable
+private fun bandWash(): Color = MaterialTheme.colorScheme.onSurface.copy(alpha = BAND_ALPHA)
+
 private const val BAND_ALPHA = 0.05f
+private val BAND_EDGE = 4.dp
 
 /**
  * The column ending a row, as wide as an icon button's touch target with its content centered, so
@@ -280,6 +356,7 @@ private fun RowCard(
     modifier: Modifier = Modifier,
     outlined: Boolean = false,
     highlighted: Boolean = false,
+    onClickLabel: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val resting = rowCardColors(outlined)
@@ -291,9 +368,11 @@ private fun RowCard(
     val cardColors = resting.copy(containerColor = fill)
     val border = rowCardBorder(outlined)
     if (onClick != null) {
+        // Card's onClick takes no label; a click action carrying only a label merges into the one Card sets.
+        val labeled = if (onClickLabel != null) Modifier.semantics { onClick(onClickLabel, action = null) } else Modifier
         Card(
             onClick = onClick,
-            modifier = modifier.fillMaxWidth(),
+            modifier = modifier.then(labeled).fillMaxWidth(),
             shape = shape,
             colors = cardColors,
             border = border,
