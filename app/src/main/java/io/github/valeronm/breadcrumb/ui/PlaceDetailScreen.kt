@@ -423,17 +423,11 @@ private fun PlaceLocality(at: Coordinate, nowMs: Long, viewModel: TrackListViewM
     val city by produceState<Locality?>(null, at) { value = viewModel.cityAt(at) }
     val resolved = city ?: return
     val country = countryNameOf(resolved.city.country, locale)
-    val region = resolved.region
     // Widest first, and the flag leading it: mid-line it splits the row in two, where at the
     // head it is the line's own glyph. No globe beside a line that already names a country, and
     // no flag where the country cannot be named either.
-    val label = if (country.isEmpty()) {
-        listedCityName(resolved)
-    } else {
-        val line = region?.let { stringResource(R.string.place_locality_in_region, country, resolved.name, it) }
-            ?: stringResource(R.string.place_locality, country, resolved.name)
-        "${flagOf(resolved.city.country)} $line"
-    }
+    val name = listedCityName(resolved)
+    val label = if (country.isEmpty()) name else "${flagOf(resolved.city.country)} ${stringResource(R.string.place_locality, country, name)}"
     // Off the city this line resolved, not off the summary's zone: one line, one answer about one
     // spot. Nothing trails a place keeping the reader's own clock — see [zoneShiftLabel].
     val shift = zoneShiftLabel(nowMs, zoneOrDevice(resolved.zoneId), timelineZone())

@@ -1048,11 +1048,8 @@ private fun nextToPlace(origin: TripEnd, destination: TripEnd): ManualPath.End? 
 /** Where a spot is: the atlas's city, its region where the atlas holds a namesake, and its country
  *  spelled out — one wording across this form, so a place cannot read as two different answers. */
 @Composable
-private fun localityLabel(locality: Locality): String {
-    val country = countryDisplayName(locality.city.country)
-    return locality.region?.let { stringResource(R.string.addtrip_locality_in_region, locality.name, it, country) }
-        ?: stringResource(R.string.addtrip_locality, locality.name, country)
-}
+private fun localityLabel(locality: Locality): String =
+    stringResource(R.string.addtrip_locality, listedCityName(locality), countryDisplayName(locality.city.country))
 
 /**
  * One end of the trip as the timeline row of the stay it will leave or arrive at. Its date and time
