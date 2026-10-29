@@ -24,13 +24,13 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.VisitedWorld
-import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
+import io.github.valeronm.breadcrumb.domain.atlas.ListedCity
 
 @Composable
 internal fun WorldPage(
     viewModel: TrackListViewModel,
     onOpenData: () -> Unit,
-    onOpenCity: (AtlasCity) -> Unit,
+    onOpenCity: (ListedCity) -> Unit,
 ) {
     val countries = viewModel.world.collectAsStateWithLifecycle().value
     when {
@@ -46,7 +46,7 @@ internal fun WorldPage(
 }
 
 @Composable
-internal fun CountryList(countries: List<VisitedWorld.Country>, onOpenCity: (AtlasCity) -> Unit) {
+internal fun CountryList(countries: List<VisitedWorld.Country>, onOpenCity: (ListedCity) -> Unit) {
     val cityCount = countries.sumOf { it.cities.size }
     // Kept across rotation and paging away.
     var open by rememberSaveable { mutableStateOf(listOf<String>()) }
@@ -75,7 +75,7 @@ internal fun CountryList(countries: List<VisitedWorld.Country>, onOpenCity: (Atl
                         cityIndex,
                         country.cities.size,
                         shape,
-                        onClick = { onOpenCity(city.city) },
+                        onClick = { onOpenCity(city) },
                         onClickLabel = stringResource(R.string.insights_world_show_on_map),
                     ) { CityRow(city) }
                 }

@@ -580,8 +580,8 @@ internal fun rememberStayPlaces(
 
 /**
  * Every place on one map: labeled pins for named places, small dots for unnamed clusters, sized
- * down the zoom range (see [overviewIconSize]) and framed to fit them all on open, unless [camera],
- * [goTo] or [focus] hands it a position — and again when [frameKey] asks. A pin is colored by its
+ * down the zoom range (see [overviewIconSize]) and framed to fit them all on open, unless [camera]
+ * or [goTo] hands it a position — and again when [frameKey] asks. A pin is colored by its
  * category's group and shows the category's glyph at [GLYPH_ZOOM]. Tapping a marker reports its key
  * via [onOpen].
  *
@@ -594,14 +594,14 @@ internal fun MapLibrePlacesMap(
     places: List<OverviewPlace>,
     /** Re-fits the camera to every place, as the map opened, when this differs from the value
      *  last applied. */
-    frameKey: Any,
+    frameKey: Any? = null,
     onOpen: (String) -> Unit,
     camera: CameraCarry,
     modifier: Modifier = Modifier,
     /** The phone's position, where the camera goes and the dot is drawn — see [MapCenterRequest]. */
     goTo: MapCenterRequest? = null,
-    /** Places another screen asked the camera to fit — see [MapFocusRequest]. */
-    focus: MapFocusRequest? = null,
+    /** The closest zoom the fit may reach, and where a lone place opens; null leaves the fit uncapped. */
+    maxZoom: Double? = null,
     crosshair: Boolean = false,
     topStart: (@Composable ColumnScope.() -> Unit)? = null,
     corner: @Composable () -> Unit = {},
@@ -616,12 +616,11 @@ internal fun MapLibrePlacesMap(
         modifier = modifier,
         camera = camera,
         crosshair = crosshair,
-        frame = { map -> if (opened != null) map.cameraPosition = opened else frameAllPlaces(map, places) },
+        frame = { map -> if (opened != null) map.cameraPosition = opened else frameAllPlaces(map, places, maxZoom) },
         frameKey = frameKey,
         // A filter changes the places a fit covers without moving the camera.
         frameCovers = pins.takeIf { opened == null },
-        openAt = goTo?.let { request -> { map -> moveCameraTo(map, request.at) } }
-            ?: focus?.let { request -> { map -> focusOn(map, request) } },
+        openAt = goTo?.let { request -> { map -> moveCameraTo(map, request.at) } },
         topStart = topStart,
         corner = corner,
         onMapReady = { map ->
@@ -632,7 +631,6 @@ internal fun MapLibrePlacesMap(
             }
         },
         onStyleLoaded = { ctx, _, style, dark ->
-            applied.focus = focus
             applied.places = places
             if (BuildConfig.DEV_TOOLS) addOutlineLayers(style, dark, outlines)
             applied.outlines = outlines
@@ -644,10 +642,6 @@ internal fun MapLibrePlacesMap(
             applied.goTo = goTo
         },
         onUpdate = { map, style ->
-            if (applied.focus !== focus) {
-                applied.focus = focus
-                focus?.let { focusOn(map, it) }
-            }
             if (applied.goTo !== goTo) {
                 applied.goTo = goTo
                 goTo?.let {
@@ -668,21 +662,14 @@ internal fun MapLibrePlacesMap(
     )
 }
 
-/** Capped at [FOCUS_MAX_ZOOM]: a fit to places a street apart would otherwise zoom past street level. */
-private fun focusOn(map: MapLibreMap, request: MapFocusRequest) {
-    frameTo(map, request.at.map { it.toLatLng() }, singlePointZoom = FOCUS_MAX_ZOOM)
-    val camera = map.cameraPosition
-    val target = camera.target
-    if (camera.zoom > FOCUS_MAX_ZOOM && target != null) map.cameraPosition = paddedCamera(map, target, FOCUS_MAX_ZOOM)
-    leftFrame(map)
-}
-
-private const val FOCUS_MAX_ZOOM = 15.0
-
 /** The overview map's one fit — on open and on [MapLibrePlacesMap]'s frameKey alike, so the home
  *  gesture lands exactly the frame the map opened with. */
-private fun frameAllPlaces(map: MapLibreMap, places: List<OverviewPlace>) =
-    frameTo(map, places.map { it.marker.location.toLatLng() }, singlePointZoom = 13.0)
+private fun frameAllPlaces(map: MapLibreMap, places: List<OverviewPlace>, maxZoom: Double? = null) {
+    frameTo(map, places.map { it.marker.location.toLatLng() }, singlePointZoom = maxZoom ?: 13.0)
+    val camera = map.cameraPosition
+    val target = camera.target
+    if (maxZoom != null && camera.zoom > maxZoom && target != null) map.cameraPosition = paddedCamera(map, target, maxZoom)
+}
 
 /**
  * The zoom from which the overview map draws what a place reaches. A default capture radius is about
@@ -780,7 +767,6 @@ internal class CameraCarry(private var carried: CameraPosition? = null) {
 private class AppliedOverviewInputs {
     var places: List<OverviewPlace>? = null
     var goTo: MapCenterRequest? = null
-    var focus: MapFocusRequest? = null
     var outlines: String? = null
 
     /** The click listener is registered once, so it reads the handler from here to never go stale. */
@@ -1013,9 +999,6 @@ private class AppliedTripInputs {
  * on an end names the same pin as the first and still means "take me back there".
  */
 internal class MapCenterRequest(val at: Coordinate)
-
-/** As with [MapCenterRequest], the instance is the request. */
-internal class MapFocusRequest(val at: List<Coordinate>)
 
 /**
  * The add-trip form's map: the user's places as the field the overview map draws — **the

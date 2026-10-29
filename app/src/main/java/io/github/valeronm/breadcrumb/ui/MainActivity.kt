@@ -89,7 +89,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.TripChains
-import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
+import io.github.valeronm.breadcrumb.domain.atlas.ListedCity
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.UnitChoice
@@ -291,8 +291,7 @@ private fun MainScreen(
     // because the map reads it as its frame key — a value that must change, not one that is
     // consumed.
     var placesHomeRequest by remember { mutableIntStateOf(0) }
-    // A city another screen asked the Places map to open on, cleared once the tab has taken it.
-    var placesCity by remember { mutableStateOf<AtlasCity?>(null) }
+    var cityPage by remember { mutableStateOf<ListedCity?>(null) }
     // The add-trip form's input, which is also the flag that it is open: the top bar opens it on
     // the day the Timeline was showing, a gap's page on the ends that gap already knows. Everything
     // the form does with it stays local to the form until its check mark.
@@ -341,25 +340,32 @@ private fun MainScreen(
         dismiss = { discardedTrackId = null },
     )
     // Journey detail: reached from the Insights tab or a Timeline band. It sits on the gap layer,
-    // which holds nothing under a journey, so that the place detail stacked on this one draws above
-    // a gap's page and the list beneath it.
+    // which holds nothing under a journey, so that the place detail stacked above draws over a gap's
+    // page and the list beneath it.
     val journeyLayer = rememberOverlayLayer(
         content = journeyKey,
         over = gapLayer,
         dismiss = { journeyKey = null },
+    )
+    // The journey layer beneath holds nothing under a city.
+    val cityLayer = rememberOverlayLayer(
+        content = cityPage,
+        over = journeyLayer,
+        dismiss = { cityPage = null },
     )
     val newPlaceLayer = rememberOverlayLayer(
         content = newPlacePick,
         over = tabsLayer,
         dismiss = { newPlacePick = null },
     )
-    // Place detail is reached from the Timeline, the Places list, a journey's map or a missing
-    // recording — stacked on the journey layer so one opened there draws above it and back returns
-    // to it. Opened from a tab, the journey layer holds nothing, which is the tabs showing through
-    // anyway (the same shape as the trip form over a track detail that isn't there).
+    // Place detail is reached from the Timeline, the Places list, a journey's or a city's map, or a
+    // missing recording — stacked on the city layer, itself on the journey layer, so one opened from
+    // either draws above it and back returns to it. Opened from a tab, those layers hold nothing,
+    // which is the tabs showing through anyway (the same shape as the trip form over a track detail
+    // that isn't there).
     val placeLayer = rememberOverlayLayer(
         content = placeDetailKey,
-        over = journeyLayer,
+        over = cityLayer,
         dismiss = { placeDetailKey = null },
         onClosed = { placeDetailSnapshot = null },
     )
@@ -588,17 +594,12 @@ private fun MainScreen(
                                 onOpenPlace = { placeDetailKey = it },
                                 mapCamera = placesMapCamera,
                                 onOpenData = { settingsPage = SettingsPage.Data },
-                                city = placesCity,
-                                onCityShown = { placesCity = null },
                             )
                             HomeTab.INSIGHTS -> InsightsTab(
                                 viewModel = viewModel,
                                 onOpenJourney = { journeyKey = it.travel.firstNightAt },
                                 onOpenData = { settingsPage = SettingsPage.Data },
-                                onOpenCity = {
-                                    placesCity = it
-                                    selectedTab = HomeTab.PLACES
-                                },
+                                onOpenCity = { cityPage = it },
                             )
                         }
                     }
@@ -744,6 +745,12 @@ private fun MainScreen(
                 timelineJump = TimelineJump.Day(day)
                 landOnTimeline()
             },
+            onOpenPlace = { placeDetailKey = it },
+        )
+
+        CityOverlay(
+            layer = cityLayer,
+            viewModel = viewModel,
             onOpenPlace = { placeDetailKey = it },
         )
 
@@ -1032,6 +1039,17 @@ private fun JourneyDetailOverlay(
                 onOpenPlace = onOpenPlace,
             )
         }
+    }
+}
+
+@Composable
+private fun CityOverlay(
+    layer: OverlayLayerState<ListedCity>,
+    viewModel: TrackListViewModel,
+    onOpenPlace: (String) -> Unit,
+) {
+    OverlayFrame(layer) { city ->
+        CityScreen(city = city, viewModel = viewModel, onBack = layer.dismiss, onOpenPlace = onOpenPlace)
     }
 }
 

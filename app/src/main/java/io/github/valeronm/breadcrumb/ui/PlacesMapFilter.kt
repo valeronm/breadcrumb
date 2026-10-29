@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
-import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
 
 internal class PlacesMapFilter(
     val visible: List<PlaceResolver.PlaceSummary>,
@@ -43,18 +42,3 @@ internal fun filterPlacesMap(
 // one whose stays were deleted) is rarer still.
 private fun PlaceResolver.PlaceSummary.isRareStop() =
     visitCount < PlaceResolver.NOTABLE_VISIT_MIN
-
-internal data class ChipsNeeded(val rareStops: Boolean, val longAgo: Boolean)
-
-/** Which chips must be on for [filterPlacesMap] to draw every one of [places]. */
-internal fun chipsShowingAll(places: List<PlaceResolver.PlaceSummary>, longAgoBeforeMs: Long): ChipsNeeded {
-    fun hidesAny(showRareStops: Boolean, showLongAgo: Boolean) =
-        filterPlacesMap(places, showRareStops, showLongAgo, longAgoBeforeMs).visible.size < places.size
-    return ChipsNeeded(
-        rareStops = hidesAny(showRareStops = false, showLongAgo = true),
-        longAgo = hidesAny(showRareStops = true, showLongAgo = false),
-    )
-}
-
-internal fun placesIn(places: List<PlaceResolver.PlaceSummary>, city: AtlasCity): List<PlaceResolver.PlaceSummary> =
-    places.filter { summary -> summary.locality?.row == city.row }

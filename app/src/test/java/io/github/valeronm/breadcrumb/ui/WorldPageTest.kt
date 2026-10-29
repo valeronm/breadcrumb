@@ -22,6 +22,7 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.VisitedWorld.City
 import io.github.valeronm.breadcrumb.domain.VisitedWorld.Country
 import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
+import io.github.valeronm.breadcrumb.domain.atlas.ListedCity
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -45,7 +46,7 @@ class WorldPageTest {
         Country("YY", 1, emptyList()),
     )
 
-    private val opened = mutableListOf<AtlasCity>()
+    private val opened = mutableListOf<ListedCity>()
 
     private fun toggle(@StringRes label: Int) = SemanticsMatcher("taps to ${context.getString(label)}") {
         it.config.getOrNull(SemanticsActions.OnClick)?.label == context.getString(label)
@@ -83,7 +84,7 @@ class WorldPageTest {
 
         compose.onNodeWithText("Seaside").performClick()
 
-        assertEquals(listOf(SEASIDE), opened)
+        assertEquals(listOf(SEASIDE), opened.map { it.city })
     }
 
     @Test fun `a city sharing its name shows its region`() {
@@ -102,7 +103,7 @@ class WorldPageTest {
 
         compose.onNodeWithText(context.getString(R.string.common_city_in_region, "Twin", "South")).performClick()
 
-        assertEquals(listOf(1), opened.map { it.row })
+        assertEquals(listOf(1), opened.map { it.city.row })
     }
 
     private fun showLongList() {

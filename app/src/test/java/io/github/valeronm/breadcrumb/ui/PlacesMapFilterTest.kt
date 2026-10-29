@@ -2,8 +2,6 @@ package io.github.valeronm.breadcrumb.ui
 
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
-import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
-import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -68,33 +66,6 @@ class PlacesMapFilterTest {
         assertEquals(PlacesMapFilter.Emptied.RARE_STOPS, filter.emptiedBy)
     }
 
-    @Test fun `recent places with enough visits need no chip on`() {
-        val places = listOf(place(visits = 5, lastSeen = RECENT))
-        assertEquals(ChipsNeeded(rareStops = false, longAgo = false), chipsShowingAll(places, SINCE))
-    }
-
-    @Test fun `a rare place among them needs the rare-stops chip`() {
-        val places = listOf(place(visits = 5, lastSeen = RECENT), place(visits = 1, lastSeen = RECENT))
-        assertEquals(ChipsNeeded(rareStops = true, longAgo = false), chipsShowingAll(places, SINCE))
-    }
-
-    @Test fun `a place last seen before the cutoff needs the long-ago chip`() {
-        val places = listOf(place(visits = 5, lastSeen = RECENT), place(visits = 5, lastSeen = OLD))
-        assertEquals(ChipsNeeded(rareStops = false, longAgo = true), chipsShowingAll(places, SINCE))
-    }
-
-    @Test fun `a rare place long ago needs both chips`() {
-        val places = listOf(place(visits = 1, lastSeen = OLD))
-        assertEquals(ChipsNeeded(rareStops = true, longAgo = true), chipsShowingAll(places, SINCE))
-    }
-
-    @Test fun `a city holds only the places of its own row, not those of a namesake`() {
-        val here = place(visits = 5, lastSeen = RECENT).copy(locality = twin(row = 3))
-        val namesake = place(visits = 5, lastSeen = RECENT).copy(locality = twin(row = 9))
-
-        assertEquals(listOf(here), placesIn(listOf(here, namesake), AtlasCity.of(twin(row = 3))))
-    }
-
     private companion object {
         const val SINCE = 1_000_000L
         const val RECENT = SINCE + 1_000L
@@ -110,7 +81,5 @@ class PlacesMapFilterTest {
             endpoints = emptyList(),
             endpointCentroid = null,
         )
-
-        fun twin(row: Int) = CityAtlas.City("Twin", "XX", "Etc/GMT", 20_000, 0.0, row)
     }
 }

@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
@@ -49,7 +48,6 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import io.github.valeronm.breadcrumb.domain.StaySwipe
 import io.github.valeronm.breadcrumb.domain.TimelineItem
-import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import java.time.ZonedDateTime
 import java.util.Locale
@@ -91,17 +89,10 @@ internal fun PlacesTab(
     /** Holds the map view's camera while that view is showing. */
     mapCamera: CameraCarry,
     onOpenData: () -> Unit,
-    /** A city to open the map on; [onCityShown] runs once it is taken, and must clear it. */
-    city: AtlasCity?,
-    onCityShown: () -> Unit,
 ) {
     val context = LocalContext.current
     val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
     val places = derivedPlaces.orEmpty()
-    // For the map's orange dots: stays the Timeline offers to merge away (TrackMerge's rules —
-    // short, finished, same activity on both sides). A place that is only such an artifact is
-    // marked rather than re-deciding eligibility here. Named places are exempt at the dot, not
-    // here: the merge rule doesn't spare them, but a label still says the place is meant.
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
     // Which view is open is a standing preference about how you read your places (InsightsTab has
     // the contrast), so it persists — written on the switch, never for the view the tab opened on.
@@ -145,44 +136,10 @@ internal fun PlacesTab(
     val mapFilter = remember(sorted, showRareStops, showLongAgo) {
         filterPlacesMap(sorted, showRareStops, showLongAgo, longAgoCutoff())
     }
-    // The page and chips switched for a city are this visit's only, never written as the reader's
-    // preference.
-    var cityFocus by remember { mutableStateOf<MapFocusRequest?>(null) }
-    LaunchedEffect(city, derivedPlaces != null) {
-        if (city == null || derivedPlaces == null) return@LaunchedEffect
-        val inCity = placesIn(sorted, city)
-        val needed = chipsShowingAll(inCity, longAgoCutoff())
-        showRareStops = showRareStops || needed.rareStops
-        showLongAgo = showLongAgo || needed.longAgo
-        page = PlacesPage.MAP
-        if (inCity.isNotEmpty()) {
-            // A camera carried from the map's last showing outranks the frame it opens on.
-            mapCamera.takeCarried()
-            cityFocus = MapFocusRequest(inCity.map { it.anchor })
-        }
-        onCityShown()
-    }
     // Derived here rather than in the map view, which is disposed on switching away — there, this
-    // history-wide walk would re-run on every return to the map. Stay identity (afterTrackId +
-    // start) survives the timeline's per-day slicing — a mergeable stay is short, so its first
-    // slice is the whole stay.
-    val mergeableStays = remember(timeline) {
-        timeline.orEmpty().filterIsInstance<TimelineItem.StayItem>()
-            .filter { it.swipe is StaySwipe.Merge }
-            .mapTo(HashSet()) { it.stay.afterTrackId to it.stay.start }
-    }
-    val mapPlaces = remember(mapFilter, mergeableStays) {
-        mapFilter.visible.map { summary ->
-            overviewPlaceOf(
-                summary,
-                // Never a named place: a merge offer says the split may be an artifact, but a
-                // label says the user meant this place, and the dot claims the opposite.
-                brief = !summary.isNamed &&
-                    summary.stays.singleOrNull()
-                        ?.let { (it.afterTrackId to it.start) in mergeableStays } == true,
-            )
-        }
-    }
+    // history-wide walk would re-run on every return to the map.
+    val mergeableStays = remember(timeline) { mergeableStaysOf(timeline) }
+    val mapPlaces = remember(mapFilter, mergeableStays) { overviewPlacesOf(mapFilter.visible, mergeableStays) }
     // Folded once per list change rather than once per place per keystroke: accent-stripping is an
     // NFD normalisation and a regex pass, and this list is the whole named history.
     val foldedNames = remember(sorted) {
@@ -229,7 +186,6 @@ internal fun PlacesTab(
             PlacesPage.MAP -> viewStateHolder.SaveableStateProvider(PlacesPage.MAP) {
                 PlacesMapPage(
                     mapPlaces = mapPlaces,
-                    focus = cityFocus,
                     emptiedBy = mapFilter.emptiedBy,
                     homeRequest = homeRequest,
                     onOpenPlace = onOpenPlace,
@@ -291,11 +247,33 @@ internal fun overviewPlaceOf(summary: PlaceResolver.PlaceSummary, brief: Boolean
     radiusM = summary.radiusM.takeIf { summary.isNamed },
 )
 
+/**
+ * The stays the Timeline offers to merge away, read off its rows rather than re-decided from
+ * TrackMerge's rules. Each is its afterTrackId and start, an identity that survives the timeline's
+ * per-day slicing, since a mergeable stay is short and its first slice is the whole stay.
+ */
+internal fun mergeableStaysOf(timeline: List<TimelineItem>?): Set<Pair<Long, Long>> =
+    timeline.orEmpty().filterIsInstance<TimelineItem.StayItem>()
+        .filter { it.swipe is StaySwipe.Merge }
+        .mapTo(HashSet()) { it.stay.afterTrackId to it.stay.start }
+
+internal fun overviewPlacesOf(
+    places: List<PlaceResolver.PlaceSummary>,
+    mergeableStays: Set<Pair<Long, Long>>,
+): List<OverviewPlace> = places.map { summary ->
+    overviewPlaceOf(
+        summary,
+        // Never a named place: a merge offer says the split may be an artifact, but a label says the
+        // user meant this place, and the dot claims the opposite.
+        brief = !summary.isNamed &&
+            summary.stays.singleOrNull()?.let { (it.afterTrackId to it.start) in mergeableStays } == true,
+    )
+}
+
 /** The all-places map in its card; the rare-stops filter rides on the map it declutters. */
 @Composable
 private fun PlacesMapPage(
     mapPlaces: List<OverviewPlace>,
-    focus: MapFocusRequest?,
     emptiedBy: PlacesMapFilter.Emptied?,
     homeRequest: Int,
     onOpenPlace: (String) -> Unit,
@@ -334,7 +312,6 @@ private fun PlacesMapPage(
                     camera = mapCamera,
                     modifier = Modifier.fillMaxSize(),
                     goTo = myLocation.goTo,
-                    focus = focus,
                     topStart = filters,
                     corner = { MyLocationControl(myLocation) },
                     outlines = outlines,
