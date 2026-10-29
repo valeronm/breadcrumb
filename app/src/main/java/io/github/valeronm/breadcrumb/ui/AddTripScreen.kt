@@ -90,6 +90,7 @@ import io.github.valeronm.breadcrumb.domain.EndTime
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
+import io.github.valeronm.breadcrumb.domain.SpotCity
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.isNamed
@@ -342,10 +343,10 @@ internal fun AddTripScreen(
     val routingOn = remember { AppSettings.isOnlineRouting(context) }
     val scope = rememberCoroutineScope()
 
-    val originCity by produceState<Locality?>(null, origin.pin) {
+    val originCity by produceState<SpotCity?>(null, origin.pin) {
         value = origin.pin?.let { viewModel.cityAt(it) }
     }
-    val destinationCity by produceState<Locality?>(null, destination.pin) {
+    val destinationCity by produceState<SpotCity?>(null, destination.pin) {
         value = destination.pin?.let { viewModel.cityAt(it) }
     }
     val originZone = zoneOrDevice(originCity?.zoneId)
@@ -741,7 +742,7 @@ internal fun AddTripScreen(
             // Filled in as rows appear and kept for the form's life: typing a name walks the same
             // handful of places on every keystroke, and a stored null is an answer (nothing in the
             // atlas reaches there), not a miss to retry.
-            val placeCities = remember { mutableStateMapOf<Long, Locality?>() }
+            val placeCities = remember { mutableStateMapOf<Long, SpotCity?>() }
             LaunchedEffect(placeMatches) {
                 for (place in placeMatches) {
                     if (place.id in placeCities) continue
@@ -1048,8 +1049,8 @@ private fun nextToPlace(origin: TripEnd, destination: TripEnd): ManualPath.End? 
 /** Where a spot is: the atlas's city, its region where the atlas holds a namesake, and its country
  *  spelled out — one wording across this form, so a place cannot read as two different answers. */
 @Composable
-private fun localityLabel(locality: Locality): String =
-    stringResource(R.string.addtrip_locality, listedCityName(locality), countryDisplayName(locality.city.country))
+private fun localityLabel(spot: SpotCity): String =
+    stringResource(R.string.addtrip_locality, listedCityName(spot), countryDisplayName(spot.city.country))
 
 /**
  * One end of the trip as the timeline row of the stay it will leave or arrive at. Its date and time
@@ -1062,7 +1063,7 @@ private fun TripEndCard(
     /** Which end this is, with the stay the timeline will show beside it. */
     label: String,
     end: TripEnd,
-    city: Locality?,
+    city: SpotCity?,
     zone: ZoneId,
     active: Boolean,
     onCenter: () -> Unit,

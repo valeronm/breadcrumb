@@ -65,6 +65,7 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.SpotCity
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.util.PerLocale
@@ -420,7 +421,7 @@ internal fun PlaceDetailScreen(
 @Composable
 private fun PlaceLocality(at: Coordinate, nowMs: Long, viewModel: TrackListViewModel, modifier: Modifier = Modifier) {
     val locale = LocalConfiguration.current.locales[0]
-    val city by produceState<Locality?>(null, at) { value = viewModel.cityAt(at) }
+    val city by produceState<SpotCity?>(null, at) { value = viewModel.cityAt(at) }
     val resolved = city ?: return
     val country = countryNameOf(resolved.city.country, locale)
     // Widest first, and the flag leading it: mid-line it splits the row in two, where at the

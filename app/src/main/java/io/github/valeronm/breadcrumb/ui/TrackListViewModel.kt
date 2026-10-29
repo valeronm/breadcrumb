@@ -32,6 +32,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.SpotCity
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.StaySwipe
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -858,12 +859,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * The containing city, so a spot inside a capital resolves to the capital rather than its
      * district. The first call loads the atlas.
      */
-    internal suspend fun cityAt(at: Coordinate): Locality? = withContext(Dispatchers.Default) {
+    internal suspend fun cityAt(at: Coordinate): SpotCity? = withContext(Dispatchers.Default) {
         // Bypasses [cityByPoint], which only the derivation's coroutine may touch.
         val atlas = Cities.atlas(getApplication(), language.value)
-        cityOf(at, atlas)?.let { city ->
-            Locality(TravelNaming.SpentCity.of(city), city.zoneId, atlas.hasNamesake(city.row))
-        }
+        cityOf(at, atlas)?.let { SpotCity.of(it, atlas) }
     }
 
     /** The country outlines as [outlinesGeoJson] writes them; the first call loads the atlas. */
@@ -896,10 +895,3 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         const val PENDING_PLACE_TIMEOUT_MS = 30_000L
     }
 }
-
-/** A single spot's city, judged against every town the atlas holds. */
-internal class Locality(
-    override val city: TravelNaming.SpentCity,
-    val zoneId: String,
-    override val sharesName: Boolean,
-) : TravelNaming.ListedCity
