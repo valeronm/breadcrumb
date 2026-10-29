@@ -35,7 +35,7 @@ object TravelNaming {
          * headline a journey was still somewhere its traveller went, and a stop the user named
          * themselves still sits in a city. Counted, never displayed as the journey's name.
          */
-        val cities: Set<String>,
+        val cities: Set<SpentCity>,
         /**
          * ISO 3166-1 alpha-2 codes the journey touched. Taken from every cluster it holds, not only
          * the ones that earned a name — a country crossed is a country visited, whether or not the
@@ -53,18 +53,33 @@ object TravelNaming {
         val timeByCity: Map<SpentCity, Long>,
     )
 
-    /**
-     * A city and the country holding it — the pair a Cities row is named by, and what keeps two
-     * towns sharing a name across a border from summing into one.
-     */
-    data class SpentCity(val name: String, val country: String) {
+    /** A city as the atlas row naming it, which keeps two towns sharing a name from summing into one. */
+    data class SpentCity(val row: Int, val name: String, val country: String, val region: String? = null) {
         companion object {
-            fun of(city: CityAtlas.City) = SpentCity(city.name, city.country)
+            fun of(city: CityAtlas.City) = SpentCity(city.row, city.name, city.country, city.region)
         }
     }
 
+    /**
+     * A city as a list of cities holds it, with [region] set only where another city in its country
+     * shares its name. Namesakes in one region, or in a region the atlas has no name for, still read
+     * alike.
+     */
+    interface ListedCity {
+        val city: SpentCity
+        val sharesName: Boolean
+        val name: String get() = city.name
+        val region: String? get() = city.region.takeIf { sharesName }
+    }
+
+    /** The cities among [cities] whose name another of them in the same country carries. */
+    fun namesakes(cities: Collection<SpentCity>): Set<SpentCity> =
+        cities.groupBy { it.country to it.name }.values.filter { it.size > 1 }.flatten().toSet()
+
+    data class CityTime(override val city: SpentCity, val ms: Long, override val sharesName: Boolean) : ListedCity
+
     /** One country's share of a journey: its cities most time first; their sum ranks it among its peers. */
-    class CitySection(val country: String, val cities: List<Pair<String, Long>>)
+    class CitySection(val country: String, val cities: List<CityTime>)
 
     /**
      * [Summary.timeByCity] as a Cities panel renders it: countries by the time the journey spent in
@@ -72,11 +87,13 @@ object TravelNaming {
      * part of the journey went. Ties keep arrival order, which is chronological — the stable sort
      * preserves it.
      */
-    fun citySections(timeByCity: Map<SpentCity, Long>): List<CitySection> =
-        timeByCity.entries
-            .groupBy({ it.key.country }, { it.key.name to it.value })
-            .map { (country, rows) -> CitySection(country, rows.sortedByDescending { it.second }) }
-            .sortedByDescending { section -> section.cities.sumOf { it.second } }
+    fun citySections(timeByCity: Map<SpentCity, Long>): List<CitySection> {
+        val shared = namesakes(timeByCity.keys)
+        return timeByCity.entries
+            .groupBy({ it.key.country }, { (city, ms) -> CityTime(city, ms, city in shared) })
+            .map { (country, rows) -> CitySection(country, rows.sortedByDescending { it.ms }) }
+            .sortedByDescending { section -> section.cities.sumOf { it.ms } }
+    }
 
     /** Each cluster's city, which [cities] supplies, and the place it grew from. */
     class ClusterNames(
@@ -131,7 +148,7 @@ object TravelNaming {
     private class Spent(
         val timeByName: LinkedHashMap<String, Long> = LinkedHashMap(),
         val timeByCity: LinkedHashMap<SpentCity, Long> = LinkedHashMap(),
-        val cities: LinkedHashSet<String> = LinkedHashSet(),
+        val cities: LinkedHashSet<SpentCity> = LinkedHashSet(),
         val countries: LinkedHashSet<String> = LinkedHashSet(),
     )
 
@@ -151,8 +168,8 @@ object TravelNaming {
                 // Stays alone, where timeByCity below also takes moving time: [cities] counts where
                 // the journey *stopped*, and a city only driven around in all day would otherwise
                 // join the count with no stay anywhere in it to show for itself.
-                spent.cities += it.name
                 val key = SpentCity.of(it)
+                spent.cities += key
                 spent.timeByCity[key] = (spent.timeByCity[key] ?: 0L) + ms
             }
             val name = nameOf(place, city?.name) ?: continue

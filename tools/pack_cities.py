@@ -9,7 +9,7 @@ of tab-separated text with 19 columns, of which the app needs few; this writes t
 fixed-width table sorted by latitude, which is what lets the lookup binary-search a coordinate
 instead of scanning 160,000 rows.
 
-    ./tools/pack_cities.py cities1000.txt alternateNamesV2.zip app/src/main
+    ./tools/pack_cities.py cities1000.txt alternateNamesV2.zip admin1CodesASCII.txt app/src/main
 
 The output is checked into the repo. Regenerate it only to take a newer dump — a fresh checkout and
 CI must never need the network for it — and run `pack_borders.py` after it, whose outlines are
@@ -55,6 +55,18 @@ the name itself.
                     row     int32   index into cities.bin's rows
                     nameLen uint8   UTF-8 byte length of the name
     names       concatenated UTF-8, in entry order
+
+And `res/raw/region_names.bin`, every region's GeoNames name, with `res/raw-<language>/region_names.bin`
+holding each region's name in that language, or its GeoNames name where it has none. Whole tables
+rather than differences, since a few thousand names cost little. Source:
+https://download.geonames.org/export/dump/admin1CodesASCII.txt (CC BY 4.0), with a region's name in a
+language chosen from alternateNamesV2 as a place's is.
+
+    magic        5 bytes  "BCRG1"
+    rowCount     int32    the rows of the cities.bin written in the same run, whose region indexes it names
+    regionCount  uint16
+    nameLens     regionCount x uint8, region 1 first; 0 for a region with no name
+    names        concatenated UTF-8, in region order
 """
 
 import io
@@ -67,6 +79,7 @@ MAGIC = b"BCTY2"
 HEADER = struct.Struct(">iH")
 ROW = struct.Struct(">iiH2sHHB")
 NAMES_MAGIC = b"BCTN1"
+REGIONS_MAGIC = b"BCRG1"
 # The app's languages besides English, whose rows already carry English or local names.
 LANGUAGES = ("pt", "ru")
 # GeoNames dump columns, of the 19 the format defines.
@@ -121,10 +134,14 @@ def read_rows(path):
     return rows
 
 
-def pack(rows):
+def regions_of(rows):
+    """The (country, admin1) pairs the rows carry, in the order their indexes count from 1."""
+    return sorted({(r[3], r[7]) for r in rows if r[7] not in NO_ADMIN1})
+
+
+def pack(rows, regions):
     zones = sorted({r[4] for r in rows})
     zone_index = {z: i for i, z in enumerate(zones)}
-    regions = sorted({(r[3], r[7]) for r in rows if r[7] not in NO_ADMIN1})
     region_index = {region: i for i, region in enumerate(regions, 1)}
     out = bytearray(MAGIC)
     out += HEADER.pack(len(rows), len(zones))
@@ -139,30 +156,80 @@ def pack(rows):
     return bytes(out + names)
 
 
-def read_names(path, rows):
-    """Each language's name per row index, where it differs from the row's own name."""
-    row_of = {r[6]: i for i, r in enumerate(rows)}
+def read_alternate_names(path, wanted):
+    """Each language's name for every geonameid in [wanted], keyed by geonameid."""
     best = {language: {} for language in LANGUAGES}
     with zipfile.ZipFile(path) as archive, archive.open("alternateNamesV2.txt") as raw:
         for line in io.TextIOWrapper(raw, encoding="utf-8"):
             f = line.rstrip("\n").split("\t")
             chosen = best.get(f[ALT_LANG])
-            row = row_of.get(f[ALT_ID])
-            if chosen is None or row is None:
+            key = f[ALT_ID]
+            if chosen is None or key not in wanted:
                 continue
             if f[ALT_COLLOQUIAL] == "1" or f[ALT_HISTORIC] == "1" or (len(f) > ALT_TO and f[ALT_TO]):
                 continue
             rank = 0 if f[ALT_PREFERRED] == "1" else 2 if f[ALT_SHORT] == "1" else 1
-            if row not in chosen or rank < chosen[row][0]:
-                chosen[row] = (rank, f[ALT_NAME])
+            if key not in chosen or rank < chosen[key][0]:
+                chosen[key] = (rank, f[ALT_NAME])
+    return {language: {key: name for key, (_, name) in chosen.items()} for language, chosen in best.items()}
+
+
+def city_names(alternate, rows):
+    """Each language's name per row index, where it differs from the row's own name."""
     names = {}
-    for language, chosen in best.items():
+    for language, chosen in alternate.items():
         names[language] = {}
-        for row, (_, name) in chosen.items():
+        for index, row in enumerate(rows):
+            name = chosen.get(row[6])
+            if name is None:
+                continue
             encoded = name.encode("utf-8")
-            if encoded != rows[row][5] and 0 < len(encoded) <= MAX_NAME_BYTES:
-                names[language][row] = encoded
+            if encoded != row[5] and 0 < len(encoded) <= MAX_NAME_BYTES:
+                names[language][index] = encoded
     return names
+
+
+def read_admin1(path):
+    """Each (country, admin1) pair's GeoNames name and geonameid."""
+    admin1 = {}
+    for line in open(path, encoding="utf-8"):
+        code, name, _, geoname_id = line.rstrip("\n").split("\t")
+        country, _, region = code.partition(".")
+        admin1[(country.encode("ascii"), region)] = (name, geoname_id)
+    return admin1
+
+
+def region_entries(regions, admin1):
+    """Each region's GeoNames name and geonameid in region order, both None where [admin1] lacks it."""
+    return [admin1.get(region, (None, None)) for region in regions]
+
+
+def region_tables(entries, alternate):
+    """The base table, keyed "", and each language's: names in region order, None where a region has none."""
+    base, ids = zip(*entries)
+    tables = {"": list(base)}
+    for language, chosen in alternate.items():
+        tables[language] = [chosen.get(geoname_id, name) for geoname_id, name in zip(ids, base)]
+    return tables
+
+
+def pack_region_names(row_count, names):
+    encoded = [(name or "").encode("utf-8") for name in names]
+    for name in encoded:
+        if len(name) > MAX_NAME_BYTES:
+            raise SystemExit(f"region name of {len(name)} bytes does not fit")
+    out = bytearray(REGIONS_MAGIC)
+    out += struct.pack(">iH", row_count, len(encoded))
+    out += bytes(len(name) for name in encoded)
+    return bytes(out + b"".join(encoded))
+
+
+def write_regions(app_main, row_count, entries, alternate):
+    for language, names in region_tables(entries, alternate).items():
+        raw = "raw-" + language if language else "raw"
+        named = sum(1 for name in names if name)
+        what = f"{named:,} of {len(names):,} {language or 'base'} region names"
+        write(os.path.join(app_main, "res", raw, "region_names.bin"), pack_region_names(row_count, names), what)
 
 
 def pack_names(row_count, names):
@@ -183,15 +250,22 @@ def write(path, blob, what):
 
 
 def main(argv):
-    if len(argv) != 4:
-        raise SystemExit(f"usage: {argv[0]} <cities1000.txt> <alternateNamesV2.zip> <app/src/main>")
+    if len(argv) != 5:
+        raise SystemExit(f"usage: {argv[0]} <cities1000.txt> <alternateNamesV2.zip> <admin1CodesASCII.txt> <app/src/main>")
+    app_main = argv[4]
     rows = read_rows(argv[1])
+    regions = regions_of(rows)
+    admin1 = read_admin1(argv[3])
     zones = len({r[4] for r in rows})
-    write(os.path.join(argv[3], "assets", "cities.bin"), pack(rows), f"{len(rows):,} cities, {zones} time zones")
-    write(os.path.join(argv[3], "res", "raw", "city_names.bin"), pack_names(len(rows), {}), "no names")
-    for language, names in read_names(argv[2], rows).items():
-        path = os.path.join(argv[3], "res", f"raw-{language}", "city_names.bin")
+    write(os.path.join(app_main, "assets", "cities.bin"), pack(rows, regions), f"{len(rows):,} cities, {zones} time zones")
+    write(os.path.join(app_main, "res", "raw", "city_names.bin"), pack_names(len(rows), {}), "no names")
+    entries = region_entries(regions, admin1)
+    wanted = {r[6] for r in rows} | {geoname_id for _, geoname_id in entries if geoname_id}
+    alternate = read_alternate_names(argv[2], wanted)
+    for language, names in city_names(alternate, rows).items():
+        path = os.path.join(app_main, "res", f"raw-{language}", "city_names.bin")
         write(path, pack_names(len(rows), names), f"{len(names):,} {language} names")
+    write_regions(app_main, len(rows), entries, alternate)
 
 
 if __name__ == "__main__":

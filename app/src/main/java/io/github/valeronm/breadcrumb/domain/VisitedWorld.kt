@@ -15,7 +15,11 @@ import java.time.ZoneId
  */
 object VisitedWorld {
 
-    data class City(val name: String, val days: Int)
+    data class City(
+        override val city: TravelNaming.SpentCity,
+        val days: Int,
+        override val sharesName: Boolean,
+    ) : TravelNaming.ListedCity
 
     /** [days] is not the sum of the cities' days: a day in two cities is one day here, and a stay
      *  that visits no city still counts one. */
@@ -34,7 +38,10 @@ object VisitedWorld {
             countryDays.getOrPut(credit.country, ::HashSet).addAll(dates)
             credit.city?.let { cityDays.getOrPut(it, ::HashSet).addAll(dates) }
         }
-        val citiesByCountry = cityDays.entries.groupBy({ it.key.country }, { City(it.key.name, it.value.size) })
+        val shared = TravelNaming.namesakes(cityDays.keys)
+        val citiesByCountry = cityDays.entries.groupBy({ it.key.country }) { (city, dates) ->
+            City(city, dates.size, city in shared)
+        }
         return countryDays.map { (code, dates) ->
             Country(code, dates.size, citiesByCountry[code].orEmpty().sortedByDescending { it.days })
         }.sortedByDescending { it.days }

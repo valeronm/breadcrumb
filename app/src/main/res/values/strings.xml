@@ -20,6 +20,8 @@
     <string name="common_restore_or_import">Restore or import</string>
     <string name="common_ok">OK</string>
     <string name="common_undo">Undo</string>
+    <!-- A city whose name another city in its country shares, with the region that tells them apart. -->
+    <string name="common_city_in_region">%1$s, %2$s</string>
     <string name="common_off">Off</string>
     <string name="common_stop">Stop</string>
     <!-- The swipe-to-delete action, read aloud on a place row and on a track row alike. -->

@@ -23,7 +23,7 @@ class TravelSummaryTest {
 
     private val hour = 3_600_000L
     private fun at(city: TestCity) = Coordinate(city.lat, city.lon)
-    private fun spentCity(city: TestCity) = TravelNaming.SpentCity(city.name, city.country)
+    private fun spentCity(city: TestCity) = atlas.spentCityAt(city)
 
     private var nextId = 0L
 
@@ -54,6 +54,7 @@ class TravelSummaryTest {
         clusters: List<Coordinate>,
         places: List<Place> = emptyList(),
         tracks: List<TrackEnd> = emptyList(),
+        atlas: CityAtlas = this.atlas,
     ): TravelNaming.Summary {
         val derivation = StayDeriver.Derivation(
             emptyList(),
@@ -73,8 +74,20 @@ class TravelSummaryTest {
         )
 
         assertEquals(listOf("Seaside", "Hill town"), summary.destinations)
-        assertEquals(setOf("Seaside", "Hill town"), summary.cities)
+        assertEquals(setOf(spentCity(seaside), spentCity(hillTown)), summary.cities)
         assertEquals(setOf("XX", "YY"), summary.countries)
+    }
+
+    @Test fun `two towns sharing a name in one country count as two cities`() {
+        val north = testCity("Twin", 0.0, pop = 20)
+        val south = testCity("Twin", 90_000.0, pop = 20)
+        val summary = summarize(
+            travel(mapOf(0 to 5 * hour, 1 to 5 * hour)),
+            listOf(at(north), at(south)),
+            atlas = atlasOf(north, south),
+        )
+
+        assertEquals(2, summary.cities.size)
     }
 
     @Test fun `a person's place keeps its own name, a hotel does not`() {
@@ -91,7 +104,7 @@ class TravelSummaryTest {
 
         assertEquals(listOf("Seaside", "Mum's"), summary.destinations)
         // The city is still the city, whatever the journey chose to call the stop in it.
-        assertEquals(setOf("Seaside", "Hill town"), summary.cities)
+        assertEquals(setOf(spentCity(seaside), spentCity(hillTown)), summary.cities)
     }
 
     @Test fun `the road is not a place on it`() {
@@ -105,7 +118,7 @@ class TravelSummaryTest {
         )
 
         assertEquals(listOf("Seaside"), summary.destinations)
-        assertEquals(setOf("Seaside"), summary.cities)
+        assertEquals(setOf(spentCity(seaside)), summary.cities)
         assertEquals(setOf("XX", "YY"), summary.countries)
     }
 

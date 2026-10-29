@@ -337,7 +337,7 @@ android {
                     layout.projectDirectory.file("src/main/assets/borders.bin"),
                     layout.projectDirectory.file("src/main/res/xml/locales_config.xml"),
                     layout.projectDirectory.dir("src/main/res").asFileTree
-                        .matching { include("raw*/city_names.bin") },
+                        .matching { include("raw*/city_names.bin", "raw*/region_names.bin") },
                 )
                     .withPropertyName("cityAtlas")
                     .withPathSensitivity(PathSensitivity.RELATIVE)

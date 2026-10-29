@@ -1,7 +1,9 @@
 package io.github.valeronm.breadcrumb.ui
 
+import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.TravelNaming
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -86,6 +88,13 @@ class PlacesMapFilterTest {
         assertEquals(ChipsNeeded(rareStops = true, longAgo = true), chipsShowingAll(places, SINCE))
     }
 
+    @Test fun `a city holds only the places of its own row, not those of a namesake`() {
+        val here = place(visits = 5, lastSeen = RECENT).copy(locality = twin(row = 3))
+        val namesake = place(visits = 5, lastSeen = RECENT).copy(locality = twin(row = 9))
+
+        assertEquals(listOf(here), placesIn(listOf(here, namesake), TravelNaming.SpentCity.of(twin(row = 3))))
+    }
+
     private companion object {
         const val SINCE = 1_000_000L
         const val RECENT = SINCE + 1_000L
@@ -101,5 +110,7 @@ class PlacesMapFilterTest {
             endpoints = emptyList(),
             endpointCentroid = null,
         )
+
+        fun twin(row: Int) = CityAtlas.City("Twin", "XX", "Etc/GMT", 20_000, 0.0, row)
     }
 }

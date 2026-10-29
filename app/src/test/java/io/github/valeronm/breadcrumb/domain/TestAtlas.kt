@@ -82,6 +82,23 @@ internal fun localNamesOf(rowCount: Int, names: Map<Int, String>, parsedFor: Int
     return CityAtlas.LocalNames.parse(out.toByteArray(), parsedFor)
 }
 
+/** A region table for an atlas of [rowCount] rows, naming regions 1 onward by [names] in order, read
+ *  back as one for an atlas of [parsedFor] rows. */
+internal fun regionNamesOf(rowCount: Int, vararg names: String?, parsedFor: Int = rowCount): CityAtlas.RegionNames {
+    val out = ByteArrayOutputStream()
+    out.write("BCRG1".toByteArray(StandardCharsets.US_ASCII))
+    out.i32(rowCount)
+    out.u16(names.size)
+    val encoded = names.map { it.orEmpty().toByteArray(StandardCharsets.UTF_8) }
+    for (name in encoded) out.u8(name.size)
+    for (name in encoded) out.write(name)
+    return CityAtlas.RegionNames.parse(out.toByteArray(), parsedFor)
+}
+
+/** The city this atlas names at [city]'s own coordinate. */
+internal fun CityAtlas.spentCityAt(city: TestCity): TravelNaming.SpentCity =
+    TravelNaming.SpentCity.of(naming(city.lat, city.lon, flatDistance)!!)
+
 internal fun ByteArrayOutputStream.u8(v: Int) = write(v and 0xFF)
 
 private fun ByteArrayOutputStream.u16(v: Int) {

@@ -150,7 +150,7 @@ internal fun PlacesTab(
     var cityFocus by remember { mutableStateOf<MapFocusRequest?>(null) }
     LaunchedEffect(city, derivedPlaces != null) {
         if (city == null || derivedPlaces == null) return@LaunchedEffect
-        val inCity = sorted.filter { summary -> summary.locality?.let(TravelNaming.SpentCity::of) == city }
+        val inCity = placesIn(sorted, city)
         val needed = chipsShowingAll(inCity, longAgoCutoff())
         showRareStops = showRareStops || needed.rareStops
         showLongAgo = showLongAgo || needed.longAgo

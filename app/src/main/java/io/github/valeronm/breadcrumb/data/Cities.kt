@@ -33,8 +33,9 @@ object Cities {
 
     /**
      * The atlas with its places named in [language] (an ISO 639 code) wherever that language's
-     * `R.raw.city_names` has a name for one. A language with no table of its own, English among
-     * them, resolves to the empty default and reads every row's own name.
+     * `R.raw.city_names` has a name for one, and its regions by `R.raw.region_names`. A language
+     * with no tables of its own, English among them, resolves to the defaults: every row's own name
+     * and GeoNames' region names.
      */
     // The locale set below reads the table in the language the screens already show rather than
     // switching the app's; a language split Play has not delivered resolves to the empty default.
@@ -47,9 +48,12 @@ object Cities {
             val base = base(app)
             val inLanguage = Configuration(app.resources.configuration)
                 .apply { setLocale(Locale.forLanguageTag(language)) }
-            val names = app.createConfigurationContext(inLanguage).resources
-                .openRawResource(R.raw.city_names).use { it.readBytes() }
-            base.withNames(CityAtlas.LocalNames.parse(names, base.size))
+            val resources = app.createConfigurationContext(inLanguage).resources
+            fun raw(id: Int) = resources.openRawResource(id).use { it.readBytes() }
+            base.withNames(
+                CityAtlas.LocalNames.parse(raw(R.raw.city_names), base.size),
+                CityAtlas.RegionNames.parse(raw(R.raw.region_names), base.size),
+            )
                 .also { named = language to it }
         }
     }

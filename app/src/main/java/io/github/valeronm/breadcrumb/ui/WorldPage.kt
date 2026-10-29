@@ -106,10 +106,10 @@ private fun CountryCard(
             {
                 ListRowBand(
                     country.cities,
-                    onClick = { onOpenCity(TravelNaming.SpentCity(it.name, code)) },
+                    onClick = { onOpenCity(it.city) },
                     onClickLabel = stringResource(R.string.insights_world_show_on_map),
                 ) { _, city ->
-                    Text(city.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(listedCityName(city), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                     Text(
                         pluralStringResource(R.plurals.insights_world_days, city.days, city.days),
                         style = MaterialTheme.typography.bodyMedium,

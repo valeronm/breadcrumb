@@ -9,6 +9,7 @@
     <string name="common_restore_or_import">Restaurar ou importar</string>
     <string name="common_ok">OK</string>
     <string name="common_undo">Anular</string>
+    <string name="common_city_in_region">%1$s, %2$s</string>
     <string name="common_off">Desligado</string>
     <string name="common_stop">Parar</string>
     <string name="common_delete">Eliminar</string>

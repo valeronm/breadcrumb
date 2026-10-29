@@ -134,7 +134,7 @@ class PlaceResolverTest {
     /** An atlas that names every cluster it is built from, so a test can name them all at once. */
     private fun atlasOver(clusters: List<PlaceClusterer.Cluster>, vararg names: String) =
         clusters.mapIndexed { index, cluster ->
-            cluster.centroid to CityAtlas.City(names[index], "XX", "Etc/GMT-3", 20_000, 0.0)
+            cluster.centroid to CityAtlas.City(names[index], "XX", "Etc/GMT-3", 20_000, 0.0, row = index)
         }.toMap()
 
     @Test fun `a label outranks the city as a name, and nothing else about the place`() {

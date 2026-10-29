@@ -32,7 +32,11 @@ class WorldPageTest {
     private fun days(n: Int) = context.resources.getQuantityString(R.plurals.insights_world_days, n, n)
 
     private val countries = listOf(
-        Country("XX", 40, listOf(City("Hometown", 38), City("Seaside", 3))),
+        Country(
+            "XX",
+            40,
+            listOf(City(TravelNaming.SpentCity(0, "Hometown", "XX"), 38, sharesName = false), City(SEASIDE, 3, sharesName = false)),
+        ),
         Country("YY", 1, emptyList()),
     )
 
@@ -58,7 +62,26 @@ class WorldPageTest {
 
         compose.onNodeWithText("Seaside").performClick()
 
-        assertEquals(listOf(TravelNaming.SpentCity("Seaside", "XX")), opened)
+        assertEquals(listOf(SEASIDE), opened)
+    }
+
+    @Test fun `a city sharing its name shows its region`() {
+        val twins = listOf(
+            Country(
+                "XX",
+                2,
+                listOf(
+                    City(TravelNaming.SpentCity(0, "Twin", "XX", "North"), 1, sharesName = true),
+                    City(TravelNaming.SpentCity(1, "Twin", "XX", "South"), 1, sharesName = true),
+                ),
+            ),
+        )
+        compose.setContent { AppTheme { CountryList(twins) { opened += it } } }
+        compose.onAllNodes(hasClickAction()).onFirst().performClick()
+
+        compose.onNodeWithText(context.getString(R.string.common_city_in_region, "Twin", "South")).performClick()
+
+        assertEquals(listOf(1), opened.map { it.row })
     }
 
     @Test fun `a country with no cities offers nothing to open`() {
@@ -66,5 +89,9 @@ class WorldPageTest {
 
         compose.onAllNodes(hasClickAction()).assertCountEquals(1)
         compose.onNodeWithText(days(1)).assertIsDisplayed()
+    }
+
+    private companion object {
+        val SEASIDE = TravelNaming.SpentCity(1, "Seaside", "XX")
     }
 }

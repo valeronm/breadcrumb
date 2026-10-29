@@ -24,6 +24,9 @@ class VisitedWorldTest {
 
     private fun at(city: TestCity) = Coordinate(city.lat, city.lon)
 
+    private fun City(city: TestCity, days: Int): City =
+        VisitedWorld.City(atlas.spentCityAt(city), days, sharesName = false)
+
     private var nextId = 0L
 
     private fun place(city: TestCity, category: PlaceCategory) = Place(
@@ -43,6 +46,7 @@ class VisitedWorldTest {
         tracks: List<TrackEnd> = emptyList(),
         places: List<Place> = emptyList(),
         nowMs: Long = day1 + 30 * day,
+        atlas: CityAtlas = this.atlas,
     ): List<Country> {
         val clusters = PlaceClusterer.cluster(clusterAt.map(::at), distance = flatDistance, seeds = PlaceClusterer.seedsOf(places))
         val names = TravelNaming.ClusterNames(places) { atlas.naming(it.centroid.lat, it.centroid.lon, flatDistance) }
@@ -54,13 +58,41 @@ class VisitedWorldTest {
         )
     }
 
+    @Test fun `two towns sharing a name in one country are two cities`() {
+        val north = testCity("Twin", 0.0, pop = 20)
+        val south = testCity("Twin", 90_000.0, pop = 20)
+        val world = world(
+            listOf(north, south),
+            listOf(stay(0, day1, day1 + 2 * hour), stay(1, day1 + day, day1 + day + 2 * hour), stay(1, day1 + 2 * day, day1 + 2 * day + hour)),
+            atlas = atlasOf(north, south),
+        )
+
+        assertEquals(listOf("Twin" to 2, "Twin" to 1), world.single().cities.map { it.name to it.days })
+    }
+
+    @Test fun `a city carries its region only where another in its country shares its name`() {
+        val north = testCity("Twin", 0.0, pop = 20, region = 1)
+        val south = testCity("Twin", 90_000.0, pop = 20, region = 2)
+        val lone = testCity("Lone", 180_000.0, pop = 20, region = 1)
+        val world = world(
+            listOf(north, south, lone),
+            listOf(stay(0, day1, day1 + hour), stay(1, day1 + day, day1 + day + hour), stay(2, day1 + 2 * day, day1 + 2 * day + hour)),
+            atlas = atlasOf(north, south, lone).withNames(CityAtlas.LocalNames.NONE, regionNamesOf(3, "North", "South")),
+        )
+
+        assertEquals(
+            listOf("Twin" to "North", "Twin" to "South", "Lone" to null),
+            world.single().cities.map { it.name to it.region },
+        )
+    }
+
     @Test fun `a stay counts each day it covers for its city and its country`() {
         val world = world(
             listOf(seaside),
             listOf(stay(0, day1 + 22 * hour, day1 + day + 8 * hour)),
         )
 
-        assertEquals(listOf(Country("XX", 2, listOf(City("Seaside", 2)))), world)
+        assertEquals(listOf(Country("XX", 2, listOf(City(seaside, 2)))), world)
     }
 
     @Test fun `a day is counted once however many stays it holds`() {
@@ -74,7 +106,7 @@ class VisitedWorldTest {
         )
 
         assertEquals(
-            listOf(Country("XX", 1, listOf(City("Hometown", 1), City("Seaside", 1)))),
+            listOf(Country("XX", 1, listOf(City(hometown, 1), City(seaside, 1)))),
             world,
         )
     }
@@ -92,7 +124,7 @@ class VisitedWorldTest {
 
         assertEquals(
             listOf(
-                Country("XX", 2, listOf(City("Seaside", 2))),
+                Country("XX", 2, listOf(City(seaside, 2))),
                 Country("YY", 1, emptyList()),
             ),
             world,
@@ -106,7 +138,7 @@ class VisitedWorldTest {
             tracks = listOf(track(seaside, seaside, day1 + 10 * hour, day1 + 12 * hour)),
         )
 
-        assertEquals(listOf(Country("XX", 1, listOf(City("Seaside", 1)))), world)
+        assertEquals(listOf(Country("XX", 1, listOf(City(seaside, 1)))), world)
     }
 
     @Test fun `the drive between two cities counts for neither`() {
@@ -125,7 +157,7 @@ class VisitedWorldTest {
             listOf(stay(0, day1 + 20 * hour, day1 + 23 * hour)),
         )
 
-        assertEquals(listOf(Country("ZZ", 2, listOf(City("East port", 2)))), world)
+        assertEquals(listOf(Country("ZZ", 2, listOf(City(eastPort, 2)))), world)
     }
 
     @Test fun `the stay still open runs to now`() {
@@ -135,7 +167,7 @@ class VisitedWorldTest {
             nowMs = day1 + 2 * day + hour,
         )
 
-        assertEquals(listOf(Country("XX", 3, listOf(City("Hometown", 3)))), world)
+        assertEquals(listOf(Country("XX", 3, listOf(City(hometown, 3)))), world)
     }
 
     @Test fun `countries and their cities run from most days to fewest`() {
@@ -150,8 +182,8 @@ class VisitedWorldTest {
 
         assertEquals(
             listOf(
-                Country("XX", 4, listOf(City("Hometown", 3), City("Seaside", 1))),
-                Country("YY", 1, listOf(City("Hill town", 1))),
+                Country("XX", 4, listOf(City(hometown, 3), City(seaside, 1))),
+                Country("YY", 1, listOf(City(hillTown, 1))),
             ),
             world,
         )
@@ -163,6 +195,6 @@ class VisitedWorldTest {
             listOf(stay(0, day1 + 20 * hour, day1 + day)),
         )
 
-        assertEquals(listOf(Country("XX", 1, listOf(City("Seaside", 1)))), world)
+        assertEquals(listOf(Country("XX", 1, listOf(City(seaside, 1)))), world)
     }
 }

@@ -26,6 +26,7 @@ class CityAtlas private constructor(
     private val table: Table,
     val borders: CountryBorders,
     private val local: LocalNames = LocalNames.NONE,
+    private val regions: RegionNames = RegionNames.NONE,
 ) {
 
     /** The parsed rows, shared by every [withNames] copy of one atlas. */
@@ -116,11 +117,60 @@ class CityAtlas private constructor(
         }
     }
 
+    /**
+     * Every region's name in one language, packed as that language's `res/raw-<language>/region_names.bin`
+     * — the packer's docstring is the format. Names the region indexes of the atlas written in the same
+     * run, which [parse] can check only by that atlas's row count.
+     */
+    class RegionNames private constructor(
+        private val bytes: ByteArray,
+        private val namesAt: Int,
+        /** Start of each region's name within the names blob, region 1 first; one longer than the regions. */
+        private val nameStarts: IntArray,
+    ) {
+        /** Null for region 0, which stands for none, and for a region the table holds no name for. */
+        fun nameOf(region: Int): String? {
+            if (region < 1 || region >= nameStarts.size) return null
+            val length = nameStarts[region] - nameStarts[region - 1]
+            if (length == 0) return null
+            return String(bytes, namesAt + nameStarts[region - 1], length, StandardCharsets.UTF_8)
+        }
+
+        companion object {
+            val NONE = RegionNames(ByteArray(0), 0, IntArray(1))
+            private val MAGIC = "BCRG1".toByteArray(StandardCharsets.US_ASCII)
+
+            /** Throws [IllegalArgumentException] on anything that isn't a region table for an atlas
+             *  of [rowCount] rows — a build error, both files shipping inside the APK. */
+            fun parse(bytes: ByteArray, rowCount: Int): RegionNames {
+                require(bytes.size > MAGIC.size && MAGIC.indices.all { bytes[it] == MAGIC[it] }) {
+                    "not a region names table"
+                }
+                val header = ByteBuffer.wrap(bytes, MAGIC.size, bytes.size - MAGIC.size)
+                val forRows = header.int
+                require(forRows == rowCount) { "region names index $forRows rows, the atlas has $rowCount" }
+                val regionCount = header.short.toInt() and 0xFFFF
+                val lengthsAt = header.position()
+                val namesAt = lengthsAt + regionCount
+                require(namesAt <= bytes.size) { "region names table is truncated" }
+                val nameStarts = IntArray(regionCount + 1)
+                for (region in 1..regionCount) {
+                    nameStarts[region] = nameStarts[region - 1] + (bytes[lengthsAt + region - 1].toInt() and 0xFF)
+                }
+                require(namesAt + nameStarts[regionCount] <= bytes.size) { "region names are truncated" }
+                return RegionNames(bytes, namesAt, nameStarts)
+            }
+        }
+    }
+
     /** This atlas naming its places from [names] where a row has one there, and by the row's own
-     *  name everywhere else. Shares the rows; the search index is built afresh for the new names. */
-    fun withNames(names: LocalNames): CityAtlas = CityAtlas(table, borders, names)
+     *  name everywhere else, and its regions from [regions]. Shares the rows; the search index is
+     *  built afresh for the new names. */
+    fun withNames(names: LocalNames, regions: RegionNames = RegionNames.NONE): CityAtlas =
+        CityAtlas(table, borders, names, regions)
 
     /** A named place, with how far it sat from the coordinate that found it. */
+    @Suppress("LongParameterList") // A value holding one atlas row's fields.
     class City(
         val name: String,
         /** ISO 3166-1 alpha-2. */
@@ -129,6 +179,10 @@ class CityAtlas private constructor(
         val zoneId: String,
         val population: Int,
         val distanceM: Double,
+        /** The atlas row it was read from, which tells apart places sharing a name. */
+        val row: Int,
+        /** Its first-level administrative division, as [withNames]'s regions name it. */
+        val region: String? = null,
     )
 
     val size: Int get() = rowCount
@@ -332,6 +386,8 @@ class CityAtlas private constructor(
             zoneId = zones[u16(at + ZONE_AT)],
             population = populationAt(row),
             distanceM = distanceM,
+            row = row,
+            region = regions.nameOf(regionAt(row)),
         )
     }
 

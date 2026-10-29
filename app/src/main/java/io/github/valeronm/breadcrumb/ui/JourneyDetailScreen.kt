@@ -240,7 +240,7 @@ private fun StatsPage(journeyItems: List<TimelineItem>, nowMs: Long) {
 }
 
 @Composable
-private fun CitiesPage(summary: TravelNaming.Summary) {
+internal fun CitiesPage(summary: TravelNaming.Summary) {
     val sections = remember(summary) { TravelNaming.citySections(summary.timeByCity) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -261,11 +261,11 @@ private fun CitiesPage(summary: TravelNaming.Summary) {
                 val name = countryDisplayName(section.country)
                 SectionHeading(if (flag.isEmpty()) name else "$flag $name")
             }
-            itemsIndexed(section.cities, key = { _, (city, _) -> "city:${section.country}:$city" }) { index, (city, ms) ->
+            itemsIndexed(section.cities, key = { _, city -> "city:${city.city.row}" }) { index, city ->
                 JourneyStatRow(
                     shape = groupedRowShape(index, section.cities.size),
-                    label = city,
-                    trailing = durationText(ms),
+                    label = listedCityName(city),
+                    trailing = durationText(city.ms),
                 )
             }
         }

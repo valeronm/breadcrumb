@@ -300,6 +300,24 @@ class CityAtlasTest {
         assertEquals(listOf("Lisboa", "Olisboa"), atlas.searchByName("lisboa", limit = 5).map { it.name })
     }
 
+    @Test fun `a place carries its region's name, and none where it has no region or the region no name`() {
+        val atlas = atlasOf(
+            testCity("Coded", 0.0, region = 2),
+            testCity("Uncoded", 100_000.0),
+            testCity("Unnamed region", 200_000.0, region = 1),
+        ).withNames(CityAtlas.LocalNames.NONE, regionNamesOf(3, null, "Coast"))
+
+        assertEquals("Coast", atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)?.region)
+        assertNull(atlas.naming(ORIGIN_LAT, lonAt(100_000.0), flatDistance)?.region)
+        assertNull(atlas.naming(ORIGIN_LAT, lonAt(200_000.0), flatDistance)?.region)
+    }
+
+    @Test fun `a region table for another atlas is rejected at parse`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            regionNamesOf(2, "Coast", parsedFor = 3)
+        }
+    }
+
     @Test fun `a match spanning a place's two names is no hit`() {
         val atlas = atlasOf(row("Abcd", 0.0)).withNames(localNamesOf(1, mapOf(0 to "Efgh")))
 

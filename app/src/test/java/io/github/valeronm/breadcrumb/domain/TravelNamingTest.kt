@@ -86,27 +86,27 @@ class TravelNamingTest {
     @Test fun `countries rank by their summed time, cities within each by their own`() {
         val sections = TravelNaming.citySections(
             linkedMapOf(
-                TravelNaming.SpentCity("Braga", "PT") to 4 * hour,
-                TravelNaming.SpentCity("Vigo", "ES") to 10 * hour,
-                TravelNaming.SpentCity("Porto", "PT") to 8 * hour,
+                TravelNaming.SpentCity(0, "Braga", "PT") to 4 * hour,
+                TravelNaming.SpentCity(1, "Vigo", "ES") to 10 * hour,
+                TravelNaming.SpentCity(2, "Porto", "PT") to 8 * hour,
             ),
         )
 
         // Portugal's two cities outweigh Spain's one; within Portugal, Porto leads Braga.
         assertEquals(listOf("PT", "ES"), sections.map { it.country })
-        assertEquals(listOf("Porto" to 8 * hour, "Braga" to 4 * hour), sections[0].cities)
-        assertEquals(listOf("Vigo" to 10 * hour), sections[1].cities)
+        assertEquals(listOf("Porto" to 8 * hour, "Braga" to 4 * hour), sections[0].cities.map { it.name to it.ms })
+        assertEquals(listOf("Vigo" to 10 * hour), sections[1].cities.map { it.name to it.ms })
     }
 
     @Test fun `tied cities keep the order they were visited in`() {
         val sections = TravelNaming.citySections(
             linkedMapOf(
-                TravelNaming.SpentCity("First", "XX") to 6 * hour,
-                TravelNaming.SpentCity("Second", "XX") to 6 * hour,
+                TravelNaming.SpentCity(3, "First", "XX") to 6 * hour,
+                TravelNaming.SpentCity(4, "Second", "XX") to 6 * hour,
             ),
         )
 
-        assertEquals(listOf("First" to 6 * hour, "Second" to 6 * hour), sections.single().cities)
+        assertEquals(listOf("First" to 6 * hour, "Second" to 6 * hour), sections.single().cities.map { it.name to it.ms })
     }
 
     @Test fun `names with no time at all are kept rather than filtered to nothing`() {
