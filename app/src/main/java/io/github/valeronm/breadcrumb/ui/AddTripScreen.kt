@@ -349,8 +349,8 @@ internal fun AddTripScreen(
     val destinationCity by produceState<SpotCity?>(null, destination.pin) {
         value = destination.pin?.let { viewModel.cityAt(it) }
     }
-    val originZone = zoneOrDevice(originCity?.zoneId)
-    val destinationZone = zoneOrDevice(destinationCity?.zoneId)
+    val originZone = originCity?.zone ?: timelineZone()
+    val destinationZone = destinationCity?.zone ?: timelineZone()
 
     val originDays = ManualPath.openDays(touching.first?.boundMs, touching.second?.boundMs, originZone)
     val destinationDays = ManualPath.openDays(touching.first?.boundMs, touching.second?.boundMs, destinationZone)

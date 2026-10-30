@@ -13,7 +13,6 @@ import io.github.valeronm.breadcrumb.domain.atlas.testCity
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.Instant
-import java.time.ZoneId
 
 class VisitedWorldTest {
 
@@ -59,7 +58,7 @@ class VisitedWorldTest {
         return VisitedWorld.of(
             TravelDeriver.Timeline(StayDeriver.Derivation(stays, clusters), tracks),
             names,
-            { id -> ZoneId.of(names.cityOf(clusters[id])!!.zoneId) },
+            { id -> names.cityOf(clusters[id])!!.zone!! },
             nowMs,
         )
     }

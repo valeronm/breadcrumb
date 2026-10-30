@@ -96,7 +96,6 @@ import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.TripClocks
 import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
-import io.github.valeronm.breadcrumb.domain.zoneOrNull
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterNotNull
@@ -867,8 +866,6 @@ private fun awayDaysOf(travels: List<TravelNaming.Summary>, zone: ZoneId): Map<L
  * clock a row's bounds were clamped to, every reader of those bounds must ask the same one.
  */
 internal fun timelineZone(): ZoneId = ZoneId.systemDefault()
-
-internal fun zoneOrDevice(zoneId: String?): ZoneId = zoneOrNull(zoneId) ?: timelineZone()
 
 /** The clock to read a row on: the one it was sliced in, or the device's where nothing placed it.
  *  One reading, because a row dated on one clock and timed on another contradicts itself. */

@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
+import java.time.ZoneId
 
 /**
  * Resolves endpoint clusters to places: stays and gaps arrive already carrying their cluster ids
@@ -141,7 +142,7 @@ object PlaceResolver {
         val pin: Coordinate get() = pinOf(place, centroid)
 
         /** The zone this stop's clock ran on, or null where nothing places it. */
-        val zoneId: String? get() = locality?.zoneId
+        val zone: ZoneId? get() = locality?.zone
 
         /** What to call this stop — see [displayName], which decides it for both readings. */
         val name: String? get() = displayName(place, locality?.name)
@@ -216,7 +217,7 @@ object PlaceResolver {
 
         /** The zone this place's clock runs on, or null where nothing places it — a visit here is
          *  read on it, the same as the timeline row for that visit. */
-        val zoneId: String? get() = locality?.zoneId
+        val zone: ZoneId? get() = locality?.zone
 
         /** What to call this place — see [displayName], which decides it for both readings. */
         val name: String? get() = displayName(place, locality?.name)

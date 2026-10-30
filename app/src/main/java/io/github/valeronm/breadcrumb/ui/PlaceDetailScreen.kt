@@ -189,7 +189,7 @@ internal fun PlaceDetailScreen(
     // No offset tag beside them, unlike the timeline: every row on this screen is the same place, so
     // no two times here can look alike and mean different things, and the locality line under the
     // title already says which country's clock this is.
-    val zone = zoneOrDevice(summary.zoneId)
+    val zone = summary.zone ?: timelineZone()
     val nowMs = remember { System.currentTimeMillis() }
     // Looked up in the dressed summaries, so a far place being named reads as named the moment the
     // write lands. A key the list no longer holds, which a snapshot kept through a re-derivation
@@ -431,7 +431,7 @@ private fun PlaceLocality(at: Coordinate, nowMs: Long, viewModel: TrackListViewM
     val label = if (country.isEmpty()) name else "${flagOf(resolved.city.country)} ${stringResource(R.string.place_locality, country, name)}"
     // Off the city this line resolved, not off the summary's zone: one line, one answer about one
     // spot. Nothing trails a place keeping the reader's own clock — see [zoneShiftLabel].
-    val shift = zoneShiftLabel(nowMs, zoneOrDevice(resolved.zoneId), timelineZone())
+    val shift = zoneShiftLabel(nowMs, resolved.zone ?: timelineZone(), timelineZone())
     val shiftColor = zoneShiftColor
     // Worded before the builder, which is not a composable scope. The separator stays in code:
     // it is layout between the place and its clock, not part of what either says.

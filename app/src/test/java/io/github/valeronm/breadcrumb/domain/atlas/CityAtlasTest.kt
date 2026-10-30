@@ -10,6 +10,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.charset.StandardCharsets
+import java.time.ZoneId
 
 /** The lookups over a hand-built atlas — see `TestAtlas.kt` for the format the fixtures encode. */
 class CityAtlasTest {
@@ -58,13 +59,22 @@ class CityAtlasTest {
         // A non-ASCII name is the case a byte length and a character count disagree about.
         assertEquals("Móra d'Ebre", hit.name)
         assertEquals("ES", hit.country)
-        assertEquals("Europe/Madrid", hit.zoneId)
+        assertEquals(ZoneId.of("Europe/Madrid"), hit.zone)
         assertEquals(7_000, hit.population)
 
         val other = atlas.naming(ORIGIN_LAT, lonAt(1_000.0), flatDistance)!!
         assertEquals("Sintra", other.name)
-        assertEquals("Europe/Lisbon", other.zoneId)
+        assertEquals(ZoneId.of("Europe/Lisbon"), other.zone)
         assertEquals(24_874_000, other.population)
+    }
+
+    @Test fun `a zone id this Android does not know reads as no zone on every read`() {
+        val atlas = atlasOf(row("Atlantis", 0.0, zone = "Europe/Atlantis"), row("Hometown", 50_000.0))
+
+        repeat(2) {
+            assertNull(atlas.naming(ORIGIN_LAT, lonAt(0.0), flatDistance)!!.zone)
+            assertEquals(ZoneId.of("Etc/GMT"), atlas.naming(ORIGIN_LAT, lonAt(50_000.0), flatDistance)!!.zone)
+        }
     }
 
     @Test fun `naming prefers the city a district belongs to`() {
@@ -135,7 +145,7 @@ class CityAtlasTest {
         val hit = atlas.naming(ORIGIN_LAT, lonAt(200.0), flatDistance)!!
         assertEquals("Hilltown", hit.name)
         assertEquals("PT", hit.country)
-        assertEquals("Europe/Lisbon", hit.zoneId)
+        assertEquals(ZoneId.of("Europe/Lisbon"), hit.zone)
     }
 
     @Test fun `the nearest place in the spot's country names it however far, before a closer foreign one`() {

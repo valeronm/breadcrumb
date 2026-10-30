@@ -5,7 +5,6 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver.Stay
 import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.ZoneId
 
@@ -19,8 +18,8 @@ class HistoryClocksTest {
     private val away = at(50_000.0)
     private val roadside = at(100_000.0)
 
-    private fun city(zone: String) =
-        CityAtlas.City(name = "Town", country = "XX", zoneId = zone, population = 1_000, distanceM = 0.0, row = 0)
+    private fun city(zone: ZoneId?) =
+        CityAtlas.City(name = "Town", country = "XX", zone = zone, population = 1_000, distanceM = 0.0, row = 0)
 
     private fun clustersOver(vararg endpoints: Coordinate, seeds: List<PlaceClusterer.Seed> = emptyList()) =
         PlaceClusterer.cluster(endpoints.toList(), distance = flatDistance, seeds = seeds)
@@ -38,14 +37,14 @@ class HistoryClocksTest {
 
     @Test fun `a stay reads both ends on its cluster's clock`() {
         val clusters = clustersOver(home, home)
-        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city(east.id)))
+        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city(east)))
 
         assertEquals(Clocks(east, east), clocks.ofInterval(Stay(0L, 1L, afterTrackId = 1L, clusterId = 0)))
     }
 
     @Test fun `a gap reads each end on its own cluster's clock`() {
         val clusters = clustersOver(home, away)
-        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city(east.id), clusters[1].atlasPoint to city(west.id)))
+        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city(east), clusters[1].atlasPoint to city(west)))
 
         val gap = Gap(0L, 1L, afterTrackId = 1L, from = Gap.Side(home, 0), to = Gap.Side(away, 1))
 
@@ -54,7 +53,7 @@ class HistoryClocksTest {
 
     @Test fun `a gap end with no fix reads the device clock`() {
         val clusters = clustersOver(home)
-        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city(east.id)))
+        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city(east)))
 
         val gap = Gap(0L, 1L, afterTrackId = 1L, from = Gap.Side(home, 0), to = null)
 
@@ -66,7 +65,7 @@ class HistoryClocksTest {
         val clusters = clustersOver(home, away)
         val clocks = clocks(
             clusters,
-            mapOf(clusters[0].atlasPoint to city(east.id), clusters[1].atlasPoint to city(west.id)),
+            mapOf(clusters[0].atlasPoint to city(east), clusters[1].atlasPoint to city(west)),
             listOf(crossing),
         )
 
@@ -79,7 +78,7 @@ class HistoryClocksTest {
         val clusters = clustersOver(home, nearHome)
         val clocks = clocks(
             clusters,
-            mapOf(clusters[0].atlasPoint to city(east.id), nearHome to city(west.id)),
+            mapOf(clusters[0].atlasPoint to city(east), nearHome to city(west)),
             listOf(arrival),
         )
 
@@ -94,7 +93,7 @@ class HistoryClocksTest {
         val clusters = clustersOver(home, away, roadside)
         val clocks = clocks(
             clusters,
-            mapOf(clusters[0].atlasPoint to city(east.id), clusters[1].atlasPoint to city(midway.id), clusters[2].atlasPoint to city(west.id)),
+            mapOf(clusters[0].atlasPoint to city(east), clusters[1].atlasPoint to city(midway), clusters[2].atlasPoint to city(west)),
             listOf(outbound, onward),
         )
         val drive = ActivityType.DRIVING.name
@@ -110,7 +109,7 @@ class HistoryClocksTest {
         val tracks = listOf(outbound, inbound)
         val derivation = StayDeriver.Derivation(emptyList(), clustersOver(home, home))
         val atlas = mapOf(home to east, roadside to west, away to west)
-        val cities = atlasPoints(derivation, tracks).associateWith { city(atlas.getValue(it).id) }
+        val cities = atlasPoints(derivation, tracks).associateWith { city(atlas.getValue(it)) }
         val clocks = HistoryClocks(derivation, cities, tracks) { device }
 
         assertEquals(Clocks(east, west), clocks.ofTrack(outbound.trackId))
@@ -121,15 +120,15 @@ class HistoryClocksTest {
         val offTheAtlas = track(home, roadside)
         val noEnd = track(home, null)
         val clusters = clustersOver(home)
-        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city(east.id)), listOf(offTheAtlas, noEnd))
+        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city(east)), listOf(offTheAtlas, noEnd))
 
         assertEquals(Clocks(east, device), clocks.ofTrack(offTheAtlas.trackId))
         assertEquals(Clocks(east, device), clocks.ofTrack(noEnd.trackId))
     }
 
-    @Test fun `a zone this device cannot resolve reads the device clock`() {
+    @Test fun `a city whose zone this device does not know reads the device clock`() {
         val clusters = clustersOver(home)
-        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city("Europe/Atlantis")))
+        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city(null)))
 
         assertEquals(device, clocks.ofCluster(0))
     }
@@ -138,7 +137,7 @@ class HistoryClocksTest {
         val pin = home
         val visits = at(300.0)
         val clusters = clustersOver(visits, visits, seeds = listOf(PlaceClusterer.Seed(pin, 400.0, placeId = 1L, named = true)))
-        val clocks = clocks(clusters, mapOf(pin to city(west.id), clusters[0].atlasPoint to city(east.id)))
+        val clocks = clocks(clusters, mapOf(pin to city(west), clusters[0].atlasPoint to city(east)))
 
         assertEquals(visits, clusters[0].atlasPoint)
         assertEquals(east, clocks.ofCluster(0))
@@ -161,18 +160,12 @@ class HistoryClocksTest {
     @Test fun `a cluster or a track the derivation does not hold reads the device clock on every call`() {
         var deviceZone = east
         val clusters = clustersOver(home)
-        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city(device.id))) { deviceZone }
+        val clocks = clocks(clusters, mapOf(clusters[0].atlasPoint to city(device))) { deviceZone }
 
         assertEquals(east, clocks.ofCluster(null))
         deviceZone = west
         assertEquals(west, clocks.ofCluster(null))
         assertEquals(west, clocks.ofCluster(1))
         assertEquals(Clocks.both(west), clocks.ofTrack(-1L))
-    }
-
-    @Test fun `an atlas zone id parses where this device knows it`() {
-        assertEquals(east, zoneOrNull(east.id))
-        assertNull(zoneOrNull("Europe/Atlantis"))
-        assertNull(zoneOrNull(null))
     }
 }

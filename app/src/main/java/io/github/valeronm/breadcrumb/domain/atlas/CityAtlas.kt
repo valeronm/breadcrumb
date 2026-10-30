@@ -4,6 +4,7 @@ import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
+import java.time.ZoneId
 
 /**
  * The offline city atlas: every populated place of 1,000 or more and every administrative seat
@@ -54,6 +55,20 @@ class CityAtlas private constructor(
                 (bytes[at + 3].toInt() and 0xFF)
 
         val index = LatitudeIndex(this)
+
+        /**
+         * Filled as rows name a zone, since a parse loads that zone's rules and a history reaches few
+         * of the table's zones. A benign race, since two parses of one id agree.
+         */
+        private val parsedZones = arrayOfNulls<Any>(zones.size)
+
+        fun zone(index: Int): ZoneId? {
+            val known = parsedZones[index]
+            if (known != null) return known as? ZoneId
+            val zone = runCatching { ZoneId.of(zones[index]) }.getOrNull()
+            parsedZones[index] = zone ?: UNKNOWN_ZONE
+            return zone
+        }
     }
 
     private val bytes = table.bytes
@@ -61,7 +76,6 @@ class CityAtlas private constructor(
     private val rowsAt = table.rowsAt
     private val namesAt = table.namesAt
     private val nameStarts = table.nameStarts
-    private val zones = table.zones
 
     private val index = table.index
 
@@ -167,8 +181,12 @@ class CityAtlas private constructor(
         val name: String,
         /** ISO 3166-1 alpha-2. */
         val country: String,
-        /** IANA zone id, e.g. `Europe/Lisbon` — a `java.time.ZoneId` without this module parsing one. */
-        val zoneId: String,
+        /**
+         * Null where this Android's tz database does not know the row's zone. The atlas ships its ids
+         * in a checked-in asset and the tz database ships with Android, so a zone renamed upstream
+         * (`Europe/Kiev` → `Europe/Kyiv`) or dropped leaves an id the device cannot resolve.
+         */
+        val zone: ZoneId?,
         val population: Int,
         val distanceM: Double,
         /** The atlas row it was read from, which tells apart places sharing a name. */
@@ -389,7 +407,7 @@ class CityAtlas private constructor(
         return City(
             name = nameAt(row),
             country = countryAt(row),
-            zoneId = zones[u16(at + ZONE_AT)],
+            zone = table.zone(u16(at + ZONE_AT)),
             population = populationAt(row),
             distanceM = distanceM,
             row = row,
@@ -447,6 +465,9 @@ class CityAtlas private constructor(
         private const val UNSCANNED: Byte = 0
         private const val ALONE: Byte = 1
         private const val SHARED: Byte = 2
+
+        /** A zone id this Android cannot resolve, told apart from one not yet parsed. */
+        private val UNKNOWN_ZONE = Any()
 
         private val MAGIC = "BCTY2".toByteArray(StandardCharsets.US_ASCII)
 

@@ -8,6 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.ZoneId
 
 /** Cluster → place matching goes through seed identity; results key by afterTrackId. */
 class PlaceResolverTest {
@@ -134,7 +135,7 @@ class PlaceResolverTest {
 
     private fun atlasOver(clusters: List<PlaceClusterer.Cluster>, vararg names: String) =
         clusters.mapIndexed { index, cluster ->
-            cluster.atlasPoint to CityAtlas.City(names[index], "XX", "Etc/GMT-3", 20_000, 0.0, row = index)
+            cluster.atlasPoint to CityAtlas.City(names[index], "XX", ZoneId.of("Etc/GMT-3"), 20_000, 0.0, row = index)
         }.toMap()
 
     @Test fun `a label outranks the city as a name, and nothing else about the place`() {
@@ -148,7 +149,7 @@ class PlaceResolverTest {
         // Naming a spot says nothing about where on earth it is: the city and the clock survive it,
         // and a stay at a named place abroad still has to render on that country's time.
         assertEquals("Hometown", resolved[0].locality?.name)
-        assertEquals("Etc/GMT-3", resolved[0].zoneId)
+        assertEquals(ZoneId.of("Etc/GMT-3"), resolved[0].zone)
         assertEquals("Seaside", resolved[1].name)
         assertNull(resolved[1].label)
     }

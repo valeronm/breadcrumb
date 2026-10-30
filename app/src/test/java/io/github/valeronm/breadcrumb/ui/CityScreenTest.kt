@@ -6,6 +6,7 @@ import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.time.ZoneId
 
 class CityScreenTest {
 
@@ -24,7 +25,7 @@ class CityScreenTest {
     }
 
     private companion object {
-        fun twin(row: Int) = CityAtlas.City("Twin", "XX", "Etc/GMT", 20_000, 0.0, row)
+        fun twin(row: Int) = CityAtlas.City("Twin", "XX", ZoneId.of("Etc/GMT"), 20_000, 0.0, row)
 
         fun place(visits: Int, row: Int) = PlaceResolver.PlaceSummary(
             place = null,

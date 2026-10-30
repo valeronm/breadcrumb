@@ -16,7 +16,6 @@ class HistoryClocks(
     tracks: List<StayDeriver.TrackEnd>,
     private val fallback: () -> ZoneId,
 ) {
-    /** `ZoneId.of` parses and allocates on every call. */
     private val byCluster: List<ZoneId> by lazy {
         derivation.clusters.map { zoneOf(cities[it.atlasPoint]) }
     }
@@ -40,12 +39,5 @@ class HistoryClocks(
     private fun zoneAt(end: Coordinate): ZoneId =
         derivation.clusterOfEndpoint[end]?.let(::ofCluster) ?: zoneOf(cities[end])
 
-    private fun zoneOf(city: CityAtlas.City?): ZoneId = zoneOrNull(city?.zoneId) ?: fallback()
+    private fun zoneOf(city: CityAtlas.City?): ZoneId = city?.zone ?: fallback()
 }
-
-/**
- * Null where this Android's tz database cannot resolve [zoneId]. The atlas ships its ids in a
- * checked-in asset and the tz database ships with Android, so a zone renamed upstream
- * (`Europe/Kiev` → `Europe/Kyiv`) or dropped leaves the asset naming one the device does not know.
- */
-fun zoneOrNull(zoneId: String?): ZoneId? = zoneId?.let { runCatching { ZoneId.of(it) }.getOrNull() }
